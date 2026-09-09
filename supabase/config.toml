@@ -1,0 +1,7 @@
+[functions.tts]
+verify_jwt = false
+entrypoint = "./functions/tts/index.ts"
+
+[functions.proxy-image]
+verify_jwt = false
+entrypoint = "./functions/proxy-image/index.ts"
