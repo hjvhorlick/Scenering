@@ -37,52 +37,19 @@ function parseScript(script: string): { text: string; imageQuery: string }[] {
   });
 }
 
-// Resolve a picsum seed URL to its final direct image URL
-async function resolvePicsumUrl(seed: string): Promise<string | null> {
+// Quick image search via edge function — returns first match only
+async function quickImageSearch(query: string): Promise<string | null> {
   try {
-    const picsumUrl = `https://picsum.photos/seed/${encodeURIComponent(seed)}/1280/720`;
-    const res = await fetch(picsumUrl, { redirect: "manual" });
-    const location = res.headers.get("location");
-    if (location) return location;
-    if (res.ok) return picsumUrl;
-    return null;
+    const res = await fetch(
+      `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(query)}&count=1`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.images || data.images.length === 0) return null;
+    return `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(data.images[0].url)}`;
   } catch {
     return null;
   }
-}
-
-async function fetchImageUrls(query: string): Promise<string[]> {
-  const urls: string[] = [];
-  const queryWords = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(Boolean);
-  const seeds = [
-    queryWords.join("-"),
-    queryWords.join("_"),
-    queryWords[0] || "nature",
-    queryWords.slice(0, 2).join("-") + "-landscape",
-    (queryWords[1] || queryWords[0] || "scenic") + "-photo",
-    queryWords.join("-") + "-scene",
-  ];
-
-  const results = await Promise.allSettled(seeds.map((seed) => resolvePicsumUrl(seed)));
-
-  for (const result of results) {
-    if (result.status === "fulfilled" && result.value) {
-      urls.push(result.value);
-    }
-  }
-
-  if (urls.length === 0) {
-    let hash = 0;
-    for (let i = 0; i < query.length; i++) {
-      hash = ((hash << 5) - hash + query.charCodeAt(i)) | 0;
-    }
-    for (let i = 0; i < 6; i++) {
-      const id = (Math.abs(hash + i * 137) % 1000) + 1;
-      urls.push(`https://fastly.picsum.photos/id/${id}/1280/720.jpg`);
-    }
-  }
-
-  return urls;
 }
 
 export default function App() {
@@ -209,13 +176,8 @@ export default function App() {
   ): Promise<{ imageUrl: string; allImages?: string[] } | undefined> => {
     try {
       if (!currentProject) return undefined;
-      const imageUrls = await fetchImageUrls(query);
-      if (imageUrls.length === 0) return undefined;
-
-      const proxyUrl = `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(imageUrls[0])}`;
-      const allProxied = imageUrls.map(
-        (u) => `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(u)}`
-      );
+      const proxyUrl = await quickImageSearch(query);
+      if (!proxyUrl) return undefined;
 
       const { error } = await supabase
         .from("scenes")
@@ -229,7 +191,7 @@ export default function App() {
         )
       );
 
-      return { imageUrl: proxyUrl, allImages: allProxied };
+      return { imageUrl: proxyUrl };
     } catch (err) {
       console.error("Failed to search images:", err);
     }

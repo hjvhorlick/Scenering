@@ -5,3 +5,7 @@ entrypoint = "./functions/tts/index.ts"
 [functions.proxy-image]
 verify_jwt = false
 entrypoint = "./functions/proxy-image/index.ts"
+
+[functions.image-search]
+verify_jwt = false
+entrypoint = "./functions/image-search/index.ts"

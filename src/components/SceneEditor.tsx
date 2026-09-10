@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Scene } from "../types";
+import ImageSearchModal from "./ImageSearchModal";
 
 interface SceneEditorProps {
   scene: Scene;
@@ -18,8 +19,7 @@ export default function SceneEditor({
   const [textValue, setTextValue] = useState(scene.text);
   const [queryValue, setQueryValue] = useState(scene.image_query);
   const [searching, setSearching] = useState(false);
-  const [imageOptions, setImageOptions] = useState<string[]>([]);
-  const [showPicker, setShowPicker] = useState(false);
+  const [showSearchModal, setShowSearchModal] = useState(false);
   const [imgError, setImgError] = useState(false);
 
   const handleTextSave = () => {
@@ -27,23 +27,25 @@ export default function SceneEditor({
     setEditingText(false);
   };
 
-  const handleSearch = async () => {
+  // Quick search — auto-assigns first result, no modal
+  const handleQuickSearch = async () => {
     setSearching(true);
     setImgError(false);
     try {
-      const result = await onImageSearch(scene.id, queryValue);
-      if (result?.allImages && result.allImages.length > 1) {
-        setImageOptions(result.allImages);
-        setShowPicker(true);
-      }
+      await onImageSearch(scene.id, queryValue);
     } finally {
       setSearching(false);
     }
   };
 
-  const handlePickImage = (url: string) => {
+  // Research button — opens the full search modal with 10 results
+  const handleResearch = () => {
+    setShowSearchModal(true);
+  };
+
+  const handleSelectFromModal = (url: string) => {
     onUpdate(scene.id, { image_url: url });
-    setShowPicker(false);
+    setShowSearchModal(false);
   };
 
   return (
@@ -64,20 +66,14 @@ export default function SceneEditor({
               />
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                 <button
-                  onClick={handleSearch}
-                  disabled={searching}
-                  className="px-3 py-1.5 bg-white/20 hover:bg-white/30 backdrop-blur rounded-lg text-white text-sm transition-colors"
+                  onClick={handleResearch}
+                  className="px-3 py-1.5 bg-white/20 hover:bg-white/30 backdrop-blur rounded-lg text-white text-sm transition-colors flex items-center gap-1.5"
                 >
-                  🔄 New Image
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  Research
                 </button>
-                {imageOptions.length > 1 && (
-                  <button
-                    onClick={() => setShowPicker(true)}
-                    className="px-3 py-1.5 bg-white/20 hover:bg-white/30 backdrop-blur rounded-lg text-white text-sm transition-colors"
-                  >
-                    🖼️ Pick Another
-                  </button>
-                )}
               </div>
             </div>
           ) : (
@@ -86,7 +82,7 @@ export default function SceneEditor({
                 <p className="text-xs text-red-400">Image failed to load</p>
               )}
               <button
-                onClick={handleSearch}
+                onClick={handleQuickSearch}
                 disabled={searching}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 rounded-lg text-white text-sm transition-colors flex items-center gap-2"
               >
@@ -101,6 +97,12 @@ export default function SceneEditor({
                 ) : (
                   <>🔍 Find Image</>
                 )}
+              </button>
+              <button
+                onClick={handleResearch}
+                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors underline"
+              >
+                or browse more images
               </button>
             </div>
           )}
@@ -167,7 +169,7 @@ export default function SceneEditor({
             </p>
           )}
 
-          {/* Image Query */}
+          {/* Image Query + Buttons */}
           <div className="flex gap-2 items-center">
             <div className="flex-1">
               <input
@@ -177,59 +179,38 @@ export default function SceneEditor({
                 placeholder="Image search query..."
                 className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded-lg text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSearch();
+                  if (e.key === "Enter") handleQuickSearch();
                 }}
               />
             </div>
             <button
-              onClick={handleSearch}
+              onClick={handleQuickSearch}
               disabled={searching}
               className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 rounded-lg text-white text-xs transition-colors whitespace-nowrap"
             >
-              {searching ? "..." : "🔍 Search"}
+              {searching ? "..." : "🔍 Quick"}
+            </button>
+            <button
+              onClick={handleResearch}
+              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-xs transition-colors whitespace-nowrap flex items-center gap-1"
+              title="Open image search screen with 10 results"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              Research
             </button>
           </div>
         </div>
       </div>
 
-      {/* Image Picker Modal */}
-      {showPicker && imageOptions.length > 0 && (
-        <div className="border-t border-gray-700 p-4 bg-gray-900/50">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-              Choose an image
-            </h4>
-            <button
-              onClick={() => setShowPicker(false)}
-              className="text-gray-500 hover:text-gray-300 text-xs"
-            >
-              ✕ Close
-            </button>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {imageOptions.map((url, i) => (
-              <button
-                key={i}
-                onClick={() => handlePickImage(url)}
-                className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all hover:border-indigo-500 ${
-                  scene.image_url === url ? "border-indigo-500" : "border-transparent"
-                }`}
-              >
-                <img
-                  src={url}
-                  alt={`Option ${i + 1}`}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-                {scene.image_url === url && (
-                  <div className="absolute inset-0 bg-indigo-600/30 flex items-center justify-center">
-                    <span className="text-white text-lg">✓</span>
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Image Search Modal */}
+      {showSearchModal && (
+        <ImageSearchModal
+          initialQuery={queryValue}
+          onClose={() => setShowSearchModal(false)}
+          onSelect={handleSelectFromModal}
+        />
       )}
     </div>
   );
