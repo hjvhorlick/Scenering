@@ -53,7 +53,6 @@ export default function VideoPreview({ scenes, title }: VideoPreviewProps) {
   const [isZipping, setIsZipping] = useState(false);
   const [zipStatus, setZipStatus] = useState("");
   const [zipProgress, setZipProgress] = useState(0);
-  const [previewMode, setPreviewMode] = useState(false);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [audioStatus, setAudioStatus] = useState("");
   const [selectedVoice, setSelectedVoice] = useState("en-US-ChristopherNeural");
@@ -236,6 +235,23 @@ export default function VideoPreview({ scenes, title }: VideoPreviewProps) {
     [scenesWithImages.length]
   );
 
+  // Draw the first scene as a static preview frame on mount / when scenes change
+  useEffect(() => {
+    if (scenesWithImages.length === 0 || isPlaying) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let cancelled = false;
+    loadImage(scenesWithImages[0].image_url || "", 0).then((img) => {
+      if (!cancelled && !playingRef.current) {
+        drawScene(ctx, scenesWithImages[0], 0, img);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [scenesWithImages, drawScene, isPlaying]);
+
   // ------ PLAY PREVIEW ------
   const playPreview = useCallback(async () => {
     if (scenesWithImages.length === 0) return;
@@ -246,7 +262,6 @@ export default function VideoPreview({ scenes, title }: VideoPreviewProps) {
     if (!ctx) return;
 
     setIsPlaying(true);
-    setPreviewMode(true);
     setProgress(0);
     playingRef.current = true;
 
@@ -337,6 +352,8 @@ export default function VideoPreview({ scenes, title }: VideoPreviewProps) {
           playingRef.current = false;
           setProgress(1);
           if (currentAudioSource) try { currentAudioSource.stop(); } catch {}
+          // Redraw the first scene as a static frame
+          drawScene(ctx, scenesWithImages[0], 0, images[0]);
           return;
         }
         sceneStartTime = performance.now();
@@ -620,8 +637,8 @@ export default function VideoPreview({ scenes, title }: VideoPreviewProps) {
             className="w-full aspect-video bg-black"
           />
 
-          {!previewMode && !anyAction && !loadingAudio && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+          {!isPlaying && !anyAction && !loadingAudio && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 hover:bg-black/30 transition-colors cursor-pointer" onClick={playPreview}>
               <button
                 onClick={playPreview}
                 className="w-20 h-20 rounded-full bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center transition-all hover:scale-110 shadow-2xl"
