@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts","./src/components/ProjectList.tsx","./src/components/SceneEditor.tsx","./src/components/ScriptInput.tsx","./src/components/VideoPreview.tsx","./src/lib/supabase.ts","./src/lib/zip-download.ts"],"version":"5.9.3"}
