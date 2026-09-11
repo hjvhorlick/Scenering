@@ -3,6 +3,7 @@ import { useState } from "react";
 interface ScriptInputProps {
   onSubmit: (title: string, script: string) => void;
   loading: boolean;
+  onOpenApiKeys?: () => void;
 }
 
 const SAMPLE_SCRIPTS = [
@@ -44,7 +45,7 @@ The horizon blazes with orange and pink as the sun sets over the endless sea.`,
   },
 ];
 
-export default function ScriptInput({ onSubmit, loading }: ScriptInputProps) {
+export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: ScriptInputProps) {
   const [title, setTitle] = useState("");
   const [script, setScript] = useState("");
 
@@ -69,6 +70,28 @@ export default function ScriptInput({ onSubmit, loading }: ScriptInputProps) {
           scene with its own image.
         </p>
       </div>
+
+      {/* Customer API Keys Notice */}
+      {onOpenApiKeys && (
+        <div className="mb-6 p-3.5 bg-gray-900 border border-gray-800 rounded-xl flex items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <span className="text-xl">🔑</span>
+            <div>
+              <p className="text-xs font-semibold text-gray-200">Customer API Keys</p>
+              <p className="text-[11px] text-gray-400">
+                Insert your personal Pexels and Pixabay API keys to enable HD stock image searches.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenApiKeys}
+            className="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 rounded-lg text-xs font-medium transition-colors whitespace-nowrap"
+          >
+            Insert Keys
+          </button>
+        </div>
+      )}
 
       {/* Sample Scripts */}
       <div className="mb-6">

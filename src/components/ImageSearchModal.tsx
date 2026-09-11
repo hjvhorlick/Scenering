@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
+import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "../lib/api-keys";
+import ApiKeysModal from "./ApiKeysModal";
 
 interface ImageResult {
   url: string;
@@ -25,6 +27,11 @@ export default function ImageSearchModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [source, setSource] = useState("");
+  const [keysModalOpen, setKeysModalOpen] = useState(false);
+  const [hasKeys, setHasKeys] = useState(() => {
+    const k = getStoredApiKeys();
+    return Boolean(k.pexelsKey || k.pixabayKey);
+  });
 
   const search = useCallback(async (q: string) => {
     if (!q.trim()) return;
@@ -33,8 +40,11 @@ export default function ImageSearchModal({
     setImages([]);
 
     try {
+      const headers = getApiKeysHeaders();
+      const queryParams = getApiKeysQueryParams();
       const res = await fetch(
-        `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(q)}&count=10`
+        `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(q)}&count=12${queryParams}`,
+        { headers }
       );
       if (!res.ok) {
         throw new Error(`Search failed (${res.status})`);
@@ -46,7 +56,7 @@ export default function ImageSearchModal({
       setImages(data.images || []);
       setSource(data.source || "");
       if (!data.images || data.images.length === 0) {
-        setError("No images found. Try a different search term.");
+        setError("No images found. Try a different search term or add your Pexels/Pixabay API key.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed. Please try again.");
@@ -65,12 +75,18 @@ export default function ImageSearchModal({
     search(query);
   };
 
+  const handleKeysSaved = () => {
+    const k = getStoredApiKeys();
+    setHasKeys(Boolean(k.pexelsKey || k.pixabayKey));
+    search(query);
+  };
+
   const proxyUrl = (url: string) =>
     `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(url)}`;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4"
       onClick={onClose}
     >
       <div
@@ -116,6 +132,16 @@ export default function ImageSearchModal({
           </form>
 
           <button
+            onClick={() => setKeysModalOpen(true)}
+            className="px-2.5 py-1.5 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-750 text-xs text-gray-300 hover:text-white flex items-center gap-1.5 flex-shrink-0"
+            title="Configure personal Pexels & Pixabay API keys"
+          >
+            <span>🔑</span>
+            <span className="hidden sm:inline">API Keys</span>
+            {hasKeys && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+          </button>
+
+          <button
             onClick={onClose}
             className="p-2 hover:bg-gray-800 rounded-lg transition-colors flex-shrink-0"
           >
@@ -125,14 +151,26 @@ export default function ImageSearchModal({
           </button>
         </div>
 
-        {/* Source badge */}
-        {source && source !== "none" && (
-          <div className="px-4 py-2 border-b border-gray-800/50">
-            <span className="text-xs text-gray-500">
-              Source: <span className="text-gray-300 capitalize">{source}</span> · {images.length} results
-            </span>
+        {/* Source badge & Keys notice */}
+        <div className="px-4 py-2 border-b border-gray-800/50 flex flex-wrap items-center justify-between gap-2 bg-gray-900/40">
+          <div className="flex items-center gap-2">
+            {source && source !== "none" ? (
+              <span className="text-xs text-gray-400">
+                Source: <span className="text-indigo-300 font-medium capitalize">{source}</span> · {images.length} results
+              </span>
+            ) : (
+              <span className="text-xs text-gray-500">Stock & Open Image Search</span>
+            )}
           </div>
-        )}
+
+          <button
+            onClick={() => setKeysModalOpen(true)}
+            className="text-[11px] text-gray-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
+          >
+            <span>{hasKeys ? "✓ Using Customer API Key" : "⚡ Want higher resolution photos?"}</span>
+            <span className="text-indigo-400 underline">{hasKeys ? "Edit Keys" : "Insert Pexels/Pixabay Key"}</span>
+          </button>
+        </div>
 
         {/* Results */}
         <div className="flex-1 overflow-y-auto p-4">
@@ -145,20 +183,32 @@ export default function ImageSearchModal({
               <p className="text-gray-400 text-sm">Searching for images...</p>
             </div>
           ) : error ? (
-            <div className="flex flex-col items-center justify-center py-20">
+            <div className="flex flex-col items-center justify-center py-16 text-center max-w-md mx-auto">
               <div className="text-4xl mb-3">🔍</div>
-              <p className="text-gray-400 text-sm mb-4">{error}</p>
-              <form onSubmit={handleSubmit} className="flex gap-2">
+              <p className="text-gray-300 text-sm font-medium mb-1">{error}</p>
+              <p className="text-xs text-gray-500 mb-5">
+                Pexels and Pixabay offer millions of free stock photos. You can insert your customer API key to unlock them.
+              </p>
+              <div className="flex gap-2 mb-6">
+                <button
+                  type="button"
+                  onClick={() => setKeysModalOpen(true)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white text-xs font-medium flex items-center gap-1.5"
+                >
+                  <span>🔑</span> Insert Pexels / Pixabay Key
+                </button>
+              </div>
+              <form onSubmit={handleSubmit} className="w-full flex gap-2">
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Try another search..."
-                  className="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white text-sm font-medium"
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-sm font-medium"
                 >
                   Search
                 </button>
@@ -205,6 +255,12 @@ export default function ImageSearchModal({
           </button>
         </div>
       </div>
+
+      <ApiKeysModal
+        isOpen={keysModalOpen}
+        onClose={() => setKeysModalOpen(false)}
+        onSaved={handleKeysSaved}
+      />
     </div>
   );
 }

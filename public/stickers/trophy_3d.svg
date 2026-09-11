@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <radialGradient id="trophyGold" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FFF5C0"/>
+      <stop offset="35%" stop-color="#FFD700"/>
+      <stop offset="75%" stop-color="#D48800"/>
+      <stop offset="100%" stop-color="#734400"/>
+    </radialGradient>
+    <linearGradient id="baseGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4A5568"/>
+      <stop offset="100%" stop-color="#1A202C"/>
+    </linearGradient>
+    <filter id="trophyShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="10" stdDeviation="8" flood-color="#2D1A00" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <g filter="url(#trophyShadow)">
+    <polygon points="65,165 135,165 145,188 55,188" fill="url(#baseGrad)"/>
+    <rect x="75" y="152" width="50" height="15" rx="3" fill="#D48800"/>
+    <rect x="78" y="170" width="44" height="12" rx="2" fill="#FFD700"/>
+    <path d="M92,118 L108,118 L104,152 L96,152 Z" fill="#D48800"/>
+    <path d="M60,45 C25,45 25,95 65,95" fill="none" stroke="#D48800" stroke-width="12" stroke-linecap="round"/>
+    <path d="M60,45 C30,45 30,95 65,95" fill="none" stroke="#FFD700" stroke-width="8" stroke-linecap="round"/>
+    <path d="M140,45 C175,45 175,95 135,95" fill="none" stroke="#D48800" stroke-width="12" stroke-linecap="round"/>
+    <path d="M140,45 C170,45 170,95 135,95" fill="none" stroke="#FFD700" stroke-width="8" stroke-linecap="round"/>
+    <path d="M55,30 C55,90 85,120 100,120 C115,120 145,90 145,30 Z" fill="url(#trophyGold)"/>
+    <ellipse cx="100" cy="30" rx="45" ry="10" fill="#FFF5C0"/>
+    <ellipse cx="100" cy="30" rx="42" ry="8" fill="#DA9100"/>
+    <polygon points="100,55 104,67 117,67 106,75 110,87 100,80 90,87 94,75 83,67 96,67" fill="#FFFFFF" opacity="0.9"/>
+    <path d="M72,45 C75,70 85,95 100,105" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+  </g>
+</svg>

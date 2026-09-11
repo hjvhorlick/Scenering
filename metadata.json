@@ -1,0 +1,6 @@
+{
+  "name": "Scenering",
+  "description": "Script to video maker that generates scenes, image visuals, and narration previews.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

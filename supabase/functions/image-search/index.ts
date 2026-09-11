@@ -13,8 +13,8 @@ interface ImageResult {
 }
 
 // --- Pexels ---
-async function searchPexels(query: string, count: number): Promise<ImageResult[]> {
-  const apiKey = Deno.env.get("PEXELS_API_KEY");
+async function searchPexels(query: string, count: number, customKey?: string | null): Promise<ImageResult[]> {
+  const apiKey = (customKey && customKey.trim()) || Deno.env.get("PEXELS_API_KEY");
   if (!apiKey) return [];
 
   try {
@@ -39,8 +39,8 @@ async function searchPexels(query: string, count: number): Promise<ImageResult[]
 }
 
 // --- Pixabay ---
-async function searchPixabay(query: string, count: number): Promise<ImageResult[]> {
-  const apiKey = Deno.env.get("PIXABAY_API_KEY");
+async function searchPixabay(query: string, count: number, customKey?: string | null): Promise<ImageResult[]> {
+  const apiKey = (customKey && customKey.trim()) || Deno.env.get("PIXABAY_API_KEY");
   if (!apiKey) return [];
 
   try {
@@ -116,6 +116,10 @@ Deno.serve(async (req: Request) => {
     const url = new URL(req.url);
     const query = url.searchParams.get("q") || "";
     const count = Math.min(parseInt(url.searchParams.get("count") || "10", 10), 30);
+    const customPexelsKey =
+      req.headers.get("x-pexels-key") || url.searchParams.get("pexels_key") || undefined;
+    const customPixabayKey =
+      req.headers.get("x-pixabay-key") || url.searchParams.get("pixabay_key") || undefined;
 
     if (!query) {
       return new Response(
@@ -125,11 +129,11 @@ Deno.serve(async (req: Request) => {
     }
 
     // Try Pexels first
-    let results = await searchPexels(query, count);
+    let results = await searchPexels(query, count, customPexelsKey);
 
     // If Pexels returned nothing (no key or no results), try Pixabay
     if (results.length === 0) {
-      results = await searchPixabay(query, count);
+      results = await searchPixabay(query, count, customPixabayKey);
     }
 
     // If still nothing, use Wikimedia as last resort

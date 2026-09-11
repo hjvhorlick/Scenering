@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <radialGradient id="sparkleCenter" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="25%" stop-color="#C5E8FF"/>
+      <stop offset="60%" stop-color="#55A8FF"/>
+      <stop offset="90%" stop-color="#0066FF"/>
+      <stop offset="100%" stop-color="#002288"/>
+    </radialGradient>
+    <radialGradient id="sparkleFlare" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="50%" stop-color="#7BD0FF" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#0055FF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="sparkleGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="#0099FF" flood-opacity="0.7"/>
+    </filter>
+  </defs>
+  <g filter="url(#sparkleGlow)">
+    <circle cx="100" cy="100" r="70" fill="url(#sparkleFlare)"/>
+    <path d="M100,12 Q100,100 12,100 Q100,100 100,188 Q100,100 188,100 Q100,100 100,12 Z" fill="url(#sparkleCenter)"/>
+    <path d="M100,45 Q100,100 45,100 Q100,100 100,155 Q100,100 155,100 Q100,100 100,45 Z" fill="#FFFFFF" opacity="0.65" transform="rotate(45 100 100)"/>
+    <circle cx="100" cy="100" r="16" fill="#FFFFFF"/>
+    <ellipse cx="96" cy="94" rx="7" ry="4" fill="#E8F4FF" transform="rotate(-30 96 94)"/>
+  </g>
+</svg>
