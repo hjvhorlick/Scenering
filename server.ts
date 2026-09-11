@@ -409,7 +409,14 @@ async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        // Allow sandboxed/proxied dev hosts (e.g. *.e2b.app previews) to load the app.
+        allowedHosts: true,
+        // HMR websocket lives on a separate port the proxy host can't reach, so
+        // keep the browser console clean and rely on a plain reload instead.
+        hmr: false,
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

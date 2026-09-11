@@ -8,11 +8,14 @@ interface ZipOptions {
   voice: string;
   includeVideo: boolean;
   videoBlob: Blob | null;
+  /** Container of the rendered video, used for the file extension. */
+  videoFormat?: "webm" | "mp4";
   onProgress?: (status: string, pct: number) => void;
 }
 
 export async function createProjectZip(options: ZipOptions): Promise<Blob> {
-  const { title, scenes, voice, includeVideo, videoBlob, onProgress } = options;
+  const { title, scenes, voice, includeVideo, videoBlob, videoFormat = "webm", onProgress } =
+    options;
   const zip = new JSZip();
   const safeName = title.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
 
@@ -129,7 +132,7 @@ export async function createProjectZip(options: ZipOptions): Promise<Blob> {
   // --- Add video ---
   if (includeVideo && videoBlob) {
     if (onProgress) onProgress("Adding video...", fileCount / totalFiles);
-    videoFolder.file(`${safeName}_video.webm`, videoBlob);
+    videoFolder.file(`${safeName}_video.${videoFormat}`, videoBlob);
     reportProgress();
   }
 

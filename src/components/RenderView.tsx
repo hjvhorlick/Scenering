@@ -3,10 +3,24 @@ import type { Project, Scene, TimelineInsert, CustomerLogoConfig } from "../type
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { createProjectZip } from "../lib/zip-download";
 import {
-  applySceneFilter,
-  getMotionTransform,
-  renderTimelineInsert,
-} from "../lib/render-effects";
+  buildSceneTimeline,
+  drawCompositionFrame,
+  getTimelineDuration,
+  type CompositionOptions,
+  type SubtitleStyle,
+} from "../lib/frame-renderer";
+import {
+  createAmbientMusicSource,
+  createAudioLevelSampler,
+  mixTimelineAudio,
+  type MusicStyle,
+} from "../lib/audio-mix";
+import {
+  probeMp4Support,
+  describeMp4Support,
+  renderMp4File,
+  type Mp4SupportInfo,
+} from "../lib/mp4-export";
 import { generateAttributionDocument } from "../data/media-library";
 
 export interface RenderSettings {
@@ -57,6 +71,58 @@ export function generateSrtSubtitles(scenes: Scene[]): string {
     .join("\n");
 }
 
+interface LoadedEffect {
+  buffer: AudioBuffer;
+  startTime: number;
+  gain: number;
+  loop: boolean;
+}
+
+/**
+ * Fetches and decodes the sound effects attached to timeline inserts.
+ * Each unique audio file is only downloaded once.
+ */
+async function loadInsertAudio(
+  inserts: TimelineInsert[],
+  ctx: BaseAudioContext
+): Promise<LoadedEffect[]> {
+  const wanted: { url: string; startTime: number; gain: number; loop: boolean }[] = [];
+
+  for (const insert of inserts) {
+    const audio = insert.audioSettings;
+    if (!audio?.soundUrl || audio.muted) continue;
+    wanted.push({
+      url: audio.soundUrl,
+      startTime: insert.startTime + (audio.delay ?? 0),
+      gain: Math.max(0, Math.min(2, audio.volume ?? 0.8)),
+      loop: Boolean(audio.loop),
+    });
+  }
+
+  if (wanted.length === 0) return [];
+
+  const decoded = new Map<string, AudioBuffer>();
+  await Promise.all(
+    [...new Set(wanted.map((w) => w.url))].map(async (url) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
+        decoded.set(url, buffer);
+      } catch (err) {
+        console.warn(`Could not load insert sound ${url}:`, err);
+      }
+    })
+  );
+
+  const effects: LoadedEffect[] = [];
+  for (const item of wanted) {
+    const buffer = decoded.get(item.url);
+    if (buffer) effects.push({ buffer, ...item });
+  }
+  return effects;
+}
+
 export default function RenderView({
   project,
   scenes,
@@ -93,6 +159,11 @@ export default function RenderView({
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(null);
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
+  /** Container the last render actually produced (can differ from the request). */
+  const [renderedFormat, setRenderedFormat] = useState<"webm" | "mp4">("webm");
+  /** Non-fatal message, e.g. "MP4 unavailable, fell back to WebM". */
+  const [renderNotice, setRenderNotice] = useState<string | null>(null);
+  const [mp4Support, setMp4Support] = useState<Mp4SupportInfo | null>(null);
 
   // ZIP export state
   const [isZipping, setIsZipping] = useState(false);
@@ -168,74 +239,39 @@ export default function RenderView({
     });
   };
 
-  // Synthesize ambient music loop using Web Audio API
-  const createAmbientMusicNode = (
-    ctx: AudioContext,
-    style: RenderSettings["backgroundMusic"],
-    duration: number,
-    volume: number
-  ): AudioNode | null => {
-    if (style === "none" || volume <= 0) return null;
-
-    try {
-      const sampleRate = ctx.sampleRate;
-      const buffer = ctx.createBuffer(2, sampleRate * Math.max(10, duration), sampleRate);
-      const left = buffer.getChannelData(0);
-      const right = buffer.getChannelData(1);
-
-      // Chords based on mood style
-      let baseFreqs = [261.63, 329.63, 392.0, 523.25]; // C major
-      if (style === "lofi") {
-        baseFreqs = [220.0, 261.63, 329.63, 392.0]; // Am7
-      } else if (style === "cinematic") {
-        baseFreqs = [174.61, 220.0, 261.63, 349.23]; // Fmaj7 low
-      } else if (style === "energetic") {
-        baseFreqs = [293.66, 369.99, 440.0, 587.33]; // D major
-      }
-
-      for (let i = 0; i < left.length; i++) {
-        const t = i / sampleRate;
-        let sample = 0;
-        baseFreqs.forEach((freq, idx) => {
-          const osc = Math.sin(2 * Math.PI * freq * t);
-          const sub = Math.sin(Math.PI * (freq / 2) * t) * 0.4;
-          const slowLfo = 0.6 + 0.4 * Math.sin(2 * Math.PI * 0.15 * t + idx);
-          sample += (osc + sub) * 0.15 * slowLfo;
-        });
-
-        // Soft stereo spread
-        left[i] = sample * (0.8 + 0.2 * Math.sin(t * 0.5));
-        right[i] = sample * (0.8 + 0.2 * Math.cos(t * 0.5));
-      }
-
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.loop = true;
-
-      const gain = ctx.createGain();
-      gain.gain.value = volume;
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = style === "lofi" ? 900 : style === "ambient" ? 1400 : 2500;
-
-      source.connect(filter);
-      filter.connect(gain);
-      source.start();
-
-      return gain;
-    } catch {
-      return null;
-    }
-  };
-
   // ------ RENDER VIDEO HANDLER ------
+
+  /** Publishes a finished render into the preview player. */
+  const finishRender = useCallback((blob: Blob, format: "webm" | "mp4") => {
+    const url = URL.createObjectURL(blob);
+    setRenderedBlob(blob);
+    setRenderedUrl(url);
+    setRenderedFormat(format);
+    setRenderProgress(1);
+    setRenderStage("Render Complete! 🎉");
+  }, []);
+
+  // Check whether this browser can really produce an MP4 at the current size.
+  useEffect(() => {
+    let cancelled = false;
+    const { width, height } = getDimensions(settings.resolution);
+    probeMp4Support(width, height, settings.fps).then((info) => {
+      if (!cancelled) setMp4Support(info);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.resolution, settings.fps]);
+
   const handleStartRender = async () => {
     if (scenesWithImages.length === 0 || isRendering) return;
 
     setIsRendering(true);
     setRenderProgress(0);
     setRenderError(null);
+    setRenderNotice(null);
+    setRenderedBlob(null);
+    setRenderedUrl(null);
     abortControllerRef.current = false;
 
     const { width, height } = getDimensions(settings.resolution);
@@ -255,78 +291,180 @@ export default function RenderView({
       return;
     }
 
-    if (typeof MediaRecorder === "undefined") {
-      setRenderError("Your browser does not support in-browser video recording.");
-      setIsRendering(false);
-      return;
-    }
+    // Live audio nodes that have to be torn down if the render is cancelled.
+    const liveSources: AudioScheduledSourceNode[] = [];
+    let audioCtx: AudioContext | null = null;
 
     try {
-      // 1. Synthesizing audio & sound effects
-      setRenderStage("1/4: Synthesizing narration voices & sound effects...");
-      setRenderProgress(0.08);
+      // ---- 1/4: Narration ----
+      setRenderStage("1/4: Synthesizing narration voices...");
+      setRenderProgress(0.04);
 
-      const audioCtx = new AudioContext();
+      audioCtx = new AudioContext();
       if (audioCtx.state === "suspended") {
         await audioCtx.resume();
       }
 
-      const audioBuffers = new Map<number, { buffer: AudioBuffer; duration: number }>();
+      const narrationBuffers = new Map<number, AudioBuffer>();
       for (let i = 0; i < scenesWithImages.length; i++) {
         if (abortControllerRef.current) throw new Error("Render cancelled");
-        const s = scenesWithImages[i];
-        const sceneVoice = s.voice_id || selectedVoice;
+        const sc = scenesWithImages[i];
+        const sceneVoice = sc.voice_id || selectedVoice;
 
         try {
           const res = await fetch(`${EDGE_FUNCTION_BASE}/tts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: s.text, voice: sceneVoice }),
+            body: JSON.stringify({ text: sc.text, voice: sceneVoice }),
           });
 
           if (res.ok) {
             const arrayBuf = await res.arrayBuffer();
-            const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
-            audioBuffers.set(s.id, { buffer: audioBuffer, duration: audioBuffer.duration });
+            narrationBuffers.set(sc.id, await audioCtx.decodeAudioData(arrayBuf));
           }
         } catch (e) {
           console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
         }
 
-        setRenderProgress(0.08 + (i / scenesWithImages.length) * 0.18);
+        setRenderProgress(0.04 + ((i + 1) / scenesWithImages.length) * 0.2);
       }
 
-      // 2. Loading High-Resolution Visual Assets & Watermark
-      setRenderStage("2/4: Loading high-resolution visuals & watermark...");
-      setRenderProgress(0.28);
+      // ---- 2/4: Visuals & insert sound effects ----
+      setRenderStage("2/4: Loading high-resolution visuals & audio...");
+      setRenderProgress(0.26);
 
       const images = await Promise.all(
         scenesWithImages.map((s) => loadImage(s.image_url || ""))
       );
 
-      // Watermark image
       if (!watermarkImgRef.current) {
         const wm = await loadImage("/scenering-logo.png");
         if (wm) watermarkImgRef.current = wm;
       }
 
-      // Setup audio destination mixer
-      const dest = audioCtx.createMediaStreamDestination();
+      const effects = await loadInsertAudio(inserts, audioCtx);
 
-      // Ambient background music node
-      if (settings.backgroundMusic !== "none" && settings.musicVolume > 0) {
-        const ambientGain = createAmbientMusicNode(
-          audioCtx,
-          settings.backgroundMusic,
-          totalDuration + 5,
-          settings.musicVolume
-        );
-        if (ambientGain) {
-          ambientGain.connect(dest);
+      // ---- Deterministic timeline shared by both engines ----
+      const narrationDurations = new Map<number, number>();
+      narrationBuffers.forEach((buffer, sceneId) =>
+        narrationDurations.set(sceneId, buffer.duration)
+      );
+      const timeline = buildSceneTimeline(scenesWithImages, narrationDurations);
+      const videoDuration = getTimelineDuration(timeline);
+
+      const composition: CompositionOptions = {
+        width,
+        height,
+        duration: videoDuration,
+        timeline,
+        images,
+        inserts,
+        watermark: watermarkImgRef.current,
+        watermarkScale: settings.watermarkScale,
+        watermarkOpacity: settings.watermarkOpacity,
+        customerLogo,
+        customerLogoImage: customerLogoImgRef.current,
+        includeSubtitles: settings.includeSubtitles,
+        subtitleStyle: settings.subtitleStyle,
+      };
+
+      const bitrateMap = { standard: 5_000_000, high: 10_000_000, ultra: 16_000_000 };
+      const bitrate = bitrateMap[settings.quality] || 10_000_000;
+
+      // ---- MP4: offline WebCodecs encode (H.264 + AAC) ----
+      if (settings.format === "mp4") {
+        const support = await probeMp4Support(width, height, settings.fps);
+        setMp4Support(support);
+
+        if (support.supported) {
+          setRenderStage("3/4: Mixing narration, effects & music...");
+          setRenderProgress(0.3);
+
+          const mixed = await mixTimelineAudio({
+            duration: videoDuration,
+            narration: timeline
+              .map((slot) => {
+                const buffer = narrationBuffers.get(slot.scene.id);
+                return buffer ? { buffer, startTime: slot.start, gain: 1 } : null;
+              })
+              .filter(
+                (
+                  clip
+                ): clip is { buffer: AudioBuffer; startTime: number; gain: number } =>
+                  clip !== null
+              ),
+            effects,
+            music: { style: settings.backgroundMusic, volume: settings.musicVolume },
+            normalize: settings.normalizeAudio,
+          });
+
+          // Audio-reactive inserts now respond to the real mixed soundtrack.
+          composition.audioLevelAt = createAudioLevelSampler(mixed);
+
+          setRenderStage("4/4: Encoding H.264 + AAC (MP4)...");
+          const blob = await renderMp4File({
+            canvas,
+            composition,
+            audio: mixed,
+            fps: settings.fps,
+            bitrate,
+            onProgress: (p) => setRenderProgress(0.35 + p * 0.6),
+            shouldAbort: () => abortControllerRef.current,
+          });
+
+          finishRender(blob, "mp4");
+          return;
         }
+
+        // No H.264/AAC encoder here — say so and fall through to WebM.
+        setRenderNotice(describeMp4Support(support));
       }
 
-      // Video recording stream
+      // ---- WebM: real-time MediaRecorder capture ----
+      if (typeof MediaRecorder === "undefined") {
+        setRenderError("Your browser does not support in-browser video recording.");
+        setIsRendering(false);
+        return;
+      }
+
+      const dest = audioCtx.createMediaStreamDestination();
+      // Small lead-in so the recorder warms up; audio and frames share this origin.
+      const leadIn = 0.25;
+      const audioOrigin = audioCtx.currentTime + leadIn;
+      const wallOrigin = performance.now() + leadIn * 1000;
+
+      timeline.forEach((slot) => {
+        const buffer = narrationBuffers.get(slot.scene.id);
+        if (!buffer || !audioCtx) return;
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(dest);
+        source.connect(audioCtx.destination);
+        source.start(audioOrigin + slot.start);
+        liveSources.push(source);
+      });
+
+      effects.forEach((fx) => {
+        if (!audioCtx) return;
+        const source = audioCtx.createBufferSource();
+        source.buffer = fx.buffer;
+        source.loop = fx.loop;
+        const gain = audioCtx.createGain();
+        gain.gain.value = fx.gain;
+        source.connect(gain);
+        gain.connect(dest);
+        source.start(Math.max(audioOrigin, audioOrigin + fx.startTime));
+        liveSources.push(source);
+      });
+
+      const musicNode = createAmbientMusicSource(
+        audioCtx,
+        settings.backgroundMusic,
+        videoDuration + 1,
+        settings.musicVolume
+      );
+      if (musicNode) musicNode.connect(dest);
+
       const videoStream = canvas.captureStream(settings.fps);
       const combinedStream = new MediaStream([
         ...videoStream.getVideoTracks(),
@@ -339,15 +477,9 @@ export default function RenderView({
         ? "video/webm;codecs=vp8,opus"
         : "video/webm";
 
-      const bitrateMap = {
-        standard: 5000000,
-        high: 10000000,
-        ultra: 16000000,
-      };
-
       const recorder = new MediaRecorder(combinedStream, {
         mimeType,
-        videoBitsPerSecond: bitrateMap[settings.quality] || 10000000,
+        videoBitsPerSecond: bitrate,
       });
 
       const chunks: Blob[] = [];
@@ -355,44 +487,14 @@ export default function RenderView({
         if (e.data.size > 0) chunks.push(e.data);
       };
 
-      // 3. Render frames & play audio in real time
-      setRenderStage("3/4: Rendering visual scenes, motion & effects...");
-      setRenderProgress(0.35);
-
-      const videoPromise = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => {
-          const blob = new Blob(chunks, { type: "video/webm" });
-          resolve(blob);
-        };
+      const recordingDone = new Promise<Blob>((resolve) => {
+        recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType.split(";")[0] }));
       });
 
+      setRenderStage("3/4: Rendering visual scenes, motion & effects...");
+      setRenderProgress(0.3);
       recorder.start(100);
 
-      let currentSceneIdx = 0;
-      let sceneStartTime = performance.now();
-      let activeAudioSource: AudioBufferSourceNode | null = null;
-
-      const playSceneAudio = (idx: number) => {
-        if (activeAudioSource) {
-          try {
-            activeAudioSource.stop();
-          } catch {}
-        }
-        const sc = scenesWithImages[idx];
-        const item = audioBuffers.get(sc.id);
-        if (item) {
-          const source = audioCtx.createBufferSource();
-          source.buffer = item.buffer;
-          source.connect(dest);
-          source.connect(audioCtx.destination);
-          source.start();
-          activeAudioSource = source;
-        }
-      };
-
-      playSceneAudio(0);
-
-      // Frame drawing loop
       await new Promise<void>((resolveLoop) => {
         const renderFrame = () => {
           if (abortControllerRef.current) {
@@ -401,218 +503,15 @@ export default function RenderView({
             return;
           }
 
-          const now = performance.now();
-          const elapsedInScene = (now - sceneStartTime) / 1000;
-          const currentScene = scenesWithImages[currentSceneIdx];
+          const elapsed = (performance.now() - wallOrigin) / 1000;
+          const t = Math.min(elapsed, videoDuration);
+          drawCompositionFrame(ctx, composition, t);
+          setRenderProgress(0.3 + (t / Math.max(0.1, videoDuration)) * 0.6);
 
-          const sceneAudio = audioBuffers.get(currentScene.id);
-          const sceneDuration = sceneAudio
-            ? Math.max(sceneAudio.duration + 0.6, currentScene.duration)
-            : currentScene.duration;
-
-          const progressInScene = Math.min(1, elapsedInScene / sceneDuration);
-
-          // Calculate overall progress
-          const completedScenesDuration = scenesWithImages
-            .slice(0, currentSceneIdx)
-            .reduce((sum, s) => {
-              const aud = audioBuffers.get(s.id);
-              return sum + (aud ? Math.max(aud.duration + 0.6, s.duration) : s.duration);
-            }, 0);
-          const currentGlobalTime = completedScenesDuration + elapsedInScene;
-          const estimatedTotalDuration = scenesWithImages.reduce((sum, s) => {
-            const aud = audioBuffers.get(s.id);
-            return sum + (aud ? Math.max(aud.duration + 0.6, s.duration) : s.duration);
-          }, 0);
-
-          setRenderProgress(0.35 + (currentGlobalTime / Math.max(1, estimatedTotalDuration)) * 0.55);
-
-          // --- Draw background ---
-          ctx.fillStyle = "#000";
-          ctx.fillRect(0, 0, width, height);
-
-          // --- Draw image with Camera Motion ---
-          const img = images[currentSceneIdx];
-          if (img) {
-            const { scale, dx, dy } = getMotionTransform(
-              currentScene.motion_effect,
-              progressInScene,
-              width,
-              height
-            );
-            const sw = width * scale;
-            const sh = height * scale;
-            ctx.drawImage(img, dx, dy, sw, sh);
-          }
-
-          // --- Apply Cinematic Filter ---
-          applySceneFilter(ctx, currentScene.filter, width, height);
-
-          // --- Crisp Logo Watermark in Top-Left Corner (Permanent & Stands Out) ---
-          if (watermarkImgRef.current && watermarkImgRef.current.complete) {
-            ctx.save();
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = "high";
-
-            const scaleRatio = width / 1280;
-            const wmWidth = 200 * scaleRatio;
-            const wmHeight = (wmWidth * watermarkImgRef.current.naturalHeight) / watermarkImgRef.current.naturalWidth;
-            const posX = 24 * scaleRatio;
-            const posY = 20 * scaleRatio;
-            const padX = 10 * scaleRatio;
-            const padY = 6 * scaleRatio;
-            const rad = 10 * scaleRatio;
-
-            // Protective high-contrast backing pill
-            ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-            ctx.shadowBlur = 10 * scaleRatio;
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 2 * scaleRatio;
-            ctx.fillStyle = "rgba(10, 12, 22, 0.78)";
-            ctx.beginPath();
-            ctx.roundRect
-              ? ctx.roundRect(posX - padX, posY - padY, wmWidth + padX * 2, wmHeight + padY * 2, rad)
-              : ctx.rect(posX - padX, posY - padY, wmWidth + padX * 2, wmHeight + padY * 2);
-            ctx.fill();
-
-            ctx.shadowColor = "transparent";
-            ctx.shadowBlur = 0;
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-            ctx.lineWidth = Math.max(1, 1 * scaleRatio);
-            ctx.stroke();
-
-            // Draw crisp watermark logo
-            ctx.drawImage(watermarkImgRef.current, posX, posY, wmWidth, wmHeight);
-            ctx.restore();
-          }
-
-          // --- Customer Brand Logo in Top-Right Corner (if enabled) ---
-          if (
-            customerLogo?.enabled &&
-            customerLogo.url &&
-            customerLogoImgRef.current &&
-            customerLogoImgRef.current.complete
-          ) {
-            ctx.save();
-            ctx.globalAlpha = Math.max(0.1, Math.min(1.0, customerLogo.opacity ?? 1.0));
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = "high";
-
-            const scaleRatio = width / 1280;
-            const cScale = customerLogo.scale ?? 1.0;
-            const cMargin = (customerLogo.margin ?? 20) * scaleRatio;
-            const cWidth = Math.round(150 * cScale * scaleRatio);
-            const cHeight = (cWidth * customerLogoImgRef.current.naturalHeight) / customerLogoImgRef.current.naturalWidth;
-            const cX = width - cWidth - cMargin;
-            const cY = cMargin;
-            const cPadX = 8 * scaleRatio;
-            const cPadY = 6 * scaleRatio;
-
-            // Protective backing for customer logo
-            ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
-            ctx.shadowBlur = 8 * scaleRatio;
-            ctx.fillStyle = "rgba(10, 12, 22, 0.72)";
-            ctx.beginPath();
-            ctx.roundRect
-              ? ctx.roundRect(cX - cPadX, cY - cPadY, cWidth + cPadX * 2, cHeight + cPadY * 2, 8 * scaleRatio)
-              : ctx.rect(cX - cPadX, cY - cPadY, cWidth + cPadX * 2, cHeight + cPadY * 2);
-            ctx.fill();
-
-            ctx.shadowColor = "transparent";
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-            ctx.lineWidth = Math.max(1, 1 * scaleRatio);
-            ctx.stroke();
-
-            ctx.drawImage(customerLogoImgRef.current, cX, cY, cWidth, cHeight);
-            ctx.restore();
-          }
-
-          // --- Subtitle Text Rendering ---
-          if (settings.includeSubtitles && currentScene.text) {
-            const words = currentScene.text.split(" ");
-            const lines: string[] = [];
-            let curLine = "";
-            const maxW = width - 180;
-
-            ctx.font = `bold ${Math.round(height * 0.038)}px system-ui, -apple-system, sans-serif`;
-            ctx.textAlign = "center";
-
-            for (const w of words) {
-              const test = curLine ? curLine + " " + w : w;
-              if (ctx.measureText(test).width > maxW && curLine) {
-                lines.push(curLine);
-                curLine = w;
-              } else {
-                curLine = test;
-              }
-            }
-            if (curLine) lines.push(curLine);
-
-            const lh = Math.round(height * 0.052);
-            const startY = height - Math.round(height * 0.09) - (lines.length - 1) * lh;
-
-            if (settings.subtitleStyle === "karaoke") {
-              // Highlighted karaoke styling
-              lines.forEach((line, i) => {
-                const textY = startY + i * lh;
-                const textWidth = ctx.measureText(line).width;
-                const pillPaddingX = 24;
-                const pillPaddingY = 8;
-
-                ctx.fillStyle = "rgba(0,0,0,0.72)";
-                ctx.beginPath();
-                ctx.roundRect(
-                  width / 2 - textWidth / 2 - pillPaddingX,
-                  textY - lh * 0.72,
-                  textWidth + pillPaddingX * 2,
-                  lh,
-                  10
-                );
-                ctx.fill();
-
-                ctx.fillStyle = "#fbbf24";
-                ctx.fillText(line, width / 2, textY);
-              });
-            } else if (settings.subtitleStyle === "banner") {
-              // Modern dark banner
-              ctx.fillStyle = "rgba(0,0,0,0.85)";
-              ctx.fillRect(0, startY - lh, width, lh * (lines.length + 0.8));
-              ctx.fillStyle = "#ffffff";
-              lines.forEach((line, i) => ctx.fillText(line, width / 2, startY + i * lh));
-            } else if (settings.subtitleStyle === "yellow") {
-              ctx.shadowColor = "rgba(0,0,0,0.95)";
-              ctx.shadowBlur = 10;
-              ctx.fillStyle = "#facc15";
-              lines.forEach((line, i) => ctx.fillText(line, width / 2, startY + i * lh));
-              ctx.shadowColor = "transparent";
-            } else {
-              // Minimal outline
-              ctx.shadowColor = "rgba(0,0,0,0.95)";
-              ctx.shadowBlur = 12;
-              ctx.fillStyle = "#ffffff";
-              lines.forEach((line, i) => ctx.fillText(line, width / 2, startY + i * lh));
-              ctx.shadowColor = "transparent";
-            }
-          }
-
-          // --- Timeline Inserts & Overlays ---
-          if (inserts && inserts.length > 0) {
-            inserts.forEach((insert) => {
-              renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, 0.4);
-            });
-          }
-
-          // Check if current scene is finished
-          if (progressInScene >= 1) {
-            currentSceneIdx++;
-            if (currentSceneIdx >= scenesWithImages.length) {
-              recorder.stop();
-              resolveLoop();
-              return;
-            } else {
-              sceneStartTime = performance.now();
-              playSceneAudio(currentSceneIdx);
-            }
+          if (elapsed >= videoDuration) {
+            recorder.stop();
+            resolveLoop();
+            return;
           }
 
           requestAnimationFrame(renderFrame);
@@ -621,26 +520,34 @@ export default function RenderView({
         requestAnimationFrame(renderFrame);
       });
 
-      // 4. Encoding stream & packaging
+      if (abortControllerRef.current) {
+        setRenderStage("Render cancelled");
+        return;
+      }
+
       setRenderStage("4/4: Finalizing video stream & container...");
       setRenderProgress(0.95);
 
-      const finalBlob = await videoPromise;
-      if (activeAudioSource) {
-        try {
-          (activeAudioSource as any).stop();
-        } catch {}
-      }
-
-      const url = URL.createObjectURL(finalBlob);
-      setRenderedBlob(finalBlob);
-      setRenderedUrl(url);
-      setRenderProgress(1);
-      setRenderStage("Render Complete! 🎉");
+      const finalBlob = await recordingDone;
+      finishRender(finalBlob, "webm");
     } catch (err: any) {
       console.error("Render failed:", err);
-      setRenderError(err.message || "Failed to render video");
+      if (err?.message === "Render cancelled") {
+        setRenderStage("Render cancelled");
+      } else {
+        setRenderError(err.message || "Failed to render video");
+      }
     } finally {
+      liveSources.forEach((source) => {
+        try {
+          source.stop();
+        } catch {
+          /* already stopped or never started */
+        }
+      });
+      if (audioCtx && audioCtx.state !== "closed") {
+        audioCtx.close().catch(() => undefined);
+      }
       setIsRendering(false);
     }
   };
@@ -651,8 +558,7 @@ export default function RenderView({
     const a = document.createElement("a");
     a.href = renderedUrl;
     const safeTitle = (project?.title || "scenering_video").replace(/[^a-zA-Z0-9]/g, "_");
-    const ext = settings.format === "mp4" ? "mp4" : "webm";
-    a.download = `${safeTitle}_${settings.resolution}.${ext}`;
+    a.download = `${safeTitle}_${settings.resolution}.${renderedFormat}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -724,6 +630,7 @@ export default function RenderView({
         voice: selectedVoice,
         includeVideo: Boolean(renderedBlob),
         videoBlob: renderedBlob,
+        videoFormat: renderedFormat,
         onProgress: (status, pct) => {
           setZipStatus(status);
           setZipProgress(pct);
@@ -837,10 +744,25 @@ export default function RenderView({
                   onChange={(e) => setSettings((s) => ({ ...s, format: e.target.value as any }))}
                   className="w-full bg-gray-700 text-white text-xs rounded-lg px-2.5 py-2 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 >
-                  <option value="webm">WebM (VP9/Opus - Best Quality)</option>
-                  <option value="mp4">MP4 Video Container</option>
+                  <option value="webm">WebM (VP9/Opus - universal)</option>
+                  <option value="mp4">MP4 (H.264/AAC - widest support)</option>
                 </select>
               </div>
+
+              {settings.format === "mp4" && (
+                <p className="text-[10px] leading-relaxed -mt-1">
+                  {mp4Support === null ? (
+                    <span className="text-gray-400">Checking MP4 encoder support…</span>
+                  ) : mp4Support.supported ? (
+                    <span className="text-emerald-400">
+                      ✓ Real MP4 ready ({mp4Support.videoCodec} + AAC). Rendered offline, not in
+                      real time.
+                    </span>
+                  ) : (
+                    <span className="text-amber-400">⚠ {describeMp4Support(mp4Support)}</span>
+                  )}
+                </p>
+              )}
 
               <div>
                 <label className="text-xs text-gray-300 block mb-1 font-medium">
@@ -1116,6 +1038,13 @@ export default function RenderView({
                 </div>
               )}
 
+              {renderNotice && !renderError && (
+                <div className="p-3 bg-amber-950/50 border border-amber-800/70 rounded-lg text-amber-300 text-xs flex items-center gap-2">
+                  <span>⚠️</span>
+                  <span>{renderNotice}</span>
+                </div>
+              )}
+
               {/* Primary Action Button: Render or Re-Render */}
               {!renderedUrl ? (
                 <button
@@ -1133,7 +1062,7 @@ export default function RenderView({
                 <div className="space-y-3">
                   <div className="p-3 bg-green-950/50 border border-green-800/80 rounded-xl text-green-300 text-xs flex items-center justify-between">
                     <span className="flex items-center gap-2 font-medium">
-                      <span>✅</span> Video rendered successfully! Format: {settings.format.toUpperCase()} · {resLabel}
+                      <span>✅</span> Video rendered successfully! Format: {renderedFormat.toUpperCase()} · {resLabel}
                     </span>
                     <button
                       onClick={handleStartRender}
@@ -1153,7 +1082,7 @@ export default function RenderView({
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
-                      Download Video ({settings.format.toUpperCase()})
+                      Download Video ({renderedFormat.toUpperCase()})
                     </button>
 
                     {/* Download Full Project ZIP */}
