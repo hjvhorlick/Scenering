@@ -1,14 +1,28 @@
+export type AspectRatioType = "16:9" | "9:16" | "1:1" | "4:3";
+export type ResolutionType = "720p" | "1080p" | "2k" | "4k";
+export type PacingModeType = "fixed" | "auto_speech";
+
 export interface Project {
   id: number;
   title: string;
   script: string;
   status: string;
+  aspect_ratio?: AspectRatioType;
+  resolution?: ResolutionType;
+  default_duration?: number;
+  pacing_mode?: PacingModeType;
+  motion_style?: string;
   created_at: string;
   updated_at: string;
 }
 
 export type SceneFilterType =
   | "none"
+  | "old_movie"
+  | "dust_particles"
+  | "sun_flare"
+  | "vhs_glitch"
+  | "noir"
   | "cinematic"
   | "dark_cinematic"
   | "warm_movie"
@@ -58,7 +72,7 @@ export interface Scene {
   image_query: string;
   image_url: string | null;
   duration: number;
-  created_at: string;
+  created_at?: string;
   // Scene-level settings
   voice_id?: string;
   speaker_name?: string;
@@ -73,9 +87,13 @@ export interface Scene {
   image_offset_y?: number; // -50 to +50%
   image_zoom?: number;     // 1.0 to 2.5x
   image_fit?: "cover" | "contain";
+  // Imported real voice audio track
+  audio_url?: string | null;
+  audio_name?: string | null;
+  audio_duration?: number;
 }
 
-export type EditorStep = "scenes" | "voice_captions" | "voiceover" | "captions" | "studio" | "render";
+export type EditorStep = "setup" | "scenes" | "voice_captions" | "voiceover" | "captions" | "studio" | "render";
 
 export interface CustomerLogoConfig {
   enabled: boolean;
@@ -94,6 +112,10 @@ export interface InsertVisualOptions {
   rotation?: number; // degrees -180 to 180
   animationPreset?: "pop_in" | "bounce" | "float_3d" | "fade" | "spin" | "pulse";
   assetUrl?: string;
+  fullWidth?: boolean; // stretch over entire scene (default true for linear visualizers)
+  barThickness?: number; // width/thickness of bars or wave stroke
+  glowIntensity?: number; // 0 to 1
+  colorPreset?: string; // "spectrum" | "cyber" | "crt_green" | "custom"
 }
 
 export interface InsertAudioSettings {
@@ -107,16 +129,21 @@ export interface InsertAudioSettings {
 
 export type InsertCategory =
   | "logo"
+  | "intro"
+  | "outro"
   | "call_to_action"
   | "stickers"
   | "content_cards"
-  | "other_cards"
+  | "text_templates"
   | "audio_visualizers"
   | "speech_reactive"
+  | "background_music"
+  | "filters"
+  | "sound_effects"
+  | "other_cards"
   | "meditation"
   | "special_effects"
-  | "branding"
-  | "sound_effects";
+  | "branding";
 
 export type AudioSourceType = "voice" | "music" | "all";
 
@@ -135,9 +162,11 @@ export interface TimelineInsert {
   speed?: number; // 0.5 to 2
   audioSource?: AudioSourceType;
   scope?: "this_scene" | "from_here" | "entire_video";
+  videoUrl?: string;
+  tensionStyle?: "countdown" | "flash" | "pulse" | "glitch" | "aperture" | "shimmer" | "warp" | "flare";
   visualOptions?: InsertVisualOptions;
   audioSettings?: InsertAudioSettings;
-  // Configurable content for cards and overlays
+  // Configurable content for cards, templates, and overlays
   content?: {
     primaryText?: string;
     secondaryText?: string;
@@ -148,6 +177,60 @@ export interface TimelineInsert {
     number?: string;
     label?: string;
     items?: string[];
+    // Specialized text template fields
+    reference?: string;
+    scriptureText?: string;
+    version?: string;
+    quoteText?: string;
+    authorTitle?: string;
+    speakerName?: string;
+    speakerRole?: string;
+    socialHandle?: string;
+    takeawayNumber?: string;
+    takeawayTitle?: string;
+    takeawayBody?: string;
+    factHeadline?: string;
+    factBody?: string;
+    factSource?: string;
+    stepNumber?: string;
+    stepTitle?: string;
+    stepAction?: string;
+    stylePreset?: string;
+    // CTA & Intro/Outro fields
+    buttonText?: string;
+    badgeText?: string;
+    url?: string;
+    introTitle?: string;
+    introTagline?: string;
+    introStyle?: string;
+    outroTitle?: string;
+    outroTagline?: string;
+    outroStyle?: string;
+    showLogo?: boolean;
+    includeLogo?: boolean;
+    videoUrl?: string;
+    imageUrl?: string;
+    logoUrl?: string;
+    logoScale?: number;
+    logoPosition?: "center" | "top" | "side";
+    tensionStyle?: "countdown" | "flash" | "pulse" | "glitch" | "aperture" | "shimmer" | "warp" | "flare";
+    tensionRiser?: boolean;
+    countdownSeconds?: number;
+    soundUrl?: string;
+    soundVolume?: number;
   };
+}
+
+export interface CaptionsConfig {
+  enabled: boolean;
+  mode: "karaoke" | "normal";
+  backgroundStyle: "transparent" | "blocked";
+  preset: "word_pop" | "cyber_yellow" | "neon_glow" | "classic_box" | "minimal";
+  fontSize: "small" | "medium" | "large";
+  position: "bottom" | "center" | "top";
+  uppercase: boolean;
+  textColor: string;
+  highlightColor: string;
+  bgColor?: string;
 }
 

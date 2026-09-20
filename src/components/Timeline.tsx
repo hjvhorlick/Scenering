@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { Scene, TimelineInsert } from "../types";
+import { calculateDynamicDuration } from "../lib/duration-utils";
 
 interface TimelineProps {
   scenes: Scene[];
@@ -39,9 +40,18 @@ export default function Timeline({
   const trackRef = useRef<HTMLDivElement>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
 
-  const calculatedTotal = totalDuration || scenes.reduce((acc, s) => acc + (s.duration || 4), 0);
+  const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
+  const scriptDuration = scenes.reduce((acc, s) => acc + getSceneDuration(s), 0);
+
+  const introInsert = inserts.find((ins) => ins.category === "intro");
+  const outroInsert = inserts.find((ins) => ins.category === "outro");
+  const introDuration = introInsert ? introInsert.duration : 0;
+  const outroDuration = outroInsert ? outroInsert.duration : 0;
+
+  const calculatedTotal = totalDuration || (introDuration + scriptDuration + outroDuration);
   const safeTotalDuration = Math.max(1, calculatedTotal);
   const progressRatio = Math.min(1, Math.max(0, currentTime / safeTotalDuration));
+  const selectedInsert = inserts.find((ins) => ins.id === selectedInsertId) || null;
 
   // Handle scrubber click or drag
   const handleScrub = (e: React.MouseEvent<HTMLDivElement> | MouseEvent) => {
@@ -70,21 +80,81 @@ export default function Timeline({
     window.addEventListener("mouseup", onMouseUp);
   };
 
-  // Calculate cumulative scene time boundaries
+  // Calculate cumulative timeline scene blocks including Intro at beginning and Outro at end
   let accumulatedTime = 0;
-  const sceneBlocks = scenes.map((s, idx) => {
-    const start = accumulatedTime;
-    const dur = s.duration;
+  
+  const allBlocks: Array<{
+    type: "intro" | "scene" | "outro";
+    id: string;
+    index?: number;
+    title: string;
+    description: string;
+    start: number;
+    duration: number;
+    leftPct: number;
+    widthPct: number;
+    insert?: TimelineInsert;
+    scene?: Scene;
+  }> = [];
+
+  // 1. Intro block if present
+  if (introInsert) {
+    const dur = introInsert.duration;
+    allBlocks.push({
+      type: "intro",
+      id: introInsert.id,
+      title: "🎬 Intro Scene",
+      description: introInsert.title || "Full Screen Intro Video / Image",
+      start: 0,
+      duration: dur,
+      leftPct: 0,
+      widthPct: (dur / safeTotalDuration) * 100,
+      insert: introInsert,
+    });
     accumulatedTime += dur;
-    return {
-      scene: s,
+  }
+
+  // 2. Script scenes
+  scenes.forEach((s, idx) => {
+    const start = accumulatedTime;
+    const dur = getSceneDuration(s);
+    accumulatedTime += dur;
+    allBlocks.push({
+      type: "scene",
+      id: `scene-${s.id}`,
       index: idx,
+      title: `Scene ${idx + 1}`,
+      description: s.text,
       start,
       duration: dur,
       leftPct: (start / safeTotalDuration) * 100,
       widthPct: (dur / safeTotalDuration) * 100,
-    };
+      scene: s,
+    });
   });
+
+  // 3. Outro block if present
+  if (outroInsert) {
+    const dur = outroInsert.duration;
+    const start = accumulatedTime;
+    allBlocks.push({
+      type: "outro",
+      id: outroInsert.id,
+      title: "🏁 Outro Scene",
+      description: outroInsert.title || "Full Screen Outro Video / Image",
+      start,
+      duration: dur,
+      leftPct: (start / safeTotalDuration) * 100,
+      widthPct: (dur / safeTotalDuration) * 100,
+      insert: outroInsert,
+    });
+    accumulatedTime += dur;
+  }
+
+  // Overlay inserts (stickers, text cards, visualizers, SFX) excluding full-screen intro/outro scenes
+  const overlayInserts = inserts.filter(
+    (ins) => ins.category !== "intro" && ins.category !== "outro"
+  );
 
   return (
     <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-3.5 space-y-3 shadow-lg select-none">
@@ -141,45 +211,118 @@ export default function Timeline({
         onMouseDown={handleMouseDown}
         className="relative h-20 bg-gray-950 border border-gray-800 rounded-lg overflow-hidden cursor-pointer group"
       >
-        {/* Scene Blocks Layer */}
+        {/* Scene Blocks Layer (Intro + Script Scenes + Outro) */}
         <div className="absolute inset-0 flex">
-          {sceneBlocks.map((block) => (
-            <div
-              key={block.scene.id}
-              style={{ width: `${block.widthPct}%` }}
-              className={`h-full border-r border-gray-800/80 px-2 py-1.5 flex flex-col justify-between overflow-hidden transition-colors ${
-                currentTime >= block.start && currentTime < block.start + block.duration
-                  ? "bg-indigo-950/30"
-                  : "bg-gray-900/40 hover:bg-gray-900/60"
-              }`}
-            >
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="font-semibold text-gray-300 truncate">
-                  Scene {block.index + 1}
-                </span>
-                <span className="text-gray-500 text-[9px] font-mono">
-                  {block.duration}s
-                </span>
+          {allBlocks.map((block) => {
+            const isCurrent = currentTime >= block.start && currentTime < block.start + block.duration;
+            const isIntro = block.type === "intro";
+            const isOutro = block.type === "outro";
+            const isSelected = block.insert && selectedInsertId === block.insert.id;
+
+            return (
+              <div
+                key={block.id}
+                onClick={(e) => {
+                  if (block.insert) {
+                    e.stopPropagation();
+                    onSeek(block.start);
+                    onSelectInsert(block.insert);
+                  }
+                }}
+                onDoubleClick={(e) => {
+                  if (block.insert) {
+                    e.stopPropagation();
+                    onEditInsertDetails?.(block.insert);
+                  }
+                }}
+                style={{ width: `${block.widthPct}%` }}
+                className={`h-full border-r px-2 py-1.5 flex flex-col justify-between overflow-hidden transition-all select-none ${
+                  isIntro
+                    ? isCurrent
+                      ? "bg-amber-950/70 border-amber-500/80 ring-2 ring-amber-400 inset-0 z-10"
+                      : isSelected
+                      ? "bg-amber-950/50 border-amber-400"
+                      : "bg-amber-950/30 hover:bg-amber-950/50 border-amber-700/60"
+                    : isOutro
+                    ? isCurrent
+                      ? "bg-rose-950/70 border-rose-500/80 ring-2 ring-rose-400 inset-0 z-10"
+                      : isSelected
+                      ? "bg-rose-950/50 border-rose-400"
+                      : "bg-rose-950/30 hover:bg-rose-950/50 border-rose-700/60"
+                    : isCurrent
+                    ? "bg-indigo-950/50 border-indigo-500/60"
+                    : "bg-gray-900/40 hover:bg-gray-900/60 border-gray-800/80"
+                }`}
+                title={
+                  isIntro
+                    ? "Intro Scene: Full-screen video/image insert (No captions or speech voiceover). Click to select & configure."
+                    : isOutro
+                    ? "Outro Scene: Full-screen video/image insert (No captions or speech voiceover). Click to select & configure."
+                    : `Scene ${(block.index ?? 0) + 1}`
+                }
+              >
+                <div className="flex items-center justify-between text-[10px]">
+                  <span
+                    className={`font-bold truncate flex items-center gap-1 ${
+                      isIntro
+                        ? "text-amber-300"
+                        : isOutro
+                        ? "text-rose-300"
+                        : "text-gray-300"
+                    }`}
+                  >
+                    <span>{block.title}</span>
+                    {(isIntro || isOutro) && (
+                      <span className="text-[8px] uppercase tracking-wider px-1 rounded bg-black/40 text-gray-300 font-mono">
+                        Full Screen
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className={`text-[9px] font-mono ${
+                      isIntro
+                        ? "text-amber-400"
+                        : isOutro
+                        ? "text-rose-400"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    {block.duration}s
+                  </span>
+                </div>
+                <p
+                  className={`text-[9px] truncate ${
+                    isIntro
+                      ? "text-amber-200/80 font-medium"
+                      : isOutro
+                      ? "text-rose-200/80 font-medium"
+                      : "text-gray-400 opacity-70"
+                  }`}
+                >
+                  {isIntro || isOutro
+                    ? `${block.description} · [No Captions / Voice]`
+                    : block.description}
+                </p>
               </div>
-              <p className="text-[9px] text-gray-400 truncate opacity-70">
-                {block.scene.text}
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* Timeline Inserts Layer */}
+        {/* Timeline Overlay Inserts Layer (Stickers, Text Cards, Visualizers, SFX) */}
         <div className="absolute top-7 inset-x-0 bottom-1 flex items-center pointer-events-none px-1">
-          {inserts.map((item) => {
-            const leftPct = (item.startTime / safeTotalDuration) * 100;
-            const widthPct = Math.max(3, (item.duration / safeTotalDuration) * 100);
-            const isActive = currentTime >= item.startTime && currentTime <= item.startTime + item.duration;
+          {overlayInserts.map((item) => {
+            // Strictly clamp insert start and duration so it never runs over the end of the video
+            const clampedStart = Math.min(item.startTime, Math.max(0, safeTotalDuration - 0.2));
+            const clampedDuration = Math.min(item.duration, Math.max(0.2, safeTotalDuration - clampedStart));
+            const leftPct = (clampedStart / safeTotalDuration) * 100;
+            const widthPct = Math.min(100 - leftPct, Math.max(4, (clampedDuration / safeTotalDuration) * 100));
+            const isActive = currentTime >= clampedStart && currentTime <= clampedStart + clampedDuration;
 
             let badgeColor = "bg-indigo-600/90 border-indigo-400 text-indigo-100";
             if (item.category === "stickers") badgeColor = "bg-pink-600/90 border-pink-400 text-pink-100";
-            if (item.category === "content_cards") badgeColor = "bg-amber-600/90 border-amber-400 text-amber-100";
-            if (item.category === "audio_visualizers" || item.category === "speech_reactive") badgeColor = "bg-cyan-600/90 border-cyan-400 text-cyan-100";
-            if (item.category === "special_effects") badgeColor = "bg-emerald-600/90 border-emerald-400 text-emerald-100";
+            else if (item.category === "content_cards") badgeColor = "bg-amber-600/90 border-amber-400 text-amber-100";
+            else if (item.category === "audio_visualizers" || item.category === "speech_reactive") badgeColor = "bg-cyan-600/90 border-cyan-400 text-cyan-100";
+            else if (item.category === "special_effects") badgeColor = "bg-emerald-600/90 border-emerald-400 text-emerald-100";
 
             const isSelected = selectedInsertId === item.id;
 
@@ -195,19 +338,20 @@ export default function Timeline({
                   onEditInsertDetails?.(item);
                 }}
                 style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                className={`absolute pointer-events-auto h-6 rounded-md border text-[10px] font-medium flex items-center justify-between px-1.5 cursor-pointer shadow transition-all hover:scale-105 ${badgeColor} ${
+                className={`absolute pointer-events-auto h-6 min-w-[56px] rounded-md border text-[10px] font-medium flex items-center justify-between px-1.5 cursor-pointer shadow transition-all hover:scale-102 ${badgeColor} ${
                   isSelected
-                    ? "ring-2 ring-yellow-400 ring-offset-1 ring-offset-gray-950 scale-105 z-10 brightness-110"
+                    ? "ring-2 ring-yellow-400 ring-offset-1 ring-offset-gray-950 scale-105 z-20 brightness-110"
                     : isActive
-                    ? "ring-2 ring-white ring-offset-1 ring-offset-gray-950 scale-102"
-                    : "opacity-85"
+                    ? "ring-2 ring-white ring-offset-1 ring-offset-gray-950 scale-102 z-10"
+                    : "opacity-90"
                 }`}
-                title={`${item.title} (${item.startTime.toFixed(1)}s - ${(item.startTime + item.duration).toFixed(1)}s) — Click to select, double-click to edit`}
+                title={`${item.title} (${clampedStart.toFixed(1)}s - ${(clampedStart + clampedDuration).toFixed(1)}s) — Click to select, double-click to edit`}
               >
-                <span className="truncate pr-1">{item.title}</span>
-                <div className="flex items-center gap-1">
+                <span className="truncate pr-1 select-none">{item.title}</span>
+                <div className="flex items-center gap-1 flex-shrink-0">
                   {onEditInsertDetails && (
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         onEditInsertDetails(item);
@@ -219,12 +363,14 @@ export default function Timeline({
                     </button>
                   )}
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      e.preventDefault();
                       onDeleteInsert(item.id);
                     }}
-                    className="hover:text-red-300 text-xs opacity-75 hover:opacity-100"
-                    title="Delete insert"
+                    className="w-4 h-4 rounded-full bg-black/60 hover:bg-red-600 text-white flex items-center justify-center text-[10px] font-bold transition-colors shadow-sm"
+                    title="Delete effect from timeline"
                   >
                     ✕
                   </button>
@@ -245,16 +391,39 @@ export default function Timeline({
       </div>
 
       {/* Inserts count & quick note */}
-      <div className="flex items-center justify-between text-[11px] text-gray-500">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-400">
         <div>
-          {inserts.length === 0 ? (
-            <span>No inserts yet. Pick an effect from Video Studio below to insert at the red playhead line!</span>
+          {selectedInsert ? (
+            <div className="flex items-center gap-2 bg-indigo-950/60 border border-indigo-700/60 px-2.5 py-1 rounded-lg">
+              <span className="text-yellow-400 font-semibold">Selected: {selectedInsert.title}</span>
+              <span className="text-gray-400 font-mono text-[10px]">
+                ({selectedInsert.startTime.toFixed(1)}s - {(selectedInsert.startTime + selectedInsert.duration).toFixed(1)}s)
+              </span>
+              {onEditInsertDetails && (
+                <button
+                  type="button"
+                  onClick={() => onEditInsertDetails(selectedInsert)}
+                  className="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-yellow-300 text-[10px] font-medium border border-gray-700 ml-1"
+                >
+                  ✏️ Edit
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onDeleteInsert(selectedInsert.id)}
+                className="px-2 py-0.5 rounded bg-red-950 hover:bg-red-800 text-red-200 text-[10px] font-medium border border-red-700/70"
+              >
+                🗑️ Delete Effect
+              </button>
+            </div>
+          ) : inserts.length === 0 ? (
+            <span className="text-gray-500">No inserts yet. Pick an effect from Video Studio below to insert at the red playhead line!</span>
           ) : (
-            <span>{inserts.length} element{inserts.length === 1 ? "" : "s"} on timeline. Click any badge to customize.</span>
+            <span className="text-gray-400">{inserts.length} element{inserts.length === 1 ? "" : "s"} on timeline. Click any badge to customize or delete.</span>
           )}
         </div>
-        <div className="font-mono text-[10px]">
-          Target: {formatTime(currentTime)}
+        <div className="font-mono text-[10px] text-gray-400">
+          Playhead: <span className="text-amber-300 font-bold">{formatTime(currentTime)}</span>
         </div>
       </div>
     </div>

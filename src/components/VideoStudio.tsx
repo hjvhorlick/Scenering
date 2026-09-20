@@ -1,29 +1,53 @@
-import { useState } from "react";
-import { TimelineInsert, CustomerLogoConfig } from "../types";
+import { useState, useEffect } from "react";
+import { TimelineInsert, CustomerLogoConfig, AspectRatioType } from "../types";
 import { CATALOG_ITEMS, CatalogItem, STUDIO_CATEGORIES, StudioCategoryDef } from "../lib/video-studio-catalog";
-import { playSoundPreview } from "../data/media-library";
+import {
+  toggleSoundPreview,
+  stopAllSoundPreviews,
+  setSoundPreviewVolume,
+  subscribeToAudioPreview,
+} from "../data/media-library";
 import CustomerLogoSection from "./CustomerLogoSection";
+import EffectVisualPreview from "./EffectVisualPreview";
 
 interface VideoStudioProps {
   currentPlayheadTime: number;
+  totalDuration?: number;
   onInsertItem: (insert: TimelineInsert) => void;
   onConfigureItem?: (insert: TimelineInsert) => void;
   customerLogo: CustomerLogoConfig;
   onUpdateCustomerLogo: (updates: Partial<CustomerLogoConfig>) => void;
+  aspectRatio?: AspectRatioType;
+  sampleBackgroundImage?: string;
 }
 
 export default function VideoStudio({
   currentPlayheadTime,
+  totalDuration = 60,
   onInsertItem,
   onConfigureItem,
   customerLogo,
   onUpdateCustomerLogo,
+  aspectRatio,
+  sampleBackgroundImage,
 }: VideoStudioProps) {
-  // Default to the first of the 5 requested tabs: "logo"
+  // Default to the first of the tabs: "logo"
   const [selectedCategory, setSelectedCategory] = useState<string>("logo");
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentlyPlayingAudio, setCurrentlyPlayingAudio] = useState<string | null>(null);
+  const [studioVolume, setStudioVolume] = useState<number>(0.8);
+  const [itemVolumes, setItemVolumes] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const unsubscribe = subscribeToAudioPreview((url, isPlaying) => {
+      setCurrentlyPlayingAudio(isPlaying ? url : null);
+    });
+    return () => {
+      unsubscribe();
+      stopAllSoundPreviews();
+    };
+  }, []);
 
   const formattedTime = (() => {
     const mins = Math.floor(currentPlayheadTime / 60);
@@ -33,22 +57,47 @@ export default function VideoStudio({
   })();
 
   const createTimelineInsert = (item: CatalogItem): TimelineInsert => {
+    // Intros are inserted before script (0.0s), Outros after script (end of timeline)
+    let startTime = currentPlayheadTime;
+    if (item.category === "intro") {
+      startTime = 0.0;
+    } else if (item.category === "outro") {
+      startTime = Math.max(0, (totalDuration || 60) - item.defaultDuration);
+    }
+
+    const defaultContent = item.defaultContent ? { ...item.defaultContent } : {};
+    const logoUrlToUse = defaultContent.logoUrl || (customerLogo?.enabled && customerLogo.url ? customerLogo.url : "/scenering-logo.png");
+    const itemVol = itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? studioVolume;
+    const soundUrl = item.defaultAudioSettings?.soundUrl || (defaultContent as any)?.soundUrl;
+
     return {
       id: `${item.type}-${Date.now()}`,
       category: item.category,
       type: item.type,
       title: item.name,
-      startTime: currentPlayheadTime,
+      startTime,
       duration: item.defaultDuration,
+      videoUrl: item.videoUrl || defaultContent.videoUrl,
       position: { x: 0.5, y: 0.5 },
       presetPosition: item.defaultPosition || "center",
       size: item.defaultSize || 1.0,
       opacity: 1.0,
       intensity: 1.0,
       audioSource: item.defaultAudioSource || "voice",
-      content: item.defaultContent ? { ...item.defaultContent } : undefined,
+      content: {
+        ...defaultContent,
+        videoUrl: item.videoUrl || defaultContent.videoUrl,
+        showLogo: defaultContent.showLogo ?? true,
+        includeLogo: defaultContent.includeLogo ?? true,
+        logoUrl: logoUrlToUse,
+        tensionStyle: defaultContent.tensionStyle || "flare",
+        soundUrl: soundUrl || defaultContent.soundUrl,
+        soundVolume: itemVol,
+      },
       visualOptions: item.defaultVisualOptions ? { ...item.defaultVisualOptions } : undefined,
-      audioSettings: item.defaultAudioSettings ? { ...item.defaultAudioSettings } : undefined,
+      audioSettings: item.defaultAudioSettings
+        ? { ...item.defaultAudioSettings, volume: itemVol, soundUrl: soundUrl || item.defaultAudioSettings.soundUrl }
+        : { volume: itemVol, soundUrl },
     };
   };
 
@@ -65,16 +114,12 @@ export default function VideoStudio({
     }
   };
 
-  const handleTestSound = (soundUrl: string) => {
-    if (currentlyPlayingAudio === soundUrl) {
-      setCurrentlyPlayingAudio(null);
-      return;
-    }
-    setCurrentlyPlayingAudio(soundUrl);
-    playSoundPreview(soundUrl);
-    setTimeout(() => {
-      setCurrentlyPlayingAudio(null);
-    }, 2500);
+  const handleTestSound = (soundUrl: string, itemVolume?: number) => {
+    const vol = itemVolume ?? studioVolume;
+    const isPlaying = toggleSoundPreview(soundUrl, vol, (active) => {
+      setCurrentlyPlayingAudio(active ? soundUrl : null);
+    });
+    setCurrentlyPlayingAudio(isPlaying ? soundUrl : null);
   };
 
   const currentCategoryDef: StudioCategoryDef | undefined = STUDIO_CATEGORIES.find(
@@ -113,26 +158,67 @@ export default function VideoStudio({
           </p>
         </div>
 
-        {selectedCategory !== "logo" && (
-          <div className="relative w-56">
+        <div className="flex items-center gap-3">
+          {/* Studio Audio Master Volume Control */}
+          <div className="flex items-center gap-2 bg-gray-850 border border-gray-750 px-3 py-1.5 rounded-xl">
+            <span className="text-xs text-gray-300 flex items-center gap-1.5 flex-shrink-0">
+              <span>🔊</span>
+              <span className="hidden sm:inline text-[11px] font-medium text-gray-300">Audio Vol:</span>
+            </span>
             <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search elements..."
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={studioVolume}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setStudioVolume(v);
+                setSoundPreviewVolume(v);
+              }}
+              className="w-20 sm:w-28 accent-indigo-500 cursor-pointer"
+              title="Adjust Studio sound test volume"
             />
-            {searchQuery && (
+            <span className="font-mono text-xs text-indigo-400 font-bold w-8 text-right">
+              {Math.round(studioVolume * 100)}%
+            </span>
+            {currentlyPlayingAudio && (
               <button
                 type="button"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2.5 top-1.5 text-xs text-gray-400 hover:text-white"
+                onClick={() => {
+                  stopAllSoundPreviews();
+                  setCurrentlyPlayingAudio(null);
+                }}
+                className="ml-1 px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold animate-pulse flex items-center gap-1"
+                title="Stop all playing audio previews"
               >
-                ✕
+                <span>⏹️</span>
+                <span>Off</span>
               </button>
             )}
           </div>
-        )}
+
+          {selectedCategory !== "logo" && (
+            <div className="relative w-48 sm:w-56">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search elements..."
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1.5 text-xs text-gray-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 5 Ordered Main Tabs: 1. Logo, 2. Call to action, 3. Stickers, 4. Text Content, 5. Audio visualisers */}
@@ -195,13 +281,121 @@ export default function VideoStudio({
             <CustomerLogoSection
               config={customerLogo}
               onChange={onUpdateCustomerLogo}
+              aspectRatio={aspectRatio}
+              sampleBackgroundImage={sampleBackgroundImage}
             />
           </div>
         )}
 
-        {/* 2 - 5: CALL TO ACTION, STICKERS, TEXT CONTENT, AUDIO VISUALISERS */}
+        {/* 2 - 10: CALL TO ACTION, INTRO, OUTRO, STICKERS, TEXT CONTENT, AUDIO VISUALISERS, ETC */}
         {selectedCategory !== "logo" && (
-          <div>
+          <div className="space-y-4">
+            {/* Contextual Guidance Banner for Intro */}
+            {selectedCategory === "intro" && (
+              <div className="bg-gradient-to-r from-amber-950/80 via-gray-900 to-amber-950/80 border border-amber-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl p-2 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300">
+                    🎬
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-amber-200">High-Tension Cinematic Intros</h3>
+                      <span className="text-[10px] bg-amber-950 border border-amber-600/50 text-amber-300 px-2 py-0.5 rounded-full font-mono font-semibold">
+                        Inserts at 0.0s
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-300 mt-0.5">
+                      Placed before your script starts with high-impact tension getters (3-2-1 countdown, glitch, warp, lens aperture), headline text, and brand logo reveal.
+                    </p>
+                  </div>
+                </div>
+                {filteredItems[0] && (
+                  <button
+                    type="button"
+                    onClick={() => handleAdd(filteredItems[0])}
+                    className="whitespace-nowrap px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-gray-950 font-bold rounded-lg text-xs shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    <span>⚡ Quick Insert Intro (0.0s)</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Contextual Guidance Banner for Outro */}
+            {selectedCategory === "outro" && (
+              <div className="bg-gradient-to-r from-rose-950/80 via-gray-900 to-rose-950/80 border border-rose-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl p-2 bg-rose-500/20 border border-rose-500/40 rounded-lg text-rose-300">
+                    🏁
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-rose-200">Broadcast End-Screens & Outros</h3>
+                      <span className="text-[10px] bg-rose-950 border border-rose-600/50 text-rose-300 px-2 py-0.5 rounded-full font-mono font-semibold">
+                        Inserts After Script (End)
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-300 mt-0.5">
+                      Placed after your script ends with interactive YouTube &quot;Watch Next&quot; slates, subscribe buttons, social media handles, and farewell credits.
+                    </p>
+                  </div>
+                </div>
+                {filteredItems[0] && (
+                  <button
+                    type="button"
+                    onClick={() => handleAdd(filteredItems[0])}
+                    className="whitespace-nowrap px-3.5 py-1.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-bold rounded-lg text-xs shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    <span>⚡ Quick Insert Outro (End)</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Contextual Guidance Banner for Background Music */}
+            {selectedCategory === "background_music" && (
+              <div className="bg-gradient-to-r from-indigo-950/90 via-gray-900 to-purple-950/90 border border-indigo-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl p-2 bg-indigo-500/20 border border-indigo-500/40 rounded-lg text-indigo-300">
+                    🎵
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-indigo-200">Calming Royalty-Free Background Music</h3>
+                      <span className="text-[10px] bg-indigo-950 border border-indigo-600/50 text-indigo-300 px-2 py-0.5 rounded-full font-mono font-semibold">
+                        10 Master Tracks • No Singing
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-300 mt-0.5">
+                      Test any track using the Test / Off buttons and adjust per-track volume sliders. All tracks are pre-cleared for YouTube and commercial distribution with automatic credits.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Contextual Guidance Banner for Sound Effects */}
+            {selectedCategory === "sound_effects" && (
+              <div className="bg-gradient-to-r from-cyan-950/90 via-gray-900 to-cyan-950/90 border border-cyan-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl p-2 bg-cyan-500/20 border border-cyan-500/40 rounded-lg text-cyan-300">
+                    🔊
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-cyan-200">Studio Sound Effects & Foley</h3>
+                      <span className="text-[10px] bg-cyan-950 border border-cyan-600/50 text-cyan-300 px-2 py-0.5 rounded-full font-mono font-semibold">
+                        Bells • Impacts • UI Chimes
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-300 mt-0.5">
+                      Instant audio testing with volume controls. Place sound effects at your exact playhead position on the timeline to punctuate scene moments.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {filteredItems.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
                 <span className="text-3xl block mb-2">🔍</span>
@@ -217,7 +411,10 @@ export default function VideoStudio({
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {filteredItems.map((item) => {
-                  const hasSound = Boolean(item.defaultAudioSettings?.soundUrl);
+                  const soundUrl = item.defaultAudioSettings?.soundUrl || (item.defaultContent as any)?.soundUrl;
+                  const hasSound = Boolean(soundUrl);
+                  const itemVol = itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? studioVolume;
+                  const isPlaying = Boolean(soundUrl) && currentlyPlayingAudio === soundUrl;
 
                   return (
                     <div
@@ -225,29 +422,37 @@ export default function VideoStudio({
                       className="group bg-gray-900/70 hover:bg-gray-900 border border-gray-800 hover:border-indigo-500/50 rounded-xl p-4 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-indigo-950/20"
                     >
                       <div>
-                        {/* Header: Icon & Category Tag */}
-                        <div className="flex items-start justify-between mb-2.5">
-                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-800 to-gray-850 flex items-center justify-center text-2xl border border-gray-700/60 shadow-inner group-hover:scale-105 transition-transform">
-                            {item.icon}
-                          </div>
+                        {/* Visual representation of the effect they will see in the video */}
+                        <div className="mb-3">
+                          <EffectVisualPreview item={item} />
+                        </div>
+
+                        {/* Timing and Audio Tags */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] text-indigo-400 font-medium tracking-wide uppercase">
+                            {item.subCategory ? item.subCategory.replace("_", " ") : item.category.replace("_", " ")}
+                          </span>
 
                           <div className="flex items-center gap-1.5">
-                            {hasSound && (
+                            {hasSound && soundUrl && (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  item.defaultAudioSettings?.soundUrl &&
-                                  handleTestSound(item.defaultAudioSettings.soundUrl)
+                                onClick={() => handleTestSound(soundUrl, itemVol)}
+                                title={
+                                  isPlaying
+                                    ? "Turn sound off"
+                                    : "Listen to preview sound"
                                 }
-                                title="Listen to attached sound"
-                                className={`px-2 py-0.5 rounded text-[11px] font-medium border flex items-center gap-1 transition-colors ${
-                                  currentlyPlayingAudio === item.defaultAudioSettings?.soundUrl
-                                    ? "bg-emerald-950 border-emerald-500 text-emerald-300 animate-pulse"
-                                    : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700 hover:text-white"
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border flex items-center gap-1.5 transition-all shadow-sm ${
+                                  isPlaying
+                                    ? "bg-rose-600 hover:bg-rose-500 border-rose-400 text-white ring-2 ring-rose-400/60 animate-pulse"
+                                    : "bg-gray-800 hover:bg-indigo-950 border-gray-700 hover:border-indigo-500 text-emerald-400 hover:text-emerald-300"
                                 }`}
                               >
-                                <span>🔊</span>
-                                <span>Sound</span>
+                                <span>{isPlaying ? "⏹️" : "▶️"}</span>
+                                <span>
+                                  {isPlaying ? "Off" : "Test"}
+                                </span>
                               </button>
                             )}
                             <span className="text-[10px] text-gray-400 font-mono bg-gray-800/80 px-1.5 py-0.5 rounded">
@@ -255,6 +460,37 @@ export default function VideoStudio({
                             </span>
                           </div>
                         </div>
+
+                        {/* Sound Volume Slider for items with audio */}
+                        {hasSound && soundUrl && (
+                          <div className="mb-2 px-2.5 py-1.5 bg-gray-950/90 rounded-lg border border-gray-800 flex items-center justify-between gap-2 shadow-inner">
+                            <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                              <span>🔉</span>
+                              <span className="text-[10px] font-medium text-gray-300">Volume:</span>
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="range"
+                                min={0}
+                                max={1}
+                                step={0.05}
+                                value={itemVol}
+                                onChange={(e) => {
+                                  const v = parseFloat(e.target.value);
+                                  setItemVolumes((prev) => ({ ...prev, [item.type]: v }));
+                                  if (isPlaying) {
+                                    setSoundPreviewVolume(v);
+                                  }
+                                }}
+                                className="w-20 accent-indigo-500 cursor-pointer"
+                                title="Adjust sound volume"
+                              />
+                              <span className="font-mono text-[10px] text-indigo-400 font-bold w-7 text-right">
+                                {Math.round(itemVol * 100)}%
+                              </span>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Title & Description */}
                         <h4 className="text-sm font-semibold text-white group-hover:text-indigo-300 transition-colors">
@@ -270,9 +506,21 @@ export default function VideoStudio({
                         <button
                           type="button"
                           onClick={() => handleAdd(item)}
-                          className="flex-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                          className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-sm ${
+                            item.category === "intro"
+                              ? "bg-amber-600 hover:bg-amber-500 text-white"
+                              : item.category === "outro"
+                              ? "bg-rose-600 hover:bg-rose-500 text-white"
+                              : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                          }`}
                         >
-                          <span>➕ Add</span>
+                          <span>
+                            {item.category === "intro"
+                              ? "➕ Insert Before Script"
+                              : item.category === "outro"
+                              ? "➕ Insert After Script"
+                              : "➕ Add"}
+                          </span>
                         </button>
                         <button
                           type="button"

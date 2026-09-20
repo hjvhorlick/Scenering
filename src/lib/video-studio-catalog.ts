@@ -1,4 +1,6 @@
 import type { InsertCategory, InsertVisualOptions, InsertAudioSettings, AudioSourceType, SceneFilterType, SceneMotionType } from "../types";
+import { BACKGROUND_MUSIC_TRACKS, SOUND_LIBRARY, STICKERS_3D } from "../data/media-library";
+import { REAL_FILTER_PRESETS } from "../data/filters-library";
 
 export interface CatalogItem {
   type: string;
@@ -11,11 +13,13 @@ export interface CatalogItem {
   defaultSize: number;
   defaultAudioSource?: AudioSourceType;
   subCategory?: string;
+  videoUrl?: string;
   defaultVisualOptions?: InsertVisualOptions;
   defaultAudioSettings?: InsertAudioSettings;
   defaultContent?: {
     primaryText?: string;
     secondaryText?: string;
+    badgeText?: string;
     book?: string;
     chapter?: string;
     verse?: string;
@@ -23,11 +27,25 @@ export interface CatalogItem {
     number?: string;
     label?: string;
     items?: string[];
+    includeLogo?: boolean;
+    showLogo?: boolean;
+    videoUrl?: string;
+    imageUrl?: string;
+    logoUrl?: string;
+    logoScale?: number;
+    logoPosition?: "center" | "top" | "side";
+    tensionStyle?: "countdown" | "flash" | "pulse" | "glitch" | "aperture" | "shimmer" | "warp" | "flare";
+    countdownSeconds?: number;
+    soundUrl?: string;
+    soundVolume?: number;
+    reference?: string;
+    scriptureText?: string;
+    version?: string;
   };
 }
 
-// ---------------- 5 MAIN STUDIO CATEGORIES IN EXACT REQUIRED ORDER ----------------
-// 1. Logo, 2. Call to Action, 3. Stickers, 4. Text Content, 5. Audio Visualisers
+// ---------------- 10 MAIN STUDIO CATEGORIES IN EXACT REQUIRED ORDER ----------------
+// 1. Logo, 2. Intro, 3. Outro, 4. Call to Action, 5. Stickers, 6. Text Templates, 7. Audio Visualisers, 8. Background Music, 9. Filters, 10. Sound Effects
 export interface StudioCategoryDef {
   id: InsertCategory;
   name: string;
@@ -44,21 +62,44 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
     description: "Upload and place your official brand logo watermark on the video",
   },
   {
+    id: "intro",
+    name: "Intro",
+    icon: "🎬",
+    description: "Short cinematic video intros with dynamic reveal effects and place for your brand logo",
+    subcategories: [
+      { id: "all", name: "All Intros", icon: "🎬" },
+      { id: "cinematic", name: "Cinematic & Gold", icon: "✨" },
+      { id: "modern", name: "Modern & Tech", icon: "⚡" },
+    ],
+  },
+  {
+    id: "outro",
+    name: "Outro",
+    icon: "🏁",
+    description: "Engaging end-screen video outros with social handles, subscribe rings, and brand logo",
+    subcategories: [
+      { id: "all", name: "All Outros", icon: "🏁" },
+      { id: "youtube", name: "YouTube End-Screens", icon: "📺" },
+      { id: "social", name: "Social & Stream", icon: "📱" },
+    ],
+  },
+  {
     id: "call_to_action",
     name: "Call to Action",
     icon: "📣",
-    description: "Subscribe buttons, follow badges, like & share callouts, and shop banners",
+    description: "Modern redesigned subscribe bars, follow badges, shop callouts, and interactive engagement pills",
     subcategories: [
       { id: "all", name: "All CTAs", icon: "📣" },
       { id: "social", name: "Social & Subscribe", icon: "🔔" },
       { id: "action", name: "Shop & Links", icon: "🛍️" },
+      { id: "community", name: "Community & App", icon: "⭐" },
     ],
   },
   {
     id: "stickers",
     name: "Stickers",
     icon: "✨",
-    description: "3D animated stickers, badges, trophies, emojis, and visual reactions with sound FX",
+    description: "High-definition 3D animated stickers, badges, trophies, emojis, and visual reactions",
     subcategories: [
       { id: "all", name: "All Stickers", icon: "✨" },
       { id: "reactions", name: "Reactions & Badges", icon: "⭐" },
@@ -66,27 +107,61 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
     ],
   },
   {
-    id: "content_cards",
-    name: "Text Content",
+    id: "text_templates",
+    name: "Text Templates",
     icon: "📜",
-    description: "Lower thirds, title cards, quotes, scriptures, and educational information frames",
+    description: "Dedicated text templates for Scriptures, Quotes, Lower Thirds, Facts, and Key Lessons",
     subcategories: [
-      { id: "all", name: "All Text Content", icon: "📜" },
-      { id: "lower_third", name: "Lower Thirds & Titles", icon: "👤" },
-      { id: "quotes_scripture", name: "Quotes & Scripture", icon: "💬" },
-      { id: "info_cards", name: "Facts & Lessons", icon: "💡" },
+      { id: "all", name: "All Templates", icon: "📜" },
+      { id: "scripture", name: "Holy Scripture", icon: "📖" },
+      { id: "quotes", name: "Quotes & Titles", icon: "💬" },
+      { id: "lessons", name: "Facts & Lessons", icon: "💡" },
     ],
   },
   {
     id: "audio_visualizers",
     name: "Audio Visualisers",
     icon: "📊",
-    description: "Waveforms, frequency bars, speech-reactive meters, and relaxation zen pulses",
+    description: "Waveforms, real-time oscilloscopes, frequency bars, and speech-reactive meters",
     subcategories: [
       { id: "all", name: "All Visualisers", icon: "📊" },
       { id: "waves", name: "Audio Waves & Bars", icon: "〰️" },
       { id: "speech", name: "Speech Reactive", icon: "🎙️" },
-      { id: "zen", name: "Relaxation / Zen", icon: "🧘" },
+    ],
+  },
+  {
+    id: "background_music",
+    name: "Background Music",
+    icon: "🎵",
+    description: "10 soft, relaxing background music tracks (no singing). Selecting a track auto-adds credit to project",
+    subcategories: [
+      { id: "all", name: "All Tracks", icon: "🎵" },
+      { id: "piano", name: "Acoustic & Classical", icon: "🎹" },
+      { id: "ambient", name: "Zen & Atmospheric", icon: "🌿" },
+    ],
+  },
+  {
+    id: "filters",
+    name: "Filters",
+    icon: "🎨",
+    description: "26 visible real scene filters. Preview and apply to individual scenes or all scenes in project",
+    subcategories: [
+      { id: "all", name: "All Filters (26)", icon: "🎨" },
+      { id: "cinematic", name: "Cinematic Film", icon: "🎞️" },
+      { id: "vintage", name: "Vintage & VHS", icon: "📼" },
+      { id: "atmosphere", name: "Warm & Cold Glow", icon: "✨" },
+    ],
+  },
+  {
+    id: "sound_effects",
+    name: "Sound Effects",
+    icon: "🔊",
+    description: "Standalone sound effects and foley. Listen to preview and place directly on the timeline",
+    subcategories: [
+      { id: "all", name: "All Sounds", icon: "🔊" },
+      { id: "ui", name: "Bells & UI Chimes", icon: "🔔" },
+      { id: "impact", name: "Whooshes & Pops", icon: "💥" },
+      { id: "foley", name: "Camera & Applause", icon: "👏" },
     ],
   },
 ];
@@ -107,6 +182,339 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
     },
   ],
 
+  intro: [
+    {
+      type: "intro_cinematic_gold",
+      category: "intro",
+      subCategory: "cinematic",
+      name: "3D Golden Flare Logo Reveal",
+      icon: "✨",
+      description: "Dramatic cinematic gold lens flare burst with floating particles, customer logo watermark reveal, and elegant title",
+      defaultDuration: 4.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      videoUrl: "/videos/intros/intro_cinematic_gold.mp4",
+      defaultContent: {
+        primaryText: "YOUR BRAND",
+        secondaryText: "Presents An Original Story",
+        badgeText: "SPECIAL PRESENTATION",
+        includeLogo: true,
+        showLogo: true,
+        tensionStyle: "flare",
+        soundUrl: "/sounds/dramatic_chord.ogg",
+        soundVolume: 0.85,
+        logoPosition: "center",
+        logoScale: 1.0,
+      },
+      defaultVisualOptions: {
+        primaryColor: "#eab308",
+        secondaryColor: "#f59e0b",
+        has3DLook: true,
+        animationPreset: "pop_in",
+      },
+      defaultAudioSettings: {
+        soundUrl: "/sounds/dramatic_chord.ogg",
+        volume: 0.85,
+      },
+    },
+    {
+      type: "intro_cyber_glitch",
+      category: "intro",
+      subCategory: "modern",
+      name: "Cyber Matrix & Digital Glitch",
+      icon: "⚡",
+      description: "High-voltage cyberpunk grid with RGB chromatic aberration pulse, rising digital whoosh, and glowing brand logo",
+      defaultDuration: 4.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      videoUrl: "/videos/intros/intro_cyber_glitch.mp4",
+      defaultContent: {
+        primaryText: "CYBERPUNK MEDIA",
+        secondaryText: "Next-Gen Visual Experience",
+        badgeText: "OFFICIAL PREVIEW",
+        includeLogo: true,
+        showLogo: true,
+        tensionStyle: "glitch",
+        soundUrl: "/sounds/whoosh_appear.wav",
+        soundVolume: 0.8,
+        logoPosition: "center",
+        logoScale: 1.0,
+      },
+      defaultVisualOptions: {
+        primaryColor: "#06b6d4",
+        secondaryColor: "#ec4899",
+        has3DLook: true,
+      },
+      defaultAudioSettings: {
+        soundUrl: "/sounds/whoosh_appear.wav",
+        volume: 0.8,
+      },
+    },
+    {
+      type: "intro_cosmic_warp",
+      category: "intro",
+      subCategory: "cinematic",
+      name: "Cosmic Nebula Warp Speed",
+      icon: "🌌",
+      description: "Warp-speed stellar flight rushing through glowing purple-cyan nebula with celestial tension chime and logo reveal",
+      defaultDuration: 4.5,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      videoUrl: "/videos/intros/intro_cosmic_warp.mp4",
+      defaultContent: {
+        primaryText: "HORIZON LABS",
+        secondaryText: "Beyond Boundaries & Frontiers",
+        badgeText: "DEEP SPACE SERIES",
+        includeLogo: true,
+        showLogo: true,
+        tensionStyle: "warp",
+        soundUrl: "/sounds/chime.ogg",
+        soundVolume: 0.85,
+        logoPosition: "center",
+        logoScale: 1.0,
+      },
+      defaultVisualOptions: {
+        primaryColor: "#a855f7",
+        secondaryColor: "#38bdf8",
+        has3DLook: true,
+      },
+      defaultAudioSettings: {
+        soundUrl: "/sounds/chime.ogg",
+        volume: 0.85,
+      },
+    },
+    {
+      type: "intro_action_countdown",
+      category: "intro",
+      subCategory: "modern",
+      name: "Action 3-2-1 Tension Countdown",
+      icon: "⏱️",
+      description: "High-impact circular countdown gauge with mechanical tension pulse, heartbeat riser, and dramatic explosive reveal",
+      defaultDuration: 4.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      videoUrl: "/videos/intros/intro_action_countdown.mp4",
+      defaultContent: {
+        primaryText: "GET READY",
+        secondaryText: "The Story Begins In 3 Seconds",
+        badgeText: "COUNTDOWN TENSION",
+        includeLogo: true,
+        showLogo: true,
+        tensionStyle: "countdown",
+        countdownSeconds: 3,
+        soundUrl: "/sounds/achievement_bell.wav",
+        soundVolume: 0.85,
+        logoPosition: "center",
+        logoScale: 1.0,
+      },
+      defaultVisualOptions: {
+        primaryColor: "#ef4444",
+        secondaryColor: "#b91c1c",
+        has3DLook: true,
+      },
+      defaultAudioSettings: {
+        soundUrl: "/sounds/achievement_bell.wav",
+        volume: 0.85,
+      },
+    },
+    {
+      type: "intro_minimalist_aperture",
+      category: "intro",
+      subCategory: "modern",
+      name: "Studio Lens Aperture Reveal",
+      icon: "📷",
+      description: "Sharp camera aperture shutter geometric blades expanding into sleek brand spotlight with camera shutter sound",
+      defaultDuration: 3.5,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      videoUrl: "/videos/intros/intro_minimalist_aperture.mp4",
+      defaultContent: {
+        primaryText: "STUDIO PRODUCTION",
+        secondaryText: "Official Feature Presentation",
+        badgeText: "STUDIO 4K",
+        includeLogo: true,
+        showLogo: true,
+        tensionStyle: "aperture",
+        soundUrl: "/sounds/shutter_click.ogg",
+        soundVolume: 0.8,
+        logoPosition: "center",
+        logoScale: 1.0,
+      },
+      defaultVisualOptions: {
+        primaryColor: "#38bdf8",
+        secondaryColor: "#0284c7",
+        has3DLook: true,
+      },
+      defaultAudioSettings: {
+        soundUrl: "/sounds/shutter_click.ogg",
+        volume: 0.8,
+      },
+    },
+  ],
+
+  outro: [
+    {
+      type: "outro_youtube_subscribe",
+      category: "outro",
+      subCategory: "youtube",
+      name: "YouTube End-Screen & Subscribe Hub",
+      icon: "📺",
+      description: "Professional YouTube end-slate with 2 video frames ('Watch Next'), pulsing brand logo ring, and SUBSCRIBE button",
+      defaultDuration: 6.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      videoUrl: "/videos/outros/outro_youtube_subscribe.mp4",
+      defaultContent: {
+        primaryText: "THANKS FOR WATCHING!",
+        secondaryText: "Subscribe for new stories every week",
+        badgeText: "OFFICIAL CHANNEL",
+        includeLogo: true,
+        showLogo: true,
+        soundUrl: "/sounds/achievement_bell.wav",
+        soundVolume: 0.8,
+        logoPosition: "center",
+        logoScale: 1.0,
+      },
+      defaultVisualOptions: {
+        primaryColor: "#ef4444",
+        secondaryColor: "#b91c1c",
+        has3DLook: true,
+      },
+      defaultAudioSettings: {
+        soundUrl: "/sounds/achievement_bell.wav",
+        volume: 0.8,
+      },
+    },
+    {
+      type: "outro_cinematic_sunset",
+      category: "outro",
+      subCategory: "social",
+      name: "Cinematic Sunset & Social Hub",
+      icon: "🌅",
+      description: "Warm golden twilight gradient with floating bokeh embers, elegant credit frame, and social handles showcase",
+      defaultDuration: 6.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      videoUrl: "/videos/outros/outro_cinematic_sunset.mp4",
+      defaultContent: {
+        primaryText: "CONNECT WITH US",
+        secondaryText: "@sceneringstudio on all platforms",
+        badgeText: "COMMUNITY HUB",
+        includeLogo: true,
+        showLogo: true,
+        soundUrl: "/sounds/solitude_reflection.wav",
+        soundVolume: 0.75,
+        logoPosition: "center",
+        logoScale: 1.0,
+      },
+      defaultVisualOptions: {
+        primaryColor: "#f59e0b",
+        secondaryColor: "#d97706",
+        has3DLook: true,
+      },
+      defaultAudioSettings: {
+        soundUrl: "/sounds/solitude_reflection.wav",
+        volume: 0.75,
+      },
+    },
+    {
+      type: "outro_cyber_matrix",
+      category: "outro",
+      subCategory: "youtube",
+      name: "Cyber Grid & Next Video Teaser",
+      icon: "⚡",
+      description: "Futuristic neon geometric grid with dual video preview cards, glowing countdown ring, and subscribe prompt",
+      defaultDuration: 5.5,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      videoUrl: "/videos/outros/outro_cyber_matrix.mp4",
+      defaultContent: {
+        primaryText: "WATCH NEXT EPISODE",
+        secondaryText: "Tap the screen to continue exploring",
+        badgeText: "AUTO-PLAY NEXT",
+        includeLogo: true,
+        showLogo: true,
+        soundUrl: "/sounds/retro_fx.mp3",
+        soundVolume: 0.8,
+        logoPosition: "center",
+        logoScale: 1.0,
+      },
+      defaultVisualOptions: {
+        primaryColor: "#0284c7",
+        secondaryColor: "#6366f1",
+        has3DLook: true,
+      },
+      defaultAudioSettings: {
+        soundUrl: "/sounds/retro_fx.mp3",
+        volume: 0.8,
+      },
+    },
+    {
+      type: "outro_gold_farewell",
+      category: "outro",
+      subCategory: "cinematic",
+      name: "Golden Shimmer & Thank You Card",
+      icon: "👑",
+      description: "Opulent golden curtain with glittering farewell particles, channel watermark badge, and official website URL",
+      defaultDuration: 5.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      videoUrl: "/videos/outros/outro_gold_farewell.mp4",
+      defaultContent: {
+        primaryText: "WWW.SCENERING.APP",
+        secondaryText: "Thank You For Being Part Of Our Journey",
+        badgeText: "OFFICIAL RELEASE",
+        includeLogo: true,
+        showLogo: true,
+        soundUrl: "/sounds/chime.ogg",
+        soundVolume: 0.85,
+        logoPosition: "center",
+        logoScale: 1.0,
+      },
+      defaultVisualOptions: {
+        primaryColor: "#fbbf24",
+        secondaryColor: "#d97706",
+        has3DLook: true,
+      },
+      defaultAudioSettings: {
+        soundUrl: "/sounds/chime.ogg",
+        volume: 0.85,
+      },
+    },
+    {
+      type: "outro_minimal_clean",
+      category: "outro",
+      subCategory: "modern",
+      name: "Minimalist Studio Clean End Card",
+      icon: "✨",
+      description: "Sleek obsidian slate backdrop with verified brand logo pedestal, clean follow links, and notification bell",
+      defaultDuration: 5.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      videoUrl: "/videos/outros/outro_minimal_clean.mp4",
+      defaultContent: {
+        primaryText: "SCENERING PRODUCTIONS",
+        secondaryText: "Like, Share & Subscribe for Weekly Releases",
+        badgeText: "SUBSCRIBE",
+        includeLogo: true,
+        showLogo: true,
+        soundUrl: "/sounds/achievement_bell.wav",
+        soundVolume: 0.8,
+        logoPosition: "center",
+        logoScale: 1.0,
+      },
+      defaultVisualOptions: {
+        primaryColor: "#38bdf8",
+        secondaryColor: "#0284c7",
+        has3DLook: true,
+      },
+      defaultAudioSettings: {
+        soundUrl: "/sounds/achievement_bell.wav",
+        volume: 0.8,
+      },
+    },
+  ],
+
   call_to_action: [
     {
       type: "subscribe_cta",
@@ -118,8 +526,8 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultDuration: 4.5,
       defaultPosition: "bottom",
       defaultSize: 1.1,
-      defaultContent: { primaryText: "SUBSCRIBE" },
-      defaultVisualOptions: { has3DLook: true, animationPreset: "bounce" },
+      defaultContent: { primaryText: "SUBSCRIBE", secondaryText: "Hit the bell for new videos", label: "🔔" },
+      defaultVisualOptions: { has3DLook: true, animationPreset: "bounce", primaryColor: "#ef4444", secondaryColor: "#b91c1c" },
       defaultAudioSettings: { soundUrl: "/sounds/ting.ogg", soundName: "Ting Bell", volume: 0.8 },
     },
     {
@@ -132,8 +540,8 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultDuration: 4.0,
       defaultPosition: "bottom-left",
       defaultSize: 1.0,
-      defaultContent: { primaryText: "FOLLOW FOR MORE" },
-      defaultVisualOptions: { has3DLook: true, animationPreset: "pop_in" },
+      defaultContent: { primaryText: "FOLLOW FOR MORE", secondaryText: "Daily creative tips & tricks", label: "✨" },
+      defaultVisualOptions: { has3DLook: true, animationPreset: "pop_in", primaryColor: "#0284c7", secondaryColor: "#0369a1" },
     },
     {
       type: "like_share_cta",
@@ -145,8 +553,8 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultDuration: 4.0,
       defaultPosition: "bottom-right",
       defaultSize: 1.0,
-      defaultContent: { primaryText: "LIKE & SHARE" },
-      defaultVisualOptions: { has3DLook: true, animationPreset: "bounce" },
+      defaultContent: { primaryText: "LIKE & SHARE", secondaryText: "Share with a friend who needs this", label: "👍" },
+      defaultVisualOptions: { has3DLook: true, animationPreset: "bounce", primaryColor: "#6366f1", secondaryColor: "#4f46e5" },
       defaultAudioSettings: { soundUrl: "/sounds/jump_pop.wav", soundName: "Jump Pop", volume: 0.75 },
     },
     {
@@ -159,8 +567,8 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultDuration: 5.0,
       defaultPosition: "bottom",
       defaultSize: 1.0,
-      defaultContent: { primaryText: "SHOP NOW — 20% OFF" },
-      defaultVisualOptions: { has3DLook: true, animationPreset: "pop_in" },
+      defaultContent: { primaryText: "SHOP NOW — 20% OFF", secondaryText: "Limited time seasonal offer", label: "🛍️" },
+      defaultVisualOptions: { has3DLook: true, animationPreset: "pop_in", primaryColor: "#10b981", secondaryColor: "#047857" },
       defaultAudioSettings: { soundUrl: "/sounds/ting.ogg", soundName: "Ting Bell", volume: 0.8 },
     },
     {
@@ -173,8 +581,63 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultDuration: 5.0,
       defaultPosition: "bottom",
       defaultSize: 1.0,
-      defaultContent: { primaryText: "LINK IN DESCRIPTION" },
-      defaultVisualOptions: { has3DLook: true, animationPreset: "pop_in" },
+      defaultContent: { primaryText: "LINK IN DESCRIPTION", secondaryText: "Click below for full details", label: "🔗" },
+      defaultVisualOptions: { has3DLook: true, animationPreset: "pop_in", primaryColor: "#38bdf8", secondaryColor: "#0284c7" },
+    },
+    {
+      type: "download_app_cta",
+      category: "call_to_action",
+      subCategory: "action",
+      name: "Download Mobile App",
+      icon: "📱",
+      description: "Sleek card inviting viewers to download your app on iOS & Android",
+      defaultDuration: 5.0,
+      defaultPosition: "bottom",
+      defaultSize: 1.0,
+      defaultContent: { primaryText: "DOWNLOAD FREE APP", secondaryText: "Available on App Store & Google Play", label: "📱" },
+      defaultVisualOptions: { has3DLook: true, animationPreset: "pop_in", primaryColor: "#8b5cf6", secondaryColor: "#6d28d9" },
+      defaultAudioSettings: { soundUrl: "/sounds/ting.ogg", soundName: "Ting Bell", volume: 0.8 },
+    },
+    {
+      type: "comment_cta",
+      category: "call_to_action",
+      subCategory: "social",
+      name: "Leave a Comment Callout",
+      icon: "💬",
+      description: "Engaging prompt encouraging viewers to drop their thoughts in the comments",
+      defaultDuration: 4.5,
+      defaultPosition: "bottom",
+      defaultSize: 1.0,
+      defaultContent: { primaryText: "DROP YOUR THOUGHTS", secondaryText: "What do you think? Comment below!", label: "💬" },
+      defaultVisualOptions: { has3DLook: true, animationPreset: "bounce", primaryColor: "#f59e0b", secondaryColor: "#d97706" },
+      defaultAudioSettings: { soundUrl: "/sounds/jump_pop.wav", soundName: "Jump Pop", volume: 0.75 },
+    },
+    {
+      type: "save_post_cta",
+      category: "call_to_action",
+      subCategory: "social",
+      name: "Save & Bookmark Badge",
+      icon: "🔖",
+      description: "Reminder pill prompting viewers to bookmark this video for later reference",
+      defaultDuration: 4.0,
+      defaultPosition: "bottom-right",
+      defaultSize: 1.0,
+      defaultContent: { primaryText: "SAVE FOR LATER", secondaryText: "Bookmark so you don't lose it", label: "🔖" },
+      defaultVisualOptions: { has3DLook: true, animationPreset: "pop_in", primaryColor: "#ec4899", secondaryColor: "#be185d" },
+    },
+    {
+      type: "join_community_cta",
+      category: "call_to_action",
+      subCategory: "social",
+      name: "Join VIP Community / Discord",
+      icon: "⭐",
+      description: "Glowing banner inviting viewers to join your private community or group",
+      defaultDuration: 5.0,
+      defaultPosition: "bottom",
+      defaultSize: 1.0,
+      defaultContent: { primaryText: "JOIN OUR COMMUNITY", secondaryText: "Exclusive perks, Q&A, and updates", label: "⭐" },
+      defaultVisualOptions: { has3DLook: true, animationPreset: "pop_in", primaryColor: "#eab308", secondaryColor: "#ca8a04" },
+      defaultAudioSettings: { soundUrl: "/sounds/ting.ogg", soundName: "Ting Bell", volume: 0.8 },
     },
     {
       type: "cta",
@@ -182,11 +645,12 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "action",
       name: "Full Call-to-Action Card",
       icon: "🚀",
-      description: "Direct invitation frame encouraging viewers to take action",
+      description: "Direct invitation frame encouraging viewers to take action immediately",
       defaultDuration: 5.0,
       defaultPosition: "bottom",
       defaultSize: 1.0,
-      defaultContent: { label: "GET STARTED", primaryText: "Visit our site for the full checklist" },
+      defaultContent: { primaryText: "GET STARTED TODAY", secondaryText: "Visit our site for the full checklist", label: "🚀" },
+      defaultVisualOptions: { has3DLook: true, animationPreset: "bounce", primaryColor: "#6366f1", secondaryColor: "#4338ca" },
     },
   ],
 
@@ -202,7 +666,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "top-left",
       defaultSize: 1.0,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/star_3d.svg", animationPreset: "pop_in" },
-      defaultAudioSettings: { soundUrl: "/sounds/ting.ogg", soundName: "Ting Bell Chime", volume: 0.8 },
     },
     {
       type: "heart",
@@ -215,7 +678,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "center",
       defaultSize: 1.0,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/heart_3d.svg", animationPreset: "pulse" },
-      defaultAudioSettings: { soundUrl: "/sounds/jump_pop.wav", soundName: "Jump Pop", volume: 0.75 },
     },
     {
       type: "emoji_fire",
@@ -228,7 +690,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "top-right",
       defaultSize: 1.0,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/fire_3d.svg", animationPreset: "float_3d" },
-      defaultAudioSettings: { soundUrl: "/sounds/whoosh_appear.wav", soundName: "Whoosh Appear", volume: 0.8 },
     },
     {
       type: "bell",
@@ -241,7 +702,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "top-right",
       defaultSize: 1.0,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/bell_3d.svg", animationPreset: "bounce" },
-      defaultAudioSettings: { soundUrl: "/sounds/bicycle_bell.ogg", soundName: "Ding-Dong Bell", volume: 0.85 },
     },
     {
       type: "check",
@@ -254,7 +714,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "top-right",
       defaultSize: 1.0,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/verified_3d.svg", animationPreset: "pop_in" },
-      defaultAudioSettings: { soundUrl: "/sounds/achievement_bell.wav", soundName: "Achievement Bell", volume: 0.8 },
     },
     {
       type: "trophy",
@@ -267,7 +726,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "center",
       defaultSize: 1.1,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/trophy_3d.svg", animationPreset: "bounce" },
-      defaultAudioSettings: { soundUrl: "/sounds/applause.ogg", soundName: "Audience Applause", volume: 0.85 },
     },
     {
       type: "sparkle",
@@ -280,7 +738,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "top-left",
       defaultSize: 1.0,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/sparkle_3d.svg", animationPreset: "spin" },
-      defaultAudioSettings: { soundUrl: "/sounds/ting.ogg", soundName: "Ting Bell", volume: 0.75 },
     },
     {
       type: "trending",
@@ -293,7 +750,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "bottom-left",
       defaultSize: 1.1,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/trending_3d.svg", animationPreset: "float_3d" },
-      defaultAudioSettings: { soundUrl: "/sounds/whoosh_appear.wav", soundName: "Whoosh Appear", volume: 0.85 },
     },
     {
       type: "camera",
@@ -306,7 +762,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "center",
       defaultSize: 1.0,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/camera_3d.svg", animationPreset: "pop_in" },
-      defaultAudioSettings: { soundUrl: "/sounds/camera_shutter.ogg", soundName: "Camera Shutter", volume: 0.9 },
     },
     {
       type: "like",
@@ -319,7 +774,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "bottom-right",
       defaultSize: 1.0,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/thumbsup_3d.svg", animationPreset: "bounce" },
-      defaultAudioSettings: { soundUrl: "/sounds/jump_pop.wav", soundName: "Jump Pop", volume: 0.8 },
     },
     {
       type: "play",
@@ -332,7 +786,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "center",
       defaultSize: 1.0,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/play_3d.svg", animationPreset: "pulse" },
-      defaultAudioSettings: { soundUrl: "/sounds/ui_beep.ogg", soundName: "UI Beep", volume: 0.7 },
     },
     {
       type: "money",
@@ -345,7 +798,6 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultPosition: "bottom-right",
       defaultSize: 1.0,
       defaultVisualOptions: { has3DLook: true, assetUrl: "/stickers/money_3d.svg", animationPreset: "bounce" },
-      defaultAudioSettings: { soundUrl: "/sounds/ting.ogg", soundName: "Ting Bell", volume: 0.8 },
     },
   ],
 
@@ -504,7 +956,19 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "waves",
       name: "Dynamic Acoustic Waveform",
       icon: "〰️",
-      description: "Smooth continuous acoustic wave placed still on screen, reacts to voice or music",
+      description: "Smooth continuous 3D acoustic wave spanning the scene, reacts dynamically to voice or music",
+      defaultDuration: 8.0,
+      defaultPosition: "bottom",
+      defaultSize: 1.0,
+      defaultAudioSource: "voice",
+    },
+    {
+      type: "oscilloscope",
+      category: "audio_visualizers",
+      subCategory: "waves",
+      name: "CRT Studio Oscilloscope",
+      icon: "⚡",
+      description: "Authentic electronic oscilloscope trace with realistic vocal harmonics, beam phosphor glow, and sync sweep",
       defaultDuration: 8.0,
       defaultPosition: "bottom",
       defaultSize: 1.0,
@@ -516,7 +980,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "waves",
       name: "Mirror Waveform",
       icon: "🪞",
-      description: "Symmetrical dual wave oscillating from center, static position",
+      description: "Symmetrical 3D dual wave oscillating across entire scene with vibrant gradients",
       defaultDuration: 8.0,
       defaultPosition: "bottom",
       defaultSize: 1.0,
@@ -528,7 +992,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "waves",
       name: "Studio Equalizer Bars",
       icon: "📶",
-      description: "Multi-frequency studio level bars reacting dynamically to audio",
+      description: "Multi-frequency 3D studio level bars with glowing peak LEDs stretching across the scene",
       defaultDuration: 8.0,
       defaultPosition: "bottom",
       defaultSize: 1.0,
@@ -540,7 +1004,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "waves",
       name: "Circular Frequency Wave",
       icon: "⭕",
-      description: "Orbital pulsating circular sound wave anchored in place",
+      description: "Orbital sound wave with 3D radial frequency bars radiating outward all around the circle",
       defaultDuration: 8.0,
       defaultPosition: "center",
       defaultSize: 1.0,
@@ -552,7 +1016,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "waves",
       name: "Spectrum Visualizer",
       icon: "🌈",
-      description: "Full spectrum colored sound analyzer bars",
+      description: "Full spectrum 3D colored sound analyzer bars stretching across the entire scene",
       defaultDuration: 8.0,
       defaultPosition: "bottom",
       defaultSize: 1.0,
@@ -565,7 +1029,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "speech",
       name: "Speech Formant Spectrum",
       icon: "🎙️",
-      description: "Vocal formant frequency bars connected directly to voiceover speech",
+      description: "Vocal formant frequency bars connected directly to voiceover speech across the scene",
       defaultDuration: 8.0,
       defaultPosition: "bottom",
       defaultSize: 0.9,
@@ -577,7 +1041,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "speech",
       name: "Voice Dialogue Pulse",
       icon: "🔊",
-      description: "Concentric ring pulse reacting strictly to speech syllables",
+      description: "Concentric 3D pulsating rings reacting strictly to speech syllables",
       defaultDuration: 6.0,
       defaultPosition: "center",
       defaultSize: 1.0,
@@ -589,7 +1053,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "speech",
       name: "Energy Speech Ring",
       icon: "💍",
-      description: "Luminous glowing ring that expands during speech vocalization",
+      description: "Luminous 3D glowing ring that expands and radiates during speech vocalization",
       defaultDuration: 6.0,
       defaultPosition: "center",
       defaultSize: 1.0,
@@ -601,56 +1065,224 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "speech",
       name: "Minimal Talking Dots",
       icon: "🗣️",
-      description: "Three modern talking dots that dance when vocalizing, still in idle",
+      description: "Four modern AI talking dots with 3D spheres that bounce and stretch into pills when vocalizing",
       defaultDuration: 6.0,
       defaultPosition: "bottom-right",
       defaultSize: 0.8,
       defaultAudioSource: "voice",
     },
-    // Subcategory: zen
+  ],
+
+  text_templates: [
     {
-      type: "breathing_circle",
-      category: "audio_visualizers",
-      subCategory: "zen",
-      name: "Meditation Breathing Circle",
-      icon: "🧘",
-      description: "Calm 4-second inhale / 4-second exhale guided pacing circle",
-      defaultDuration: 10.0,
+      type: "template_scripture",
+      category: "text_templates",
+      subCategory: "scripture",
+      name: "Holy Scripture Verse Card",
+      icon: "📖",
+      description: "Dedicated spiritual scripture template with dedicated reference field, translation version, paste scripture text, and sacred gold accents",
+      defaultDuration: 7.0,
       defaultPosition: "center",
       defaultSize: 1.0,
-      defaultAudioSource: "music",
+      defaultContent: {
+        label: "HOLY SCRIPTURE",
+        primaryText: "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.",
+        book: "John",
+        chapter: "3",
+        verse: "16",
+        secondaryText: "King James Version (KJV)",
+      },
+      defaultVisualOptions: {
+        primaryColor: "#f59e0b",
+        secondaryColor: "#78350f",
+        has3DLook: true,
+        animationPreset: "pop_in",
+      },
     },
     {
-      type: "gentle_wave",
-      category: "audio_visualizers",
-      subCategory: "zen",
-      name: "Gentle Zen Wave",
-      icon: "🌊",
-      description: "Slow undulating peaceful gradient waves",
-      defaultDuration: 10.0,
+      type: "template_quote",
+      category: "text_templates",
+      subCategory: "quotes",
+      name: "Inspirational Quote Frame",
+      icon: "💬",
+      description: "Editorial quote template with prominent quotation marks, quotation text field, author attribution, and source",
+      defaultDuration: 5.5,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      defaultContent: {
+        primaryText: "The only limit to our realization of tomorrow is our doubts of today.",
+        author: "Franklin D. Roosevelt",
+        secondaryText: "32nd U.S. President",
+        label: "WORDS OF WISDOM",
+      },
+      defaultVisualOptions: {
+        primaryColor: "#38bdf8",
+        secondaryColor: "#0369a1",
+        has3DLook: true,
+      },
+    },
+    {
+      type: "template_lower_third",
+      category: "text_templates",
+      subCategory: "quotes",
+      name: "Speaker & Guest Lower-Third",
+      icon: "👤",
+      description: "Broadcasting lower-third bar with speaker full name, official title, and handle tag",
+      defaultDuration: 4.5,
+      defaultPosition: "bottom-left",
+      defaultSize: 1.0,
+      defaultContent: {
+        primaryText: "Dr. Elizabeth Vance",
+        secondaryText: "Lead Astrobiologist & Research Fellow",
+        label: "FEATURED SPEAKER",
+      },
+      defaultVisualOptions: {
+        primaryColor: "#6366f1",
+        secondaryColor: "#4338ca",
+        has3DLook: true,
+      },
+    },
+    {
+      type: "template_key_takeaway",
+      category: "text_templates",
+      subCategory: "lessons",
+      name: "Key Insight & Takeaway Card",
+      icon: "💡",
+      description: "Bold lesson highlight frame showcasing the core concept or moral lesson from the scene",
+      defaultDuration: 5.0,
       defaultPosition: "bottom",
       defaultSize: 1.0,
-      defaultAudioSource: "music",
+      defaultContent: {
+        label: "KEY TAKEAWAY",
+        primaryText: "Consistency compounds faster than occasional intensity.",
+        secondaryText: "Small daily actions yield monumental long-term transformation.",
+      },
+      defaultVisualOptions: {
+        primaryColor: "#10b981",
+        secondaryColor: "#047857",
+        has3DLook: true,
+      },
     },
     {
-      type: "water_ripple",
-      category: "audio_visualizers",
-      subCategory: "zen",
-      name: "Water Ripple Reflection",
-      icon: "💧",
-      description: "Serene concentric ripples on calm water surface",
-      defaultDuration: 8.0,
+      type: "template_did_you_know",
+      category: "text_templates",
+      subCategory: "lessons",
+      name: "Did You Know? Fact Card",
+      icon: "🧠",
+      description: "Attention-grabbing trivia callout card with question header and verified explanation text",
+      defaultDuration: 5.5,
+      defaultPosition: "top",
+      defaultSize: 1.0,
+      defaultContent: {
+        label: "DID YOU KNOW?",
+        primaryText: "Honey found in ancient Egyptian tombs is still perfectly edible after 3,000 years.",
+        secondaryText: "Archaeologists routinely uncover intact honey pots that remain unspoiled.",
+      },
+      defaultVisualOptions: {
+        primaryColor: "#ec4899",
+        secondaryColor: "#be185d",
+        has3DLook: true,
+      },
+    },
+    {
+      type: "template_numbered_step",
+      category: "text_templates",
+      subCategory: "lessons",
+      name: "Numbered Action Step / Tip",
+      icon: "🎯",
+      description: "Structured step card with glowing 3D sequence badge, action instruction, and advice details",
+      defaultDuration: 5.0,
       defaultPosition: "center",
       defaultSize: 1.0,
-      defaultAudioSource: "music",
+      defaultContent: {
+        label: "ACTION STEP",
+        number: "01",
+        primaryText: "Calibrate your baseline and inspect all inputs thoroughly.",
+        secondaryText: "Double-check your workspace parameters before continuing.",
+      },
+      defaultVisualOptions: {
+        primaryColor: "#8b5cf6",
+        secondaryColor: "#6d28d9",
+        has3DLook: true,
+      },
     },
   ],
+
+  // Background Music tracks (soft relaxing instrumental tracks, no singing, auto credit)
+  background_music: BACKGROUND_MUSIC_TRACKS.map((t) => ({
+    type: `bgm_${t.id}`,
+    category: "background_music" as InsertCategory,
+    subCategory: t.genre.includes("Ambient") || t.genre.includes("Zen") ? "ambient" : "piano",
+    name: t.name,
+    icon: t.genre.includes("Piano") || t.genre.includes("Classical") ? "🎹" : "🌿",
+    description: `${t.genre} • ${Math.floor(t.duration / 60)}:${String(t.duration % 60).padStart(2, "0")} • License: Free / ${t.license}`,
+    defaultDuration: t.duration,
+    defaultPosition: "bottom" as const,
+    defaultSize: 1.0,
+    defaultAudioSettings: {
+      soundUrl: t.url,
+      soundName: t.name,
+      volume: 0.35,
+      loopAudio: true,
+    },
+    defaultContent: {
+      primaryText: t.name,
+      secondaryText: `${t.author} — ${t.creditText}`,
+      label: t.genre,
+    },
+  })),
+
+  // 26 Real Visual Filters
+  filters: REAL_FILTER_PRESETS.map((f) => ({
+    type: `filter_${f.id}`,
+    category: "filters" as InsertCategory,
+    subCategory: f.category,
+    name: f.name,
+    icon: f.category === "cinematic" ? "🎞️" : f.category === "vintage" ? "📼" : "✨",
+    description: `${f.desc} (${f.cssFilter})`,
+    defaultDuration: 30,
+    defaultPosition: "center" as const,
+    defaultSize: 1.0,
+    defaultVisualOptions: {
+      primaryColor: "#6366f1",
+      secondaryColor: "#38bdf8",
+    },
+    defaultContent: {
+      primaryText: f.name,
+      secondaryText: f.desc,
+      label: f.id,
+    },
+  })),
+
+  // Standalone Sound Effects
+  sound_effects: SOUND_LIBRARY.map((s) => ({
+    type: `sfx_${s.id}`,
+    category: "sound_effects" as InsertCategory,
+    subCategory: s.category === "bell" ? "ui" : s.category === "cinematic" ? "impact" : "foley",
+    name: s.name,
+    icon: s.category === "bell" ? "🔔" : s.category === "cinematic" ? "💥" : s.category === "ui" ? "✨" : "🔊",
+    description: `${s.category.toUpperCase()} • ${s.duration}s duration • Crisp royalty-free studio sound effect`,
+    defaultDuration: s.duration,
+    defaultPosition: "bottom" as const,
+    defaultSize: 1.0,
+    defaultAudioSettings: {
+      soundUrl: s.url,
+      soundName: s.name,
+      volume: 0.8,
+      loopAudio: false,
+    },
+    defaultContent: {
+      primaryText: s.name,
+      label: s.category,
+    },
+  })),
 };
 
 // Aliases for backwards compatibility with any existing items
 CATALOG_ITEMS.speech_reactive = CATALOG_ITEMS.audio_visualizers;
 CATALOG_ITEMS.meditation = CATALOG_ITEMS.audio_visualizers;
-CATALOG_ITEMS.other_cards = CATALOG_ITEMS.content_cards;
+CATALOG_ITEMS.content_cards = CATALOG_ITEMS.text_templates;
+CATALOG_ITEMS.other_cards = CATALOG_ITEMS.text_templates;
 CATALOG_ITEMS.branding = CATALOG_ITEMS.logo;
 
 export const SCENE_FILTERS: { id: SceneFilterType; name: string; desc: string }[] = [

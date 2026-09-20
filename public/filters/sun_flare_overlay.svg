@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" fill="none">
+  <!-- Volumetric Golden Sun Flare & Anamorphic Light Streak Overlay -->
+  <defs>
+    <!-- Radiant Sun Core -->
+    <radialGradient id="sunCore" cx="15%" cy="8%" r="45%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.85" />
+      <stop offset="15%" stop-color="#fef08a" stop-opacity="0.55" />
+      <stop offset="45%" stop-color="#f59e0b" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#d97706" stop-opacity="0" />
+    </radialGradient>
+    <!-- Diagonal Sunbeam Rays -->
+    <linearGradient id="sunbeam" x1="0" y1="0" x2="100%" y2="80%">
+      <stop offset="0%" stop-color="#fef08a" stop-opacity="0.3" />
+      <stop offset="30%" stop-color="#fbbf24" stop-opacity="0.18" />
+      <stop offset="70%" stop-color="#f97316" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </linearGradient>
+    <!-- Anamorphic Streak -->
+    <linearGradient id="anamorphicStreak" x1="0" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0" />
+      <stop offset="12%" stop-color="#67e8f9" stop-opacity="0.35" />
+      <stop offset="18%" stop-color="#ffffff" stop-opacity="0.75" />
+      <stop offset="24%" stop-color="#fef08a" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Diagonal Sunbeam Sheet -->
+  <rect width="1280" height="720" fill="url(#sunbeam)" />
+
+  <!-- Corner Sunburst -->
+  <rect width="1280" height="720" fill="url(#sunCore)" />
+
+  <!-- Horizontal Anamorphic Glare Line across the sun origin -->
+  <rect x="0" y="52" width="1280" height="8" fill="url(#anamorphicStreak)" />
+  <rect x="0" y="55" width="1280" height="2" fill="#ffffff" opacity="0.6" />
+
+  <!-- Secondary Ghost Flares (Hexagonal & Ring) -->
+  <circle cx="480" cy="280" r="48" fill="#f59e0b" opacity="0.1" />
+  <circle cx="720" cy="420" r="32" fill="#38bdf8" opacity="0.08" />
+  <circle cx="960" cy="560" r="70" fill="#fef08a" opacity="0.06" />
+</svg>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import ScriptInput from "./components/ScriptInput";
 import SceneEditor from "./components/SceneEditor";
 import VideoPreview from "./components/VideoPreview";
@@ -7,36 +7,106 @@ import ApiKeysModal from "./components/ApiKeysModal";
 import Timeline from "./components/Timeline";
 import VideoStudio from "./components/VideoStudio";
 import RenderView from "./components/RenderView";
-import VoiceoverStudio from "./components/VoiceoverStudio";
+import VoiceoverStudio, { STUDIO_VOICE_PRESETS } from "./components/VoiceoverStudio";
 import CaptionsStudio from "./components/CaptionsStudio";
+import SetupStudio from "./components/SetupStudio";
 import InsertPropertiesModal from "./components/InsertPropertiesModal";
 import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "./lib/api-keys";
-import type { Project, Scene, TimelineInsert, SceneFilterType, SceneMotionType, EditorStep, CustomerLogoConfig } from "./types";
+import {
+  calculateDynamicDuration,
+  calibrateTextToTargetDuration,
+  fitDurationToText,
+  countWords,
+  getTargetWordCount,
+} from "./lib/duration-utils";
+import type { Project, Scene, TimelineInsert, SceneFilterType, SceneMotionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
 
 type View = "create" | "editor";
 
+export interface ProjectSettings {
+  aspect_ratio: AspectRatioType;
+  resolution: ResolutionType;
+  pacing_mode: PacingModeType;
+  scene_duration: number;
+  motion_style: string;
+  selected_voice: string;
+  customer_logo: CustomerLogoConfig;
+  captions_config: CaptionsConfig;
+}
+
+export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
+  aspect_ratio: "16:9",
+  resolution: "1080p",
+  pacing_mode: "auto_speech",
+  scene_duration: 20,
+  motion_style: "dynamic",
+  selected_voice: "guy",
+  customer_logo: {
+    enabled: false,
+    url: "",
+    scale: 1.0,
+    opacity: 1.0,
+    margin: 20,
+  },
+  captions_config: {
+    enabled: true,
+    mode: "karaoke",
+    backgroundStyle: "blocked",
+    preset: "word_pop",
+    fontSize: "medium",
+    position: "bottom",
+    uppercase: true,
+    textColor: "#ffffff",
+    highlightColor: "#facc15",
+    bgColor: "rgba(0, 0, 0, 0.75)",
+  },
+};
+
 // Split script into scenes and generate image search queries
-function parseScript(script: string): { text: string; imageQuery: string }[] {
+function parseScript(script: string, targetDuration: number = 20): { text: string; imageQuery: string }[] {
+  // Split script into distinct scene segments
+  // Matches:
+  // 1. Double or multiple newlines (\n\s*\n+)
+  // 2. Lines starting with Scene markers: "Scene 1:", "[Scene 1]", "1.", "2)", etc. even on single newlines
   const segments = script
-    .split(/\n\n+|\n(?=\d+[\.\)]\s)/)
+    .split(/\n\s*\n+|\n+(?=(?:Scene\s*\d+|\[Scene\s*\d+\]|\d+[\.\)]\s))/i)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 
   let finalSegments = segments;
-  if (segments.length <= 1 && script.length > 100) {
-    const sentences = script.match(/[^.!?]+[.!?]+/g) || [script];
-    finalSegments = [];
-    for (let i = 0; i < sentences.length; i += 2) {
-      const chunk = sentences.slice(i, i + 2).join(" ").trim();
-      if (chunk) finalSegments.push(chunk);
+  const targetWords = getTargetWordCount(targetDuration);
+
+  // If there are no scene breaks or paragraph breaks at all, check if it's a massive block of continuous text
+  if (segments.length <= 1 && script.trim().length > 0) {
+    const totalWords = countWords(script);
+    // ONLY subdivide if the text is much longer than a single scene (> 1.6x target words, e.g. > 80 words for 20s)
+    if (totalWords > Math.floor(targetWords * 1.6)) {
+      const sentences = script.match(/[^.!?]+[.!?]+/g) || [script];
+      finalSegments = [];
+      let currentChunk = "";
+      for (const sent of sentences) {
+        const candidate = (currentChunk ? currentChunk + " " : "") + sent.trim();
+        if (countWords(candidate) >= targetWords - 3 && currentChunk.length > 0) {
+          finalSegments.push(currentChunk.trim());
+          currentChunk = sent.trim();
+        } else {
+          currentChunk = candidate;
+        }
+      }
+      if (currentChunk.trim()) {
+        finalSegments.push(currentChunk.trim());
+      }
+    } else {
+      // It's a single scene! Preserve the entire paragraph as one scene.
+      finalSegments = [script.trim()];
     }
   }
 
-  const limited = finalSegments.slice(0, 10);
-
-  return limited.map((text) => {
+  // Preserve exact user text segments for scenes
+  return finalSegments.map((rawText) => {
+    const text = rawText.trim();
     const words = text
       .replace(/[^a-zA-Z\s]/g, "")
       .split(/\s+/)
@@ -74,7 +144,9 @@ export default function App() {
   const [currentPlayheadTime, setCurrentPlayheadTime] = useState<number>(0);
   const [selectedInsert, setSelectedInsert] = useState<TimelineInsert | null>(null);
   const [editingInsert, setEditingInsert] = useState<TimelineInsert | null>(null);
-  const [availableVoices, setAvailableVoices] = useState<{ id: string; name: string }[]>([]);
+  const [availableVoices, setAvailableVoices] = useState<{ id: string; name: string }[]>(() =>
+    STUDIO_VOICE_PRESETS.map((v) => ({ id: v.id, name: `${v.name} (${v.gender === "male" ? "Male" : "Female"} • ${v.accent})` }))
+  );
   const [loading, setLoading] = useState(false);
   const [fetchingImages, setFetchingImages] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -84,32 +156,222 @@ export default function App() {
     return Boolean(k.pexelsKey || k.pixabayKey);
   });
 
-  const [customerLogo, setCustomerLogo] = useState<CustomerLogoConfig>(() => {
+  const [customerLogo, setCustomerLogo] = useState<CustomerLogoConfig>(DEFAULT_PROJECT_SETTINGS.customer_logo);
+  const [captionsConfig, setCaptionsConfig] = useState<CaptionsConfig>(DEFAULT_PROJECT_SETTINGS.captions_config);
+  const [selectedVoice, setSelectedVoice] = useState<string>(DEFAULT_PROJECT_SETTINGS.selected_voice);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatioType>(DEFAULT_PROJECT_SETTINGS.aspect_ratio);
+  const [sceneDuration, setSceneDuration] = useState<number>(DEFAULT_PROJECT_SETTINGS.scene_duration);
+  const [resolution, setResolution] = useState<ResolutionType>(DEFAULT_PROJECT_SETTINGS.resolution);
+  const [pacingMode, setPacingMode] = useState<PacingModeType>(DEFAULT_PROJECT_SETTINGS.pacing_mode);
+  const [motionStyle, setMotionStyle] = useState<string>(DEFAULT_PROJECT_SETTINGS.motion_style);
+
+  // Helper to save per-project settings so each project maintains isolated configuration
+  const saveCurrentProjectSettings = useCallback((partial: Partial<ProjectSettings>) => {
+    if (!currentProject) return;
     try {
-      const saved = localStorage.getItem("scenering_customer_logo");
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch {
-      // ignore
-    }
-    return {
-      enabled: false,
-      url: "",
-      scale: 1.0,
-      opacity: 1.0,
-      margin: 20,
+      const stored = localStorage.getItem(`scenering_project_settings_${currentProject.id}`);
+      const current = stored ? JSON.parse(stored) : { ...DEFAULT_PROJECT_SETTINGS, scene_duration: sceneDuration };
+      const updated = { ...current, ...partial };
+      localStorage.setItem(`scenering_project_settings_${currentProject.id}`, JSON.stringify(updated));
+    } catch {}
+  }, [currentProject, sceneDuration]);
+
+  const handleUpdateCaptionsConfig = useCallback((cfg: CaptionsConfig) => {
+    setCaptionsConfig(cfg);
+    saveCurrentProjectSettings({ captions_config: cfg });
+  }, [saveCurrentProjectSettings]);
+
+  const handleSelectVoice = useCallback((voiceId: string) => {
+    setSelectedVoice(voiceId);
+    saveCurrentProjectSettings({ selected_voice: voiceId });
+  }, [saveCurrentProjectSettings]);
+
+  const [renderedBlob, setRenderedBlob] = useState<Blob | null>(null);
+  const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
+
+  const handleUpdateAspectRatio = useCallback((ratio: AspectRatioType) => {
+    setAspectRatio(ratio);
+    saveCurrentProjectSettings({ aspect_ratio: ratio });
+    setCurrentProject((prev) => (prev ? { ...prev, aspect_ratio: ratio } : null));
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateResolution = useCallback((res: ResolutionType) => {
+    setResolution(res);
+    saveCurrentProjectSettings({ resolution: res });
+    setCurrentProject((prev) => (prev ? { ...prev, resolution: res } : null));
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdatePacingMode = useCallback((mode: PacingModeType) => {
+    setPacingMode(mode);
+    saveCurrentProjectSettings({ pacing_mode: mode });
+    setCurrentProject((prev) => (prev ? { ...prev, pacing_mode: mode } : null));
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateMotionStyle = useCallback((style: string) => {
+    setMotionStyle(style);
+    saveCurrentProjectSettings({ motion_style: style });
+    setCurrentProject((prev) => (prev ? { ...prev, motion_style: style } : null));
+
+    const motionMap: Record<string, SceneMotionType> = {
+      dynamic: "ken_burns",
+      ken_burns: "ken_burns",
+      zoom_in: "zoom_in",
+      zoom_out: "zoom_out",
+      pan: "pan_left",
+      shake: "shake",
+      floating: "floating",
+      none: "none",
     };
-  });
+
+    if (style === "dynamic") {
+      const dynamicList: SceneMotionType[] = ["ken_burns", "zoom_in", "zoom_out", "pan_left", "pan_right", "subtle_camera"];
+      setScenes((prev) =>
+        prev.map((s, idx) => ({
+          ...s,
+          motion_effect: dynamicList[idx % dynamicList.length],
+        }))
+      );
+    } else {
+      const targetEffect = motionMap[style] || "ken_burns";
+      setScenes((prev) =>
+        prev.map((s) => ({
+          ...s,
+          motion_effect: targetEffect,
+        }))
+      );
+    }
+  }, []);
+
+  const handleUpdateSceneDuration = useCallback((dur: number) => {
+    setSceneDuration(dur);
+    saveCurrentProjectSettings({ scene_duration: dur });
+    setCurrentProject((prev) => (prev ? { ...prev, default_duration: dur } : null));
+    setScenes((prev) => {
+      const updated = prev.map((s) => ({ ...s, duration: dur }));
+      try {
+        for (const s of updated) {
+          supabase.from("scenes").update({ duration: dur }).eq("id", s.id).then();
+          const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
+          const parsed = existingMeta ? JSON.parse(existingMeta) : {};
+          localStorage.setItem(`scenering_scene_meta_${s.id}`, JSON.stringify({ ...parsed, duration: dur }));
+        }
+      } catch {}
+      return updated;
+    });
+  }, [saveCurrentProjectSettings]);
+
+  const handleCalibrateScenesWordCount = useCallback((targetSeconds: number) => {
+    setSceneDuration(targetSeconds);
+    saveCurrentProjectSettings({ scene_duration: targetSeconds });
+    setCurrentProject((prev) => (prev ? { ...prev, default_duration: targetSeconds } : null));
+    setScenes((prev) =>
+      prev.map((s) => {
+        // Persist updated duration without mutating text
+        try {
+          supabase.from("scenes").update({ duration: targetSeconds }).eq("id", s.id).then();
+          const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
+          const parsed = existingMeta ? JSON.parse(existingMeta) : {};
+          localStorage.setItem(
+            `scenering_scene_meta_${s.id}`,
+            JSON.stringify({ ...parsed, duration: targetSeconds })
+          );
+        } catch {}
+        return {
+          ...s,
+          duration: targetSeconds,
+        };
+      })
+    );
+  }, [saveCurrentProjectSettings]);
+
+  const handleFitAllScenesDurationToSpeech = useCallback(() => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        const fitDur = fitDurationToText(s.text);
+        try {
+          supabase.from("scenes").update({ duration: fitDur }).eq("id", s.id).then();
+          const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
+          const parsed = existingMeta ? JSON.parse(existingMeta) : {};
+          localStorage.setItem(
+            `scenering_scene_meta_${s.id}`,
+            JSON.stringify({ ...parsed, duration: fitDur })
+          );
+        } catch {}
+        return {
+          ...s,
+          duration: fitDur,
+        };
+      })
+    );
+  }, []);
+
+  const handleUpdateProjectTitle = useCallback((title: string) => {
+    setCurrentProject((prev) => (prev ? { ...prev, title } : null));
+  }, []);
+
+  const handleUpdateScript = useCallback(
+    (newScript: string, regenerateScenes: boolean = false, overrideDuration?: number) => {
+      setCurrentProject((prev) => (prev ? { ...prev, script: newScript } : null));
+      const targetDur = overrideDuration || sceneDuration || 20;
+      if (regenerateScenes) {
+        const parsed = parseScript(newScript, targetDur);
+        setScenes((prev) => {
+          const newScenes: Scene[] = parsed.map((item, idx) => {
+            const existing = prev[idx];
+            const sceneText = item.text.trim();
+            return {
+              id: existing?.id || idx + 1,
+              project_id: currentProject?.id || 1,
+              order_index: idx,
+              text: sceneText,
+              image_url: existing?.image_url || null,
+              image_query: item.imageQuery || existing?.image_query || "abstract background",
+              duration: targetDur,
+              created_at: existing?.created_at || new Date().toISOString(),
+              filter: existing?.filter || "cinematic",
+              motion_effect: existing?.motion_effect || "slow_zoom",
+              audio_url: existing?.audio_url || null,
+              audio_name: existing?.audio_name || null,
+              voice_id: existing?.voice_id,
+            };
+          });
+
+          // Persist each scene to Supabase & localStorage
+          try {
+            if (currentProject?.id) {
+              supabase.from("projects").update({ script: newScript, default_duration: targetDur }).eq("id", currentProject.id).then();
+            }
+            for (const s of newScenes) {
+              supabase.from("scenes").upsert(s).then();
+              const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
+              const parsedMeta = existingMeta ? JSON.parse(existingMeta) : {};
+              localStorage.setItem(
+                `scenering_scene_meta_${s.id}`,
+                JSON.stringify({ ...parsedMeta, duration: targetDur, text: s.text })
+              );
+            }
+          } catch {}
+
+          return newScenes;
+        });
+      }
+    },
+    [currentProject?.id, sceneDuration]
+  );
+
+  // Timeline & Video Preview playback synchronization
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
+  const togglePreviewPlayRef = useRef<() => void>(() => {});
+
+  const handlePlayStateChange = useCallback((isPlaying: boolean, togglePlay: () => void) => {
+    setIsPlayingPreview(isPlaying);
+    togglePreviewPlayRef.current = togglePlay;
+  }, []);
 
   const handleUpdateCustomerLogo = (updates: Partial<CustomerLogoConfig>) => {
     setCustomerLogo((prev) => {
       const updated = { ...prev, ...updates };
-      try {
-        localStorage.setItem("scenering_customer_logo", JSON.stringify(updated));
-      } catch {
-        // ignore
-      }
+      saveCurrentProjectSettings({ customer_logo: updated });
       return updated;
     });
   };
@@ -153,26 +415,42 @@ export default function App() {
     }
   }, [inserts, currentProject]);
 
-  const handleCreateProject = async (title: string, script: string) => {
+  const handleCreateProject = async (title: string, script: string, targetDuration?: number) => {
+    const chosenDuration = targetDuration || 20;
     setLoading(true);
     try {
       const { data: projectData, error: projectError } = await supabase
         .from("projects")
-        .insert({ title, script })
+        .insert({ title, script, default_duration: chosenDuration })
         .select()
         .single();
       if (projectError) throw projectError;
 
       const project = projectData as Project;
-      const parsedScenes = parseScript(script);
+      const parsedScenes = parseScript(script, chosenDuration);
 
-      const sceneRows = parsedScenes.map((s, i) => ({
-        project_id: project.id,
-        order_index: i,
-        text: s.text,
-        image_query: s.imageQuery,
-        duration: 4,
-      }));
+      // Clean, isolated project setup with defaults
+      const freshSettings: ProjectSettings = {
+        ...DEFAULT_PROJECT_SETTINGS,
+        scene_duration: chosenDuration,
+      };
+
+      try {
+        localStorage.setItem(`scenering_project_settings_${project.id}`, JSON.stringify(freshSettings));
+        localStorage.setItem(`scenering_inserts_${project.id}`, JSON.stringify([]));
+      } catch {}
+
+      // Create scenes from user's script segments
+      const sceneRows = parsedScenes.map((s, i) => {
+        const sceneText = s.text.trim();
+        return {
+          project_id: project.id,
+          order_index: i,
+          text: sceneText,
+          image_query: s.imageQuery,
+          duration: chosenDuration,
+        };
+      });
 
       const { data: scenesData, error: scenesError } = await supabase
         .from("scenes")
@@ -180,6 +458,16 @@ export default function App() {
         .select()
         .order("order_index", { ascending: true });
       if (scenesError) throw scenesError;
+
+      // Apply clean settings to state
+      setCustomerLogo(freshSettings.customer_logo);
+      setCaptionsConfig(freshSettings.captions_config);
+      setSelectedVoice(freshSettings.selected_voice);
+      setAspectRatio(freshSettings.aspect_ratio);
+      setResolution(freshSettings.resolution);
+      setPacingMode(freshSettings.pacing_mode);
+      setSceneDuration(chosenDuration);
+      setMotionStyle(freshSettings.motion_style);
 
       setCurrentProject(project);
       setScenes(scenesData as Scene[]);
@@ -196,6 +484,30 @@ export default function App() {
 
   const handleSelectProject = async (project: Project) => {
     try {
+      const targetDur = project.default_duration || 20;
+
+      // Load this project's isolated settings
+      let projectSettings: ProjectSettings = {
+        ...DEFAULT_PROJECT_SETTINGS,
+        scene_duration: targetDur,
+      };
+      try {
+        const storedSettings = localStorage.getItem(`scenering_project_settings_${project.id}`);
+        if (storedSettings) {
+          projectSettings = { ...projectSettings, ...JSON.parse(storedSettings) };
+        }
+      } catch {}
+
+      // Apply this project's setup and effects
+      setCustomerLogo(projectSettings.customer_logo);
+      setCaptionsConfig(projectSettings.captions_config);
+      setSelectedVoice(projectSettings.selected_voice);
+      setAspectRatio(projectSettings.aspect_ratio);
+      setResolution(projectSettings.resolution);
+      setPacingMode(projectSettings.pacing_mode);
+      setSceneDuration(projectSettings.scene_duration);
+      setMotionStyle(projectSettings.motion_style);
+
       const { data, error } = await supabase
         .from("scenes")
         .select("*")
@@ -203,16 +515,21 @@ export default function App() {
         .order("order_index", { ascending: true });
       if (error) throw error;
 
-      // Load any stored metadata for scenes
+      // Load any stored metadata for scenes and compute durations
       const loadedScenes = (data as Scene[]).map((sc) => {
+        let meta = {};
         try {
           const stored = localStorage.getItem(`scenering_scene_meta_${sc.id}`);
           if (stored) {
-            const meta = JSON.parse(stored);
-            return { ...sc, ...meta };
+            meta = JSON.parse(stored);
           }
         } catch {}
-        return sc;
+        const merged = { ...sc, ...meta };
+        const finalDur = (merged.duration && merged.duration !== 4) ? merged.duration : projectSettings.scene_duration;
+        return {
+          ...merged,
+          duration: finalDur,
+        };
       });
 
       // Load stored inserts for this project
@@ -235,20 +552,74 @@ export default function App() {
   };
 
   const handleDeleteProject = async (projectId: number) => {
-    if (!confirm("Are you sure you want to delete this project?")) return;
+    // 1. Clean up localStorage keys specifically for this project
     try {
-      const { error } = await supabase.from("projects").delete().eq("id", projectId);
-      if (error) throw error;
-      fetchProjects();
-      if (currentProject?.id === projectId) {
-        setCurrentProject(null);
-        setScenes([]);
-        setInserts([]);
-        setView("create");
+      localStorage.removeItem(`scenering_project_settings_${projectId}`);
+      localStorage.removeItem(`scenering_inserts_${projectId}`);
+    } catch {}
+
+    // Find and clean up scene metadata for scenes belonging to this project
+    try {
+      const { data: projectScenes } = await supabase
+        .from("scenes")
+        .select("id")
+        .eq("project_id", projectId);
+      if (projectScenes && Array.isArray(projectScenes)) {
+        for (const s of projectScenes) {
+          localStorage.removeItem(`scenering_scene_meta_${s.id}`);
+        }
       }
+    } catch {}
+
+    // 2. Remove project and child scenes from database
+    try {
+      await supabase.from("scenes").delete().eq("project_id", projectId);
+      await supabase.from("projects").delete().eq("id", projectId);
     } catch (err) {
-      console.error("Failed to delete project:", err);
+      console.error("Failed to delete project in db:", err);
     }
+
+    // 3. Update local state
+    setProjects((prev) => {
+      const remaining = prev.filter((p) => p.id !== projectId);
+      // If all projects are deleted, perform a deep purge of any lingering scene metadata or orphaned keys
+      if (remaining.length === 0) {
+        try {
+          const keysToRemove: string[] = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (
+              key &&
+              (key.startsWith("scenering_scene_meta_") ||
+                key.startsWith("scenering_inserts_") ||
+                key.startsWith("scenering_project_settings_"))
+            ) {
+              keysToRemove.push(key);
+            }
+          }
+          keysToRemove.forEach((k) => localStorage.removeItem(k));
+        } catch {}
+      }
+      return remaining;
+    });
+
+    if (currentProject?.id === projectId) {
+      setCurrentProject(null);
+      setScenes([]);
+      setInserts([]);
+      // Reset all setup and effects to clean defaults
+      setCustomerLogo(DEFAULT_PROJECT_SETTINGS.customer_logo);
+      setCaptionsConfig(DEFAULT_PROJECT_SETTINGS.captions_config);
+      setSelectedVoice(DEFAULT_PROJECT_SETTINGS.selected_voice);
+      setAspectRatio(DEFAULT_PROJECT_SETTINGS.aspect_ratio);
+      setResolution(DEFAULT_PROJECT_SETTINGS.resolution);
+      setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
+      setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
+      setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
+      setView("create");
+    }
+
+    fetchProjects();
   };
 
   const handleUpdateScene = async (sceneId: number, updates: Partial<Scene>) => {
@@ -268,6 +639,8 @@ export default function App() {
         voice_id: updates.voice_id !== undefined ? updates.voice_id : parsed.voice_id,
         speaker_name: updates.speaker_name !== undefined ? updates.speaker_name : parsed.speaker_name,
         dialogue: updates.dialogue !== undefined ? updates.dialogue : parsed.dialogue,
+        audio_url: updates.audio_url !== undefined ? updates.audio_url : parsed.audio_url,
+        audio_name: updates.audio_name !== undefined ? updates.audio_name : parsed.audio_name,
       };
       localStorage.setItem(`scenering_scene_meta_${sceneId}`, JSON.stringify(newMeta));
     } catch {}
@@ -324,9 +697,63 @@ export default function App() {
     }
   };
 
+  const handleAddScene = async () => {
+    if (!currentProject) return;
+    const newOrderIndex = scenes.length;
+    const initialDuration = sceneDuration || 20;
+    const initialText = `Scene ${newOrderIndex + 1} narrative.`;
+    const newSceneRow = {
+      project_id: currentProject.id,
+      order_index: newOrderIndex,
+      text: initialText,
+      image_query: "cinematic background",
+      duration: initialDuration,
+    };
+    try {
+      const { data, error } = await supabase
+        .from("scenes")
+        .insert(newSceneRow)
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) {
+        setScenes((prev) => [...prev, data as Scene]);
+      }
+    } catch {
+      // Offline / fallback scene
+      const localScene: Scene = {
+        id: Date.now(),
+        project_id: currentProject.id,
+        order_index: newOrderIndex,
+        text: initialText,
+        image_query: "cinematic background",
+        image_url: null,
+        duration: initialDuration,
+        created_at: new Date().toISOString(),
+      };
+      setScenes((prev) => [...prev, localScene]);
+    }
+  };
+
+  const handleDeleteScene = async (sceneId: number) => {
+    if (scenes.length <= 1) return;
+    try {
+      await supabase.from("scenes").delete().eq("id", sceneId);
+    } catch {}
+    setScenes((prev) => prev.filter((s) => s.id !== sceneId));
+  };
+
   // Timeline & Insert Actions
   const handleAddInsert = (insert: TimelineInsert) => {
-    setInserts((prev) => [...prev, insert]);
+    setInserts((prev) => {
+      let filtered = prev;
+      if (insert.category === "intro") {
+        filtered = prev.filter((i) => i.category !== "intro");
+      } else if (insert.category === "outro") {
+        filtered = prev.filter((i) => i.category !== "outro");
+      }
+      return [...filtered, insert];
+    });
     setSelectedInsert(insert);
   };
 
@@ -350,6 +777,7 @@ export default function App() {
   };
 
   const handleApplyVoiceToAll = (voiceId: string, _speed: number) => {
+    handleSelectVoice(voiceId);
     scenes.forEach((sc) => {
       handleUpdateScene(sc.id, { voice_id: voiceId });
     });
@@ -387,6 +815,14 @@ export default function App() {
                 setCurrentProject(null);
                 setScenes([]);
                 setInserts([]);
+                setCustomerLogo(DEFAULT_PROJECT_SETTINGS.customer_logo);
+                setCaptionsConfig(DEFAULT_PROJECT_SETTINGS.captions_config);
+                setSelectedVoice(DEFAULT_PROJECT_SETTINGS.selected_voice);
+                setAspectRatio(DEFAULT_PROJECT_SETTINGS.aspect_ratio);
+                setResolution(DEFAULT_PROJECT_SETTINGS.resolution);
+                setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
+                setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
+                setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
                 setEditorStep("scenes");
               }}
               className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white text-sm font-medium transition-colors flex items-center justify-center gap-2"
@@ -458,6 +894,16 @@ export default function App() {
           {view === "editor" && (
             <div className="flex items-center bg-gray-800/80 border border-gray-700/80 rounded-lg p-0.5 ml-2 sm:ml-4 overflow-x-auto scrollbar-thin">
               <button
+                onClick={() => setEditorStep("setup")}
+                className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
+                  editorStep === "setup"
+                    ? "bg-indigo-600 text-white shadow font-semibold"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <span>0. ⚙️ Setup</span>
+              </button>
+              <button
                 onClick={() => setEditorStep("scenes")}
                 className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
                   editorStep === "scenes"
@@ -512,31 +958,13 @@ export default function App() {
 
           <div className="ml-auto flex items-center gap-3">
             {view === "editor" && (
-              <span className="text-xs text-gray-500 hidden md:inline">
-                {scenes.length} scenes • {inserts.length} inserts
+              <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 shadow-sm flex items-center gap-1.5">
+                <span>🎬</span>
+                <span>Total: {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}</span>
+                <span className="text-gray-500 hidden sm:inline">•</span>
+                <span className="text-gray-400 hidden sm:inline">{inserts.length} inserts</span>
               </span>
             )}
-            <button
-              onClick={() => setApiKeysModalOpen(true)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-2 transition-colors ${
-                hasCustomKeys
-                  ? "bg-indigo-950/60 border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/60"
-                  : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700 hover:text-white"
-              }`}
-              title="Configure personal Pexels & Pixabay API keys"
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  hasCustomKeys ? "bg-emerald-400 animate-pulse-slow" : "bg-amber-400"
-                }`}
-              />
-              <span className="flex items-center gap-1">
-                <span>🔑</span> API Keys
-              </span>
-              <span className="text-[10px] text-gray-400 hidden sm:inline">
-                ({hasCustomKeys ? "Ready" : "Insert Keys"})
-              </span>
-            </button>
           </div>
         </div>
 
@@ -551,13 +979,26 @@ export default function App() {
               />
             </div>
           ) : editorStep === "render" ? (
-            /* Step 3: Final Render & Export View */
+            /* Step 5: Final Render & Export View */
             <div className="p-4 sm:p-6 max-w-6xl mx-auto">
               <RenderView
                 project={currentProject}
                 scenes={scenes}
                 inserts={inserts}
+                selectedVoice={selectedVoice}
+                availableVoices={availableVoices}
+                aspectRatio={aspectRatio}
+                resolution={resolution}
+                pacingMode={pacingMode}
+                renderedBlob={renderedBlob}
+                renderedUrl={renderedUrl}
+                onRenderSuccess={(blob, url) => {
+                  setRenderedBlob(blob);
+                  setRenderedUrl(url);
+                }}
                 customerLogo={customerLogo}
+                captionsConfig={captionsConfig}
+                onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
                 onBack={() => setEditorStep("studio")}
                 onNavigateToStep={setEditorStep}
               />
@@ -565,7 +1006,30 @@ export default function App() {
           ) : (
             <div className="p-4 sm:p-6 space-y-6">
               {/* Steps Workspace */}
-              {editorStep === "scenes" ? (
+              {editorStep === "setup" ? (
+                /* Step 0: Setup, Format & Screenplay Studio */
+                <div className="max-w-4xl mx-auto w-full">
+                  <SetupStudio
+                    project={currentProject}
+                    scenes={scenes}
+                    aspectRatio={aspectRatio}
+                    resolution={resolution}
+                    pacingMode={pacingMode}
+                    sceneDuration={sceneDuration}
+                    motionStyle={motionStyle}
+                    onUpdateTitle={handleUpdateProjectTitle}
+                    onUpdateScript={handleUpdateScript}
+                    onUpdateAspectRatio={handleUpdateAspectRatio}
+                    onUpdateResolution={handleUpdateResolution}
+                    onUpdatePacingMode={handleUpdatePacingMode}
+                    onUpdateSceneDuration={handleUpdateSceneDuration}
+                    onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
+                    onFitScenesToSpeech={handleFitAllScenesDurationToSpeech}
+                    onUpdateMotionStyle={handleUpdateMotionStyle}
+                    onNavigateToStep={setEditorStep}
+                  />
+                </div>
+              ) : editorStep === "scenes" ? (
                 /* Step 1: Scene Editor View */
                 <div className="max-w-4xl mx-auto w-full space-y-6">
                   {/* Top Controls & Presets Bar */}
@@ -646,20 +1110,34 @@ export default function App() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="text-base font-semibold flex items-center gap-2">
-                          <span>📝</span> Scene Editor
-                        </h3>
+                        <div className="flex items-center gap-2.5">
+                          <h3 className="text-base font-semibold flex items-center gap-2">
+                            <span>📝</span> Scene Editor
+                          </h3>
+                          <span className="px-2.5 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700/60 font-mono text-xs font-semibold">
+                            Total: {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
+                          </span>
+                        </div>
                         <p className="text-xs text-gray-400 mt-0.5">
                           Configure image visuals, voice & dialogue, filters, motion camera effects, and burn caption overlays for each scene.
                         </p>
                       </div>
-                      <button
-                        onClick={() => setEditorStep("voiceover")}
-                        className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow"
-                      >
-                        <span>Next: Voiceover Studio</span>
-                        <span>→</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleAddScene}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow transition-colors"
+                        >
+                          <span>➕ Add Scene</span>
+                        </button>
+                        <button
+                          onClick={() => setEditorStep("voiceover")}
+                          className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow"
+                        >
+                          <span>Next: Voiceover Studio</span>
+                          <span>→</span>
+                        </button>
+                      </div>
                     </div>
 
                     <div className="space-y-4">
@@ -668,14 +1146,27 @@ export default function App() {
                           key={scene.id}
                           scene={scene}
                           index={index}
+                          totalScenes={scenes.length}
+                          aspectRatio={aspectRatio}
+                          targetDuration={sceneDuration || 20}
+                          onUpdateTargetDuration={handleUpdateSceneDuration}
                           onUpdate={handleUpdateScene}
                           onImageSearch={handleImageSearch}
+                          onDelete={handleDeleteScene}
                         />
                       ))}
                     </div>
 
-                    {/* Bottom Navigation to Next Step */}
-                    <div className="pt-4 flex items-center justify-end border-t border-gray-800">
+                    {/* Bottom Action Bar */}
+                    <div className="pt-4 flex items-center justify-between border-t border-gray-800">
+                      <button
+                        type="button"
+                        onClick={handleAddScene}
+                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-semibold text-xs rounded-xl shadow transition-all flex items-center gap-2"
+                      >
+                        <span>➕ Add Another Scene</span>
+                      </button>
+
                       <button
                         onClick={() => setEditorStep("voiceover")}
                         className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-sm rounded-xl shadow-lg hover:shadow-indigo-500/20 transition-all flex items-center gap-2"
@@ -693,11 +1184,15 @@ export default function App() {
                   onUpdateScene={handleUpdateScene}
                   onApplyVoiceToAll={handleApplyVoiceToAll}
                   onNavigateToStep={setEditorStep}
+                  selectedVoice={selectedVoice}
+                  onSelectVoice={handleSelectVoice}
                 />
               ) : editorStep === "captions" ? (
                 /* Step 3: Captions & Subtitles Studio */
                 <CaptionsStudio
                   scenes={scenes}
+                  captionsConfig={captionsConfig}
+                  onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
                   onUpdateScene={handleUpdateScene}
                   onApplyStyleToAll={handleApplyCaptionStyleToAll}
                   onNavigateToStep={setEditorStep}
@@ -738,12 +1233,17 @@ export default function App() {
                     title={currentProject?.title || "video"}
                     inserts={inserts}
                     customerLogo={customerLogo}
+                    captionsConfig={captionsConfig}
                     currentPlayheadTime={currentPlayheadTime}
                     onSeek={setCurrentPlayheadTime}
                     onSelectInsert={(ins) => setSelectedInsert(ins)}
                     onUpdateInsert={handleUpdateInsert}
                     onVoicesLoaded={setAvailableVoices}
+                    onPlayStateChange={handlePlayStateChange}
                     onNavigateToRender={() => setEditorStep("render")}
+                    selectedVoice={selectedVoice}
+                    aspectRatio={aspectRatio}
+                    pacingMode={pacingMode}
                   />
 
                   {/* Timeline with Playhead & Inserts */}
@@ -751,6 +1251,8 @@ export default function App() {
                     scenes={scenes}
                     inserts={inserts}
                     currentTime={currentPlayheadTime}
+                    isPlaying={isPlayingPreview}
+                    onTogglePlay={() => togglePreviewPlayRef.current?.()}
                     selectedInsertId={selectedInsert?.id}
                     onSeek={setCurrentPlayheadTime}
                     onSelectInsert={setSelectedInsert}
@@ -766,6 +1268,8 @@ export default function App() {
                     onConfigureItem={(ins) => setEditingInsert(ins)}
                     customerLogo={customerLogo}
                     onUpdateCustomerLogo={handleUpdateCustomerLogo}
+                    aspectRatio={aspectRatio}
+                    sampleBackgroundImage={scenes.find((s) => s.image_url)?.image_url || undefined}
                   />
                 </div>
               )}

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" fill="none">
+  <!-- Organic Hazy Dust & Out-of-Focus Floating Bokeh Overlay -->
+  <defs>
+    <!-- Warm Ambient Haze -->
+    <linearGradient id="haze" x1="0" y1="0" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fed7aa" stop-opacity="0.14" />
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="0.06" />
+    </linearGradient>
+    <radialGradient id="bokeh1" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fffbeb" stop-opacity="0.55" />
+      <stop offset="50%" stop-color="#fef3c7" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#fef3c7" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="bokeh2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fef08a" stop-opacity="0.45" />
+      <stop offset="60%" stop-color="#fde047" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#fde047" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="sunBloom" cx="15%" cy="10%" r="60%">
+      <stop offset="0%" stop-color="#fef08a" stop-opacity="0.28" />
+      <stop offset="40%" stop-color="#fed7aa" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#haze)" />
+  <rect width="1280" height="720" fill="url(#sunBloom)" />
+
+  <!-- Floating Bokeh Orbs -->
+  <circle cx="280" cy="210" r="38" fill="url(#bokeh1)" />
+  <circle cx="860" cy="180" r="54" fill="url(#bokeh2)" />
+  <circle cx="590" cy="460" r="46" fill="url(#bokeh1)" />
+  <circle cx="1040" cy="510" r="62" fill="url(#bokeh2)" />
+  <circle cx="160" cy="590" r="32" fill="url(#bokeh1)" />
+  <circle cx="720" cy="270" r="28" fill="url(#bokeh2)" />
+
+  <!-- Shimmering Tiny Dust Motes -->
+  <g fill="#ffffff" opacity="0.65">
+    <circle cx="340" cy="160" r="2" />
+    <circle cx="390" cy="230" r="1.5" />
+    <circle cx="490" cy="110" r="2.5" />
+    <circle cx="780" cy="380" r="1.8" />
+    <circle cx="910" cy="290" r="2.2" />
+    <circle cx="640" cy="540" r="1.6" />
+    <circle cx="1180" cy="310" r="2" />
+    <circle cx="210" cy="420" r="1.5" />
+    <circle cx="470" cy="620" r="2.4" />
+    <circle cx="830" cy="610" r="1.8" />
+  </g>
+</svg>

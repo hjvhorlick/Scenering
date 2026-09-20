@@ -1,40 +1,76 @@
-import { useState } from "react";
-import type { Scene } from "../types";
+import { useState, useEffect } from "react";
+import type { Scene, AspectRatioType } from "../types";
 import ImageSearchModal from "./ImageSearchModal";
 import { NATURE_FALLBACKS } from "../data/nature-fallbacks";
+import { REAL_FILTER_PRESETS, getFilterPreset, type FilterPreset } from "../data/filters-library";
+import {
+  countWords,
+  getSpokenDurationFromWords,
+  calibrateTextToTargetDuration,
+  getTargetWordCount,
+} from "../lib/duration-utils";
 
 interface SceneEditorProps {
   scene: Scene;
   index: number;
+  totalScenes?: number;
+  aspectRatio?: AspectRatioType;
+  targetDuration?: number;
+  onUpdateTargetDuration?: (duration: number) => void;
   onUpdate: (sceneId: number, updates: Partial<Scene>) => void;
   onImageSearch: (sceneId: number, query: string) => Promise<{ imageUrl: string; allImages?: string[] } | undefined>;
+  onDelete?: (sceneId: number) => void;
 }
 
 export default function SceneEditor({
   scene,
   index,
+  totalScenes = 1,
+  aspectRatio = "16:9",
+  targetDuration = 20,
+  onUpdateTargetDuration,
   onUpdate,
   onImageSearch,
+  onDelete,
 }: SceneEditorProps) {
-  const [editingText, setEditingText] = useState(false);
   const [textValue, setTextValue] = useState(scene.text);
   const [queryValue, setQueryValue] = useState(scene.image_query);
   const [searching, setSearching] = useState(false);
+  const [isPlayingAttachedAudio, setIsPlayingAttachedAudio] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showNatureMenu, setShowNatureMenu] = useState(false);
   const [showCropTools, setShowCropTools] = useState(false);
+  const [compareOriginal, setCompareOriginal] = useState(false);
   const [imgError, setImgError] = useState(false);
+
+  const currentFilter = getFilterPreset(scene.filter);
+
+  useEffect(() => {
+    setTextValue(scene.text);
+  }, [scene.text]);
+
+  const currentSceneDuration = scene.duration || targetDuration;
+  const targetWordCount = getTargetWordCount(currentSceneDuration);
+  const wordsCount = countWords(textValue);
+  const spokenSeconds = getSpokenDurationFromWords(textValue);
+
+  // Set default duration if completely unset or legacy 4s
+  useEffect(() => {
+    if (!scene.duration || scene.duration === 4) {
+      onUpdate(scene.id, { duration: targetDuration });
+    }
+  }, [scene.id, scene.duration, targetDuration, onUpdate]);
+
+  const handleScriptChange = (newVal: string) => {
+    setTextValue(newVal);
+    onUpdate(scene.id, { text: newVal });
+  };
 
   // Framing values
   const offsetX = scene.image_offset_x ?? 0; // -50 to 50%
   const offsetY = scene.image_offset_y ?? 0; // -50 to 50%
   const zoom = scene.image_zoom ?? 1.0;      // 1.0 to 2.5x
   const fitMode = scene.image_fit ?? "cover";
-
-  const handleTextSave = () => {
-    onUpdate(scene.id, { text: textValue });
-    setEditingText(false);
-  };
 
   // Quick search
   const handleQuickSearch = async () => {
@@ -59,6 +95,19 @@ export default function SceneEditor({
     setImgError(false);
   };
 
+  const handleToggleAttachedAudio = () => {
+    if (!scene.audio_url) return;
+    if (isPlayingAttachedAudio) {
+      setIsPlayingAttachedAudio(false);
+      return;
+    }
+    const audio = new Audio(scene.audio_url);
+    setIsPlayingAttachedAudio(true);
+    audio.play();
+    audio.onended = () => setIsPlayingAttachedAudio(false);
+    audio.onerror = () => setIsPlayingAttachedAudio(false);
+  };
+
   const setPresetPosition = (x: number, y: number) => {
     onUpdate(scene.id, { image_offset_x: x, image_offset_y: y });
   };
@@ -78,32 +127,85 @@ export default function SceneEditor({
       style={{ animationDelay: `${index * 80}ms` }}
     >
       <div className="flex flex-col lg:flex-row">
-        {/* Visual Preview with Interactive Framing & Crop */}
-        <div className="lg:w-80 flex-shrink-0 relative group bg-gray-950 flex flex-col justify-center overflow-hidden min-h-[210px]">
+        {/* Visual Preview with Interactive Framing & Crop (reflects Aspect Ratio from Setup) */}
+        <div className={`flex-shrink-0 relative group bg-gray-950 flex flex-col justify-center overflow-hidden min-h-[210px] ${
+          aspectRatio === "9:16"
+            ? "lg:w-56 w-full"
+            : aspectRatio === "1:1"
+            ? "lg:w-64 w-full"
+            : aspectRatio === "4:3"
+            ? "lg:w-72 w-full"
+            : "lg:w-80 w-full"
+        }`}>
+          {/* Active Aspect Ratio Indicator */}
+          <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-gray-900/80 backdrop-blur border border-gray-700/80 rounded text-[10px] font-mono text-gray-300 pointer-events-none flex items-center gap-1">
+            <span>📐</span>
+            <span>{aspectRatio}</span>
+          </div>
+
           {scene.image_url && !imgError ? (
-            <div className="relative aspect-video lg:aspect-auto lg:h-full min-h-[210px] w-full overflow-hidden bg-black flex items-center justify-center">
+            <div className={`relative w-full overflow-hidden bg-black flex items-center justify-center min-h-[210px] ${
+              aspectRatio === "9:16"
+                ? "aspect-[9/16] lg:h-[300px]"
+                : aspectRatio === "1:1"
+                ? "aspect-square lg:h-[240px]"
+                : aspectRatio === "4:3"
+                ? "aspect-[4/3] lg:h-[230px]"
+                : "aspect-video lg:h-full"
+            }`}>
               <img
                 src={scene.image_url}
                 alt={`Scene ${index + 1}`}
-                className={`transition-all duration-75 ${
+                className={`transition-all duration-150 ${
                   fitMode === "contain" ? "object-contain max-h-full" : "w-full h-full object-cover"
                 }`}
                 style={{
                   transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})`,
                   transformOrigin: "center center",
+                  filter: compareOriginal ? "none" : currentFilter.cssFilter,
                 }}
                 onError={() => setImgError(true)}
               />
 
-              {/* Framing overlay badge */}
-              {(offsetX !== 0 || offsetY !== 0 || zoom !== 1.0) && (
-                <div className="absolute bottom-2 left-2 bg-black/80 backdrop-blur px-2 py-0.5 rounded text-[10px] text-amber-300 font-mono border border-amber-500/30 pointer-events-none">
-                  🔍 {zoom.toFixed(1)}x • X: {offsetX}% Y: {offsetY}%
+              {/* Realistic SVG Filter Texture / Lighting Overlay */}
+              {!compareOriginal && currentFilter.overlayUrl && (
+                <img
+                  src={currentFilter.overlayUrl}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-300 z-[1]"
+                  style={{
+                    mixBlendMode: currentFilter.blendMode || "screen",
+                    opacity: currentFilter.overlayOpacity ?? 0.85,
+                  }}
+                />
+              )}
+
+              {/* Active Filter Pill Badge */}
+              {scene.filter && scene.filter !== "none" && (
+                <div className="absolute bottom-2 left-2 z-10 px-2 py-0.5 bg-gray-950/85 backdrop-blur border border-purple-500/80 rounded text-[10px] font-semibold text-purple-200 flex items-center gap-1 shadow-md">
+                  <span>{currentFilter.icon}</span>
+                  <span>{currentFilter.name}</span>
                 </div>
               )}
 
+              {/* Quick Compare Button (Hold to see original) */}
+              {scene.filter && scene.filter !== "none" && (
+                <button
+                  type="button"
+                  onMouseDown={() => setCompareOriginal(true)}
+                  onMouseUp={() => setCompareOriginal(false)}
+                  onMouseLeave={() => setCompareOriginal(false)}
+                  onTouchStart={() => setCompareOriginal(true)}
+                  onTouchEnd={() => setCompareOriginal(false)}
+                  className="absolute bottom-2 right-2 z-10 px-2 py-0.5 bg-gray-900/90 hover:bg-gray-800 text-gray-300 border border-gray-700 rounded text-[10px] font-medium transition-colors shadow-sm select-none"
+                  title="Hold to see original unfiltered image"
+                >
+                  {compareOriginal ? "Showing Original" : "Hold: Original"}
+                </button>
+              )}
+
               {/* Hover quick action overlay */}
-              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 z-[2]">
                 <button
                   type="button"
                   onClick={() => setShowCropTools((prev) => !prev)}
@@ -167,67 +269,118 @@ export default function SceneEditor({
 
         {/* Content & Dedicated Scene / Image Settings Section */}
         <div className="flex-1 p-4 space-y-3.5">
-          {/* Header Row: Scene Number + Duration */}
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">
-              Scene {index + 1}
-            </span>
+          {/* Header Row: Scene Number + Dialogue Voice + Duration + Delete */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-800/80 pb-2.5">
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-400">Duration:</label>
-              <select
-                value={scene.duration}
-                onChange={(e) => onUpdate(scene.id, { duration: parseInt(e.target.value) })}
-                className="bg-gray-700 text-white text-xs rounded px-2.5 py-1 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+                <span>Scene {index + 1}</span>
+                {totalScenes !== undefined && (
+                  <>
+                    <span className="text-gray-500 font-normal lowercase text-[11px]">of</span>
+                    <span className="px-1.5 py-0.2 rounded bg-indigo-950/90 border border-indigo-700/60 text-indigo-300 font-mono text-[11px] normal-case">
+                      {totalScenes} {totalScenes === 1 ? "scene" : "scenes"}
+                    </span>
+                  </>
+                )}
+              </span>
+              {scene.speaker_name && (
+                <span className="text-[11px] px-2 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-medium">
+                  {scene.speaker_name}
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Attached Voice Track Badge (From Voiceover Studio) */}
+              {scene.audio_url && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/90 border border-emerald-600/80 text-emerald-300 text-xs font-medium animate-fade-in shadow-sm">
+                  <span>🎙️</span>
+                  <span className="truncate max-w-[140px]" title={scene.audio_name || "Saved Voiceover"}>
+                    {scene.audio_name || "Voiceover Saved"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleToggleAttachedAudio}
+                    className="hover:text-white px-1 font-bold text-xs"
+                    title="Play attached audio track"
+                  >
+                    {isPlayingAttachedAudio ? "⏹" : "▶"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onUpdate(scene.id, { audio_url: null, audio_name: null })}
+                    className="text-gray-400 hover:text-red-400 px-0.5 text-xs font-bold"
+                    title="Clear saved audio track"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* Scene Duration Badge (configured in Setup) */}
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-950/80 border border-indigo-700/80 rounded-lg text-xs"
+                title={`Scene duration: ${currentSceneDuration}s`}
               >
-                {[2, 3, 4, 5, 6, 8, 10, 12, 15].map((d) => (
-                  <option key={d} value={d}>
-                    {d} seconds
-                  </option>
-                ))}
-              </select>
+                <span className="text-indigo-400">⏱️</span>
+                <span className="text-white font-mono font-bold">
+                  {currentSceneDuration}s
+                </span>
+              </div>
+
+              {/* Delete Scene Button */}
+              {onDelete && totalScenes > 1 && (
+                <button
+                  type="button"
+                  onClick={() => onDelete(scene.id)}
+                  className="p-1 text-gray-400 hover:text-red-400 hover:bg-red-950/40 rounded transition-colors"
+                  title={`Delete scene ${index + 1}`}
+                >
+                  🗑️
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Scene Script Text (Click to Edit) */}
-          {editingText ? (
-            <div className="space-y-2">
-              <textarea
-                value={textValue}
-                onChange={(e) => setTextValue(e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 bg-gray-750 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y"
-              />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleTextSave}
-                  className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-white text-xs font-medium transition-colors"
-                >
-                  Save Text
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingText(false);
-                    setTextValue(scene.text);
-                  }}
-                  className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-white text-xs transition-colors"
-                >
-                  Cancel
-                </button>
+          {/* Typable Scene Script Section */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <label htmlFor={`scene-script-${scene.id}`} className="font-semibold text-gray-200 flex items-center gap-1.5">
+                <span>📝</span>
+                <span>Scene Script & Narration</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <span className={`text-[11px] font-mono ${wordsCount < Math.floor(targetWordCount * 0.88) ? "text-amber-400 font-semibold" : "text-gray-400"}`}>
+                  {wordsCount} words • ~{spokenSeconds}s read
+                </span>
+                {wordsCount < Math.floor(targetWordCount * 0.88) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const expanded = calibrateTextToTargetDuration(textValue, currentSceneDuration);
+                      setTextValue(expanded);
+                      handleScriptChange(expanded);
+                    }}
+                    className="px-2 py-0.5 bg-amber-950/90 hover:bg-amber-900 border border-amber-500/70 text-amber-200 rounded text-[10px] font-medium transition-colors flex items-center gap-1 shadow-sm"
+                    title={`Expand scene to ~${targetWordCount} words to fit ${currentSceneDuration}s duration`}
+                  >
+                    <span>⚡ Calibrate to {currentSceneDuration}s (~{targetWordCount}w)</span>
+                  </button>
+                )}
               </div>
             </div>
-          ) : (
-            <p
-              onClick={() => setEditingText(true)}
-              className="text-sm text-gray-200 cursor-pointer hover:text-white transition-colors leading-relaxed bg-gray-900/40 p-2.5 rounded-lg border border-gray-800/80"
-              title="Click to edit script text"
-            >
-              {scene.text}
-            </p>
-          )}
 
-          {/* Image Settings Toolbar: Researching, Nature Fallback, Crop & Fit */}
+            <textarea
+              id={`scene-script-${scene.id}`}
+              value={textValue}
+              onChange={(e) => handleScriptChange(e.target.value)}
+              rows={3}
+              placeholder="Enter the narration script for this scene..."
+              className="w-full px-3 py-2 bg-gray-900/90 border border-gray-700 hover:border-gray-600 focus:border-indigo-500 rounded-xl text-white text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y transition-colors font-sans shadow-inner"
+            />
+          </div>
+
+          {/* Image Settings Toolbar: Researching, Nature Fallback, Crop & Fit, Filters */}
           <div className="space-y-2.5 pt-1">
             <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
               {/* Research Input */}
@@ -245,7 +398,7 @@ export default function SceneEditor({
               </div>
 
               {/* Research Action Buttons */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
                   onClick={handleQuickSearch}

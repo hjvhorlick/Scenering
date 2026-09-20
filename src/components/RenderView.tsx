@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { Project, Scene, TimelineInsert, CustomerLogoConfig } from "../types";
+import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, EditorStep, ResolutionType, PacingModeType } from "../types";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { createProjectZip } from "../lib/zip-download";
 import {
@@ -7,18 +7,21 @@ import {
   getMotionTransform,
   renderTimelineInsert,
 } from "../lib/render-effects";
+import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { generateAttributionDocument } from "../data/media-library";
+import { calculateDynamicDuration } from "../lib/duration-utils";
+import { getCanvasFilterString } from "../data/filters-library";
 
 export interface RenderSettings {
-  format: "webm" | "mp4";
-  resolution: "1080p" | "720p" | "shorts_9_16" | "square_1_1";
+  format: "mp4" | "webm";
+  resolution: "720p" | "1080p" | "2k" | "4k" | "shorts_9_16" | "square_1_1" | "4:3";
   fps: 30 | 60;
   quality: "standard" | "high" | "ultra";
   includeWatermark: boolean;
   watermarkOpacity: number;
   watermarkScale: number;
   includeSubtitles: boolean;
-  subtitleStyle: "karaoke" | "banner" | "minimal" | "yellow";
+  subtitleStyle: "karaoke" | "normal";
   backgroundMusic: "none" | "lofi" | "cinematic" | "ambient" | "energetic";
   musicVolume: number;
   normalizeAudio: boolean;
@@ -30,9 +33,17 @@ interface RenderViewProps {
   inserts: TimelineInsert[];
   selectedVoice?: string;
   availableVoices?: { id: string; name: string }[];
-  onNavigateToStep?: (step: "scenes" | "studio") => void;
+  aspectRatio?: AspectRatioType;
+  resolution?: ResolutionType;
+  pacingMode?: PacingModeType;
+  onNavigateToStep?: (step: EditorStep) => void;
   onBack?: () => void;
   customerLogo?: CustomerLogoConfig;
+  captionsConfig?: CaptionsConfig;
+  onUpdateCaptionsConfig?: (config: CaptionsConfig) => void;
+  renderedBlob?: Blob | null;
+  renderedUrl?: string | null;
+  onRenderSuccess?: (blob: Blob, url: string) => void;
 }
 
 export function generateSrtSubtitles(scenes: Scene[]): string {
@@ -61,26 +72,35 @@ export default function RenderView({
   project,
   scenes,
   inserts,
-  selectedVoice = "alloy",
+  selectedVoice = "guy",
   availableVoices = [],
+  aspectRatio = "16:9",
+  resolution: propResolution = "1080p",
+  pacingMode = "auto_speech",
   onNavigateToStep,
   onBack,
   customerLogo,
+  captionsConfig,
+  onUpdateCaptionsConfig,
+  renderedBlob: propRenderedBlob,
+  renderedUrl: propRenderedUrl,
+  onRenderSuccess,
 }: RenderViewProps) {
   const scenesWithImages = scenes.filter((s) => s.image_url);
-  const totalDuration = scenesWithImages.reduce((sum, s) => sum + s.duration, 0);
+  const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
+  const totalDuration = scenesWithImages.reduce((sum, s) => sum + getSceneDuration(s), 0);
 
   // Render settings state
   const [settings, setSettings] = useState<RenderSettings>({
-    format: "webm",
-    resolution: "1080p",
+    format: "mp4",
+    resolution: propResolution || "1080p",
     fps: 30,
     quality: "high",
     includeWatermark: true,
     watermarkOpacity: 1.0,
     watermarkScale: 1.0,
-    includeSubtitles: true,
-    subtitleStyle: "karaoke",
+    includeSubtitles: captionsConfig?.enabled ?? true,
+    subtitleStyle: captionsConfig?.mode ?? "karaoke",
     backgroundMusic: "lofi",
     musicVolume: 0.16,
     normalizeAudio: true,
@@ -90,18 +110,24 @@ export default function RenderView({
   const [isRendering, setIsRendering] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderStage, setRenderStage] = useState("");
-  const [renderedBlob, setRenderedBlob] = useState<Blob | null>(null);
-  const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
+  const [renderedBlob, setRenderedBlob] = useState<Blob | null>(propRenderedBlob || null);
+  const [renderedUrl, setRenderedUrl] = useState<string | null>(propRenderedUrl || null);
   const [renderError, setRenderError] = useState<string | null>(null);
+
+  // Sync with prop when returning to render tab
+  useEffect(() => {
+    if (propRenderedBlob) setRenderedBlob(propRenderedBlob);
+    if (propRenderedUrl) setRenderedUrl(propRenderedUrl);
+  }, [propRenderedBlob, propRenderedUrl]);
 
   // ZIP export state
   const [isZipping, setIsZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
   const [zipStatus, setZipStatus] = useState("");
 
-  // Attribution state
+  // Attribution state - default collapsed ("do not open it yet")
   const [copiedAttribution, setCopiedAttribution] = useState(false);
-  const [showAttributionPreview, setShowAttributionPreview] = useState(true);
+  const [showAttributionPreview, setShowAttributionPreview] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const watermarkImgRef = useRef<HTMLImageElement | null>(null);
@@ -117,69 +143,120 @@ export default function RenderView({
     };
   }, []);
 
-  // Pre-load customer logo image
+  // Pre-load customer logo image cleanly using safe proxy to prevent canvas tainting
   useEffect(() => {
-    if (customerLogo?.url) {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
+    const logoUrl = customerLogo?.url;
+    if (logoUrl) {
+      loadImage(logoUrl, 6000).then((img) => {
         customerLogoImgRef.current = img;
-      };
-      img.src = customerLogo.url;
+      });
     } else {
       customerLogoImgRef.current = null;
     }
   }, [customerLogo?.url]);
 
-  // Cleanup blob URLs on unmount
-  useEffect(() => {
-    return () => {
-      if (renderedUrl) {
-        URL.revokeObjectURL(renderedUrl);
-      }
-    };
-  }, [renderedUrl]);
+  // Resolution dimensions helper supporting resolution settings and aspect ratio
+  const getDimensions = (resOrRatio?: RenderSettings["resolution"] | AspectRatioType) => {
+    const targetRes = (resOrRatio === "720p" || resOrRatio === "1080p" || resOrRatio === "2k" || resOrRatio === "4k")
+      ? resOrRatio
+      : (settings?.resolution === "720p" || settings?.resolution === "2k" || settings?.resolution === "4k" ? settings.resolution : (propResolution || "1080p"));
+    const currentRatio = aspectRatio || "16:9";
 
-  // Resolution dimensions helper
-  const getDimensions = (res: RenderSettings["resolution"]) => {
-    switch (res) {
-      case "1080p":
-        return { width: 1920, height: 1080, label: "1920 × 1080 (16:9 Full HD)" };
-      case "720p":
-        return { width: 1280, height: 720, label: "1280 × 720 (16:9 HD)" };
-      case "shorts_9_16":
-        return { width: 1080, height: 1920, label: "1080 × 1920 (9:16 Shorts/Reels)" };
-      case "square_1_1":
-        return { width: 1080, height: 1080, label: "1080 × 1080 (1:1 Square Feed)" };
-      default:
-        return { width: 1920, height: 1080, label: "1920 × 1080 (16:9 Full HD)" };
+    if (resOrRatio === "shorts_9_16" || resOrRatio === "9:16" || (!resOrRatio && currentRatio === "9:16") || currentRatio === "9:16") {
+      if (targetRes === "720p") return { width: 720, height: 1280, label: "720 × 1280 (720p HD)", aspectClass: "aspect-[9/16] max-h-[520px]" };
+      if (targetRes === "2k") return { width: 1440, height: 2560, label: "1440 × 2560 (2K QHD)", aspectClass: "aspect-[9/16] max-h-[520px]" };
+      if (targetRes === "4k") return { width: 2160, height: 3840, label: "2160 × 3840 (4K UHD)", aspectClass: "aspect-[9/16] max-h-[520px]" };
+      return { width: 1080, height: 1920, label: "1080 × 1920 (1080p Full HD)", aspectClass: "aspect-[9/16] max-h-[520px]" };
     }
+    if (resOrRatio === "square_1_1" || resOrRatio === "1:1" || (!resOrRatio && currentRatio === "1:1") || currentRatio === "1:1") {
+      if (targetRes === "720p") return { width: 720, height: 720, label: "720 × 720 (720p HD)", aspectClass: "aspect-square max-h-[520px]" };
+      if (targetRes === "2k") return { width: 1440, height: 1440, label: "1440 × 1440 (2K QHD)", aspectClass: "aspect-square max-h-[520px]" };
+      if (targetRes === "4k") return { width: 2160, height: 2160, label: "2160 × 2160 (4K UHD)", aspectClass: "aspect-square max-h-[520px]" };
+      return { width: 1080, height: 1080, label: "1080 × 1080 (1080p Full HD)", aspectClass: "aspect-square max-h-[520px]" };
+    }
+    if (resOrRatio === "4:3" || (!resOrRatio && currentRatio === "4:3") || currentRatio === "4:3") {
+      if (targetRes === "720p") return { width: 960, height: 720, label: "960 × 720 (720p HD)", aspectClass: "aspect-[4/3] max-h-[520px]" };
+      if (targetRes === "2k") return { width: 1920, height: 1440, label: "1920 × 1440 (2K QHD)", aspectClass: "aspect-[4/3] max-h-[520px]" };
+      if (targetRes === "4k") return { width: 2880, height: 2160, label: "2880 × 2160 (4K UHD)", aspectClass: "aspect-[4/3] max-h-[520px]" };
+      return { width: 1440, height: 1080, label: "1440 × 1080 (1080p Full HD)", aspectClass: "aspect-[4/3] max-h-[520px]" };
+    }
+
+    // Default 16:9
+    if (targetRes === "720p") return { width: 1280, height: 720, label: "1280 × 720 (720p HD)", aspectClass: "aspect-video" };
+    if (targetRes === "2k") return { width: 2560, height: 1440, label: "2560 × 1440 (2K QHD)", aspectClass: "aspect-video" };
+    if (targetRes === "4k") return { width: 3840, height: 2160, label: "3840 × 2160 (4K UHD)", aspectClass: "aspect-video" };
+    return { width: 1920, height: 1080, label: "1920 × 1080 (1080p Full HD)", aspectClass: "aspect-video" };
   };
 
-  // Image preloader helper
-  const loadImage = (url: string): Promise<HTMLImageElement | null> => {
+  // Safe image URL resolver - routes external images through server proxy to ensure clean CORS & prevent canvas tainting
+  const getSafeImageUrl = (url: string): string => {
+    if (!url) return "";
+    if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("/")) {
+      return url;
+    }
+    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+  };
+
+  // Image preloader helper with timeout and proxy fallback
+  const loadImage = (url: string, timeoutMs: number = 8000): Promise<HTMLImageElement | null> => {
     return new Promise((resolve) => {
       if (!url) return resolve(null);
+      const safeUrl = getSafeImageUrl(url);
       const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = url;
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
+      if (!safeUrl.startsWith("data:") && !safeUrl.startsWith("blob:")) {
+        img.crossOrigin = "anonymous";
+      }
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve(null);
+        }
+      }, timeoutMs);
+
+      img.onload = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(img);
+        }
+      };
+
+      img.onerror = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          // If safeUrl wasn't proxied yet, try proxy once
+          if (!safeUrl.startsWith("/api/proxy-image") && !safeUrl.startsWith("data:") && !safeUrl.startsWith("blob:")) {
+            const proxyImg = new Image();
+            proxyImg.crossOrigin = "anonymous";
+            proxyImg.onload = () => resolve(proxyImg);
+            proxyImg.onerror = () => resolve(null);
+            proxyImg.src = `/api/proxy-image?url=${encodeURIComponent(url)}`;
+          } else {
+            resolve(null);
+          }
+        }
+      };
+
+      img.src = safeUrl;
     });
   };
 
-  // Synthesize ambient music loop using Web Audio API
+  // Synthesize ambient music loop using Web Audio API (fast 3-second seamless loop to avoid UI thread blocking)
   const createAmbientMusicNode = (
     ctx: AudioContext,
     style: RenderSettings["backgroundMusic"],
-    duration: number,
+    _duration: number,
     volume: number
   ): AudioNode | null => {
     if (style === "none" || volume <= 0) return null;
 
     try {
-      const sampleRate = ctx.sampleRate;
-      const buffer = ctx.createBuffer(2, sampleRate * Math.max(10, duration), sampleRate);
+      const sampleRate = ctx.sampleRate || 44100;
+      const loopSec = 3.0; // 3 seconds loop is seamless and generates in under 5ms
+      const buffer = ctx.createBuffer(2, Math.round(sampleRate * loopSec), sampleRate);
       const left = buffer.getChannelData(0);
       const right = buffer.getChannelData(1);
 
@@ -196,16 +273,17 @@ export default function RenderView({
       for (let i = 0; i < left.length; i++) {
         const t = i / sampleRate;
         let sample = 0;
-        baseFreqs.forEach((freq, idx) => {
+        for (let b = 0; b < baseFreqs.length; b++) {
+          const freq = baseFreqs[b];
           const osc = Math.sin(2 * Math.PI * freq * t);
           const sub = Math.sin(Math.PI * (freq / 2) * t) * 0.4;
-          const slowLfo = 0.6 + 0.4 * Math.sin(2 * Math.PI * 0.15 * t + idx);
+          const slowLfo = 0.6 + 0.4 * Math.sin(2 * Math.PI * 0.33 * t + b);
           sample += (osc + sub) * 0.15 * slowLfo;
-        });
+        }
 
         // Soft stereo spread
-        left[i] = sample * (0.8 + 0.2 * Math.sin(t * 0.5));
-        right[i] = sample * (0.8 + 0.2 * Math.cos(t * 0.5));
+        left[i] = sample * (0.8 + 0.2 * Math.sin(t * 1.5));
+        right[i] = sample * (0.8 + 0.2 * Math.cos(t * 1.5));
       }
 
       const source = ctx.createBufferSource();
@@ -227,6 +305,14 @@ export default function RenderView({
     } catch {
       return null;
     }
+  };
+
+  // Helper to ensure scene duration matches speech narration with zero dead silence
+  const getEffectiveSceneDuration = (scene: Scene, audioBufDuration?: number): number => {
+    if (audioBufDuration && audioBufDuration > 0.3) {
+      return Math.round((audioBufDuration + 0.1) * 10) / 10;
+    }
+    return calculateDynamicDuration(scene.text, scene.audio_duration);
   };
 
   // ------ RENDER VIDEO HANDLER ------
@@ -278,19 +364,30 @@ export default function RenderView({
         const sceneVoice = s.voice_id || selectedVoice;
 
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 6000);
           const res = await fetch(`${EDGE_FUNCTION_BASE}/tts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: s.text, voice: sceneVoice }),
+            signal: controller.signal,
           });
+          clearTimeout(timeoutId);
 
           if (res.ok) {
             const arrayBuf = await res.arrayBuffer();
             const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
             audioBuffers.set(s.id, { buffer: audioBuffer, duration: audioBuffer.duration });
+          } else {
+            throw new Error(`TTS status ${res.status}`);
           }
         } catch (e) {
           console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
+          const sampleRate = audioCtx.sampleRate || 44100;
+          const fallbackDur = getEffectiveSceneDuration(s);
+          const numSamples = Math.max(1, Math.floor(sampleRate * fallbackDur));
+          const fallbackBuf = audioCtx.createBuffer(1, numSamples, sampleRate);
+          audioBuffers.set(s.id, { buffer: fallbackBuf, duration: fallbackDur });
         }
 
         setRenderProgress(0.08 + (i / scenesWithImages.length) * 0.18);
@@ -310,8 +407,41 @@ export default function RenderView({
         if (wm) watermarkImgRef.current = wm;
       }
 
+      // Preload customer brand logo if enabled to ensure it is decoded and ready
+      if (customerLogo?.enabled && customerLogo.url) {
+        try {
+          const cLogo = await loadImage(customerLogo.url);
+          if (cLogo) {
+            customerLogoImgRef.current = cLogo;
+          }
+        } catch (logoErr) {
+          console.warn("Notice: Customer logo preload issue:", logoErr);
+        }
+      }
+
+      // Ensure AudioContext is active and running
+      if (audioCtx.state === "suspended") {
+        try {
+          await audioCtx.resume();
+        } catch (resumeErr) {
+          console.warn("AudioContext resume warning:", resumeErr);
+        }
+      }
+
       // Setup audio destination mixer
       const dest = audioCtx.createMediaStreamDestination();
+
+      // Inaudible continuous carrier tone to guarantee AudioContext destination stream clock never stalls in Chrome/Safari
+      try {
+        const carrierOsc = audioCtx.createOscillator();
+        const carrierGain = audioCtx.createGain();
+        carrierGain.gain.value = 0.00001; // inaudible
+        carrierOsc.connect(carrierGain);
+        carrierGain.connect(dest);
+        carrierOsc.start();
+      } catch (carrierErr) {
+        console.warn("Carrier oscillator warning:", carrierErr);
+      }
 
       // Ambient background music node
       if (settings.backgroundMusic !== "none" && settings.musicVolume > 0) {
@@ -326,51 +456,126 @@ export default function RenderView({
         }
       }
 
-      // Video recording stream
-      const videoStream = canvas.captureStream(settings.fps);
-      const combinedStream = new MediaStream([
-        ...videoStream.getVideoTracks(),
-        ...dest.stream.getAudioTracks(),
-      ]);
+      // Paint initial background on canvas so captureStream receives valid dimensions & non-empty buffer immediately
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, width, height);
 
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-        ? "video/webm;codecs=vp9,opus"
-        : MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
-        ? "video/webm;codecs=vp8,opus"
-        : "video/webm";
+      // Video recording stream
+      let videoStream: MediaStream;
+      try {
+        videoStream = canvas.captureStream(settings.fps);
+      } catch {
+        videoStream = (canvas as any).captureStream ? (canvas as any).captureStream() : (canvas as any).mozCaptureStream();
+      }
+
+      // Combine video and audio tracks safely
+      const audioTracks = dest.stream.getAudioTracks();
+      const videoTracks = videoStream.getVideoTracks();
+      let combinedStream: MediaStream;
+      if (audioTracks.length > 0 && videoTracks.length > 0) {
+        combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
+      } else {
+        combinedStream = videoStream;
+      }
+
+      // Select reliable recording MIME type: WebM VP9/VP8 with Opus audio is 100% stable
+      // across all browsers with WebAudio streams, whereas native MP4 recorder in Chromium fails with Opus
+      let mimeType = "";
+      if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")) {
+        mimeType = "video/webm;codecs=vp9,opus";
+      } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")) {
+        mimeType = "video/webm;codecs=vp8,opus";
+      } else if (MediaRecorder.isTypeSupported("video/webm")) {
+        mimeType = "video/webm";
+      } else if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1,mp4a.40.2")) {
+        mimeType = "video/mp4;codecs=avc1,mp4a.40.2";
+      } else if (MediaRecorder.isTypeSupported("video/mp4")) {
+        mimeType = "video/mp4";
+      }
 
       const bitrateMap = {
-        standard: 5000000,
-        high: 10000000,
-        ultra: 16000000,
+        standard: 4000000,
+        high: 8000000,
+        ultra: 12000000,
       };
 
-      const recorder = new MediaRecorder(combinedStream, {
-        mimeType,
-        videoBitsPerSecond: bitrateMap[settings.quality] || 10000000,
-      });
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(combinedStream, {
+          ...(mimeType ? { mimeType } : {}),
+          videoBitsPerSecond: bitrateMap[settings.quality] || 8000000,
+        });
+      } catch (recErr) {
+        console.warn("MediaRecorder creation with mimeType failed, falling back to default:", recErr);
+        try {
+          recorder = new MediaRecorder(combinedStream);
+        } catch (streamErr) {
+          console.warn("MediaRecorder with combinedStream failed, falling back to video-only stream:", streamErr);
+          recorder = new MediaRecorder(videoStream);
+        }
+      }
 
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onerror = (e: any) => {
+        console.error("MediaRecorder runtime error:", e);
       };
 
       // 3. Render frames & play audio in real time
-      setRenderStage("3/4: Rendering visual scenes, motion & effects...");
+      setRenderStage(`3/4: Rendering Scene 1 of ${scenesWithImages.length}...`);
       setRenderProgress(0.35);
 
       const videoPromise = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => {
-          const blob = new Blob(chunks, { type: "video/webm" });
+        let isResolved = false;
+        const finalizeBlob = () => {
+          if (isResolved) return;
+          isResolved = true;
+          const outputMime = recorder.mimeType || mimeType || "video/webm";
+          const blob = new Blob(chunks, { type: outputMime });
           resolve(blob);
         };
+
+        recorder.onstop = finalizeBlob;
+        recorder.onerror = (e) => {
+          console.error("MediaRecorder error event:", e);
+          if (!isResolved) {
+            finalizeBlob();
+          }
+        };
+
+        // Safety fallback timer so videoPromise never hangs forever
+        setTimeout(() => {
+          if (!isResolved) {
+            console.warn("Video render safety timer completed");
+            finalizeBlob();
+          }
+        }, Math.max(15, totalDuration + 15) * 1000);
       });
 
-      recorder.start(100);
+      try {
+        recorder.start(100);
+      } catch (recStartErr) {
+        console.warn("MediaRecorder start with timeslice failed, trying start():", recStartErr);
+        try {
+          recorder.start();
+        } catch (recFatal) {
+          console.error("MediaRecorder start error:", recFatal);
+        }
+      }
 
       let currentSceneIdx = 0;
       let sceneStartTime = performance.now();
       let activeAudioSource: AudioBufferSourceNode | null = null;
+      let lastProgressUiUpdate = 0;
+      let lastProgressVal = 0.35;
+
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      analyser.connect(dest);
+      // NOTE: Quiet rendering - deliberately DO NOT connect analyser to audioCtx.destination!
 
       const playSceneAudio = (idx: number) => {
         if (activeAudioSource) {
@@ -379,246 +584,469 @@ export default function RenderView({
           } catch {}
         }
         const sc = scenesWithImages[idx];
+        if (!sc) return;
         const item = audioBuffers.get(sc.id);
         if (item) {
-          const source = audioCtx.createBufferSource();
-          source.buffer = item.buffer;
-          source.connect(dest);
-          source.connect(audioCtx.destination);
-          source.start();
-          activeAudioSource = source;
+          try {
+            const source = audioCtx.createBufferSource();
+            source.buffer = item.buffer;
+            source.connect(analyser);
+            source.start();
+            activeAudioSource = source;
+          } catch (audioErr) {
+            console.warn("Error playing scene audio:", audioErr);
+          }
         }
       };
 
-      playSceneAudio(0);
+      const introInsert = inserts?.find((ins) => ins.category === "intro");
+      const outroInsert = inserts?.find((ins) => ins.category === "outro");
+      const introDuration = introInsert ? introInsert.duration : 0;
+      const outroDuration = outroInsert ? outroInsert.duration : 0;
 
-      // Frame drawing loop
+      const scriptTotalDuration = Math.max(1, scenesWithImages.reduce((sum, s) => {
+        const aud = audioBuffers.get(s.id);
+        return sum + Math.max(1, getEffectiveSceneDuration(s, aud?.duration));
+      }, 0));
+
+      const estimatedTotalDuration = Math.max(1, introDuration + scriptTotalDuration + outroDuration);
+
+      let renderPhase: "intro" | "scenes" | "outro" = introInsert ? "intro" : "scenes";
+      let phaseStartTime = performance.now();
+
+      // Only start scene voiceover audio if we are starting directly in scenes phase
+      if (renderPhase === "scenes") {
+        playSceneAudio(0);
+      }
+
+      // Frame drawing loop with robust error boundaries and background tab resilience
       await new Promise<void>((resolveLoop) => {
+        let isLoopFinished = false;
+        let backgroundTimerId: any = null;
+
+        const cleanupAndFinish = () => {
+          if (isLoopFinished) return;
+          isLoopFinished = true;
+          if (backgroundTimerId) clearTimeout(backgroundTimerId);
+          try {
+            if (recorder && recorder.state !== "inactive") {
+              recorder.stop();
+            }
+          } catch (e) {
+            console.warn("Recorder stop notice:", e);
+          }
+          resolveLoop();
+        };
+
+        const scheduleNextFrame = () => {
+          if (isLoopFinished) return;
+          const animId = requestAnimationFrame(renderFrame);
+          // Backup timer so if user switches tabs and requestAnimationFrame throttles, the render never freezes
+          if (backgroundTimerId) clearTimeout(backgroundTimerId);
+          backgroundTimerId = setTimeout(() => {
+            cancelAnimationFrame(animId);
+            renderFrame();
+          }, 80);
+        };
+
         const renderFrame = () => {
+          if (isLoopFinished) return;
+          if (backgroundTimerId) {
+            clearTimeout(backgroundTimerId);
+            backgroundTimerId = null;
+          }
+
           if (abortControllerRef.current) {
-            recorder.stop();
-            resolveLoop();
+            cleanupAndFinish();
             return;
           }
 
-          const now = performance.now();
-          const elapsedInScene = (now - sceneStartTime) / 1000;
-          const currentScene = scenesWithImages[currentSceneIdx];
+          try {
+            const now = performance.now();
 
-          const sceneAudio = audioBuffers.get(currentScene.id);
-          const sceneDuration = sceneAudio
-            ? Math.max(sceneAudio.duration + 0.6, currentScene.duration)
-            : currentScene.duration;
+            // ==========================================
+            // PHASE 1: INTRO SEGMENT (Full screen insert, NO captions, NO speech voice)
+            // ==========================================
+            if (renderPhase === "intro" && introInsert) {
+              const elapsedInIntro = Math.max(0, (now - phaseStartTime) / 1000);
+              const currentGlobalTime = elapsedInIntro;
+              const progressInIntro = Math.min(1, elapsedInIntro / Math.max(0.1, introDuration));
 
-          const progressInScene = Math.min(1, elapsedInScene / sceneDuration);
+              const rawProgress = 0.35 + (currentGlobalTime / estimatedTotalDuration) * 0.55;
+              const clampedProgress = Math.min(0.92, Math.max(0.35, isNaN(rawProgress) ? 0.35 : rawProgress));
 
-          // Calculate overall progress
-          const completedScenesDuration = scenesWithImages
-            .slice(0, currentSceneIdx)
-            .reduce((sum, s) => {
-              const aud = audioBuffers.get(s.id);
-              return sum + (aud ? Math.max(aud.duration + 0.6, s.duration) : s.duration);
-            }, 0);
-          const currentGlobalTime = completedScenesDuration + elapsedInScene;
-          const estimatedTotalDuration = scenesWithImages.reduce((sum, s) => {
-            const aud = audioBuffers.get(s.id);
-            return sum + (aud ? Math.max(aud.duration + 0.6, s.duration) : s.duration);
-          }, 0);
+              if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
+                lastProgressUiUpdate = now;
+                lastProgressVal = clampedProgress;
+                setRenderProgress(clampedProgress);
+                setRenderStage(
+                  `3/4: Rendering Intro Scene (${Math.round(elapsedInIntro)}s / ${Math.round(introDuration)}s)`
+                );
+              }
 
-          setRenderProgress(0.35 + (currentGlobalTime / Math.max(1, estimatedTotalDuration)) * 0.55);
+              // Draw canvas background
+              ctx.fillStyle = "#000";
+              ctx.fillRect(0, 0, width, height);
 
-          // --- Draw background ---
-          ctx.fillStyle = "#000";
-          ctx.fillRect(0, 0, width, height);
+              // Render Intro full screen (video or image with its own clip sound)
+              try {
+                renderTimelineInsert(ctx, introInsert, currentGlobalTime, width, height, 0.4, null);
+              } catch (e) {
+                console.warn("Intro insert render notice:", e);
+              }
 
-          // --- Draw image with Camera Motion ---
-          const img = images[currentSceneIdx];
-          if (img) {
-            const { scale, dx, dy } = getMotionTransform(
-              currentScene.motion_effect,
-              progressInScene,
-              width,
-              height
-            );
-            const sw = width * scale;
-            const sh = height * scale;
-            ctx.drawImage(img, dx, dy, sw, sh);
-          }
+              // Render active overlay inserts in intro (excluding intro/outro cards)
+              if (inserts && inserts.length > 0) {
+                inserts
+                  .filter((i) => i.category !== "intro" && i.category !== "outro")
+                  .forEach((ins) => {
+                    try {
+                      renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, 0.4, null);
+                    } catch {}
+                  });
+              }
 
-          // --- Apply Cinematic Filter ---
-          applySceneFilter(ctx, currentScene.filter, width, height);
+              // Strictly NO captions or speech voiceover in this section per user mandate
 
-          // --- Crisp Logo Watermark in Top-Left Corner (Permanent & Stands Out) ---
-          if (watermarkImgRef.current && watermarkImgRef.current.complete) {
-            ctx.save();
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = "high";
+              if (progressInIntro >= 1) {
+                renderPhase = "scenes";
+                currentSceneIdx = 0;
+                sceneStartTime = performance.now();
+                playSceneAudio(0);
+              }
 
-            const scaleRatio = width / 1280;
-            const wmWidth = 200 * scaleRatio;
-            const wmHeight = (wmWidth * watermarkImgRef.current.naturalHeight) / watermarkImgRef.current.naturalWidth;
-            const posX = 24 * scaleRatio;
-            const posY = 20 * scaleRatio;
-            const padX = 10 * scaleRatio;
-            const padY = 6 * scaleRatio;
-            const rad = 10 * scaleRatio;
+              scheduleNextFrame();
+              return;
+            }
 
-            // Protective high-contrast backing pill
-            ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-            ctx.shadowBlur = 10 * scaleRatio;
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 2 * scaleRatio;
-            ctx.fillStyle = "rgba(10, 12, 22, 0.78)";
-            ctx.beginPath();
-            ctx.roundRect
-              ? ctx.roundRect(posX - padX, posY - padY, wmWidth + padX * 2, wmHeight + padY * 2, rad)
-              : ctx.rect(posX - padX, posY - padY, wmWidth + padX * 2, wmHeight + padY * 2);
-            ctx.fill();
+            // ==========================================
+            // PHASE 3: OUTRO SEGMENT (Full screen insert, NO captions, NO speech voice)
+            // ==========================================
+            if (renderPhase === "outro" && outroInsert) {
+              const elapsedInOutro = Math.max(0, (now - phaseStartTime) / 1000);
+              const currentGlobalTime = introDuration + scriptTotalDuration + elapsedInOutro;
+              const progressInOutro = Math.min(1, elapsedInOutro / Math.max(0.1, outroDuration));
 
-            ctx.shadowColor = "transparent";
-            ctx.shadowBlur = 0;
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-            ctx.lineWidth = Math.max(1, 1 * scaleRatio);
-            ctx.stroke();
+              const rawProgress = 0.35 + (currentGlobalTime / estimatedTotalDuration) * 0.55;
+              const clampedProgress = Math.min(0.92, Math.max(0.35, isNaN(rawProgress) ? 0.35 : rawProgress));
 
-            // Draw crisp watermark logo
-            ctx.drawImage(watermarkImgRef.current, posX, posY, wmWidth, wmHeight);
-            ctx.restore();
-          }
+              if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
+                lastProgressUiUpdate = now;
+                lastProgressVal = clampedProgress;
+                setRenderProgress(clampedProgress);
+                setRenderStage(
+                  `3/4: Rendering Outro Scene (${Math.round(elapsedInOutro)}s / ${Math.round(outroDuration)}s)`
+                );
+              }
 
-          // --- Customer Brand Logo in Top-Right Corner (if enabled) ---
-          if (
-            customerLogo?.enabled &&
-            customerLogo.url &&
-            customerLogoImgRef.current &&
-            customerLogoImgRef.current.complete
-          ) {
-            ctx.save();
-            ctx.globalAlpha = Math.max(0.1, Math.min(1.0, customerLogo.opacity ?? 1.0));
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = "high";
+              // Draw canvas background
+              ctx.fillStyle = "#000";
+              ctx.fillRect(0, 0, width, height);
 
-            const scaleRatio = width / 1280;
-            const cScale = customerLogo.scale ?? 1.0;
-            const cMargin = (customerLogo.margin ?? 20) * scaleRatio;
-            const cWidth = Math.round(150 * cScale * scaleRatio);
-            const cHeight = (cWidth * customerLogoImgRef.current.naturalHeight) / customerLogoImgRef.current.naturalWidth;
-            const cX = width - cWidth - cMargin;
-            const cY = cMargin;
-            const cPadX = 8 * scaleRatio;
-            const cPadY = 6 * scaleRatio;
+              // Render Outro full screen (video or image with its own clip sound)
+              try {
+                renderTimelineInsert(ctx, outroInsert, currentGlobalTime, width, height, 0.4, null);
+              } catch (e) {
+                console.warn("Outro insert render notice:", e);
+              }
 
-            // Protective backing for customer logo
-            ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
-            ctx.shadowBlur = 8 * scaleRatio;
-            ctx.fillStyle = "rgba(10, 12, 22, 0.72)";
-            ctx.beginPath();
-            ctx.roundRect
-              ? ctx.roundRect(cX - cPadX, cY - cPadY, cWidth + cPadX * 2, cHeight + cPadY * 2, 8 * scaleRatio)
-              : ctx.rect(cX - cPadX, cY - cPadY, cWidth + cPadX * 2, cHeight + cPadY * 2);
-            ctx.fill();
+              // Render active overlay inserts in outro (excluding intro/outro cards)
+              if (inserts && inserts.length > 0) {
+                inserts
+                  .filter((i) => i.category !== "intro" && i.category !== "outro")
+                  .forEach((ins) => {
+                    try {
+                      renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, 0.4, null);
+                    } catch {}
+                  });
+              }
 
-            ctx.shadowColor = "transparent";
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-            ctx.lineWidth = Math.max(1, 1 * scaleRatio);
-            ctx.stroke();
+              // Strictly NO captions or speech voiceover in this section per user mandate
 
-            ctx.drawImage(customerLogoImgRef.current, cX, cY, cWidth, cHeight);
-            ctx.restore();
-          }
+              if (progressInOutro >= 1) {
+                cleanupAndFinish();
+                return;
+              }
 
-          // --- Subtitle Text Rendering ---
-          if (settings.includeSubtitles && currentScene.text) {
-            const words = currentScene.text.split(" ");
-            const lines: string[] = [];
-            let curLine = "";
-            const maxW = width - 180;
+              scheduleNextFrame();
+              return;
+            }
 
-            ctx.font = `bold ${Math.round(height * 0.038)}px system-ui, -apple-system, sans-serif`;
-            ctx.textAlign = "center";
+            // ==========================================
+            // PHASE 2: SCRIPT SCENES
+            // ==========================================
+            const elapsedInScene = Math.max(0, (now - sceneStartTime) / 1000);
+            const currentScene = scenesWithImages[currentSceneIdx];
 
-            for (const w of words) {
-              const test = curLine ? curLine + " " + w : w;
-              if (ctx.measureText(test).width > maxW && curLine) {
-                lines.push(curLine);
-                curLine = w;
+            if (!currentScene) {
+              if (outroInsert) {
+                renderPhase = "outro";
+                phaseStartTime = performance.now();
+                if (activeAudioSource) {
+                  try {
+                    activeAudioSource.stop();
+                  } catch {}
+                  activeAudioSource = null;
+                }
+                scheduleNextFrame();
+                return;
+              }
+              cleanupAndFinish();
+              return;
+            }
+
+            const sceneAudio = audioBuffers.get(currentScene.id);
+            const sceneDuration = Math.max(1, getEffectiveSceneDuration(currentScene, sceneAudio?.duration));
+
+            const progressInScene = Math.min(1, elapsedInScene / sceneDuration);
+
+            // Calculate overall progress based on voiceover speech pacing + intro duration
+            const completedScenesDuration = scenesWithImages
+              .slice(0, currentSceneIdx)
+              .reduce((sum, s) => {
+                const aud = audioBuffers.get(s.id);
+                return sum + Math.max(1, getEffectiveSceneDuration(s, aud?.duration));
+              }, 0);
+            const currentGlobalTime = introDuration + completedScenesDuration + elapsedInScene;
+
+            const rawProgress = 0.35 + (currentGlobalTime / estimatedTotalDuration) * 0.55;
+            const clampedProgress = Math.min(0.92, Math.max(0.35, isNaN(rawProgress) ? 0.35 : rawProgress));
+
+            // Throttle React UI updates to 4 times per second to prevent thread starvation
+            if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
+              lastProgressUiUpdate = now;
+              lastProgressVal = clampedProgress;
+              setRenderProgress(clampedProgress);
+              setRenderStage(
+                `3/4: Rendering Scene ${currentSceneIdx + 1} of ${scenesWithImages.length} (${Math.round(currentGlobalTime)}s / ${Math.round(estimatedTotalDuration)}s)`
+              );
+            }
+
+            // --- Draw background ---
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, width, height);
+
+            // --- Draw image with Camera Motion ---
+            const img = images[currentSceneIdx];
+            if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+              const { scale, dx, dy } = getMotionTransform(
+                currentScene.motion_effect,
+                progressInScene,
+                width,
+                height
+              );
+              const safeScale = isNaN(scale) ? 1 : scale;
+              const sw = width * safeScale;
+              const sh = height * safeScale;
+              const safeDx = isNaN(dx) ? 0 : dx;
+              const safeDy = isNaN(dy) ? 0 : dy;
+
+              // Apply authentic photographic color grade to frame canvas
+              const canvasFilter = getCanvasFilterString(currentScene.filter);
+              if (canvasFilter && canvasFilter !== "none") {
+                try {
+                  ctx.filter = canvasFilter;
+                } catch {
+                  ctx.filter = "none";
+                }
+              }
+
+              try {
+                ctx.drawImage(img, safeDx, safeDy, sw, sh);
+              } catch (drawErr) {
+                console.warn("Scene draw notice:", drawErr);
+              }
+
+              try {
+                ctx.filter = "none";
+              } catch {}
+            }
+
+            // --- Apply Visual Filter Overlays (scratches, dust bokeh, flares, CRT scanlines) ---
+            try {
+              applySceneFilter(ctx, currentScene.filter, width, height, elapsedInScene);
+            } catch (filterErr) {
+              console.warn("Scene filter notice:", filterErr);
+            }
+
+            // --- Crisp Logo Watermark in Top-Left Corner (Permanent & Stands Out) ---
+            if (
+              settings.includeWatermark &&
+              watermarkImgRef.current &&
+              watermarkImgRef.current.naturalWidth > 0 &&
+              watermarkImgRef.current.naturalHeight > 0
+            ) {
+              ctx.save();
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = "high";
+
+              const scaleRatio = width / 1280;
+              const wmScale = Math.max(0.4, Math.min(2.0, settings.watermarkScale ?? 1.0));
+              const wmOpacity = Math.max(0.1, Math.min(1.0, settings.watermarkOpacity ?? 1.0));
+              ctx.globalAlpha = wmOpacity;
+
+              const wmWidth = Math.max(20, Math.round(200 * wmScale * scaleRatio));
+              const wmHeight = Math.max(10, Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth)));
+              const posX = Math.round(24 * scaleRatio);
+              const posY = Math.round(20 * scaleRatio);
+              const padX = Math.round(10 * scaleRatio);
+              const padY = Math.round(6 * scaleRatio);
+              const rad = Math.round(10 * scaleRatio);
+
+              // Protective high-contrast backing pill
+              ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+              ctx.shadowBlur = 10 * scaleRatio;
+              ctx.shadowOffsetX = 0;
+              ctx.shadowOffsetY = 2 * scaleRatio;
+              ctx.fillStyle = "rgba(10, 12, 22, 0.78)";
+              ctx.beginPath();
+              if (typeof ctx.roundRect === "function") {
+                ctx.roundRect(posX - padX, posY - padY, wmWidth + padX * 2, wmHeight + padY * 2, rad);
               } else {
-                curLine = test;
+                ctx.rect(posX - padX, posY - padY, wmWidth + padX * 2, wmHeight + padY * 2);
+              }
+              ctx.fill();
+
+              ctx.shadowColor = "transparent";
+              ctx.shadowBlur = 0;
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+              ctx.lineWidth = Math.max(1, 1 * scaleRatio);
+              ctx.stroke();
+
+              // Draw crisp watermark logo
+              try {
+                ctx.drawImage(watermarkImgRef.current, posX, posY, wmWidth, wmHeight);
+              } catch (wmDrawErr) {
+                console.warn("Watermark draw notice:", wmDrawErr);
+              }
+              ctx.restore();
+            }
+
+            // --- Customer Brand Logo in Top-Right Corner (if enabled) ---
+            if (
+              customerLogo?.enabled &&
+              customerLogo.url &&
+              customerLogoImgRef.current &&
+              customerLogoImgRef.current.naturalWidth > 0 &&
+              customerLogoImgRef.current.naturalHeight > 0
+            ) {
+              ctx.save();
+              const logoOpacity = Math.max(0.1, Math.min(1.0, customerLogo.opacity ?? 1.0));
+              ctx.globalAlpha = logoOpacity;
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = "high";
+
+              const scaleRatio = width / 1280;
+              const cScale = Math.max(0.2, Math.min(3.0, customerLogo.scale ?? 1.0));
+              const cMarginX = (customerLogo.margin ?? 20) * scaleRatio;
+              const cMarginY = (customerLogo.margin ?? 20) * (height / 720);
+              // Base width 200 matches VideoPreview.tsx and CustomerLogoSection with 1:1 parity
+              const cWidth = Math.max(20, Math.round(200 * cScale * scaleRatio));
+              const cHeight = Math.max(10, Math.round((cWidth * customerLogoImgRef.current.naturalHeight) / Math.max(1, customerLogoImgRef.current.naturalWidth)));
+              const cX = Math.max(0, width - cWidth - cMarginX);
+              const cY = Math.max(0, cMarginY);
+
+              // Transparent customer logo with soft drop shadow - NO bounding box or border
+              ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+              ctx.shadowBlur = 8 * scaleRatio;
+              ctx.shadowOffsetX = 0;
+              ctx.shadowOffsetY = 2 * scaleRatio;
+
+              try {
+                ctx.drawImage(customerLogoImgRef.current, cX, cY, cWidth, cHeight);
+              } catch (logoDrawErr) {
+                console.warn("Logo draw notice:", logoDrawErr);
+              }
+              ctx.restore();
+            }
+
+            // --- Subtitle & Caption Rendering ---
+            if (settings.includeSubtitles && currentScene.text) {
+              try {
+                const activeCaptionsConfig: CaptionsConfig = captionsConfig || {
+                  enabled: true,
+                  mode: settings.subtitleStyle === "normal" ? "normal" : "karaoke",
+                  backgroundStyle: "blocked",
+                  preset: "word_pop",
+                  fontSize: "medium",
+                  position: "bottom",
+                  uppercase: true,
+                  textColor: "#ffffff",
+                  highlightColor: "#facc15",
+                  bgColor: "rgba(0, 0, 0, 0.75)",
+                };
+
+                renderCanvasCaptions(
+                  ctx,
+                  currentScene.text,
+                  progressInScene,
+                  activeCaptionsConfig,
+                  width,
+                  height
+                );
+              } catch (capErr) {
+                console.warn("Captions render notice:", capErr);
               }
             }
-            if (curLine) lines.push(curLine);
 
-            const lh = Math.round(height * 0.052);
-            const startY = height - Math.round(height * 0.09) - (lines.length - 1) * lh;
+            // --- Timeline Inserts & Overlays ---
+            if (inserts && inserts.length > 0) {
+              try {
+                let audioLevel = 0.4;
+                let freqData: Uint8Array | null = null;
+                if (analyser) {
+                  const data = new Uint8Array(analyser.frequencyBinCount);
+                  analyser.getByteFrequencyData(data);
+                  let sum = 0;
+                  for (let i = 0; i < data.length; i++) sum += data[i];
+                  audioLevel = sum / (data.length * 255);
+                  freqData = data;
+                }
 
-            if (settings.subtitleStyle === "karaoke") {
-              // Highlighted karaoke styling
-              lines.forEach((line, i) => {
-                const textY = startY + i * lh;
-                const textWidth = ctx.measureText(line).width;
-                const pillPaddingX = 24;
-                const pillPaddingY = 8;
-
-                ctx.fillStyle = "rgba(0,0,0,0.72)";
-                ctx.beginPath();
-                ctx.roundRect(
-                  width / 2 - textWidth / 2 - pillPaddingX,
-                  textY - lh * 0.72,
-                  textWidth + pillPaddingX * 2,
-                  lh,
-                  10
-                );
-                ctx.fill();
-
-                ctx.fillStyle = "#fbbf24";
-                ctx.fillText(line, width / 2, textY);
-              });
-            } else if (settings.subtitleStyle === "banner") {
-              // Modern dark banner
-              ctx.fillStyle = "rgba(0,0,0,0.85)";
-              ctx.fillRect(0, startY - lh, width, lh * (lines.length + 0.8));
-              ctx.fillStyle = "#ffffff";
-              lines.forEach((line, i) => ctx.fillText(line, width / 2, startY + i * lh));
-            } else if (settings.subtitleStyle === "yellow") {
-              ctx.shadowColor = "rgba(0,0,0,0.95)";
-              ctx.shadowBlur = 10;
-              ctx.fillStyle = "#facc15";
-              lines.forEach((line, i) => ctx.fillText(line, width / 2, startY + i * lh));
-              ctx.shadowColor = "transparent";
-            } else {
-              // Minimal outline
-              ctx.shadowColor = "rgba(0,0,0,0.95)";
-              ctx.shadowBlur = 12;
-              ctx.fillStyle = "#ffffff";
-              lines.forEach((line, i) => ctx.fillText(line, width / 2, startY + i * lh));
-              ctx.shadowColor = "transparent";
+                inserts.forEach((insert) => {
+                  try {
+                    renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData);
+                  } catch (insErr) {
+                    console.warn("Insert notice:", insErr);
+                  }
+                });
+              } catch (insertsErr) {
+                console.warn("Timeline inserts notice:", insertsErr);
+              }
             }
-          }
 
-          // --- Timeline Inserts & Overlays ---
-          if (inserts && inserts.length > 0) {
-            inserts.forEach((insert) => {
-              renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, 0.4);
-            });
-          }
-
-          // Check if current scene is finished
-          if (progressInScene >= 1) {
-            currentSceneIdx++;
-            if (currentSceneIdx >= scenesWithImages.length) {
-              recorder.stop();
-              resolveLoop();
-              return;
-            } else {
-              sceneStartTime = performance.now();
-              playSceneAudio(currentSceneIdx);
+            // Check if current scene is finished
+            if (progressInScene >= 1) {
+              currentSceneIdx++;
+              if (currentSceneIdx >= scenesWithImages.length) {
+                if (outroInsert) {
+                  renderPhase = "outro";
+                  phaseStartTime = performance.now();
+                  if (activeAudioSource) {
+                    try {
+                      activeAudioSource.stop();
+                    } catch {}
+                    activeAudioSource = null;
+                  }
+                } else {
+                  cleanupAndFinish();
+                  return;
+                }
+              } else {
+                sceneStartTime = performance.now();
+                playSceneAudio(currentSceneIdx);
+              }
             }
-          }
 
-          requestAnimationFrame(renderFrame);
+            scheduleNextFrame();
+          } catch (frameErr) {
+            console.error("Frame render recoverable error:", frameErr);
+            // Recover and keep loop alive so render never freezes at 35%
+            scheduleNextFrame();
+          }
         };
 
-        requestAnimationFrame(renderFrame);
+        scheduleNextFrame();
       });
 
       // 4. Encoding stream & packaging
@@ -637,6 +1065,7 @@ export default function RenderView({
       setRenderedUrl(url);
       setRenderProgress(1);
       setRenderStage("Render Complete! 🎉");
+      onRenderSuccess?.(finalBlob, url);
     } catch (err: any) {
       console.error("Render failed:", err);
       setRenderError(err.message || "Failed to render video");
@@ -677,12 +1106,39 @@ export default function RenderView({
       .map((ins) => ins.audioSettings?.soundUrl)
       .filter((u): u is string => Boolean(u));
 
+    const currentVoice = availableVoices?.find((v) => v.id === selectedVoice);
+    const voiceDisplay = currentVoice ? currentVoice.name : (selectedVoice || "Studio AI Voice");
+    const isBrowserVoice = selectedVoice?.startsWith("browser:");
+    const isMale =
+      (selectedVoice || "").toLowerCase().includes("guy") ||
+      (selectedVoice || "").toLowerCase().includes("christopher") ||
+      (selectedVoice || "").toLowerCase().includes("ryan") ||
+      (selectedVoice || "").toLowerCase().includes("william") ||
+      (selectedVoice || "").toLowerCase().includes("brian") ||
+      (selectedVoice || "").toLowerCase().includes("david") ||
+      (selectedVoice || "").toLowerCase().includes("mark") ||
+      (selectedVoice || "").toLowerCase().includes("male");
+
+    const isCustomImport = selectedVoice?.startsWith("custom:") || selectedVoice?.startsWith("import:");
+
     return generateAttributionDocument({
       projectTitle: project?.title || "My Video Project",
       soundsUsed: soundUrlsUsed,
       includeBackgroundMusic: settings.backgroundMusic !== "none",
       musicType: settings.backgroundMusic,
       imageSources: ["Pexels (CC0 / Free License)", "Pixabay (Content License)"],
+      voiceName: voiceDisplay,
+      voiceGender: isCustomImport ? "User Prepared Voice" : isMale ? "Male Narrator" : "Female Narrator",
+      voiceAccent: isCustomImport
+        ? "Custom Imported TTS Audio File"
+        : isBrowserVoice
+        ? "Browser / Web Speech Voice"
+        : "Natural Neural Voice Profile",
+      voiceEngine: isCustomImport
+        ? "User-Prepared Custom TTS Audio File (Imported Track)"
+        : isBrowserVoice
+        ? "W3C Web Speech API Standards"
+        : "Natural Human Neural Speech Engine (Free Attribution Cleared License)",
     });
   };
 
@@ -744,7 +1200,7 @@ export default function RenderView({
     setRenderStage("Render cancelled");
   };
 
-  const { width: renderW, height: renderH, label: resLabel } = getDimensions(settings.resolution);
+  const { width: renderW, height: renderH, label: resLabel, aspectClass } = getDimensions(settings.resolution);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12 animate-fade-in">
@@ -761,7 +1217,7 @@ export default function RenderView({
               </h2>
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Project: <span className="text-white font-medium">{project?.title || "Untitled Video"}</span> · {scenesWithImages.length} ready scenes · ~{totalDuration}s duration · {inserts.length} overlays
+              Project: <span className="text-white font-medium">{project?.title || "Untitled Video"}</span> · {scenesWithImages.length} scenes · ~{totalDuration}s duration
             </p>
           </div>
 
@@ -804,25 +1260,29 @@ export default function RenderView({
               </label>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { id: "1080p", name: "1080p Full HD", ratio: "16:9 Landscape" },
-                  { id: "720p", name: "720p HD", ratio: "16:9 Fast" },
-                  { id: "shorts_9_16", name: "Shorts / Reels", ratio: "9:16 Vertical" },
-                  { id: "square_1_1", name: "Square Post", ratio: "1:1 Feed" },
-                ].map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setSettings((s) => ({ ...s, resolution: r.id as any }))}
-                    className={`p-2.5 rounded-lg border text-left transition-all ${
-                      settings.resolution === r.id
-                        ? "bg-indigo-950/80 border-indigo-500 text-white shadow-sm"
-                        : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    <div className="text-xs font-semibold">{r.name}</div>
-                    <div className="text-[10px] text-gray-400">{r.ratio}</div>
-                  </button>
-                ))}
+                  { id: "720p", name: "720p HD", note: "Fastest render • lightweight" },
+                  { id: "1080p", name: "1080p Full HD", note: "Standard • crisp quality" },
+                  { id: "2k", name: "2K QHD", note: "High definition • pro grade" },
+                  { id: "4k", name: "4K UHD", note: "Maximum ultra detail" },
+                ].map((r) => {
+                  const dims = getDimensions(r.id as any);
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setSettings((s) => ({ ...s, resolution: r.id as any }))}
+                      className={`p-2.5 rounded-lg border text-left transition-all ${
+                        settings.resolution === r.id
+                          ? "bg-indigo-950/80 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-500"
+                          : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      <div className="text-xs font-semibold">{r.name}</div>
+                      <div className="text-[10px] text-gray-400 font-mono mt-0.5">{dims.width} × {dims.height}</div>
+                      <div className="text-[9px] text-gray-500 mt-0.5">{r.note}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -939,12 +1399,15 @@ export default function RenderView({
 
           {/* Subtitles & Audio Enhancement */}
           <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2 border-b border-gray-700 pb-2">
-              <span>🎵</span> Audio & Subtitle Styling
+            <h3 className="text-sm font-semibold text-white flex items-center justify-between border-b border-gray-700 pb-2">
+              <span className="flex items-center gap-2">
+                <span>💬</span> Captions & Subtitles
+              </span>
+              <span className="text-[10px] text-indigo-400 font-medium">Burn-in on Video</span>
             </h3>
 
-            {/* Subtitles */}
-            <div className="space-y-2">
+            {/* Subtitles Toggle */}
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-300 font-medium">
                   Burn-In Subtitles on Video
@@ -952,32 +1415,116 @@ export default function RenderView({
                 <input
                   type="checkbox"
                   checked={settings.includeSubtitles}
-                  onChange={(e) => setSettings((s) => ({ ...s, includeSubtitles: e.target.checked }))}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setSettings((s) => ({ ...s, includeSubtitles: checked }));
+                    if (onUpdateCaptionsConfig && captionsConfig) {
+                      onUpdateCaptionsConfig({ ...captionsConfig, enabled: checked });
+                    }
+                  }}
                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
                 />
               </div>
 
               {settings.includeSubtitles && (
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  {[
-                    { id: "karaoke", name: "✨ Karaoke Pill" },
-                    { id: "banner", name: "⬛ Dark Banner" },
-                    { id: "yellow", name: "🟡 Bold Yellow" },
-                    { id: "minimal", name: "⚪ Minimal Text" },
-                  ].map((st) => (
-                    <button
-                      key={st.id}
-                      type="button"
-                      onClick={() => setSettings((s) => ({ ...s, subtitleStyle: st.id as any }))}
-                      className={`p-2 rounded-lg border text-left text-xs transition-colors ${
-                        settings.subtitleStyle === st.id
-                          ? "bg-indigo-950 border-indigo-500 text-indigo-200"
-                          : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
-                      }`}
-                    >
-                      {st.name}
-                    </button>
-                  ))}
+                <div className="space-y-3 pt-1">
+                  {/* Mode: Karaoke vs Normal */}
+                  <div>
+                    <label className="text-[11px] text-gray-300 block mb-1.5 font-medium">
+                      Caption Mode:
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettings((s) => ({ ...s, subtitleStyle: "karaoke" }));
+                          if (onUpdateCaptionsConfig && captionsConfig) {
+                            onUpdateCaptionsConfig({ ...captionsConfig, mode: "karaoke" });
+                          }
+                        }}
+                        className={`p-2 rounded-lg border text-left text-xs transition-colors flex items-center gap-2 ${
+                          (captionsConfig?.mode || settings.subtitleStyle) === "karaoke"
+                            ? "bg-indigo-950 border-indigo-500 text-indigo-200 shadow-sm"
+                            : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        <span className="text-base">🎤</span>
+                        <div>
+                          <div className="font-semibold text-[11px]">Karaoke</div>
+                          <div className="text-[9px] text-gray-400">Active word highlight</div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettings((s) => ({ ...s, subtitleStyle: "normal" }));
+                          if (onUpdateCaptionsConfig && captionsConfig) {
+                            onUpdateCaptionsConfig({ ...captionsConfig, mode: "normal" });
+                          }
+                        }}
+                        className={`p-2 rounded-lg border text-left text-xs transition-colors flex items-center gap-2 ${
+                          (captionsConfig?.mode || settings.subtitleStyle) === "normal"
+                            ? "bg-indigo-950 border-indigo-500 text-indigo-200 shadow-sm"
+                            : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        <span className="text-base">📝</span>
+                        <div>
+                          <div className="font-semibold text-[11px]">Normal</div>
+                          <div className="text-[9px] text-gray-400">Standard full subtitles</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Background Style: Blocked vs Transparent */}
+                  <div>
+                    <label className="text-[11px] text-gray-300 block mb-1.5 font-medium">
+                      Background Style:
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onUpdateCaptionsConfig && captionsConfig) {
+                            onUpdateCaptionsConfig({ ...captionsConfig, backgroundStyle: "blocked" });
+                          }
+                        }}
+                        className={`p-2 rounded-lg border text-left text-xs transition-colors flex items-center gap-2 ${
+                          (captionsConfig?.backgroundStyle ?? "blocked") === "blocked"
+                            ? "bg-indigo-950 border-indigo-500 text-indigo-200 shadow-sm"
+                            : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        <span className="text-base">⬛</span>
+                        <div>
+                          <div className="font-semibold text-[11px]">Blocked</div>
+                          <div className="text-[9px] text-gray-400">High contrast backing</div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onUpdateCaptionsConfig && captionsConfig) {
+                            onUpdateCaptionsConfig({ ...captionsConfig, backgroundStyle: "transparent" });
+                          }
+                        }}
+                        className={`p-2 rounded-lg border text-left text-xs transition-colors flex items-center gap-2 ${
+                          captionsConfig?.backgroundStyle === "transparent"
+                            ? "bg-indigo-950 border-indigo-500 text-indigo-200 shadow-sm"
+                            : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        <span className="text-base">🔲</span>
+                        <div>
+                          <div className="font-semibold text-[11px]">Transparent</div>
+                          <div className="text-[9px] text-gray-400">Soft drop shadow only</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1028,12 +1575,13 @@ export default function RenderView({
         <div className="lg:col-span-7 space-y-4">
           <div className="bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden shadow-2xl">
             {/* Viewport: Live Render Canvas OR Finished HTML5 Video Player */}
-            <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
+            <div className={`relative ${aspectClass || "aspect-video"} bg-black flex items-center justify-center overflow-hidden mx-auto`}>
               {renderedUrl && !isRendering ? (
                 <video
                   src={renderedUrl}
                   controls
-                  autoPlay
+                  autoPlay={false}
+                  preload="metadata"
                   className="w-full h-full object-contain"
                 />
               ) : (
@@ -1227,15 +1775,11 @@ export default function RenderView({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={copyAttributionDoc}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow flex items-center gap-1.5 ${
-                copiedAttribution
-                  ? "bg-emerald-600 text-white animate-pulse"
-                  : "bg-indigo-600 hover:bg-indigo-500 text-white"
-              }`}
+              onClick={() => setShowAttributionPreview(!showAttributionPreview)}
+              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-gray-700 transition-colors flex items-center gap-1.5 shadow"
             >
-              <span>{copiedAttribution ? "✅" : "📋"}</span>
-              <span>{copiedAttribution ? "Copied to Clipboard!" : "Copy Attribution"}</span>
+              <span>👁️</span>
+              <span>{showAttributionPreview ? "Hide Credits" : "View Credits"}</span>
             </button>
 
             <button
@@ -1245,6 +1789,19 @@ export default function RenderView({
             >
               <span>⬇️</span>
               <span>Download (.txt)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={copyAttributionDoc}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow flex items-center gap-1.5 ${
+                copiedAttribution
+                  ? "bg-emerald-600 text-white animate-pulse"
+                  : "bg-indigo-600 hover:bg-indigo-500 text-white"
+              }`}
+            >
+              <span>{copiedAttribution ? "✅" : "📋"}</span>
+              <span>{copiedAttribution ? "Copied!" : "Copy"}</span>
             </button>
           </div>
         </div>

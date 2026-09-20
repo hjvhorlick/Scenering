@@ -1,9 +1,11 @@
 import { useState } from "react";
-import type { Scene } from "../types";
+import type { Scene, CaptionsConfig } from "../types";
 import { generateSrtSubtitles } from "./RenderView";
 
 interface CaptionsStudioProps {
   scenes: Scene[];
+  captionsConfig?: CaptionsConfig;
+  onUpdateCaptionsConfig?: (config: CaptionsConfig) => void;
   onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
   onApplyStyleToAll: (burn: boolean) => void;
   onNavigateToStep?: (step: any) => void;
@@ -83,18 +85,53 @@ const CAPTION_PRESETS: CaptionPreset[] = [
 
 export default function CaptionsStudio({
   scenes,
+  captionsConfig,
+  onUpdateCaptionsConfig,
   onUpdateScene,
   onApplyStyleToAll,
   onNavigateToStep,
 }: CaptionsStudioProps) {
-  const [selectedPreset, setSelectedPreset] = useState<CaptionPresetType>("word_pop");
-  const [burnCaptionsGlobal, setBurnCaptionsGlobal] = useState(true);
-  const [fontSize, setFontSize] = useState<"small" | "medium" | "large">("medium");
-  const [position, setPosition] = useState<"bottom" | "center" | "top">("bottom");
-  const [textUppercase, setTextUppercase] = useState(true);
-  const [customTextColor, setCustomTextColor] = useState("#FFFFFF");
-  const [customHighlightColor, setCustomHighlightColor] = useState("#38BDF8");
-  const [copiedNotification, setCopiedNotification] = useState(false);
+  const [mode, setMode] = useState<"karaoke" | "normal">(captionsConfig?.mode || "karaoke");
+  const [backgroundStyle, setBackgroundStyle] = useState<"transparent" | "blocked">(
+    captionsConfig?.backgroundStyle || "blocked"
+  );
+  const [selectedPreset, setSelectedPreset] = useState<CaptionPresetType>(
+    (captionsConfig?.preset as any) || "word_pop"
+  );
+  const [burnCaptionsGlobal, setBurnCaptionsGlobal] = useState(
+    captionsConfig?.enabled !== undefined ? captionsConfig.enabled : true
+  );
+  const [fontSize, setFontSize] = useState<"small" | "medium" | "large">(
+    captionsConfig?.fontSize || "medium"
+  );
+  const [position, setPosition] = useState<"bottom" | "center" | "top">(
+    captionsConfig?.position || "bottom"
+  );
+  const [textUppercase, setTextUppercase] = useState(
+    captionsConfig?.uppercase !== undefined ? captionsConfig.uppercase : true
+  );
+  const [customTextColor, setCustomTextColor] = useState(captionsConfig?.textColor || "#FFFFFF");
+  const [customHighlightColor, setCustomHighlightColor] = useState(
+    captionsConfig?.highlightColor || "#38BDF8"
+  );
+
+  const emitConfigUpdate = (partial: Partial<CaptionsConfig>) => {
+    if (onUpdateCaptionsConfig) {
+      onUpdateCaptionsConfig({
+        enabled: burnCaptionsGlobal,
+        mode,
+        backgroundStyle,
+        preset: selectedPreset as any,
+        fontSize,
+        position,
+        uppercase: textUppercase,
+        textColor: customTextColor,
+        highlightColor: customHighlightColor,
+        bgColor: backgroundStyle === "transparent" ? "rgba(0,0,0,0)" : "rgba(0,0,0,0.75)",
+        ...partial,
+      });
+    }
+  };
 
   const activePresetConfig = CAPTION_PRESETS.find((p) => p.id === selectedPreset) || CAPTION_PRESETS[0];
 
@@ -103,6 +140,22 @@ export default function CaptionsStudio({
     setCustomTextColor(p.textColor);
     setCustomHighlightColor(p.highlightColor);
     setTextUppercase(p.uppercase);
+    emitConfigUpdate({
+      preset: p.id as any,
+      textColor: p.textColor,
+      highlightColor: p.highlightColor,
+      uppercase: p.uppercase,
+    });
+  };
+
+  const handleModeChange = (newMode: "karaoke" | "normal") => {
+    setMode(newMode);
+    emitConfigUpdate({ mode: newMode });
+  };
+
+  const handleBackgroundChange = (newBg: "transparent" | "blocked") => {
+    setBackgroundStyle(newBg);
+    emitConfigUpdate({ backgroundStyle: newBg });
   };
 
   const handleApplyToAllScenes = () => {
@@ -110,6 +163,7 @@ export default function CaptionsStudio({
       onUpdateScene(s.id, { burn_caption: burnCaptionsGlobal });
     });
     onApplyStyleToAll(burnCaptionsGlobal);
+    emitConfigUpdate({ enabled: burnCaptionsGlobal });
   };
 
   const handleDownloadSrt = () => {
@@ -173,7 +227,10 @@ export default function CaptionsStudio({
               type="checkbox"
               id="masterBurnToggle"
               checked={burnCaptionsGlobal}
-              onChange={(e) => setBurnCaptionsGlobal(e.target.checked)}
+              onChange={(e) => {
+                setBurnCaptionsGlobal(e.target.checked);
+                emitConfigUpdate({ enabled: e.target.checked });
+              }}
               className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-gray-800 border-gray-700 cursor-pointer"
             />
             <label htmlFor="masterBurnToggle" className="cursor-pointer">
@@ -195,13 +252,121 @@ export default function CaptionsStudio({
         </div>
       </div>
 
+      {/* CORE CAPTION CONTROLS: Mode (Karaoke vs Normal) & Background (Transparent vs Blocked) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Caption Style Mode */}
+        <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-4 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <span>🎤</span> Caption Playback Style
+            </h3>
+            <span className="text-[10px] text-purple-400 font-semibold uppercase">
+              {mode === "karaoke" ? "Dynamic Sync" : "Clean Subtitle"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={() => handleModeChange("karaoke")}
+              className={`p-3 rounded-xl border text-left transition-all ${
+                mode === "karaoke"
+                  ? "bg-purple-950/70 border-purple-500 text-white shadow-md shadow-purple-600/20 ring-1 ring-purple-500"
+                  : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold text-xs">
+                <span>✨</span>
+                <span>Karaoke Mode</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">
+                Active word highlights and glows dynamically in sync with narration.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleModeChange("normal")}
+              className={`p-3 rounded-xl border text-left transition-all ${
+                mode === "normal"
+                  ? "bg-purple-950/70 border-purple-500 text-white shadow-md shadow-purple-600/20 ring-1 ring-purple-500"
+                  : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold text-xs">
+                <span>📝</span>
+                <span>Normal Mode</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">
+                Clean, traditional subtitles showing complete sentences with uniform color.
+              </p>
+            </button>
+          </div>
+        </div>
+
+        {/* Caption Background: Transparent vs Blocked */}
+        <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-4 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <span>🖼️</span> Background Framing
+            </h3>
+            <span className="text-[10px] text-indigo-400 font-semibold uppercase">
+              {backgroundStyle === "transparent" ? "No Box" : "Backdrop Pill"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={() => handleBackgroundChange("transparent")}
+              className={`p-3 rounded-xl border text-left transition-all ${
+                backgroundStyle === "transparent"
+                  ? "bg-indigo-950/70 border-indigo-500 text-white shadow-md shadow-indigo-600/20 ring-1 ring-indigo-500"
+                  : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold text-xs">
+                <span>🔲</span>
+                <span>Transparent</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">
+                Pure text with high-contrast outlines and drop-shadows. No background box.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleBackgroundChange("blocked")}
+              className={`p-3 rounded-xl border text-left transition-all ${
+                backgroundStyle === "blocked"
+                  ? "bg-indigo-950/70 border-indigo-500 text-white shadow-md shadow-indigo-600/20 ring-1 ring-indigo-500"
+                  : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold text-xs">
+                <span>⬛</span>
+                <span>Blocked Box</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">
+                Translucent dark rounded pill behind text for maximum cinematic legibility.
+              </p>
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Real-time Interactive Preview Stage */}
       <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <span>👁️</span> Live Caption Preview
           </h3>
-          <span className="text-[10px] text-gray-400">Simulating video frame</span>
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className="px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-gray-700">
+              Style: {mode === "karaoke" ? "Karaoke" : "Normal"}
+            </span>
+            <span className="px-2 py-0.5 rounded bg-gray-800 text-purple-300 border border-gray-700">
+              Backdrop: {backgroundStyle}
+            </span>
+          </div>
         </div>
 
         <div className="relative w-full aspect-video max-h-[260px] bg-gradient-to-b from-gray-950 via-gray-900 to-black rounded-xl overflow-hidden border border-gray-700 flex flex-col items-center justify-between p-4 shadow-inner">
@@ -210,23 +375,26 @@ export default function CaptionsStudio({
 
           <div className="w-full flex justify-between items-center text-[10px] text-gray-500 z-10">
             <span>Video Stage: 16:9 HD</span>
-            <span className="px-2 py-0.5 rounded bg-gray-800 text-indigo-300">Style: {activePresetConfig.name}</span>
+            <span className="px-2 py-0.5 rounded bg-gray-800 text-indigo-300">Preset: {activePresetConfig.name}</span>
           </div>
 
-          {/* Caption Rendering Box */}
+          {/* Caption Rendering Box - Enforces Max 2 Lines & Fits Inside Video Borders */}
           <div
-            className={`z-10 text-center transition-all ${
+            className={`z-10 text-center transition-all max-w-[85%] space-y-1.5 ${
               position === "top"
-                ? "self-start mt-4"
+                ? "self-start mt-3"
                 : position === "center"
                 ? "self-center"
-                : "self-end mb-4"
+                : "self-end mb-3"
             }`}
           >
+            {/* Line 1 (Currently being read by voiceover) */}
             <div
-              className="inline-block px-4 py-2 rounded-xl transition-all shadow-2xl backdrop-blur-sm"
+              className={`inline-block px-3.5 py-1.5 rounded-lg transition-all shadow-xl backdrop-blur-sm ${
+                backgroundStyle === "transparent" ? "bg-transparent shadow-none" : ""
+              }`}
               style={{
-                backgroundColor: activePresetConfig.bgColor,
+                backgroundColor: backgroundStyle === "transparent" ? "transparent" : activePresetConfig.bgColor,
               }}
             >
               <p
@@ -234,36 +402,74 @@ export default function CaptionsStudio({
                   textUppercase ? "uppercase" : ""
                 } ${
                   fontSize === "small"
-                    ? "text-sm sm:text-base"
+                    ? "text-xs sm:text-sm"
                     : fontSize === "large"
-                    ? "text-xl sm:text-2xl"
-                    : "text-base sm:text-lg"
+                    ? "text-lg sm:text-xl"
+                    : "text-sm sm:text-base"
                 }`}
                 style={{
                   color: customTextColor,
-                  textShadow: activePresetConfig.stroke
-                    ? "2px 2px 0px #000000, -2px -2px 0px #000000, 2px -2px 0px #000000, -2px 2px 0px #000000"
-                    : "0px 2px 8px rgba(0,0,0,0.8)",
+                  textShadow:
+                    backgroundStyle === "transparent" || activePresetConfig.stroke
+                      ? "2px 2px 0px #000000, -2px -2px 0px #000000, 2px -2px 0px #000000, -2px 2px 0px #000000, 0px 4px 12px rgba(0,0,0,0.9)"
+                      : "0px 2px 8px rgba(0,0,0,0.8)",
                 }}
               >
-                {sampleSceneText.split(" ").slice(0, 8).map((word, i) => (
-                  <span
-                    key={i}
-                    className="inline-block mx-1 transition-transform"
-                    style={{
-                      color: i === 2 ? customHighlightColor : customTextColor,
-                      transform: i === 2 ? "scale(1.1)" : "scale(1.0)",
-                    }}
-                  >
-                    {word}
-                  </span>
-                ))}
+                {sampleSceneText.split(" ").slice(0, 5).map((word, i) => {
+                  const isHighlighted = mode === "karaoke" && i === 2;
+                  return (
+                    <span
+                      key={i}
+                      className="inline-block mx-0.5 sm:mx-1 transition-transform"
+                      style={{
+                        color: isHighlighted ? customHighlightColor : customTextColor,
+                        transform: isHighlighted ? "scale(1.12)" : "scale(1.0)",
+                        textShadow: isHighlighted ? `0 0 14px ${customHighlightColor}` : undefined,
+                      }}
+                    >
+                      {word}
+                    </span>
+                  );
+                })}
               </p>
+            </div>
+
+            {/* Line 2 (Next upcoming line - shows until first line is done) */}
+            <div>
+              <div
+                className={`inline-block px-3.5 py-1 rounded-lg transition-all shadow-xl backdrop-blur-sm ${
+                  backgroundStyle === "transparent" ? "bg-transparent shadow-none" : ""
+                }`}
+                style={{
+                  backgroundColor: backgroundStyle === "transparent" ? "transparent" : activePresetConfig.bgColor,
+                }}
+              >
+                <p
+                  className={`font-black tracking-tight leading-snug transition-all ${
+                    textUppercase ? "uppercase" : ""
+                  } ${
+                    fontSize === "small"
+                      ? "text-xs sm:text-sm"
+                      : fontSize === "large"
+                      ? "text-lg sm:text-xl"
+                      : "text-sm sm:text-base"
+                  }`}
+                  style={{
+                    color: mode === "karaoke" ? "rgba(255, 255, 255, 0.72)" : customTextColor,
+                    textShadow:
+                      backgroundStyle === "transparent" || activePresetConfig.stroke
+                        ? "2px 2px 0px #000000, -2px -2px 0px #000000, 2px -2px 0px #000000, -2px 2px 0px #000000, 0px 4px 12px rgba(0,0,0,0.9)"
+                        : "0px 2px 8px rgba(0,0,0,0.8)",
+                  }}
+                >
+                  {sampleSceneText.split(" ").slice(5, 10).join(" ")}
+                </p>
+              </div>
             </div>
           </div>
 
           <div className="w-full text-center text-[10px] text-gray-500 z-10">
-            Previewing active word pop highlight in real-time
+            <span className="text-emerald-400 font-semibold">Max 2 lines on screen</span> · Rolls line-by-line in sync with voiceover · Fits inside video borders
           </div>
         </div>
       </div>
@@ -332,7 +538,10 @@ export default function CaptionsStudio({
                 <button
                   key={pos}
                   type="button"
-                  onClick={() => setPosition(pos)}
+                  onClick={() => {
+                    setPosition(pos);
+                    emitConfigUpdate({ position: pos });
+                  }}
                   className={`py-1 rounded text-xs capitalize font-medium transition-colors ${
                     position === pos
                       ? "bg-purple-600 text-white"
@@ -353,7 +562,10 @@ export default function CaptionsStudio({
                 <button
                   key={s}
                   type="button"
-                  onClick={() => setFontSize(s)}
+                  onClick={() => {
+                    setFontSize(s);
+                    emitConfigUpdate({ fontSize: s });
+                  }}
                   className={`py-1 rounded text-xs capitalize font-medium transition-colors ${
                     fontSize === s
                       ? "bg-purple-600 text-white"
@@ -372,7 +584,10 @@ export default function CaptionsStudio({
             <div className="grid grid-cols-2 gap-1">
               <button
                 type="button"
-                onClick={() => setTextUppercase(true)}
+                onClick={() => {
+                  setTextUppercase(true);
+                  emitConfigUpdate({ uppercase: true });
+                }}
                 className={`py-1 rounded text-xs font-medium transition-colors ${
                   textUppercase
                     ? "bg-purple-600 text-white"
@@ -383,7 +598,10 @@ export default function CaptionsStudio({
               </button>
               <button
                 type="button"
-                onClick={() => setTextUppercase(false)}
+                onClick={() => {
+                  setTextUppercase(false);
+                  emitConfigUpdate({ uppercase: false });
+                }}
                 className={`py-1 rounded text-xs font-medium transition-colors ${
                   !textUppercase
                     ? "bg-purple-600 text-white"
@@ -399,23 +617,31 @@ export default function CaptionsStudio({
           <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
             <span className="text-gray-400 block font-medium">Palette:</span>
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-gray-400">Text:</span>
                 <input
                   type="color"
                   value={customTextColor}
-                  onChange={(e) => setCustomTextColor(e.target.value)}
+                  onChange={(e) => {
+                    setCustomTextColor(e.target.value);
+                    emitConfigUpdate({ textColor: e.target.value });
+                  }}
                   className="w-6 h-6 rounded cursor-pointer bg-transparent border-0"
+                  title="Main text color"
                 />
-                <span className="text-[10px] text-gray-400">Text</span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-gray-400">Pop:</span>
                 <input
                   type="color"
                   value={customHighlightColor}
-                  onChange={(e) => setCustomHighlightColor(e.target.value)}
+                  onChange={(e) => {
+                    setCustomHighlightColor(e.target.value);
+                    emitConfigUpdate({ highlightColor: e.target.value });
+                  }}
                   className="w-6 h-6 rounded cursor-pointer bg-transparent border-0"
+                  title="Active word highlight color"
                 />
-                <span className="text-[10px] text-gray-400">Pop</span>
               </div>
             </div>
           </div>

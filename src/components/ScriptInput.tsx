@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { CALIBRATED_SAMPLES, type CalibratedSample } from "../data/calibrated-samples";
+import { countWords } from "../lib/duration-utils";
 
 interface ScriptInputProps {
   onSubmit: (title: string, script: string) => void;
@@ -6,48 +8,17 @@ interface ScriptInputProps {
   onOpenApiKeys?: () => void;
 }
 
-const SAMPLE_SCRIPTS = [
-  {
-    title: "Nature Documentary",
-    script: `The sun rises over the misty mountains, casting golden rays across the valley below.
-
-A herd of wild horses gallops through the open meadow, their manes flowing in the wind.
-
-Deep in the forest, a crystal-clear stream winds through moss-covered rocks and ancient trees.
-
-An eagle soars high above the canyon, surveying the vast wilderness stretching to the horizon.
-
-As night falls, millions of stars emerge, painting the sky with the light of distant galaxies.`,
-  },
-  {
-    title: "City Life Story",
-    script: `Morning rush hour fills the streets with bustling crowds and yellow taxis in downtown New York.
-
-Skyscrapers reach toward the clouds, their glass facades reflecting the morning light.
-
-In the park, joggers and dog walkers enjoy a moment of peace amidst the urban jungle.
-
-Street food vendors set up their colorful carts, filling the air with delicious aromas.
-
-The city transforms at sunset, as neon lights begin to glow and the nightlife awakens.`,
-  },
-  {
-    title: "Ocean Adventure",
-    script: `Turquoise waves crash against white sandy beaches under a tropical sun.
-
-A colorful coral reef teems with exotic fish and graceful sea turtles.
-
-A sailboat glides across calm waters, heading toward a distant island paradise.
-
-Dolphins leap joyfully alongside the boat, playing in the warm ocean currents.
-
-The horizon blazes with orange and pink as the sun sets over the endless sea.`,
-  },
-];
-
 export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: ScriptInputProps) {
   const [title, setTitle] = useState("");
   const [script, setScript] = useState("");
+
+  const wordsCount = countWords(script);
+  const estimatedReadSec = Math.round((wordsCount / 2.5) * 10) / 10;
+  const paragraphs = script
+    .split(/\n\n+|\n(?=\d+[\.\)]\s)/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const detectedScenes = paragraphs.length;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,30 +27,30 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
     }
   };
 
-  const loadSample = (sample: (typeof SAMPLE_SCRIPTS)[number]) => {
+  const loadSample = (sample: CalibratedSample) => {
+    const durScript = sample.scripts[20] || sample.scripts[10] || Object.values(sample.scripts)[0] || "";
     setTitle(sample.title);
-    setScript(sample.script);
+    setScript(durScript);
   };
 
   return (
-    <div className="animate-fade-in">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-2">Create New Video Project</h2>
-        <p className="text-gray-400">
-          Write or paste your script below. Each paragraph will become a separate
-          scene with its own image.
+    <div className="animate-fade-in space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold mb-1.5 text-white">Create New Video Project</h2>
+        <p className="text-gray-400 text-sm">
+          Enter your screenplay script or narration. Each paragraph automatically becomes a distinct scene.
         </p>
       </div>
 
       {/* Customer API Keys Notice */}
       {onOpenApiKeys && (
-        <div className="mb-6 p-3.5 bg-gray-900 border border-gray-800 rounded-xl flex items-center justify-between gap-3 shadow-sm">
+        <div className="p-3.5 bg-gray-900 border border-gray-800 rounded-xl flex items-center justify-between gap-3 shadow-sm">
           <div className="flex items-center gap-3">
             <span className="text-xl">🔑</span>
             <div>
-              <p className="text-xs font-semibold text-gray-200">Customer API Keys</p>
+              <p className="text-xs font-semibold text-gray-200">Customer Stock Footage Keys (Optional)</p>
               <p className="text-[11px] text-gray-400">
-                Insert your personal Pexels and Pixabay API keys to enable HD stock image searches.
+                Add personal Pexels and Pixabay keys for live HD stock footage search.
               </p>
             </div>
           </div>
@@ -94,16 +65,20 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
       )}
 
       {/* Sample Scripts */}
-      <div className="mb-6">
-        <p className="text-sm text-gray-500 mb-2">Try a sample script:</p>
+      <div className="space-y-2">
+        <span className="text-xs text-gray-400 font-medium">
+          Try a sample script:
+        </span>
         <div className="flex flex-wrap gap-2">
-          {SAMPLE_SCRIPTS.map((sample) => (
+          {CALIBRATED_SAMPLES.map((sample) => (
             <button
               key={sample.title}
+              type="button"
               onClick={() => loadSample(sample)}
-              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 transition-colors border border-gray-700"
+              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors border border-gray-700 flex items-center gap-1.5 shadow-sm"
             >
-              {sample.title}
+              <span>📜</span>
+              <span>{sample.title}</span>
             </button>
           ))}
         </div>
@@ -126,31 +101,36 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
         </div>
 
         <div>
-          <label htmlFor="script" className="block text-sm font-medium text-gray-300 mb-1">
-            Script
-            <span className="text-gray-500 font-normal ml-2">
-              (Separate scenes with blank lines)
+          <div className="flex items-center justify-between mb-1">
+            <label htmlFor="script" className="block text-sm font-medium text-gray-300">
+              Script Narration
+              <span className="text-gray-500 font-normal ml-2">
+                (Separate scenes with blank lines)
+              </span>
+            </label>
+            <span className="text-xs font-mono text-gray-400">
+              {wordsCount} words • ~{estimatedReadSec}s total read
             </span>
-          </label>
+          </div>
           <textarea
             id="script"
             value={script}
             onChange={(e) => setScript(e.target.value)}
-            placeholder={`Scene 1: The sun rises over the mountains...\n\nScene 2: A river flows through the valley...\n\nScene 3: Birds sing in the morning light...`}
-            rows={12}
+            placeholder={`Scene 1: Enter your opening scene narration text...\n\nScene 2: Enter the second scene narration text...\n\nScene 3: Each paragraph becomes an independent scene with visual imagery and audio narration.`}
+            rows={10}
             className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-sm leading-relaxed"
             required
           />
-          <p className="text-xs text-gray-500 mt-1">
-            {script.split(/\n\n+/).filter((s) => s.trim()).length} scene(s)
-            detected
-          </p>
+          <div className="flex items-center justify-between text-xs text-gray-500 mt-1">
+            <span>{detectedScenes} scene(s) detected</span>
+            <span>Configure scene lengths in Setup (10s, 20s, or 30s)</span>
+          </div>
         </div>
 
         <button
           type="submit"
           disabled={loading || !title.trim() || !script.trim()}
-          className="w-full py-3 px-6 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
+          className="w-full py-3 px-6 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
         >
           {loading ? (
             <>
@@ -170,7 +150,7 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                 />
               </svg>
-              Processing Script...
+              Generating Scenes...
             </>
           ) : (
             <>

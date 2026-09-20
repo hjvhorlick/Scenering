@@ -1,52 +1,19 @@
 import React, { useRef, useState } from "react";
-import type { CustomerLogoConfig } from "../types";
+import type { CustomerLogoConfig, AspectRatioType } from "../types";
 
 interface CustomerLogoSectionProps {
   config: CustomerLogoConfig;
   onChange: (updates: Partial<CustomerLogoConfig>) => void;
+  aspectRatio?: AspectRatioType;
+  sampleBackgroundImage?: string;
 }
 
-// Preset vector badges for instant testing if the user has no image file
-const PRESET_BADGES = [
-  {
-    id: "creator",
-    name: "Creator Badge",
-    dataUrl:
-      "data:image/svg+xml;utf8," +
-      encodeURIComponent(
-        `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80" viewBox="0 0 240 80"><rect width="240" height="80" rx="20" fill="#0f172a" stroke="#6366f1" stroke-width="3"/><circle cx="42" cy="40" r="22" fill="#6366f1"/><path d="M36 30 L52 40 L36 50 Z" fill="#ffffff"/><text x="76" y="47" fill="#ffffff" font-family="system-ui, sans-serif" font-size="20" font-weight="bold" letter-spacing="1">CREATOR</text></svg>`
-      ),
-  },
-  {
-    id: "pro_studio",
-    name: "Pro Studio",
-    dataUrl:
-      "data:image/svg+xml;utf8," +
-      encodeURIComponent(
-        `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80" viewBox="0 0 240 80"><rect width="240" height="80" rx="20" fill="#18181b" stroke="#3b82f6" stroke-width="3"/><rect x="22" y="22" width="36" height="36" rx="8" fill="#3b82f6"/><text x="32" y="48" fill="#ffffff" font-family="system-ui, sans-serif" font-size="22" font-weight="900">P</text><text x="72" y="48" fill="#ffffff" font-family="system-ui, sans-serif" font-size="20" font-weight="800" letter-spacing="2">STUDIO</text></svg>`
-      ),
-  },
-  {
-    id: "tech_media",
-    name: "Tech Pulse",
-    dataUrl:
-      "data:image/svg+xml;utf8," +
-      encodeURIComponent(
-        `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80" viewBox="0 0 240 80"><rect width="240" height="80" rx="20" fill="#022c22" stroke="#10b981" stroke-width="3"/><circle cx="40" cy="40" r="18" fill="#10b981"/><path d="M30 40 L37 33 L43 47 L50 40" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><text x="72" y="47" fill="#ecfdf5" font-family="system-ui, sans-serif" font-size="20" font-weight="bold" letter-spacing="1">MEDIA</text></svg>`
-      ),
-  },
-  {
-    id: "gold_luxe",
-    name: "Golden Brand",
-    dataUrl:
-      "data:image/svg+xml;utf8," +
-      encodeURIComponent(
-        `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80" viewBox="0 0 240 80"><rect width="240" height="80" rx="20" fill="#1c1917" stroke="#eab308" stroke-width="3"/><polygon points="40,24 47,38 62,39 50,49 54,63 40,54 26,63 30,49 18,39 33,38" fill="#eab308"/><text x="74" y="47" fill="#fef08a" font-family="system-ui, sans-serif" font-size="20" font-weight="bold" letter-spacing="1">BRAND</text></svg>`
-      ),
-  },
-];
-
-export default function CustomerLogoSection({ config, onChange }: CustomerLogoSectionProps) {
+export default function CustomerLogoSection({
+  config,
+  onChange,
+  aspectRatio = "16:9",
+  sampleBackgroundImage,
+}: CustomerLogoSectionProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [urlInput, setUrlInput] = useState("");
@@ -109,7 +76,7 @@ export default function CustomerLogoSection({ config, onChange }: CustomerLogoSe
             </span>
           </div>
           <p className="text-xs text-gray-400 mt-1">
-            Display your custom company or creator logo in the top-right corner of the video.
+            Upload your transparent company or creator logo with full sizing flexibility for video overlays.
           </p>
         </div>
 
@@ -135,8 +102,8 @@ export default function CustomerLogoSection({ config, onChange }: CustomerLogoSe
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* Left Column: Upload Dropzone & Preset Selectors (7 cols) */}
-        <div className="lg:col-span-7 space-y-4">
+        {/* Left Column: Upload Dropzone & URL Input (6 cols) */}
+        <div className="lg:col-span-6 space-y-4">
           {/* File Upload Zone */}
           <div
             onDragOver={(e) => {
@@ -146,7 +113,7 @@ export default function CustomerLogoSection({ config, onChange }: CustomerLogoSe
             onDragLeave={() => setDragActive(false)}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
+            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
               dragActive
                 ? "border-indigo-500 bg-indigo-950/40"
                 : "border-gray-700 hover:border-indigo-500/70 bg-gray-800/40 hover:bg-gray-800/70"
@@ -161,34 +128,40 @@ export default function CustomerLogoSection({ config, onChange }: CustomerLogoSe
               }}
               className="hidden"
             />
-            <div className="flex flex-col items-center justify-center gap-2">
-              <span className="p-2.5 rounded-full bg-indigo-600/20 text-indigo-400 text-2xl">
+            <div className="flex flex-col items-center justify-center gap-2.5">
+              <span className="p-3 rounded-full bg-indigo-600/20 text-indigo-400 text-3xl">
                 📤
               </span>
-              <div className="text-xs font-semibold text-white">
-                Click or Drag & Drop your Logo here
+              <div className="text-sm font-semibold text-white">
+                Upload Your Logo Image
               </div>
-              <p className="text-[11px] text-gray-400 max-w-sm">
-                Supports PNG (with transparency), SVG, JPG, or WebP. Optimal resolution: 400x120 or square.
+              <p className="text-xs text-gray-400 max-w-sm">
+                Click or drag & drop your custom logo here. Recommended: Transparent PNG or SVG.
               </p>
+              {config.url && (
+                <div className="mt-2 px-3 py-1 bg-emerald-950/80 border border-emerald-600/60 rounded-lg text-emerald-300 text-xs flex items-center gap-2">
+                  <span>✓</span>
+                  <span>Logo Loaded</span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Quick Action Links: URL modal & presets */}
+          {/* Quick Action Links: URL modal & remove */}
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
             <button
               type="button"
               onClick={() => setShowUrlModal(!showUrlModal)}
               className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"
             >
-              <span>🔗</span> Or enter Image URL
+              <span>🔗</span> Or paste Direct Image URL
             </button>
 
             {config.url && (
               <button
                 type="button"
                 onClick={() => onChange({ url: null, enabled: false })}
-                className="text-rose-400 hover:text-rose-300 font-medium flex items-center gap-1"
+                className="text-rose-400 hover:text-rose-300 font-medium flex items-center gap-1 hover:underline"
               >
                 <span>🗑️</span> Remove Current Logo
               </button>
@@ -201,7 +174,7 @@ export default function CustomerLogoSection({ config, onChange }: CustomerLogoSe
                 type="url"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="https://example.com/my-logo.png"
+                placeholder="https://example.com/my-company-logo.png"
                 className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
               <button
@@ -214,111 +187,170 @@ export default function CustomerLogoSection({ config, onChange }: CustomerLogoSe
             </div>
           )}
 
-          {/* Sample Brand Badges for Instant Testing */}
-          <div className="space-y-2 pt-2 border-t border-gray-800">
-            <label className="text-xs text-gray-400 block">
-              Or pick a sample brand badge for quick testing:
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {PRESET_BADGES.map((badge) => {
-                const isActive = config.url === badge.dataUrl;
-                return (
-                  <button
-                    key={badge.id}
-                    type="button"
-                    onClick={() => onChange({ url: badge.dataUrl, enabled: true })}
-                    className={`p-2 rounded-xl border text-center transition-all ${
-                      isActive
-                        ? "bg-indigo-950/80 border-indigo-500 ring-1 ring-indigo-500"
-                        : "bg-gray-800/50 hover:bg-gray-800 border-gray-700 text-gray-300"
-                    }`}
-                  >
-                    <img
-                      src={badge.dataUrl}
-                      alt={badge.name}
-                      className="h-6 w-auto mx-auto object-contain mb-1"
-                    />
-                    <span className="text-[10px] font-medium block truncate">{badge.name}</span>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Info Card */}
+          <div className="p-3 bg-gray-800/40 rounded-xl border border-gray-800 text-xs text-gray-400 space-y-1">
+            <p className="font-semibold text-gray-300 flex items-center gap-1.5">
+              <span>💡</span>
+              <span>Placement & Transparency Tip:</span>
+            </p>
+            <p>
+              Your logo renders in the top-right corner of the video. Increase the <strong>Logo Size</strong> slider to make it as large and bold as you want.
+            </p>
           </div>
         </div>
 
-        {/* Right Column: Interactive Controls & Live Placement Preview (5 cols) */}
-        <div className="lg:col-span-5 space-y-4">
-          {/* Mock Video Canvas Corner Preview */}
-          <div className="bg-gray-950 rounded-xl p-3 border border-gray-800 relative overflow-hidden shadow-inner">
-            <div className="text-[10px] uppercase font-bold text-gray-500 tracking-wider mb-2 flex items-center justify-between">
-              <span>Top-Right Video Corner Preview</span>
-              <span className="text-indigo-400">16:9 Canvas</span>
+        {/* Right Column: Live Placement Preview & Big Size Controls (6 cols) */}
+        <div className="lg:col-span-6 space-y-4">
+          {/* Exact 1:1 Video Frame Sample Display */}
+          <div className="bg-gray-950 rounded-xl p-3.5 border border-gray-800 relative overflow-hidden shadow-xl">
+            <div className="text-[11px] font-medium text-gray-400 mb-2 flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-gray-200">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="font-semibold">Sample Video Display</span>
+                <span className="text-gray-500 font-normal">· Exact size as top preview</span>
+              </span>
+              <span className="text-indigo-400 text-[10px] font-mono bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-800/60">
+                1:1 Scale Synced
+              </span>
             </div>
 
-            {/* Mock Canvas Surface */}
-            <div className="w-full h-36 bg-gradient-to-br from-gray-900 via-gray-850 to-indigo-950/40 rounded-lg relative border border-gray-800/80 overflow-hidden flex items-start justify-end p-3">
-              {/* Grid guide marks */}
-              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:12px_12px]" />
+            {/* Video Frame Canvas Box with identical aspect ratio and scene background */}
+            <div
+              className={`w-full ${
+                aspectRatio === "9:16"
+                  ? "aspect-[9/16] max-h-72 mx-auto"
+                  : aspectRatio === "1:1"
+                  ? "aspect-square max-h-64 mx-auto"
+                  : "aspect-video"
+              } bg-black rounded-lg relative border border-gray-800/90 overflow-hidden select-none shadow-2xl flex items-start justify-end`}
+            >
+              {/* Scene background or cinematic backdrop */}
+              {sampleBackgroundImage ? (
+                <img
+                  src={sampleBackgroundImage}
+                  alt="Sample Scene Visual"
+                  className="absolute inset-0 w-full h-full object-cover opacity-60 pointer-events-none"
+                />
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-950 to-indigo-950/40" />
+              )}
 
-              {/* Watermark notice on top-left of preview */}
-              <div className="absolute left-2.5 top-2.5 px-2 py-0.5 bg-black/60 rounded border border-white/10 text-[9px] text-gray-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping" />
-                <span>Watermark (Top-Left)</span>
+              {/* Cinematic Vignette */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
+
+              {/* Grid guide markings */}
+              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none" />
+
+              {/* Watermark in Top-Left (Identical proportions: 180px / 1280px = 14.06%) */}
+              <div
+                style={{
+                  width: "14.06%",
+                  left: "1.875%",
+                  top: "2.77%",
+                }}
+                className="absolute pointer-events-none select-none z-10"
+              >
+                <img
+                  src="/scenering-logo.png"
+                  alt="Scenering Logo Watermark"
+                  className="w-full h-auto object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]"
+                />
               </div>
 
-              {/* Live Rendered Customer Logo in Top-Right */}
+              {/* Live Rendered Customer Logo in Top-Right with EXACT 1:1 mathematical percentage sizing */}
               {config.enabled && config.url ? (
                 <div
                   style={{
-                    opacity: config.opacity,
-                    transform: `scale(${config.scale})`,
-                    transformOrigin: "top right",
+                    width: `${((200 * (config.scale ?? 1.0)) / 1280) * 100}%`,
+                    right: `${((config.margin ?? 20) / 1280) * 100}%`,
+                    top: `${((config.margin ?? 20) / 720) * 100}%`,
+                    opacity: Math.max(0.1, Math.min(1.0, config.opacity ?? 1.0)),
                   }}
-                  className="transition-all duration-150"
+                  className="absolute transition-all duration-150 pointer-events-none select-none z-10"
                 >
                   <img
                     src={config.url}
-                    alt="Customer Logo"
-                    className="h-9 w-auto max-w-[130px] object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]"
+                    alt="Customer Brand Logo"
+                    className="w-full h-auto object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.85)]"
                   />
                 </div>
               ) : (
-                <div className="border border-dashed border-gray-600 rounded-lg p-2 text-center text-gray-500 text-[10px] w-32">
-                  No custom logo active
+                <div
+                  style={{
+                    right: `${((config.margin ?? 20) / 1280) * 100}%`,
+                    top: `${((config.margin ?? 20) / 720) * 100}%`,
+                  }}
+                  className="absolute px-2.5 py-1 rounded border border-dashed border-gray-600 bg-black/70 text-gray-400 text-[10px] backdrop-blur-sm pointer-events-none z-10"
+                >
+                  No custom logo selected
                 </div>
               )}
+
+              {/* Sample 2-Line Captions at bottom to illustrate exact video layout */}
+              <div className="absolute bottom-[8%] inset-x-[10%] flex flex-col items-center pointer-events-none z-10 space-y-1">
+                <div className="bg-black/75 px-3 py-0.5 rounded text-[10px] sm:text-[11px] font-bold text-white shadow-lg tracking-wide border border-white/10">
+                  <span className="text-yellow-400">MAX 2 LINES CAPTIONS</span> · SYNCS WITH VOICEOVER
+                </div>
+                <div className="bg-black/75 px-3 py-0.5 rounded text-[10px] sm:text-[11px] font-bold text-white/80 shadow-lg tracking-wide border border-white/10">
+                  FITS PERFECTLY INSIDE VIDEO BORDERS
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Sizing & Appearance Sliders */}
-          <div className="bg-gray-800/40 border border-gray-800 rounded-xl p-3.5 space-y-3 text-xs">
-            {/* Logo Scale / Size */}
+          {/* Sizing & Appearance Sliders with Higher Range */}
+          <div className="bg-gray-800/40 border border-gray-800 rounded-xl p-4 space-y-4 text-xs">
+            {/* Logo Scale / Size: 50% to 300% */}
             <div>
-              <div className="flex justify-between text-gray-300 mb-1">
-                <span className="font-medium">Logo Size:</span>
-                <span className="text-indigo-400 font-bold">{Math.round(config.scale * 100)}%</span>
+              <div className="flex justify-between items-center text-gray-300 mb-1.5">
+                <span className="font-semibold text-white flex items-center gap-1.5">
+                  <span>📐</span>
+                  <span>Logo Size / Scale:</span>
+                </span>
+                <span className="text-indigo-400 font-bold font-mono text-sm">
+                  {Math.round(config.scale * 100)}%
+                </span>
               </div>
               <input
                 type="range"
                 min="0.5"
-                max="1.8"
+                max="3.0"
                 step="0.05"
                 value={config.scale}
                 onChange={(e) => onChange({ scale: parseFloat(e.target.value) })}
-                className="w-full accent-indigo-500"
+                className="w-full accent-indigo-500 cursor-pointer"
               />
-              <div className="flex justify-between text-[10px] text-gray-500 mt-0.5">
-                <span>Small (50%)</span>
-                <span>Default (100%)</span>
-                <span>Large (180%)</span>
+              {/* Size Quick Select Preset Buttons */}
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                {[
+                  { label: "50%", val: 0.5 },
+                  { label: "100% (Normal)", val: 1.0 },
+                  { label: "150% (Medium)", val: 1.5 },
+                  { label: "200% (Large)", val: 2.0 },
+                  { label: "250% (XL)", val: 2.5 },
+                  { label: "300% (Max)", val: 3.0 },
+                ].map((p) => (
+                  <button
+                    key={p.val}
+                    type="button"
+                    onClick={() => onChange({ scale: p.val })}
+                    className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
+                      Math.abs(config.scale - p.val) < 0.04
+                        ? "bg-indigo-600 text-white border-indigo-400 shadow-sm"
+                        : "bg-gray-800 text-gray-300 border-gray-700 hover:bg-gray-700 hover:text-white"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
             </div>
 
             {/* Opacity */}
             <div>
               <div className="flex justify-between text-gray-300 mb-1">
-                <span className="font-medium">Logo Opacity:</span>
-                <span className="text-indigo-400 font-bold">{Math.round(config.opacity * 100)}%</span>
+                <span className="font-medium">Logo Transparency:</span>
+                <span className="text-indigo-400 font-bold font-mono">{Math.round(config.opacity * 100)}%</span>
               </div>
               <input
                 type="range"
@@ -327,24 +359,24 @@ export default function CustomerLogoSection({ config, onChange }: CustomerLogoSe
                 step="0.05"
                 value={config.opacity}
                 onChange={(e) => onChange({ opacity: parseFloat(e.target.value) })}
-                className="w-full accent-indigo-500"
+                className="w-full accent-indigo-500 cursor-pointer"
               />
             </div>
 
             {/* Margin from Corner */}
             <div>
               <div className="flex justify-between text-gray-300 mb-1">
-                <span className="font-medium">Corner Margin:</span>
-                <span className="text-indigo-400 font-bold">{config.margin}px</span>
+                <span className="font-medium">Corner Margin (Padding):</span>
+                <span className="text-indigo-400 font-bold font-mono">{config.margin}px</span>
               </div>
               <input
                 type="range"
-                min="12"
-                max="48"
+                min="10"
+                max="60"
                 step="2"
                 value={config.margin}
                 onChange={(e) => onChange({ margin: parseInt(e.target.value, 10) })}
-                className="w-full accent-indigo-500"
+                className="w-full accent-indigo-500 cursor-pointer"
               />
             </div>
           </div>

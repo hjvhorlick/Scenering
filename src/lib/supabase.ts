@@ -33,7 +33,7 @@ function saveStorage<T>(key: string, items: T[]) {
 
 class MockQueryBuilder<T extends Record<string, any>> implements PromiseLike<{ data: any; error: any }> {
   private tableName: string;
-  private action: "select" | "insert" | "update" | "delete" = "select";
+  private action: "select" | "insert" | "update" | "delete" | "upsert" = "select";
   private insertData: any = null;
   private updateData: any = null;
   private filters: Array<(item: T) => boolean> = [];
@@ -45,12 +45,18 @@ class MockQueryBuilder<T extends Record<string, any>> implements PromiseLike<{ d
   }
 
   select(_columns = "*") {
-    // If it's already insert/update, select() just signals we want returned rows
+    // If it's already insert/update/upsert, select() just signals we want returned rows
     return this;
   }
 
   insert(values: any | any[]) {
     this.action = "insert";
+    this.insertData = Array.isArray(values) ? values : [values];
+    return this;
+  }
+
+  upsert(values: any | any[]) {
+    this.action = "upsert";
     this.insertData = Array.isArray(values) ? values : [values];
     return this;
   }
@@ -67,7 +73,7 @@ class MockQueryBuilder<T extends Record<string, any>> implements PromiseLike<{ d
   }
 
   eq(column: string, value: any) {
-    this.filters.push((item: any) => item[column] === value);
+    this.filters.push((item: any) => String(item[column]) === String(value));
     return this;
   }
 
@@ -94,8 +100,8 @@ class MockQueryBuilder<T extends Record<string, any>> implements PromiseLike<{ d
 
     if (this.action === "insert") {
       const now = new Date().toISOString();
-      const currentMaxId = items.reduce((max: number, item: any) => Math.max(max, item.id || 0), 0);
-      let nextId = currentMaxId + 1;
+      const currentMaxId = items.reduce((max: number, item: any) => Math.max(max, typeof item.id === "number" ? item.id : 0), 0);
+      let nextId = Math.max(Date.now(), currentMaxId + 1);
 
       const createdList: any[] = [];
       for (const val of this.insertData) {
@@ -112,6 +118,41 @@ class MockQueryBuilder<T extends Record<string, any>> implements PromiseLike<{ d
 
       return {
         data: this.isSingle ? (createdList[0] ?? null) : createdList,
+        error: null,
+      };
+    }
+
+    if (this.action === "upsert") {
+      const now = new Date().toISOString();
+      const currentMaxId = items.reduce((max: number, item: any) => Math.max(max, typeof item.id === "number" ? item.id : 0), 0);
+      let nextId = Math.max(Date.now(), currentMaxId + 1);
+
+      const resultList: any[] = [];
+      for (const val of this.insertData) {
+        const existingIdx = val.id != null ? items.findIndex((i: any) => String(i.id) === String(val.id)) : -1;
+        if (existingIdx >= 0) {
+          const updated = {
+            ...items[existingIdx],
+            ...val,
+            updated_at: now,
+          };
+          items[existingIdx] = updated;
+          resultList.push(updated);
+        } else {
+          const created = {
+            id: val.id ?? nextId++,
+            created_at: now,
+            updated_at: now,
+            ...val,
+          };
+          items.push(created);
+          resultList.push(created);
+        }
+      }
+      saveStorage(storageKey, items);
+
+      return {
+        data: this.isSingle ? (resultList[0] ?? null) : resultList,
         error: null,
       };
     }
@@ -157,8 +198,28 @@ class MockQueryBuilder<T extends Record<string, any>> implements PromiseLike<{ d
         // If deleting a project, also cascade-delete scenes for that project
         if (this.tableName === "projects" && matchedIds.length > 0) {
           const scenes = loadStorage<Scene>(STORAGE_KEY_SCENES);
-          const remainingScenes = scenes.filter((s) => !matchedIds.includes(s.project_id));
+          const matchedIdStrings = matchedIds.map(String);
+          const remainingScenes = scenes.filter((s) => !matchedIdStrings.includes(String(s.project_id)));
+          const deletedScenes = scenes.filter((s) => matchedIdStrings.includes(String(s.project_id)));
           saveStorage(STORAGE_KEY_SCENES, remainingScenes);
+
+          // Deep clean all associated project settings, inserts, and scene metadata from localStorage
+          for (const pid of matchedIds) {
+            try {
+              localStorage.removeItem(`scenering_inserts_${pid}`);
+              localStorage.removeItem(`scenering_project_settings_${pid}`);
+              localStorage.removeItem(`scenering_project_script_${pid}`);
+              localStorage.removeItem(`scenering_project_title_${pid}`);
+              localStorage.removeItem(`scenering_project_${pid}_scenes`);
+              localStorage.removeItem(`scenering_project_${pid}_credits`);
+            } catch {}
+          }
+          for (const ds of deletedScenes) {
+            try {
+              localStorage.removeItem(`scenering_scene_meta_${ds.id}`);
+              localStorage.removeItem(`scenering_project_${ds.project_id}_scene_meta_${ds.id}`);
+            } catch {}
+          }
         }
       }
 

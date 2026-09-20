@@ -1,6 +1,12 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { TimelineInsert } from "../types";
-import { SOUND_LIBRARY, playSoundPreview } from "../data/media-library";
+import {
+  SOUND_LIBRARY,
+  toggleSoundPreview,
+  stopAllSoundPreviews,
+  setSoundPreviewVolume,
+  isSoundPreviewPlaying,
+} from "../data/media-library";
 
 interface InsertPropertiesModalProps {
   insert: TimelineInsert | null;
@@ -33,6 +39,97 @@ export default function InsertPropertiesModal({
   );
 }
 
+const INTRO_PRESETS = [
+  {
+    id: "intro_cinematic_gold",
+    name: "3D Golden Lens Flare Shockwave",
+    videoUrl: "/videos/intros/intro_cinematic_gold.mp4",
+    tensionStyle: "flare" as const,
+    soundUrl: "/sounds/cinematic_boom.wav",
+    icon: "👑",
+    desc: "Epic golden burst with expanding shockwave ring and particle drift",
+  },
+  {
+    id: "intro_action_countdown",
+    name: "Action 3-2-1 Tension Countdown",
+    videoUrl: "/videos/intros/intro_action_countdown.mp4",
+    tensionStyle: "countdown" as const,
+    soundUrl: "/sounds/dramatic_chord.ogg",
+    icon: "⏱️",
+    desc: "Mechanical precision tick countdown with high tension pacing",
+  },
+  {
+    id: "intro_cyber_glitch",
+    name: "Cyber Matrix & Digital Glitch",
+    videoUrl: "/videos/intros/intro_cyber_glitch.mp4",
+    tensionStyle: "glitch" as const,
+    soundUrl: "/sounds/retro_fx.mp3",
+    icon: "⚡",
+    desc: "Futuristic neon scanlines with chromatic RGB pulse glitch",
+  },
+  {
+    id: "intro_cosmic_warp",
+    name: "Cosmic Nebula Warp Speed",
+    videoUrl: "/videos/intros/intro_cosmic_warp.mp4",
+    tensionStyle: "warp" as const,
+    soundUrl: "/sounds/whoosh_appear.wav",
+    icon: "🌌",
+    desc: "Hyperspace deep cosmic particle acceleration tunnel",
+  },
+  {
+    id: "intro_minimalist_aperture",
+    name: "Studio Camera Aperture Blades",
+    videoUrl: "/videos/intros/intro_minimalist_aperture.mp4",
+    tensionStyle: "aperture" as const,
+    soundUrl: "/sounds/shutter_click.ogg",
+    icon: "📷",
+    desc: "Geometric mechanical camera shutter opening to brand focus",
+  },
+];
+
+const OUTRO_PRESETS = [
+  {
+    id: "outro_youtube_subscribe",
+    name: "YouTube End-Screen & Subscribe Hub",
+    videoUrl: "/videos/outros/outro_youtube_subscribe.mp4",
+    soundUrl: "/sounds/achievement_bell.wav",
+    icon: "📺",
+    desc: "Interactive end-slate with 2 'Watch Next' boxes & Subscribe ring",
+  },
+  {
+    id: "outro_cinematic_sunset",
+    name: "Cinematic Sunset & Social Hub",
+    videoUrl: "/videos/outros/outro_cinematic_sunset.mp4",
+    soundUrl: "/sounds/solitude_reflection.wav",
+    icon: "🌅",
+    desc: "Warm twilight bokeh background with social handles showcase",
+  },
+  {
+    id: "outro_cyber_matrix",
+    name: "Cyber Grid & Next Video Teaser",
+    videoUrl: "/videos/outros/outro_cyber_matrix.mp4",
+    soundUrl: "/sounds/retro_fx.mp3",
+    icon: "⚡",
+    desc: "Glowing sci-fi cyber matrix grid with video cards",
+  },
+  {
+    id: "outro_gold_farewell",
+    name: "Golden Shimmer & Thank You Card",
+    videoUrl: "/videos/outros/outro_gold_farewell.mp4",
+    soundUrl: "/sounds/achievement_bell.wav",
+    icon: "👑",
+    desc: "Opulent golden curtain with glittering farewell particles",
+  },
+  {
+    id: "outro_minimal_clean",
+    name: "Modern Minimal Slate & Brand Hub",
+    videoUrl: "/videos/outros/outro_minimal_clean.mp4",
+    soundUrl: "/sounds/whoosh_appear.wav",
+    icon: "🎯",
+    desc: "Sleek dark gradient slate with crisp logo & follow banner",
+  },
+];
+
 function InsertPropertiesContent({
   insert,
   totalDuration,
@@ -46,6 +143,7 @@ function InsertPropertiesContent({
   onDelete: (id: string) => void;
   onClose: () => void;
 }) {
+  const isIntroOutro = insert.category === "intro" || insert.category === "outro";
   const isAudioVisualizer =
     insert.category === "audio_visualizers" ||
     insert.category === "speech_reactive" ||
@@ -54,19 +152,27 @@ function InsertPropertiesContent({
     insert.type.includes("bars") ||
     insert.type.includes("spectrum");
 
-  const isSoundEffect = insert.category === "sound_effects";
-  const isContentCard = insert.category === "content_cards" || insert.category === "other_cards";
+  const isSoundEffect = insert.category === "sound_effects" || insert.category === "background_music";
+  const isContentCard =
+    insert.category === "content_cards" ||
+    insert.category === "other_cards" ||
+    insert.category === "text_templates";
   const isCallToAction = insert.category === "call_to_action";
   const isSticker = insert.category === "stickers";
+  const isScriptureTemplate = insert.type === "template_scripture" || insert.type.includes("scripture");
 
   // Initial tab selection based on element type
-  const defaultTab = isSoundEffect
+  const defaultTab = isIntroOutro
+    ? "intro_fx"
+    : isSoundEffect
     ? "audio"
     : isAudioVisualizer
     ? "visuals"
-    : isContentCard
+    : isContentCard || isCallToAction
     ? "content"
     : "visuals";
+
+  const logoFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [data, setData] = useState<TimelineInsert>({
     ...insert,
@@ -131,27 +237,40 @@ function InsertPropertiesContent({
     }));
   };
 
+  useEffect(() => {
+    return () => {
+      stopAllSoundPreviews();
+    };
+  }, []);
+
   const handleTestSound = (url?: string) => {
     const soundUrl = url || data.audioSettings?.soundUrl;
     if (!soundUrl) return;
 
-    if (isPlayingTestSound && audioRef.current) {
-      audioRef.current.pause();
-      setIsPlayingTestSound(false);
-      return;
-    }
+    const vol = data.audioSettings?.volume ?? 0.8;
+    const isNowPlaying = toggleSoundPreview(soundUrl, vol, (active) => {
+      setIsPlayingTestSound(active);
+    });
+    setIsPlayingTestSound(isNowPlaying);
+  };
 
-    try {
-      const vol = data.audioSettings?.volume ?? 0.8;
-      const audio = playSoundPreview(soundUrl, vol);
-      if (audio) {
-        audioRef.current = audio;
-        setIsPlayingTestSound(true);
-        audio.onended = () => setIsPlayingTestSound(false);
+  const handleVolumeChange = (newVol: number) => {
+    updateAudioSettings("volume", newVol);
+    setSoundPreviewVolume(newVol);
+  };
+
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (typeof event.target?.result === "string") {
+        updateContent("logoUrl", event.target.result);
+        updateContent("showLogo", true);
+        updateContent("includeLogo", true);
       }
-    } catch {
-      setIsPlayingTestSound(false);
-    }
+    };
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -161,13 +280,27 @@ function InsertPropertiesContent({
         <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between bg-gray-950/60">
           <div className="flex items-center gap-3">
             <span className="text-2xl p-2 bg-gray-800 rounded-xl border border-gray-700">
-              {isAudioVisualizer ? "📊" : isSoundEffect ? "🔊" : isCallToAction ? "📣" : "✨"}
+              {insert.category === "intro"
+                ? "🎬"
+                : insert.category === "outro"
+                ? "🏁"
+                : isAudioVisualizer
+                ? "📊"
+                : isSoundEffect
+                ? "🔊"
+                : isCallToAction
+                ? "📣"
+                : "✨"}
             </span>
             <div>
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <span>{data.title}</span>
                 <span className="text-[10px] font-mono uppercase bg-indigo-950 text-indigo-300 border border-indigo-800/80 px-2 py-0.5 rounded-full">
-                  {isAudioVisualizer
+                  {insert.category === "intro"
+                    ? "Cinematic Intro (Before Script)"
+                    : insert.category === "outro"
+                    ? "Broadcast Outro (After Script)"
+                    : isAudioVisualizer
                     ? "Wave Effect"
                     : isSoundEffect
                     ? "Sound Effect"
@@ -177,7 +310,11 @@ function InsertPropertiesContent({
                 </span>
               </h3>
               <p className="text-xs text-gray-400">
-                {isAudioVisualizer
+                {insert.category === "intro"
+                  ? "High-tension video opener with countdown, glitch or flare, custom text & logo reveal"
+                  : insert.category === "outro"
+                  ? "Professional end-slate video with social hub, subscribe button, text & logo"
+                  : isAudioVisualizer
                   ? "Adjust size, screen placement, and voiceover reactivity"
                   : isSoundEffect
                   ? "Configure playback volume, loop, and timing"
@@ -196,8 +333,65 @@ function InsertPropertiesContent({
 
         {/* Dynamic Contextual Navigation Tabs */}
         <div className="px-6 border-b border-gray-800 flex gap-2 bg-gray-950/40">
-          {/* Visual Placement & Sizing (for all visual elements including waves) */}
-          {!isSoundEffect && (
+          {/* INTRO / OUTRO TABS */}
+          {isIntroOutro && (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab("intro_fx")}
+                className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                  activeTab === "intro_fx"
+                    ? "border-amber-500 text-amber-400"
+                    : "border-transparent text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                <span>🎬</span>
+                <span>Tension FX & Video</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("content")}
+                className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                  activeTab === "content"
+                    ? "border-amber-500 text-amber-400"
+                    : "border-transparent text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                <span>📝</span>
+                <span>Text & Titles</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("brand")}
+                className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                  activeTab === "brand"
+                    ? "border-amber-500 text-amber-400"
+                    : "border-transparent text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                <span>🏷️</span>
+                <span>Brand Logo</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("attached_audio")}
+                className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                  activeTab === "attached_audio"
+                    ? "border-amber-500 text-amber-400"
+                    : "border-transparent text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                <span>🔔</span>
+                <span>Sound FX</span>
+              </button>
+            </>
+          )}
+
+          {/* Visual Placement & Sizing (for all visual elements including waves, non-intro/outro) */}
+          {!isSoundEffect && !isIntroOutro && (
             <button
               type="button"
               onClick={() => setActiveTab("visuals")}
@@ -244,8 +438,8 @@ function InsertPropertiesContent({
             </button>
           )}
 
-          {/* Content Card Text (for Content / CTA cards) */}
-          {(isContentCard || isCallToAction) && (
+          {/* Content Card Text (for Content / CTA cards, non-intro/outro) */}
+          {!isIntroOutro && (isContentCard || isCallToAction) && (
             <button
               type="button"
               onClick={() => setActiveTab("content")}
@@ -260,8 +454,8 @@ function InsertPropertiesContent({
             </button>
           )}
 
-          {/* Optional Attached Sound (for Stickers & CTAs) */}
-          {(isSticker || isCallToAction) && (
+          {/* Optional Attached Sound (for Stickers & CTAs, non-intro/outro) */}
+          {!isIntroOutro && (isSticker || isCallToAction) && (
             <button
               type="button"
               onClick={() => setActiveTab("attached_audio")}
@@ -293,18 +487,379 @@ function InsertPropertiesContent({
 
         {/* Modal Scrollable Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-5 text-sm">
+          {/* Quick Intro / Outro Alignment Banner */}
+          {isIntroOutro && (
+            <div
+              className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${
+                insert.category === "intro"
+                  ? "bg-amber-950/40 border-amber-500/50 text-amber-200"
+                  : "bg-rose-950/40 border-rose-500/50 text-rose-200"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-white text-sm">
+                  {insert.category === "intro" ? "🎬 Intro Placement:" : "🏁 Outro Placement:"}
+                </span>
+                <span className="font-mono text-white bg-black/60 px-2 py-0.5 rounded border border-gray-700">
+                  {data.startTime.toFixed(1)}s (duration {data.duration}s)
+                </span>
+                {insert.category === "intro" && data.startTime === 0 && (
+                  <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                    ✓ Before Script (0.0s)
+                  </span>
+                )}
+                {insert.category === "outro" &&
+                  Math.abs(data.startTime - Math.max(0, totalDuration - data.duration)) < 0.2 && (
+                    <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                      ✓ After Script (End)
+                    </span>
+                  )}
+              </div>
+
+              {insert.category === "intro" ? (
+                <button
+                  type="button"
+                  onClick={() => setData((prev) => ({ ...prev, startTime: 0 }))}
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm"
+                >
+                  <span>⚡ Align Before Script (0.0s)</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setData((prev) => ({
+                      ...prev,
+                      startTime: Math.max(0, totalDuration - prev.duration),
+                    }))
+                  }
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm"
+                >
+                  <span>
+                    ⚡ Align After Script ({Math.max(0, totalDuration - data.duration).toFixed(1)}s)
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* TAB: INTRO / OUTRO TENSION FX & VIDEO */}
+          {isIntroOutro && activeTab === "intro_fx" && (
+            <div className="space-y-4">
+              {/* Tension Getter Selector */}
+              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <label className="text-xs font-semibold text-white block">
+                  ⚡ Tension Getter Motion Style:
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    { id: "countdown", name: "3-2-1 Countdown", icon: "⏱️", desc: "Mechanical tension tick" },
+                    { id: "glitch", name: "Cyber Glitch", icon: "⚡", desc: "RGB matrix digital glitch" },
+                    { id: "warp", name: "Cosmic Warp", icon: "🌌", desc: "Hyperspace tunnel burst" },
+                    { id: "aperture", name: "Studio Aperture", icon: "📷", desc: "Camera shutter opening" },
+                    { id: "flare", name: "Golden Flare", icon: "✨", desc: "Anamorphic flare shockwave" },
+                    { id: "pulse", name: "Tension Pulse", icon: "💓", desc: "Shockwave heartbeat glow" },
+                  ].map((style) => {
+                    const isSelected =
+                      (data.content?.tensionStyle || data.tensionStyle || "flare") === style.id;
+                    return (
+                      <button
+                        key={style.id}
+                        type="button"
+                        onClick={() => {
+                          const tStyle = style.id as NonNullable<TimelineInsert["tensionStyle"]>;
+                          setData((prev) => ({
+                            ...prev,
+                            tensionStyle: tStyle,
+                            content: { ...prev.content, tensionStyle: tStyle },
+                          }));
+                        }}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          isSelected
+                            ? "bg-amber-950/80 border-amber-500 text-white ring-1 ring-amber-500/50"
+                            : "bg-gray-900/70 border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-200"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 font-bold text-xs text-white">
+                          <span>{style.icon}</span>
+                          <span>{style.name}</span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1 line-clamp-1">{style.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Video Background Presets */}
+              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-white">
+                    🎬 HD Video Background (
+                    {insert.category === "intro" ? "5 Tension Openers" : "5 Professional End-Slates"}):
+                  </label>
+                  <span className="text-[10px] text-amber-400 font-mono">1080p MP4 Ready</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {(insert.category === "intro" ? INTRO_PRESETS : OUTRO_PRESETS).map((preset) => {
+                    const isSelected =
+                      (data.videoUrl || data.content?.videoUrl) === preset.videoUrl;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          setData((prev) => ({
+                            ...prev,
+                            videoUrl: preset.videoUrl,
+                            tensionStyle: (preset as any).tensionStyle || prev.tensionStyle,
+                            content: {
+                              ...prev.content,
+                              videoUrl: preset.videoUrl,
+                              tensionStyle:
+                                (preset as any).tensionStyle || prev.content?.tensionStyle,
+                            },
+                            audioSettings: {
+                              ...prev.audioSettings,
+                              soundUrl: preset.soundUrl || prev.audioSettings?.soundUrl,
+                            },
+                          }));
+                        }}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          isSelected
+                            ? "bg-amber-950/80 border-amber-500 text-white ring-2 ring-amber-500/40"
+                            : "bg-gray-900/80 border-gray-750 text-gray-300 hover:border-gray-600"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs flex items-center gap-1.5 text-white">
+                            <span>{preset.icon}</span>
+                            <span>{preset.name}</span>
+                          </span>
+                          {isSelected && (
+                            <span className="text-[10px] bg-amber-500 text-black font-extrabold px-1.5 py-0.5 rounded">
+                              ACTIVE
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-1">{preset.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Custom Video or Image URL Input */}
+                <div className="pt-3 border-t border-gray-700 space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-semibold text-gray-200">
+                        Custom Full-Screen Video or Image URL:
+                      </label>
+                      <span className="text-[10px] text-amber-400">MP4, WebM, PNG, JPG</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={data.videoUrl || data.content?.videoUrl || data.content?.imageUrl || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const isImg = val.match(/\.(jpeg|jpg|gif|png|webp|svg)($|\?)/i);
+                        setData((prev) => ({
+                          ...prev,
+                          videoUrl: isImg ? undefined : val,
+                          content: {
+                            ...prev.content,
+                            videoUrl: isImg ? undefined : val,
+                            imageUrl: isImg ? val : undefined,
+                          },
+                        }));
+                      }}
+                      placeholder="https://...mp4 or https://...png or custom asset"
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-mono"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      Supports direct full-screen video clips or full-screen static branding graphics.
+                    </p>
+                  </div>
+
+                  {/* Customer Video Clip Audio Controls */}
+                  <div className="bg-gray-900/90 border border-amber-500/30 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-semibold text-amber-300 block">
+                          🔊 Video Clip Audio Volume
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                          Preserves original sound in your video clips (dialogue, jingle, sound effects)
+                        </span>
+                      </div>
+                      <span className="font-mono text-xs text-amber-400 font-bold">
+                        {data.audioSettings?.muted ? "MUTED" : `${Math.round((data.audioSettings?.volume ?? 0.8) * 100)}%`}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-1">
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        disabled={data.audioSettings?.muted ?? false}
+                        value={data.audioSettings?.volume ?? 0.8}
+                        onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                        className="flex-1 accent-amber-500 cursor-pointer disabled:opacity-40"
+                      />
+
+                      <label className="text-xs text-gray-300 flex items-center gap-1.5 cursor-pointer flex-shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={data.audioSettings?.muted ?? false}
+                          onChange={(e) => updateAudioSettings("muted", e.target.checked)}
+                          className="w-4 h-4 accent-red-500 rounded"
+                        />
+                        <span className="text-[11px]">Mute Audio</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: INTRO / OUTRO BRAND LOGO */}
+          {isIntroOutro && activeTab === "brand" && (
+            <div className="space-y-4">
+              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-4">
+                {/* Show Logo Toggle */}
+                <div className="flex items-center justify-between pb-3 border-b border-gray-700">
+                  <div>
+                    <span className="text-xs font-semibold text-white block">
+                      Show Brand Logo Image
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      Renders an animated logo emblem with glowing backlight and entrance reveal
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(data.content?.showLogo ?? data.content?.includeLogo ?? true)}
+                    onChange={(e) => {
+                      updateContent("showLogo", e.target.checked);
+                      updateContent("includeLogo", e.target.checked);
+                    }}
+                    className="w-4 h-4 accent-amber-500 rounded cursor-pointer"
+                  />
+                </div>
+
+                {/* Logo URL and Upload */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-white block">
+                    Logo Image File or URL:
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={data.content?.logoUrl || ""}
+                      onChange={(e) => {
+                        updateContent("logoUrl", e.target.value);
+                        updateContent("showLogo", true);
+                      }}
+                      placeholder="Image URL or upload a file..."
+                      className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => logoFileInputRef.current?.click()}
+                      className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <span>📁 Upload</span>
+                    </button>
+                    <input
+                      ref={logoFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleLogoFileUpload}
+                    />
+                  </div>
+                </div>
+
+                {/* Logo Position */}
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div>
+                    <label className="text-xs font-semibold text-white block mb-1">
+                      Logo Position:
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: "center", label: "Center Stage" },
+                        { id: "top", label: "Top Header" },
+                      ].map((pos) => (
+                        <button
+                          key={pos.id}
+                          type="button"
+                          onClick={() => updateContent("logoPosition", pos.id)}
+                          className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-all ${
+                            (data.content?.logoPosition || "center") === pos.id
+                              ? "bg-amber-950 border-amber-500 text-white"
+                              : "bg-gray-900 border-gray-700 text-gray-400 hover:text-white"
+                          }`}
+                        >
+                          {pos.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Logo Scale */}
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-300 mb-1">
+                      <label className="font-semibold text-white">Logo Scale:</label>
+                      <span className="font-mono text-amber-400">
+                        {(data.content?.logoScale || 1.2).toFixed(1)}x
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={2.5}
+                      step={0.1}
+                      value={data.content?.logoScale || 1.2}
+                      onChange={(e) => updateContent("logoScale", parseFloat(e.target.value))}
+                      className="w-full accent-amber-500 cursor-pointer mt-1"
+                    />
+                  </div>
+                </div>
+
+                {/* Logo Preview Box */}
+                {data.content?.logoUrl && (
+                  <div className="p-3 bg-black/60 border border-gray-800 rounded-xl flex items-center justify-center gap-4">
+                    <img
+                      src={data.content.logoUrl}
+                      alt="Brand Logo Preview"
+                      referrerPolicy="no-referrer"
+                      className="max-h-16 max-w-[120px] object-contain drop-shadow-[0_0_12px_rgba(251,191,36,0.5)]"
+                    />
+                    <div className="text-xs text-gray-400">
+                      <span className="text-emerald-400 font-semibold block">✓ Brand Logo Ready</span>
+                      <span>Will be displayed during the reveal animation</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* TAB: VISUAL POSITION & SIZE */}
-          {activeTab === "visuals" && !isSoundEffect && (
+          {activeTab === "visuals" && !isSoundEffect && !isIntroOutro && (
             <div className="space-y-4">
               {/* Note for wave effects */}
               {isAudioVisualizer && (
                 <div className="bg-indigo-950/50 border border-indigo-800/60 rounded-xl p-3 text-xs text-indigo-200 flex items-start gap-2.5">
-                  <span className="text-base">📌</span>
+                  <span className="text-base">🌊</span>
                   <div>
-                    <span className="font-semibold text-white">Still Visual Placement:</span>
+                    <span className="font-semibold text-white">Audio Reactive Visualizer:</span>
                     <p className="mt-0.5 text-indigo-300/90 leading-relaxed">
-                      This wave effect sits still at your placed screen position without wandering or
-                      floating across the screen. You can resize and place it anywhere.
+                      This 3D visualizer renders dynamically to speech and music. Linear waves stretch across the entire scene width by default, while circular and dot visualizers can be scaled and positioned anywhere.
                     </p>
                   </div>
                 </div>
@@ -315,7 +870,7 @@ function InsertPropertiesContent({
                 <div className="flex justify-between text-xs text-gray-300">
                   <span className="font-medium text-white flex items-center gap-1.5">
                     <span>🔍</span>
-                    <span>Visual Scale / Size</span>
+                    <span>Visual Scale / Height</span>
                   </span>
                   <span className="font-mono text-indigo-400 font-bold">
                     {data.size.toFixed(2)}x
@@ -323,19 +878,104 @@ function InsertPropertiesContent({
                 </div>
                 <input
                   type="range"
-                  min={0.5}
-                  max={2.5}
+                  min={isAudioVisualizer ? 0.4 : 0.5}
+                  max={isAudioVisualizer ? 3.0 : 2.5}
                   step={0.05}
                   value={data.size}
                   onChange={(e) => setData({ ...data, size: parseFloat(e.target.value) })}
                   className="w-full accent-indigo-500 cursor-pointer"
                 />
                 <div className="flex justify-between text-[10px] text-gray-500">
-                  <span>Small (0.5x)</span>
+                  <span>Small ({isAudioVisualizer ? "0.4x" : "0.5x"})</span>
                   <span>Normal (1.0x)</span>
-                  <span>Large (2.5x)</span>
+                  <span>Large ({isAudioVisualizer ? "3.0x" : "2.5x"})</span>
                 </div>
               </div>
+
+              {/* Visualizer Dimensions, Full-Width & Thickness */}
+              {isAudioVisualizer && (
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  {/* Full scene width toggle for linear visualizers */}
+                  {data.type !== "circular_wave" &&
+                    data.type !== "voice_pulse" &&
+                    data.type !== "energy_ring" &&
+                    data.type !== "minimal_voice" &&
+                    data.type !== "pulse_circle" && (
+                      <div className="flex items-center justify-between pb-3 border-b border-gray-750">
+                        <div>
+                          <span className="text-xs font-medium text-white block">
+                            Stretch Across Entire Scene (Full Width)
+                          </span>
+                          <span className="text-[11px] text-gray-400">
+                            Spans seamlessly from the left edge to the right edge of the video
+                          </span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={data.visualOptions?.fullWidth !== false}
+                          onChange={(e) => updateVisualOptions("fullWidth", e.target.checked)}
+                          className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
+                        />
+                      </div>
+                    )}
+
+                  {/* Wave & Bar Thickness */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs text-gray-300">
+                      <span className="text-xs font-medium text-white">Wave & Bar Thickness:</span>
+                      <span className="font-mono text-indigo-400 font-semibold">
+                        {data.visualOptions?.barThickness ?? 8}px
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={2}
+                      max={24}
+                      step={1}
+                      value={data.visualOptions?.barThickness ?? 8}
+                      onChange={(e) => updateVisualOptions("barThickness", parseInt(e.target.value))}
+                      className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Glow & Bloom Intensity */}
+                  <div className="space-y-1.5 pt-2 border-t border-gray-750">
+                    <div className="flex justify-between text-xs text-gray-300">
+                      <span className="text-xs font-medium text-white">Glow & Bloom Intensity:</span>
+                      <span className="font-mono text-indigo-400 font-semibold">
+                        {Math.round((data.visualOptions?.glowIntensity ?? 0.85) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={data.visualOptions?.glowIntensity ?? 0.85}
+                      onChange={(e) => updateVisualOptions("glowIntensity", parseFloat(e.target.value))}
+                      className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* 3D Extruded Depth Toggle */}
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-750">
+                    <div>
+                      <span className="text-xs font-medium text-white block">
+                        3D Extruded Depth & Highlights
+                      </span>
+                      <span className="text-[11px] text-gray-400">
+                        Adds specular highlights, bevel facets, and floor reflections
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={data.visualOptions?.has3DLook ?? true}
+                      onChange={(e) => updateVisualOptions("has3DLook", e.target.checked)}
+                      className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Position Presets */}
               <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-2.5">
@@ -406,28 +1046,128 @@ function InsertPropertiesContent({
                 </div>
               )}
 
-              {/* Color Customization for Waves */}
+              {/* Color Customization for Audio Visualizers */}
               {isAudioVisualizer && (
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-2.5">
-                  <label className="text-xs font-medium text-white block">
-                    Wave Accent Color:
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <label className="text-xs font-semibold text-white block">
+                    🎨 Visualizer Colors & 3D Lighting:
                   </label>
-                  <div className="flex items-center gap-2">
-                    {["#818cf8", "#38bdf8", "#ec4899", "#10b981", "#f59e0b", "#ffffff"].map(
-                      (color) => (
+
+                  {/* Primary Color */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300 font-medium">Primary Accent Color:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={data.visualOptions?.primaryColor || "#38bdf8"}
+                          onChange={(e) => updateVisualOptions("primaryColor", e.target.value)}
+                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        />
+                        <span className="font-mono text-[11px] text-gray-400">
+                          {data.visualOptions?.primaryColor || "#38bdf8"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {[
+                        { color: "#38bdf8", name: "Neon Cyan" },
+                        { color: "#10b981", name: "CRT Green" },
+                        { color: "#a855f7", name: "Cyber Purple" },
+                        { color: "#ec4899", name: "Hot Pink" },
+                        { color: "#f59e0b", name: "Sunset Amber" },
+                        { color: "#ffffff", name: "Studio White" },
+                        { color: "#3b82f6", name: "Laser Blue" },
+                        { color: "#ef4444", name: "Crimson Red" },
+                      ].map(({ color, name }) => (
                         <button
                           key={color}
                           type="button"
+                          title={name}
                           onClick={() => updateVisualOptions("primaryColor", color)}
-                          className={`w-8 h-8 rounded-full border-2 transition-transform ${
-                            data.visualOptions?.primaryColor === color
-                              ? "scale-110 border-white shadow-md"
+                          className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                            (data.visualOptions?.primaryColor || "#38bdf8").toLowerCase() === color.toLowerCase()
+                              ? "scale-110 border-white shadow-lg ring-2 ring-indigo-400"
                               : "border-transparent hover:scale-105"
                           }`}
                           style={{ backgroundColor: color }}
                         />
-                      )
-                    )}
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Secondary Gradient Color */}
+                  <div className="space-y-2 pt-2 border-t border-gray-750">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300 font-medium">Secondary / Crest Color:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={data.visualOptions?.secondaryColor || "#f43f5e"}
+                          onChange={(e) => updateVisualOptions("secondaryColor", e.target.value)}
+                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        />
+                        <span className="font-mono text-[11px] text-gray-400">
+                          {data.visualOptions?.secondaryColor || "#f43f5e"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {[
+                        { color: "#f43f5e", name: "Rose Crimson" },
+                        { color: "#ec4899", name: "Hot Pink" },
+                        { color: "#8b5cf6", name: "Royal Purple" },
+                        { color: "#06b6d4", name: "Electric Cyan" },
+                        { color: "#34d399", name: "Emerald Bright" },
+                        { color: "#fbbf24", name: "Gold Glow" },
+                        { color: "#ffffff", name: "White Flash" },
+                      ].map(({ color, name }) => (
+                        <button
+                          key={color}
+                          type="button"
+                          title={name}
+                          onClick={() => updateVisualOptions("secondaryColor", color)}
+                          className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                            (data.visualOptions?.secondaryColor || "#f43f5e").toLowerCase() === color.toLowerCase()
+                              ? "scale-110 border-white shadow-lg ring-2 ring-indigo-400"
+                              : "border-transparent hover:scale-105"
+                          }`}
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Quick 3D Theme Presets */}
+                  <div className="space-y-1.5 pt-2 border-t border-gray-750">
+                    <span className="text-[11px] text-gray-400 font-medium block">Quick 3D Color Themes:</span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { name: "Rainbow 3D", c1: "#2563eb", c2: "#ef4444" },
+                        { name: "Cyber Neon", c1: "#06b6d4", c2: "#ec4899" },
+                        { name: "CRT Phosphor", c1: "#10b981", c2: "#34d399" },
+                        { name: "Deep Violet", c1: "#8b5cf6", c2: "#ec4899" },
+                        { name: "Sunset Amber", c1: "#f59e0b", c2: "#ef4444" },
+                        { name: "Studio Ice", c1: "#ffffff", c2: "#94a3b8" },
+                      ].map((th) => (
+                        <button
+                          key={th.name}
+                          type="button"
+                          onClick={() => {
+                            updateVisualOptions("primaryColor", th.c1);
+                            updateVisualOptions("secondaryColor", th.c2);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold text-white border border-gray-700 hover:border-gray-500 transition-all flex items-center justify-between"
+                          style={{ background: `linear-gradient(90deg, ${th.c1}33, ${th.c2}33)` }}
+                        >
+                          <span>{th.name}</span>
+                          <span className="flex gap-1">
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: th.c1 }} />
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: th.c2 }} />
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -555,34 +1295,63 @@ function InsertPropertiesContent({
                   </label>
                 </div>
 
-                <div className="pt-2">
+                <div className="pt-2 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleTestSound()}
-                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                    className={`px-3.5 py-1.5 rounded-lg text-white text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                      isPlayingTestSound
+                        ? "bg-rose-600 hover:bg-rose-500 ring-2 ring-rose-400 animate-pulse"
+                        : "bg-indigo-600 hover:bg-indigo-500"
+                    }`}
                   >
-                    <span>{isPlayingTestSound ? "⏹️ Stop" : "▶️ Test Play Sound"}</span>
+                    <span>{isPlayingTestSound ? "⏹️" : "▶️"}</span>
+                    <span>{isPlayingTestSound ? "Stop Sound (Turn Off)" : "Test Play Sound"}</span>
                   </button>
+                  <span className="text-[11px] text-gray-400">
+                    {isPlayingTestSound ? "Playing preview audio..." : "Click to test playback"}
+                  </span>
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB: ATTACHED SOUND FX (FOR STICKERS & CTAs) */}
-          {activeTab === "attached_audio" && (isSticker || isCallToAction) && (
+          {/* TAB: ATTACHED SOUND FX (FOR INTROS, OUTROS, STICKERS, CTAs & OVERLAYS) */}
+          {activeTab === "attached_audio" && (
             <div className="space-y-4">
               <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
-                <label className="text-xs font-semibold text-white block">
-                  Attached Sound Effect:
-                </label>
-                <p className="text-xs text-gray-400">
-                  Choose a sound effect to play synchronously when this element appears on screen:
-                </p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-xs font-semibold text-white block">
+                      Attached Sound Effect or Jingle:
+                    </label>
+                    <p className="text-[11px] text-gray-400">
+                      Choose an audio effect to play synchronously when this element appears on screen:
+                    </p>
+                  </div>
+                  {data.audioSettings?.soundUrl && (
+                    <button
+                      type="button"
+                      onClick={() => handleTestSound()}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${
+                        isPlayingTestSound
+                          ? "bg-rose-600 text-white ring-2 ring-rose-400 animate-pulse"
+                          : "bg-emerald-600 hover:bg-emerald-500 text-white"
+                      }`}
+                    >
+                      <span>{isPlayingTestSound ? "⏹️" : "▶️"}</span>
+                      <span>{isPlayingTestSound ? "Stop (Off)" : "Test Sound"}</span>
+                    </button>
+                  )}
+                </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
                   <button
                     type="button"
-                    onClick={() => updateAudioSettings("soundUrl", undefined)}
+                    onClick={() => {
+                      if (isPlayingTestSound) handleTestSound();
+                      updateAudioSettings("soundUrl", undefined);
+                    }}
                     className={`px-3 py-2 rounded-lg text-xs font-medium border text-left ${
                       !data.audioSettings?.soundUrl
                         ? "bg-indigo-600 text-white border-indigo-500"
@@ -592,7 +1361,7 @@ function InsertPropertiesContent({
                     🚫 None (Silent)
                   </button>
 
-                  {SOUND_LIBRARY.slice(0, 8).map((sound) => (
+                  {SOUND_LIBRARY.slice(0, 10).map((sound) => (
                     <button
                       key={sound.url}
                       type="button"
@@ -608,53 +1377,452 @@ function InsertPropertiesContent({
                       }`}
                     >
                       <span className="truncate">{sound.name}</span>
-                      <span className="text-[10px] opacity-70">🔊</span>
+                      <span className="text-[10px] opacity-70">
+                        {isPlayingTestSound && data.audioSettings?.soundUrl === sound.url ? "⏹️ Off" : "🔊"}
+                      </span>
                     </button>
                   ))}
                 </div>
 
                 {data.audioSettings?.soundUrl && (
-                  <div className="pt-3 border-t border-gray-750 flex items-center justify-between">
-                    <span className="text-xs text-gray-300">Sound Volume:</span>
+                  <div className="pt-3 border-t border-gray-750 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-300">Sound Volume:</span>
                       <input
                         type="range"
                         min={0}
                         max={1}
                         step={0.05}
                         value={data.audioSettings?.volume ?? 0.8}
-                        onChange={(e) => updateAudioSettings("volume", parseFloat(e.target.value))}
-                        className="w-32 accent-indigo-500 cursor-pointer"
+                        onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                        className="w-36 accent-indigo-500 cursor-pointer"
                       />
-                      <span className="font-mono text-xs text-gray-300 w-10 text-right">
+                      <span className="font-mono text-xs text-indigo-400 font-bold w-12 text-right">
                         {Math.round((data.audioSettings?.volume ?? 0.8) * 100)}%
                       </span>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleTestSound()}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                        isPlayingTestSound
+                          ? "bg-rose-600 text-white ring-2 ring-rose-400"
+                          : "bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+                      }`}
+                    >
+                      <span>{isPlayingTestSound ? "⏹️" : "▶️"}</span>
+                      <span>{isPlayingTestSound ? "Stop (Off)" : "Test Attached Audio"}</span>
+                    </button>
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          {/* TAB: TEXT CONTENT */}
-          {activeTab === "content" && (isContentCard || isCallToAction) && (
+          {/* TAB: INTRO / OUTRO TEXT CONTENT */}
+          {activeTab === "content" && isIntroOutro && (
             <div className="space-y-4">
               <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
-                <label className="text-xs font-semibold text-white block">
-                  {isCallToAction ? "Call to Action Button Label:" : "Primary Card Text:"}
-                </label>
-                <input
-                  type="text"
-                  value={data.content?.primaryText || ""}
-                  onChange={(e) => updateContent("primaryText", e.target.value)}
-                  placeholder="Enter text..."
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
-                />
+                <div className="flex items-center justify-between pb-2 border-b border-gray-700">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base text-amber-400">
+                      {insert.category === "intro" ? "🎬" : "🏁"}
+                    </span>
+                    <div>
+                      <span className="text-xs font-bold text-white block">
+                        {insert.category === "intro"
+                          ? "Intro Title & Headline Settings"
+                          : "Outro Credits & End-Slate Text"}
+                      </span>
+                      <span className="text-[10px] text-gray-400">
+                        Rendered with cinematic shadows, glowing outlines, and synchronized entrance
+                      </span>
+                    </div>
+                  </div>
+                </div>
 
-                {!isCallToAction && (
-                  <>
-                    <label className="text-xs font-semibold text-white block pt-1">
-                      Secondary Text / Subtitle / Citation:
+                {/* Quick One-Click Headline Presets */}
+                <div>
+                  <label className="text-[11px] font-medium text-gray-300 block mb-1.5">
+                    Quick Headline Presets:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(insert.category === "intro"
+                      ? [
+                          { title: "THE UNTOLD TRUTH", sub: "EPISODE 01 • DOCUMENTARY", label: "OFFICIAL PREMIERE" },
+                          { title: "BREAKING REVELATION", sub: "WATCH TILL THE VERY END", label: "SPECIAL REPORT" },
+                          { title: "THE NEXT EVOLUTION", sub: "NEW ERA OF CREATION", label: "MASTERCLASS" },
+                          { title: "WELCOME TO THE FUTURE", sub: "PREPARE TO BE AMAZED", label: "PRODUCER CUT" },
+                        ]
+                      : [
+                          { title: "THANKS FOR WATCHING", sub: "LIKE, SHARE & SUBSCRIBE!", label: "THE END" },
+                          { title: "SEE YOU IN THE NEXT ONE", sub: "NEW EPISODES EVERY WEEK", label: "STAY TUNED" },
+                          { title: "DON'T MISS WHAT'S NEXT", sub: "CLICK LINKS IN DESCRIPTION", label: "EPISODE RECAP" },
+                          { title: "JOIN OUR COMMUNITY", sub: "SUBSCRIBE & RING THE BELL", label: "COMMUNITY HUB" },
+                        ]
+                    ).map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          updateContent("primaryText", preset.title);
+                          updateContent("secondaryText", preset.sub);
+                          updateContent("label", preset.label);
+                        }}
+                        className="p-2 bg-gray-900/80 hover:bg-gray-800 border border-gray-700/80 hover:border-amber-500/60 rounded-xl text-left transition-all group"
+                      >
+                        <span className="text-[9px] font-mono text-amber-400 block uppercase font-bold">
+                          {preset.label}
+                        </span>
+                        <div className="text-xs font-bold text-white group-hover:text-amber-300 truncate">
+                          {preset.title}
+                        </div>
+                        <div className="text-[10px] text-gray-400 truncate">{preset.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Primary Headline */}
+                <div>
+                  <label className="text-xs font-semibold text-white block mb-1">
+                    {insert.category === "intro" ? "Main Intro Title:" : "Main Outro Headline:"}
+                  </label>
+                  <input
+                    type="text"
+                    value={data.content?.primaryText || ""}
+                    onChange={(e) => updateContent("primaryText", e.target.value)}
+                    placeholder={
+                      insert.category === "intro"
+                        ? "e.g. THE FUTURE OF INTELLIGENCE"
+                        : "e.g. THANKS FOR WATCHING"
+                    }
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-bold tracking-wide"
+                  />
+                </div>
+
+                {/* Secondary Subtitle */}
+                <div>
+                  <label className="text-xs font-semibold text-white block mb-1">
+                    Subtitle / Catchphrase:
+                  </label>
+                  <input
+                    type="text"
+                    value={data.content?.secondaryText || ""}
+                    onChange={(e) => updateContent("secondaryText", e.target.value)}
+                    placeholder="e.g. EPISODE 01 • Like & Subscribe for more"
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Category / Badge Tag */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-white block mb-1">
+                      Header Badge / Tag:
+                    </label>
+                    <input
+                      type="text"
+                      value={data.content?.label || ""}
+                      onChange={(e) => updateContent("label", e.target.value)}
+                      placeholder="e.g. PREMIERE, THE END..."
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-mono text-[11px]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-white block mb-1">
+                      Author / Presenter:
+                    </label>
+                    <input
+                      type="text"
+                      value={data.content?.author || ""}
+                      onChange={(e) => updateContent("author", e.target.value)}
+                      placeholder="e.g. Produced by Studio"
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: TEXT CONTENT & COMPLETED CTA TEMPLATES */}
+          {activeTab === "content" && !isIntroOutro && (isContentCard || isCallToAction) && (
+            <div className="space-y-4">
+              {isCallToAction ? (
+                <>
+                  {/* Completed CTA Templates Selector */}
+                  <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-white block">
+                        🎯 Choose Completed CTA Template:
+                      </label>
+                      <span className="text-[10px] text-indigo-400 font-medium">1-Click Apply</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {[
+                        { id: "subscribe", name: "Subscribe & Bell", icon: "🔔", text: "SUBSCRIBE", sub: "Hit the bell for updates", col1: "#ef4444", col2: "#b91c1c", sound: "/sounds/ting.ogg" },
+                        { id: "follow", name: "Follow Badge", icon: "✨", text: "FOLLOW FOR MORE", sub: "Daily creative tips & tricks", col1: "#0284c7", col2: "#0369a1", sound: "/sounds/jump_pop.wav" },
+                        { id: "like", name: "Like & Share", icon: "👍", text: "LIKE & SHARE", sub: "Share with a friend who needs this", col1: "#6366f1", col2: "#4f46e5", sound: "/sounds/jump_pop.wav" },
+                        { id: "shop", name: "Shop Now (Sale)", icon: "🛍️", text: "SHOP NOW — 20% OFF", sub: "Limited time seasonal deal", col1: "#10b981", col2: "#047857", sound: "/sounds/ting.ogg" },
+                        { id: "link", name: "Bio / Web Link", icon: "🔗", text: "LINK IN DESCRIPTION", sub: "Click below for full details", col1: "#38bdf8", col2: "#0284c7", sound: "/sounds/ting.ogg" },
+                        { id: "app", name: "Get Mobile App", icon: "📱", text: "DOWNLOAD FREE APP", sub: "Available on iOS & Android", col1: "#8b5cf6", col2: "#6d28d9", sound: "/sounds/ting.ogg" },
+                        { id: "comment", name: "Comment Below", icon: "💬", text: "DROP YOUR THOUGHTS", sub: "What do you think? Comment below!", col1: "#f59e0b", col2: "#d97706", sound: "/sounds/jump_pop.wav" },
+                        { id: "save", name: "Save / Bookmark", icon: "🔖", text: "SAVE FOR LATER", sub: "Bookmark so you don't lose it", col1: "#ec4899", col2: "#be185d", sound: "/sounds/jump_pop.wav" },
+                        { id: "community", name: "Join VIP Group", icon: "⭐", text: "JOIN OUR COMMUNITY", sub: "Exclusive perks & updates", col1: "#eab308", col2: "#ca8a04", sound: "/sounds/ting.ogg" },
+                        { id: "start", name: "Get Started Now", icon: "🚀", text: "GET STARTED TODAY", sub: "Try it free for 14 days", col1: "#4f46e5", col2: "#3730a3", sound: "/sounds/jump_pop.wav" },
+                      ].map((tmpl) => (
+                        <button
+                          key={tmpl.id}
+                          type="button"
+                          onClick={() => {
+                            setData({
+                              ...data,
+                              content: {
+                                ...data.content,
+                                primaryText: tmpl.text,
+                                secondaryText: tmpl.sub,
+                                label: tmpl.icon,
+                              },
+                              visualOptions: {
+                                ...data.visualOptions,
+                                primaryColor: tmpl.col1,
+                                secondaryColor: tmpl.col2,
+                                has3DLook: true,
+                              },
+                              audioSettings: {
+                                ...data.audioSettings,
+                                soundUrl: tmpl.sound,
+                                volume: 0.8,
+                              },
+                            });
+                          }}
+                          className="px-2.5 py-2 bg-gray-850 hover:bg-gray-750 border border-gray-700 hover:border-indigo-500/60 rounded-xl text-left transition-all flex items-center gap-2 group"
+                        >
+                          <span className="text-base group-hover:scale-110 transition-transform">{tmpl.icon}</span>
+                          <div className="truncate">
+                            <div className="text-[11px] font-semibold text-white truncate">{tmpl.name}</div>
+                            <div className="text-[9px] text-gray-400 truncate">{tmpl.text}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Customizable Options */}
+                  <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                    <label className="text-xs font-semibold text-white block">
+                      ✏️ Edit Call to Action Options:
+                    </label>
+
+                    <div>
+                      <span className="text-[11px] text-gray-300 block mb-1">Primary Button Text:</span>
+                      <input
+                        type="text"
+                        value={data.content?.primaryText || ""}
+                        onChange={(e) => updateContent("primaryText", e.target.value)}
+                        placeholder="e.g. SUBSCRIBE NOW, GET 20% OFF..."
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 font-semibold"
+                      />
+                    </div>
+
+                    <div>
+                      <span className="text-[11px] text-gray-300 block mb-1">Secondary Subtext / Offer Line:</span>
+                      <input
+                        type="text"
+                        value={data.content?.secondaryText || ""}
+                        onChange={(e) => updateContent("secondaryText", e.target.value)}
+                        placeholder="e.g. Hit the bell for notifications, Link in bio..."
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    {/* Emoji / Icon Selector */}
+                    <div>
+                      <span className="text-[11px] text-gray-300 block mb-1.5">Button Icon / Emoji:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {["🔔", "👍", "✨", "🛍️", "🔗", "📱", "💬", "🔖", "⭐", "🚀", "🔥", "🎁", "👇", "❤️"].map((ico) => (
+                          <button
+                            key={ico}
+                            type="button"
+                            onClick={() => updateContent("label", ico)}
+                            className={`w-8 h-8 rounded-lg text-sm flex items-center justify-center border transition-all ${
+                              (data.content?.label || "🔔") === ico
+                                ? "bg-indigo-600 border-indigo-400 scale-110 shadow"
+                                : "bg-gray-900 border-gray-700 hover:bg-gray-800"
+                            }`}
+                          >
+                            {ico}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Button Color Palette */}
+                    <div>
+                      <span className="text-[11px] text-gray-300 block mb-1.5">Button Gradient Theme:</span>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { name: "YouTube Crimson", c1: "#ef4444", c2: "#b91c1c" },
+                          { name: "Azure Blue", c1: "#0284c7", c2: "#0369a1" },
+                          { name: "Electric Indigo", c1: "#6366f1", c2: "#4f46e5" },
+                          { name: "Emerald Shop", c1: "#10b981", c2: "#047857" },
+                          { name: "Royal Violet", c1: "#8b5cf6", c2: "#6d28d9" },
+                          { name: "Amber Sunset", c1: "#f59e0b", c2: "#d97706" },
+                          { name: "Hot Pink", c1: "#ec4899", c2: "#be185d" },
+                          { name: "Dark Obsidian", c1: "#27272a", c2: "#18181b" },
+                        ].map((pal) => (
+                          <button
+                            key={pal.name}
+                            type="button"
+                            title={pal.name}
+                            onClick={() => {
+                              updateVisualOptions("primaryColor", pal.c1);
+                              updateVisualOptions("secondaryColor", pal.c2);
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-[10px] font-semibold text-white border transition-all flex items-center gap-1.5 ${
+                              data.visualOptions?.primaryColor === pal.c1
+                                ? "border-white scale-105 shadow-md ring-2 ring-indigo-400"
+                                : "border-transparent opacity-85 hover:opacity-100"
+                            }`}
+                            style={{ background: `linear-gradient(135deg, ${pal.c1}, ${pal.c2})` }}
+                          >
+                            <span>●</span>
+                            <span>{pal.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : isScriptureTemplate ? (
+                /* Dedicated Scripture Verse Fields */
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2 pb-2 border-b border-gray-700">
+                    <span className="text-base text-amber-400">📖</span>
+                    <div>
+                      <span className="text-xs font-bold text-white block">Holy Scripture Verse Settings</span>
+                      <span className="text-[10px] text-gray-400">Customize biblical citation, translation, and passage text</span>
+                    </div>
+                  </div>
+
+                  {/* Reference Fields: Book, Chapter, Verse */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-[11px] text-gray-300 block mb-1">Book Name:</label>
+                      <input
+                        type="text"
+                        value={data.content?.book || "John"}
+                        onChange={(e) => updateContent("book", e.target.value)}
+                        placeholder="e.g. John, Psalms"
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-300 block mb-1">Chapter:</label>
+                      <input
+                        type="text"
+                        value={data.content?.chapter || "3"}
+                        onChange={(e) => updateContent("chapter", e.target.value)}
+                        placeholder="e.g. 3, 23"
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-300 block mb-1">Verse(s):</label>
+                      <input
+                        type="text"
+                        value={data.content?.verse || "16"}
+                        onChange={(e) => updateContent("verse", e.target.value)}
+                        placeholder="e.g. 16, 1-4"
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 font-semibold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Translation Version */}
+                  <div>
+                    <label className="text-[11px] text-gray-300 block mb-1">Bible Translation / Version:</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={data.content?.secondaryText || "King James Version (KJV)"}
+                        onChange={(e) => updateContent("secondaryText", e.target.value)}
+                        placeholder="e.g. King James Version (KJV)"
+                        className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {["KJV", "NIV", "ESV", "NKJV", "NLT", "NASB"].map((ver) => (
+                        <button
+                          key={ver}
+                          type="button"
+                          onClick={() => updateContent("secondaryText", `${ver} Translation`)}
+                          className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-[10px] text-gray-300 rounded border border-gray-700 font-mono"
+                        >
+                          {ver}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Scripture Verse Text (Multiline) */}
+                  <div>
+                    <label className="text-[11px] text-gray-300 block mb-1">Scripture Verse Text:</label>
+                    <textarea
+                      rows={3}
+                      value={data.content?.primaryText || ""}
+                      onChange={(e) => updateContent("primaryText", e.target.value)}
+                      placeholder="Paste or type scripture verse passage here..."
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 leading-relaxed font-serif"
+                    />
+                  </div>
+
+                  {/* Header Tag / Label */}
+                  <div>
+                    <label className="text-[11px] text-gray-300 block mb-1">Header Label / Banner:</label>
+                    <input
+                      type="text"
+                      value={data.content?.label || "HOLY SCRIPTURE"}
+                      onChange={(e) => updateContent("label", e.target.value)}
+                      placeholder="e.g. HOLY SCRIPTURE, DAILY VERSE, SCRIPTURE OF HOPE"
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 uppercase font-mono text-[11px]"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <div>
+                    <label className="text-xs font-semibold text-white block mb-1">
+                      Header / Category Label:
+                    </label>
+                    <input
+                      type="text"
+                      value={data.content?.label || ""}
+                      onChange={(e) => updateContent("label", e.target.value)}
+                      placeholder="e.g. KEY TAKEAWAY, DID YOU KNOW?, INSPIRATION..."
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-white block mb-1">
+                      Primary Card / Quote / Point Text:
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={data.content?.primaryText || ""}
+                      onChange={(e) => updateContent("primaryText", e.target.value)}
+                      placeholder="Enter main text..."
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-white block mb-1">
+                      Secondary Text / Subtitle / Author / Citation:
                     </label>
                     <input
                       type="text"
@@ -663,9 +1831,9 @@ function InsertPropertiesContent({
                       placeholder="Optional author, subtitle, or citation..."
                       className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                     />
-                  </>
-                )}
-              </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -705,12 +1873,49 @@ function InsertPropertiesContent({
                   </div>
                 </div>
 
-                <div className="pt-2 text-xs text-gray-400 flex items-center gap-2">
-                  <span>Display Window:</span>
-                  <span className="font-mono text-indigo-300 font-bold">
-                    {data.startTime.toFixed(1)}s — {(data.startTime + data.duration).toFixed(1)}s
-                  </span>
+                <div className="pt-2 text-xs text-gray-400 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span>Display Window:</span>
+                    <span className="font-mono text-indigo-300 font-bold">
+                      {data.startTime.toFixed(1)}s — {(data.startTime + data.duration).toFixed(1)}s
+                    </span>
+                  </div>
+                  {isIntroOutro && (
+                    <span className="text-[10px] text-amber-400 font-medium">
+                      {insert.category === "intro" ? "🎬 Intro Segment" : "🏁 Outro Segment"}
+                    </span>
+                  )}
                 </div>
+
+                {isIntroOutro && (
+                  <div className="pt-2 border-t border-gray-700/80">
+                    {insert.category === "intro" ? (
+                      <button
+                        type="button"
+                        onClick={() => setData((prev) => ({ ...prev, startTime: 0 }))}
+                        className="w-full py-2 px-3 bg-amber-950/70 hover:bg-amber-900 text-amber-200 border border-amber-500/50 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <span>⚡ Snap to Timeline Start (0.0s Before Script)</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setData((prev) => ({
+                            ...prev,
+                            startTime: Math.max(0, totalDuration - prev.duration),
+                          }))
+                        }
+                        className="w-full py-2 px-3 bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-500/50 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <span>
+                          ⚡ Snap to Timeline End (
+                          {Math.max(0, totalDuration - data.duration).toFixed(1)}s After Script)
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
