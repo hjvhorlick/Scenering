@@ -14,7 +14,9 @@ import { generateAttributionDocument } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
 import { getFilterCanvas, getPreset, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
-import { buildInsertAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
+import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
+import { renderSection } from "../lib/render-section";
+import type { SectionConfig } from "../data/intro-outro";
 
 export interface RenderSettings {
   format: "mp4" | "webm";
@@ -53,6 +55,8 @@ interface RenderViewProps {
   motionStyle?: string;
   /** the single look applied across the whole video */
   videoFilter?: VideoFilterConfig | null;
+  introSection?: SectionConfig | null;
+  outroSection?: SectionConfig | null;
   onOpenSetup?: () => void;
   onNavigatePhase?: (phase: ProjectPhase) => void;
 }
@@ -125,6 +129,8 @@ export default function RenderView({
   sceneDuration = 20,
   motionStyle = "dynamic",
   videoFilter = null,
+  introSection = null,
+  outroSection = null,
   onOpenSetup,
   onNavigatePhase,
 }: RenderViewProps) {
@@ -669,10 +675,10 @@ export default function RenderView({
         }
       };
 
-      const introInsert = inserts?.find((ins) => ins.category === "intro");
-      const outroInsert = inserts?.find((ins) => ins.category === "outro");
-      const introDuration = introInsert ? introInsert.duration : 0;
-      const outroDuration = outroInsert ? outroInsert.duration : 0;
+      const introSec = introSection?.enabled ? introSection : null;
+      const outroSec = outroSection?.enabled ? outroSection : null;
+      const introDuration = introSec ? Math.max(0.5, introSec.duration) : 0;
+      const outroDuration = outroSec ? Math.max(0.5, outroSec.duration) : 0;
 
       const scriptTotalDuration = Math.max(1, scenesWithImages.reduce((sum, s) => {
         const aud = audioBuffers.get(s.id);
@@ -684,7 +690,10 @@ export default function RenderView({
       // Mix timeline insert audio (BGM, SFX, CTA jingles, intro/outro sounds) into the render
       let insertMixer: InsertAudioMixer | null = null;
       try {
-        const insertPlans = buildInsertAudioPlan(inserts, estimatedTotalDuration);
+        const insertPlans = [
+          ...buildInsertAudioPlan(inserts, estimatedTotalDuration),
+          ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
+        ];
         if (insertPlans.length > 0) {
           insertMixer = new InsertAudioMixer(audioCtx, musicAnalyser);
           const loaded = await insertMixer.load(insertPlans);
@@ -698,7 +707,7 @@ export default function RenderView({
       }
       const renderStartTime = performance.now();
 
-      let renderPhase: "intro" | "scenes" | "outro" = introInsert ? "intro" : "scenes";
+      let renderPhase: "intro" | "scenes" | "outro" = introSec ? "intro" : "scenes";
       let phaseStartTime = performance.now();
 
       // Only start scene voiceover audio if we are starting directly in scenes phase
@@ -762,7 +771,7 @@ export default function RenderView({
             // ==========================================
             // PHASE 1: INTRO SEGMENT (Full screen insert, NO captions, NO speech voice)
             // ==========================================
-            if (renderPhase === "intro" && introInsert) {
+            if (renderPhase === "intro" && introSec) {
               const elapsedInIntro = Math.max(0, (now - phaseStartTime) / 1000);
               const currentGlobalTime = elapsedInIntro;
               const progressInIntro = Math.min(1, elapsedInIntro / Math.max(0.1, introDuration));
@@ -783,11 +792,11 @@ export default function RenderView({
               ctx.fillStyle = "#000";
               ctx.fillRect(0, 0, width, height);
 
-              // Render Intro full screen (video or image with its own clip sound)
+              // Render the intro section built in the Intro & Outro studio
               try {
-                renderTimelineInsert(ctx, introInsert, currentGlobalTime, width, height, 0.4, null);
+                renderSection(ctx, introSec, width, height, currentGlobalTime, progressInIntro);
               } catch (e) {
-                console.warn("Intro insert render notice:", e);
+                console.warn("Intro section render notice:", e);
               }
 
               // Render active overlay inserts in intro (excluding intro/outro cards)
@@ -817,7 +826,7 @@ export default function RenderView({
             // ==========================================
             // PHASE 3: OUTRO SEGMENT (Full screen insert, NO captions, NO speech voice)
             // ==========================================
-            if (renderPhase === "outro" && outroInsert) {
+            if (renderPhase === "outro" && outroSec) {
               const elapsedInOutro = Math.max(0, (now - phaseStartTime) / 1000);
               const currentGlobalTime = introDuration + scriptTotalDuration + elapsedInOutro;
               const progressInOutro = Math.min(1, elapsedInOutro / Math.max(0.1, outroDuration));
@@ -838,11 +847,11 @@ export default function RenderView({
               ctx.fillStyle = "#000";
               ctx.fillRect(0, 0, width, height);
 
-              // Render Outro full screen (video or image with its own clip sound)
+              // Render the outro section built in the Intro & Outro studio
               try {
-                renderTimelineInsert(ctx, outroInsert, currentGlobalTime, width, height, 0.4, null);
+                renderSection(ctx, outroSec, width, height, elapsedInOutro, progressInOutro);
               } catch (e) {
-                console.warn("Outro insert render notice:", e);
+                console.warn("Outro section render notice:", e);
               }
 
               // Render active overlay inserts in outro (excluding intro/outro cards)
@@ -874,7 +883,7 @@ export default function RenderView({
             const currentScene = scenesWithImages[currentSceneIdx];
 
             if (!currentScene) {
-              if (outroInsert) {
+              if (outroSec) {
                 renderPhase = "outro";
                 phaseStartTime = performance.now();
                 if (activeAudioSource) {
@@ -1127,7 +1136,7 @@ export default function RenderView({
             if (progressInScene >= 1) {
               currentSceneIdx++;
               if (currentSceneIdx >= scenesWithImages.length) {
-                if (outroInsert) {
+                if (outroSec) {
                   renderPhase = "outro";
                   phaseStartTime = performance.now();
                   if (activeAudioSource) {

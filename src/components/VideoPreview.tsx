@@ -14,6 +14,8 @@ import { loadCaptionFonts } from "../data/caption-styles";
 import { calculateDynamicDuration } from "../lib/duration-utils";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
+import { renderSection } from "../lib/render-section";
+import { sectionSoundUrl, type SectionConfig } from "../data/intro-outro";
 import { getCachedSceneAudio } from "../lib/tts-cache";
 import { buildInsertAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
@@ -36,6 +38,9 @@ interface VideoPreviewProps {
   pacingMode?: PacingModeType;
   /** one look across the whole video (set in Video Studio → Filters) */
   videoFilter?: VideoFilterConfig | null;
+  /** opening / closing sections built in Video Studio → Intro / Outro */
+  introSection?: SectionConfig | null;
+  outroSection?: SectionConfig | null;
 }
 
 // Playback timing helper: respects scene.duration while ensuring audio is never cut short
@@ -104,12 +109,57 @@ export default function VideoPreview({
   aspectRatio = "16:9",
   pacingMode = "auto_speech",
   videoFilter = null,
+  introSection = null,
+  outroSection = null,
 }: VideoPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // kept in a ref so the draw loop always grades with the latest settings
   // without having to rebuild every callback while the sliders are dragged
   const videoFilterRef = useRef<VideoFilterConfig | null>(videoFilter);
   videoFilterRef.current = videoFilter;
+
+  // Intro / outro sections (built in the studio, stored on the project — they
+  // are NOT timeline inserts any more).
+  const activeIntro = introSection?.enabled ? introSection : null;
+  const activeOutro = outroSection?.enabled ? outroSection : null;
+  const introDuration = activeIntro ? Math.max(0.5, activeIntro.duration) : 0;
+  const outroDuration = activeOutro ? Math.max(0.5, activeOutro.duration) : 0;
+  const sectionsRef = useRef({ intro: activeIntro, outro: activeOutro });
+  sectionsRef.current = { intro: activeIntro, outro: activeOutro };
+
+  /** one <audio> per section, fired once when its segment starts */
+  const sectionAudioRef = useRef<{ intro: HTMLAudioElement | null; outro: HTMLAudioElement | null }>({
+    intro: null,
+    outro: null,
+  });
+  const sectionAudioFiredRef = useRef<{ intro: boolean; outro: boolean }>({ intro: false, outro: false });
+
+  const playSectionSound = useCallback((which: "intro" | "outro", cfg: SectionConfig) => {
+    if (sectionAudioFiredRef.current[which]) return;
+    sectionAudioFiredRef.current[which] = true;
+    const url = sectionSoundUrl(cfg);
+    if (!url) return;
+    try {
+      const el = sectionAudioRef.current[which] ?? new Audio();
+      el.src = url;
+      el.volume = Math.max(0, Math.min(1, cfg.volume));
+      el.currentTime = 0;
+      sectionAudioRef.current[which] = el;
+      void el.play().catch(() => {});
+    } catch {
+      /* autoplay blocked — silent */
+    }
+  }, []);
+
+  const stopSectionSounds = useCallback(() => {
+    (["intro", "outro"] as const).forEach((k) => {
+      const el = sectionAudioRef.current[k];
+      if (el) {
+        try { el.pause(); el.currentTime = 0; } catch {}
+      }
+      sectionAudioFiredRef.current[k] = false;
+    });
+  }, []);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -442,17 +492,17 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       paintVideoFilter(ctx, videoFilterRef.current, w, h, absoluteTime);
 
       // Check if we are currently inside an Intro or Outro segment
-      const introInsert = inserts?.find((ins) => ins.category === "intro");
-      const outroInsert = inserts?.find((ins) => ins.category === "outro");
-      const introDur = introInsert ? introInsert.duration : 0;
-      const outroDur = outroInsert ? outroInsert.duration : 0;
+      const introSec = sectionsRef.current.intro;
+      const outroSec = sectionsRef.current.outro;
+      const introDur = introSec ? Math.max(0.5, introSec.duration) : 0;
+      const outroDur = outroSec ? Math.max(0.5, outroSec.duration) : 0;
       const scriptDur = scenesWithImages.reduce((sum, s) => {
         const sa = audioBuffersRef.current.get(s.id);
         return sum + getSceneSpeechDuration(s, sa?.buffer);
       }, 0);
 
-      const isIntroSegment = Boolean(introInsert && absoluteTime < introDur);
-      const isOutroSegment = Boolean(outroInsert && absoluteTime >= introDur + scriptDur);
+      const isIntroSegment = Boolean(introSec && absoluteTime < introDur);
+      const isOutroSegment = Boolean(outroSec && absoluteTime >= introDur + scriptDur);
       const isIntroOrOutro = isIntroSegment || isOutroSegment;
 
       // Render Subtitles / Captions (Strictly disabled for Intro and Outro segments per user instruction)
@@ -605,10 +655,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     if (!ctx) return;
 
     const scrubTime = currentPlayheadTime;
-    const introInsert = inserts?.find((ins) => ins.category === "intro");
-    const outroInsert = inserts?.find((ins) => ins.category === "outro");
-    const introDur = introInsert ? introInsert.duration : 0;
-    const outroDur = outroInsert ? outroInsert.duration : 0;
+    const introSec = activeIntro;
+    const outroSec = activeOutro;
+    const introDur = introDuration;
+    const outroDur = outroDuration;
     const scriptDur = scenesWithImages.reduce((sum, s) => {
       const sa = audioBuffersRef.current.get(s.id);
       return sum + getSceneSpeechDuration(s, sa?.buffer);
@@ -618,15 +668,14 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     let targetIdx = 0;
     let sceneProgress = 0;
 
-    if (introInsert && scrubTime < introDur) {
-      targetScene = scenesWithImages[0];
-      targetIdx = 0;
-      sceneProgress = scrubTime / Math.max(0.1, introDur);
-    } else if (outroInsert && scrubTime >= introDur + scriptDur) {
-      const lastIdx = scenesWithImages.length - 1;
-      targetScene = scenesWithImages[lastIdx];
-      targetIdx = lastIdx;
-      sceneProgress = (scrubTime - introDur - scriptDur) / Math.max(0.1, outroDur);
+    if (introSec && scrubTime < introDur) {
+      const p = scrubTime / Math.max(0.1, introDur);
+      renderSection(ctx, introSec, canvas.width, canvas.height, scrubTime, p);
+      return;
+    } else if (outroSec && scrubTime >= introDur + scriptDur) {
+      const oe = scrubTime - introDur - scriptDur;
+      renderSection(ctx, outroSec, canvas.width, canvas.height, oe, oe / Math.max(0.1, outroDur));
+      return;
     } else {
       const scriptTime = Math.max(0, scrubTime - introDur);
       let acc = 0;
@@ -664,6 +713,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     fontsLoadedCounter,
     captionsConfig,
     videoFilter,
+    activeIntro,
+    activeOutro,
+    introDuration,
+    outroDuration,
   ]);
 
   /** Snap a normalized position to safe-area margins / centre lines */
@@ -862,10 +915,12 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       music.connect(audioCtx.destination);
     }
 
-    const introInsert = inserts?.find((ins) => ins.category === "intro");
-    const outroInsert = inserts?.find((ins) => ins.category === "outro");
-    const introDur = introInsert ? introInsert.duration : 0;
-    const outroDur = outroInsert ? outroInsert.duration : 0;
+    const introSec = activeIntro;
+    const outroSec = activeOutro;
+    const introDur = introDuration;
+    const outroDur = outroDuration;
+    // a fresh run may re-fire each section sound once
+    sectionAudioFiredRef.current = { intro: false, outro: false };
 
     const scriptDur = scenesWithImages.reduce((sum, s) => {
       const sa = buffers.get(s.id);
@@ -1007,10 +1062,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         freqData = (loudest.freq as Uint8Array) || null;
       }
 
-      // 1. INTRO SEGMENT: Full screen insert, NO captions, NO speech voiceover
-      if (introInsert && totalElapsed < introDur) {
+      // 1. INTRO SEGMENT: the built section, NO captions, NO speech voiceover
+      if (introSec && totalElapsed < introDur) {
         const introProgress = totalElapsed / Math.max(0.1, introDur);
-        drawScene(ctx, scenesWithImages[0], introProgress, images[0], totalElapsed, audioLevel, freqData, audioFrame);
+        playSectionSound("intro", introSec);
+        renderSection(ctx, introSec, canvas.width, canvas.height, totalElapsed, introProgress);
         setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
         onSeek?.(totalElapsed);
         animFrameRef.current = requestAnimationFrame(animate);
@@ -1018,14 +1074,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       }
 
       // 2. OUTRO SEGMENT: Full screen insert, NO captions, NO speech voiceover
-      if (outroInsert && totalElapsed >= introDur + scriptDur) {
+      if (outroSec && totalElapsed >= introDur + scriptDur) {
         if (currentAudioSource) {
           try { currentAudioSource.stop(); } catch {}
           currentAudioSource = null;
         }
-        const lastIdx = scenesWithImages.length - 1;
-        const outroProgress = (totalElapsed - introDur - scriptDur) / Math.max(0.1, outroDur);
-        drawScene(ctx, scenesWithImages[lastIdx], outroProgress, images[lastIdx], totalElapsed, audioLevel, freqData, audioFrame);
+        const outroElapsed = totalElapsed - introDur - scriptDur;
+        const outroProgress = outroElapsed / Math.max(0.1, outroDur);
+        playSectionSound("outro", outroSec);
+        renderSection(ctx, outroSec, canvas.width, canvas.height, outroElapsed, outroProgress);
         setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
         onSeek?.(totalElapsed);
         animFrameRef.current = requestAnimationFrame(animate);
@@ -1084,7 +1141,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     }
     insertMixerRef.current?.stop();
     insertMixerRef.current = null;
-  }, []);
+    stopSectionSounds();
+  }, [stopSectionSounds]);
 
   const togglePlay = useCallback(() => {
     if (playingRef.current) {
@@ -1105,8 +1163,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       if (currentSourceRef.current) {
         try { currentSourceRef.current.stop(); } catch {}
       }
+      stopSectionSounds();
     };
-  }, []);
+  }, [stopSectionSounds]);
 
   if (scenesWithImages.length === 0) {
     return (

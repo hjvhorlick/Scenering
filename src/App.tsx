@@ -24,6 +24,7 @@ import {
 } from "./lib/duration-utils";
 import type { Project, Scene, TimelineInsert, SceneMotionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
 import type { VideoFilterConfig } from "./data/video-filters";
+import type { SectionConfig } from "./data/intro-outro";
 
 type View = "create" | "editor";
 
@@ -38,6 +39,9 @@ export interface ProjectSettings {
   captions_config: CaptionsConfig;
   /** ONE look applied to the entire video (every scene), like the music track */
   video_filter: VideoFilterConfig | null;
+  /** the intro that plays before the script and the outro that plays after */
+  intro_section: SectionConfig | null;
+  outro_section: SectionConfig | null;
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -67,6 +71,8 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
     bgColor: "rgba(0, 0, 0, 0.75)",
   },
   video_filter: null,
+  intro_section: null,
+  outro_section: null,
 };
 
 // Split script into scenes and generate image search queries
@@ -156,6 +162,8 @@ export default function App() {
   const [pacingMode, setPacingMode] = useState<PacingModeType>(DEFAULT_PROJECT_SETTINGS.pacing_mode);
   const [motionStyle, setMotionStyle] = useState<string>(DEFAULT_PROJECT_SETTINGS.motion_style);
   const [videoFilter, setVideoFilter] = useState<VideoFilterConfig | null>(DEFAULT_PROJECT_SETTINGS.video_filter);
+  const [introSection, setIntroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.intro_section);
+  const [outroSection, setOutroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.outro_section);
 
   // Helper to save per-project settings so each project maintains isolated configuration
   const saveCurrentProjectSettings = useCallback((partial: Partial<ProjectSettings>) => {
@@ -176,6 +184,16 @@ export default function App() {
   const handleUpdateVideoFilter = useCallback((cfg: VideoFilterConfig | null) => {
     setVideoFilter(cfg);
     saveCurrentProjectSettings({ video_filter: cfg });
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateIntroSection = useCallback((cfg: SectionConfig | null) => {
+    setIntroSection(cfg);
+    saveCurrentProjectSettings({ intro_section: cfg });
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateOutroSection = useCallback((cfg: SectionConfig | null) => {
+    setOutroSection(cfg);
+    saveCurrentProjectSettings({ outro_section: cfg });
   }, [saveCurrentProjectSettings]);
 
   const handleSelectVoice = useCallback((voiceId: string) => {
@@ -523,6 +541,8 @@ export default function App() {
     setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
     setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
     setVideoFilter(DEFAULT_PROJECT_SETTINGS.video_filter);
+    setIntroSection(DEFAULT_PROJECT_SETTINGS.intro_section);
+    setOutroSection(DEFAULT_PROJECT_SETTINGS.outro_section);
     setView("create");
   };
 
@@ -552,6 +572,8 @@ export default function App() {
       setSceneDuration(projectSettings.scene_duration);
       setMotionStyle(projectSettings.motion_style);
       setVideoFilter(projectSettings.video_filter ?? null);
+      setIntroSection(projectSettings.intro_section ?? null);
+      setOutroSection(projectSettings.outro_section ?? null);
 
       const { data, error } = await supabase
         .from("scenes")
@@ -814,11 +836,11 @@ export default function App() {
   /** Intro + script + outro. Used to stretch whole-video visualisers and to fill
    *  the timeline readouts in the studio and the properties editor. */
   const estimatedTotalDuration = useMemo(() => {
-    const intro = inserts.find((i) => i.category === "intro")?.duration ?? 0;
-    const outro = inserts.find((i) => i.category === "outro")?.duration ?? 0;
+    const intro = introSection?.enabled ? Math.max(0.5, introSection.duration) : 0;
+    const outro = outroSection?.enabled ? Math.max(0.5, outroSection.duration) : 0;
     const script = scenes.reduce((sum, sc) => sum + Math.max(1, sc.duration || 0), 0);
     return Math.max(1, Math.round((intro + script + outro) * 10) / 10);
-  }, [scenes, inserts]);
+  }, [scenes, introSection, outroSection]);
 
   // Visualisers added with "runs for the entire video" stay pinned to the full
   // length, even after scenes are re-timed or the voiceover changes.
@@ -1008,6 +1030,8 @@ export default function App() {
                 sceneDuration={sceneDuration}
                 motionStyle={motionStyle}
                 videoFilter={videoFilter}
+                introSection={introSection}
+                outroSection={outroSection}
                 onOpenSetup={() => setView("create")}
                 onBack={() => setEditorStep("studio")}
                 onNavigateToStep={setEditorStep}
@@ -1191,6 +1215,8 @@ export default function App() {
                     aspectRatio={aspectRatio}
                     pacingMode={pacingMode}
                     videoFilter={videoFilter}
+                    introSection={introSection}
+                    outroSection={outroSection}
                   />
 
                   {/* Timeline with Playhead & Inserts */}
@@ -1220,6 +1246,10 @@ export default function App() {
                     sampleBackgroundImage={scenes.find((s) => s.image_url)?.image_url || undefined}
                     videoFilter={videoFilter}
                     onUpdateVideoFilter={handleUpdateVideoFilter}
+                    introSection={introSection}
+                    outroSection={outroSection}
+                    onUpdateIntroSection={handleUpdateIntroSection}
+                    onUpdateOutroSection={handleUpdateOutroSection}
                   />
                 </div>
               )}
