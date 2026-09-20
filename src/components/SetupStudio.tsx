@@ -1,22 +1,31 @@
 import { useState, useEffect } from "react";
 import type { AspectRatioType, PacingModeType, Project, ResolutionType, Scene } from "../types";
-import { CALIBRATED_SAMPLES, type CalibratedSample } from "../data/calibrated-samples";
+import ProjectList from "./ProjectList";
+import StepNav from "./StepNav";
 import {
   DURATION_OPTIONS,
   type DurationOption,
   getTargetWordCount,
   countWords,
-  calibrateTextToTargetDuration,
 } from "../lib/duration-utils";
 
 interface SetupStudioProps {
   project: Project | null;
+  /** All saved projects, shown in the first section of this single setup frame */
+  projects: Project[];
   scenes: Scene[];
   aspectRatio: AspectRatioType;
   resolution: ResolutionType;
   pacingMode?: PacingModeType;
   sceneDuration?: number;
   motionStyle?: string;
+  loading?: boolean;
+  /** Project management (this frame is the only place projects are chosen) */
+  onSelectProject: (project: Project) => void;
+  onDeleteProject: (projectId: number) => void;
+  onStartNewProject: () => void;
+  onCreateProject: (title: string, script: string, sceneDuration: number) => void | Promise<void>;
+  /* Project setup values */
   onUpdateTitle: (title: string) => void;
   onUpdateScript: (script: string, regenerateScenes?: boolean, overrideDuration?: number) => void;
   onUpdateAspectRatio: (ratio: AspectRatioType) => void;
@@ -29,22 +38,54 @@ interface SetupStudioProps {
   onNavigateToStep: (step: "scenes") => void;
 }
 
+// -------- Shared small pieces (single column, responsive) --------
+function SectionHeading({
+  step,
+  title,
+  subtitle,
+  badge,
+}: {
+  step: number;
+  title: string;
+  subtitle?: string;
+  badge?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 mb-3">
+      <div className="flex items-start gap-2.5 min-w-0">
+        <span className="w-6 h-6 mt-0.5 rounded-lg bg-indigo-600/20 border border-indigo-500/40 text-indigo-300 text-[11px] font-bold flex items-center justify-center shrink-0">
+          {step}
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-sm font-bold text-white leading-tight">{title}</h3>
+          {subtitle && <p className="text-[11px] text-gray-400 mt-0.5">{subtitle}</p>}
+        </div>
+      </div>
+      {badge}
+    </div>
+  );
+}
+
 export default function SetupStudio({
   project,
+  projects,
   scenes,
   aspectRatio,
   resolution = "1080p",
   pacingMode = "auto_speech",
   sceneDuration = 20,
   motionStyle = "dynamic",
+  loading = false,
+  onSelectProject,
+  onDeleteProject,
+  onStartNewProject,
+  onCreateProject,
   onUpdateTitle,
   onUpdateScript,
   onUpdateAspectRatio,
   onUpdateResolution,
-  onUpdatePacingMode,
   onUpdateSceneDuration,
   onCalibrateScenesWordCount,
-  onFitScenesToSpeech,
   onUpdateMotionStyle,
   onNavigateToStep,
 }: SetupStudioProps) {
@@ -69,7 +110,7 @@ export default function SetupStudio({
     }
   }, [sceneDuration]);
 
-  // Strict isolation: When project ID or project changes, ensure title & script match this specific project only
+  // Strict isolation: when the selected project changes, load only that project's data
   useEffect(() => {
     setTitle(project?.title || "");
     if (project?.script && project.script.trim().length > 0) {
@@ -87,27 +128,19 @@ export default function SetupStudio({
   const SCRIPT_SPLIT_REGEX = /\n\s*\n+|\n+(?=(?:Scene\s*\d+|\[Scene\s*\d+\]|\d+[\.\)]\s))/i;
 
   const wordsCount = countWords(script);
-  // Average speaking pace: 2.5 words per second
   const estimatedReadingSec = Math.round((wordsCount / 2.5) * 10) / 10;
   const detectedScenesCount = script.split(SCRIPT_SPLIT_REGEX).filter((s) => s.trim()).length;
+  const isExistingProject = Boolean(project?.id);
+  const canStart = script.trim().length > 0;
+
+  const showNotice = (msg: string) => {
+    setAppliedNotice(msg);
+    setTimeout(() => setAppliedNotice(null), 3500);
+  };
 
   const handleTitleChange = (newTitle: string) => {
     setTitle(newTitle);
     onUpdateTitle(newTitle);
-  };
-
-  const handleLoadSample = (sample: CalibratedSample) => {
-    const durScript =
-      sample.scripts[activeDuration] ||
-      sample.scripts[20] ||
-      sample.scripts[10] ||
-      Object.values(sample.scripts)[0] ||
-      "";
-    setTitle(sample.title);
-    setScript(durScript);
-    onUpdateTitle(sample.title);
-    onUpdateScript(durScript, true, activeDuration);
-    showNotice(`Loaded sample: "${sample.title}" calibrated for ${activeDuration}s (~${targetWordsPerScene} words/scene).`);
   };
 
   const handleFormatScriptToTargetDuration = () => {
@@ -121,16 +154,16 @@ export default function SetupStudio({
     const cleanScript = paragraphs.join("\n\n");
     setScript(cleanScript);
     onUpdateScript(cleanScript, true, activeDuration);
-    showNotice(`Formatted script into ${paragraphs.length} scenes (${activeDuration}s duration each)!`);
+    showNotice(
+      `Formatted script into ${paragraphs.length} scenes (${activeDuration}s duration each)!`
+    );
   };
 
   const handleApplyScript = (regenerate: boolean) => {
     if (!script.trim()) return;
     onUpdateScript(script.trim(), regenerate, activeDuration);
     showNotice(
-      regenerate
-        ? `Re-generated ${detectedScenesCount} scenes from script!`
-        : "Script updated successfully!"
+      regenerate ? `Re-generated ${detectedScenesCount} scenes from script!` : "Script updated successfully!"
     );
   };
 
@@ -139,42 +172,40 @@ export default function SetupStudio({
     onUpdateSceneDuration?.(seconds);
     onCalibrateScenesWordCount?.(seconds);
 
-    // Update script scenes duration without mutating user text
     const currentScriptText = script.trim();
-    if (currentScriptText) {
+    if (isExistingProject && currentScriptText) {
       onUpdateScript(currentScriptText, true, seconds);
     }
 
     const words = getTargetWordCount(seconds);
-    showNotice(`Scene duration set to ${seconds}s (~${words} target words/scene) for all scenes!`);
+    showNotice(`Scene duration set to ${seconds}s (~${words} target words/scene).`);
   };
 
-  const handleProceedToScenes = () => {
-    const durToApply = selectedDuration || activeDuration || 20;
+  /** Primary action: create the project (new) or save the setup (existing) and continue to Scenes */
+  const handleStartProject = async () => {
+    const durToApply = selectedDuration || 20;
 
-    // 1. Ensure project title is saved
-    if (title.trim()) {
-      onUpdateTitle(title.trim());
+    if (!isExistingProject) {
+      if (!script.trim()) return;
+      await onCreateProject(title.trim() || "Untitled Video", script.trim(), durToApply);
+      return;
     }
 
-    // 2. The chosen duration action is performed before entering the scene editor
+    if (title.trim()) onUpdateTitle(title.trim());
     onUpdateSceneDuration?.(durToApply);
-
-    // 3. Keep the user's exact script without appending any filler sentences
     const currentScriptText = script.trim();
     if (currentScriptText) {
       onUpdateScript(currentScriptText, true, durToApply);
     } else {
       onCalibrateScenesWordCount?.(durToApply);
     }
-
-    // 4. Navigate to scene editor
     onNavigateToStep("scenes");
   };
 
-  const showNotice = (msg: string) => {
-    setAppliedNotice(msg);
-    setTimeout(() => setAppliedNotice(null), 3500);
+  const handleStartNewProject = () => {
+    onStartNewProject();
+    setTitle("");
+    setScript("");
   };
 
   const aspectRatios: {
@@ -183,33 +214,12 @@ export default function SetupStudio({
     sublabel: string;
     boxClass: string;
   }[] = [
-    {
-      id: "16:9",
-      label: "16:9 Landscape",
-      sublabel: "YouTube / Desktop / TV",
-      boxClass: "w-9 h-5",
-    },
-    {
-      id: "9:16",
-      label: "9:16 Vertical",
-      sublabel: "Shorts / TikTok / Reels",
-      boxClass: "w-5 h-9",
-    },
-    {
-      id: "1:1",
-      label: "1:1 Square",
-      sublabel: "Instagram / Feed Post",
-      boxClass: "w-7 h-7",
-    },
-    {
-      id: "4:3",
-      label: "4:3 Classic",
-      sublabel: "Standard / Presentation",
-      boxClass: "w-8 h-6",
-    },
+    { id: "16:9", label: "16:9 Landscape", sublabel: "YouTube / Desktop / TV", boxClass: "w-9 h-5" },
+    { id: "9:16", label: "9:16 Vertical", sublabel: "Shorts / TikTok / Reels", boxClass: "w-5 h-9" },
+    { id: "1:1", label: "1:1 Square", sublabel: "Instagram / Feed Post", boxClass: "w-7 h-7" },
+    { id: "4:3", label: "4:3 Classic", sublabel: "Standard / Presentation", boxClass: "w-8 h-6" },
   ];
 
-  // Resolutions with computed dimensions per aspect ratio
   const getResolutionDimensions = (ratio: AspectRatioType, res: ResolutionType): string => {
     if (ratio === "16:9") {
       if (res === "720p") return "1280 × 720";
@@ -241,38 +251,13 @@ export default function SetupStudio({
   const resolutions: {
     id: ResolutionType;
     name: string;
-    tier: string;
     badge: string;
     description: string;
   }[] = [
-    {
-      id: "720p",
-      name: "720p HD",
-      tier: "Standard Definition",
-      badge: "Fast & Light",
-      description: "Quick rendering, lightweight file size",
-    },
-    {
-      id: "1080p",
-      name: "1080p Full HD",
-      tier: "High Definition",
-      badge: "Recommended",
-      description: "Crisp YouTube & social media standard",
-    },
-    {
-      id: "2k",
-      name: "2K QHD",
-      tier: "Quad High Definition",
-      badge: "Creator Pro",
-      description: "Ultra-sharp detail for high-DPI displays",
-    },
-    {
-      id: "4k",
-      name: "4K Ultra HD",
-      tier: "Ultra High Definition",
-      badge: "Cinema Master",
-      description: "Maximum cinematic fidelity and master export",
-    },
+    { id: "720p", name: "720p HD", badge: "Fast & Light", description: "Quick renders, small files" },
+    { id: "1080p", name: "1080p Full HD", badge: "Recommended", description: "Crisp YouTube & social standard" },
+    { id: "2k", name: "2K QHD", badge: "Creator Pro", description: "Ultra-sharp for high-DPI screens" },
+    { id: "4k", name: "4K Ultra HD", badge: "Cinema Master", description: "Maximum cinematic fidelity" },
   ];
 
   const motionOptions = [
@@ -285,32 +270,55 @@ export default function SetupStudio({
     { id: "none", label: "⏹️ Static (No Motion)", desc: "Still frame without camera motion" },
   ];
 
-  return (
-    <div className="max-w-5xl mx-auto space-y-8 animate-fade-in pb-12">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-800 pb-5">
-        <div>
-          <div className="flex items-center gap-2.5 mb-1.5">
-            <span className="p-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-xl text-lg">
-              ⚙️
-            </span>
-            <h2 className="text-xl font-bold text-white tracking-tight">Project Setup & Script</h2>
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-950 border border-indigo-700/60 text-indigo-300">
-              Unlimited Scenes Enabled
-            </span>
-          </div>
-          <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
-            Configure project title, screenplay script, target scene pacing, and canvas aspect ratio. Changes take effect instantly in all previews and renders.
-          </p>
-        </div>
 
-        <button
-          onClick={handleProceedToScenes}
-          className="self-start sm:self-auto px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-xs rounded-xl shadow-lg transition-all flex items-center gap-2 shrink-0"
-        >
-          <span>Proceed to Scenes ({scenes.length})</span>
-          <span>→</span>
-        </button>
+  return (
+    <div className="w-full max-w-4xl mx-auto space-y-5 sm:space-y-6 pb-12 animate-fade-in">
+      {/* ---------------- Frame header ---------------- */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <div className="min-w-0">
+            <div className="flex items-center gap-2.5 mb-1.5">
+              <span className="p-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-xl text-lg">
+                🎬
+              </span>
+              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                {isExistingProject ? "Project Setup" : "Start a New Project"}
+              </h2>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border hidden sm:inline ${
+                  isExistingProject
+                    ? "bg-emerald-950 border-emerald-700/60 text-emerald-300"
+                    : "bg-indigo-950 border border-indigo-700/60 text-indigo-300"
+                }`}
+              >
+                {isExistingProject ? "Editing" : "New"}
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
+              Everything needed to start a video is on this one screen — choose a project, then set the
+              title, script, scene length, canvas format, resolution and camera motion. Nothing else in
+              the app asks for these again; the Render screen simply shows the results.
+            </p>
+          </div>
+
+
+        {/* The one navigation control for this phase */}
+        <div className="mt-4">
+          <StepNav
+            current="setup"
+            onNavigate={() => {}}
+            onNext={handleStartProject}
+            nextLabel={isExistingProject ? "Next: Scenes (save setup)" : "Next: Scenes (create project)"}
+            nextDisabled={!canStart}
+            busyLabel={loading ? "Creating project…" : undefined}
+            note={
+              canStart
+                ? isExistingProject
+                  ? "saves title, script & format"
+                  : "creates the project from your script"
+                : "add a script in section 3 to continue"
+            }
+          />
+        </div>
       </div>
 
       {appliedNotice && (
@@ -319,351 +327,345 @@ export default function SetupStudio({
             <span>✅</span>
             <span className="font-medium">{appliedNotice}</span>
           </span>
-          <button
-            onClick={() => setAppliedNotice(null)}
-            className="text-emerald-400 hover:text-white text-xs"
-          >
+          <button onClick={() => setAppliedNotice(null)} className="text-emerald-400 hover:text-white text-xs">
             ✕
           </button>
         </div>
       )}
 
-      {/* Main Form Settings Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left / Main Column: Title & Script Input */}
-        <div className="lg:col-span-8 space-y-6">
-          {/* Project Title Card */}
-          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-5 shadow-lg space-y-2.5">
-            <div className="flex items-center justify-between">
-              <label htmlFor="project-title" className="text-xs font-semibold text-gray-200 flex items-center gap-2">
-                <span>🏷️</span> Project Title
-              </label>
-              <span className="text-[11px] text-gray-500">{title.length} chars</span>
-            </div>
-            <input
-              id="project-title"
-              type="text"
-              value={title}
-              onChange={(e) => handleTitleChange(e.target.value)}
-              placeholder="e.g. Wonders of the Deep Ocean"
-              className="w-full px-4 py-3 bg-gray-800/90 border border-gray-700 rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-inner"
-            />
-            <p className="text-[11px] text-gray-400">
-              Used in the video title banner, exported filenames, and attribution documents.
-            </p>
-          </div>
+      {/* ---------------- 1. Project ---------------- */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <SectionHeading
+          step={1}
+          title="Choose or create a project"
+          subtitle="Open a saved project to continue, or start a brand new one. This is the only place projects are listed."
+          badge={
+            <button
+              type="button"
+              onClick={handleStartNewProject}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1.5 shrink-0 shadow"
+            >
+              <span>＋</span>
+              <span>New Project</span>
+            </button>
+          }
+        />
 
-          {/* Script Input Card */}
-          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-5 shadow-lg space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-800 pb-3">
-              <div>
-                <label htmlFor="screenplay-script" className="text-xs font-semibold text-white flex items-center gap-2">
-                  <span>📝</span> Screenplay Script & Narration
-                </label>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  Separate paragraphs with blank lines. There is no limit on the number of scenes.
-                </p>
-              </div>
-
-              {/* Live Script Stats */}
-              <div className="flex items-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-gray-700 text-[11px]">
-                <span className="text-indigo-300 font-semibold">{detectedScenesCount} Scenes</span>
-                <span className="text-gray-500">•</span>
-                <span className="text-gray-300">{wordsCount} Words</span>
-                <span className="text-gray-500">•</span>
-                <span className="text-amber-300 font-medium">~{estimatedReadingSec}s Speech</span>
-              </div>
-            </div>
-
-            {/* Quick Sample Presets Calibrated to Duration */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-medium text-gray-400">
-                  Try a sample script (calibrated for {activeDuration}s / ~{targetWordsPerScene} words per scene):
-                </span>
-                <button
-                  type="button"
-                  onClick={handleFormatScriptToTargetDuration}
-                  className="px-2.5 py-1 bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-300 border border-indigo-700/60 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1 shadow-sm"
-                  title={`Calibrate each paragraph in your script to ~${targetWordsPerScene} words so each lasts ${activeDuration}s`}
-                >
-                  <span>✨</span>
-                  <span>Calibrate Script to {activeDuration}s Scenes (~{targetWordsPerScene}w)</span>
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {CALIBRATED_SAMPLES.map((s) => (
-                  <button
-                    key={s.title}
-                    type="button"
-                    onClick={() => handleLoadSample(s)}
-                    className="px-2.5 py-1 bg-gray-800/90 hover:bg-gray-750 text-gray-300 hover:text-white rounded-lg text-xs border border-gray-700/80 transition-all flex items-center gap-1.5 shadow-sm"
-                  >
-                    <span>📜</span>
-                    <span>{s.title}</span>
-                    <span className="text-[10px] text-indigo-400 font-mono font-medium">({activeDuration}s pace)</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Textarea */}
-            <div>
-              <textarea
-                id="screenplay-script"
-                value={script}
-                onChange={(e) => setScript(e.target.value)}
-                rows={11}
-                placeholder={`Scene 1: Type ~${targetWordsPerScene} words to last ${activeDuration} seconds when read aloud...\n\nScene 2: Type another ~${targetWordsPerScene} words for the second scene...\n\nScene 3: Each paragraph becomes a separate scene.`}
-                className="w-full px-4 py-3.5 bg-gray-800/90 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-xs leading-relaxed shadow-inner"
-              />
-            </div>
-
-            {/* Action buttons for script */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-              <div className="text-[11px] text-gray-400 flex items-center gap-1.5">
-                <span>💡</span>
-                <span>Each paragraph is converted into a scene calibrated for {activeDuration}s (~{targetWordsPerScene} words).</span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleApplyScript(false)}
-                  className="px-3.5 py-2 bg-gray-800 hover:bg-gray-750 text-gray-200 hover:text-white rounded-xl text-xs font-semibold border border-gray-700 transition-colors shadow"
-                >
-                  Save Script Text
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleApplyScript(true)}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
-                >
-                  <span>⚡ Re-Generate All Scenes</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Timing, Aspect Ratio, Resolution & Camera Motion */}
-        <div className="lg:col-span-4 space-y-6">
-          {/* 1. Scene Duration Options (10s, 20s, 30s) */}
-          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-5 shadow-lg space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-xs font-semibold text-white flex items-center gap-2">
-                  <span>⏱️</span> Scene Duration
-                </label>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  Select target length for each scene.
-                </p>
-              </div>
-              <span className="px-2.5 py-0.5 bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 rounded-full text-[10px] font-bold">
-                {activeDuration}s Active
+        {isExistingProject && (
+          <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-emerald-950/50 border border-emerald-800/60 rounded-xl px-3 py-2.5">
+            <span className="text-[11px] text-emerald-200 flex items-center gap-2 min-w-0">
+              <span>📂</span>
+              <span className="truncate">
+                Currently editing: <strong className="text-white">{project?.title || "Untitled"}</strong>
+                {project?.script ? ` · ${countWords(project.script)} words` : ""}
               </span>
-            </div>
-
-            {/* 3 Buttons: 10s, 20s, 30s */}
-            <div className="space-y-2.5">
-              {DURATION_OPTIONS.map((opt) => {
-                const isSelected = activeDuration === opt.seconds;
-                return (
-                  <button
-                    key={opt.seconds}
-                    type="button"
-                    onClick={() => handleSelectDuration(opt.seconds)}
-                    className={`w-full p-3.5 rounded-xl border text-left transition-all relative flex items-center justify-between gap-3 ${
-                      isSelected
-                        ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
-                        : "bg-gray-800/80 border-gray-700/80 text-gray-300 hover:bg-gray-750 hover:text-white"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-white">{opt.label}</span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                          isSelected ? "bg-indigo-600 text-white" : "bg-gray-700 text-gray-300"
-                        }`}>
-                          ~{opt.targetWords} Words / Scene
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-gray-400 mt-0.5">
-                        {opt.description}
-                      </p>
-                    </div>
-
-                    <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${
-                      isSelected ? "border-indigo-400 bg-indigo-600" : "border-gray-600"
-                    }`}>
-                      {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            </span>
+            <button
+              type="button"
+              onClick={handleStartNewProject}
+              className="text-[11px] text-emerald-300 hover:text-white underline decoration-dotted shrink-0 self-start sm:self-auto"
+            >
+              Clear & start fresh
+            </button>
           </div>
+        )}
 
-          {/* 2. Aspect Ratio Card (Dedicated Section) */}
-          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-5 shadow-lg space-y-4">
-            <div>
-              <label className="text-xs font-semibold text-white flex items-center gap-2">
-                <span>📐</span> Aspect Ratio
-              </label>
-              <p className="text-[11px] text-gray-400 mt-0.5">
-                Target display format & canvas orientation.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              {aspectRatios.map((r) => {
-                const isActive = aspectRatio === r.id;
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => {
-                      onUpdateAspectRatio(r.id);
-                      showNotice(`Switched aspect ratio to ${r.label}`);
-                    }}
-                    className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between min-h-[82px] ${
-                      isActive
-                        ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
-                        : "bg-gray-800/80 border-gray-700/80 text-gray-300 hover:bg-gray-750 hover:text-white"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div
-                        className={`rounded border-2 ${
-                          isActive
-                            ? "border-indigo-400 bg-indigo-600/30"
-                            : "border-gray-500 bg-gray-700/40"
-                        } ${r.boxClass}`}
-                      />
-                      {isActive && (
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold leading-tight">{r.label}</div>
-                      <div className="text-[9px] text-indigo-400/90 truncate mt-0.5">{r.sublabel}</div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 3. Output Resolution Card (Dedicated Section with 720p, 1080p, 2k, 4k) */}
-          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-5 shadow-lg space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-xs font-semibold text-white flex items-center gap-2">
-                  <span>📺</span> Video Resolution
-                </label>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  Output pixel density: 720p, 1080p, 2K, and 4K.
-                </p>
-              </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-gray-700">
-                {getResolutionDimensions(aspectRatio, resolution)}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              {resolutions.map((res) => {
-                const isActive = resolution === res.id;
-                const dimension = getResolutionDimensions(aspectRatio, res.id);
-                return (
-                  <button
-                    key={res.id}
-                    type="button"
-                    onClick={() => {
-                      onUpdateResolution(res.id);
-                      showNotice(`Selected resolution: ${res.name} (${dimension})`);
-                    }}
-                    className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
-                      isActive
-                        ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
-                        : "bg-gray-800/80 border-gray-700/80 text-gray-300 hover:bg-gray-750 hover:text-white"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-bold text-white">{res.name}</span>
-                      <span
-                        className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
-                          isActive
-                            ? "bg-indigo-500 text-white"
-                            : "bg-gray-700 text-gray-300"
-                        }`}
-                      >
-                        {res.badge}
-                      </span>
-                    </div>
-                    <div className="text-[10px] font-mono text-indigo-300 mb-1">{dimension}</div>
-                    <div className="text-[9px] text-gray-400 leading-tight">{res.description}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 4. Global Ken Burns & Camera Motion Card */}
-          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-5 shadow-lg space-y-4">
-            <div>
-              <label className="text-xs font-semibold text-white flex items-center gap-2">
-                <span>🎥</span> Global Ken Burns & Motion
-              </label>
-              <p className="text-[11px] text-gray-400 mt-0.5">
-                Apply cinematic camera panning, zooming and drift.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              {motionOptions.map((opt) => {
-                const isSelected = motionStyle === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => {
-                      onUpdateMotionStyle?.(opt.id);
-                      showNotice(`Updated global motion style to ${opt.label}`);
-                    }}
-                    className={`w-full p-2.5 rounded-xl border text-left transition-all flex items-center justify-between ${
-                      isSelected
-                        ? "bg-indigo-950/80 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-400"
-                        : "bg-gray-800/60 border-gray-700/60 text-gray-300 hover:bg-gray-750 hover:text-white"
-                    }`}
-                  >
-                    <div>
-                      <div className="text-xs font-semibold">{opt.label}</div>
-                      <div className="text-[10px] text-gray-400">{opt.desc}</div>
-                    </div>
-                    {isSelected && (
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shrink-0" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {onUpdateMotionStyle && (
-              <button
-                type="button"
-                onClick={() => {
-                  onUpdateMotionStyle(motionStyle);
-                  showNotice(`Applied "${motionStyle}" motion style across all ${scenes.length} scene(s)!`);
-                }}
-                className="w-full py-2 px-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-xs font-semibold text-gray-200 hover:text-white transition-all text-center flex items-center justify-center gap-1.5"
-              >
-                <span>🔄</span> Apply Motion Style to All Scenes
-              </button>
-            )}
-          </div>
+        <div className="max-h-72 overflow-y-auto pr-1">
+          <ProjectList
+            projects={projects}
+            onSelect={onSelectProject}
+            onDelete={onDeleteProject}
+            selectedId={project?.id}
+          />
         </div>
       </div>
 
+      {/* ---------------- 2. Title ---------------- */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <SectionHeading
+          step={2}
+          title="Project title"
+          subtitle="Used for the video banner, exported filenames and attribution documents."
+          badge={<span className="text-[11px] text-gray-500 shrink-0">{title.length} chars</span>}
+        />
+        <input
+          id="project-title"
+          type="text"
+          value={title}
+          onChange={(e) => handleTitleChange(e.target.value)}
+          placeholder="e.g. Wonders of the Deep Ocean"
+          className="w-full px-4 py-3 bg-gray-800/90 border border-gray-700 rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-inner"
+        />
+      </div>
+
+      {/* ---------------- 3. Script ---------------- */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg space-y-4">
+        <SectionHeading
+          step={3}
+          title="Screenplay script & narration"
+          subtitle="Paste the full script. Each paragraph becomes a scene. There is no limit on the number of scenes."
+          badge={
+            <div className="hidden sm:flex items-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-gray-700 text-[11px] shrink-0">
+              <span className="text-indigo-300 font-semibold">{detectedScenesCount} Scenes</span>
+              <span className="text-gray-500">•</span>
+              <span className="text-gray-300">{wordsCount} Words</span>
+              <span className="text-gray-500">•</span>
+              <span className="text-amber-300 font-medium">~{estimatedReadingSec}s</span>
+            </div>
+          }
+        />
+
+        {/* Live stats on very small screens */}
+        <div className="sm:hidden flex items-center justify-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-gray-700 text-[11px]">
+          <span className="text-indigo-300 font-semibold">{detectedScenesCount} Scenes</span>
+          <span className="text-gray-500">•</span>
+          <span className="text-gray-300">{wordsCount} Words</span>
+          <span className="text-gray-500">•</span>
+          <span className="text-amber-300 font-medium">~{estimatedReadingSec}s Speech</span>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <span className="text-[11px] font-medium text-gray-400">
+            Write or paste your own script below — each paragraph becomes one scene.
+          </span>
+          <button
+            type="button"
+            onClick={handleFormatScriptToTargetDuration}
+            className="px-2.5 py-1 bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-300 border border-indigo-700/60 rounded-lg text-[11px] font-semibold transition-colors flex items-center justify-center gap-1 shadow-sm shrink-0"
+            title={`Calibrate each paragraph to ~${targetWordsPerScene} words so each scene lasts ${activeDuration}s`}
+          >
+            <span>✨</span>
+            <span>Calibrate My Script to {activeDuration}s (~{targetWordsPerScene}w)</span>
+          </button>
+        </div>
+
+        <textarea
+          id="screenplay-script"
+          value={script}
+          onChange={(e) => setScript(e.target.value)}
+          rows={11}
+          placeholder={`Scene 1: Type ~${targetWordsPerScene} words to last ${activeDuration} seconds when read aloud...\n\nScene 2: Type another ~${targetWordsPerScene} words for the second scene...\n\nScene 3: Each paragraph becomes a separate scene.`}
+          className="w-full px-4 py-3.5 bg-gray-800/90 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-xs leading-relaxed shadow-inner"
+        />
+
+        {isExistingProject && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-[11px] text-gray-400 flex items-center gap-1.5">
+              <span>💡</span>
+              <span>Each paragraph becomes a scene calibrated for {activeDuration}s (~{targetWordsPerScene} words).</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleApplyScript(false)}
+                className="px-3.5 py-2 bg-gray-800 hover:bg-gray-750 text-gray-200 hover:text-white rounded-xl text-xs font-semibold border border-gray-700 transition-colors shadow"
+              >
+                Save Script Text
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyScript(true)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
+              >
+                <span>⚡</span>
+                <span>Re-Generate All Scenes</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ---------------- 4. Scene duration ---------------- */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <SectionHeading
+          step={4}
+          title="Scene duration"
+          subtitle="Target spoken length for every scene — the script is chunked to match."
+          badge={
+            <span className="px-2.5 py-0.5 bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 rounded-full text-[10px] font-bold shrink-0">
+              {activeDuration}s Active
+            </span>
+          }
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          {DURATION_OPTIONS.map((opt) => {
+            const isSelected = activeDuration === opt.seconds;
+            return (
+              <button
+                key={opt.seconds}
+                type="button"
+                onClick={() => handleSelectDuration(opt.seconds)}
+                className={`p-3.5 rounded-xl border text-left transition-all flex items-start justify-between gap-3 ${
+                  isSelected
+                    ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
+                    : "bg-gray-800/80 border-gray-700/80 text-gray-300 hover:bg-gray-750 hover:text-white"
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-bold text-white">{opt.label}</span>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                        isSelected ? "bg-indigo-600 text-white" : "bg-gray-700 text-gray-300"
+                      }`}
+                    >
+                      ~{opt.targetWords}w
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{opt.description}</p>
+                </div>
+                <div
+                  className={`w-4 h-4 mt-0.5 rounded-full border-2 shrink-0 flex items-center justify-center ${
+                    isSelected ? "border-indigo-400 bg-indigo-600" : "border-gray-600"
+                  }`}
+                >
+                  {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ---------------- 5. Aspect ratio ---------------- */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <SectionHeading
+          step={5}
+          title="Aspect ratio"
+          subtitle="Target display format & canvas orientation for every preview and render."
+        />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+          {aspectRatios.map((r) => {
+            const isActive = aspectRatio === r.id;
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => {
+                  onUpdateAspectRatio(r.id);
+                  showNotice(`Aspect ratio set to ${r.label}`);
+                }}
+                className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between min-h-[82px] ${
+                  isActive
+                    ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
+                    : "bg-gray-800/80 border-gray-700/80 text-gray-300 hover:bg-gray-750 hover:text-white"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div
+                    className={`rounded border-2 ${
+                      isActive ? "border-indigo-400 bg-indigo-600/30" : "border-gray-500 bg-gray-700/40"
+                    } ${r.boxClass}`}
+                  />
+                  {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />}
+                </div>
+                <div>
+                  <div className="text-xs font-bold leading-tight">{r.label}</div>
+                  <div className="text-[9px] text-indigo-400/90 truncate mt-0.5">{r.sublabel}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ---------------- 6. Resolution ---------------- */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <SectionHeading
+          step={6}
+          title="Video resolution"
+          subtitle="Output pixel density for the finished video."
+          badge={
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-gray-700 shrink-0">
+              {getResolutionDimensions(aspectRatio, resolution)}
+            </span>
+          }
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+          {resolutions.map((res) => {
+            const isActive = resolution === res.id;
+            const dimension = getResolutionDimensions(aspectRatio, res.id);
+            return (
+              <button
+                key={res.id}
+                type="button"
+                onClick={() => {
+                  onUpdateResolution(res.id);
+                  showNotice(`Resolution set to ${res.name} (${dimension})`);
+                }}
+                className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                  isActive
+                    ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
+                    : "bg-gray-800/80 border-gray-700/80 text-gray-300 hover:bg-gray-750 hover:text-white"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-bold text-white">{res.name}</span>
+                  <span
+                    className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                      isActive ? "bg-indigo-500 text-white" : "bg-gray-700 text-gray-300"
+                    }`}
+                  >
+                    {res.badge}
+                  </span>
+                </div>
+                <div className="text-[10px] font-mono text-indigo-300 mb-1">{dimension}</div>
+                <div className="text-[9px] text-gray-400 leading-tight">{res.description}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ---------------- 7. Camera motion ---------------- */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <SectionHeading
+          step={7}
+          title="Camera motion (Ken Burns)"
+          subtitle="Default movement applied to scene images across the whole video."
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {motionOptions.map((opt) => {
+            const isSelected = motionStyle === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => {
+                  onUpdateMotionStyle?.(opt.id);
+                  showNotice(`Global motion style set to ${opt.label}`);
+                }}
+                className={`w-full p-2.5 rounded-xl border text-left transition-all flex items-center justify-between gap-2 ${
+                  isSelected
+                    ? "bg-indigo-950/80 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-400"
+                    : "bg-gray-800/60 border-gray-700/60 text-gray-300 hover:bg-gray-750 hover:text-white"
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold">{opt.label}</div>
+                  <div className="text-[10px] text-gray-400">{opt.desc}</div>
+                </div>
+                {isSelected && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+
+        {onUpdateMotionStyle && (
+          <button
+            type="button"
+            onClick={() => {
+              onUpdateMotionStyle(motionStyle);
+              showNotice(`Applied "${motionStyle}" motion to all ${scenes.length} scene(s)!`);
+            }}
+            className="w-full mt-3 py-2 px-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-xs font-semibold text-gray-200 hover:text-white transition-all flex items-center justify-center gap-1.5"
+          >
+            <span>🔄</span> Apply Motion Style to All Scenes
+          </button>
+        )}
+      </div>
+
+      {/* ---------------- Pricing plans ---------------- */}
       {/* Pricing Plans Filler Section (Non-functional as requested, clean and visually polished) */}
       <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-6 shadow-xl space-y-6">
         <div className="text-center max-w-xl mx-auto space-y-2">
@@ -829,19 +831,21 @@ export default function SetupStudio({
         </p>
       </div>
 
-      {/* Bottom Navigation */}
-      <div className="flex items-center justify-between pt-4 border-t border-gray-800">
-        <span className="text-xs text-gray-400">
-          {scenes.length} scene(s) currently configured in this project.
-        </span>
-
-        <button
-          onClick={handleProceedToScenes}
-          className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-xs rounded-xl shadow-lg transition-all flex items-center gap-2"
-        >
-          <span>Next: Configure Scene Visuals</span>
-          <span>→</span>
-        </button>
+      {/* Footer status (navigation lives in the top StepNav only) */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <p className="text-xs text-gray-400">
+          <span className="text-white font-semibold text-sm block mb-0.5">
+            {isExistingProject ? "Setup ready" : canStart ? "Ready to build your video" : "Waiting for a script"}
+          </span>
+          {scenes.length} scene(s) configured
+          {project?.title ? ` · ${project.title}` : ""} · {activeDuration}s scenes · {aspectRatio} · {resolution}
+        </p>
+        {!canStart && (
+          <p className="text-[11px] text-amber-300 flex items-center gap-1.5 mt-2">
+            <span>⚠️</span>
+            <span>Add a script in section 3 — every scene is generated from it.</span>
+          </p>
+        )}
       </div>
     </div>
   );

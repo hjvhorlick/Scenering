@@ -1,4 +1,7 @@
 import { Scene, SceneFilterType, SceneMotionType, TimelineInsert } from "../types";
+import { resolveCtaPlatform, type CtaPlatform } from "../data/cta-library";
+import { AudioFrame, makeAudioFrame } from "./audio-reactive";
+import { renderAudioVisualizer, getVisualizerFootprint } from "./render-visualizers";
 
 // Convert preset position string into normalized (0..1) coordinates
 export function getPresetCoords(preset?: TimelineInsert["presetPosition"]): { x: number; y: number } {
@@ -532,7 +535,10 @@ export function renderTimelineInsert(
   w: number,
   h: number,
   audioLevel: number = 0.5, // 0 to 1 amplitude level
-  freqData?: Uint8Array | number[] | null
+  freqData?: Uint8Array | number[] | null,
+  /** Voice + music analyser buses. When omitted, level/freq are used for both
+   *  buses so older call sites keep working unchanged. */
+  audioFrame?: AudioFrame | null
 ) {
   // Check if item is within active time window
   const start = insert.startTime;
@@ -558,8 +564,24 @@ export function renderTimelineInsert(
   const cy = pos.y * h;
   const size = insert.size || 1.0;
 
-  // Render by category/type
-  switch (insert.category) {
+  const frame: AudioFrame =
+    audioFrame ||
+    makeAudioFrame(
+      { level: audioLevel, freq: freqData || null },
+      { level: audioLevel, freq: freqData || null }
+    );
+
+  const floatScale = Math.max(0.6, Math.min(1.8, size));
+  const shadowStrength = Math.max(0, Math.min(1, insert.visualOptions?.shadowIntensity ?? 0.7));
+
+  // Render by category/type (into any target context, offset for the shadow buffer)
+  const paintInto = (target: CanvasRenderingContext2D, offsetX: number, offsetY: number) => {
+    // NOTE: shadowing the outer ctx here is what routes the drawing into the
+    // offscreen shadow buffer when the floating pass runs.
+    const ctx = target;
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    switch (insert.category) {
     case "call_to_action":
       renderCallToAction(ctx, insert, cx, cy, size, elapsed);
       break;
@@ -587,7 +609,16 @@ export function renderTimelineInsert(
     case "audio_visualizers":
     case "speech_reactive":
     case "meditation":
-      renderAudioVisualizer(ctx, insert, cx, cy, size, w, h, audioLevel, elapsed, freqData);
+      renderAudioVisualizer({
+        ctx,
+        item: insert,
+        x: cx,
+        y: cy,
+        canvasWidth: w,
+        canvasHeight: h,
+        elapsed,
+        frame,
+      });
       break;
     case "special_effects":
       renderSpecialEffect(ctx, insert, w, h, elapsed, progress);
@@ -596,13 +627,790 @@ export function renderTimelineInsert(
     case "logo":
       renderBranding(ctx, insert, cx, cy, size);
       break;
+    }
+    ctx.restore();
+  };
+
+  // ---------- Floating shadow pass ----------
+  const wantsFloat =
+    FLOAT_SHADOW_CATEGORIES[insert.category] === true && insert.visualOptions?.floatShadow !== false;
+
+  if (wantsFloat) {
+    // Full-frame buffer: overlays such as full-width wave effects can never be
+    // clipped by their own shadow pass.
+    const scratch = getFloatScratch(w, h);
+    const sctx = scratch ? (scratch.getContext("2d") as CanvasRenderingContext2D | null) : null;
+
+    if (scratch && sctx) {
+      sctx.setTransform(1, 0, 0, 1, 0, 0);
+      sctx.clearRect(0, 0, w, h);
+      sctx.save();
+      mirrorCanvasState(ctx, sctx);
+      sctx.globalAlpha = opacity;
+      paintInto(sctx, 0, 0);
+      sctx.restore();
+
+      // the composite itself starts from a clean slate
+      ctx.save();
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 1;
+      ctx.shadowColor = `rgba(0, 0, 0, ${(0.34 + shadowStrength * 0.42).toFixed(3)})`;
+      ctx.shadowBlur = Math.max(5, (11 + shadowStrength * 15) * floatScale);
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = Math.max(3, (5 + shadowStrength * 8) * floatScale);
+      // paint the overlay once, with its shadow already falling below it
+      ctx.drawImage(scratch, 0, 0, w, h, 0, 0, w, h);
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
   }
 
+  paintInto(ctx, 0, 0);
   ctx.restore();
 }
 
 // ---------------- CALL TO ACTION ----------------
-function renderCallToAction(
+/* ================= CALL-TO-ACTION BADGES ================= */
+/**
+ * Badge geometry is shared with the preview so drag / resize handles always
+ * line up with what is painted on the canvas.
+ */
+export interface CtaBadgeLayout {
+  width: number;
+  height: number;
+  radius: number;
+  shape: "pill" | "round" | "square" | "banner";
+  scale: number;
+  markRadius: number;
+  hasTwoLines: boolean;
+}
+
+export function getCtaBadgeLayout(
+  item: TimelineInsert,
+  ctx?: CanvasRenderingContext2D | null
+): CtaBadgeLayout {
+  const platform = resolveCtaPlatform(item.type, item.visualOptions?.platform);
+  const shape = (item.visualOptions?.ctaShape || platform?.shape || "pill") as CtaBadgeLayout["shape"];
+  const scale = item.visualOptions?.badgeScale ?? 1;
+  const textScale = item.visualOptions?.textScale ?? 1;
+  const primaryText = (item.content?.primaryText || item.title || platform?.primaryText || "Subscribe").toUpperCase();
+  const secondaryText = item.content?.secondaryText ?? platform?.secondaryText ?? "";
+  const hasTwoLines = Boolean(secondaryText && shape !== "round");
+
+  // Measure with a measuring context when no canvas is available (SSR-safe fallback)
+  let textWidth = primaryText.length * 10 * textScale;
+  let subWidth = secondaryText.length * 6 * textScale;
+  if (ctx) {
+    ctx.save();
+    ctx.font = `800 ${Math.round(21 * textScale)}px system-ui, -apple-system, sans-serif`;
+    textWidth = ctx.measureText(primaryText).width;
+    ctx.font = `600 ${Math.round(12 * textScale)}px system-ui, -apple-system, sans-serif`;
+    subWidth = secondaryText ? ctx.measureText(secondaryText).width : 0;
+    ctx.restore();
+  }
+
+  const markRadius = 17 * (item.visualOptions?.iconScale ?? 1);
+
+  if (shape === "round") {
+    // Icon-only circular social badge
+    const d = 76 * scale;
+    return { width: d, height: d, radius: d / 2, shape, scale, markRadius: d * 0.28, hasTwoLines: false };
+  }
+
+  const contentWidth = Math.max(textWidth, subWidth);
+  const padX = 26;
+  const badgeH = (hasTwoLines ? 72 : 60) * scale;
+  const width = Math.max(240, Math.min(560, contentWidth + markRadius * 2 + padX * 2)) * scale;
+  const radius =
+    shape === "pill" ? badgeH / 2 : shape === "square" ? 10 * scale : 18 * scale;
+
+  return {
+    width: shape === "banner" ? Math.max(width, 620 * scale) : width,
+    height: badgeH,
+    radius,
+    shape,
+    scale,
+    markRadius,
+    hasTwoLines,
+  };
+}
+
+/**
+ * Tight crop window around a badge, used by the live preview in the edit screen.
+ * Returns the window (cropW/cropH at its top-left origin ox/oy, in video pixels)
+ * plus the badge's own painted size, so the preview box is only as big as the
+ * button and everything else can be measured from it.
+ */
+export interface CtaPreviewCrop {
+  cropW: number;
+  cropH: number;
+  ox: number;
+  oy: number;
+  width: number;
+  height: number;
+  widerThanFrame: boolean;
+}
+
+export function getCtaPreviewCrop(
+  item: TimelineInsert,
+  frameW: number,
+  frameH: number,
+  ctx?: CanvasRenderingContext2D | null
+): CtaPreviewCrop {
+  const layout = getCtaBadgeLayout(item, ctx);
+  const size = item.size || 1;
+  const width = layout.width * size;
+  const height = layout.height * size;
+  const rot = ((item.visualOptions?.rotation ?? 0) * Math.PI) / 180;
+  const rotatedW = Math.abs(width * Math.cos(rot)) + Math.abs(height * Math.sin(rot));
+  const rotatedH = Math.abs(height * Math.cos(rot)) + Math.abs(width * Math.sin(rot));
+  const elevation = item.visualOptions?.elevation ?? 0.45;
+  // The drop shadow is painted inside the scaled context, so its room scales with
+  // the badge too — that keeps small badges from sitting in an oversized box.
+  const shadowPad = Math.max(8, (10 + elevation * 12) * size + 4);
+
+  const wantedW = Math.ceil(rotatedW + shadowPad * 2);
+  const wantedH = Math.ceil(rotatedH + shadowPad * 2);
+  const widerThanFrame = wantedW > frameW || wantedH > frameH;
+  const cropW = Math.min(wantedW, frameW);
+  const cropH = Math.min(wantedH, frameH);
+
+  const pos = item.presetPosition ? getPresetCoords(item.presetPosition) : item.position || { x: 0.5, y: 0.85 };
+  const cx = pos.x * frameW;
+  const cy = pos.y * frameH;
+  // Keep the window inside the frame, so a badge near an edge shows up near an edge.
+  // Rounded to whole pixels so the crop lands exactly on video pixels.
+  const ox = Math.round(Math.max(0, Math.min(frameW - cropW, cx - cropW / 2)));
+  const oy = Math.round(Math.max(0, Math.min(frameH - cropH, cy - cropH / 2)));
+
+  return { cropW, cropH, ox, oy, width, height, widerThanFrame };
+}
+
+/** Screen-space bounding box of a badge, used for hit-testing and selection chrome */
+export function getInsertBounds(
+  item: TimelineInsert,
+  w: number,
+  h: number,
+  ctx?: CanvasRenderingContext2D | null
+) {
+  const pos = item.presetPosition ? getPresetCoords(item.presetPosition) : item.position;
+  const cx = pos.x * w;
+  const cy = pos.y * h;
+  const size = item.size || 1;
+  if (item.category === "call_to_action") {
+    const layout = getCtaBadgeLayout(item, ctx);
+    const bw = layout.width * size;
+    const bh = layout.height * size;
+    return { cx, cy, x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+  }
+  // Per-category footprint, used for hit-testing and for the floating shadow pass
+  let bw = 240 * size;
+  let bh = 90 * size;
+  switch (item.category) {
+    case "stickers":
+      bw = 320 * size;
+      bh = 320 * size;
+      break;
+    case "content_cards":
+    case "other_cards":
+    case "text_templates":
+      bw = Math.min(840, w * 0.8) * size;
+      bh = 280 * size;
+      break;
+    case "audio_visualizers":
+    case "speech_reactive":
+    case "meditation": {
+      // Real drawn footprint, so a wall-to-wall bar rack can be grabbed and
+      // dragged from anywhere along its length.
+      const fp = getVisualizerFootprint(item, w, h);
+      bw = fp.w;
+      bh = fp.h;
+      break;
+    }
+    case "branding":
+    case "logo":
+      bw = 420 * size;
+      bh = 220 * size;
+      break;
+    case "intro":
+    case "outro":
+      bw = w;
+      bh = h;
+      break;
+    default:
+      break;
+  }
+  return { cx, cy, x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+}
+
+/* ================= FLOATING SHADOWS FOR OVERLAYS ================= */
+/**
+ * Overlays (stickers, cards, wave effects, branding, badges) are composited from
+ * an offscreen buffer that is drawn once with a soft shadow falling *below* the
+ * element. The shadow never doubles the element's own alpha, so translucent
+ * overlays stay exactly as designed while gaining depth in the frame.
+ */
+const FLOAT_SHADOW_CATEGORIES: Record<string, boolean> = {
+  stickers: true,
+  content_cards: true,
+  other_cards: true,
+  text_templates: true,
+  audio_visualizers: true,
+  speech_reactive: true,
+  meditation: true,
+  branding: true,
+  logo: true,
+};
+
+/**
+ * Mirrors the live canvas state onto the shadow buffer. Some overlays rely on the
+ * state left behind on the main context (fill colour, font, line width), so the
+ * buffer has to start out identical or the shadowed copy would differ.
+ */
+function mirrorCanvasState(from: CanvasRenderingContext2D, to: CanvasRenderingContext2D) {
+  const simple: Array<keyof CanvasRenderingContext2D> = [
+    "lineWidth",
+    "lineCap",
+    "lineJoin",
+    "miterLimit",
+    "font",
+    "textAlign",
+    "textBaseline",
+    "globalCompositeOperation",
+    "imageSmoothingEnabled",
+    "filter",
+    "direction",
+    "fontKerning",
+    "letterSpacing",
+  ] as any;
+  for (const key of simple) {
+    try {
+      const value = (from as any)[key];
+      if (value !== undefined) (to as any)[key] = value;
+    } catch {
+      /* property unsupported on this context */
+    }
+  }
+  // Styles can be a colour string or a gradient/pattern bound to the other canvas
+  try {
+    if (typeof from.fillStyle === "string") to.fillStyle = from.fillStyle;
+    if (typeof from.strokeStyle === "string") to.strokeStyle = from.strokeStyle;
+    if (typeof from.shadowColor === "string") to.shadowColor = from.shadowColor;
+  } catch {
+    /* ignore */
+  }
+}
+
+let floatScratch: any = null;
+let floatScratchFactory: ((w: number, h: number) => any) | null = null;
+
+/** Tests / headless renders can supply their own canvas factory */
+export function setFloatShadowCanvasFactory(fn: ((w: number, h: number) => any) | null) {
+  floatScratchFactory = fn;
+  floatScratch = null;
+}
+
+function getFloatScratch(w: number, h: number) {
+  if (w <= 0 || h <= 0) return null;
+  if (!floatScratch) {
+    if (floatScratchFactory) floatScratch = floatScratchFactory(w, h);
+    else if (typeof document !== "undefined") {
+      floatScratch = document.createElement("canvas");
+      floatScratch.width = w;
+      floatScratch.height = h;
+    } else return null;
+  }
+  if (floatScratch.width < w) floatScratch.width = w;
+  if (floatScratch.height < h) floatScratch.height = h;
+  return floatScratch;
+}
+
+/** Brand marks painted inside the badge circle */
+/** Rounded-rect path without opening a new path (so glyphs can be composed) */
+function markRoundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  rad: number
+) {
+  const rr = Math.min(rad, w / 2, h / 2);
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/**
+ * Draws a short text glyph (monogram, emoji, "in", "f") inside the mark circle.
+ * The glyph is scaled down when needed and clipped to the circle so it always
+ * sits neatly inside the badge, whatever the user types in the icon field.
+ */
+function drawFittedMarkText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  r: number,
+  sizeFactor: number,
+  baselineOffset: number,
+  family = "system-ui, -apple-system, sans-serif"
+) {
+  if (!text) return;
+  const maxWidth = r * 1.8;
+  let fontPx = r * sizeFactor;
+  ctx.save();
+  ctx.font = `800 ${Math.round(fontPx)}px ${family}`;
+  const measured = ctx.measureText(text).width;
+  if (measured > maxWidth && measured > 0) {
+    fontPx = Math.max(6, fontPx * (maxWidth / measured));
+  }
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 1.02, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.font = `800 ${Math.round(fontPx)}px ${family}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 0, baselineOffset);
+  ctx.restore();
+}
+
+function drawCtaMark(
+  ctx: CanvasRenderingContext2D,
+  mark: CtaPlatform["mark"],
+  monogram: string,
+  cx: number,
+  cy: number,
+  r: number,
+  ink: string
+) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = ink;
+  ctx.strokeStyle = ink;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  switch (mark) {
+    case "youtube": {
+      // Rounded play tile with the triangle punched out as a path hole (even-odd
+      // fill) so the badge face shows through instead of the video behind it.
+      const bw = r * 2.0;
+      const bh = r * 1.42;
+      const rad = bh * 0.3;
+      const x = -bw / 2;
+      const y = -bh / 2;
+      ctx.beginPath();
+      ctx.moveTo(x + rad, y);
+      ctx.lineTo(x + bw - rad, y);
+      ctx.quadraticCurveTo(x + bw, y, x + bw, y + rad);
+      ctx.lineTo(x + bw, y + bh - rad);
+      ctx.quadraticCurveTo(x + bw, y + bh, x + bw - rad, y + bh);
+      ctx.lineTo(x + rad, y + bh);
+      ctx.quadraticCurveTo(x, y + bh, x, y + bh - rad);
+      ctx.lineTo(x, y + rad);
+      ctx.quadraticCurveTo(x, y, x + rad, y);
+      ctx.closePath();
+      // play triangle (drawn in the same path, opposite winding not required:
+      // the even-odd rule makes it a hole)
+      ctx.moveTo(-r * 0.22, -r * 0.42);
+      ctx.lineTo(r * 0.45, 0);
+      ctx.lineTo(-r * 0.22, r * 0.42);
+      ctx.closePath();
+      ctx.fill("evenodd");
+      break;
+    }
+    case "instagram": {
+      ctx.lineWidth = Math.max(1.6, r * 0.17);
+      const s = r * 1.5;
+      const rad = s * 0.32;
+      ctx.beginPath();
+      const x = -s / 2;
+      const y = -s / 2;
+      ctx.moveTo(x + rad, y);
+      ctx.lineTo(x + s - rad, y);
+      ctx.quadraticCurveTo(x + s, y, x + s, y + rad);
+      ctx.lineTo(x + s, y + s - rad);
+      ctx.quadraticCurveTo(x + s, y + s, x + s - rad, y + s);
+      ctx.lineTo(x + rad, y + s);
+      ctx.quadraticCurveTo(x, y + s, x, y + s - rad);
+      ctx.lineTo(x, y + rad);
+      ctx.quadraticCurveTo(x, y, x + rad, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, s * 0.24, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(s * 0.34, -s * 0.34, r * 0.11, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case "tiktok": {
+      ctx.lineWidth = Math.max(1.6, r * 0.2);
+      ctx.beginPath();
+      ctx.moveTo(r * 0.12, -r * 0.75);
+      ctx.lineTo(r * 0.12, r * 0.2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(r * 0.12, -r * 0.75);
+      ctx.quadraticCurveTo(r * 0.85, -r * 0.7, r * 0.78, -r * 0.05);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(-r * 0.18, r * 0.32, r * 0.42, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case "spotify": {
+      ctx.lineWidth = Math.max(1.5, r * 0.16);
+      for (let i = 0; i < 3; i++) {
+        const yy = -r * 0.28 + i * r * 0.42;
+        const spread = r * (0.62 - i * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(-spread, yy - r * 0.14);
+        ctx.quadraticCurveTo(0, yy + r * 0.18, spread, yy - r * 0.14);
+        ctx.stroke();
+      }
+      break;
+    }
+    case "whatsapp": {
+      // White disc with the handset punched out as a path hole, so the handset
+      // always takes the badge colour instead of vanishing on light badges.
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.92, 0, Math.PI * 2);
+      ctx.moveTo(-r * 0.34, -r * 0.36);
+      ctx.quadraticCurveTo(-r * 0.5, 0, -r * 0.05, r * 0.42);
+      ctx.quadraticCurveTo(r * 0.35, r * 0.62, r * 0.42, r * 0.3);
+      ctx.quadraticCurveTo(r * 0.2, r * 0.3, r * 0.05, r * 0.12);
+      ctx.quadraticCurveTo(-r * 0.14, -r * 0.06, -r * 0.34, -r * 0.36);
+      ctx.closePath();
+      ctx.fill("evenodd");
+      break;
+    }
+    case "telegram": {
+      // Disc with the paper plane punched out as a path hole
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.92, 0, Math.PI * 2);
+      ctx.moveTo(-r * 0.45, r * 0.06);
+      ctx.lineTo(r * 0.52, -r * 0.42);
+      ctx.lineTo(r * 0.2, r * 0.5);
+      ctx.lineTo(r * 0.02, r * 0.16);
+      ctx.closePath();
+      ctx.fill("evenodd");
+      break;
+    }
+    case "snapchat": {
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.9);
+      ctx.quadraticCurveTo(r * 0.66, -r * 0.9, r * 0.62, -r * 0.1);
+      ctx.quadraticCurveTo(r * 0.6, r * 0.25, r * 0.95, r * 0.35);
+      ctx.quadraticCurveTo(r * 0.6, r * 0.62, r * 0.2, r * 0.7);
+      ctx.quadraticCurveTo(0, r * 0.98, -r * 0.2, r * 0.7);
+      ctx.quadraticCurveTo(-r * 0.6, r * 0.62, -r * 0.95, r * 0.35);
+      ctx.quadraticCurveTo(-r * 0.6, r * 0.25, -r * 0.62, -r * 0.1);
+      ctx.quadraticCurveTo(-r * 0.66, -r * 0.9, 0, -r * 0.9);
+      ctx.fill();
+      break;
+    }
+    case "discord": {
+      ctx.beginPath();
+      ctx.ellipse(0, -r * 0.05, r * 0.95, r * 0.7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.85)";
+      ctx.beginPath();
+      ctx.arc(-r * 0.32, 0, r * 0.16, 0, Math.PI * 2);
+      ctx.arc(r * 0.32, 0, r * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      break;
+    }
+    case "twitch": {
+      // Pixel-shield outline with the two bars punched out as path holes
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.7, -r * 0.75);
+      ctx.lineTo(r * 0.7, -r * 0.75);
+      ctx.lineTo(r * 0.7, r * 0.15);
+      ctx.lineTo(r * 0.2, r * 0.6);
+      ctx.lineTo(-r * 0.2, r * 0.6);
+      ctx.lineTo(-r * 0.7, r * 0.1);
+      ctx.closePath();
+      ctx.rect(-r * 0.36, -r * 0.45, r * 0.16, r * 0.6);
+      ctx.rect(r * 0.14, -r * 0.45, r * 0.16, r * 0.6);
+      ctx.fill("evenodd");
+      break;
+    }
+    case "pinterest": {
+      // Script "P" in badge ink (the circular chip already provides the disc)
+      drawFittedMarkText(ctx, "P", r, 1.35, r * 0.06, "Georgia, 'Times New Roman', serif");
+      break;
+    }
+    case "x": {
+      ctx.lineWidth = Math.max(2, r * 0.26);
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.5, -r * 0.5);
+      ctx.lineTo(r * 0.5, r * 0.5);
+      ctx.moveTo(r * 0.5, -r * 0.5);
+      ctx.lineTo(-r * 0.5, r * 0.5);
+      ctx.stroke();
+      break;
+    }
+    case "facebook": {
+      drawFittedMarkText(ctx, "f", r, 1.7, r * 0.12, "Georgia, serif");
+      break;
+    }
+    case "linkedin": {
+      drawFittedMarkText(ctx, "in", r, 1.05, r * 0.06);
+      break;
+    }
+    case "reddit": {
+      drawFittedMarkText(ctx, "r/", r, 1.05, r * 0.06);
+      break;
+    }
+    case "messenger": {
+      // Speech bubble with the bolt cut out of it
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.8, -r * 0.55);
+      ctx.quadraticCurveTo(-r * 0.95, -r * 0.55, -r * 0.95, -r * 0.3);
+      ctx.lineTo(-r * 0.95, r * 0.2);
+      ctx.quadraticCurveTo(-r * 0.95, r * 0.45, -r * 0.7, r * 0.45);
+      ctx.lineTo(-r * 0.25, r * 0.45);
+      ctx.lineTo(-r * 0.6, r * 0.9);
+      ctx.lineTo(-r * 0.05, r * 0.45);
+      ctx.lineTo(r * 0.7, r * 0.45);
+      ctx.quadraticCurveTo(r * 0.95, r * 0.45, r * 0.95, r * 0.2);
+      ctx.lineTo(r * 0.95, -r * 0.3);
+      ctx.quadraticCurveTo(r * 0.95, -r * 0.55, r * 0.7, -r * 0.55);
+      ctx.closePath();
+      ctx.moveTo(-r * 0.14, -r * 0.34);
+      ctx.lineTo(r * 0.3, -r * 0.06);
+      ctx.lineTo(r * 0.02, 0);
+      ctx.lineTo(r * 0.22, r * 0.3);
+      ctx.lineTo(-r * 0.26, r * 0.02);
+      ctx.lineTo(0, -r * 0.04);
+      ctx.closePath();
+      ctx.fill("evenodd");
+      break;
+    }
+    case "mic": {
+      ctx.lineWidth = Math.max(2, r * 0.18);
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.26, -r * 0.7);
+      ctx.lineTo(r * 0.26, -r * 0.7);
+      ctx.quadraticCurveTo(r * 0.36, -r * 0.7, r * 0.36, -r * 0.45);
+      ctx.lineTo(r * 0.36, r * 0.05);
+      ctx.quadraticCurveTo(r * 0.36, r * 0.45, 0, r * 0.45);
+      ctx.quadraticCurveTo(-r * 0.36, r * 0.45, -r * 0.36, r * 0.05);
+      ctx.lineTo(-r * 0.36, -r * 0.45);
+      ctx.quadraticCurveTo(-r * 0.36, -r * 0.7, -r * 0.26, -r * 0.7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(0, r * 0.02, r * 0.62, Math.PI * 0.12, Math.PI * 0.88);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, r * 0.62);
+      ctx.lineTo(0, r * 0.86);
+      ctx.stroke();
+      break;
+    }
+    case "note": {
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.28, r * 0.42, r * 0.3, r * 0.22, -0.28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.02, r * 0.42);
+      ctx.lineTo(-r * 0.02, -r * 0.62);
+      ctx.lineTo(r * 0.52, -r * 0.46);
+      ctx.lineTo(r * 0.52, -r * 0.2);
+      ctx.lineTo(r * 0.1, -r * 0.32);
+      ctx.lineTo(r * 0.1, r * 0.44);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+    case "cloud": {
+      ctx.beginPath();
+      ctx.arc(-r * 0.34, r * 0.05, r * 0.32, 0, Math.PI * 2);
+      ctx.arc(r * 0.04, -r * 0.2, r * 0.42, 0, Math.PI * 2);
+      ctx.arc(r * 0.44, r * 0.1, r * 0.28, 0, Math.PI * 2);
+      ctx.rect(-r * 0.36, r * 0.02, r * 0.82, r * 0.34);
+      ctx.fill();
+      break;
+    }
+    case "cup": {
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.52, -r * 0.32);
+      ctx.lineTo(r * 0.32, -r * 0.32);
+      ctx.lineTo(r * 0.2, r * 0.6);
+      ctx.quadraticCurveTo(r * 0.14, r * 0.7, 0, r * 0.7);
+      ctx.quadraticCurveTo(-r * 0.16, r * 0.7, -r * 0.2, r * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.lineWidth = Math.max(2, r * 0.16);
+      ctx.beginPath();
+      ctx.arc(r * 0.42, 0, r * 0.26, -Math.PI * 0.42, Math.PI * 0.42);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.28, -r * 0.52);
+      ctx.quadraticCurveTo(-r * 0.1, -r * 0.66, -r * 0.26, -r * 0.84);
+      ctx.moveTo(r * 0.04, -r * 0.52);
+      ctx.quadraticCurveTo(r * 0.22, -r * 0.66, r * 0.06, -r * 0.84);
+      ctx.stroke();
+      break;
+    }
+    case "globe": {
+      ctx.lineWidth = Math.max(1.8, r * 0.14);
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.78, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 0.34, r * 0.78, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.72, 0);
+      ctx.lineTo(r * 0.72, 0);
+      ctx.stroke();
+      break;
+    }
+    case "link": {
+      ctx.lineWidth = Math.max(2, r * 0.2);
+      ctx.beginPath();
+      ctx.arc(-r * 0.3, 0, r * 0.34, Math.PI * 0.5, Math.PI * 1.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(r * 0.3, 0, r * 0.34, Math.PI * 1.5, Math.PI * 2.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.22, 0);
+      ctx.lineTo(r * 0.22, 0);
+      ctx.stroke();
+      break;
+    }
+    case "bag": {
+      ctx.lineWidth = Math.max(2, r * 0.16);
+      ctx.beginPath();
+      markRoundRectPath(ctx, -r * 0.5, -r * 0.12, r, r * 0.72, r * 0.14);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, -r * 0.12, r * 0.28, Math.PI, Math.PI * 2);
+      ctx.stroke();
+      break;
+    }
+    case "download": {
+      ctx.lineWidth = Math.max(2, r * 0.18);
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.75);
+      ctx.lineTo(0, r * 0.02);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.32, -r * 0.22);
+      ctx.lineTo(0, r * 0.18);
+      ctx.lineTo(r * 0.32, -r * 0.22);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.6, r * 0.42);
+      ctx.lineTo(-r * 0.6, r * 0.72);
+      ctx.lineTo(r * 0.6, r * 0.72);
+      ctx.lineTo(r * 0.6, r * 0.42);
+      ctx.stroke();
+      break;
+    }
+    case "envelope": {
+      ctx.lineWidth = Math.max(2, r * 0.16);
+      ctx.beginPath();
+      markRoundRectPath(ctx, -r * 0.7, -r * 0.46, r * 1.4, r * 0.92, r * 0.12);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.66, -r * 0.4);
+      ctx.lineTo(0, r * 0.06);
+      ctx.lineTo(r * 0.66, -r * 0.4);
+      ctx.stroke();
+      break;
+    }
+    case "calendar": {
+      ctx.lineWidth = Math.max(2, r * 0.16);
+      ctx.beginPath();
+      markRoundRectPath(ctx, -r * 0.66, -r * 0.56, r * 1.32, r * 1.16, r * 0.14);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.66, -r * 0.2);
+      ctx.lineTo(r * 0.66, -r * 0.2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.3, -r * 0.72);
+      ctx.lineTo(-r * 0.3, -r * 0.42);
+      ctx.moveTo(r * 0.3, -r * 0.72);
+      ctx.lineTo(r * 0.3, -r * 0.42);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(-r * 0.24, r * 0.3, r * 0.1, 0, Math.PI * 2);
+      ctx.arc(r * 0.24, r * 0.3, r * 0.1, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case "gift": {
+      ctx.beginPath();
+      markRoundRectPath(ctx, -r * 0.58, -r * 0.14, r * 1.16, r * 0.78, r * 0.1);
+      ctx.fill();
+      ctx.lineWidth = Math.max(2, r * 0.16);
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.78, -r * 0.26);
+      ctx.lineTo(r * 0.78, -r * 0.26);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(-r * 0.24, -r * 0.52, r * 0.22, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(r * 0.24, -r * 0.52, r * 0.22, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.stroke();
+      break;
+    }
+
+    default: {
+      // Monogram / emoji icon: always clipped and shrunk to fit the chip so a
+      // long custom icon can never spill outside the badge.
+      drawFittedMarkText(ctx, monogram, r, 1.25, r * 0.08);
+    }
+  }
+  ctx.restore();
+}
+
+function hexToRgb(hex: string) {
+  const clean = hex.replace("#", "");
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
+  const num = parseInt(full || "000000", 16);
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
+function rgba(hex: string, a: number) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+function relativeLuminance(hex: string) {
+  const { r, g, b } = hexToRgb(hex);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+/**
+ * Redesigned call-to-action badge renderer.
+ * The badge sits on a soft plate shadow with a light top bevel and a darker
+ * bottom bevel — a slightly raised, clean 2D look.
+ */
+export function renderCallToAction(
   ctx: CanvasRenderingContext2D,
   item: TimelineInsert,
   x: number,
@@ -610,102 +1418,182 @@ function renderCallToAction(
   size: number,
   elapsed: number
 ) {
+  const platform = resolveCtaPlatform(item.type, item.visualOptions?.platform);
+  const visual = item.visualOptions || {};
+  const primary = visual.primaryColor || platform?.primaryColor || "#6366F1";
+  const secondary = visual.secondaryColor || platform?.secondaryColor || primary;
+  const shape = (visual.ctaShape || platform?.shape || "pill") as "pill" | "round" | "square" | "banner";
+  const style = (visual.ctaStyle || platform?.style || "gradient") as "solid" | "gradient" | "outline" | "glass";
+
+  const primaryText = (item.content?.primaryText || item.title || platform?.primaryText || "Subscribe").toUpperCase();
+  const secondaryText =
+    item.content?.secondaryText !== undefined ? item.content?.secondaryText || "" : platform?.secondaryText || "";
+  // A user-picked icon overrides the platform's brand logo
+  const customMark = visual.customMark;
+  const monogram = customMark || item.content?.label || platform?.monogram || "★";
+  const mark = (customMark ? "monogram" : platform?.mark || "monogram") as CtaPlatform["mark"];
+  const elevation = visual.elevation ?? 0.45;
+  const textScale = visual.textScale ?? 1;
+  const iconScale = visual.iconScale ?? 1;
+  const borderWidth = visual.borderWidth ?? 2.5;
+
+  const darkText = platform?.darkText || relativeLuminance(primary) > 0.72;
+  const inkColor = visual.textColor || (darkText ? "#111827" : "#FFFFFF");
+
+  const layout = getCtaBadgeLayout(item, ctx);
+  const bw = layout.width * size;
+  const bh = layout.height * size;
+
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(size, size);
 
-  // Subtle breathing pulse for CTA button
-  const pulse = 1 + Math.sin(elapsed * 4) * 0.025;
+  // Gentle breathing pulse (very subtle so the badge stays crisp)
+  const pulse = 1 + Math.sin(elapsed * 3.2) * 0.012;
   ctx.scale(pulse, pulse);
 
-  const primaryText = item.content?.primaryText || item.title || "Subscribe";
-  const secondaryText = item.content?.secondaryText || "";
-  const icon = item.content?.label || (
-    item.type.includes("subscribe") ? "🔔" :
-    item.type.includes("like") ? "👍" :
-    item.type.includes("follow") ? "✨" :
-    item.type.includes("buy") || item.type.includes("shop") ? "🛍️" :
-    item.type.includes("website") || item.type.includes("link") ? "🔗" :
-    item.type.includes("app") ? "📱" :
-    item.type.includes("comment") ? "💬" :
-    item.type.includes("save") ? "🔖" :
-    item.type.includes("community") ? "⭐" : "🚀"
-  );
+  if (visual.rotation) {
+    ctx.rotate((visual.rotation * Math.PI) / 180);
+  }
 
-  const primaryCol = item.visualOptions?.primaryColor || (
-    item.type.includes("subscribe") ? "#ef4444" :
-    item.type.includes("like") ? "#6366f1" :
-    item.type.includes("follow") ? "#0284c7" :
-    item.type.includes("buy") ? "#10b981" :
-    item.type.includes("website") ? "#38bdf8" :
-    item.type.includes("app") ? "#8b5cf6" :
-    item.type.includes("comment") ? "#f59e0b" :
-    item.type.includes("save") ? "#ec4899" :
-    item.type.includes("community") ? "#eab308" : "#6366f1"
-  );
+  const bwU = layout.width; // unscaled (ctx already scaled by size)
+  const bhU = layout.height;
+  const rad = layout.radius;
 
-  const secondaryCol = item.visualOptions?.secondaryColor || "#000000";
-
-  // Calculate dynamic dimensions based on text length
-  ctx.font = "bold 17px system-ui, -apple-system, sans-serif";
-  const mainTextWidth = ctx.measureText(`${icon}  ${primaryText}`).width;
-  ctx.font = "11px system-ui, -apple-system, sans-serif";
-  const subTextWidth = secondaryText ? ctx.measureText(secondaryText).width : 0;
-  const contentWidth = Math.max(mainTextWidth, subTextWidth);
-  const bw = Math.max(220, Math.min(380, contentWidth + 48));
-  const bh = secondaryText ? 62 : 52;
-  const rad = Math.min(28, bh / 2);
-
-  // Background Gradient
-  const grad = ctx.createLinearGradient(0, -bh / 2, 0, bh / 2);
-  grad.addColorStop(0, primaryCol);
-  grad.addColorStop(1, secondaryCol !== "#000000" ? secondaryCol : primaryCol);
-  ctx.fillStyle = grad;
-
-  ctx.shadowColor = primaryCol;
-  ctx.shadowBlur = item.visualOptions?.has3DLook ? 20 : 10;
-  ctx.shadowOffsetY = item.visualOptions?.has3DLook ? 4 : 2;
-
-  roundRect(ctx, -bw / 2, -bh / 2, bw, bh, rad);
-  ctx.fill();
-
-  // 3D Bevel / Highlight Border
-  if (item.visualOptions?.has3DLook) {
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
-    ctx.lineWidth = 1.8;
-    ctx.stroke();
-
-    // Top glossy highlight reflection
-    ctx.save();
+  const paintPlate = (fill: string | CanvasGradient | null, stroke?: string, lw = 0) => {
     ctx.beginPath();
-    roundRect(ctx, -bw / 2 + 3, -bh / 2 + 2, bw - 6, (bh / 2) - 4, rad - 2);
-    ctx.clip();
-    const glossGrad = ctx.createLinearGradient(0, -bh / 2, 0, 0);
-    glossGrad.addColorStop(0, "rgba(255, 255, 255, 0.28)");
-    glossGrad.addColorStop(1, "rgba(255, 255, 255, 0.0)");
-    ctx.fillStyle = glossGrad;
+    roundRect(ctx, -bwU / 2, -bhU / 2, bwU, bhU, rad);
+    if (fill) {
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+    if (stroke && lw > 0) {
+      ctx.save();
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = stroke;
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  // ---------- 1. Raised plate shadow (the "lifted off the video" look) ----------
+  if (elevation > 0) {
+    ctx.save();
+    ctx.shadowColor = `rgba(0, 0, 0, ${0.30 + elevation * 0.35})`;
+    ctx.shadowBlur = 7 + elevation * 14;
+    ctx.shadowOffsetY = 2 + elevation * 5;
+    ctx.beginPath();
+    roundRect(ctx, -bwU / 2, -bhU / 2, bwU, bhU, rad);
+    ctx.fillStyle = style === "outline" || style === "glass" ? rgba("#000000", 0.9) : primary;
     ctx.fill();
     ctx.restore();
   }
 
-  // Draw Primary Text
-  ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
-  ctx.shadowBlur = 4;
-  ctx.shadowOffsetY = 1;
-  ctx.fillStyle = "#ffffff";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  if (secondaryText) {
-    ctx.font = "bold 16px system-ui, -apple-system, sans-serif";
-    ctx.fillText(`${icon}  ${primaryText}`, 0, -8);
-
-    ctx.font = "500 11px system-ui, -apple-system, sans-serif";
-    ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-    ctx.fillText(secondaryText, 0, 14);
+  // ---------- 2. Face of the badge ----------
+  if (style === "outline") {
+    paintPlate(rgba(inkColor, 0.06), primary, borderWidth);
+  } else if (style === "glass") {
+    paintPlate(rgba("#FFFFFF", 0.16), rgba("#FFFFFF", 0.42), Math.max(1, borderWidth - 1));
+    // subtle frost gradient
+    ctx.save();
+    ctx.beginPath();
+    roundRect(ctx, -bwU / 2, -bhU / 2, bwU, bhU, rad);
+    ctx.clip();
+    const frost = ctx.createLinearGradient(0, -bhU / 2, 0, bhU / 2);
+    frost.addColorStop(0, "rgba(255,255,255,0.30)");
+    frost.addColorStop(0.55, "rgba(255,255,255,0.06)");
+    frost.addColorStop(1, "rgba(0,0,0,0.10)");
+    ctx.fillStyle = frost;
+    ctx.fillRect(-bwU / 2, -bhU / 2, bwU, bhU);
+    ctx.restore();
+  } else if (style === "solid") {
+    paintPlate(primary);
   } else {
-    ctx.font = "bold 17px system-ui, -apple-system, sans-serif";
-    ctx.fillText(`${icon}  ${primaryText}`, 0, 1);
+    const grad = ctx.createLinearGradient(0, -bhU / 2, 0, bhU / 2);
+    grad.addColorStop(0, primary);
+    grad.addColorStop(1, secondary);
+    paintPlate(grad);
+  }
+
+  // ---------- 3. Bevel: light top edge + darker bottom edge (raised 2D) ----------
+  if (style !== "outline") {
+    ctx.save();
+    ctx.beginPath();
+    roundRect(ctx, -bwU / 2, -bhU / 2, bwU, bhU, rad);
+    ctx.clip();
+
+    // top highlight
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+    ctx.lineWidth = Math.max(1, 1.6 * (1 - elevation * 0.3));
+    ctx.beginPath();
+    roundRect(ctx, -bwU / 2 + 1, -bhU / 2 + 1, bwU - 2, bhU, rad);
+    ctx.stroke();
+
+    // bottom shade
+    ctx.strokeStyle = rgba("#000000", 0.28);
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    roundRect(ctx, -bwU / 2, -bhU / 2 + 2.5, bwU, bhU, rad);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Outer hairline for crispness on any background
+  ctx.save();
+  ctx.strokeStyle = style === "outline" ? rgba(primary, 0.9) : "rgba(0,0,0,0.22)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  roundRect(ctx, -bwU / 2, -bhU / 2, bwU, bhU, rad);
+  ctx.stroke();
+  ctx.restore();
+
+  // ---------- 4. Brand mark ----------
+  const markR = layout.markRadius * iconScale;
+  const contentShift = shape === "round" ? 0 : -(bwU / 2) + 20 + markR;
+  const markInk = style === "outline" ? primary : darkText ? "#FFFFFF" : "#FFFFFF";
+
+  if (shape === "round") {
+    drawCtaMark(ctx, mark, monogram, 0, 0, markR, inkColor);
+  } else {
+    // Circular chip behind the mark keeps different brand marks visually even
+    if (style !== "outline") {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(contentShift, 0, markR * 1.16, 0, Math.PI * 2);
+      ctx.fillStyle = darkText ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.22)";
+      ctx.fill();
+      ctx.strokeStyle = darkText ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.45)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    }
+    drawCtaMark(ctx, mark, monogram, contentShift, 0, markR, style === "outline" ? primary : markInk);
+  }
+
+  // ---------- 5. Text ----------
+  if (shape !== "round") {
+    const textLeft = contentShift + markR + 16;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+
+    ctx.save();
+    ctx.shadowColor = darkText ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = darkText ? 0 : 3;
+    ctx.shadowOffsetY = darkText ? 0 : 1;
+
+    if (layout.hasTwoLines) {
+      ctx.fillStyle = inkColor;
+      ctx.font = `800 ${Math.round(20 * textScale)}px system-ui, -apple-system, sans-serif`;
+      ctx.fillText(primaryText, textLeft, -11 * layout.scale);
+      ctx.font = `600 ${Math.round(12 * textScale)}px system-ui, -apple-system, sans-serif`;
+      ctx.fillStyle = style === "outline" ? rgba(inkColor, 0.8) : rgba(inkColor, 0.88);
+      ctx.fillText(secondaryText, textLeft, 14 * layout.scale);
+    } else {
+      ctx.fillStyle = inkColor;
+      ctx.font = `800 ${Math.round(21 * textScale)}px system-ui, -apple-system, sans-serif`;
+      ctx.fillText(primaryText, textLeft, 1);
+    }
+    ctx.restore();
   }
 
   ctx.restore();
@@ -860,6 +1748,7 @@ function renderSticker(
       break;
     }
     case "emoji_fire": {
+      ctx.fillStyle = "#ffffff";
       ctx.font = "56px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -867,6 +1756,8 @@ function renderSticker(
       break;
     }
     default: {
+      // emoji stickers must not inherit the previous fill colour
+      ctx.fillStyle = "#ffffff";
       ctx.font = "50px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -1816,494 +2707,6 @@ function renderOtherCard(
       ctx.font = "bold 20px system-ui";
       ctx.textAlign = "center";
       ctx.fillText(content.primaryText || item.title, 0, content.label ? 10 : 0);
-      break;
-    }
-  }
-
-  ctx.restore();
-}
-
-// ---------------- AUDIO & SPEECH REACTIVE VISUALIZERS ----------------
-function renderAudioVisualizer(
-  ctx: CanvasRenderingContext2D,
-  item: TimelineInsert,
-  x: number,
-  y: number,
-  size: number,
-  canvasWidth: number,
-  canvasHeight: number,
-  audioLevel: number,
-  elapsed: number,
-  freqData?: Uint8Array | number[] | null
-) {
-  const isRound =
-    item.type === "circular_wave" ||
-    item.type === "voice_pulse" ||
-    item.type === "energy_ring" ||
-    item.type === "pulse_circle" ||
-    item.type === "minimal_voice";
-
-  ctx.save();
-
-  // Linear visualizers stretch over the entire scene width (unless explicitly disabled)
-  const isFullWidth = !isRound && (item.visualOptions?.fullWidth !== false);
-  if (isFullWidth) {
-    // Center horizontally across the scene at the specified vertical position y
-    ctx.translate(canvasWidth / 2, y);
-  } else {
-    // Round visualizers or custom-positioned items anchor at (x, y)
-    ctx.translate(x, y);
-  }
-
-  // Check if real Web Audio analyzer frequency data is active (> 5 threshold)
-  const hasRealFreq = Boolean(
-    freqData &&
-    freqData.length > 0 &&
-    Array.from(freqData).some((v) => v > 5)
-  );
-
-  // Dynamic speech rhythm cadence: 3.8 Hz syllable bursts + vowel formants (15.2 Hz) + micro breathing pauses
-  const syllableBurst = Math.max(0, Math.sin(elapsed * Math.PI * 3.8));
-  const phonemeHarmonic = Math.sin(elapsed * 15.2) * 0.35 + 0.65;
-  const pauseFactor = Math.sin(elapsed * 1.1) > -0.5 ? 1.0 : 0.15;
-  const simulatedSpeechEnvelope = syllableBurst * phonemeHarmonic * pauseFactor;
-
-  // Music beat cadence: 120 BPM drum kick (2 Hz fundamental, 4 Hz downbeat, 8 Hz hi-hat)
-  const kick = Math.pow(Math.max(0, Math.sin(elapsed * Math.PI * 2)), 3) * 0.55;
-  const snare = Math.pow(Math.max(0, Math.sin((elapsed + 0.25) * Math.PI * 4)), 2) * 0.35;
-  const hihat = Math.abs(Math.sin(elapsed * Math.PI * 8)) * 0.25;
-  const musicBeat = kick + snare + hihat;
-
-  // Reactivity amplitude calculation
-  let amp = audioLevel;
-  if (hasRealFreq) {
-    amp = Math.min(2.5, Math.max(0.12, audioLevel * 3.5));
-  } else if (item.audioSource === "music") {
-    amp = Math.max(0.2, (musicBeat * 1.6 + audioLevel * 0.4));
-  } else {
-    amp = Math.min(2.4, Math.max(0.12, (simulatedSpeechEnvelope * 1.75 + audioLevel * 0.45)));
-  }
-
-  const primaryColor = item.visualOptions?.primaryColor || "#38bdf8";
-  const secondaryColor = item.visualOptions?.secondaryColor || "#f43f5e";
-  const has3D = item.visualOptions?.has3DLook !== false;
-  const glowIntensity = item.visualOptions?.glowIntensity ?? 0.85;
-
-  switch (item.type) {
-    // ---------------- 1. OSCILLOSCOPE & ACOUSTIC WAVEFORM (REAL VOICE READING) ----------------
-    case "oscilloscope":
-    case "waveform":
-    case "voice_wave": {
-      const isOsc = item.type === "oscilloscope";
-      const fullW = isFullWidth ? canvasWidth : 560 * size;
-      const h = 75 * size;
-      const step = 4;
-
-      // Optional oscilloscope graticule zero grid & ticks
-      if (isOsc) {
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.18)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(-fullW / 2, 0);
-        ctx.lineTo(fullW / 2, 0);
-        ctx.stroke();
-
-        for (let gx = -fullW / 2; gx <= fullW / 2; gx += 40) {
-          ctx.beginPath();
-          ctx.moveTo(gx, -6);
-          ctx.lineTo(gx, 6);
-          ctx.stroke();
-        }
-      }
-
-      // Calculate wave points: authentic voice vocal formant oscillations
-      const points: { x: number; y: number }[] = [];
-      const halfW = fullW / 2;
-
-      for (let x = -halfW; x <= halfW; x += step) {
-        const norm = (x + halfW) / fullW;
-        // Edge envelope so it blends smoothly at screen borders
-        const env = Math.sin(norm * Math.PI);
-        let vy = 0;
-
-        if (hasRealFreq && freqData) {
-          const binIdx = Math.min(freqData.length - 1, Math.floor(norm * (freqData.length * 0.8)));
-          const binVal = (freqData[binIdx] || 0) / 255;
-          const harmonicRipple = Math.sin(norm * 42 + elapsed * 18) * 0.2;
-          vy = (binVal * 0.85 + harmonicRipple) * h * amp * env;
-        } else if (isOsc) {
-          // Real oscilloscope vocal reading:
-          // Glottal pitch pulse + Vocal Tract Formants (F1, F2, F3) + vowel modulation
-          const pitchPeriod = Math.sin(norm * 24 - elapsed * 16);
-          const formant1 = Math.sin(norm * 58 - elapsed * 24) * 0.45;
-          const formant2 = Math.sin(norm * 112 + elapsed * 32) * 0.25;
-          const sibilance = Math.sin(norm * 220 - elapsed * 45) * 0.1;
-          const speechJitter = Math.sin(elapsed * 28 + norm * 14) * 0.08;
-          vy = (pitchPeriod + formant1 + formant2 + sibilance + speechJitter) * (h * 0.55) * amp * env;
-        } else {
-          // Dynamic neon acoustic wave
-          const w1 = Math.sin(norm * 16 + elapsed * 10);
-          const w2 = Math.cos(norm * 32 - elapsed * 14) * 0.4;
-          const w3 = Math.sin(norm * 64 + elapsed * 22) * 0.2;
-          vy = (w1 + w2 + w3) * (h * 0.5) * amp * env;
-        }
-
-        points.push({ x, y: vy });
-      }
-
-      // PASS 1: Broad Phosphor / Neon Ambient Glow Bloom
-      ctx.beginPath();
-      points.forEach((p, idx) => {
-        if (idx === 0) ctx.moveTo(p.x, p.y);
-        else ctx.lineTo(p.x, p.y);
-      });
-      ctx.strokeStyle = isOsc ? "rgba(16, 185, 129, 0.3)" : (primaryColor + "33");
-      ctx.lineWidth = 14 * size;
-      ctx.shadowColor = isOsc ? "#10b981" : primaryColor;
-      ctx.shadowBlur = 24 * glowIntensity;
-      ctx.stroke();
-
-      // PASS 2: Saturated Plasma Beam
-      ctx.strokeStyle = isOsc ? "#34d399" : primaryColor;
-      ctx.lineWidth = 4.5 * size;
-      ctx.shadowBlur = 10 * glowIntensity;
-      ctx.stroke();
-
-      // PASS 3: Laser-sharp Core Phosphor Beam
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 1.8 * size;
-      ctx.shadowBlur = 4;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      // PASS 4: Secondary Harmonic Trace (Dual-beam oscilloscope depth)
-      ctx.beginPath();
-      for (let i = 0; i < points.length; i += 2) {
-        const p = points[i];
-        const norm = (p.x + halfW) / fullW;
-        const env = Math.sin(norm * Math.PI);
-        const subY = Math.sin(norm * 28 + elapsed * 8) * (h * 0.3) * amp * env;
-        if (i === 0) ctx.moveTo(p.x, subY);
-        else ctx.lineTo(p.x, subY);
-      }
-      ctx.strokeStyle = isOsc ? "rgba(6, 182, 212, 0.6)" : (secondaryColor + "99");
-      ctx.lineWidth = 1.4 * size;
-      ctx.stroke();
-      break;
-    }
-
-    // ---------------- 2. MIRROR WAVEFORM (FULL SCENE 3D SPREAD) ----------------
-    case "mirror_wave": {
-      const fullW = isFullWidth ? canvasWidth : 560 * size;
-      const count = Math.max(36, Math.min(84, Math.floor(fullW / 18)));
-      const barW = (fullW / count) - 3;
-      const startX = -fullW / 2;
-      const maxH = 65 * size;
-
-      for (let i = 0; i < count; i++) {
-        const norm = i / count;
-        const env = Math.sin(norm * Math.PI);
-        let waveHeight = 0;
-
-        if (hasRealFreq && freqData) {
-          const binIdx = Math.min(freqData.length - 1, Math.floor(norm * (freqData.length * 0.8)));
-          waveHeight = Math.abs((freqData[binIdx] / 255) * 0.85 + 0.15 * Math.sin(norm * 24 + elapsed * 12)) * maxH * env * amp;
-        } else {
-          waveHeight = Math.abs(
-            Math.sin(norm * 18 + elapsed * 10) * 0.6 +
-            Math.cos(norm * 36 - elapsed * 14) * 0.4
-          ) * maxH * env * amp;
-        }
-
-        const hVal = Math.max(4, waveHeight);
-        const bx = startX + i * (barW + 3);
-
-        // 3D Mirror Gradient: Top Cyan -> Mid Pink -> Bottom Cyan
-        const grad = ctx.createLinearGradient(0, -hVal, 0, hVal);
-        grad.addColorStop(0, primaryColor);
-        grad.addColorStop(0.5, secondaryColor);
-        grad.addColorStop(1, primaryColor);
-
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        roundRect(ctx, bx, -hVal, barW, hVal * 2, Math.min(barW / 2, 4));
-        ctx.fill();
-
-        // 3D Specular Highlight on top and bottom caps
-        if (has3D) {
-          ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-          ctx.fillRect(bx + 1, -hVal + 1, barW - 2, 2);
-          ctx.fillRect(bx + 1, hVal - 3, barW - 2, 2);
-        }
-      }
-
-      // Center glowing dividing baseline
-      ctx.beginPath();
-      ctx.moveTo(-fullW / 2, 0);
-      ctx.lineTo(fullW / 2, 0);
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 1.5;
-      ctx.shadowColor = primaryColor;
-      ctx.shadowBlur = 8 * glowIntensity;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      break;
-    }
-
-    // ---------------- 3. EQUALIZER BARS, SPECTRUM & SPEECH SPECTRUM ----------------
-    case "equalizer_bars":
-    case "spectrum":
-    case "speech_spectrum": {
-      const fullW = isFullWidth ? canvasWidth : 560 * size;
-      const barCount = Math.max(28, Math.min(72, Math.floor(fullW / 22)));
-      const gap = 4;
-      const barW = Math.max(4, (fullW / barCount) - gap);
-      const startX = -fullW / 2;
-      const maxHeight = 125 * size;
-
-      for (let i = 0; i < barCount; i++) {
-        const norm = i / barCount;
-        let barHeight = 0;
-
-        if (hasRealFreq && freqData) {
-          const binIdx = Math.min(freqData.length - 1, Math.floor(norm * (freqData.length * 0.85)));
-          const realBin = (freqData[binIdx] || 0) / 255;
-          barHeight = Math.max(8, Math.min(maxHeight, realBin * maxHeight * (amp * 0.9)));
-        } else {
-          // Acoustic frequency bands: Bass -> Vocal Mid -> Shimmer Treble
-          const isBass = i < barCount * 0.2;
-          const isMid = i >= barCount * 0.2 && i < barCount * 0.65;
-          const bassPulse = Math.max(0, Math.sin(elapsed * 5.0 + i * 0.3)) * (1 - norm);
-          const midVoice = Math.max(0, Math.sin(elapsed * 14.0 + i * 0.5)) * simulatedSpeechEnvelope;
-          const trebleShimmer = Math.abs(Math.sin(elapsed * 24.0 + i * 1.1)) * norm * 0.6;
-
-          const energy = (isBass ? bassPulse * 1.3 : isMid ? midVoice * 1.6 : trebleShimmer) * amp;
-          barHeight = Math.max(8, Math.min(maxHeight, 10 + energy * (maxHeight * 0.85)));
-        }
-
-        const bx = startX + i * (barW + gap);
-        const by = -barHeight;
-
-        // 3D Multi-Stop Vertical Gradient
-        const grad = ctx.createLinearGradient(0, 0, 0, by);
-        if (item.type === "spectrum") {
-          // Full 5-stop Rainbow Spectrum
-          grad.addColorStop(0, "#2563eb");
-          grad.addColorStop(0.35, "#06b6d4");
-          grad.addColorStop(0.65, "#10b981");
-          grad.addColorStop(0.85, "#f59e0b");
-          grad.addColorStop(1, "#ef4444");
-        } else if (item.type === "speech_spectrum") {
-          // Speech Formant Vocal Spectrum
-          grad.addColorStop(0, "#4338ca");
-          grad.addColorStop(0.4, "#6366f1");
-          grad.addColorStop(0.7, "#a855f7");
-          grad.addColorStop(0.9, "#ec4899");
-          grad.addColorStop(1, "#f43f5e");
-        } else {
-          // Studio Equalizer Bars
-          grad.addColorStop(0, primaryColor);
-          grad.addColorStop(0.6, primaryColor);
-          grad.addColorStop(0.85, secondaryColor);
-          grad.addColorStop(1, "#ffffff");
-        }
-
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        roundRect(ctx, bx, by, barW, barHeight, Math.min(barW / 2, 4));
-        ctx.fill();
-
-        // 3D Extruded Depth (Left highlight & Right shadow)
-        if (has3D) {
-          // Left highlight edge
-          ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-          ctx.fillRect(bx, by + 3, 1.5, barHeight - 3);
-
-          // Right shadow edge
-          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-          ctx.fillRect(bx + barW - 1.5, by + 3, 1.5, barHeight - 3);
-
-          // Top rounded cap gloss
-          ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-          ctx.fillRect(bx + 1.5, by + 1, barW - 3, 2);
-        }
-
-        // Floating Peak LED indicator cap
-        const peakY = by - 5 - (Math.sin(elapsed * 4 + i) > 0.5 ? 2 : 0);
-        ctx.fillStyle = "#ffffff";
-        ctx.shadowColor = item.type === "spectrum" ? `hsl(${norm * 280}, 90%, 60%)` : primaryColor;
-        ctx.shadowBlur = 8 * glowIntensity;
-        ctx.fillRect(bx, peakY, barW, 2.5);
-        ctx.shadowBlur = 0;
-
-        // Glossy studio floor reflection
-        const floorGrad = ctx.createLinearGradient(0, 0, 0, 18);
-        floorGrad.addColorStop(0, "rgba(56, 189, 248, 0.25)");
-        floorGrad.addColorStop(1, "transparent");
-        ctx.fillStyle = floorGrad;
-        ctx.fillRect(bx, 0, barW, 14);
-      }
-      break;
-    }
-
-    // ---------------- 4. CIRCULAR FREQUENCY WAVE (RADIAL OUTWARD BARS ALL AROUND) ----------------
-    case "circular_wave": {
-      const baseR = Math.max(12, 60 * size);
-      const numBars = 52;
-
-      // 3D Center Hub Diaphragm
-      const coreGrad = ctx.createRadialGradient(0, 0, Math.min(2, baseR * 0.1), 0, 0, baseR);
-      coreGrad.addColorStop(0, "rgba(255, 255, 255, 0.95)");
-      coreGrad.addColorStop(0.3, "rgba(56, 189, 248, 0.6)");
-      coreGrad.addColorStop(0.85, "rgba(15, 23, 42, 0.9)");
-      coreGrad.addColorStop(1, primaryColor);
-
-      ctx.fillStyle = coreGrad;
-      ctx.beginPath();
-      ctx.arc(0, 0, Math.max(2, baseR - 4), 0, Math.PI * 2);
-      ctx.fill();
-
-      // Metallic Outer Ring
-      ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = 3.5;
-      ctx.shadowColor = primaryColor;
-      ctx.shadowBlur = 14 * glowIntensity;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      // 360-Degree Radial Bars Shooting Outwards
-      for (let i = 0; i < numBars; i++) {
-        const angle = (i / numBars) * Math.PI * 2 - Math.PI / 2;
-        const norm = i / numBars;
-        let barLen = 0;
-
-        if (hasRealFreq && freqData) {
-          const binIdx = Math.floor(norm * (freqData.length * 0.75));
-          const val = (freqData[binIdx] || 0) / 255;
-          barLen = Math.max(6, val * 65 * size * amp);
-        } else {
-          const harmonic =
-            Math.sin(angle * 4 + elapsed * 6) * 0.4 +
-            Math.cos(angle * 8 - elapsed * 4) * 0.35 +
-            Math.sin(elapsed * 10 + i) * 0.25;
-          barLen = Math.max(6, (8 + (harmonic + 1) * 26 * amp) * size);
-        }
-
-        const cosA = Math.cos(angle);
-        const sinA = Math.sin(angle);
-
-        const r1 = baseR + 2;
-        const r2 = baseR + 2 + barLen;
-
-        const x1 = cosA * r1;
-        const y1 = sinA * r1;
-        const x2 = cosA * r2;
-        const y2 = sinA * r2;
-
-        // Radial Outward Bar
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-
-        // Vibrant 3D Radial Color Transition
-        ctx.strokeStyle = `hsl(${190 + norm * 140}, 95%, 60%)`;
-        ctx.lineWidth = Math.max(3, 4.2 * size);
-        ctx.lineCap = "round";
-        ctx.shadowColor = ctx.strokeStyle;
-        ctx.shadowBlur = 8 * glowIntensity;
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        // Floating Outer Peak LED Dot
-        const px = cosA * (r2 + 6 * size);
-        const py = sinA * (r2 + 6 * size);
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(px, py, 1.8 * size, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      break;
-    }
-
-    // ---------------- 5. MINIMAL TALKING DOTS (4 MODERN 3D AI ASSISTANT PILLS) ----------------
-    case "minimal_voice": {
-      const dotColors = ["#3b82f6", "#ef4444", "#f59e0b", "#10b981"];
-      const spacing = 28 * size;
-      const startX = -((dotColors.length - 1) * spacing) / 2;
-      const baseDotW = 12 * size;
-
-      dotColors.forEach((color, i) => {
-        const bx = startX + i * spacing;
-        // Vocal syllable bounce and stretch
-        const bounce = Math.sin(elapsed * 11 + i * 1.5);
-        const vocalPulse = Math.max(0.15, (bounce + 1) / 2) * amp;
-        const pillHeight = Math.max(baseDotW, baseDotW + vocalPulse * 44 * size);
-        const by = -pillHeight / 2;
-
-        // 3D Capsule Pill
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        roundRect(ctx, bx - baseDotW / 2, by, baseDotW, pillHeight, baseDotW / 2);
-        ctx.fill();
-
-        // 3D Specular Highlight Bulb
-        ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
-        ctx.beginPath();
-        ctx.arc(bx, by + baseDotW * 0.45, baseDotW * 0.25, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Soft drop glow
-        ctx.fillStyle = color + "44";
-        ctx.beginPath();
-        ctx.ellipse(bx, pillHeight / 2 + 6 * size, baseDotW * 0.6, 2.5 * size, 0, 0, Math.PI * 2);
-        ctx.fill();
-      });
-      break;
-    }
-
-    // ---------------- 6. VOICE PULSE & ENERGY RING ----------------
-    case "pulse_circle":
-    case "voice_pulse":
-    case "energy_ring": {
-      const isRing = item.type === "energy_ring";
-      const baseR = Math.max(10, 55 * size);
-      const r = Math.max(1, baseR + amp * (55 * size) + Math.sin(elapsed * 6) * 6);
-
-      ctx.beginPath();
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
-      ctx.strokeStyle = isRing ? "#f43f5e" : primaryColor;
-      ctx.lineWidth = Math.max(1, 4 * size);
-      ctx.shadowColor = ctx.strokeStyle;
-      ctx.shadowBlur = 20 * glowIntensity;
-      ctx.stroke();
-
-      // Inner glowing ring
-      ctx.beginPath();
-      ctx.arc(0, 0, Math.max(0.5, r * 0.65), 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
-      ctx.lineWidth = Math.max(1, 2 * size);
-      ctx.stroke();
-
-      // Central glowing orb
-      const orbR = Math.max(1, 18 * size);
-      const orbGrad = ctx.createRadialGradient(0, 0, Math.min(2, orbR * 0.2), 0, 0, orbR);
-      orbGrad.addColorStop(0, "#ffffff");
-      orbGrad.addColorStop(0.5, isRing ? "#f43f5e" : primaryColor);
-      orbGrad.addColorStop(1, "transparent");
-      ctx.fillStyle = orbGrad;
-      ctx.beginPath();
-      ctx.arc(0, 0, orbR, 0, Math.PI * 2);
-      ctx.fill();
-      break;
-    }
-
-    default: {
-      const r = Math.max(1, (40 + amp * 30) * size);
-      ctx.beginPath();
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
-      ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = Math.max(1, 3 * size);
-      ctx.stroke();
       break;
     }
   }

@@ -1,2 +1,8 @@
 node_modules/
 .env
+
+# Temporary download copy of the full app archive (not part of the project)
+public/Scenering-full-app.zip
+
+# Local app-package builds made by scripts/package-app.py
+dist-package/

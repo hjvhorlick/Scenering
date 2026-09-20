@@ -3,14 +3,19 @@ import type { Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectR
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import {
   applySceneFilter,
+  getInsertBounds,
   getMotionTransform,
   getPresetCoords,
   renderTimelineInsert,
 } from "../lib/render-effects";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
+import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
+import { isVisualizerFullWidth } from "../lib/render-visualizers";
+import { loadCaptionFonts } from "../data/caption-styles";
 import { calculateDynamicDuration } from "../lib/duration-utils";
 import { getCanvasFilterString } from "../data/filters-library";
 import { getCachedSceneAudio } from "../lib/tts-cache";
+import { buildInsertAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
 interface VideoPreviewProps {
   scenes: Scene[];
@@ -21,8 +26,9 @@ interface VideoPreviewProps {
   onSeek?: (time: number) => void;
   onSelectInsert?: (insert: TimelineInsert) => void;
   onUpdateInsert?: (updated: TimelineInsert) => void;
+  /** Id of the insert currently open in the properties modal (gets drag/resize chrome) */
+  selectedInsertId?: string;
   onVoicesLoaded?: (voices: { id: string; name: string }[]) => void;
-  onNavigateToRender?: () => void;
   customerLogo?: CustomerLogoConfig;
   onPlayStateChange?: (isPlaying: boolean, togglePlay: () => void) => void;
   selectedVoice?: string;
@@ -88,8 +94,8 @@ export default function VideoPreview({
   onSeek,
   onSelectInsert,
   onUpdateInsert,
+  selectedInsertId,
   onVoicesLoaded,
-  onNavigateToRender,
   customerLogo,
   onPlayStateChange,
   selectedVoice: propSelectedVoice,
@@ -126,12 +132,18 @@ export default function VideoPreview({
   const animFrameRef = useRef<number>(0);
   const playingRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  // Voice and background-music are analysed on separate buses so a visualiser
+  // set to "moves with the music" reacts to the music, not to the narration.
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const musicAnalyserRef = useRef<AnalyserNode | null>(null);
   const audioBuffersRef = useRef<Map<number, SceneAudio>>(new Map());
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const insertMixerRef = useRef<InsertAudioMixer | null>(null);
   const watermarkImgRef = useRef<HTMLImageElement | null>(null);
   const customerLogoImgRef = useRef<HTMLImageElement | null>(null);
   const [logoLoadedCounter, setLogoLoadedCounter] = useState<number>(0);
+  // Repaint the canvas once the caption typefaces arrive
+  const [fontsLoadedCounter, setFontsLoadedCounter] = useState<number>(0);
 
   // Preload Crisp Logo Watermark
   useEffect(() => {
@@ -327,6 +339,16 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
   }, [scenesWithImages, synthesizeScene, propSelectedVoice, selectedVoice]);
 
   // Unified Scene & Insert Drawing Function
+  useEffect(() => {
+    let cancelled = false;
+    loadCaptionFonts().then(() => {
+      if (!cancelled) setFontsLoadedCounter((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const drawScene = useCallback(
     (
       ctx: CanvasRenderingContext2D,
@@ -335,7 +357,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       img: HTMLImageElement | null,
       absoluteTime: number = 0,
       audioLevel: number = 0.4,
-      freqData?: Uint8Array | null
+      freqData?: Uint8Array | null,
+      audioFrame?: AudioFrame | null
     ) => {
       const canvas = ctx.canvas;
       const w = canvas.width;
@@ -521,8 +544,39 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       // Render Active Timeline Inserts (Stickers, Cards, Visualizers, Special FX)
       if (inserts && inserts.length > 0) {
         inserts.forEach((insert) => {
-          renderTimelineInsert(ctx, insert, absoluteTime, w, h, audioLevel, freqData);
+          renderTimelineInsert(ctx, insert, absoluteTime, w, h, audioLevel, freqData, audioFrame);
         });
+      }
+
+      // Selection chrome: dashed frame + corner resize handle for the element
+      // currently open in the properties modal, so it can be moved and resized in place.
+      if (selectedInsertId && inserts) {
+        const sel = inserts.find((i) => i.id === selectedInsertId);
+        if (sel && absoluteTime >= sel.startTime - 0.01 && absoluteTime <= sel.startTime + sel.duration + 0.01) {
+          const b = getInsertBounds(sel, w, h, ctx);
+          ctx.save();
+          ctx.setLineDash([7, 5]);
+          ctx.strokeStyle = "rgba(99, 102, 241, 0.95)";
+          ctx.lineWidth = Math.max(1.5, w / 900);
+          ctx.strokeRect(b.x - 6, b.y - 6, b.w + 12, b.h + 12);
+          ctx.setLineDash([]);
+
+          const hx = b.x + b.w + 6;
+          const hy = b.y + b.h + 6;
+          const hr = Math.max(7, w / 110);
+          ctx.beginPath();
+          ctx.arc(hx, hy, hr, 0, Math.PI * 2);
+          ctx.fillStyle = "#6366f1";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(255,255,255,0.95)";
+          ctx.lineWidth = Math.max(1.5, w / 800);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(hx - hr * 0.35, hy + hr * 0.35);
+          ctx.lineTo(hx + hr * 0.35, hy - hr * 0.35);
+          ctx.stroke();
+          ctx.restore();
+        }
       }
 
       // Progress bar along bottom
@@ -531,7 +585,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       ctx.fillStyle = "#6366f1";
       ctx.fillRect(0, h - 4, w * sceneProgress, 4);
     },
-    [scenesWithImages.length, inserts, customerLogo, captionsConfig]
+    [scenesWithImages.length, inserts, customerLogo, captionsConfig, selectedInsertId, fontsLoadedCounter]
   );
 
   // Redraw when user scrubs playhead while paused OR when logo/captions/scene changes
@@ -599,54 +653,146 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     drawScene,
     customerLogo,
     logoLoadedCounter,
+    fontsLoadedCounter,
     captionsConfig,
   ]);
 
-  // Interactive Drag-to-Position on Canvas
-  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current || !inserts || inserts.length === 0) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const clickX = (e.clientX - rect.left) / rect.width;
-    const clickY = (e.clientY - rect.top) / rect.height;
+  /** Snap a normalized position to safe-area margins / centre lines */
+  const snapPosition = (x: number, y: number) => {
+    const snap = (v: number, anchors: number[]) => {
+      for (const a of anchors) if (Math.abs(v - a) <= 0.035) return a;
+      return v;
+    };
+    return { x: snap(x, [0.08, 0.22, 0.5, 0.78, 0.92]), y: snap(y, [0.1, 0.15, 0.5, 0.82, 0.9]) };
+  };
 
-    const currentTime = currentPlayheadTime;
-    const activeInserts = inserts.filter(
-      (ins) => currentTime >= ins.startTime && currentTime <= ins.startTime + ins.duration
-    );
-    if (activeInserts.length === 0) return;
+  const dragStateRef = useRef<{
+    id: string;
+    mode: "move" | "resize";
+    startX: number;
+    startY: number;
+    startSize: number;
+    insert: TimelineInsert;
+  } | null>(null);
 
-    let nearest: TimelineInsert | null = null;
-    let minDist = 0.25;
-    activeInserts.forEach((ins) => {
-      const pos = ins.presetPosition ? getPresetCoords(ins.presetPosition) : ins.position;
-      const dist = Math.hypot(clickX - pos.x, clickY - pos.y);
-      if (dist < minDist) {
-        minDist = dist;
-        nearest = ins;
-      }
-    });
+  const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) / rect.width,
+      y: (e.clientY - rect.top) / rect.height,
+    };
+  };
 
-    if (nearest && onSelectInsert) {
-      const selectedItem: TimelineInsert = nearest;
-      onSelectInsert(selectedItem);
-      if (onUpdateInsert) {
-        const onMove = (me: MouseEvent) => {
-          const mx = Math.max(0.05, Math.min(0.95, (me.clientX - rect.left) / rect.width));
-          const my = Math.max(0.05, Math.min(0.95, (me.clientY - rect.top) / rect.height));
-          onUpdateInsert({
-            ...selectedItem,
-            position: { x: mx, y: my },
-            presetPosition: undefined,
-          });
-        };
-        const onUp = () => {
-          window.removeEventListener("mousemove", onMove);
-          window.removeEventListener("mouseup", onUp);
-        };
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
+  /** Find the insert under the pointer (smallest hit box wins) */
+  const hitTestInsert = (px: number, py: number): TimelineInsert | null => {
+    if (!inserts || inserts.length === 0) return null;
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width;
+    const h = canvas.height;
+    const time = currentPlayheadTimeRef.current ?? 0;
+    let best: TimelineInsert | null = null;
+    let bestArea = Number.POSITIVE_INFINITY;
+    for (const ins of inserts) {
+      if (time < ins.startTime - 0.01 || time > ins.startTime + ins.duration + 0.01) continue;
+      const b = getInsertBounds(ins, w, h, ctx);
+      const pad = 6;
+      if (px * w >= b.x - pad && px * w <= b.x + b.w + pad && py * h >= b.y - pad && py * h <= b.y + b.h + pad) {
+        const area = b.w * b.h;
+        if (area < bestArea) {
+          bestArea = area;
+          best = ins;
+        }
       }
     }
+    return best;
+  };
+
+  /** Bottom-right resize handle of the selected badge, in normalized coords */
+  const getResizeHandlePoint = (ins: TimelineInsert) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    const b = getInsertBounds(ins, canvas.width, canvas.height, ctx);
+    return { x: (b.x + b.w + 6) / canvas.width, y: (b.y + b.h + 6) / canvas.height };
+  };
+
+  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current || !inserts || inserts.length === 0) return;
+    const p = getCanvasPoint(e);
+    const target = e.target as HTMLElement;
+
+    // 1. corner handle of the already-selected insert => resize
+    const selected = selectedInsertId ? inserts.find((i) => i.id === selectedInsertId) : undefined;
+    if (selected) {
+      const handle = getResizeHandlePoint(selected);
+      if (handle && Math.hypot(p.x - handle.x, p.y - handle.y) < 0.04) {
+        dragStateRef.current = {
+          id: selected.id,
+          mode: "resize",
+          startX: p.x,
+          startY: p.y,
+          startSize: selected.size || 1,
+          insert: selected,
+        };
+        target.setPointerCapture?.(e.pointerId);
+        return;
+      }
+    }
+
+    // 2. grab the element under the pointer => move
+    const hit = hitTestInsert(p.x, p.y);
+    if (hit && onSelectInsert) {
+      onSelectInsert(hit);
+      dragStateRef.current = {
+        id: hit.id,
+        mode: "move",
+        startX: p.x,
+        startY: p.y,
+        startSize: hit.size || 1,
+        insert: hit,
+      };
+      target.setPointerCapture?.(e.pointerId);
+    }
+  };
+
+  const handleCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const drag = dragStateRef.current;
+    if (!drag || !onUpdateInsert) return;
+    const p = getCanvasPoint(e);
+
+    if (drag.mode === "resize") {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const b = getInsertBounds(drag.insert, canvas.width, canvas.height, ctx);
+      const cxN = b.cx / canvas.width;
+      const cyN = b.cy / canvas.height;
+      const startDist = Math.hypot(drag.startX - cxN, drag.startY - cyN);
+      const nowDist = Math.hypot(p.x - cxN, p.y - cyN);
+      const ratio = startDist > 0.001 ? nowDist / startDist : 1;
+      const nextSize = Math.max(0.3, Math.min(3.2, drag.startSize * ratio));
+      onUpdateInsert({ ...drag.insert, size: Math.round(nextSize * 100) / 100 });
+      return;
+    }
+
+    const clampedX = Math.max(0.03, Math.min(0.97, p.x));
+    const clampedY = Math.max(0.03, Math.min(0.97, p.y));
+    const snapped = snapPosition(clampedX, clampedY);
+
+    // A bar rack that stretches across the entire frame can only be moved up and
+    // down — horizontal position is meaningless when it spans edge to edge.
+    const yOnly = isVisualizerFullWidth(drag.insert);
+    onUpdateInsert({
+      ...drag.insert,
+      position: yOnly ? { x: drag.insert.position.x, y: snapped.y } : snapped,
+      presetPosition: undefined,
+    });
+  };
+
+  const handleCanvasPointerUp = () => {
+    dragStateRef.current = null;
   };
 
   // ------ PLAY PREVIEW ------
@@ -689,9 +835,22 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
     if (audioCtx && !analyserRef.current) {
       const an = audioCtx.createAnalyser();
-      an.fftSize = 64;
+      // 512 samples => 256 frequency bins: enough resolution for a full-width
+      // rack without adjacent bars mirroring each other.
+      an.fftSize = 512;
+      an.smoothingTimeConstant = 0.72;
+      an.minDecibels = -92;
+      an.maxDecibels = -12;
       analyserRef.current = an;
       an.connect(audioCtx.destination);
+
+      const music = audioCtx.createAnalyser();
+      music.fftSize = 512;
+      music.smoothingTimeConstant = 0.72;
+      music.minDecibels = -92;
+      music.maxDecibels = -12;
+      musicAnalyserRef.current = music;
+      music.connect(audioCtx.destination);
     }
 
     const introInsert = inserts?.find((ins) => ins.category === "intro");
@@ -709,6 +868,27 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     const startTime = typeof seekTime === "number" ? seekTime : (currentPlayheadTimeRef.current || 0);
     // If playhead was at or beyond the very end, restart from beginning
     const safeStartTime = (startTime >= totalDur - 0.1) ? 0 : Math.max(0, startTime);
+
+    // Build & pre-load the insert audio plan (BGM, SFX, CTA jingles, intro/outro sounds)
+    let insertMixer: InsertAudioMixer | null = null;
+    if (audioCtx && totalDur > 0) {
+      try {
+        const plans = buildInsertAudioPlan(inserts, totalDur);
+        if (plans.length > 0) {
+          // Music & SFX feed the music bus so "moves with the music" items
+          // follow the soundtrack instead of the narration.
+          insertMixer = new InsertAudioMixer(
+            audioCtx,
+            musicAnalyserRef.current || analyserRef.current || audioCtx.destination
+          );
+          await insertMixer.load(plans);
+        }
+      } catch (err) {
+        console.warn("Insert audio setup warning:", err);
+      }
+    }
+    insertMixerRef.current = insertMixer;
+    if (insertMixer) insertMixer.startFrom(safeStartTime);
 
     setIsPlaying(true);
     setProgress(totalDur > 0 ? safeStartTime / totalDur : 0);
@@ -775,8 +955,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       const now = performance.now();
       const totalElapsed = (now - playStartWallTime) / 1000 + safeStartTime;
 
+      // Drive insert audio (BGM / SFX / CTA / intro-outro sounds)
+      try {
+        insertMixerRef.current?.tick(totalElapsed);
+      } catch {}
+
       if (totalElapsed >= totalDur) {
         if (currentAudioSource) try { currentAudioSource.stop(); } catch {}
+        insertMixerRef.current?.stop();
+        insertMixerRef.current = null;
         setIsPlaying(false);
         playingRef.current = false;
         setProgress(1);
@@ -785,22 +972,36 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         return;
       }
 
-      // Sample real-time audio amplitude for reactive visualizers
+      // Sample real-time audio amplitude for reactive visualizers. Voice and
+      // music are read from their own analysers so the "moves with" choice in
+      // the visualiser settings is a genuine difference in behaviour.
       let audioLevel = 0.4;
       let freqData: Uint8Array | null = null;
+      let audioFrame: AudioFrame = EMPTY_FRAME;
       if (analyserRef.current) {
-        const data = new Uint8Array(analyserRef.current.frequencyBinCount);
-        analyserRef.current.getByteFrequencyData(data);
-        let sum = 0;
-        for (let i = 0; i < data.length; i++) sum += data[i];
-        audioLevel = sum / (data.length * 255);
-        freqData = data;
+        const readBus = (node: AnalyserNode | null) => {
+          if (!node) return makeBus(0, null, null);
+          const freq = new Uint8Array(node.frequencyBinCount);
+          node.getByteFrequencyData(freq);
+          const wave = new Uint8Array(node.fftSize);
+          node.getByteTimeDomainData(wave);
+          let sum = 0;
+          for (let i = 0; i < freq.length; i++) sum += freq[i];
+          return makeBus(sum / (freq.length * 255), freq, wave);
+        };
+        const voiceBus = readBus(analyserRef.current);
+        const musicBus = readBus(musicAnalyserRef.current);
+        audioFrame = { voice: voiceBus, music: musicBus };
+        // legacy scalar path: whichever bus is loudest drives non-visualiser effects
+        const loudest = voiceBus.level >= musicBus.level ? voiceBus : musicBus;
+        audioLevel = Math.max(0.15, loudest.level);
+        freqData = (loudest.freq as Uint8Array) || null;
       }
 
       // 1. INTRO SEGMENT: Full screen insert, NO captions, NO speech voiceover
       if (introInsert && totalElapsed < introDur) {
         const introProgress = totalElapsed / Math.max(0.1, introDur);
-        drawScene(ctx, scenesWithImages[0], introProgress, images[0], totalElapsed, audioLevel, freqData);
+        drawScene(ctx, scenesWithImages[0], introProgress, images[0], totalElapsed, audioLevel, freqData, audioFrame);
         setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
         onSeek?.(totalElapsed);
         animFrameRef.current = requestAnimationFrame(animate);
@@ -815,7 +1016,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         }
         const lastIdx = scenesWithImages.length - 1;
         const outroProgress = (totalElapsed - introDur - scriptDur) / Math.max(0.1, outroDur);
-        drawScene(ctx, scenesWithImages[lastIdx], outroProgress, images[lastIdx], totalElapsed, audioLevel, freqData);
+        drawScene(ctx, scenesWithImages[lastIdx], outroProgress, images[lastIdx], totalElapsed, audioLevel, freqData, audioFrame);
         setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
         onSeek?.(totalElapsed);
         animFrameRef.current = requestAnimationFrame(animate);
@@ -855,7 +1056,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
       const activeScene = scenesWithImages[activeIdx];
       const sceneProgress = Math.min(1, activeOffset / Math.max(0.1, activeSceneDur));
-      drawScene(ctx, activeScene, sceneProgress, images[activeIdx], totalElapsed, audioLevel, freqData);
+      drawScene(ctx, activeScene, sceneProgress, images[activeIdx], totalElapsed, audioLevel, freqData, audioFrame);
       setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
       onSeek?.(totalElapsed);
 
@@ -872,6 +1073,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     if (currentSourceRef.current) {
       try { currentSourceRef.current.stop(); } catch {}
     }
+    insertMixerRef.current?.stop();
+    insertMixerRef.current = null;
   }, []);
 
   const togglePlay = useCallback(() => {
@@ -919,9 +1122,13 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
             ref={canvasRef}
             width={aspectConfig.w}
             height={aspectConfig.h}
-            onMouseDown={handleCanvasMouseDown}
+            onPointerDown={handleCanvasPointerDown}
+            onPointerMove={handleCanvasPointerMove}
+            onPointerUp={handleCanvasPointerUp}
+            onPointerCancel={handleCanvasPointerUp}
             className={`${aspectConfig.cssClass} bg-black cursor-crosshair`}
-            title="Click and drag active stickers or cards to reposition them"
+            style={{ touchAction: "none" }}
+            title="Drag a badge to move it, or drag the corner handle to resize it"
           />
 
           {/* Hint Overlay when hovering canvas */}
@@ -999,19 +1206,6 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
               </span>
             </div>
 
-            {onNavigateToRender && (
-              <button
-                onClick={() => {
-                  stopPreview();
-                  onNavigateToRender();
-                }}
-                className="px-4 py-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-semibold rounded-lg shadow-lg hover:shadow-indigo-500/25 transition-all flex items-center gap-2 cursor-pointer"
-                title="Open Final Render Studio to export video, audio, subtitles and project ZIP"
-              >
-                <span>🎬 Proceed to Render Section</span>
-                <span className="text-sm font-bold">→</span>
-              </button>
-            )}
           </div>
         </div>
       </div>

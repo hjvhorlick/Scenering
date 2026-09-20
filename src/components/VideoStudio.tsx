@@ -65,6 +65,13 @@ export default function VideoStudio({
       startTime = Math.max(0, (totalDuration || 60) - item.defaultDuration);
     }
 
+    // Audio visualisers run across the whole video by default: they start at 0
+    // and stretch to the end of the timeline instead of a fixed 6-8s window.
+    const spansWholeVideo = Boolean(item.spansFullVideo);
+    if (spansWholeVideo) {
+      startTime = 0;
+    }
+
     const defaultContent = item.defaultContent ? { ...item.defaultContent } : {};
     const logoUrlToUse = defaultContent.logoUrl || (customerLogo?.enabled && customerLogo.url ? customerLogo.url : "/scenering-logo.png");
     const itemVol = itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? studioVolume;
@@ -76,7 +83,9 @@ export default function VideoStudio({
       type: item.type,
       title: item.name,
       startTime,
-      duration: item.defaultDuration,
+      duration: spansWholeVideo
+        ? Math.max(1, totalDuration || 60)
+        : item.defaultDuration,
       videoUrl: item.videoUrl || defaultContent.videoUrl,
       position: { x: 0.5, y: 0.5 },
       presetPosition: item.defaultPosition || "center",
@@ -94,9 +103,22 @@ export default function VideoStudio({
         soundUrl: soundUrl || defaultContent.soundUrl,
         soundVolume: itemVol,
       },
-      visualOptions: item.defaultVisualOptions ? { ...item.defaultVisualOptions } : undefined,
+      visualOptions: item.defaultVisualOptions
+        ? { ...item.defaultVisualOptions, spanFullVideo: spansWholeVideo || undefined }
+        : spansWholeVideo
+        ? { spanFullVideo: true }
+        : undefined,
       audioSettings: item.defaultAudioSettings
-        ? { ...item.defaultAudioSettings, volume: itemVol, soundUrl: soundUrl || item.defaultAudioSettings.soundUrl }
+        ? {
+            ...item.defaultAudioSettings,
+            volume: itemVol,
+            soundUrl: soundUrl || item.defaultAudioSettings.soundUrl,
+            // Normalize legacy loopAudio alias so the loop control + players read one field
+            loop:
+              item.defaultAudioSettings.loop !== undefined
+                ? item.defaultAudioSettings.loop
+                : Boolean((item.defaultAudioSettings as { loopAudio?: boolean }).loopAudio),
+          }
         : { volume: itemVol, soundUrl },
     };
   };
@@ -422,10 +444,13 @@ export default function VideoStudio({
                       className="group bg-gray-900/70 hover:bg-gray-900 border border-gray-800 hover:border-indigo-500/50 rounded-xl p-4 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-indigo-950/20"
                     >
                       <div>
-                        {/* Visual representation of the effect they will see in the video */}
-                        <div className="mb-3">
-                          <EffectVisualPreview item={item} />
-                        </div>
+                        {/* Visual representation of the effect they will see in the video
+                            (audio items intentionally render no preview graphic) */}
+                        {item.category !== "background_music" && item.category !== "sound_effects" && (
+                          <div className="mb-3">
+                            <EffectVisualPreview item={item} />
+                          </div>
+                        )}
 
                         {/* Timing and Audio Tags */}
                         <div className="flex items-center justify-between mb-2">
@@ -455,8 +480,19 @@ export default function VideoStudio({
                                 </span>
                               </button>
                             )}
-                            <span className="text-[10px] text-gray-400 font-mono bg-gray-800/80 px-1.5 py-0.5 rounded">
-                              {item.defaultDuration}s
+                            <span
+                              className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                item.spansFullVideo
+                                  ? "text-emerald-300 bg-emerald-950/60 border border-emerald-800/60"
+                                  : "text-gray-400 bg-gray-800/80"
+                              }`}
+                              title={
+                                item.spansFullVideo
+                                  ? "Runs for the entire video"
+                                  : `Default length ${item.defaultDuration}s`
+                              }
+                            >
+                              {item.spansFullVideo ? "Full video" : `${item.defaultDuration}s`}
                             </span>
                           </div>
                         </div>

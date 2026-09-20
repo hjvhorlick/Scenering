@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { TimelineInsert } from "../types";
+import { TimelineInsert, AspectRatioType } from "../types";
 import {
   SOUND_LIBRARY,
   toggleSoundPreview,
@@ -7,6 +7,14 @@ import {
   setSoundPreviewVolume,
   isSoundPreviewPlaying,
 } from "../data/media-library";
+import {
+  CTA_PLATFORMS,
+  CTA_GROUPS,
+  resolveCtaPlatform,
+  type CtaShape,
+  type CtaStyle,
+} from "../data/cta-library";
+import CtaBadgePreview from "./CtaBadgePreview";
 
 interface InsertPropertiesModalProps {
   insert: TimelineInsert | null;
@@ -15,6 +23,10 @@ interface InsertPropertiesModalProps {
   onUpdate: (updated: TimelineInsert) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
+  /** Preview canvas shape, so the live CTA preview matches the finished video */
+  aspectRatio?: AspectRatioType;
+  /** Still from the scene the element sits on, used as the preview backdrop */
+  backgroundImage?: string;
 }
 
 export default function InsertPropertiesModal({
@@ -24,6 +36,8 @@ export default function InsertPropertiesModal({
   onUpdate,
   onDelete,
   onClose,
+  aspectRatio,
+  backgroundImage,
 }: InsertPropertiesModalProps) {
   if (!isOpen || !insert) return null;
 
@@ -35,6 +49,8 @@ export default function InsertPropertiesModal({
       onUpdate={onUpdate}
       onDelete={onDelete}
       onClose={onClose}
+      aspectRatio={aspectRatio}
+      backgroundImage={backgroundImage}
     />
   );
 }
@@ -100,7 +116,7 @@ const OUTRO_PRESETS = [
     id: "outro_cinematic_sunset",
     name: "Cinematic Sunset & Social Hub",
     videoUrl: "/videos/outros/outro_cinematic_sunset.mp4",
-    soundUrl: "/sounds/solitude_reflection.wav",
+    soundUrl: "/sounds/gentle_reflection.mp3",
     icon: "🌅",
     desc: "Warm twilight bokeh background with social handles showcase",
   },
@@ -136,12 +152,16 @@ function InsertPropertiesContent({
   onUpdate,
   onDelete,
   onClose,
+  aspectRatio,
+  backgroundImage,
 }: {
   insert: TimelineInsert;
   totalDuration: number;
   onUpdate: (updated: TimelineInsert) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
+  aspectRatio?: AspectRatioType;
+  backgroundImage?: string;
 }) {
   const isIntroOutro = insert.category === "intro" || insert.category === "outro";
   const isAudioVisualizer =
@@ -153,6 +173,7 @@ function InsertPropertiesContent({
     insert.type.includes("spectrum");
 
   const isSoundEffect = insert.category === "sound_effects" || insert.category === "background_music";
+  const isBackgroundMusic = insert.category === "background_music";
   const isContentCard =
     insert.category === "content_cards" ||
     insert.category === "other_cards" ||
@@ -164,15 +185,22 @@ function InsertPropertiesContent({
   // Initial tab selection based on element type
   const defaultTab = isIntroOutro
     ? "intro_fx"
+    : isCallToAction
+    ? "cta_platform"
     : isSoundEffect
     ? "audio"
     : isAudioVisualizer
     ? "visuals"
-    : isContentCard || isCallToAction
+    : isContentCard
     ? "content"
     : "visuals";
 
   const logoFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const formatTime = (secs: number) => {
+    const s = Math.max(0, Math.round(secs || 0));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
 
   const [data, setData] = useState<TimelineInsert>({
     ...insert,
@@ -190,19 +218,170 @@ function InsertPropertiesContent({
       soundName: insert.audioSettings?.soundName,
       volume: insert.audioSettings?.volume ?? 0.8,
       muted: insert.audioSettings?.muted ?? false,
-      loop: insert.audioSettings?.loop ?? false,
+      // Background music loops through the whole video by default
+      loop: insert.audioSettings?.loop ?? insert.category === "background_music",
       delay: insert.audioSettings?.delay ?? 0,
       ...insert.audioSettings,
     },
     content: insert.content ? { ...insert.content } : {},
   });
 
+  const originalRef = useRef<TimelineInsert | null>(null);
+  if (originalRef.current === null) originalRef.current = insert;
+
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
+  const [ctaGroup, setCtaGroup] = useState<string>("all");
+  const [ctaSearch, setCtaSearch] = useState("");
+
+  const activePlatform = resolveCtaPlatform(data.type, data.visualOptions?.platform);
+
+  const updateVisual = (patch: Record<string, any>) => {
+    setData((prev) => ({
+      ...prev,
+      visualOptions: { ...prev.visualOptions, ...patch },
+    }));
+  };
+
+  /** Apply a whole platform badge (colours, wording, mark, sound) in one click */
+  const applyPlatform = (platformId: string) => {
+    const platform = CTA_PLATFORMS.find((p) => p.id === platformId);
+    if (!platform) return;
+    setData((prev) => ({
+      ...prev,
+      type: `cta_${platform.id}`,
+      title: platform.name,
+      visualOptions: {
+        ...prev.visualOptions,
+        platform: platform.id,
+        primaryColor: platform.primaryColor,
+        secondaryColor: platform.secondaryColor,
+        ctaShape: platform.shape || prev.visualOptions?.ctaShape || "pill",
+        ctaStyle: platform.style || prev.visualOptions?.ctaStyle || "gradient",
+        has3DLook: true,
+        elevation: prev.visualOptions?.elevation ?? 0.45,
+        // a new platform brings its own logo back
+        customMark: undefined,
+      },
+      content: {
+        ...prev.content,
+        primaryText: platform.primaryText,
+        secondaryText: platform.secondaryText,
+        label: platform.icon,
+        badgeText: platform.action,
+      },
+      audioSettings: {
+        ...prev.audioSettings,
+        soundUrl: prev.audioSettings?.soundUrl || platform.soundUrl,
+        soundName: prev.audioSettings?.soundName || "Button Chime",
+        volume: prev.audioSettings?.volume ?? 0.9,
+      },
+    }));
+  };
+
+  const CTA_SHAPES: { id: CtaShape; name: string; icon: string; desc: string }[] = [
+    { id: "pill", name: "Pill", icon: "⬭", desc: "Rounded button — the classic CTA bar" },
+    { id: "round", name: "Round Icon", icon: "⬤", desc: "Circular icon-only social badge" },
+    { id: "square", name: "Square", icon: "▢", desc: "Compact card with soft corners" },
+    { id: "banner", name: "Wide Banner", icon: "▬", desc: "Full-width strip for lower thirds" },
+  ];
+
+  const CTA_STYLES: { id: CtaStyle; name: string; desc: string }[] = [
+    { id: "gradient", name: "Brand Gradient", desc: "Brand colour fading into its shadow tone" },
+    { id: "solid", name: "Flat Solid", desc: "Single flat brand colour" },
+    { id: "outline", name: "Outline", desc: "Transparent face with a brand-coloured border" },
+    { id: "glass", name: "Frosted Glass", desc: "Translucent panel that works on any footage" },
+  ];
+
+  const COLOR_PRESETS: { name: string; c1: string; c2: string }[] = [
+    { name: "YouTube Red", c1: "#FF0000", c2: "#B00000" },
+    { name: "Instagram Sunset", c1: "#F58529", c2: "#8134AF" },
+    { name: "TikTok Cyan", c1: "#25F4EE", c2: "#FE2C55" },
+    { name: "Facebook Blue", c1: "#1877F2", c2: "#0B5FCC" },
+    { name: "Spotify Green", c1: "#1DB954", c2: "#14833B" },
+    { name: "WhatsApp Green", c1: "#25D366", c2: "#128C7E" },
+    { name: "Twitch Purple", c1: "#9146FF", c2: "#6441A5" },
+    { name: "Snapchat Yellow", c1: "#FFFC00", c2: "#F2E600" },
+    { name: "Midnight Ink", c1: "#111827", c2: "#000000" },
+    { name: "Signal Orange", c1: "#FF4500", c2: "#C0341D" },
+    { name: "Royal Indigo", c1: "#6366F1", c2: "#4F46E5" },
+    { name: "Emerald Shop", c1: "#10B981", c2: "#047857" },
+  ];
+
+  const CTA_POSITIONS: { id: NonNullable<TimelineInsert["presetPosition"]>; label: string }[] = [
+    { id: "top-left", label: "Top Left" },
+    { id: "top", label: "Top" },
+    { id: "top-right", label: "Top Right" },
+    { id: "left", label: "Left" },
+    { id: "center", label: "Center" },
+    { id: "right", label: "Right" },
+    { id: "bottom-left", label: "Bottom Left" },
+    { id: "bottom", label: "Bottom" },
+    { id: "bottom-right", label: "Bottom Right" },
+  ];
   const [isPlayingTestSound, setIsPlayingTestSound] = useState(false);
+  const [isTestingClipAudio, setIsTestingClipAudio] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const clipAudioTestRef = useRef<HTMLVideoElement | null>(null);
+  const clipAudioStopTimerRef = useRef<number | null>(null);
+
+  // Test-play the first ~2 seconds of a video clip's original audio (toggle: plays -> off)
+  const handleTestClipAudio = () => {
+    const stopClipTest = () => {
+      const v = clipAudioTestRef.current;
+      if (v) {
+        v.pause();
+        v.removeAttribute("src");
+        try { v.load(); } catch {}
+        clipAudioTestRef.current = null;
+      }
+      if (clipAudioStopTimerRef.current) {
+        clearTimeout(clipAudioStopTimerRef.current);
+        clipAudioStopTimerRef.current = null;
+      }
+      setIsTestingClipAudio(false);
+    };
+
+    // Toggle OFF
+    if (isTestingClipAudio) {
+      stopClipTest();
+      return;
+    }
+
+    const videoUrl = data.videoUrl || data.content?.videoUrl;
+    if (!videoUrl || !videoUrl.toLowerCase().endsWith(".mp4") && !videoUrl.toLowerCase().endsWith(".webm")) {
+      return;
+    }
+
+    const vol = data.audioSettings?.muted ? 0 : Math.max(0, Math.min(1, data.audioSettings?.volume ?? 0.8));
+    const v = document.createElement("video");
+    v.preload = "auto";
+    v.volume = vol;
+    v.muted = false;
+    v.src = videoUrl;
+    clipAudioTestRef.current = v;
+
+    v.onended = () => stopClipTest();
+    v.onerror = () => {
+      console.warn("Video clip audio test failed");
+      stopClipTest();
+    };
+
+    const p = v.play();
+    if (p && typeof p.catch === "function") {
+      p.catch(() => stopClipTest());
+    }
+    // Auto stop after a 2 second sample
+    clipAudioStopTimerRef.current = window.setTimeout(stopClipTest, 2000);
+    setIsTestingClipAudio(true);
+  };
 
   const handleSave = () => {
     if (audioRef.current) audioRef.current.pause();
+    if (clipAudioTestRef.current) {
+      clipAudioTestRef.current.pause();
+      clipAudioTestRef.current = null;
+      setIsTestingClipAudio(false);
+    }
     onUpdate(data);
     onClose();
   };
@@ -236,6 +415,19 @@ function InsertPropertiesContent({
       },
     }));
   };
+
+  // Every change is pushed to the timeline as it is made, so the video preview
+  // and the render always show exactly what the editor shows. Debounced so that
+  // dragging a slider does not flood the parent with updates.
+  const firstSyncRef = useRef(true);
+  useEffect(() => {
+    if (firstSyncRef.current) {
+      firstSyncRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => onUpdate(data), 120);
+    return () => window.clearTimeout(timer);
+  }, [data]);
 
   useEffect(() => {
     return () => {
@@ -275,9 +467,13 @@ function InsertPropertiesContent({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+      <div
+        className={`bg-gray-900 border border-gray-700 rounded-2xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden ${
+          isCallToAction && !isIntroOutro ? "max-w-3xl" : "max-w-xl"
+        }`}
+      >
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between bg-gray-950/60">
+        <div className="shrink-0 px-6 py-4 border-b border-gray-800 flex items-center justify-between bg-gray-950/60">
           <div className="flex items-center gap-3">
             <span className="text-2xl p-2 bg-gray-800 rounded-xl border border-gray-700">
               {insert.category === "intro"
@@ -331,8 +527,15 @@ function InsertPropertiesContent({
           </button>
         </div>
 
+        {/* Live call-to-action preview — sits above the tabs, always visible while editing */}
+        {isCallToAction && !isIntroOutro && (
+          <div className="shrink-0 px-6 pt-4">
+            <CtaBadgePreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
+          </div>
+        )}
+
         {/* Dynamic Contextual Navigation Tabs */}
-        <div className="px-6 border-b border-gray-800 flex gap-2 bg-gray-950/40">
+        <div className="shrink-0 min-h-[46px] px-6 border-b border-gray-800 flex items-center gap-2 bg-gray-950/40 overflow-x-auto">
           {/* INTRO / OUTRO TABS */}
           {isIntroOutro && (
             <>
@@ -390,8 +593,34 @@ function InsertPropertiesContent({
             </>
           )}
 
+          {/* CALL TO ACTION TABS: Platform, Text, Colours, Size & Position */}
+          {isCallToAction && !isIntroOutro && (
+            <>
+              {[
+                { id: "cta_platform", icon: "🌐", label: "Platform" },
+                { id: "cta_text", icon: "✏️", label: "Text & Icon" },
+                { id: "cta_style", icon: "🎨", label: "Colours" },
+                { id: "cta_layout", icon: "📐", label: "Size & Position" },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setActiveTab(t.id)}
+                  className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                    activeTab === t.id
+                      ? "border-indigo-500 text-indigo-400"
+                      : "border-transparent text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <span>{t.icon}</span>
+                  <span>{t.label}</span>
+                </button>
+              ))}
+            </>
+          )}
+
           {/* Visual Placement & Sizing (for all visual elements including waves, non-intro/outro) */}
-          {!isSoundEffect && !isIntroOutro && (
+          {!isSoundEffect && !isIntroOutro && !isCallToAction && (
             <button
               type="button"
               onClick={() => setActiveTab("visuals")}
@@ -439,7 +668,7 @@ function InsertPropertiesContent({
           )}
 
           {/* Content Card Text (for Content / CTA cards, non-intro/outro) */}
-          {!isIntroOutro && (isContentCard || isCallToAction) && (
+          {!isIntroOutro && isContentCard && (
             <button
               type="button"
               onClick={() => setActiveTab("content")}
@@ -455,7 +684,7 @@ function InsertPropertiesContent({
           )}
 
           {/* Optional Attached Sound (for Stickers & CTAs, non-intro/outro) */}
-          {!isIntroOutro && (isSticker || isCallToAction) && (
+          {!isIntroOutro && isSticker && (
             <button
               type="button"
               onClick={() => setActiveTab("attached_audio")}
@@ -486,7 +715,7 @@ function InsertPropertiesContent({
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-5 text-sm">
+        <div className="p-6 flex-1 min-h-0 overflow-y-auto space-y-5 text-sm">
           {/* Quick Intro / Outro Alignment Banner */}
           {isIntroOutro && (
             <div
@@ -718,6 +947,22 @@ function InsertPropertiesContent({
                         />
                         <span className="text-[11px]">Mute Audio</span>
                       </label>
+
+                      {(data.videoUrl || data.content?.videoUrl) && (
+                        <button
+                          type="button"
+                          onClick={handleTestClipAudio}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors flex-shrink-0 ${
+                            isTestingClipAudio
+                              ? "bg-rose-600 hover:bg-rose-500 text-white ring-2 ring-rose-400"
+                              : "bg-amber-600 hover:bg-amber-500 text-white"
+                          }`}
+                          title="Play a 2-second sample of the clip's original audio"
+                        >
+                          <span>{isTestingClipAudio ? "⏹️" : "▶️"}</span>
+                          <span>{isTestingClipAudio ? "Stop (Off)" : "Test Clip Audio"}</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -895,6 +1140,42 @@ function InsertPropertiesContent({
               {/* Visualizer Dimensions, Full-Width & Thickness */}
               {isAudioVisualizer && (
                 <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  {/* Headline choice, kept on the tab users land on: what drives the motion */}
+                  <div className="space-y-2 pb-3 border-b border-gray-750">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-white">Moves With:</span>
+                      <span className="text-[11px] text-gray-400">
+                        Drives the animation in the preview and the render
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setData({ ...data, audioSource: "voice" })}
+                        className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all flex items-center justify-center gap-1.5 ${
+                          data.audioSource !== "music"
+                            ? "bg-indigo-600 border-indigo-500 text-white shadow-sm"
+                            : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750"
+                        }`}
+                      >
+                        <span>🎙️</span>
+                        <span>Moves With Voiceover</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setData({ ...data, audioSource: "music" })}
+                        className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all flex items-center justify-center gap-1.5 ${
+                          data.audioSource === "music"
+                            ? "bg-indigo-600 border-indigo-500 text-white shadow-sm"
+                            : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750"
+                        }`}
+                      >
+                        <span>🎵</span>
+                        <span>Moves With Music</span>
+                      </button>
+                    </div>
+                  </div>
+
                   {/* Full scene width toggle for linear visualizers */}
                   {data.type !== "circular_wave" &&
                     data.type !== "voice_pulse" &&
@@ -935,6 +1216,59 @@ function InsertPropertiesContent({
                       value={data.visualOptions?.barThickness ?? 8}
                       onChange={(e) => updateVisualOptions("barThickness", parseInt(e.target.value))}
                       className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Reaction Strength */}
+                  <div className="space-y-1.5 pt-2 border-t border-gray-750">
+                    <div className="flex justify-between text-xs text-gray-300">
+                      <span className="text-xs font-medium text-white">Reaction Strength:</span>
+                      <span className="font-mono text-indigo-400 font-semibold">
+                        {Math.round((data.visualOptions?.reactivity ?? 1) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.2}
+                      max={2.4}
+                      step={0.05}
+                      value={data.visualOptions?.reactivity ?? 1}
+                      onChange={(e) => updateVisualOptions("reactivity", parseFloat(e.target.value))}
+                      className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                    <p className="text-[11px] text-gray-400">
+                      How hard the elements hit on loud moments. Higher = the bars leap further and
+                      the pulses thump harder.
+                    </p>
+                  </div>
+
+                  {/* Whole-video span */}
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-750">
+                    <div>
+                      <span className="text-xs font-medium text-white block">
+                        Run Through the Entire Video
+                      </span>
+                      <span className="text-[11px] text-gray-400">
+                        Keeps the visualiser on screen from the first frame to the last, even when the
+                        video gets longer
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={data.visualOptions?.spanFullVideo !== false}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        updateVisualOptions("spanFullVideo", on);
+                        if (on) {
+                          setData((prev) => ({
+                            ...prev,
+                            startTime: 0,
+                            duration: Math.max(1, totalDuration),
+                            visualOptions: { ...(prev.visualOptions || {}), spanFullVideo: true },
+                          }));
+                        }
+                      }}
+                      className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
                     />
                   </div>
 
@@ -1179,10 +1513,11 @@ function InsertPropertiesContent({
             <div className="space-y-4">
               <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
                 <label className="text-xs font-semibold text-white block">
-                  Wave Audio Reactivity Source:
+                  🎧 What should it move with?
                 </label>
                 <p className="text-xs text-gray-400">
-                  Choose which audio track directly drives the wave frequency animations:
+                  Pick the track that drives the movement. This applies to the live preview and to
+                  the rendered video, which read the same two audio buses.
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -1197,11 +1532,11 @@ function InsertPropertiesContent({
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-lg">🎙️</span>
-                      <span className="text-xs font-bold text-white">Main Voiceover (Default)</span>
+                      <span className="text-xs font-bold text-white">Moves with the Voiceover</span>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-relaxed">
-                      Connected directly to speech narration. Waves dance when narrator speaks and calm
-                      during pauses.
+                      The visualiser breathes with the narration — it rises on every syllable and
+                      settles in the pauses.
                     </p>
                   </button>
 
@@ -1216,11 +1551,11 @@ function InsertPropertiesContent({
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-lg">🎵</span>
-                      <span className="text-xs font-bold text-white">Background Music Track</span>
+                      <span className="text-xs font-bold text-white">Moves with the Music</span>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-relaxed">
-                      Ideal for music videos and ambient tracks with no voiceover. Rhythmic musical
-                      energy pulses continuously.
+                      Driven by the background track alone: it kicks on the beat and rides the
+                      bass line, for music-led videos.
                     </p>
                   </button>
                 </div>
@@ -1246,17 +1581,593 @@ function InsertPropertiesContent({
             </div>
           )}
 
-          {/* TAB: SOUND CONTROLS (PURE SOUND FX) */}
+          {/* ================= TAB: CTA PLATFORM ================= */}
+          {activeTab === "cta_platform" && isCallToAction && (
+            <div className="space-y-4">
+              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="text-xs font-semibold text-white block">
+                      🌐 Call-to-Action Platform:
+                    </span>
+                    <span className="text-[11px] text-gray-400">
+                      36 ready-made social badges. Pick one to load its wording, brand colours, mark and sound.
+                    </span>
+                  </div>
+                  {activePlatform && (
+                    <span
+                      className="text-[10px] font-bold px-2.5 py-1 rounded-lg self-start sm:self-auto shrink-0"
+                      style={{ background: activePlatform.primaryColor, color: "#fff" }}
+                    >
+                      {activePlatform.name}
+                    </span>
+                  )}
+                </div>
+
+                {/* Group filter + search */}
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCtaGroup("all")}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
+                      ctaGroup === "all"
+                        ? "bg-indigo-600 border-indigo-500 text-white"
+                        : "bg-gray-900 border-gray-700 text-gray-300 hover:bg-gray-800"
+                    }`}
+                  >
+                    All ({CTA_PLATFORMS.length})
+                  </button>
+                  {CTA_GROUPS.map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => setCtaGroup(g.id)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
+                        ctaGroup === g.id
+                          ? "bg-indigo-600 border-indigo-500 text-white"
+                          : "bg-gray-900 border-gray-700 text-gray-300 hover:bg-gray-800"
+                      }`}
+                    >
+                      {g.icon} {g.name}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  type="text"
+                  value={ctaSearch}
+                  onChange={(e) => setCtaSearch(e.target.value)}
+                  placeholder="Search platforms (instagram, spotify, shop...)"
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                />
+
+                {/* Platform grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto pr-1">
+                  {CTA_PLATFORMS.filter(
+                    (pf) =>
+                      (ctaGroup === "all" || pf.group === ctaGroup) &&
+                      (ctaSearch.trim() === "" ||
+                        `${pf.name} ${pf.action} ${pf.primaryText}`
+                          .toLowerCase()
+                          .includes(ctaSearch.trim().toLowerCase()))
+                  ).map((pf) => {
+                    const isActive = data.visualOptions?.platform === pf.id;
+                    return (
+                      <button
+                        key={pf.id}
+                        type="button"
+                        onClick={() => applyPlatform(pf.id)}
+                        className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2 ${
+                          isActive
+                            ? "bg-indigo-950/80 border-indigo-500 ring-1 ring-indigo-400"
+                            : "bg-gray-900 border-gray-700 hover:bg-gray-800 hover:border-indigo-500/50"
+                        }`}
+                      >
+                        <span
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-[13px] shrink-0 shadow-sm"
+                          style={{
+                            background: `linear-gradient(180deg, ${pf.primaryColor}, ${pf.secondaryColor})`,
+                            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 1px 3px rgba(0,0,0,0.5)",
+                          }}
+                        >
+                          {pf.icon}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-[11px] font-semibold text-white truncate">
+                            {pf.name.split(" — ")[0]}
+                          </span>
+                          <span className="block text-[10px] text-gray-400 truncate">{pf.action}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= TAB: CTA TEXT & ICON ================= */}
+          {activeTab === "cta_text" && isCallToAction && (
+            <div className="space-y-4">
+              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <span className="text-xs font-semibold text-white block">✏️ Button Wording:</span>
+
+                <div>
+                  <span className="text-[11px] text-gray-300 block mb-1">Primary Button Text:</span>
+                  <input
+                    type="text"
+                    value={data.content?.primaryText || ""}
+                    onChange={(e) => updateContent("primaryText", e.target.value)}
+                    placeholder="SUBSCRIBE NOW"
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                  />
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {["SUBSCRIBE", "FOLLOW US", "LIKE & SHARE", "WATCH NOW", "SHOP NOW", "LEARN MORE", "JOIN FREE"].map(
+                      (preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => updateContent("primaryText", preset)}
+                          className="px-2 py-0.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 rounded-md text-[10px] text-gray-300"
+                        >
+                          {preset}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-gray-300 block mb-1">Subtext / Offer Line:</span>
+                  <input
+                    type="text"
+                    value={data.content?.secondaryText || ""}
+                    onChange={(e) => updateContent("secondaryText", e.target.value)}
+                    placeholder="Link in bio · New videos every week"
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="bg-gray-900/70 border border-gray-700 rounded-xl p-3 space-y-2">
+                    <div className="flex justify-between text-[11px] text-gray-300">
+                      <span className="font-medium text-white">Text size</span>
+                      <span className="font-mono text-indigo-400">{Math.round((data.visualOptions?.textScale ?? 1) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.7}
+                      max={1.4}
+                      step={0.05}
+                      value={data.visualOptions?.textScale ?? 1}
+                      onChange={(e) => updateVisual({ textScale: parseFloat(e.target.value) })}
+                      className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                  </div>
+                  <div className="bg-gray-900/70 border border-gray-700 rounded-xl p-3 space-y-2">
+                    <div className="flex justify-between text-[11px] text-gray-300">
+                      <span className="font-medium text-white">Brand mark size</span>
+                      <span className="font-mono text-indigo-400">{Math.round((data.visualOptions?.iconScale ?? 1) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.6}
+                      max={1.6}
+                      step={0.05}
+                      value={data.visualOptions?.iconScale ?? 1}
+                      onChange={(e) => updateVisual({ iconScale: parseFloat(e.target.value) })}
+                      className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="text-[11px] text-gray-300">Badge Icon:</span>
+                    <button
+                      type="button"
+                      onClick={() => updateVisual({ customMark: undefined })}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
+                        data.visualOptions?.customMark
+                          ? "bg-gray-900 border-gray-700 text-gray-300 hover:bg-gray-800"
+                          : "bg-indigo-600 border-indigo-400 text-white"
+                      }`}
+                    >
+                      {activePlatform ? `Brand logo (${activePlatform.icon} ${activePlatform.name.split(" — ")[0]})` : "Brand logo"}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {["🔔", "👍", "✨", "🛍️", "🔗", "📱", "💬", "🔖", "⭐", "🚀", "🔥", "🎁", "👇", "❤️", "▶️", "🎧", "☕", "📅"].map(
+                      (ico) => (
+                        <button
+                          key={ico}
+                          type="button"
+                          onClick={() =>
+                            updateVisual({
+                              // tap the same icon again to go back to the brand logo
+                              customMark: data.visualOptions?.customMark === ico ? undefined : ico,
+                            })
+                          }
+                          className={`w-8 h-8 rounded-lg text-sm flex items-center justify-center border transition-all ${
+                            data.visualOptions?.customMark === ico
+                              ? "bg-indigo-600 border-indigo-400 scale-110 shadow"
+                              : "bg-gray-900 border-gray-700 hover:bg-gray-800"
+                          }`}
+                        >
+                          {ico}
+                        </button>
+                      )
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-1.5">
+                    {data.visualOptions?.customMark
+                      ? "Showing your chosen icon — tap it again (or the Brand logo chip) to go back to the platform logo."
+                      : "Tap an icon to use it instead of the platform logo."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= TAB: CTA COLOURS & STYLE ================= */}
+          {activeTab === "cta_style" && isCallToAction && (
+            <div className="space-y-4">
+              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <span className="text-xs font-semibold text-white block">🎨 Badge Shape:</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {CTA_SHAPES.map((sh) => {
+                    const isActive = (data.visualOptions?.ctaShape || "pill") === sh.id;
+                    return (
+                      <button
+                        key={sh.id}
+                        type="button"
+                        onClick={() => updateVisual({ ctaShape: sh.id })}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          isActive
+                            ? "bg-indigo-950/80 border-indigo-500 ring-1 ring-indigo-400"
+                            : "bg-gray-900 border-gray-700 hover:bg-gray-800"
+                        }`}
+                      >
+                        <div className="text-base mb-0.5">{sh.icon}</div>
+                        <div className="text-[11px] font-semibold text-white">{sh.name}</div>
+                        <div className="text-[9px] text-gray-400 leading-tight">{sh.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <span className="text-xs font-semibold text-white block pt-2 border-t border-gray-700/80">
+                  Badge Finish:
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  {CTA_STYLES.map((st) => {
+                    const isActive = (data.visualOptions?.ctaStyle || "gradient") === st.id;
+                    return (
+                      <button
+                        key={st.id}
+                        type="button"
+                        onClick={() => updateVisual({ ctaStyle: st.id })}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          isActive
+                            ? "bg-indigo-950/80 border-indigo-500 ring-1 ring-indigo-400"
+                            : "bg-gray-900 border-gray-700 hover:bg-gray-800"
+                        }`}
+                      >
+                        <div className="text-[11px] font-semibold text-white">{st.name}</div>
+                        <div className="text-[9px] text-gray-400 leading-tight">{st.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <span className="text-xs font-semibold text-white block">🎨 Brand Colour Themes:</span>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {COLOR_PRESETS.map((cp) => {
+                    const isActive =
+                      (data.visualOptions?.primaryColor || "").toLowerCase() === cp.c1.toLowerCase();
+                    return (
+                      <button
+                        key={cp.name}
+                        type="button"
+                        onClick={() => updateVisual({ primaryColor: cp.c1, secondaryColor: cp.c2 })}
+                        className={`p-2 rounded-xl border transition-all ${
+                          isActive ? "border-indigo-400 ring-1 ring-indigo-400" : "border-gray-700 hover:border-gray-500"
+                        }`}
+                        title={cp.name}
+                      >
+                        <div
+                          className="h-6 w-full rounded-md mb-1 shadow-sm"
+                          style={{ background: `linear-gradient(180deg, ${cp.c1}, ${cp.c2})` }}
+                        />
+                        <div className="text-[9px] text-gray-300 truncate">{cp.name}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 pt-2 border-t border-gray-700/80">
+                  <div>
+                    <span className="text-[10px] text-gray-400 block mb-1">Top colour</span>
+                    <input
+                      type="color"
+                      value={data.visualOptions?.primaryColor || "#6366F1"}
+                      onChange={(e) => updateVisual({ primaryColor: e.target.value })}
+                      className="w-full h-8 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-gray-400 block mb-1">Bottom colour</span>
+                    <input
+                      type="color"
+                      value={data.visualOptions?.secondaryColor || "#4F46E5"}
+                      onChange={(e) => updateVisual({ secondaryColor: e.target.value })}
+                      className="w-full h-8 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-gray-400 block mb-1">Text colour</span>
+                    <input
+                      type="color"
+                      value={data.visualOptions?.textColor || "#FFFFFF"}
+                      onChange={(e) => updateVisual({ textColor: e.target.value })}
+                      className="w-full h-8 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-4">
+                <span className="text-xs font-semibold text-white block">🪄 Raised 2D Badge Look:</span>
+
+                <div>
+                  <div className="flex justify-between text-[11px] text-gray-300 mb-1.5">
+                    <span className="font-medium text-white">Raised height (lift off the video)</span>
+                    <span className="font-mono text-indigo-400">
+                      {Math.round((data.visualOptions?.elevation ?? 0.45) * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={data.visualOptions?.elevation ?? 0.45}
+                    onChange={(e) => updateVisual({ elevation: parseFloat(e.target.value) })}
+                    className="w-full accent-indigo-500 cursor-pointer"
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    Adds a soft plate shadow with a light top edge and a darker bottom edge — a clean, slightly
+                    raised 2D look.
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-[11px] text-gray-300 mb-1.5">
+                    <span className="font-medium text-white">Outline thickness</span>
+                    <span className="font-mono text-indigo-400">
+                      {(data.visualOptions?.borderWidth ?? 2.5).toFixed(1)} px
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={6}
+                    step={0.5}
+                    value={data.visualOptions?.borderWidth ?? 2.5}
+                    onChange={(e) => updateVisual({ borderWidth: parseFloat(e.target.value) })}
+                    className="w-full accent-indigo-500 cursor-pointer"
+                  />
+                </div>
+
+                <label className="flex items-center justify-between gap-3 pt-2 border-t border-gray-700/80 cursor-pointer">
+                  <span className="text-[11px] text-gray-300">
+                    <span className="block font-semibold text-white">Glow behind the badge</span>
+                    <span className="block text-[10px] text-gray-500">
+                      Soft brand-coloured halo to separate it from busy footage
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={data.visualOptions?.has3DLook ?? true}
+                    onChange={(e) => updateVisual({ has3DLook: e.target.checked })}
+                    className="w-4 h-4 accent-indigo-500 rounded shrink-0"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* ================= TAB: CTA SIZE & POSITION ================= */}
+          {activeTab === "cta_layout" && isCallToAction && (
+            <div className="space-y-4">
+              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-4">
+                <div>
+                  <div className="flex justify-between text-[11px] text-gray-300 mb-1.5">
+                    <span className="font-semibold text-white">Badge Size</span>
+                    <span className="font-mono text-indigo-400">{Math.round((data.size ?? 1) * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.4}
+                    max={2.4}
+                    step={0.05}
+                    value={data.size ?? 1}
+                    onChange={(e) => setData({ ...data, size: parseFloat(e.target.value) })}
+                    className="w-full accent-indigo-500 cursor-pointer"
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    You can also drag the corner handle of the selected badge directly on the video preview.
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-[11px] text-gray-300 mb-1.5">
+                    <span className="font-medium text-white">Badge width</span>
+                    <span className="font-mono text-indigo-400">
+                      {Math.round((data.visualOptions?.badgeScale ?? 1) * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.6}
+                    max={1.8}
+                    step={0.05}
+                    value={data.visualOptions?.badgeScale ?? 1}
+                    onChange={(e) => updateVisual({ badgeScale: parseFloat(e.target.value) })}
+                    className="w-full accent-indigo-500 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-[11px] text-gray-300 mb-1.5">
+                    <span className="font-medium text-white">Rotation</span>
+                    <span className="font-mono text-indigo-400">{data.visualOptions?.rotation ?? 0}°</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={-25}
+                    max={25}
+                    step={1}
+                    value={data.visualOptions?.rotation ?? 0}
+                    onChange={(e) => updateVisual({ rotation: parseFloat(e.target.value) })}
+                    className="w-full accent-indigo-500 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-[11px] text-gray-300 mb-1.5">
+                    <span className="font-medium text-white">Opacity</span>
+                    <span className="font-mono text-indigo-400">
+                      {Math.round((data.opacity ?? 1) * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    value={data.opacity ?? 1}
+                    onChange={(e) => setData({ ...data, opacity: parseFloat(e.target.value) })}
+                    className="w-full accent-indigo-500 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <span className="text-xs font-semibold text-white block">📍 Screen Position:</span>
+                <div className="grid grid-cols-3 gap-2 max-w-xs">
+                  {CTA_POSITIONS.map((pp) => {
+                    const isActive = data.presetPosition === pp.id;
+                    return (
+                      <button
+                        key={pp.id}
+                        type="button"
+                        onClick={() => {
+                          const coords: Record<string, { x: number; y: number }> = {
+                            "top-left": { x: 0.22, y: 0.15 },
+                            top: { x: 0.5, y: 0.13 },
+                            "top-right": { x: 0.78, y: 0.15 },
+                            left: { x: 0.24, y: 0.5 },
+                            center: { x: 0.5, y: 0.5 },
+                            right: { x: 0.76, y: 0.5 },
+                            "bottom-left": { x: 0.22, y: 0.85 },
+                            bottom: { x: 0.5, y: 0.85 },
+                            "bottom-right": { x: 0.78, y: 0.85 },
+                          };
+                          setData({
+                            ...data,
+                            presetPosition: pp.id,
+                            position: coords[pp.id],
+                          });
+                        }}
+                        className={`h-9 rounded-lg border text-[10px] font-semibold transition-all ${
+                          isActive
+                            ? "bg-indigo-600 border-indigo-400 text-white"
+                            : "bg-gray-900 border-gray-700 text-gray-300 hover:bg-gray-800"
+                        }`}
+                        title={pp.label}
+                      >
+                        <span className="leading-tight">{pp.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                      <span>Horizontal</span>
+                      <span className="font-mono text-indigo-400">{Math.round((data.position?.x ?? 0.5) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.05}
+                      max={0.95}
+                      step={0.01}
+                      value={data.position?.x ?? 0.5}
+                      onChange={(e) =>
+                        setData({
+                          ...data,
+                          presetPosition: undefined,
+                          position: { x: parseFloat(e.target.value), y: data.position?.y ?? 0.5 },
+                        })
+                      }
+                      className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                      <span>Vertical</span>
+                      <span className="font-mono text-indigo-400">{Math.round((data.position?.y ?? 0.85) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.05}
+                      max={0.95}
+                      step={0.01}
+                      value={data.position?.y ?? 0.85}
+                      onChange={(e) =>
+                        setData({
+                          ...data,
+                          presetPosition: undefined,
+                          position: { x: data.position?.x ?? 0.5, y: parseFloat(e.target.value) },
+                        })
+                      }
+                      className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onClose()}
+                  className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors"
+                >
+                  🖱️ Move &amp; resize it on the video preview
+                </button>
+                <p className="text-[10px] text-gray-500">
+                  Closes this panel, keeps the badge selected — then drag the badge to move it and drag its
+                  corner handle to resize. Position snaps to the nearest safe-area margin.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: SOUND CONTROLS (MUSIC & SOUND FX) */}
           {activeTab === "audio" && isSoundEffect && (
             <div className="space-y-4">
               <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <span className="text-xs font-semibold text-white block">
-                      Sound Volume:
+                      {isBackgroundMusic ? "Music Volume:" : "Sound Volume:"}
                     </span>
                     <span className="text-[11px] text-gray-400">
-                      Adjust sound effect audio gain
+                      {isBackgroundMusic
+                        ? "Adjust background music gain under the voiceover"
+                        : "Adjust sound effect audio gain"}
                     </span>
                   </div>
                   <span className="font-mono text-indigo-400 font-bold">
@@ -1273,16 +2184,62 @@ function InsertPropertiesContent({
                   className="w-full accent-indigo-500 cursor-pointer"
                 />
 
+                {isBackgroundMusic && (
+                  <div
+                    className={`rounded-xl border p-3 transition-colors ${
+                      data.audioSettings?.loop
+                        ? "bg-indigo-950/50 border-indigo-500/70"
+                        : "bg-gray-900/60 border-gray-700"
+                    }`}
+                  >
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={data.audioSettings?.loop ?? false}
+                        onChange={(e) => {
+                          const on_ = e.target.checked;
+                          // looped music fills the rest of the video; un-looped music
+                          // just plays once for the clip length
+                          setData((prev) => ({
+                            ...prev,
+                            scope: on_ ? "from_here" : "this_scene",
+                            audioSettings: { ...prev.audioSettings, loop: on_ },
+                          }));
+                        }}
+                        className="mt-0.5 w-4 h-4 accent-indigo-500 rounded"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-white block">
+                          🔁 Loop to repeat through the complete video
+                        </span>
+                        <span className="text-[11px] text-gray-400 block leading-relaxed">
+                          {data.audioSettings?.loop
+                            ? "The track repeats automatically from where it is placed until the end of the video."
+                            : "The track plays once only, for the clip length below."}
+                        </span>
+                      </div>
+                    </label>
+
+                    <p className="mt-2 pt-2 border-t border-gray-700/70 text-[11px] font-mono text-indigo-300">
+                      {data.audioSettings?.loop
+                        ? `▶ plays ${formatTime(data.startTime)} → end of video (${formatTime(totalDuration)}) on repeat`
+                        : `▶ plays once at ${formatTime(data.startTime)} for ${Math.round(data.duration)}s`}
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between pt-2 border-t border-gray-750">
-                  <label className="text-xs text-gray-300 flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={data.audioSettings?.loop ?? false}
-                      onChange={(e) => updateAudioSettings("loop", e.target.checked)}
-                      className="w-4 h-4 accent-indigo-500 rounded"
-                    />
-                    <span>Loop Audio continuously</span>
-                  </label>
+                  {!isBackgroundMusic && (
+                    <label className="text-xs text-gray-300 flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={data.audioSettings?.loop ?? false}
+                        onChange={(e) => updateAudioSettings("loop", e.target.checked)}
+                        className="w-4 h-4 accent-indigo-500 rounded"
+                      />
+                      <span>Loop Audio continuously</span>
+                    </label>
+                  )}
 
                   <label className="text-xs text-gray-300 flex items-center gap-2 cursor-pointer">
                     <input
@@ -1922,7 +2879,7 @@ function InsertPropertiesContent({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-gray-800 flex items-center justify-between bg-gray-950/70">
+        <div className="shrink-0 px-6 py-4 border-t border-gray-800 flex items-center justify-between bg-gray-950/70">
           <button
             type="button"
             onClick={() => {
@@ -1933,11 +2890,18 @@ function InsertPropertiesContent({
           >
             🗑️ Delete Element
           </button>
+          <span className="hidden sm:inline text-[10px] text-emerald-400/80 font-medium">
+            ● Changes show on the video preview as you edit
+          </span>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => {
+                // edits were applied live — put the element back the way it was
+                if (originalRef.current) onUpdate(originalRef.current);
+                onClose();
+              }}
               className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-medium transition-colors"
             >
               Cancel

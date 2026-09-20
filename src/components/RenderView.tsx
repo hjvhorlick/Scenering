@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, EditorStep, ResolutionType, PacingModeType } from "../types";
+import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { createProjectZip } from "../lib/zip-download";
 import {
@@ -8,9 +9,12 @@ import {
   renderTimelineInsert,
 } from "../lib/render-effects";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
+import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
+import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
 import { getCanvasFilterString } from "../data/filters-library";
+import { buildInsertAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
 export interface RenderSettings {
   format: "mp4" | "webm";
@@ -44,6 +48,37 @@ interface RenderViewProps {
   renderedBlob?: Blob | null;
   renderedUrl?: string | null;
   onRenderSuccess?: (blob: Blob, url: string) => void;
+  /* Setup choices — shown read-only on this screen */
+  sceneDuration?: number;
+  motionStyle?: string;
+  onOpenSetup?: () => void;
+  onNavigatePhase?: (phase: ProjectPhase) => void;
+}
+
+/** Small read-only row used by the "Your choices" panel */
+function SummaryRow({
+  icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-[11px] text-gray-400 flex items-center gap-1.5 shrink-0">
+        <span>{icon}</span>
+        {label}
+      </span>
+      <span className="text-[11px] font-medium text-white text-right break-words min-w-0">
+        {value}
+        {hint && <span className="block text-[10px] text-gray-500 font-normal">{hint}</span>}
+      </span>
+    </div>
+  );
 }
 
 export function generateSrtSubtitles(scenes: Scene[]): string {
@@ -85,6 +120,10 @@ export default function RenderView({
   renderedBlob: propRenderedBlob,
   renderedUrl: propRenderedUrl,
   onRenderSuccess,
+  sceneDuration = 20,
+  motionStyle = "dynamic",
+  onOpenSetup,
+  onNavigatePhase,
 }: RenderViewProps) {
   const scenesWithImages = scenes.filter((s) => s.image_url);
   const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
@@ -99,12 +138,23 @@ export default function RenderView({
     includeWatermark: true,
     watermarkOpacity: 1.0,
     watermarkScale: 1.0,
-    includeSubtitles: captionsConfig?.enabled ?? true,
+    includeSubtitles: captionsConfig?.enabled ?? false,
     subtitleStyle: captionsConfig?.mode ?? "karaoke",
-    backgroundMusic: "lofi",
-    musicVolume: 0.16,
+    // Music is added in Video Studio as timeline inserts, so this page stays free of settings
+    backgroundMusic: "none",
+    musicVolume: 0.3,
     normalizeAudio: true,
   });
+
+  // Keep the read-only summary and the render in sync with the setup choices
+  useEffect(() => {
+    setSettings((prev) => ({
+      ...prev,
+      resolution: propResolution || prev.resolution,
+      includeSubtitles: captionsConfig?.enabled ?? prev.includeSubtitles,
+      subtitleStyle: captionsConfig?.mode ?? prev.subtitleStyle,
+    }));
+  }, [propResolution, captionsConfig?.enabled, captionsConfig?.mode]);
 
   // Render execution state
   const [isRendering, setIsRendering] = useState(false);
@@ -341,6 +391,9 @@ export default function RenderView({
       return;
     }
 
+    // Make sure the caption faces are ready before the first frame is captured
+    await loadCaptionFonts();
+
     if (typeof MediaRecorder === "undefined") {
       setRenderError("Your browser does not support in-browser video recording.");
       setIsRendering(false);
@@ -573,9 +626,22 @@ export default function RenderView({
       let lastProgressVal = 0.35;
 
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 64;
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.72;
+      analyser.minDecibels = -92;
+      analyser.maxDecibels = -12;
       analyser.connect(dest);
-      // NOTE: Quiet rendering - deliberately DO NOT connect analyser to audioCtx.destination!
+
+      // Music bus: the background track / SFX are analysed separately from the
+      // voiceover so "moves with the music" visualisers are genuinely driven by
+      // the soundtrack in the rendered file, exactly like in the preview.
+      const musicAnalyser = audioCtx.createAnalyser();
+      musicAnalyser.fftSize = 512;
+      musicAnalyser.smoothingTimeConstant = 0.72;
+      musicAnalyser.minDecibels = -92;
+      musicAnalyser.maxDecibels = -12;
+      musicAnalyser.connect(dest);
+      // NOTE: Quiet rendering - deliberately DO NOT connect analysers to audioCtx.destination!
 
       const playSceneAudio = (idx: number) => {
         if (activeAudioSource) {
@@ -611,6 +677,23 @@ export default function RenderView({
 
       const estimatedTotalDuration = Math.max(1, introDuration + scriptTotalDuration + outroDuration);
 
+      // Mix timeline insert audio (BGM, SFX, CTA jingles, intro/outro sounds) into the render
+      let insertMixer: InsertAudioMixer | null = null;
+      try {
+        const insertPlans = buildInsertAudioPlan(inserts, estimatedTotalDuration);
+        if (insertPlans.length > 0) {
+          insertMixer = new InsertAudioMixer(audioCtx, musicAnalyser);
+          const loaded = await insertMixer.load(insertPlans);
+          if (loaded > 0) {
+            insertMixer.startFrom(0);
+            setRenderStage(`3/4: Audio ready (${loaded} track(s)) — rendering...`);
+          }
+        }
+      } catch (err) {
+        console.warn("Insert audio render setup warning:", err);
+      }
+      const renderStartTime = performance.now();
+
       let renderPhase: "intro" | "scenes" | "outro" = introInsert ? "intro" : "scenes";
       let phaseStartTime = performance.now();
 
@@ -628,6 +711,9 @@ export default function RenderView({
           if (isLoopFinished) return;
           isLoopFinished = true;
           if (backgroundTimerId) clearTimeout(backgroundTimerId);
+          try {
+            insertMixer?.stop();
+          } catch {}
           try {
             if (recorder && recorder.state !== "inactive") {
               recorder.stop();
@@ -663,6 +749,11 @@ export default function RenderView({
 
           try {
             const now = performance.now();
+
+            // Drive insert audio (BGM / SFX / CTA / intro-outro sounds)
+            try {
+              insertMixer?.tick(Math.max(0, (now - renderStartTime) / 1000));
+            } catch {}
 
             // ==========================================
             // PHASE 1: INTRO SEGMENT (Full screen insert, NO captions, NO speech voice)
@@ -994,18 +1085,29 @@ export default function RenderView({
               try {
                 let audioLevel = 0.4;
                 let freqData: Uint8Array | null = null;
+                let audioFrame: AudioFrame = EMPTY_FRAME;
                 if (analyser) {
-                  const data = new Uint8Array(analyser.frequencyBinCount);
-                  analyser.getByteFrequencyData(data);
-                  let sum = 0;
-                  for (let i = 0; i < data.length; i++) sum += data[i];
-                  audioLevel = sum / (data.length * 255);
-                  freqData = data;
+                  const readBus = (node: AnalyserNode | null) => {
+                    if (!node) return makeBus(0, null, null);
+                    const freq = new Uint8Array(node.frequencyBinCount);
+                    node.getByteFrequencyData(freq);
+                    const wave = new Uint8Array(node.fftSize);
+                    node.getByteTimeDomainData(wave);
+                    let sum = 0;
+                    for (let i = 0; i < freq.length; i++) sum += freq[i];
+                    return makeBus(sum / (freq.length * 255), freq, wave);
+                  };
+                  const voiceBus = readBus(analyser);
+                  const musicBus = readBus(musicAnalyser);
+                  audioFrame = { voice: voiceBus, music: musicBus };
+                  const loudest = voiceBus.level >= musicBus.level ? voiceBus : musicBus;
+                  audioLevel = Math.max(0.15, loudest.level);
+                  freqData = (loudest.freq as Uint8Array) || null;
                 }
 
                 inserts.forEach((insert) => {
                   try {
-                    renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData);
+                    renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData, audioFrame);
                   } catch (insErr) {
                     console.warn("Insert notice:", insErr);
                   }
@@ -1202,6 +1304,47 @@ export default function RenderView({
 
   const { width: renderW, height: renderH, label: resLabel, aspectClass } = getDimensions(settings.resolution);
 
+  const getPhaseStep = (phase: ProjectPhase): EditorStep =>
+    (PROJECT_PHASES.find((p) => p.id === phase)?.editorStep || "scenes") as EditorStep;
+
+  // ---- Read-only summary values (the results of the setup choices) ----
+  const MOTION_LABELS: Record<string, string> = {
+    dynamic: "Dynamic Variety",
+    ken_burns: "Gentle Ken Burns",
+    zoom_in: "Cinematic Zoom In",
+    zoom_out: "Dramatic Zoom Out",
+    pan: "Smooth Camera Pan",
+    shake: "Handheld Shake",
+    none: "Static (no motion)",
+  };
+  const voiceDisplayName =
+    availableVoices.find((v) => v.id === selectedVoice)?.name || selectedVoice || "Studio AI Voice";
+
+  const insertHasSound = (ins: TimelineInsert) =>
+    Boolean(ins.audioSettings?.soundUrl || ins.content?.soundUrl);
+
+  const musicInserts = inserts.filter(
+    (ins) => ins.category === "background_music" && insertHasSound(ins)
+  );
+  const musicSummary =
+    musicInserts.length === 0
+      ? {
+          value: "None added",
+          hint: "Add music in Video Studio → Background Music",
+        }
+      : {
+          value: musicInserts.map((i) => i.title || i.audioSettings?.soundName || "Music track").join(", "),
+          hint:
+            musicInserts.length === 1
+              ? `${Math.round((musicInserts[0].audioSettings?.volume ?? 0.5) * 100)}% volume${
+                  musicInserts[0].audioSettings?.loop ? " · loops to the end" : ""
+                }`
+              : `${musicInserts.length} tracks`,
+        };
+  const soundEffectCount = inserts.filter(
+    (ins) => ins.category === "sound_effects" && insertHasSound(ins)
+  ).length;
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12 animate-fade-in">
       {/* Top Banner & Summary */}
@@ -1221,358 +1364,125 @@ export default function RenderView({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                if (onBack) onBack();
-                else if (onNavigateToStep) onNavigateToStep("studio");
-              }}
-              className="px-3.5 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-200 transition-colors flex items-center gap-1.5 font-medium"
-            >
-              <span>←</span> Timeline & Studio
-            </button>
-            <button
-              onClick={() => {
-                if (onNavigateToStep) onNavigateToStep("scenes");
-                else if (onBack) onBack();
-              }}
-              className="px-3.5 py-1.5 bg-gray-750 hover:bg-gray-700 border border-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors flex items-center gap-1.5"
-            >
-              <span>📝</span> Scene Editor
-            </button>
-          </div>
+        </div>
+
+        {/* Single Previous control for the final phase (nothing here can be changed) */}
+        <div className="mt-4">
+          <StepNav
+            current="render"
+            onNavigate={(phase) => {
+              if (onNavigatePhase) onNavigatePhase(phase);
+              else if (phase === "studio" && onBack) onBack();
+              else if (onNavigateToStep) onNavigateToStep(getPhaseStep(phase));
+            }}
+            note="read-only results — edit in earlier phases"
+          />
         </div>
       </div>
 
-      {/* Main Grid: Options on Left, Render Engine / Preview on Right */}
+      {/* Main Grid: read-only summary on the left, render engine / preview on the right */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Final Options */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 space-y-4">
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2 border-b border-gray-700 pb-2">
-              <span>⚙️</span> Video Format & Resolution
-            </h3>
-
-            {/* Resolution Selector */}
-            <div className="space-y-1.5">
-              <label className="text-xs text-gray-300 font-medium block">
-                Target Resolution:
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: "720p", name: "720p HD", note: "Fastest render • lightweight" },
-                  { id: "1080p", name: "1080p Full HD", note: "Standard • crisp quality" },
-                  { id: "2k", name: "2K QHD", note: "High definition • pro grade" },
-                  { id: "4k", name: "4K UHD", note: "Maximum ultra detail" },
-                ].map((r) => {
-                  const dims = getDimensions(r.id as any);
-                  return (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => setSettings((s) => ({ ...s, resolution: r.id as any }))}
-                      className={`p-2.5 rounded-lg border text-left transition-all ${
-                        settings.resolution === r.id
-                          ? "bg-indigo-950/80 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-500"
-                          : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
-                      }`}
-                    >
-                      <div className="text-xs font-semibold">{r.name}</div>
-                      <div className="text-[10px] text-gray-400 font-mono mt-0.5">{dims.width} × {dims.height}</div>
-                      <div className="text-[9px] text-gray-500 mt-0.5">{r.note}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Container Format & Framerate */}
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <div>
-                <label className="text-xs text-gray-300 block mb-1 font-medium">
-                  Format:
-                </label>
-                <select
-                  value={settings.format}
-                  onChange={(e) => setSettings((s) => ({ ...s, format: e.target.value as any }))}
-                  className="w-full bg-gray-700 text-white text-xs rounded-lg px-2.5 py-2 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="webm">WebM (VP9/Opus - Best Quality)</option>
-                  <option value="mp4">MP4 Video Container</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-300 block mb-1 font-medium">
-                  Framerate:
-                </label>
-                <select
-                  value={settings.fps}
-                  onChange={(e) => setSettings((s) => ({ ...s, fps: Number(e.target.value) as any }))}
-                  className="w-full bg-gray-700 text-white text-xs rounded-lg px-2.5 py-2 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value={30}>30 FPS (Standard)</option>
-                  <option value={60}>60 FPS (Ultra Smooth)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Bitrate / Quality */}
-            <div>
-              <label className="text-xs text-gray-300 block mb-1 font-medium">
-                Encoding Quality:
-              </label>
-              <div className="flex gap-2">
-                {[
-                  { id: "standard", name: "Standard (5 Mbps)" },
-                  { id: "high", name: "High (10 Mbps)" },
-                  { id: "ultra", name: "Ultra (16 Mbps)" },
-                ].map((q) => (
-                  <button
-                    key={q.id}
-                    type="button"
-                    onClick={() => setSettings((s) => ({ ...s, quality: q.id as any }))}
-                    className={`flex-1 py-1.5 px-2 rounded-lg border text-center text-xs transition-colors ${
-                      settings.quality === q.id
-                        ? "bg-indigo-600 border-indigo-500 text-white font-medium"
-                        : "bg-gray-700/60 border-gray-600 text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    {q.name.split(" ")[0]}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Branding & Watermarks Section */}
+        {/* Left Column: READ-ONLY summary of the choices made on the Project Setup screen */}
+        <div className="order-2 lg:order-1 lg:col-span-4 space-y-4">
           <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-white flex items-center justify-between border-b border-gray-700 pb-2">
-              <span className="flex items-center gap-2">
-                <span>🛡️</span> Branding & Watermarks
+            <div className="flex items-center justify-between border-b border-gray-700 pb-2 gap-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <span>📋</span> Your Choices
+              </h3>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-900 border border-gray-700 text-gray-400 font-semibold shrink-0">
+                Read-only
               </span>
-              <span className="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700/50 text-[10px] font-bold">
-                Permanent App Watermark
-              </span>
-            </h3>
+            </div>
 
-            {/* Official Watermark Display */}
-            <div className="bg-gray-900/90 rounded-lg p-3 border border-gray-700/80 flex items-center justify-between">
-              <div>
-                <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                  <span>🔒</span> Scenering Official Watermark (Top-Left)
-                </div>
-                <div className="text-[10px] text-gray-400 mt-0.5 max-w-xs">
-                  Permanently embedded on all renders. Paid options to remove the watermark will be available in future releases.
-                </div>
-              </div>
-              <img
-                src="/scenering-logo.png"
-                alt="Scenering"
-                className="h-8 w-auto object-contain shrink-0 filter drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]"
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              These are the results of your project setup. This screen only shows and renders them — nothing
+              here can change your video.
+            </p>
+
+            <dl className="space-y-2.5 pt-1 border-t border-gray-700/70">
+              <SummaryRow icon="🏷️" label="Project" value={project?.title || "Untitled Video"} />
+              <SummaryRow
+                icon="🎞️"
+                label="Story"
+                value={`${scenesWithImages.length} scene${scenesWithImages.length === 1 ? "" : "s"} · ~${Math.round(totalDuration)}s`}
+                hint={`${sceneDuration}s target per scene`}
               />
-            </div>
+              <SummaryRow
+                icon="📐"
+                label="Canvas"
+                value={aspectRatio}
+                hint={aspectRatio === "16:9" ? "Landscape" : aspectRatio === "9:16" ? "Vertical" : aspectRatio === "1:1" ? "Square" : "Classic"}
+              />
+              <SummaryRow
+                icon="📺"
+                label="Output"
+                value={resLabel}
+                hint={`${settings.format.toUpperCase()} · ${settings.fps} fps · ${settings.quality} quality`}
+              />
+              <SummaryRow
+                icon="🎥"
+                label="Camera motion"
+                value={MOTION_LABELS[motionStyle] || motionStyle}
+              />
+              <SummaryRow
+                icon="🎙️"
+                label="Voiceover"
+                value={voiceDisplayName}
+                hint={selectedVoice?.startsWith("browser:") ? "Browser voice" : "Neural voice"}
+              />
+              <SummaryRow
+                icon="💬"
+                label="Captions"
+                value={settings.includeSubtitles ? "Burned in" : "Off"}
+                hint={
+                  settings.includeSubtitles
+                    ? `${(captionsConfig?.mode || settings.subtitleStyle) === "karaoke" ? "Karaoke word-pop" : "Normal"} · ${captionsConfig?.position || "bottom"}`
+                    : "No subtitles in the video"
+                }
+              />
+              <SummaryRow
+                icon="🎵"
+                label="Background music"
+                value={musicSummary.value}
+                hint={musicSummary.hint}
+              />
+              <SummaryRow
+                icon="🔊"
+                label="Sound effects"
+                value={`${soundEffectCount} placed`}
+                hint={soundEffectCount > 0 ? "Timeline inserts" : "None added in Studio"}
+              />
+              <SummaryRow icon="🛡️" label="Scenering watermark" value="On (top-left)" />
+              <SummaryRow
+                icon="🏷️"
+                label="Brand logo"
+                value={customerLogo?.enabled && customerLogo?.url ? "Custom logo on" : "Not set"}
+                hint={customerLogo?.enabled && customerLogo?.url ? "Top-right corner" : "Upload in Video Studio"}
+              />
+            </dl>
 
-            {/* Customer Logo Display */}
-            <div className="bg-gray-900/90 rounded-lg p-3 border border-gray-700/80 flex items-center justify-between">
-              <div>
-                <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                  <span>🏷️</span> Customer Brand Logo (Top-Right)
-                </div>
-                <div className="text-[10px] text-gray-400 mt-0.5 max-w-xs">
-                  {customerLogo?.enabled && customerLogo?.url
-                    ? "Custom logo enabled & rendered in top-right corner."
-                    : "No custom brand logo configured. You can upload one in Video Studio."}
-                </div>
-              </div>
-              {customerLogo?.enabled && customerLogo?.url ? (
-                <img
-                  src={customerLogo.url}
-                  alt="Customer Logo"
-                  className="h-7 w-auto object-contain shrink-0 drop-shadow"
-                />
-              ) : (
-                <span className="text-[10px] text-gray-500 italic">None set</span>
-              )}
-            </div>
+            {onOpenSetup && (
+              <button
+                type="button"
+                onClick={onOpenSetup}
+                className="w-full mt-1 py-2 px-3 bg-gray-900 hover:bg-gray-750 border border-gray-700 rounded-xl text-[11px] font-semibold text-gray-200 hover:text-white transition-all flex items-center justify-center gap-1.5"
+              >
+                <span>⚙️</span>
+                <span>Change these in Project Setup</span>
+              </button>
+            )}
           </div>
 
-          {/* Subtitles & Audio Enhancement */}
-          <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-white flex items-center justify-between border-b border-gray-700 pb-2">
-              <span className="flex items-center gap-2">
-                <span>💬</span> Captions & Subtitles
-              </span>
-              <span className="text-[10px] text-indigo-400 font-medium">Burn-in on Video</span>
-            </h3>
-
-            {/* Subtitles Toggle */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-300 font-medium">
-                  Burn-In Subtitles on Video
-                </span>
-                <input
-                  type="checkbox"
-                  checked={settings.includeSubtitles}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setSettings((s) => ({ ...s, includeSubtitles: checked }));
-                    if (onUpdateCaptionsConfig && captionsConfig) {
-                      onUpdateCaptionsConfig({ ...captionsConfig, enabled: checked });
-                    }
-                  }}
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
-                />
-              </div>
-
-              {settings.includeSubtitles && (
-                <div className="space-y-3 pt-1">
-                  {/* Mode: Karaoke vs Normal */}
-                  <div>
-                    <label className="text-[11px] text-gray-300 block mb-1.5 font-medium">
-                      Caption Mode:
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSettings((s) => ({ ...s, subtitleStyle: "karaoke" }));
-                          if (onUpdateCaptionsConfig && captionsConfig) {
-                            onUpdateCaptionsConfig({ ...captionsConfig, mode: "karaoke" });
-                          }
-                        }}
-                        className={`p-2 rounded-lg border text-left text-xs transition-colors flex items-center gap-2 ${
-                          (captionsConfig?.mode || settings.subtitleStyle) === "karaoke"
-                            ? "bg-indigo-950 border-indigo-500 text-indigo-200 shadow-sm"
-                            : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
-                        }`}
-                      >
-                        <span className="text-base">🎤</span>
-                        <div>
-                          <div className="font-semibold text-[11px]">Karaoke</div>
-                          <div className="text-[9px] text-gray-400">Active word highlight</div>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSettings((s) => ({ ...s, subtitleStyle: "normal" }));
-                          if (onUpdateCaptionsConfig && captionsConfig) {
-                            onUpdateCaptionsConfig({ ...captionsConfig, mode: "normal" });
-                          }
-                        }}
-                        className={`p-2 rounded-lg border text-left text-xs transition-colors flex items-center gap-2 ${
-                          (captionsConfig?.mode || settings.subtitleStyle) === "normal"
-                            ? "bg-indigo-950 border-indigo-500 text-indigo-200 shadow-sm"
-                            : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
-                        }`}
-                      >
-                        <span className="text-base">📝</span>
-                        <div>
-                          <div className="font-semibold text-[11px]">Normal</div>
-                          <div className="text-[9px] text-gray-400">Standard full subtitles</div>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Background Style: Blocked vs Transparent */}
-                  <div>
-                    <label className="text-[11px] text-gray-300 block mb-1.5 font-medium">
-                      Background Style:
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onUpdateCaptionsConfig && captionsConfig) {
-                            onUpdateCaptionsConfig({ ...captionsConfig, backgroundStyle: "blocked" });
-                          }
-                        }}
-                        className={`p-2 rounded-lg border text-left text-xs transition-colors flex items-center gap-2 ${
-                          (captionsConfig?.backgroundStyle ?? "blocked") === "blocked"
-                            ? "bg-indigo-950 border-indigo-500 text-indigo-200 shadow-sm"
-                            : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
-                        }`}
-                      >
-                        <span className="text-base">⬛</span>
-                        <div>
-                          <div className="font-semibold text-[11px]">Blocked</div>
-                          <div className="text-[9px] text-gray-400">High contrast backing</div>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onUpdateCaptionsConfig && captionsConfig) {
-                            onUpdateCaptionsConfig({ ...captionsConfig, backgroundStyle: "transparent" });
-                          }
-                        }}
-                        className={`p-2 rounded-lg border text-left text-xs transition-colors flex items-center gap-2 ${
-                          captionsConfig?.backgroundStyle === "transparent"
-                            ? "bg-indigo-950 border-indigo-500 text-indigo-200 shadow-sm"
-                            : "bg-gray-700/50 border-gray-600 text-gray-400 hover:text-white"
-                        }`}
-                      >
-                        <span className="text-base">🔲</span>
-                        <div>
-                          <div className="font-semibold text-[11px]">Transparent</div>
-                          <div className="text-[9px] text-gray-400">Soft drop shadow only</div>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Ambient Background Music */}
-            <div className="pt-2 border-t border-gray-700/60 space-y-2 text-xs">
-              <label className="text-gray-300 block font-medium">
-                Ambient Background Track:
-              </label>
-              <select
-                value={settings.backgroundMusic}
-                onChange={(e) =>
-                  setSettings((s) => ({ ...s, backgroundMusic: e.target.value as any }))
-                }
-                className="w-full bg-gray-700 text-white text-xs rounded-lg px-2.5 py-1.5 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              >
-                <option value="lofi">☕ Chill Lo-Fi Acoustic</option>
-                <option value="cinematic">🎬 Cinematic Drama & Wonder</option>
-                <option value="ambient">🌿 Relaxing Ambient Flow</option>
-                <option value="energetic">⚡ Energetic Tech Pulse</option>
-                <option value="none">🚫 None (Voice Narration Only)</option>
-              </select>
-
-              {settings.backgroundMusic !== "none" && (
-                <div className="pt-1">
-                  <div className="flex justify-between text-[11px] text-gray-400 mb-1">
-                    <span>Music Volume</span>
-                    <span>{Math.round(settings.musicVolume * 100)}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0.05}
-                    max={0.4}
-                    step={0.02}
-                    value={settings.musicVolume}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, musicVolume: parseFloat(e.target.value) }))
-                    }
-                    className="w-full accent-indigo-500"
-                  />
-                </div>
-              )}
-            </div>
+          <div className="bg-gray-800/30 border border-gray-700/60 rounded-xl p-3 flex items-start gap-2">
+            <span className="text-sm">🔒</span>
+            <p className="text-[10px] text-gray-400 leading-relaxed">
+              The render screen does not allow any changes. Go back to Scenes, Voiceover, Captions or Studio
+              to edit your video — then render again.
+            </p>
           </div>
         </div>
 
-        {/* Right Column: Live Render Canvas & Finished Video Player */}
-        <div className="lg:col-span-7 space-y-4">
+        <div className="order-1 lg:order-2 lg:col-span-8 space-y-4">
           <div className="bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden shadow-2xl">
             {/* Viewport: Live Render Canvas OR Finished HTML5 Video Player */}
             <div className={`relative ${aspectClass || "aspect-video"} bg-black flex items-center justify-center overflow-hidden mx-auto`}>

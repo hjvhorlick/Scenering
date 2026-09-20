@@ -1,6 +1,18 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import StepNav from "./StepNav";
 import type { Scene, CaptionsConfig } from "../types";
 import { generateSrtSubtitles } from "./RenderView";
+import { renderCanvasCaptions } from "../lib/render-captions";
+import {
+  CAPTION_FONTS,
+  CAPTION_STYLES,
+  captionFontStack,
+  getCaptionFont,
+  getCaptionStyle,
+  loadCaptionFonts,
+  resolveCaptionStyleId,
+  type CaptionStyleDef,
+} from "../data/caption-styles";
 
 interface CaptionsStudioProps {
   scenes: Scene[];
@@ -11,77 +23,7 @@ interface CaptionsStudioProps {
   onNavigateToStep?: (step: any) => void;
 }
 
-export type CaptionPresetType = "word_pop" | "karaoke" | "classic_box" | "yellow_outline" | "minimal";
-
-interface CaptionPreset {
-  id: CaptionPresetType;
-  name: string;
-  badge: string;
-  description: string;
-  textColor: string;
-  highlightColor: string;
-  bgColor: string;
-  stroke: boolean;
-  uppercase: boolean;
-}
-
-const CAPTION_PRESETS: CaptionPreset[] = [
-  {
-    id: "word_pop",
-    name: "Social Pop (Reels / TikTok)",
-    badge: "🔥 Trending",
-    description: "Punchy, dynamic high-impact font with bold colored active word punch.",
-    textColor: "#FFFFFF",
-    highlightColor: "#38BDF8",
-    bgColor: "rgba(0, 0, 0, 0.75)",
-    stroke: true,
-    uppercase: true,
-  },
-  {
-    id: "yellow_outline",
-    name: "Cyber Yellow Beast",
-    badge: "⚡ High Retention",
-    description: "Eye-catching vibrant yellow text with thick black outline for maximum contrast.",
-    textColor: "#FACC15",
-    highlightColor: "#FFFFFF",
-    bgColor: "rgba(0, 0, 0, 0)",
-    stroke: true,
-    uppercase: true,
-  },
-  {
-    id: "karaoke",
-    name: "Karaoke Neon Glow",
-    badge: "✨ Glowing",
-    description: "Luminous neon cyan and magenta text that glows as each sentence is narrated.",
-    textColor: "#E0F2FE",
-    highlightColor: "#A855F7",
-    bgColor: "rgba(15, 23, 42, 0.8)",
-    stroke: false,
-    uppercase: false,
-  },
-  {
-    id: "classic_box",
-    name: "Classic Subtitle Bar",
-    badge: "🎬 Cinema",
-    description: "Traditional cinema black translucent backdrop pill with crisp white text.",
-    textColor: "#FFFFFF",
-    highlightColor: "#F3F4F6",
-    bgColor: "rgba(0, 0, 0, 0.85)",
-    stroke: false,
-    uppercase: false,
-  },
-  {
-    id: "minimal",
-    name: "Minimalist Clean",
-    badge: "🌿 Elegant",
-    description: "Subtle, unboxed typography with drop shadow for understated documentaries.",
-    textColor: "#F8FAFC",
-    highlightColor: "#E2E8F0",
-    bgColor: "rgba(0, 0, 0, 0)",
-    stroke: false,
-    uppercase: false,
-  },
-];
+export type CaptionPresetType = string;
 
 export default function CaptionsStudio({
   scenes,
@@ -96,8 +38,34 @@ export default function CaptionsStudio({
     captionsConfig?.backgroundStyle || "blocked"
   );
   const [selectedPreset, setSelectedPreset] = useState<CaptionPresetType>(
-    (captionsConfig?.preset as any) || "word_pop"
+    resolveCaptionStyleId(captionsConfig?.preset)
   );
+  const [fontId, setFontId] = useState<string>(captionsConfig?.fontId || "");
+  const [borderWidth, setBorderWidth] = useState<number>(
+    captionsConfig?.borderWidth ?? getCaptionStyle(captionsConfig?.preset).borderWidth
+  );
+  const [borderColor, setBorderColor] = useState<string>(
+    captionsConfig?.borderColor || getCaptionStyle(captionsConfig?.preset).borderColor
+  );
+  const [shadowOn, setShadowOn] = useState<boolean>(captionsConfig?.shadow ?? true);
+  const [shadowStrength, setShadowStrength] = useState<number>(
+    captionsConfig?.shadowStrength ?? getCaptionStyle(captionsConfig?.preset).shadowStrength
+  );
+  const [letterSpacing, setLetterSpacing] = useState<number>(
+    captionsConfig?.letterSpacing ?? getCaptionStyle(captionsConfig?.preset).letterSpacing
+  );
+
+  // Web fonts must be in before the canvas draws them; loads once, then repaints.
+  const [fontsReady, setFontsReady] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    loadCaptionFonts().then(() => {
+      if (!cancelled) setFontsReady((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [burnCaptionsGlobal, setBurnCaptionsGlobal] = useState(
     captionsConfig?.enabled !== undefined ? captionsConfig.enabled : true
   );
@@ -115,36 +83,71 @@ export default function CaptionsStudio({
     captionsConfig?.highlightColor || "#38BDF8"
   );
 
+  /**
+   * Single source of truth for the caption look. Both the live preview below and
+   * the burned-in captions in the video are produced from this exact config, so
+   * the preview can never drift from the render.
+   */
+  const buildConfig = (partial: Partial<CaptionsConfig> = {}): CaptionsConfig => ({
+    enabled: burnCaptionsGlobal,
+    mode,
+    backgroundStyle,
+    preset: selectedPreset as any,
+    fontSize,
+    position,
+    uppercase: textUppercase,
+    textColor: customTextColor,
+    highlightColor: customHighlightColor,
+    bgColor: backgroundStyle === "transparent" ? "rgba(0,0,0,0)" : "rgba(0,0,0,0.75)",
+    fontId: fontId || undefined,
+    fontWeight: undefined,
+    letterSpacing,
+    borderWidth,
+    borderColor,
+    shadow: shadowOn,
+    shadowStrength,
+    shadowOffset: activeStyle.shadowOffset,
+    shadowBlur: activeStyle.shadowBlur,
+    ...partial,
+  });
+
   const emitConfigUpdate = (partial: Partial<CaptionsConfig>) => {
-    if (onUpdateCaptionsConfig) {
-      onUpdateCaptionsConfig({
-        enabled: burnCaptionsGlobal,
-        mode,
-        backgroundStyle,
-        preset: selectedPreset as any,
-        fontSize,
-        position,
-        uppercase: textUppercase,
-        textColor: customTextColor,
-        highlightColor: customHighlightColor,
-        bgColor: backgroundStyle === "transparent" ? "rgba(0,0,0,0)" : "rgba(0,0,0,0.75)",
-        ...partial,
-      });
-    }
+    if (onUpdateCaptionsConfig) onUpdateCaptionsConfig(buildConfig(partial));
   };
 
-  const activePresetConfig = CAPTION_PRESETS.find((p) => p.id === selectedPreset) || CAPTION_PRESETS[0];
+  const captionPreviewRef = useRef<HTMLCanvasElement | null>(null);
 
-  const handleSelectPreset = (p: CaptionPreset) => {
-    setSelectedPreset(p.id);
-    setCustomTextColor(p.textColor);
-    setCustomHighlightColor(p.highlightColor);
-    setTextUppercase(p.uppercase);
+  const activeStyle: CaptionStyleDef = getCaptionStyle(selectedPreset);
+  const activeFont = getCaptionFont(fontId || activeStyle.fontId);
+
+  /** Selecting a style applies its whole recipe (font, case, colours, border, shadow) */
+  const handleSelectPreset = (style: CaptionStyleDef) => {
+    setSelectedPreset(style.id);
+    setFontId(style.fontId);
+    setCustomTextColor(style.textColor);
+    setCustomHighlightColor(style.highlightColor);
+    setTextUppercase(style.uppercase);
+    setBorderWidth(style.borderWidth);
+    setBorderColor(style.borderColor);
+    setShadowOn(true);
+    setShadowStrength(style.shadowStrength);
+    setLetterSpacing(style.letterSpacing);
+    setBackgroundStyle(style.background);
     emitConfigUpdate({
-      preset: p.id as any,
-      textColor: p.textColor,
-      highlightColor: p.highlightColor,
-      uppercase: p.uppercase,
+      preset: style.id,
+      fontId: style.fontId,
+      textColor: style.textColor,
+      highlightColor: style.highlightColor,
+      uppercase: style.uppercase,
+      borderWidth: style.borderWidth,
+      borderColor: style.borderColor,
+      shadow: true,
+      shadowStrength: style.shadowStrength,
+      letterSpacing: style.letterSpacing,
+      shadowOffset: style.shadowOffset,
+      shadowBlur: style.shadowBlur,
+      backgroundStyle: style.background,
+      bgColor: style.background === "transparent" ? "rgba(0,0,0,0)" : style.bgColor,
     });
   };
 
@@ -179,10 +182,64 @@ export default function CaptionsStudio({
     URL.revokeObjectURL(url);
   };
 
-  const sampleSceneText = scenes[0]?.text || "Create stunning short-form videos with automatic animated subtitles.";
+  const sampleSceneText =
+    scenes[0]?.text || "Create stunning short-form videos with automatic animated subtitles.";
+
+  // The preview canvas runs the very same renderer the video uses, so the caption
+  // you see here is the caption that gets burned in - no approximations.
+  useEffect(() => {
+    const canvas = captionPreviewRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Neutral 16:9 stage so the caption, its border and its shadow are readable
+    const grad = ctx.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, "#243044");
+    grad.addColorStop(0.55, "#3c3a46");
+    grad.addColorStop(1, "#11141c");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = "#e6ecff";
+    const step = 96;
+    for (let row = 0; row < h / step; row++) {
+      for (let col = 0; col < w / step; col++) {
+        ctx.fillRect(col * step + 24, row * step + 20, 54, 9);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    renderCanvasCaptions(ctx, sampleSceneText, 0.5, buildConfig(), w, h);
+  }, [
+    sampleSceneText,
+    mode,
+    backgroundStyle,
+    selectedPreset,
+    fontSize,
+    position,
+    textUppercase,
+    customTextColor,
+    customHighlightColor,
+    borderWidth,
+    borderColor,
+    shadowOn,
+    shadowStrength,
+    letterSpacing,
+    fontId,
+    burnCaptionsGlobal,
+    fontsReady,
+  ]);
 
   return (
     <div className="max-w-5xl mx-auto w-full space-y-6 animate-fade-in p-2 sm:p-0">
+      {/* Single Previous / Next control — always at the top of the phase */}
+      {onNavigateToStep && (
+        <StepNav current="captions" onNavigate={onNavigateToStep} note="subtitle styling applies to every scene" />
+      )}
+
       {/* Studio Header */}
       <div className="bg-gradient-to-r from-gray-900 via-purple-950/50 to-gray-900 border border-purple-900/40 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -369,107 +426,18 @@ export default function CaptionsStudio({
           </div>
         </div>
 
-        <div className="relative w-full aspect-video max-h-[260px] bg-gradient-to-b from-gray-950 via-gray-900 to-black rounded-xl overflow-hidden border border-gray-700 flex flex-col items-center justify-between p-4 shadow-inner">
-          {/* Mock Video Canvas Backdrop */}
-          <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#4f46e5_1px,transparent_1px)] [background-size:16px_16px]" />
-
-          <div className="w-full flex justify-between items-center text-[10px] text-gray-500 z-10">
-            <span>Video Stage: 16:9 HD</span>
-            <span className="px-2 py-0.5 rounded bg-gray-800 text-indigo-300">Preset: {activePresetConfig.name}</span>
+        <div className="relative w-full aspect-video max-h-[260px] bg-black rounded-xl overflow-hidden border border-gray-700 shadow-inner">
+          <canvas
+            ref={captionPreviewRef}
+            width={1280}
+            height={720}
+            className="w-full h-full block"
+          />
+          <div className="absolute top-2 left-3 text-[10px] text-white/70 bg-black/45 px-2 py-0.5 rounded">
+            Video stage 16:9 · {activeStyle.name} · {activeFont.family}
           </div>
-
-          {/* Caption Rendering Box - Enforces Max 2 Lines & Fits Inside Video Borders */}
-          <div
-            className={`z-10 text-center transition-all max-w-[85%] space-y-1.5 ${
-              position === "top"
-                ? "self-start mt-3"
-                : position === "center"
-                ? "self-center"
-                : "self-end mb-3"
-            }`}
-          >
-            {/* Line 1 (Currently being read by voiceover) */}
-            <div
-              className={`inline-block px-3.5 py-1.5 rounded-lg transition-all shadow-xl backdrop-blur-sm ${
-                backgroundStyle === "transparent" ? "bg-transparent shadow-none" : ""
-              }`}
-              style={{
-                backgroundColor: backgroundStyle === "transparent" ? "transparent" : activePresetConfig.bgColor,
-              }}
-            >
-              <p
-                className={`font-black tracking-tight leading-snug transition-all ${
-                  textUppercase ? "uppercase" : ""
-                } ${
-                  fontSize === "small"
-                    ? "text-xs sm:text-sm"
-                    : fontSize === "large"
-                    ? "text-lg sm:text-xl"
-                    : "text-sm sm:text-base"
-                }`}
-                style={{
-                  color: customTextColor,
-                  textShadow:
-                    backgroundStyle === "transparent" || activePresetConfig.stroke
-                      ? "2px 2px 0px #000000, -2px -2px 0px #000000, 2px -2px 0px #000000, -2px 2px 0px #000000, 0px 4px 12px rgba(0,0,0,0.9)"
-                      : "0px 2px 8px rgba(0,0,0,0.8)",
-                }}
-              >
-                {sampleSceneText.split(" ").slice(0, 5).map((word, i) => {
-                  const isHighlighted = mode === "karaoke" && i === 2;
-                  return (
-                    <span
-                      key={i}
-                      className="inline-block mx-0.5 sm:mx-1 transition-transform"
-                      style={{
-                        color: isHighlighted ? customHighlightColor : customTextColor,
-                        transform: isHighlighted ? "scale(1.12)" : "scale(1.0)",
-                        textShadow: isHighlighted ? `0 0 14px ${customHighlightColor}` : undefined,
-                      }}
-                    >
-                      {word}
-                    </span>
-                  );
-                })}
-              </p>
-            </div>
-
-            {/* Line 2 (Next upcoming line - shows until first line is done) */}
-            <div>
-              <div
-                className={`inline-block px-3.5 py-1 rounded-lg transition-all shadow-xl backdrop-blur-sm ${
-                  backgroundStyle === "transparent" ? "bg-transparent shadow-none" : ""
-                }`}
-                style={{
-                  backgroundColor: backgroundStyle === "transparent" ? "transparent" : activePresetConfig.bgColor,
-                }}
-              >
-                <p
-                  className={`font-black tracking-tight leading-snug transition-all ${
-                    textUppercase ? "uppercase" : ""
-                  } ${
-                    fontSize === "small"
-                      ? "text-xs sm:text-sm"
-                      : fontSize === "large"
-                      ? "text-lg sm:text-xl"
-                      : "text-sm sm:text-base"
-                  }`}
-                  style={{
-                    color: mode === "karaoke" ? "rgba(255, 255, 255, 0.72)" : customTextColor,
-                    textShadow:
-                      backgroundStyle === "transparent" || activePresetConfig.stroke
-                        ? "2px 2px 0px #000000, -2px -2px 0px #000000, 2px -2px 0px #000000, -2px 2px 0px #000000, 0px 4px 12px rgba(0,0,0,0.9)"
-                        : "0px 2px 8px rgba(0,0,0,0.8)",
-                  }}
-                >
-                  {sampleSceneText.split(" ").slice(5, 10).join(" ")}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="w-full text-center text-[10px] text-gray-500 z-10">
-            <span className="text-emerald-400 font-semibold">Max 2 lines on screen</span> · Rolls line-by-line in sync with voiceover · Fits inside video borders
+          <div className="absolute bottom-2 right-3 text-[10px] text-white/50 bg-black/45 px-2 py-0.5 rounded">
+            Captions below are rendered by the same engine as the final video
           </div>
         </div>
       </div>
@@ -484,12 +452,13 @@ export default function CaptionsStudio({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {CAPTION_PRESETS.map((p) => {
-            const isSelected = selectedPreset === p.id;
+          {CAPTION_STYLES.map((style) => {
+            const isSelected = selectedPreset === style.id;
+            const styleFont = getCaptionFont(style.fontId);
             return (
               <div
-                key={p.id}
-                onClick={() => handleSelectPreset(p)}
+                key={style.id}
+                onClick={() => handleSelectPreset(style)}
                 className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
                   isSelected
                     ? "bg-purple-950/60 border-purple-500 shadow-md shadow-purple-600/20 ring-1 ring-purple-500"
@@ -497,31 +466,45 @@ export default function CaptionsStudio({
                 }`}
               >
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-bold text-xs text-white">{p.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-900 text-purple-300 border border-gray-700">
-                      {p.badge}
+                  <div className="flex items-center justify-between mb-1.5 gap-2">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-900 text-purple-300 border border-gray-700 shrink-0">
+                      {style.category}
+                    </span>
+                    <span
+                      className="text-sm text-white truncate"
+                      style={{ fontFamily: captionFontStack(style.fontId), fontWeight: styleFont.weight }}
+                      title={styleFont.label}
+                    >
+                      Aa Bb 123
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 mb-2 leading-relaxed">{p.description}</p>
+                  <p
+                    className="font-bold text-sm text-white mb-0.5"
+                    style={{ fontFamily: captionFontStack(style.fontId), fontWeight: styleFont.weight }}
+                  >
+                    {style.name}
+                  </p>
+                  <p className="text-[10px] text-purple-200/70 mb-1.5">{styleFont.family}</p>
+                  <p className="text-xs text-gray-400 mb-2 leading-relaxed">{style.description}</p>
                 </div>
 
                 <div className="pt-2 border-t border-gray-700/50 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5">
                     <span
                       className="w-3.5 h-3.5 rounded-full border border-gray-600"
-                      style={{ backgroundColor: p.textColor }}
-                      title="Primary text color"
+                      style={{ backgroundColor: style.textColor }}
+                      title="Text colour"
                     />
                     <span
                       className="w-3.5 h-3.5 rounded-full border border-gray-600"
-                      style={{ backgroundColor: p.highlightColor }}
-                      title="Active highlight color"
+                      style={{ backgroundColor: style.highlightColor }}
+                      title="Active word colour"
                     />
+                    <span className="text-[10px] text-gray-500">
+                      {style.background === "blocked" ? "backdrop" : "no box"}
+                    </span>
                   </div>
-                  {isSelected && (
-                    <span className="text-[10px] font-bold text-purple-400">✓ Active Preset</span>
-                  )}
+                  {isSelected && <span className="text-[10px] font-bold text-purple-400">✓ Active</span>}
                 </div>
               </div>
             );
@@ -646,6 +629,120 @@ export default function CaptionsStudio({
             </div>
           </div>
         </div>
+
+        {/* Typeface, border and floating shadow */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-gray-800 text-xs">
+          {/* Font */}
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+            <span className="text-gray-400 block font-medium">Typeface:</span>
+            <select
+              value={fontId || activeStyle.fontId}
+              onChange={(e) => {
+                setFontId(e.target.value);
+                emitConfigUpdate({ fontId: e.target.value });
+              }}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-purple-500"
+              style={{ fontFamily: captionFontStack(fontId || activeStyle.fontId) }}
+            >
+              {CAPTION_FONTS.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.family} — {f.label.split("· ")[1]}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-gray-500">10 faces: classical → formal → artsy → fun</p>
+          </div>
+
+          {/* Border width — hairline by default, thicken as needed */}
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-400 font-medium">Border:</span>
+              <span className="font-mono text-purple-300">{borderWidth.toFixed(1)} px</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={10}
+              step={0.5}
+              value={borderWidth}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setBorderWidth(v);
+                emitConfigUpdate({ borderWidth: v });
+              }}
+              className="w-full accent-purple-500 cursor-pointer"
+            />
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] text-gray-500">Thin = crisp, high = poster outline</span>
+              <input
+                type="color"
+                value={borderColor}
+                onChange={(e) => {
+                  setBorderColor(e.target.value);
+                  emitConfigUpdate({ borderColor: e.target.value });
+                }}
+                className="w-6 h-6 rounded cursor-pointer bg-transparent border-0 shrink-0"
+                title="Border colour"
+              />
+            </div>
+          </div>
+
+          {/* Floating shadow below the captions */}
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-400 font-medium">Float Shadow:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !shadowOn;
+                  setShadowOn(next);
+                  emitConfigUpdate({ shadow: next });
+                }}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                  shadowOn ? "bg-purple-600 text-white" : "bg-gray-900 text-gray-400 border border-gray-700"
+                }`}
+              >
+                {shadowOn ? "ON" : "OFF"}
+              </button>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={shadowStrength}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setShadowStrength(v);
+                emitConfigUpdate({ shadowStrength: v });
+              }}
+              className="w-full accent-purple-500 cursor-pointer"
+            />
+            <p className="text-[10px] text-gray-500">Shadow falls below so the text floats in frame</p>
+          </div>
+
+          {/* Letter spacing */}
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-400 font-medium">Letter Spacing:</span>
+              <span className="font-mono text-purple-300">{letterSpacing.toFixed(2)} em</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={0.2}
+              step={0.005}
+              value={letterSpacing}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setLetterSpacing(v);
+                emitConfigUpdate({ letterSpacing: v });
+              }}
+              className="w-full accent-purple-500 cursor-pointer"
+            />
+            <p className="text-[10px] text-gray-500">Wide tracking suits the formal serifs</p>
+          </div>
+        </div>
       </div>
 
       {/* Scene Captions Breakdown */}
@@ -699,28 +796,6 @@ export default function CaptionsStudio({
         </div>
       </div>
 
-      {/* Navigation Footer */}
-      {onNavigateToStep && (
-        <div className="flex items-center justify-between pt-4 border-t border-gray-800">
-          <button
-            type="button"
-            onClick={() => onNavigateToStep("voiceover")}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5"
-          >
-            <span>←</span>
-            <span>Back to Voiceover</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onNavigateToStep("studio")}
-            className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"
-          >
-            <span>Proceed to Video Studio & Timeline</span>
-            <span>→</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }

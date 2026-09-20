@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import StepNav from "./StepNav";
 import type { Scene } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
 import { setCachedSceneAudio, getSharedAudioContext } from "../lib/tts-cache";
@@ -378,6 +379,18 @@ export default function VoiceoverStudio({
 
   return (
     <div className="max-w-5xl mx-auto w-full space-y-5 animate-fade-in p-2 sm:p-0">
+      {/* Single Previous / Next control — always at the top of the phase */}
+      {onNavigateToStep && (
+        <StepNav
+          current="voiceover"
+          onNavigate={onNavigateToStep}
+          onNext={() => handleProceedNext("captions")}
+          nextLabel={allScenesHaveSavedAudio ? "Next: Captions" : "Save Voiceovers & Next: Captions"}
+          busyLabel={isGeneratingAll ? `Saving voiceovers (${generationProgress?.current || 0}/${scenes.length})…` : undefined}
+          note={allScenesHaveSavedAudio ? "narration saved" : "narration not generated yet"}
+        />
+      )}
+
       {/* Studio Header Banner */}
       <div className="bg-gradient-to-r from-gray-900 via-indigo-950/40 to-gray-900 border border-indigo-900/40 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -984,38 +997,6 @@ export default function VoiceoverStudio({
         </div>
       )}
 
-      {/* Navigation Footer */}
-      {onNavigateToStep && (
-        <div className="flex items-center justify-between pt-4 border-t border-gray-800">
-          <button
-            type="button"
-            onClick={() => onNavigateToStep("scenes")}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5"
-          >
-            <span>←</span>
-            <span>Back to Scenes</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={isGeneratingAll}
-            onClick={() => handleProceedNext("captions")}
-            className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"
-          >
-            {isGeneratingAll ? (
-              <>
-                <span className="animate-spin text-sm">⏳</span>
-                <span>Saving Voiceovers ({generationProgress?.current || 0}/{scenes.length})...</span>
-              </>
-            ) : (
-              <>
-                <span>{allScenesHaveSavedAudio ? "Voiceovers Saved • Proceed to Captions" : "Save Voiceovers & Proceed to Captions"}</span>
-                <span>→</span>
-              </>
-            )}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

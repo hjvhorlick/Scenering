@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import ScriptInput from "./components/ScriptInput";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import SceneEditor from "./components/SceneEditor";
 import VideoPreview from "./components/VideoPreview";
+import { loadCaptionFonts } from "./data/caption-styles";
 import ProjectList from "./components/ProjectList";
 import ApiKeysModal from "./components/ApiKeysModal";
 import Timeline from "./components/Timeline";
@@ -10,6 +10,8 @@ import RenderView from "./components/RenderView";
 import VoiceoverStudio, { STUDIO_VOICE_PRESETS } from "./components/VoiceoverStudio";
 import CaptionsStudio from "./components/CaptionsStudio";
 import SetupStudio from "./components/SetupStudio";
+import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./components/StepNav";
+import { stretchFullVideoVisualisers } from "./lib/render-visualizers";
 import InsertPropertiesModal from "./components/InsertPropertiesModal";
 import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
@@ -361,6 +363,12 @@ export default function App() {
     });
   };
 
+  // Caption typefaces (classical → formal → artsy → fun) are fetched once so the
+  // live preview and the final render paint the real faces rather than fallbacks.
+  useEffect(() => {
+    loadCaptionFonts();
+  }, []);
+
   useEffect(() => {
     const checkKeys = () => {
       const k = getStoredApiKeys();
@@ -402,6 +410,10 @@ export default function App() {
 
   const handleCreateProject = async (title: string, script: string, targetDuration?: number) => {
     const chosenDuration = targetDuration || 20;
+    // Keep the canvas choices made on the single setup frame (aspect ratio, resolution, motion)
+    const chosenAspect = aspectRatio;
+    const chosenResolution = resolution;
+    const chosenMotion = motionStyle;
     setLoading(true);
     try {
       const { data: projectData, error: projectError } = await supabase
@@ -418,6 +430,9 @@ export default function App() {
       const freshSettings: ProjectSettings = {
         ...DEFAULT_PROJECT_SETTINGS,
         scene_duration: chosenDuration,
+        aspect_ratio: chosenAspect,
+        resolution: chosenResolution,
+        motion_style: chosenMotion,
       };
 
       try {
@@ -458,6 +473,7 @@ export default function App() {
       setScenes(scenesData as Scene[]);
       setInserts([]);
       setCurrentPlayheadTime(0);
+      setEditorStep("scenes");
       setView("editor");
       fetchProjects();
     } catch (err) {
@@ -465,6 +481,39 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  /** Moves between project phases — used by every Previous / Next control */
+  const navigateToPhase = (phase: ProjectPhase) => {
+    if (phase === "setup") {
+      setView("create");
+      return;
+    }
+    setView("editor");
+    setEditorStep(getPhaseDef(phase).editorStep);
+  };
+
+  /** Clears the editor so the setup frame starts a brand new project */
+  const getPhaseDef = (phase: ProjectPhase) =>
+    PROJECT_PHASES.find((p) => p.id === phase) || PROJECT_PHASES[0];
+
+  const handleStartNewProject = () => {
+    setCurrentProject(null);
+    setScenes([]);
+    setInserts([]);
+    setSelectedInsert(null);
+    setEditingInsert(null);
+    setRenderedBlob(null);
+    setRenderedUrl(null);
+    setCustomerLogo(DEFAULT_PROJECT_SETTINGS.customer_logo);
+    setCaptionsConfig(DEFAULT_PROJECT_SETTINGS.captions_config);
+    setSelectedVoice(DEFAULT_PROJECT_SETTINGS.selected_voice);
+    setAspectRatio(DEFAULT_PROJECT_SETTINGS.aspect_ratio);
+    setResolution(DEFAULT_PROJECT_SETTINGS.resolution);
+    setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
+    setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
+    setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
+    setView("create");
   };
 
   const handleSelectProject = async (project: Project) => {
@@ -530,6 +579,7 @@ export default function App() {
       setScenes(loadedScenes);
       setInserts(loadedInserts);
       setCurrentPlayheadTime(0);
+      setEditorStep("scenes");
       setView("editor");
     } catch (err) {
       console.error("Failed to load project:", err);
@@ -742,6 +792,30 @@ export default function App() {
     setSelectedInsert(insert);
   };
 
+  /** Open the properties editor and park the playhead on the element being edited,
+   *  so the video preview behind the dialog shows the edits as they are made. */
+  const openInsertEditor = (ins: TimelineInsert) => {
+    setEditingInsert(ins);
+    setSelectedInsert(ins);
+    const mid = ins.startTime + Math.min(ins.duration / 2, 1.5);
+    setCurrentPlayheadTime(mid);
+  };
+
+  /** Intro + script + outro. Used to stretch whole-video visualisers and to fill
+   *  the timeline readouts in the studio and the properties editor. */
+  const estimatedTotalDuration = useMemo(() => {
+    const intro = inserts.find((i) => i.category === "intro")?.duration ?? 0;
+    const outro = inserts.find((i) => i.category === "outro")?.duration ?? 0;
+    const script = scenes.reduce((sum, sc) => sum + Math.max(1, sc.duration || 0), 0);
+    return Math.max(1, Math.round((intro + script + outro) * 10) / 10);
+  }, [scenes, inserts]);
+
+  // Visualisers added with "runs for the entire video" stay pinned to the full
+  // length, even after scenes are re-timed or the voiceover changes.
+  useEffect(() => {
+    setInserts((prev) => stretchFullVideoVisualisers(prev, estimatedTotalDuration));
+  }, [estimatedTotalDuration]);
+
   const handleUpdateInsert = (updated: TimelineInsert) => {
     setInserts((prev) => prev.map((ins) => (ins.id === updated.id ? updated : ins)));
     if (selectedInsert?.id === updated.id) setSelectedInsert(updated);
@@ -776,191 +850,134 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-950 text-white overflow-hidden font-sans">
-      {/* Sidebar */}
-      <div
-        className={`${
-          sidebarOpen ? "w-64" : "w-0"
-        } transition-all duration-200 ease-in-out flex-shrink-0 overflow-hidden border-r border-gray-800 bg-gray-900/50 flex flex-col z-20`}
-      >
-        <div className="w-64 flex flex-col h-full">
-          {/* Logo (Top-Left area without redundant text since name is inside logo) */}
-          <div className="h-16 border-b border-gray-800 flex items-center justify-center px-4 flex-shrink-0 bg-gray-950/40">
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Bar — app navigation lives here now that the side bar is gone */}
+        <div className="min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 flex-shrink-0 bg-gray-900/50">
+          {/* Logo */}
+          <button
+            onClick={() => setView("create")}
+            className="flex items-center gap-2 shrink-0"
+            title="Project setup & projects"
+          >
             <img
               src={sceneringLogo}
               alt="Scenering"
-              className="h-10 w-auto max-w-[190px] object-contain shrink-0 filter drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]"
+              className="h-8 w-auto max-w-[120px] sm:max-w-[150px] object-contain filter drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]"
             />
-          </div>
-
-          {/* New Project Button */}
-          <div className="p-3">
-            <button
-              onClick={() => {
-                setView("create");
-                setCurrentProject(null);
-                setScenes([]);
-                setInserts([]);
-                setCustomerLogo(DEFAULT_PROJECT_SETTINGS.customer_logo);
-                setCaptionsConfig(DEFAULT_PROJECT_SETTINGS.captions_config);
-                setSelectedVoice(DEFAULT_PROJECT_SETTINGS.selected_voice);
-                setAspectRatio(DEFAULT_PROJECT_SETTINGS.aspect_ratio);
-                setResolution(DEFAULT_PROJECT_SETTINGS.resolution);
-                setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
-                setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
-                setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
-                setEditorStep("scenes");
-              }}
-              className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white text-sm font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              New Project
-            </button>
-          </div>
-
-          {/* Project List */}
-          <div className="flex-1 overflow-y-auto p-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
-              Projects
-            </h2>
-            <ProjectList
-              projects={projects}
-              onSelect={handleSelectProject}
-              onDelete={handleDeleteProject}
-              selectedId={currentProject?.id}
-            />
-          </div>
-
-          {/* Customer API Keys Settings in Sidebar */}
-          <div className="p-3 border-t border-gray-800 bg-gray-900/90">
-            <button
-              onClick={() => setApiKeysModalOpen(true)}
-              className="w-full py-2.5 px-3 bg-gray-800/80 hover:bg-gray-750 border border-gray-700/80 rounded-xl text-xs text-gray-300 hover:text-white transition-all flex items-center justify-between group"
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-base group-hover:scale-110 transition-transform">🔑</span>
-                <div className="text-left">
-                  <p className="font-semibold text-xs text-gray-200 group-hover:text-white">API Keys</p>
-                  <p className="text-[10px] text-gray-500">Pexels & Pixabay</p>
-                </div>
-              </div>
-              <span
-                className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                  hasCustomKeys
-                    ? "bg-emerald-950 text-emerald-300 border border-emerald-700/50"
-                    : "bg-gray-800 text-amber-400 border border-amber-500/30"
-                }`}
-              >
-                {hasCustomKeys ? "Active" : "Insert Keys"}
-              </span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <div className="h-14 border-b border-gray-800 flex items-center px-4 gap-3 flex-shrink-0 bg-gray-900/50">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
           </button>
 
-          <h2 className="font-semibold text-sm">
-            {currentProject ? currentProject.title : "Create New Project"}
+          <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />
+
+          <h2 className="font-semibold text-xs sm:text-sm truncate max-w-[40vw] sm:max-w-[220px]">
+            {currentProject ? currentProject.title : "Start a New Project"}
           </h2>
 
-          {view === "editor" && (
-            <div className="flex items-center bg-gray-800/80 border border-gray-700/80 rounded-lg p-0.5 ml-2 sm:ml-4 overflow-x-auto scrollbar-thin">
-              <button
-                onClick={() => setEditorStep("setup")}
-                className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
-                  editorStep === "setup"
-                    ? "bg-indigo-600 text-white shadow font-semibold"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <span>0. ⚙️ Setup</span>
-              </button>
-              <button
-                onClick={() => setEditorStep("scenes")}
-                className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
-                  editorStep === "scenes"
-                    ? "bg-indigo-600 text-white shadow font-semibold"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <span>1. 📝 Scenes</span>
-              </button>
-              <button
-                onClick={() => setEditorStep("voiceover")}
-                className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
-                  editorStep === "voiceover"
-                    ? "bg-indigo-600 text-white shadow font-semibold"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <span>2. 🎙️ Voiceover</span>
-              </button>
-              <button
-                onClick={() => setEditorStep("captions")}
-                className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
-                  editorStep === "captions"
-                    ? "bg-purple-600 text-white shadow font-semibold"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <span>3. 💬 Captions</span>
-              </button>
-              <button
-                onClick={() => setEditorStep("studio")}
-                className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
-                  editorStep === "studio"
-                    ? "bg-indigo-600 text-white shadow font-semibold"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <span>4. 🎬 Studio</span>
-              </button>
-              <button
-                onClick={() => setEditorStep("render")}
-                className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
-                  editorStep === "render"
-                    ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow font-semibold"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <span>5. 🚀 Render</span>
-              </button>
-            </div>
-          )}
+          {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
+          <div className="flex items-center bg-gray-800/80 border border-gray-700/80 rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto scrollbar-thin order-last w-full sm:order-none sm:w-auto">
+            {PROJECT_PHASES.map((phase, i) => {
+              const isActive =
+                phase.id === "setup" ? view === "create" : view === "editor" && editorStep === phase.editorStep;
+              return (
+                <button
+                  key={phase.id}
+                  onClick={() => {
+                    if (phase.id === "setup") {
+                      setView("create");
+                    } else {
+                      setView("editor");
+                      setEditorStep(phase.editorStep);
+                    }
+                  }}
+                  title={phase.purpose}
+                  className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
+                    isActive
+                      ? phase.id === "render"
+                        ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow font-semibold"
+                        : "bg-indigo-600 text-white shadow font-semibold"
+                      : "text-gray-400 hover:text-white"
+                  }`}
+                >
+                  <span>
+                    {i + 1}. {phase.icon} {phase.tab}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
 
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-2 shrink-0">
             {view === "editor" && (
-              <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 shadow-sm flex items-center gap-1.5">
+              <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 shadow-sm hidden lg:flex items-center gap-1.5">
                 <span>🎬</span>
-                <span>Total: {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}</span>
-                <span className="text-gray-500 hidden sm:inline">•</span>
-                <span className="text-gray-400 hidden sm:inline">{inserts.length} inserts</span>
+                <span>
+                  {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
+                </span>
+                <span className="text-gray-500">•</span>
+                <span className="text-gray-400">{inserts.length} inserts</span>
               </span>
             )}
+
+            <button
+              onClick={() => setView("create")}
+              className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                view === "create"
+                  ? "bg-indigo-600 border-indigo-500 text-white shadow"
+                  : "bg-gray-800/80 border-gray-700 text-gray-200 hover:bg-gray-750 hover:text-white"
+              }`}
+              title="Projects & project setup"
+            >
+              <span>🗂️</span>
+              <span className="hidden sm:inline">Projects</span>
+            </button>
+
+            <button
+              onClick={() => setApiKeysModalOpen(true)}
+              className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-gray-700 bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
+              title="Image search API keys (Pexels & Pixabay)"
+            >
+              <span>🔑</span>
+              <span className="hidden sm:inline">API Keys</span>
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  hasCustomKeys ? "bg-emerald-400" : "bg-amber-400"
+                }`}
+              />
+            </button>
           </div>
         </div>
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto">
           {view === "create" ? (
-            <div className="max-w-3xl mx-auto p-6">
-              <ScriptInput
-                onSubmit={handleCreateProject}
+            <div className="p-4 sm:p-6">
+              <SetupStudio
+                project={currentProject}
+                projects={projects}
+                scenes={scenes}
+                aspectRatio={aspectRatio}
+                resolution={resolution}
+                pacingMode={pacingMode}
+                sceneDuration={sceneDuration}
+                motionStyle={motionStyle}
                 loading={loading}
-                onOpenApiKeys={() => setApiKeysModalOpen(true)}
+                onSelectProject={handleSelectProject}
+                onDeleteProject={handleDeleteProject}
+                onStartNewProject={handleStartNewProject}
+                onCreateProject={handleCreateProject}
+                onUpdateTitle={handleUpdateProjectTitle}
+                onUpdateScript={handleUpdateScript}
+                onUpdateAspectRatio={handleUpdateAspectRatio}
+                onUpdateResolution={handleUpdateResolution}
+                onUpdatePacingMode={handleUpdatePacingMode}
+                onUpdateSceneDuration={handleUpdateSceneDuration}
+                onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
+                onFitScenesToSpeech={handleFitAllScenesDurationToSpeech}
+                onUpdateMotionStyle={handleUpdateMotionStyle}
+                onNavigateToStep={(step) => {
+                  setEditorStep(step);
+                  setView("editor");
+                }}
               />
             </div>
           ) : editorStep === "render" ? (
@@ -984,39 +1001,26 @@ export default function App() {
                 customerLogo={customerLogo}
                 captionsConfig={captionsConfig}
                 onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
+                sceneDuration={sceneDuration}
+                motionStyle={motionStyle}
+                onOpenSetup={() => setView("create")}
                 onBack={() => setEditorStep("studio")}
                 onNavigateToStep={setEditorStep}
+                onNavigatePhase={(phase) => navigateToPhase(phase)}
               />
             </div>
           ) : (
             <div className="p-4 sm:p-6 space-y-6">
               {/* Steps Workspace */}
-              {editorStep === "setup" ? (
-                /* Step 0: Setup, Format & Screenplay Studio */
-                <div className="max-w-4xl mx-auto w-full">
-                  <SetupStudio
-                    project={currentProject}
-                    scenes={scenes}
-                    aspectRatio={aspectRatio}
-                    resolution={resolution}
-                    pacingMode={pacingMode}
-                    sceneDuration={sceneDuration}
-                    motionStyle={motionStyle}
-                    onUpdateTitle={handleUpdateProjectTitle}
-                    onUpdateScript={handleUpdateScript}
-                    onUpdateAspectRatio={handleUpdateAspectRatio}
-                    onUpdateResolution={handleUpdateResolution}
-                    onUpdatePacingMode={handleUpdatePacingMode}
-                    onUpdateSceneDuration={handleUpdateSceneDuration}
-                    onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
-                    onFitScenesToSpeech={handleFitAllScenesDurationToSpeech}
-                    onUpdateMotionStyle={handleUpdateMotionStyle}
-                    onNavigateToStep={setEditorStep}
-                  />
-                </div>
-              ) : editorStep === "scenes" ? (
+              {editorStep === "scenes" ? (
                 /* Step 1: Scene Editor View */
                 <div className="max-w-4xl mx-auto w-full space-y-6">
+                  <StepNav
+                    current="scenes"
+                    onNavigate={(phase) => navigateToPhase(phase)}
+                    note={`${scenes.length} scene(s) · setup values are shown read-only here`}
+                  />
+
                   {/* Top Controls & Presets Bar */}
                   <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900/60 p-3 rounded-xl border border-gray-800">
                     <div className="flex items-center gap-2">
@@ -1115,13 +1119,6 @@ export default function App() {
                         >
                           <span>➕ Add Scene</span>
                         </button>
-                        <button
-                          onClick={() => setEditorStep("voiceover")}
-                          className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow"
-                        >
-                          <span>Next: Voiceover Studio</span>
-                          <span>→</span>
-                        </button>
                       </div>
                     </div>
 
@@ -1151,14 +1148,9 @@ export default function App() {
                       >
                         <span>➕ Add Another Scene</span>
                       </button>
-
-                      <button
-                        onClick={() => setEditorStep("voiceover")}
-                        className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-sm rounded-xl shadow-lg hover:shadow-indigo-500/20 transition-all flex items-center gap-2"
-                      >
-                        <span>Proceed to Voiceover Studio</span>
-                        <span>→</span>
-                      </button>
+                      <span className="text-[11px] text-gray-500">
+                        Continue to Voiceover with the button at the top of this page
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1185,6 +1177,11 @@ export default function App() {
               ) : (
                 /* Step 4: Video Studio & Timeline View */
                 <div className="max-w-5xl mx-auto w-full space-y-5">
+                  <StepNav
+                    current="studio"
+                    onNavigate={(phase) => navigateToPhase(phase)}
+                    note={`${inserts.length} timeline insert(s)`}
+                  />
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-base font-semibold flex items-center gap-2">
@@ -1195,21 +1192,9 @@ export default function App() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setEditorStep("captions")}
-                        className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-medium transition-colors"
-                      >
-                        ← Back to Captions
-                      </button>
-                      <button
-                        onClick={() => setEditorStep("render")}
-                        className="px-4 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-xs rounded-lg shadow transition-all flex items-center gap-1.5"
-                      >
-                        <span>Go to Render Section</span>
-                        <span>→</span>
-                      </button>
-                    </div>
+                    <span className="text-[11px] text-gray-500 hidden sm:inline">
+                      Add music, sound effects, intros and overlays here
+                    </span>
                   </div>
 
                   {/* Video Preview Canvas with crisp watermark & customer logo */}
@@ -1223,9 +1208,9 @@ export default function App() {
                     onSeek={setCurrentPlayheadTime}
                     onSelectInsert={(ins) => setSelectedInsert(ins)}
                     onUpdateInsert={handleUpdateInsert}
+                    selectedInsertId={selectedInsert?.id}
                     onVoicesLoaded={setAvailableVoices}
                     onPlayStateChange={handlePlayStateChange}
-                    onNavigateToRender={() => setEditorStep("render")}
                     selectedVoice={selectedVoice}
                     aspectRatio={aspectRatio}
                     pacingMode={pacingMode}
@@ -1243,14 +1228,15 @@ export default function App() {
                     onSelectInsert={setSelectedInsert}
                     onUpdateInsert={handleUpdateInsert}
                     onDeleteInsert={handleDeleteInsert}
-                    onEditInsertDetails={setEditingInsert}
+                    onEditInsertDetails={openInsertEditor}
                   />
 
                   {/* Video Studio Insert Catalog with Working Settings Button & Customer Brand Logo */}
                   <VideoStudio
                     currentPlayheadTime={currentPlayheadTime}
+                    totalDuration={estimatedTotalDuration}
                     onInsertItem={handleAddInsert}
-                    onConfigureItem={(ins) => setEditingInsert(ins)}
+                    onConfigureItem={openInsertEditor}
                     customerLogo={customerLogo}
                     onUpdateCustomerLogo={handleUpdateCustomerLogo}
                     aspectRatio={aspectRatio}
@@ -1274,8 +1260,11 @@ export default function App() {
         insert={editingInsert}
         isOpen={Boolean(editingInsert)}
         onClose={() => setEditingInsert(null)}
+        totalDuration={estimatedTotalDuration}
         onUpdate={handleUpdateInsert}
         onDelete={handleDeleteInsert}
+        aspectRatio={aspectRatio}
+        backgroundImage={scenes.find((s) => s.image_url)?.image_url || undefined}
       />
     </div>
   );

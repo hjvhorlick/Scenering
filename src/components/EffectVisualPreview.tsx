@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { CatalogItem } from "../lib/video-studio-catalog";
+import { getPresetCoords, renderTimelineInsert } from "../lib/render-effects";
+import type { TimelineInsert } from "../types";
 
 interface EffectVisualPreviewProps {
   item: CatalogItem;
@@ -9,8 +11,9 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animRef = useRef<number>(0);
 
+  // Audio visualisers are drawn by the very same renderer the video preview and
+  // the final render use, so the card can never show something the video won't.
   useEffect(() => {
-    // Only audio visualizers need a dynamic canvas loop for smooth animation
     if (item.category !== "audio_visualizers") return;
 
     const canvas = canvasRef.current;
@@ -18,328 +21,70 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    let startTime = performance.now();
+    // A throwaway timeline insert mirroring what gets added to the timeline
+    // Catalogue cards sit the visualiser a little higher than its timeline
+    // preset so the bars, their shadow and the floor glow are all visible.
+    const preset = item.defaultPosition || "center";
+    const cardY = 0.62;
+    const previewInsert = {
+      id: `preview-${item.type}`,
+      category: item.category,
+      type: item.type,
+      title: item.name,
+      startTime: 0,
+      duration: 9999,
+      position: { ...getPresetCoords(preset as any), y: cardY },
+      presetPosition: undefined,
+      size: item.defaultSize || 1,
+      opacity: 1,
+      audioSource: item.defaultAudioSource || "voice",
+      content: {},
+      visualOptions: item.defaultVisualOptions ? { ...item.defaultVisualOptions } : undefined,
+      audioSettings: {},
+    } as unknown as TimelineInsert;
 
-    const renderLoop = (time: number) => {
-      const elapsed = (time - startTime) / 1000;
+    const startedAt = performance.now();
+    let raf = 0;
+    let lastPaint = 0;
+
+    const renderLoop = (now: number) => {
+      raf = requestAnimationFrame(renderLoop);
+      // ~30fps is plenty for a thumbnail and keeps a grid of cards cheap
+      if (now - lastPaint < 33) return;
+      lastPaint = now;
+      const elapsed = (now - startedAt) / 1000;
       const w = canvas.width;
       const h = canvas.height;
 
-      ctx.clearRect(0, 0, w, h);
-
-      // Dark studio backdrop with subtle grid
-      ctx.fillStyle = "#070913";
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      // dark studio stage so the glass plate, bars and their shadow are readable
+      const stage = ctx.createLinearGradient(0, 0, 0, h);
+      stage.addColorStop(0, "#0b1020");
+      stage.addColorStop(0.6, "#131a2e");
+      stage.addColorStop(1, "#070a14");
+      ctx.fillStyle = stage;
       ctx.fillRect(0, 0, w, h);
-
-      // Draw subtle grid line
       ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(0, h / 2);
-      ctx.lineTo(w, h / 2);
+      ctx.moveTo(0, h * 0.55);
+      ctx.lineTo(w, h * 0.55);
       ctx.stroke();
 
-      const type = item.type;
+      // No analyser data here: the rhythm engine drives it, exactly like it does
+      // whenever a project has no audio loaded yet.
+      renderTimelineInsert(ctx, previewInsert, 0.4 + (elapsed % 12), w, h, 0, null, null);
 
-      if (type === "oscilloscope") {
-        // CRT Oscilloscope: Electronic phosphor green/cyan beam with realistic voice harmonics & CRT grid
-        // Oscilloscope grid ticks
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.15)";
-        ctx.lineWidth = 1;
-        for (let gx = 20; gx < w; gx += 30) {
-          ctx.beginPath();
-          ctx.moveTo(gx, h / 2 - 25);
-          ctx.lineTo(gx, h / 2 + 25);
-          ctx.stroke();
-        }
-
-        // Phosphor halo (glow layer)
-        ctx.beginPath();
-        for (let x = 0; x < w; x++) {
-          const normX = x / w;
-          const env = Math.sin(normX * Math.PI);
-          // Glottal voice pitch + formant resonances F1 & F2
-          const fundamental = Math.sin(normX * 16 - elapsed * 10);
-          const formant1 = Math.sin(normX * 48 - elapsed * 18) * 0.45;
-          const formant2 = Math.sin(normX * 96 + elapsed * 24) * 0.2;
-          const y = h / 2 + (fundamental + formant1 + formant2) * 18 * env;
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = "rgba(52, 211, 153, 0.4)";
-        ctx.lineWidth = 6;
-        ctx.shadowColor = "#10b981";
-        ctx.shadowBlur = 12;
-        ctx.stroke();
-
-        // Laser-sharp CRT core beam
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 1.8;
-        ctx.shadowBlur = 4;
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        // Secondary harmonic phase trace
-        ctx.beginPath();
-        for (let x = 0; x < w; x++) {
-          const normX = x / w;
-          const env = Math.sin(normX * Math.PI);
-          const y = h / 2 + Math.sin(normX * 24 + elapsed * 8) * 9 * env;
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = "rgba(6, 182, 212, 0.5)";
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-      } else if (type === "waveform") {
-        // Continuous smooth neon acoustic wave
-        ctx.beginPath();
-        for (let x = 0; x < w; x++) {
-          const normX = x / w;
-          const env = Math.sin(normX * Math.PI); // envelope (0 at edges, 1 in center)
-          const y =
-            h / 2 +
-            Math.sin(normX * 12 + elapsed * 4) * 16 * env +
-            Math.cos(normX * 24 - elapsed * 6) * 8 * env;
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = "#06b6d4";
-        ctx.lineWidth = 3;
-        ctx.shadowColor = "#06b6d4";
-        ctx.shadowBlur = 10;
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        // Secondary harmonic wave
-        ctx.beginPath();
-        for (let x = 0; x < w; x++) {
-          const normX = x / w;
-          const env = Math.sin(normX * Math.PI);
-          const y =
-            h / 2 +
-            Math.sin(normX * 8 - elapsed * 3) * 12 * env +
-            Math.sin(normX * 18 + elapsed * 5) * 6 * env;
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = "#a855f7";
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      } else if (type === "mirror_wave") {
-        // Mirrored symmetrical dual oscillating wave
-        const count = 36;
-        const barW = (w - 40) / count;
-        const startX = 20;
-
-        for (let i = 0; i < count; i++) {
-          const norm = i / count;
-          const env = Math.sin(norm * Math.PI);
-          const amp =
-            (Math.sin(norm * 14 + elapsed * 5) * 0.5 + 0.5) *
-            (Math.cos(norm * 20 - elapsed * 3) * 0.3 + 0.7) *
-            22 *
-            env;
-
-          const x = startX + i * barW;
-          const barHeight = Math.max(3, amp);
-
-          // Top half
-          const grad = ctx.createLinearGradient(0, h / 2 - barHeight, 0, h / 2 + barHeight);
-          grad.addColorStop(0, "#38bdf8");
-          grad.addColorStop(0.5, "#ec4899");
-          grad.addColorStop(1, "#38bdf8");
-
-          ctx.fillStyle = grad;
-          ctx.fillRect(x, h / 2 - barHeight, barW - 1.5, barHeight * 2);
-        }
-      } else if (type === "equalizer_bars" || type === "spectrum" || type === "speech_spectrum") {
-        // Multi-frequency studio spectrum bars
-        const numBars = type === "spectrum" ? 28 : 20;
-        const pad = 3;
-        const totalW = w - 40;
-        const barW = (totalW - (numBars - 1) * pad) / numBars;
-        const startX = 20;
-
-        for (let i = 0; i < numBars; i++) {
-          const frac = i / numBars;
-          const freqPulse =
-            Math.sin(frac * 8 + elapsed * 6) * 0.35 +
-            Math.cos(frac * 14 - elapsed * 4) * 0.35 +
-            Math.sin(elapsed * 8 + i) * 0.3;
-          const normHeight = Math.max(0.12, Math.min(0.95, (freqPulse + 1) / 2));
-          const maxH = h - 24;
-          const barH = normHeight * maxH;
-          const x = startX + i * (barW + pad);
-          const y = h - 12 - barH;
-
-          // Spectrum gradient: green -> yellow -> crimson/cyan
-          const grad = ctx.createLinearGradient(0, h - 12, 0, y);
-          if (type === "spectrum") {
-            grad.addColorStop(0, "#3b82f6");
-            grad.addColorStop(0.5, "#10b981");
-            grad.addColorStop(0.8, "#f59e0b");
-            grad.addColorStop(1, "#ef4444");
-          } else if (type === "speech_spectrum") {
-            grad.addColorStop(0, "#4f46e5");
-            grad.addColorStop(0.6, "#818cf8");
-            grad.addColorStop(1, "#c084fc");
-          } else {
-            grad.addColorStop(0, "#059669");
-            grad.addColorStop(0.6, "#10b981");
-            grad.addColorStop(0.85, "#eab308");
-            grad.addColorStop(1, "#ef4444");
-          }
-
-          ctx.fillStyle = grad;
-          ctx.beginPath();
-          if (typeof ctx.roundRect === "function") {
-            ctx.roundRect(x, y, barW, Math.max(0, barH), [2, 2, 0, 0]);
-          } else {
-            ctx.rect(x, y, barW, Math.max(0, barH));
-          }
-          ctx.fill();
-
-          // Peak dot
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(x, Math.max(8, y - 3), barW, 1.5);
-        }
-      } else if (type === "circular_wave") {
-        // Circular frequency wave: Radial bars radiating outward all around the circle!
-        const cx = w / 2;
-        const cy = h / 2;
-        const innerR = 18;
-        const barCount = 36;
-
-        // Inner glowing core
-        ctx.beginPath();
-        ctx.arc(cx, cy, innerR - 2, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(14, 165, 233, 0.15)";
-        ctx.fill();
-        ctx.strokeStyle = "#38bdf8";
-        ctx.lineWidth = 1.5;
-        ctx.shadowColor = "#38bdf8";
-        ctx.shadowBlur = 6;
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        // Radial outward bars all around 360 degrees
-        for (let i = 0; i < barCount; i++) {
-          const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
-          const harmonic =
-            Math.sin(angle * 3 + elapsed * 5) * 0.4 +
-            Math.cos(angle * 6 - elapsed * 3) * 0.3 +
-            0.5;
-          const barLen = 5 + Math.max(2, harmonic * 18);
-
-          const cosA = Math.cos(angle);
-          const sinA = Math.sin(angle);
-
-          const x1 = cx + cosA * innerR;
-          const y1 = cy + sinA * innerR;
-          const x2 = cx + cosA * (innerR + barLen);
-          const y2 = cy + sinA * (innerR + barLen);
-
-          ctx.beginPath();
-          ctx.moveTo(x1, y1);
-          ctx.lineTo(x2, y2);
-          ctx.strokeStyle = `hsl(${190 + (i / barCount) * 120}, 90%, 60%)`;
-          ctx.lineWidth = 2.4;
-          ctx.lineCap = "round";
-          ctx.stroke();
-
-          // Floating outer peak dot
-          const px = cx + cosA * (innerR + barLen + 3);
-          const py = cy + sinA * (innerR + barLen + 3);
-          ctx.fillStyle = "#ffffff";
-          ctx.beginPath();
-          ctx.arc(px, py, 1, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      } else if (type === "voice_pulse" || type === "energy_ring") {
-        // Pulsating concentric circles & glowing radar arcs
-        const cx = w / 2;
-        const cy = h / 2;
-        const maxR = Math.min(w, h) * 0.42;
-
-        const pulse = (elapsed * 1.8) % 1;
-
-        for (let ring = 0; ring < 3; ring++) {
-          const ringProgress = (pulse + ring * 0.33) % 1;
-          const r = Math.max(0.1, ringProgress * maxR);
-          const alpha = Math.max(0, 1 - ringProgress);
-
-          ctx.strokeStyle = type === "energy_ring" ? `rgba(236, 72, 153, ${alpha})` : `rgba(56, 189, 248, ${alpha})`;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(cx, cy, r, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-
-        // Glowing center core
-        const coreGrad = ctx.createRadialGradient(cx, cy, 2, cx, cy, 14);
-        coreGrad.addColorStop(0, "#ffffff");
-        coreGrad.addColorStop(0.4, type === "energy_ring" ? "#f43f5e" : "#0ea5e9");
-        coreGrad.addColorStop(1, "transparent");
-        ctx.fillStyle = coreGrad;
-        ctx.beginPath();
-        ctx.arc(cx, cy, 14, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (type === "minimal_voice") {
-        // Minimal Talking Dots: 4 modern 3D AI assistant dots that bounce into pills during speech
-        const cx = w / 2;
-        const cy = h / 2;
-        const dotColors = ["#3b82f6", "#ef4444", "#f59e0b", "#10b981"];
-        const spacing = 18;
-        const startX = cx - (dotColors.length - 1) * (spacing / 2);
-
-        dotColors.forEach((color, i) => {
-          const x = startX + i * spacing;
-          // Dynamic vocal pulse bounce & stretch
-          const bounce = Math.sin(elapsed * 10 + i * 1.4);
-          const amp = Math.max(0.1, (bounce + 1) / 2);
-          const pillHeight = Math.max(4, 8 + amp * 22);
-          const y = cy - pillHeight / 2;
-
-          // 3D Capsule Pill
-          ctx.fillStyle = color;
-          ctx.beginPath();
-          if (typeof ctx.roundRect === "function") {
-            ctx.roundRect(x - 4, y, 8, pillHeight, [4, 4, 4, 4]);
-          } else {
-            ctx.rect(x - 4, y, 8, pillHeight);
-          }
-          ctx.fill();
-
-          // 3D Specular Highlight
-          ctx.fillStyle = "rgba(255, 255, 255, 0.65)";
-          ctx.beginPath();
-          ctx.arc(x, y + 3, 1.8, 0, Math.PI * 2);
-          ctx.fill();
-        });
-      } else {
-        // Default clean acoustic wave
-        ctx.beginPath();
-        for (let x = 0; x < w; x++) {
-          const normX = x / w;
-          const y = h / 2 + Math.sin(normX * 8 + elapsed * 3) * 14;
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = "#10b981";
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-      }
-
-      animRef.current = requestAnimationFrame(renderLoop);
+      raf = raf; // keep the handle for cleanup
     };
 
-    animRef.current = requestAnimationFrame(renderLoop);
-
+    raf = requestAnimationFrame(renderLoop);
     return () => {
-      if (animRef.current) cancelAnimationFrame(animRef.current);
+      if (raf) cancelAnimationFrame(raf);
     };
   }, [item]);
+
 
   // If this is an audio visualizer, return the live animated canvas
   if (item.category === "audio_visualizers") {
@@ -347,13 +92,15 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 overflow-hidden relative shadow-inner flex items-center justify-center">
         <canvas
           ref={canvasRef}
-          width={280}
-          height={96}
+          width={512}
+          height={176}
           className="w-full h-full object-cover"
         />
         <div className="absolute bottom-1 right-2 flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-          <span className="text-[9px] font-mono text-gray-400 uppercase tracking-wider">Audio Reactive</span>
+          <span className="text-[9px] font-mono text-gray-400 uppercase tracking-wider">
+            Live · same engine as render
+          </span>
         </div>
       </div>
     );
@@ -774,38 +521,11 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   }
 
   // ---------------- 8. BACKGROUND MUSIC PREVIEWS ----------------
+  // Background Music: intentionally NO preview graphic — audio items stay
+  // simple (name + description + Test) so users are not confused by a
+  // visual effect that is not part of the video.
   if (item.category === "background_music") {
-    return (
-      <div className="w-full h-24 rounded-lg bg-gradient-to-br from-gray-950 via-indigo-950/40 to-gray-950 border border-indigo-600/30 p-2.5 flex flex-col justify-between relative overflow-hidden group">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <div className="w-6 h-6 rounded-full bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-xs text-indigo-300">
-              🎵
-            </div>
-            <span className="text-[10px] font-bold text-white truncate max-w-[140px]">{item.name}</span>
-          </div>
-          <span className="text-[8px] font-mono text-emerald-400 bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-800/40">
-            Relaxing
-          </span>
-        </div>
-
-        {/* Animated Soundwave bars indicator */}
-        <div className="flex items-center justify-center gap-1 py-1">
-          {[12, 22, 16, 28, 14, 24, 18, 26, 10, 20, 15].map((h, i) => (
-            <div
-              key={i}
-              style={{ height: `${h}px` }}
-              className="w-1 bg-gradient-to-t from-indigo-500 to-purple-400 rounded-full opacity-80 group-hover:opacity-100 transition-opacity"
-            />
-          ))}
-        </div>
-
-        <div className="flex items-center justify-between text-[8px] text-gray-400 border-t border-gray-800/80 pt-1">
-          <span className="truncate max-w-[150px]">{item.defaultContent?.secondaryText || "Royalty-free"}</span>
-          <span className="text-indigo-300 font-medium">Auto Credits ✓</span>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   // ---------------- 9. FILTERS PREVIEWS (REAL VISIBLE COLOR GRADES) ----------------
@@ -843,32 +563,9 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     );
   }
 
-  // ---------------- 10. SOUND EFFECTS PREVIEWS ----------------
+  // Sound Effects: intentionally NO preview graphic (see note above).
   if (item.category === "sound_effects") {
-    return (
-      <div className="w-full h-24 rounded-lg bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 border border-gray-800 p-2.5 flex flex-col justify-between relative overflow-hidden group">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="text-base">{item.icon}</span>
-            <span className="text-[10px] font-bold text-white truncate max-w-[140px]">{item.name}</span>
-          </div>
-          <span className="text-[8px] font-mono text-amber-400 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-800/40 uppercase">
-            {item.subCategory || "SFX"}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-center gap-1 py-1">
-          <div className="w-8 h-8 rounded-full bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-300 shadow-sm group-hover:scale-110 transition-transform">
-            🔊
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between text-[8px] text-gray-400 border-t border-gray-800/80 pt-1">
-          <span>Timeline Insert</span>
-          <span className="font-mono text-gray-300">{item.defaultDuration}s</span>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   // ---------------- BRAND LOGO PREVIEW ----------------

@@ -1,21 +1,43 @@
 import { CaptionsConfig } from "../types";
+import {
+  captionFontStack,
+  getCaptionFont,
+  getCaptionStyle,
+  resolveCaptionStyleId,
+} from "../data/caption-styles";
 
 export const DEFAULT_CAPTIONS_CONFIG: CaptionsConfig = {
   enabled: true,
   mode: "karaoke",
   backgroundStyle: "blocked",
-  preset: "word_pop",
+  preset: "newsroom_clean",
   fontSize: "medium",
   position: "bottom",
   uppercase: true,
-  textColor: "#ffffff",
-  highlightColor: "#facc15", // bright golden yellow for karaoke active word
-  bgColor: "rgba(0, 0, 0, 0.75)",
+  textColor: "#FFFFFF",
+  highlightColor: "#7DD3FC",
+  bgColor: "rgba(8, 12, 22, 0.72)",
+  borderWidth: 1, // hairline by default — thickened from the Captions studio
+  borderColor: "#000000",
+  shadow: true,
+  shadowStrength: 0.5,
 };
+
+/** Helper: apply letter spacing where the canvas supports it (Chrome/Edge/Safari) */
+function applyLetterSpacing(ctx: CanvasRenderingContext2D, em: number) {
+  const anyCtx = ctx as unknown as { letterSpacing?: string };
+  if ("letterSpacing" in anyCtx && typeof anyCtx.letterSpacing === "string") {
+    anyCtx.letterSpacing = `${(em || 0).toFixed(3)}em`;
+  }
+}
 
 /**
  * Shared canvas caption rendering engine.
  * Used by both live VideoPreview and final offline RenderView.
+ *
+ * Every style draws a soft shadow *below* the text (and below the backdrop pill)
+ * so the captions read as floating a little above the footage, which gives the
+ * frame depth. The border is a hairline by default and thickens with borderWidth.
  */
 export function renderCanvasCaptions(
   ctx: CanvasRenderingContext2D,
@@ -29,9 +51,20 @@ export function renderCanvasCaptions(
   const trimmed = rawText.trim();
   if (!trimmed) return;
 
-  const textToRender = config.uppercase ? trimmed.toUpperCase() : trimmed;
+  // ---------- Style + typography ----------
+  const style = getCaptionStyle(resolveCaptionStyleId(config.preset));
+  const fontDef = getCaptionFont(config.fontId || style.fontId);
+  const fontFamily = captionFontStack(config.fontId || style.fontId);
+  const fontWeight = config.fontWeight ?? fontDef.weight;
+  const letterSpacing = config.letterSpacing ?? style.letterSpacing;
+  const uppercase = config.uppercase ?? style.uppercase;
+
+  const textToRender = uppercase ? trimmed.toUpperCase() : trimmed;
   const words = textToRender.split(/\s+/).filter(Boolean);
   if (words.length === 0) return;
+
+  // Reference everything to 720p so caption sizing is identical in preview and render
+  const scale = h / 720;
 
   // Font size calculation based on canvas height
   let fontPx: number;
@@ -52,9 +85,18 @@ export function renderCanvasCaptions(
       break;
   }
 
+  // Border and shadow, both scaled to the frame
+  const borderWidth = Math.max(0, (config.borderWidth ?? style.borderWidth) * scale);
+  const borderColor = config.borderColor || style.borderColor;
+  const shadowOn = config.shadow ?? true;
+  const shadowStrength = (config.shadowStrength ?? style.shadowStrength) * (shadowOn ? 1 : 0);
+  const shadowOffsetY = Math.max(1, (config.shadowOffset ?? style.shadowOffset) * scale);
+  const shadowBlur = Math.max(2, (config.shadowBlur ?? style.shadowBlur) * scale);
+
   ctx.save();
-  ctx.font = `bold ${fontPx}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  ctx.font = `${fontWeight} ${fontPx}px ${fontFamily}`;
   ctx.textBaseline = "middle";
+  applyLetterSpacing(ctx, letterSpacing);
 
   // Wrap words into lines based on safe canvas width (ensuring text fits inside video borders)
   const maxLineWidth = Math.round(w * 0.78);
@@ -81,7 +123,7 @@ export function renderCanvasCaptions(
   }
   if (curLineWords.length > 0) {
     lines.push({
-      words: curLineWords,
+      words: [...curLineWords],
       text: curLineWords.join(" "),
       startIndex: curStartIndex,
       lineIndex: lines.length,
@@ -109,18 +151,13 @@ export function renderCanvasCaptions(
     }
   }
 
-  // DISPLAY MAX 2 LINES:
-  // "I want it to only display max 2 lines and make them fit inside the boarder of the video.
-  //  the next line can show as the first is done with voice over reading."
+  // DISPLAY MAX 2 LINES: the next line shows underneath as the first is finished.
   let firstVisibleIdx = 0;
   if (lines.length <= 2) {
     firstVisibleIdx = 0;
   } else if (activeLineIdx >= lines.length - 1) {
-    // When on the final line, show the preceding line + final line to keep a stable 2-line layout
     firstVisibleIdx = lines.length - 2;
   } else {
-    // Active line is on top; next line shows directly underneath it!
-    // As soon as the first line is done, activeLineIdx increments and the next line becomes active on top!
     firstVisibleIdx = activeLineIdx;
   }
 
@@ -144,13 +181,33 @@ export function renderCanvasCaptions(
       break;
   }
 
+  /** Hairline border + a shadow that falls below the text */
+  const strokeWord = (text: string, x: number, y: number, align: CanvasTextAlign) => {
+    ctx.save();
+    ctx.textAlign = align;
+    if (shadowStrength > 0) {
+      ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.95, shadowStrength)})`;
+      ctx.shadowBlur = shadowBlur;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = shadowOffsetY;
+    }
+    if (borderWidth > 0) {
+      ctx.lineJoin = "round";
+      ctx.miterLimit = 2;
+      ctx.lineWidth = borderWidth;
+      ctx.strokeStyle = borderColor;
+      ctx.strokeText(text, x, y);
+    }
+    ctx.restore();
+  };
+
   // Render the max 2 visible lines
   visibleLines.forEach((lineObj, displayIdx) => {
     const lineY = startY + displayIdx * lineSpacingPx;
     const lineWidth = ctx.measureText(lineObj.text).width;
     const lineStartX = (w - lineWidth) / 2;
 
-    // 1. Background backdrop (if blocked) - strictly constrained within video boundaries
+    // 1. Background backdrop (if blocked) — floating on its own shadow
     if (config.backgroundStyle === "blocked") {
       const padX = Math.round(fontPx * 0.65);
       const padY = Math.round(fontPx * 0.35);
@@ -161,9 +218,11 @@ export function renderCanvasCaptions(
       const bgY = lineY - bgH / 2;
 
       ctx.save();
-      ctx.fillStyle = config.bgColor || "rgba(0, 0, 0, 0.75)";
-      ctx.shadowColor = "rgba(0, 0, 0, 0.45)";
-      ctx.shadowBlur = 8;
+      ctx.fillStyle = config.bgColor || "rgba(0, 0, 0, 0.72)";
+      ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.6, 0.28 + shadowStrength * 0.4)})`;
+      ctx.shadowBlur = shadowBlur * 0.9;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = Math.max(1.5, shadowOffsetY * 0.8);
       ctx.beginPath();
       if (typeof ctx.roundRect === "function") {
         ctx.roundRect(bgX, bgY, bgW, bgH, Math.min(12, Math.round(bgH * 0.25)));
@@ -178,34 +237,34 @@ export function renderCanvasCaptions(
     if (config.mode === "karaoke") {
       // In Karaoke mode, draw word by word, highlighting active and sung words
       let currentX = lineStartX;
-      ctx.textAlign = "left";
 
       lineObj.words.forEach((wrd, wInLineIdx) => {
         const globalWrdIdx = lineObj.startIndex + wInLineIdx;
         const isCurrentActive = globalWrdIdx === activeWordGlobalIndex;
         const isAlreadySung = globalWrdIdx < activeWordGlobalIndex;
 
-        ctx.save();
+        // Soft shadow below every word, so the whole line floats in the frame
+        strokeWord(wrd, currentX, lineY, "left");
 
-        if (config.backgroundStyle === "transparent") {
-          // Heavy shadow/outline for transparent readability
-          ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
-          ctx.shadowBlur = 10;
-          ctx.shadowOffsetX = 2;
-          ctx.shadowOffsetY = 2;
-          ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
-          ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.16));
-          ctx.strokeText(wrd, currentX, lineY);
-        }
+        ctx.save();
+        ctx.textAlign = "left";
 
         if (isCurrentActive) {
-          ctx.fillStyle = config.highlightColor || "#facc15";
-          ctx.shadowColor = config.highlightColor || "#facc15";
-          ctx.shadowBlur = 14;
+          ctx.fillStyle = config.highlightColor || style.highlightColor;
+          if (style.category === "Artsy" || style.shadowStrength > 0.65) {
+            // glow styles keep a coloured halo on the active word
+            ctx.shadowColor = ctx.fillStyle as string;
+            ctx.shadowBlur = Math.max(6, shadowBlur * 0.9);
+            ctx.shadowOffsetY = Math.max(1, shadowOffsetY * 0.4);
+          } else {
+            ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.9, shadowStrength)})`;
+            ctx.shadowBlur = shadowBlur;
+            ctx.shadowOffsetY = shadowOffsetY;
+          }
         } else if (isAlreadySung) {
-          ctx.fillStyle = config.textColor || "#ffffff";
+          ctx.fillStyle = config.textColor || style.textColor;
         } else {
-          // Upcoming words in soft white tone for clean anticipation
+          // Upcoming words in a soft tone for clean anticipation
           ctx.fillStyle = "rgba(255, 255, 255, 0.72)";
         }
 
@@ -216,24 +275,16 @@ export function renderCanvasCaptions(
       });
     } else {
       // In Normal mode, draw the full uniform phrase
+      strokeWord(lineObj.text, w / 2, lineY, "center");
+
       ctx.save();
       ctx.textAlign = "center";
-
-      if (config.backgroundStyle === "transparent") {
-        ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
-        ctx.shadowBlur = 12;
-        ctx.shadowOffsetX = 2;
-        ctx.shadowOffsetY = 2;
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.9)";
-        ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.16));
-        ctx.strokeText(lineObj.text, w / 2, lineY);
-      }
-
-      ctx.fillStyle = config.textColor || "#ffffff";
+      ctx.fillStyle = config.textColor || style.textColor;
       ctx.fillText(lineObj.text, w / 2, lineY);
       ctx.restore();
     }
   });
 
+  applyLetterSpacing(ctx, 0);
   ctx.restore();
 }

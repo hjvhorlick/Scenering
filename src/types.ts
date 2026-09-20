@@ -105,6 +105,17 @@ export interface CustomerLogoConfig {
 
 export interface InsertVisualOptions {
   has3DLook?: boolean;
+  /* ---- Call-to-action badge styling ---- */
+  platform?: string;              // platform id from src/data/cta-library.ts
+  ctaShape?: "pill" | "round" | "square" | "banner";
+  ctaStyle?: "solid" | "gradient" | "outline" | "glass";
+  badgeScale?: number;            // 0.6 - 1.8 badge width multiplier
+  textScale?: number;             // 0.7 - 1.4 text size multiplier
+  iconScale?: number;             // 0.6 - 1.6 brand mark size multiplier
+  elevation?: number;             // 0 - 1 raised 2D look depth
+  borderWidth?: number;           // outline style thickness in px
+  customMark?: string;            // icon picked in the Text & Icon tab (replaces the brand logo)
+  floatShadow?: boolean;          // soft shadow below the overlay (default on; gives the frame depth)
   primaryColor?: string;
   secondaryColor?: string;
   textColor?: string;
@@ -116,14 +127,18 @@ export interface InsertVisualOptions {
   barThickness?: number; // width/thickness of bars or wave stroke
   glowIntensity?: number; // 0 to 1
   colorPreset?: string; // "spectrum" | "cyber" | "crt_green" | "custom"
+  /* ---- Audio visualiser reactivity ---- */
+  reactivity?: number; // 0.2 - 2.4 reaction strength (default 1)
+  spanFullVideo?: boolean; // run for the whole video, not a fixed 8s window (default true for visualisers)
 }
 
 export interface InsertAudioSettings {
   soundUrl?: string;
   soundName?: string;
-  volume?: number; // 0 to 1, default 0.8
+  volume?: number; // 0 to 1, default 0.9
   muted?: boolean;
   loop?: boolean;
+  loopAudio?: boolean; // legacy alias of loop (old catalog data)
   delay?: number; // in seconds
 }
 
@@ -225,12 +240,28 @@ export interface CaptionsConfig {
   enabled: boolean;
   mode: "karaoke" | "normal";
   backgroundStyle: "transparent" | "blocked";
-  preset: "word_pop" | "cyber_yellow" | "neon_glow" | "classic_box" | "minimal";
+  /** Id from the caption style library (legacy preset ids are mapped automatically) */
+  preset: string;
   fontSize: "small" | "medium" | "large";
   position: "bottom" | "center" | "top";
   uppercase: boolean;
   textColor: string;
   highlightColor: string;
   bgColor?: string;
+  /* ---------- Typography (from the style library, overridable) ---------- */
+  /** Font id from CAPTION_FONTS; falls back to the style's own font */
+  fontId?: string;
+  fontWeight?: number;
+  /** Letter spacing in em */
+  letterSpacing?: number;
+  /* ---------- Border + floating shadow ---------- */
+  /** Outline width in px at 720p — thin by default, thicken it as needed */
+  borderWidth?: number;
+  borderColor?: string;
+  /** Soft shadow below the captions so they sit in the frame with depth */
+  shadow?: boolean;
+  shadowStrength?: number;
+  shadowOffset?: number;
+  shadowBlur?: number;
 }
 
