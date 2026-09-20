@@ -16,34 +16,6 @@ export interface Project {
   updated_at: string;
 }
 
-export type SceneFilterType =
-  | "none"
-  | "old_movie"
-  | "dust_particles"
-  | "sun_flare"
-  | "vhs_glitch"
-  | "noir"
-  | "cinematic"
-  | "dark_cinematic"
-  | "warm_movie"
-  | "cool_movie"
-  | "high_contrast"
-  | "vintage"
-  | "film_grain"
-  | "soft_glow"
-  | "dreamy"
-  | "golden_hour"
-  | "sunset_warmth"
-  | "cold_blue"
-  | "haze_fog"
-  | "vignette"
-  | "black_and_white"
-  | "sepia"
-  | "desaturated"
-  | "deep_shadows"
-  | "color_boost"
-  | "dramatic_hdr";
-
 export type SceneMotionType =
   | "none"
   | "ken_burns"
@@ -77,7 +49,6 @@ export interface Scene {
   voice_id?: string;
   speaker_name?: string;
   dialogue?: DialogueLine[];
-  filter?: SceneFilterType;
   motion_effect?: SceneMotionType;
   transition?: "none" | "crossfade" | "fade_black" | "zoom" | "slide";
   narration_speed?: number;

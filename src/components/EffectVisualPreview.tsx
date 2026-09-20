@@ -528,40 +528,8 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     return null;
   }
 
-  // ---------------- 9. FILTERS PREVIEWS (REAL VISIBLE COLOR GRADES) ----------------
-  if (item.category === "filters") {
-    const filterId = item.type.replace("filter_", "");
-    const primaryColor = item.defaultVisualOptions?.primaryColor || "#6366f1";
-    const secondaryColor = item.defaultVisualOptions?.secondaryColor || "#1e1b4b";
-
-    return (
-      <div className="w-full h-24 rounded-lg border border-gray-800 p-2 flex flex-col justify-between relative overflow-hidden group shadow-inner">
-        {/* Colorful real gradient background simulating scene image under filter */}
-        <div
-          className="absolute inset-0 transition-transform duration-300 group-hover:scale-105"
-          style={{
-            background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 60%, #030712 100%)`,
-          }}
-        />
-
-        {/* Diagonal split badge */}
-        <div className="relative z-10 flex items-center justify-between">
-          <span className="text-[10px] font-bold text-white drop-shadow bg-black/60 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10">
-            {item.name}
-          </span>
-          <span className="text-[8px] font-mono text-gray-200 bg-black/60 px-1.5 py-0.5 rounded border border-white/10">
-            {filterId}
-          </span>
-        </div>
-
-        {/* Split comparison preview line */}
-        <div className="relative z-10 flex items-center justify-between text-[8px] text-white/90 bg-black/50 px-2 py-1 rounded backdrop-blur-sm">
-          <span>Preset Color Grade</span>
-          <span className="text-amber-300 font-semibold">Live Preview</span>
-        </div>
-      </div>
-    );
-  }
+  // Filters have their own dedicated studio with live animated previews
+  // (see FiltersStudio.tsx) and are never rendered as catalog cards.
 
   // Sound Effects: intentionally NO preview graphic (see note above).
   if (item.category === "sound_effects") {

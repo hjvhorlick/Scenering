@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import type { Scene, AspectRatioType } from "../types";
 import ImageSearchModal from "./ImageSearchModal";
 import { NATURE_FALLBACKS } from "../data/nature-fallbacks";
-import { REAL_FILTER_PRESETS, getFilterPreset, type FilterPreset } from "../data/filters-library";
+import { getFilterCss, getPreset, type VideoFilterConfig } from "../data/video-filters";
 import {
   countWords,
   getSpokenDurationFromWords,
@@ -18,6 +18,8 @@ interface SceneEditorProps {
   targetDuration?: number;
   onUpdateTargetDuration?: (duration: number) => void;
   onUpdate: (sceneId: number, updates: Partial<Scene>) => void;
+  /** project-wide look (applied in Video Studio → Filters); shown here read-only */
+  videoFilter?: VideoFilterConfig | null;
   onImageSearch: (sceneId: number, query: string) => Promise<{ imageUrl: string; allImages?: string[] } | undefined>;
   onDelete?: (sceneId: number) => void;
 }
@@ -30,6 +32,7 @@ export default function SceneEditor({
   targetDuration = 20,
   onUpdateTargetDuration,
   onUpdate,
+  videoFilter = null,
   onImageSearch,
   onDelete,
 }: SceneEditorProps) {
@@ -43,7 +46,8 @@ export default function SceneEditor({
   const [compareOriginal, setCompareOriginal] = useState(false);
   const [imgError, setImgError] = useState(false);
 
-  const currentFilter = getFilterPreset(scene.filter);
+  const activeLook = getPreset(videoFilter?.id);
+  const lookCss = getFilterCss(videoFilter);
 
   useEffect(() => {
     setTextValue(scene.text);
@@ -162,34 +166,25 @@ export default function SceneEditor({
                 style={{
                   transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})`,
                   transformOrigin: "center center",
-                  filter: compareOriginal ? "none" : currentFilter.cssFilter,
+                  filter: compareOriginal ? "none" : lookCss,
                 }}
                 onError={() => setImgError(true)}
               />
 
-              {/* Realistic SVG Filter Texture / Lighting Overlay */}
-              {!compareOriginal && currentFilter.overlayUrl && (
-                <img
-                  src={currentFilter.overlayUrl}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-300 z-[1]"
-                  style={{
-                    mixBlendMode: currentFilter.blendMode || "screen",
-                    opacity: currentFilter.overlayOpacity ?? 0.85,
-                  }}
-                />
-              )}
-
-              {/* Active Filter Pill Badge */}
-              {scene.filter && scene.filter !== "none" && (
-                <div className="absolute bottom-2 left-2 z-10 px-2 py-0.5 bg-gray-950/85 backdrop-blur border border-purple-500/80 rounded text-[10px] font-semibold text-purple-200 flex items-center gap-1 shadow-md">
-                  <span>{currentFilter.icon}</span>
-                  <span>{currentFilter.name}</span>
+              {/* Project-wide look badge (configured in Video Studio → Filters) */}
+              {activeLook && (
+                <div
+                  className="absolute bottom-2 left-2 z-10 px-2 py-0.5 bg-gray-950/85 backdrop-blur border rounded text-[10px] font-semibold flex items-center gap-1 shadow-md"
+                  style={{ borderColor: `${activeLook.accent}cc`, color: activeLook.accent }}
+                  title={`${activeLook.name} — applied to the whole video from Video Studio → Filters`}
+                >
+                  <span>{activeLook.icon}</span>
+                  <span>{activeLook.name}</span>
                 </div>
               )}
 
               {/* Quick Compare Button (Hold to see original) */}
-              {scene.filter && scene.filter !== "none" && (
+              {activeLook && (
                 <button
                   type="button"
                   onMouseDown={() => setCompareOriginal(true)}

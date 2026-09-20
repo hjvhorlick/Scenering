@@ -2,7 +2,6 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import type { Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, PacingModeType } from "../types";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import {
-  applySceneFilter,
   getInsertBounds,
   getMotionTransform,
   getPresetCoords,
@@ -13,7 +12,8 @@ import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { calculateDynamicDuration } from "../lib/duration-utils";
-import { getCanvasFilterString } from "../data/filters-library";
+import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
+import { paintVideoFilter } from "../lib/video-filter-render";
 import { getCachedSceneAudio } from "../lib/tts-cache";
 import { buildInsertAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
@@ -34,6 +34,8 @@ interface VideoPreviewProps {
   selectedVoice?: string;
   aspectRatio?: AspectRatioType;
   pacingMode?: PacingModeType;
+  /** one look across the whole video (set in Video Studio → Filters) */
+  videoFilter?: VideoFilterConfig | null;
 }
 
 // Playback timing helper: respects scene.duration while ensuring audio is never cut short
@@ -101,8 +103,13 @@ export default function VideoPreview({
   selectedVoice: propSelectedVoice,
   aspectRatio = "16:9",
   pacingMode = "auto_speech",
+  videoFilter = null,
 }: VideoPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // kept in a ref so the draw loop always grades with the latest settings
+  // without having to rebuild every callback while the sliders are dragged
+  const videoFilterRef = useRef<VideoFilterConfig | null>(videoFilter);
+  videoFilterRef.current = videoFilter;
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -419,8 +426,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         const finalX = baseDx + userOffsetX + motionDx - (scaledW - renderW) / 2;
         const finalY = baseDy + userOffsetY + motionDy - (scaledH - renderH) / 2;
 
-        // Apply real photographic color grade to image canvas pixels
-        const canvasFilter = getCanvasFilterString(scene.filter);
+        // Apply the project-wide colour grade to the image pixels
+        const canvasFilter = getFilterCanvas(videoFilterRef.current, w);
         if (canvasFilter && canvasFilter !== "none") {
           ctx.filter = canvasFilter;
         }
@@ -430,8 +437,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         ctx.restore();
       }
 
-      // Apply Scene Visual Filter overlays (film scratches, dust motes, VHS scanlines, sun flares, vignettes)
-      applySceneFilter(ctx, scene.filter, w, h, absoluteTime);
+      // Animated atmosphere of the project-wide filter (grain, mist, dust,
+      // sun flare, VHS artefacts...). Runs over every scene, whole video.
+      paintVideoFilter(ctx, videoFilterRef.current, w, h, absoluteTime);
 
       // Check if we are currently inside an Intro or Outro segment
       const introInsert = inserts?.find((ins) => ins.category === "intro");
@@ -655,6 +663,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     logoLoadedCounter,
     fontsLoadedCounter,
     captionsConfig,
+    videoFilter,
   ]);
 
   /** Snap a normalized position to safe-area margins / centre lines */

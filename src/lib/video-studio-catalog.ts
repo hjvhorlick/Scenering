@@ -1,7 +1,7 @@
-import type { InsertCategory, InsertVisualOptions, InsertAudioSettings, AudioSourceType, SceneFilterType, SceneMotionType } from "../types";
+import type { InsertCategory, InsertVisualOptions, InsertAudioSettings, AudioSourceType, SceneMotionType } from "../types";
 import { BACKGROUND_MUSIC_TRACKS, SOUND_LIBRARY, STICKERS_3D } from "../data/media-library";
 import { CTA_PLATFORMS, CTA_GROUPS } from "../data/cta-library";
-import { REAL_FILTER_PRESETS } from "../data/filters-library";
+import { VIDEO_FILTERS, FILTER_GROUPS } from "../data/video-filters";
 
 export interface CatalogItem {
   type: string;
@@ -146,12 +146,10 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
     id: "filters",
     name: "Filters",
     icon: "🎨",
-    description: "26 visible real scene filters. Preview and apply to individual scenes or all scenes in project",
+    description: `${VIDEO_FILTERS.length} cinematic video looks. One click grades the WHOLE video (every scene) with animated atmosphere — dust, mist, sun flare, grain — and full slider control`,
     subcategories: [
-      { id: "all", name: "All Filters (26)", icon: "🎨" },
-      { id: "cinematic", name: "Cinematic Film", icon: "🎞️" },
-      { id: "vintage", name: "Vintage & VHS", icon: "📼" },
-      { id: "atmosphere", name: "Warm & Cold Glow", icon: "✨" },
+      { id: "all", name: `All Looks (${VIDEO_FILTERS.length})`, icon: "🎨" },
+      ...FILTER_GROUPS.map((g) => ({ id: g.id, name: g.name, icon: g.icon })),
     ],
   },
   {
@@ -1196,27 +1194,9 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
     },
   })),
 
-  // 26 Real Visual Filters
-  filters: REAL_FILTER_PRESETS.map((f) => ({
-    type: `filter_${f.id}`,
-    category: "filters" as InsertCategory,
-    subCategory: f.category,
-    name: f.name,
-    icon: f.category === "cinematic" ? "🎞️" : f.category === "vintage" ? "📼" : "✨",
-    description: `${f.desc} (${f.cssFilter})`,
-    defaultDuration: 30,
-    defaultPosition: "center" as const,
-    defaultSize: 1.0,
-    defaultVisualOptions: {
-      primaryColor: "#6366f1",
-      secondaryColor: "#38bdf8",
-    },
-    defaultContent: {
-      primaryText: f.name,
-      secondaryText: f.desc,
-      label: f.id,
-    },
-  })),
+  // Filters are NOT timeline inserts any more — they are a single project-wide
+  // look configured in the Video Studio "Filters" tab (see FiltersStudio.tsx).
+  filters: [],
 
   // Standalone Sound Effects
   sound_effects: SOUND_LIBRARY.map((s) => ({
@@ -1248,17 +1228,6 @@ CATALOG_ITEMS.meditation = CATALOG_ITEMS.audio_visualizers;
 CATALOG_ITEMS.content_cards = CATALOG_ITEMS.text_templates;
 CATALOG_ITEMS.other_cards = CATALOG_ITEMS.text_templates;
 CATALOG_ITEMS.branding = CATALOG_ITEMS.logo;
-
-export const SCENE_FILTERS: { id: SceneFilterType; name: string; desc: string }[] = [
-  { id: "none", name: "Natural (Original)", desc: "Unprocessed original colors" },
-  { id: "cinematic", name: "Cinematic Film", desc: "Balanced teal & orange film look" },
-  { id: "warm_movie", name: "Warm Movie", desc: "Golden honey tones with soft shadows" },
-  { id: "golden_hour", name: "Golden Hour", desc: "Rich warm sunset glow" },
-  { id: "black_and_white", name: "Monochrome Noir", desc: "Classic high contrast black and white" },
-  { id: "vintage", name: "Vintage 1970s", desc: "Warm nostalgic sepia wash" },
-  { id: "soft_glow", name: "Dreamy Bloom", desc: "Ethereal luminous highlights" },
-  { id: "cold_blue", name: "Nordic Blue", desc: "Cool desaturated atmospheric palette" },
-];
 
 export const SCENE_MOTIONS: { id: SceneMotionType; name: string; desc: string }[] = [
   { id: "none", name: "Static (No Motion)", desc: "Fixed still frame without movement" },

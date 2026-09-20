@@ -22,7 +22,8 @@ import {
   fitDurationToText,
   getTargetWordCount,
 } from "./lib/duration-utils";
-import type { Project, Scene, TimelineInsert, SceneFilterType, SceneMotionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
+import type { Project, Scene, TimelineInsert, SceneMotionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
+import type { VideoFilterConfig } from "./data/video-filters";
 
 type View = "create" | "editor";
 
@@ -35,6 +36,8 @@ export interface ProjectSettings {
   selected_voice: string;
   customer_logo: CustomerLogoConfig;
   captions_config: CaptionsConfig;
+  /** ONE look applied to the entire video (every scene), like the music track */
+  video_filter: VideoFilterConfig | null;
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -63,6 +66,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
     highlightColor: "#facc15",
     bgColor: "rgba(0, 0, 0, 0.75)",
   },
+  video_filter: null,
 };
 
 // Split script into scenes and generate image search queries
@@ -151,6 +155,7 @@ export default function App() {
   const [resolution, setResolution] = useState<ResolutionType>(DEFAULT_PROJECT_SETTINGS.resolution);
   const [pacingMode, setPacingMode] = useState<PacingModeType>(DEFAULT_PROJECT_SETTINGS.pacing_mode);
   const [motionStyle, setMotionStyle] = useState<string>(DEFAULT_PROJECT_SETTINGS.motion_style);
+  const [videoFilter, setVideoFilter] = useState<VideoFilterConfig | null>(DEFAULT_PROJECT_SETTINGS.video_filter);
 
   // Helper to save per-project settings so each project maintains isolated configuration
   const saveCurrentProjectSettings = useCallback((partial: Partial<ProjectSettings>) => {
@@ -166,6 +171,11 @@ export default function App() {
   const handleUpdateCaptionsConfig = useCallback((cfg: CaptionsConfig) => {
     setCaptionsConfig(cfg);
     saveCurrentProjectSettings({ captions_config: cfg });
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateVideoFilter = useCallback((cfg: VideoFilterConfig | null) => {
+    setVideoFilter(cfg);
+    saveCurrentProjectSettings({ video_filter: cfg });
   }, [saveCurrentProjectSettings]);
 
   const handleSelectVoice = useCallback((voiceId: string) => {
@@ -315,7 +325,6 @@ export default function App() {
               image_query: item.imageQuery || existing?.image_query || "abstract background",
               duration: targetDur,
               created_at: existing?.created_at || new Date().toISOString(),
-              filter: existing?.filter || "cinematic",
               motion_effect: existing?.motion_effect || "slow_zoom",
               audio_url: existing?.audio_url || null,
               audio_name: existing?.audio_name || null,
@@ -513,6 +522,7 @@ export default function App() {
     setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
     setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
     setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
+    setVideoFilter(DEFAULT_PROJECT_SETTINGS.video_filter);
     setView("create");
   };
 
@@ -541,6 +551,7 @@ export default function App() {
       setPacingMode(projectSettings.pacing_mode);
       setSceneDuration(projectSettings.scene_duration);
       setMotionStyle(projectSettings.motion_style);
+      setVideoFilter(projectSettings.video_filter ?? null);
 
       const { data, error } = await supabase
         .from("scenes")
@@ -669,7 +680,6 @@ export default function App() {
       const parsed = existing ? JSON.parse(existing) : {};
       const newMeta = {
         ...parsed,
-        filter: updates.filter !== undefined ? updates.filter : parsed.filter,
         motion_effect: updates.motion_effect !== undefined ? updates.motion_effect : parsed.motion_effect,
         voice_id: updates.voice_id !== undefined ? updates.voice_id : parsed.voice_id,
         speaker_name: updates.speaker_name !== undefined ? updates.speaker_name : parsed.speaker_name,
@@ -829,12 +839,6 @@ export default function App() {
   };
 
   // Quick Preset Styles across all scenes
-  const applyPresetToAllScenes = (filter: SceneFilterType, motion: SceneMotionType) => {
-    scenes.forEach((sc) => {
-      handleUpdateScene(sc.id, { filter, motion_effect: motion });
-    });
-  };
-
   const handleApplyVoiceToAll = (voiceId: string, _speed: number) => {
     handleSelectVoice(voiceId);
     scenes.forEach((sc) => {
@@ -1003,6 +1007,7 @@ export default function App() {
                 onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
                 sceneDuration={sceneDuration}
                 motionStyle={motionStyle}
+                videoFilter={videoFilter}
                 onOpenSetup={() => setView("create")}
                 onBack={() => setEditorStep("studio")}
                 onNavigateToStep={setEditorStep}
@@ -1052,47 +1057,17 @@ export default function App() {
                       </span>
                     </div>
 
-                    {/* Quick Presets Dropdown / Buttons */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-gray-400 font-medium mr-1">
-                        ✨ Style Presets:
-                      </span>
-                      <button
-                        onClick={() => applyPresetToAllScenes("cinematic", "slow_zoom")}
-                        className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[11px] text-gray-200 border border-gray-700"
-                        title="Apply Cinematic Filter & Slow Zoom to all scenes"
-                      >
-                        🎬 Cinematic
-                      </button>
-                      <button
-                        onClick={() => applyPresetToAllScenes("vintage", "subtle_camera")}
-                        className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[11px] text-gray-200 border border-gray-700"
-                        title="Apply 1970s Vintage Film to all scenes"
-                      >
-                        📼 Vintage
-                      </button>
-                      <button
-                        onClick={() => applyPresetToAllScenes("golden_hour", "pan_right")}
-                        className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[11px] text-gray-200 border border-gray-700"
-                        title="Apply Warm Golden Hour to all scenes"
-                      >
-                        🌅 Golden Hour
-                      </button>
-                      <button
-                        onClick={() => applyPresetToAllScenes("color_boost", "floating")}
-                        className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[11px] text-gray-200 border border-gray-700"
-                        title="Apply Zen Relaxation to all scenes"
-                      >
-                        🌿 Zen Nature
-                      </button>
-                      <button
-                        onClick={() => applyPresetToAllScenes("none", "ken_burns")}
-                        className="px-2 py-1 rounded bg-gray-900 hover:bg-gray-800 text-[10px] text-gray-400 border border-gray-800"
-                        title="Reset to default clean style"
-                      >
-                        Reset
-                      </button>
-                    </div>
+                    {/* Filters now live in ONE place: Video Studio → Filters tab.
+                        (The old per-scene "Style Presets" bar was removed on purpose.) */}
+                    <button
+                      type="button"
+                      onClick={() => setEditorStep("studio")}
+                      className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white text-[11px] font-semibold border border-fuchsia-400/40 shadow flex items-center gap-1.5"
+                      title="Filters & video looks are applied to the whole video in the Video Studio"
+                    >
+                      <span>🎨 Video Look & Filters</span>
+                      <span className="text-[10px] font-normal opacity-80">in Video Studio</span>
+                    </button>
                   </div>
 
                   {/* Scene List */}
@@ -1135,6 +1110,7 @@ export default function App() {
                           onUpdate={handleUpdateScene}
                           onImageSearch={handleImageSearch}
                           onDelete={handleDeleteScene}
+                          videoFilter={videoFilter}
                         />
                       ))}
                     </div>
@@ -1214,6 +1190,7 @@ export default function App() {
                     selectedVoice={selectedVoice}
                     aspectRatio={aspectRatio}
                     pacingMode={pacingMode}
+                    videoFilter={videoFilter}
                   />
 
                   {/* Timeline with Playhead & Inserts */}
@@ -1241,6 +1218,8 @@ export default function App() {
                     onUpdateCustomerLogo={handleUpdateCustomerLogo}
                     aspectRatio={aspectRatio}
                     sampleBackgroundImage={scenes.find((s) => s.image_url)?.image_url || undefined}
+                    videoFilter={videoFilter}
+                    onUpdateVideoFilter={handleUpdateVideoFilter}
                   />
                 </div>
               )}

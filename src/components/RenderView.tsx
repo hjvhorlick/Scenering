@@ -4,7 +4,6 @@ import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { createProjectZip } from "../lib/zip-download";
 import {
-  applySceneFilter,
   getMotionTransform,
   renderTimelineInsert,
 } from "../lib/render-effects";
@@ -13,7 +12,8 @@ import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
-import { getCanvasFilterString } from "../data/filters-library";
+import { getFilterCanvas, getPreset, type VideoFilterConfig } from "../data/video-filters";
+import { paintVideoFilter } from "../lib/video-filter-render";
 import { buildInsertAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
 export interface RenderSettings {
@@ -51,6 +51,8 @@ interface RenderViewProps {
   /* Setup choices — shown read-only on this screen */
   sceneDuration?: number;
   motionStyle?: string;
+  /** the single look applied across the whole video */
+  videoFilter?: VideoFilterConfig | null;
   onOpenSetup?: () => void;
   onNavigatePhase?: (phase: ProjectPhase) => void;
 }
@@ -122,10 +124,12 @@ export default function RenderView({
   onRenderSuccess,
   sceneDuration = 20,
   motionStyle = "dynamic",
+  videoFilter = null,
   onOpenSetup,
   onNavigatePhase,
 }: RenderViewProps) {
   const scenesWithImages = scenes.filter((s) => s.image_url);
+  const activeLook = getPreset(videoFilter?.id);
   const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
   const totalDuration = scenesWithImages.reduce((sum, s) => sum + getSceneDuration(s), 0);
 
@@ -932,8 +936,8 @@ export default function RenderView({
               const safeDx = isNaN(dx) ? 0 : dx;
               const safeDy = isNaN(dy) ? 0 : dy;
 
-              // Apply authentic photographic color grade to frame canvas
-              const canvasFilter = getCanvasFilterString(currentScene.filter);
+              // Project-wide colour grade baked into the frame pixels
+              const canvasFilter = getFilterCanvas(videoFilter, width);
               if (canvasFilter && canvasFilter !== "none") {
                 try {
                   ctx.filter = canvasFilter;
@@ -953,11 +957,13 @@ export default function RenderView({
               } catch {}
             }
 
-            // --- Apply Visual Filter Overlays (scratches, dust bokeh, flares, CRT scanlines) ---
+            // --- Animated atmosphere of the project-wide filter (grain, mist,
+            //     dust, sun flare, VHS artefacts). Uses the GLOBAL timeline
+            //     clock so the motion flows continuously across scene cuts. ---
             try {
-              applySceneFilter(ctx, currentScene.filter, width, height, elapsedInScene);
+              paintVideoFilter(ctx, videoFilter, width, height, currentGlobalTime);
             } catch (filterErr) {
-              console.warn("Scene filter notice:", filterErr);
+              console.warn("Video filter notice:", filterErr);
             }
 
             // --- Crisp Logo Watermark in Top-Left Corner (Permanent & Stands Out) ---
@@ -1439,6 +1445,12 @@ export default function RenderView({
                     ? `${(captionsConfig?.mode || settings.subtitleStyle) === "karaoke" ? "Karaoke word-pop" : "Normal"} · ${captionsConfig?.position || "bottom"}`
                     : "No subtitles in the video"
                 }
+              />
+              <SummaryRow
+                icon="🎨"
+                label="Video look / filter"
+                value={activeLook ? activeLook.name : "None"}
+                hint={activeLook ? `${activeLook.tagline} · every scene` : "Pick one in Video Studio → Filters"}
               />
               <SummaryRow
                 icon="🎵"

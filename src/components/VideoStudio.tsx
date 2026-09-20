@@ -9,6 +9,8 @@ import {
 } from "../data/media-library";
 import CustomerLogoSection from "./CustomerLogoSection";
 import EffectVisualPreview from "./EffectVisualPreview";
+import FiltersStudio from "./FiltersStudio";
+import type { VideoFilterConfig } from "../data/video-filters";
 
 interface VideoStudioProps {
   currentPlayheadTime: number;
@@ -19,6 +21,9 @@ interface VideoStudioProps {
   onUpdateCustomerLogo: (updates: Partial<CustomerLogoConfig>) => void;
   aspectRatio?: AspectRatioType;
   sampleBackgroundImage?: string;
+  /** the single look applied to the entire video */
+  videoFilter?: VideoFilterConfig | null;
+  onUpdateVideoFilter?: (config: VideoFilterConfig | null) => void;
 }
 
 export default function VideoStudio({
@@ -30,6 +35,8 @@ export default function VideoStudio({
   onUpdateCustomerLogo,
   aspectRatio,
   sampleBackgroundImage,
+  videoFilter = null,
+  onUpdateVideoFilter,
 }: VideoStudioProps) {
   // Default to the first of the tabs: "logo"
   const [selectedCategory, setSelectedCategory] = useState<string>("logo");
@@ -220,7 +227,7 @@ export default function VideoStudio({
             )}
           </div>
 
-          {selectedCategory !== "logo" && (
+          {selectedCategory !== "logo" && selectedCategory !== "filters" && (
             <div className="relative w-48 sm:w-56">
               <input
                 type="text"
@@ -271,7 +278,7 @@ export default function VideoStudio({
       </div>
 
       {/* Subcategory Filter Pills (if category has subcategories) */}
-      {selectedCategory !== "logo" && currentCategoryDef?.subcategories && (
+      {selectedCategory !== "logo" && selectedCategory !== "filters" && currentCategoryDef?.subcategories && (
         <div className="bg-gray-950/70 px-5 py-2 border-b border-gray-800/80 flex items-center gap-2 overflow-x-auto">
           <span className="text-[11px] text-gray-400 font-medium mr-1">Section:</span>
           {currentCategoryDef.subcategories.map((sub) => {
@@ -309,8 +316,17 @@ export default function VideoStudio({
           </div>
         )}
 
+        {/* FILTERS: the one and only place video looks are applied (whole video) */}
+        {selectedCategory === "filters" && (
+          <FiltersStudio
+            value={videoFilter}
+            onChange={(cfg) => onUpdateVideoFilter?.(cfg)}
+            sampleImage={sampleBackgroundImage}
+          />
+        )}
+
         {/* 2 - 10: CALL TO ACTION, INTRO, OUTRO, STICKERS, TEXT CONTENT, AUDIO VISUALISERS, ETC */}
-        {selectedCategory !== "logo" && (
+        {selectedCategory !== "logo" && selectedCategory !== "filters" && (
           <div className="space-y-4">
             {/* Contextual Guidance Banner for Intro */}
             {selectedCategory === "intro" && (
