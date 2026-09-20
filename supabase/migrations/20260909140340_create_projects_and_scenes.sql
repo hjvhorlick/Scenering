@@ -16,7 +16,7 @@
   - `text` (text, not null)
   - `image_query` (text, not null)
   - `image_url` (text, nullable)
-  - `duration` (integer, default 4 — seconds)
+  - `duration` (integer, default 20 — seconds)
   - `created_at` (timestamptz, default now())
 
 2. Security
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS scenes (
   text text NOT NULL,
   image_query text NOT NULL,
   image_url text,
-  duration integer NOT NULL DEFAULT 4,
+  duration integer NOT NULL DEFAULT 20,
   created_at timestamptz DEFAULT now() NOT NULL
 );
 

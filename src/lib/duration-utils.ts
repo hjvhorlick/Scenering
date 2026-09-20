@@ -73,6 +73,26 @@ export function getSpokenDurationFromWords(text?: string): number {
 }
 
 /**
+ * Predicts how many scenes a script will produce when flattened into one
+ * continuous string and sliced into fixed word-count chunks (see parseScript).
+ * Tiny leftovers (< 25% of a full chunk) are folded into the previous scene.
+ * e.g. 102 words at the 20s default (50 words/scene) = 2 scenes (50 + 52).
+ */
+export function countScenesFromScript(script: string, targetDuration: number = 20): number {
+  const targetWords = getTargetWordCount(targetDuration);
+  const words = countWords(script);
+  if (words === 0) return 0;
+
+  const fullChunks = Math.floor(words / targetWords);
+  const remainder = words % targetWords;
+  if (fullChunks === 0) return 1;
+  if (remainder === 0) return fullChunks;
+
+  const leftoverThreshold = Math.max(3, Math.floor(targetWords * 0.25));
+  return remainder < leftoverThreshold ? fullChunks : fullChunks + 1;
+}
+
+/**
  * Checks whether text is a short 1-liner that cannot fill a 20s duration.
  */
 export function isOneLiner(text?: string): boolean {

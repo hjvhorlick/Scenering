@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CALIBRATED_SAMPLES, type CalibratedSample } from "../data/calibrated-samples";
-import { countWords } from "../lib/duration-utils";
+import { countWords, countScenesFromScript } from "../lib/duration-utils";
 
 interface ScriptInputProps {
   onSubmit: (title: string, script: string) => void;
@@ -14,11 +14,9 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
 
   const wordsCount = countWords(script);
   const estimatedReadSec = Math.round((wordsCount / 2.5) * 10) / 10;
-  const paragraphs = script
-    .split(/\n\n+|\n(?=\d+[\.\)]\s)/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const detectedScenes = paragraphs.length;
+  // Scenes are produced by flattening the script into one continuous string
+  // and slicing it into ~50-word chunks (20s default).
+  const detectedScenes = countScenesFromScript(script, 20);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,9 +35,9 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
     <div className="animate-fade-in space-y-6">
       <div>
         <h2 className="text-2xl font-bold mb-1.5 text-white">Create New Video Project</h2>
-        <p className="text-gray-400 text-sm">
-          Enter your screenplay script or narration. Each paragraph automatically becomes a distinct scene.
-        </p>
+          <p className="text-gray-400 text-sm">
+            Enter your screenplay script or narration. It is flattened into one continuous script and split automatically into even ~50-word scenes (~20 seconds each).
+          </p>
       </div>
 
       {/* Customer API Keys Notice */}
@@ -105,7 +103,7 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
             <label htmlFor="script" className="block text-sm font-medium text-gray-300">
               Script Narration
               <span className="text-gray-500 font-normal ml-2">
-                (Separate scenes with blank lines)
+                (auto-split into ~50-word scenes)
               </span>
             </label>
             <span className="text-xs font-mono text-gray-400">
@@ -116,7 +114,7 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
             id="script"
             value={script}
             onChange={(e) => setScript(e.target.value)}
-            placeholder={`Scene 1: Enter your opening scene narration text...\n\nScene 2: Enter the second scene narration text...\n\nScene 3: Each paragraph becomes an independent scene with visual imagery and audio narration.`}
+            placeholder={`Paste your full script below. It will be split automatically into ~50-word scenes (~20 seconds each) — line breaks and blank lines are ignored.`}
             rows={10}
             className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-sm leading-relaxed"
             required
