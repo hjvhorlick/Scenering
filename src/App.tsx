@@ -18,7 +18,6 @@ import {
   calculateDynamicDuration,
   calibrateTextToTargetDuration,
   fitDurationToText,
-  countWords,
   getTargetWordCount,
 } from "./lib/duration-utils";
 import type { Project, Scene, TimelineInsert, SceneFilterType, SceneMotionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
@@ -65,53 +64,39 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
 };
 
 // Split script into scenes and generate image search queries
+// Strategy: the whole script is first flattened into ONE continuous string
+// (all newlines, paragraph breaks and extra spaces are removed), then it is
+// sliced into fixed word-count chunks so every scene has a consistent length:
+// ~50 words per 20s scene (2.5 words/sec), ~25 per 10s, ~75 per 30s.
 function parseScript(script: string, targetDuration: number = 20): { text: string; imageQuery: string }[] {
-  // Split script into distinct scene segments
-  // Matches:
-  // 1. Double or multiple newlines (\n\s*\n+)
-  // 2. Lines starting with Scene markers: "Scene 1:", "[Scene 1]", "1.", "2)", etc. even on single newlines
-  const segments = script
-    .split(/\n\s*\n+|\n+(?=(?:Scene\s*\d+|\[Scene\s*\d+\]|\d+[\.\)]\s))/i)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-
-  let finalSegments = segments;
   const targetWords = getTargetWordCount(targetDuration);
 
-  // If there are no scene breaks or paragraph breaks at all, check if it's a massive block of continuous text
-  if (segments.length <= 1 && script.trim().length > 0) {
-    const totalWords = countWords(script);
-    // ONLY subdivide if the text is much longer than a single scene (> 1.6x target words, e.g. > 80 words for 20s)
-    if (totalWords > Math.floor(targetWords * 1.6)) {
-      const sentences = script.match(/[^.!?]+[.!?]+/g) || [script];
-      finalSegments = [];
-      let currentChunk = "";
-      for (const sent of sentences) {
-        const candidate = (currentChunk ? currentChunk + " " : "") + sent.trim();
-        if (countWords(candidate) >= targetWords - 3 && currentChunk.length > 0) {
-          finalSegments.push(currentChunk.trim());
-          currentChunk = sent.trim();
-        } else {
-          currentChunk = candidate;
-        }
-      }
-      if (currentChunk.trim()) {
-        finalSegments.push(currentChunk.trim());
-      }
-    } else {
-      // It's a single scene! Preserve the entire paragraph as one scene.
-      finalSegments = [script.trim()];
-    }
+  // 1) One continuous script — no line breaks, no blank paragraphs
+  const continuous = script.replace(/\s+/g, " ").trim();
+  if (!continuous) return [];
+
+  const words = continuous.split(" ");
+
+  // 2) Fixed-size chunks (e.g. 50 words each for the 20s default)
+  const chunks: string[] = [];
+  for (let i = 0; i < words.length; i += targetWords) {
+    chunks.push(words.slice(i, i + targetWords).join(" "));
   }
 
-  // Preserve exact user text segments for scenes
-  return finalSegments.map((rawText) => {
-    const text = rawText.trim();
-    const words = text
+  // 3) If only a few words are left over, fold them into the previous scene
+  //    instead of creating a tiny stub scene (threshold: < 25% of a full chunk)
+  const leftoverThreshold = Math.max(3, Math.floor(targetWords * 0.25));
+  if (chunks.length > 1 && chunks[chunks.length - 1].split(" ").length < leftoverThreshold) {
+    const leftovers = chunks.pop() as string;
+    chunks[chunks.length - 1] += " " + leftovers;
+  }
+
+  return chunks.map((text) => {
+    const queryWords = text
       .replace(/[^a-zA-Z\s]/g, "")
       .split(/\s+/)
       .filter((w) => w.length > 3);
-    const query = words.slice(0, 5).join(" ");
+    const query = queryWords.slice(0, 5).join(" ");
     return { text, imageQuery: query || "abstract background" };
   });
 }
