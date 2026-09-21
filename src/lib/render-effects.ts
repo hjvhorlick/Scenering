@@ -1,5 +1,7 @@
 import { Scene, SceneMotionType, TimelineInsert } from "../types";
 import { resolveCtaPlatform, type CtaPlatform } from "../data/cta-library";
+import { computeMotion, applyMotion, type MotionPreset } from "./overlay-motion";
+import { drawSticker, resolveStickerId, STICKER_BY_ID } from "./sticker-3d";
 import { AudioFrame, makeAudioFrame } from "./audio-reactive";
 import { renderAudioVisualizer, getVisualizerFootprint } from "./render-visualizers";
 
@@ -1034,12 +1036,24 @@ export function renderCallToAction(
   ctx.translate(x, y);
   ctx.scale(size, size);
 
-  // Gentle breathing pulse (very subtle so the badge stays crisp)
-  const pulse = 1 + Math.sin(elapsed * 3.2) * 0.012;
-  ctx.scale(pulse, pulse);
-
   if (visual.rotation) {
     ctx.rotate((visual.rotation * Math.PI) / 180);
+  }
+
+  // Shared overlay motion — the same engine the 3D stickers use, so a CTA can
+  // swing, bounce or turn to pull the eye. Defaults to the old subtle breath.
+  const ctaMotion = computeMotion(elapsed, item.duration, {
+    preset: (visual.motionPreset as MotionPreset) || "none",
+    speed: visual.motionSpeed,
+    amount: visual.motionAmount,
+    entrance: visual.motionEntrance,
+  });
+  if (visual.motionPreset && visual.motionPreset !== "none") {
+    applyMotion(ctx, ctaMotion);
+  } else {
+    // legacy gentle breathing pulse (keeps existing projects looking the same)
+    const pulse = 1 + Math.sin(elapsed * 3.2) * 0.012;
+    ctx.scale(pulse, pulse);
   }
 
   const bwU = layout.width; // unscaled (ctx already scaled by size)
@@ -1186,6 +1200,11 @@ export function renderCallToAction(
 }
 
 // ---------------- STICKERS ----------------
+/**
+ * Stickers are drawn as shaded 3D objects (src/lib/sticker-3d.ts) and moved by
+ * the shared overlay motion engine (src/lib/overlay-motion.ts), so they spin,
+ * bounce and catch the light instead of sitting flat on the frame.
+ */
 function renderSticker(
   ctx: CanvasRenderingContext2D,
   item: TimelineInsert,
@@ -1194,163 +1213,33 @@ function renderSticker(
   size: number,
   elapsed: number
 ) {
+  const vo = item.visualOptions || {};
+  // Projects saved before the 3D rebuild only have the old `type`, so the
+  // legacy map resolves them onto the nearest new sticker and the library's
+  // own default motion takes over.
+  const stickerId = resolveStickerId(vo.stickerId || item.type);
+  const def = STICKER_BY_ID[stickerId];
+
+  const motion = computeMotion(elapsed, item.duration, {
+    preset: (vo.motionPreset as MotionPreset) || (def?.defaultMotion as MotionPreset) || "float",
+    speed: vo.motionSpeed,
+    amount: vo.motionAmount,
+    entrance: vo.motionEntrance,
+  });
+
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(size, size);
+  if (vo.rotation) ctx.rotate((vo.rotation * Math.PI) / 180);
+  applyMotion(ctx, motion);
 
-  switch (item.type) {
-    case "subscribe": {
-      // YouTube style red button with bell
-      const pulse = 1 + Math.sin(elapsed * 4) * 0.03;
-      ctx.scale(pulse, pulse);
-
-      const bw = 240;
-      const bh = 56;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 28);
-      ctx.fillStyle = "#e50914";
-      ctx.shadowColor = "rgba(229, 9, 20, 0.4)";
-      ctx.shadowBlur = 16;
-      ctx.fill();
-
-      // Text
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 20px system-ui, -apple-system, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("SUBSCRIBE 🔔", 0, 0);
-      break;
-    }
-    case "like": {
-      const pulse = 1 + Math.sin(elapsed * 5) * 0.04;
-      ctx.scale(pulse, pulse);
-      const bw = 170;
-      const bh = 50;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 25);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-      ctx.strokeStyle = "rgba(99, 102, 241, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#6366f1";
-      ctx.font = "bold 22px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("👍 LIKE", 0, 0);
-      break;
-    }
-    case "follow": {
-      const bw = 160;
-      const bh = 46;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 23);
-      ctx.fillStyle = "#4f46e5";
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 18px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("+ FOLLOW", 0, 0);
-      break;
-    }
-    case "share": {
-      const bw = 150;
-      const bh = 46;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 23);
-      ctx.fillStyle = "rgba(17, 24, 39, 0.9)";
-      ctx.strokeStyle = "#38bdf8";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "#38bdf8";
-      ctx.font = "bold 18px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("↗ SHARE", 0, 0);
-      break;
-    }
-    case "comment": {
-      const bw = 180;
-      const bh = 46;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 23);
-      ctx.fillStyle = "rgba(30, 41, 59, 0.9)";
-      ctx.fill();
-      ctx.fillStyle = "#e2e8f0";
-      ctx.font = "bold 17px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("💬 COMMENT", 0, 0);
-      break;
-    }
-    case "bell": {
-      const rot = Math.sin(elapsed * 12) * 0.15;
-      ctx.rotate(rot);
-      ctx.font = "56px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("🔔", 0, 0);
-      break;
-    }
-    case "heart": {
-      const pulse = 1 + Math.sin(elapsed * 6) * 0.12;
-      ctx.scale(pulse, pulse);
-      ctx.font = "56px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("❤️", 0, 0);
-      break;
-    }
-    case "arrow": {
-      const bounce = Math.sin(elapsed * 8) * 8;
-      ctx.font = "50px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("👉", bounce, 0);
-      break;
-    }
-    case "check": {
-      const bw = 160;
-      const bh = 46;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 23);
-      ctx.fillStyle = "#059669";
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 18px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("✓ VERIFIED", 0, 0);
-      break;
-    }
-    case "warning": {
-      const bw = 180;
-      const bh = 46;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 23);
-      ctx.fillStyle = "#d97706";
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 18px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("⚠️ WARNING", 0, 0);
-      break;
-    }
-    case "emoji_fire": {
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "56px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("🔥", 0, 0);
-      break;
-    }
-    default: {
-      // emoji stickers must not inherit the previous fill colour
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "50px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("⭐", 0, 0);
-      break;
-    }
-  }
+  drawSticker(ctx, stickerId, {
+    motion,
+    time: elapsed,
+    tint: vo.stickerTint ?? vo.primaryColor ?? null,
+    shadow: vo.shadowIntensity ?? 0.85,
+    glow: vo.stickerGlow ?? 0.35,
+  });
 
   ctx.restore();
 }

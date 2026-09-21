@@ -12,16 +12,6 @@ export interface SoundAsset {
   description: string;
 }
 
-export interface Sticker3DAsset {
-  id: string;
-  filename: string;
-  name: string;
-  url: string;
-  category: "badges" | "emojis" | "creator" | "gaming";
-  description: string;
-  isHD3D: boolean;
-}
-
 // Verified High-Quality Audio from Free Sources (Wikimedia Commons, Freesound.org, Incompetech)
 export const SOUND_LIBRARY: SoundAsset[] = [
   {
@@ -378,117 +368,9 @@ export function getBackgroundMusicTrack(idOrUrl?: string): BackgroundMusicTrack 
   );
 }
 
-// High Definition 3D-Look Vector Graphics stored in the app
-export const STICKERS_3D: Sticker3DAsset[] = [
-  {
-    id: "star_3d",
-    filename: "star_3d.svg",
-    name: "3D Golden Star",
-    url: "/stickers/star_3d.svg",
-    category: "badges",
-    description: "Extruded 3D star with metallic sheen, bevel facets, and warm specular shine.",
-    isHD3D: true,
-  },
-  {
-    id: "heart_3d",
-    filename: "heart_3d.svg",
-    name: "3D Shiny Ruby Heart",
-    url: "/stickers/heart_3d.svg",
-    category: "emojis",
-    description: "Glossy 3D ruby heart with curved surface reflections and soft ambient occlusion.",
-    isHD3D: true,
-  },
-  {
-    id: "fire_3d",
-    filename: "fire_3d.svg",
-    name: "3D Volumetric Fire Flame",
-    url: "/stickers/fire_3d.svg",
-    category: "creator",
-    description: "Layered 3D hot flame with glowing core, amber corona, and depth shadow.",
-    isHD3D: true,
-  },
-  {
-    id: "bell_3d",
-    filename: "bell_3d.svg",
-    name: "3D Golden Notification Bell",
-    url: "/stickers/bell_3d.svg",
-    category: "creator",
-    description: "Lustrous brass 3D bell with curved specular glint and hanging clapper.",
-    isHD3D: true,
-  },
-  {
-    id: "verified_3d",
-    filename: "verified_3d.svg",
-    name: "3D Verified Badge",
-    url: "/stickers/verified_3d.svg",
-    category: "badges",
-    description: "3D starburst badge in vibrant cyber cyan-blue with white checkmark.",
-    isHD3D: true,
-  },
-  {
-    id: "trophy_3d",
-    filename: "trophy_3d.svg",
-    name: "3D Championship Trophy",
-    url: "/stickers/trophy_3d.svg",
-    category: "gaming",
-    description: "3D gold winner cup on slate pedestal with medallion star.",
-    isHD3D: true,
-  },
-  {
-    id: "sparkle_3d",
-    filename: "sparkle_3d.svg",
-    name: "3D Diamond Sparkle",
-    url: "/stickers/sparkle_3d.svg",
-    category: "creator",
-    description: "Multi-axis prismatic 3D sparkle flare with deep blue-to-white light core.",
-    isHD3D: true,
-  },
-  {
-    id: "trending_3d",
-    filename: "trending_3d.svg",
-    name: "3D Trending Rocket",
-    url: "/stickers/trending_3d.svg",
-    category: "creator",
-    description: "Dynamic 3D rocket ship with fiery exhaust booster and metallic fuselage.",
-    isHD3D: true,
-  },
-  {
-    id: "camera_3d",
-    filename: "camera_3d.svg",
-    name: "3D Studio Camera",
-    url: "/stickers/camera_3d.svg",
-    category: "creator",
-    description: "3D dark slate camera body with coated optical cyan glass lens.",
-    isHD3D: true,
-  },
-  {
-    id: "thumbsup_3d",
-    filename: "thumbsup_3d.svg",
-    name: "3D Golden Thumbs Up",
-    url: "/stickers/thumbsup_3d.svg",
-    category: "emojis",
-    description: "Tactile curved 3D gold thumbs up gesture with blue cuff.",
-    isHD3D: true,
-  },
-  {
-    id: "play_3d",
-    filename: "play_3d.svg",
-    name: "3D Glass Play Button",
-    url: "/stickers/play_3d.svg",
-    category: "creator",
-    description: "Translucent frosted 3D crimson glass button with glowing arrow.",
-    isHD3D: true,
-  },
-  {
-    id: "money_3d",
-    filename: "money_3d.svg",
-    name: "3D Gold Coins Stack",
-    url: "/stickers/money_3d.svg",
-    category: "badges",
-    description: "Layered 3D gold coin stack with ribbed edges and dollar embossing.",
-    isHD3D: true,
-  },
-];
+// NOTE: the old STICKERS_3D SVG assets were removed when stickers moved to the
+// procedural 3D renderer in src/lib/sticker-3d.ts, which draws them on canvas
+// so their lighting can react to motion. See STICKER_LIBRARY there.
 
 // Global reference to active sound preview
 let currentActiveAudio: HTMLAudioElement | null = null;

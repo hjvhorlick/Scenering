@@ -94,6 +94,16 @@ export interface InsertVisualOptions {
   rotation?: number; // degrees -180 to 180
   animationPreset?: "pop_in" | "bounce" | "float_3d" | "fade" | "spin" | "pulse";
   assetUrl?: string;
+  /* ---- Overlay motion (stickers & CTA badges) ---- */
+  /** id from MOTION_PRESETS in src/lib/overlay-motion.ts */
+  motionPreset?: string;
+  motionSpeed?: number;   // 0.25 - 2.5 cycle rate (default 1)
+  motionAmount?: number;  // 0 - 2 travel/angle multiplier (default 1)
+  motionEntrance?: boolean; // play the pop-in on appear (default true)
+  /* ---- 3D sticker look ---- */
+  stickerId?: string;     // id from STICKER_LIBRARY in src/lib/sticker-3d.ts
+  stickerTint?: string | null; // recolour the sticker (null = its own palette)
+  stickerGlow?: number;   // 0 - 1 ambient glow behind the sticker
   fullWidth?: boolean; // stretch over entire scene (default true for linear visualizers)
   barThickness?: number; // width/thickness of bars or wave stroke
   glowIntensity?: number; // 0 to 1

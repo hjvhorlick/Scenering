@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from "react";
 import { CatalogItem } from "../lib/video-studio-catalog";
 import { getPresetCoords, renderTimelineInsert } from "../lib/render-effects";
 import type { TimelineInsert } from "../types";
+import StickerPreviewCanvas from "./StickerPreviewCanvas";
+import { MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 
 interface EffectVisualPreviewProps {
   item: CatalogItem;
@@ -179,174 +181,29 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   }
 
   // ---------------- STICKERS PREVIEWS (3D RENDERED ON-VIDEO VISUALS) ----------------
+  // Stickers preview with the real renderer: the button shows the actual
+  // shaded 3D object doing its actual motion, not an emoji stand-in.
   if (item.category === "stickers") {
-    if (item.type === "trophy") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="text-3xl filter drop-shadow-[0_4px_10px_rgba(234,179,8,0.5)] transform group-hover:scale-110 group-hover:-rotate-3 transition-transform">
-              🏆
-            </div>
-            <div className="w-10 h-1.5 bg-yellow-500/20 rounded-full filter blur-[1px] mt-1" />
-            <span className="text-[10px] font-bold text-amber-300 mt-1 uppercase tracking-wider bg-amber-950/60 px-2 py-0.5 rounded border border-amber-600/30">
-              Winner Trophy
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "emoji_fire") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="text-3xl filter drop-shadow-[0_4px_12px_rgba(249,115,22,0.6)] transform group-hover:scale-110 transition-transform">
-              🔥
-            </div>
-            <span className="text-[10px] font-bold text-orange-300 mt-1 uppercase tracking-wider bg-orange-950/60 px-2 py-0.5 rounded border border-orange-600/30">
-              Volumetric Fire
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "heart") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="text-3xl filter drop-shadow-[0_4px_12px_rgba(244,63,94,0.6)] transform group-hover:scale-110 transition-transform">
-              ❤️
-            </div>
-            <span className="text-[10px] font-bold text-rose-300 mt-1 uppercase tracking-wider bg-rose-950/60 px-2 py-0.5 rounded border border-rose-600/30">
-              3D Ruby Heart
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "check") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-600 to-cyan-400 flex items-center justify-center text-white text-xl font-bold shadow-[0_4px_12px_rgba(6,182,212,0.45)] border-2 border-white/80">
-              ✓
-            </div>
-            <span className="text-[10px] font-bold text-cyan-300 mt-1 uppercase tracking-wider bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-600/30">
-              Verified Badge
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    // Other 3D Stickers
+    const vo = item.defaultVisualOptions || {};
     return (
-      <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-        <div className="relative z-10 flex flex-col items-center">
-          <div className="text-3xl filter drop-shadow-[0_4px_10px_rgba(255,255,255,0.25)] transform group-hover:scale-110 transition-transform">
-            {item.icon}
-          </div>
-          <span className="text-[10px] font-bold text-gray-300 mt-1 uppercase tracking-wider bg-gray-800/80 px-2 py-0.5 rounded border border-gray-700">
-            {item.name}
-          </span>
-        </div>
+      <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 flex items-center justify-center relative overflow-hidden">
+        <StickerPreviewCanvas
+          stickerId={vo.stickerId || item.type}
+          motionPreset={vo.motionPreset}
+          motionSpeed={vo.motionSpeed}
+          motionAmount={vo.motionAmount}
+          glow={vo.stickerGlow}
+          shadow={vo.shadowIntensity}
+          size={88}
+          backdrop="none"
+        />
+        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-semibold text-gray-300 uppercase tracking-wider bg-gray-950/80 px-2 py-0.5 rounded border border-gray-700/60 whitespace-nowrap">
+          {MOTION_PRESETS_BY_ID[vo.motionPreset || ""]?.name || "3D"}
+        </span>
       </div>
     );
   }
 
-  // ---------------- TEXT CONTENT & LOWER THIRDS (TRUE VIDEO ON-SCREEN CARDS) ----------------
-  if (item.category === "content_cards") {
-    if (item.type === "person") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-end relative overflow-hidden group">
-          {/* Broadcaster lower third ribbon */}
-          <div className="relative z-10 bg-gradient-to-r from-gray-900/95 via-gray-900/80 to-transparent p-2 rounded-l border-l-4 border-amber-500 shadow-md">
-            <div className="text-xs font-bold text-white flex items-center gap-1.5">
-              <span>Dr. Elizabeth Vance</span>
-            </div>
-            <div className="text-[10px] text-amber-300/90 font-medium">Lead Astrobiologist, NASA</div>
-          </div>
-          <div className="absolute top-1.5 right-2 text-[9px] text-gray-500 font-mono">Lower-Third</div>
-        </div>
-      );
-    }
-
-    if (item.type === "scripture") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-amber-950/20 border border-amber-700/40 p-2.5 flex flex-col justify-center relative overflow-hidden group">
-          <div className="relative z-10 text-center space-y-1">
-            <div className="text-[10px] font-bold text-amber-400 tracking-widest uppercase flex items-center justify-center gap-1.5">
-              <span>✦</span>
-              <span>JOHN 3:16</span>
-              <span>✦</span>
-            </div>
-            <div className="text-[11px] text-gray-200 italic font-serif line-clamp-2 px-2">
-              &quot;For God so loved the world, that he gave his only begotten Son...&quot;
-            </div>
-          </div>
-          <div className="absolute top-1.5 right-2 text-[9px] text-amber-500/70 font-mono">Holy Scripture</div>
-        </div>
-      );
-    }
-
-    if (item.type === "quote") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-center relative overflow-hidden group">
-          <div className="relative z-10 bg-gray-900/70 backdrop-blur-sm p-2 rounded-lg border border-gray-700/50">
-            <div className="text-amber-400 text-base leading-none font-serif">&ldquo;</div>
-            <div className="text-[10px] text-gray-200 italic line-clamp-1">
-              The only limit to our realization of tomorrow is our doubts...
-            </div>
-            <div className="text-[9px] text-gray-400 font-medium text-right mt-0.5">— Franklin D. Roosevelt</div>
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "chapter") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-center items-center relative overflow-hidden group">
-          <div className="relative z-10 text-center space-y-0.5">
-            <div className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">CHAPTER 2</div>
-            <div className="text-xs font-black text-white tracking-wide">The Turning Point</div>
-            <div className="w-16 h-0.5 bg-indigo-500 mx-auto mt-1" />
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "fact" || item.type === "key_point") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-center relative overflow-hidden group">
-          <div className="relative z-10 bg-indigo-950/40 p-2 rounded-lg border border-indigo-700/50">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-xs">💡</span>
-              <span className="text-[9px] font-bold text-indigo-300 uppercase tracking-wider">
-                {item.type === "fact" ? "DID YOU KNOW?" : "KEY TAKEAWAY"}
-              </span>
-            </div>
-            <div className="text-[10px] text-gray-200 line-clamp-2 leading-tight">
-              {item.defaultContent?.primaryText || "Consistency compounds faster than occasional intensity."}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Generic Content Card
-    return (
-      <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-center relative overflow-hidden group">
-        <div className="relative z-10 bg-gray-900/80 p-2 rounded border border-gray-700">
-          <div className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider">{item.name}</div>
-          <div className="text-[10px] text-gray-200 mt-0.5 line-clamp-2 leading-tight">
-            {item.defaultContent?.primaryText || item.description}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ---------------- 2. INTRO PREVIEWS ----------------
   if (item.category === "intro") {

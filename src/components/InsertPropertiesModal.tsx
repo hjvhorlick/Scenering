@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { TimelineInsert, AspectRatioType } from "../types";
+import StickerPreviewCanvas from "./StickerPreviewCanvas";
+import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
+import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
   SOUND_LIBRARY,
   toggleSoundPreview,
@@ -1343,6 +1346,217 @@ function InsertPropertiesContent({
                   ))}
                 </div>
               </div>
+
+              {/* Motion — shared by stickers and CTA badges. This is what puts
+                  movement in the video and pulls the viewer's eye. */}
+              {(isSticker || isCallToAction) && (
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-4">
+                  <div>
+                    <span className="text-xs font-semibold text-white block">🎞️ Motion</span>
+                    <span className="text-[11px] text-gray-400">
+                      How this element moves while it is on screen
+                    </span>
+                  </div>
+
+                  {/* Live preview of the current settings (stickers only) */}
+                  {isSticker && (
+                    <div className="flex items-center gap-4 bg-gray-950/60 border border-gray-800 rounded-lg p-3">
+                      <StickerPreviewCanvas
+                        stickerId={data.visualOptions?.stickerId || insert.type}
+                        motionPreset={data.visualOptions?.motionPreset}
+                        motionSpeed={data.visualOptions?.motionSpeed}
+                        motionAmount={data.visualOptions?.motionAmount}
+                        tint={data.visualOptions?.stickerTint ?? null}
+                        glow={data.visualOptions?.stickerGlow}
+                        shadow={data.visualOptions?.shadowIntensity}
+                        size={104}
+                        backdrop="checker"
+                      />
+                      <div className="text-[11px] text-gray-400 leading-relaxed">
+                        <span className="text-gray-200 font-semibold block mb-0.5">
+                          {MOTION_PRESETS_BY_ID[data.visualOptions?.motionPreset || ""]?.name || "Static"}
+                        </span>
+                        {MOTION_PRESETS_BY_ID[data.visualOptions?.motionPreset || ""]?.blurb ||
+                          "Pick a motion below to bring it to life."}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Motion preset grid */}
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                    {MOTION_PRESETS.map((m) => {
+                      const active = (data.visualOptions?.motionPreset || "none") === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => updateVisualOptions("motionPreset", m.id)}
+                          title={m.blurb}
+                          className={`px-1.5 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer ${
+                            active
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                          }`}
+                        >
+                          <span className="text-base leading-none">{m.icon}</span>
+                          <span className="leading-tight text-center">{m.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Speed & amount */}
+                  <div className="space-y-2.5 pt-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300">Speed:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={0.25}
+                          max={2.5}
+                          step={0.05}
+                          value={data.visualOptions?.motionSpeed ?? 1}
+                          onChange={(e) => updateVisualOptions("motionSpeed", parseFloat(e.target.value))}
+                          className="w-32 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-gray-300 w-10 text-right">
+                          {(data.visualOptions?.motionSpeed ?? 1).toFixed(2)}×
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300">Intensity:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={0}
+                          max={2}
+                          step={0.05}
+                          value={data.visualOptions?.motionAmount ?? 1}
+                          onChange={(e) => updateVisualOptions("motionAmount", parseFloat(e.target.value))}
+                          className="w-32 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-gray-300 w-10 text-right">
+                          {Math.round((data.visualOptions?.motionAmount ?? 1) * 100)}%
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <div>
+                        <span className="text-xs text-gray-300 block">Pop in on appear</span>
+                        <span className="text-[10px] text-gray-500">Overshooting entrance when it first shows</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={data.visualOptions?.motionEntrance ?? true}
+                        onChange={(e) => updateVisualOptions("motionEntrance", e.target.checked)}
+                        className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 3D look controls specific to stickers */}
+              {isSticker && (
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <div>
+                    <span className="text-xs font-semibold text-white block">✨ 3D Look</span>
+                    <span className="text-[11px] text-gray-400">
+                      Depth shadow, ambient glow and colour
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-300">Drop shadow:</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={data.visualOptions?.shadowIntensity ?? 0.85}
+                        onChange={(e) => updateVisualOptions("shadowIntensity", parseFloat(e.target.value))}
+                        className="w-32 accent-indigo-500 cursor-pointer"
+                      />
+                      <span className="font-mono text-xs text-gray-300 w-10 text-right">
+                        {Math.round((data.visualOptions?.shadowIntensity ?? 0.85) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-300">Ambient glow:</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={data.visualOptions?.stickerGlow ?? 0.35}
+                        onChange={(e) => updateVisualOptions("stickerGlow", parseFloat(e.target.value))}
+                        className="w-32 accent-indigo-500 cursor-pointer"
+                      />
+                      <span className="font-mono text-xs text-gray-300 w-10 text-right">
+                        {Math.round((data.visualOptions?.stickerGlow ?? 0.35) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-750">
+                    <div>
+                      <span className="text-xs text-gray-300 block">Recolour</span>
+                      <span className="text-[10px] text-gray-500">Off = the sticker's own materials</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={data.visualOptions?.stickerTint || "#FFC400"}
+                        onChange={(e) => updateVisualOptions("stickerTint", e.target.value)}
+                        className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateVisualOptions("stickerTint", null)}
+                        className={`px-2 py-1 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
+                          data.visualOptions?.stickerTint
+                            ? "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                            : "bg-indigo-600 border-indigo-400 text-white"
+                        }`}
+                      >
+                        Original
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Swap the sticker without deleting and re-adding it */}
+                  <div className="pt-2 border-t border-gray-750 space-y-2">
+                    <span className="text-xs text-gray-300 block">Swap sticker:</span>
+                    <div className="grid grid-cols-8 gap-1 max-h-32 overflow-y-auto pr-1">
+                      {STICKER_LIBRARY.map((st) => {
+                        const active = (data.visualOptions?.stickerId || insert.type) === st.id;
+                        return (
+                          <button
+                            key={st.id}
+                            type="button"
+                            title={`${st.name} — ${st.blurb}`}
+                            onClick={() => updateVisualOptions("stickerId", st.id)}
+                            className={`aspect-square rounded-md border flex items-center justify-center text-base transition-colors cursor-pointer ${
+                              active
+                                ? "bg-indigo-600 border-indigo-400"
+                                : "bg-gray-900/70 border-gray-700 hover:border-gray-500"
+                            }`}
+                          >
+                            {st.icon}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Visual 3D Styling (for stickers & CTAs) */}
               {(isSticker || isCallToAction) && (
