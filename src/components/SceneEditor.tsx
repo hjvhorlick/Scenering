@@ -1,6 +1,15 @@
 import { useState, useEffect } from "react";
 import type { Scene, AspectRatioType } from "../types";
 import ImageSearchModal from "./ImageSearchModal";
+import SceneFramePreview from "./SceneFramePreview";
+import {
+  FIT_MODES,
+  BACKDROP_STYLES,
+  resolveFraming,
+  frameSizeFor,
+  suggestFit,
+  DEFAULT_FRAMING,
+} from "../lib/scene-framing";
 import { NATURE_FALLBACKS } from "../data/nature-fallbacks";
 import { getFilterCss, getPreset, type VideoFilterConfig } from "../data/video-filters";
 import {
@@ -22,6 +31,8 @@ interface SceneEditorProps {
   videoFilter?: VideoFilterConfig | null;
   onImageSearch: (sceneId: number, query: string) => Promise<{ imageUrl: string; allImages?: string[] } | undefined>;
   onDelete?: (sceneId: number) => void;
+  /** copy this scene's framing to every scene in the project */
+  onApplyFramingToAll?: (framing: Partial<Scene>) => void;
 }
 
 export default function SceneEditor({
@@ -35,6 +46,7 @@ export default function SceneEditor({
   videoFilter = null,
   onImageSearch,
   onDelete,
+  onApplyFramingToAll,
 }: SceneEditorProps) {
   const [textValue, setTextValue] = useState(scene.text);
   const [queryValue, setQueryValue] = useState(scene.image_query);
@@ -45,6 +57,8 @@ export default function SceneEditor({
   const [showCropTools, setShowCropTools] = useState(false);
   const [compareOriginal, setCompareOriginal] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [showGuides, setShowGuides] = useState(false);
+  const [cropMode, setCropMode] = useState(false);
 
   const activeLook = getPreset(videoFilter?.id);
   const lookCss = getFilterCss(videoFilter);
@@ -70,11 +84,92 @@ export default function SceneEditor({
     onUpdate(scene.id, { text: newVal });
   };
 
-  // Framing values
-  const offsetX = scene.image_offset_x ?? 0; // -50 to 50%
-  const offsetY = scene.image_offset_y ?? 0; // -50 to 50%
-  const zoom = scene.image_zoom ?? 1.0;      // 1.0 to 2.5x
-  const fitMode = scene.image_fit ?? "cover";
+  // Framing values — resolved through the shared engine so the editor and the
+  // renderer always agree on what every setting means.
+  const framing = resolveFraming(scene);
+  const offsetX = framing.offsetX;
+  const offsetY = framing.offsetY;
+  const zoom = framing.zoom;
+  const fitMode = framing.fit;
+  const crop = framing.crop;
+  const rotate = framing.rotate;
+  const flipH = framing.flipH;
+  const flipV = framing.flipV;
+  const backdrop = framing.backdrop;
+  const backdropBlur = framing.backdropBlur;
+  const backdropZoom = framing.backdropZoom;
+  const backdropDim = framing.backdropDim;
+  const backdropColor = framing.backdropColor;
+
+  /** Crop presets offered as one-click buttons */
+  const CROP_SHAPES = [
+    { label: "16:9", ratio: 16 / 9 },
+    { label: "9:16", ratio: 9 / 16 },
+    { label: "1:1", ratio: 1 },
+    { label: "4:3", ratio: 4 / 3 },
+    { label: "3:2", ratio: 3 / 2 },
+  ];
+
+  const normaliseAngle = (a: number) => {
+    let v = Math.round(a);
+    while (v > 180) v -= 360;
+    while (v < -180) v += 360;
+    return v;
+  };
+
+  const updateCrop = (key: "x" | "y" | "w" | "h", value: number) => {
+    const next = { ...crop, [key]: value };
+    // keep the window inside the photo
+    next.w = Math.max(0.05, Math.min(1, next.w));
+    next.h = Math.max(0.05, Math.min(1, next.h));
+    next.x = Math.max(0, Math.min(1 - next.w, next.x));
+    next.y = Math.max(0, Math.min(1 - next.h, next.y));
+    onUpdate(scene.id, { image_crop: next });
+  };
+
+  /**
+   * Crops the source photo to a target shape, keeping it centred. Works off
+   * the photo's real pixel dimensions so the result is a true 16:9 (or
+   * whatever) slice rather than a stretched one.
+   */
+  const cropToRatio = (ratio: number) => {
+    const el = new Image();
+    el.src = scene.image_url || "";
+    const apply = (nw: number, nh: number) => {
+      const srcRatio = nw / nh;
+      let w = 1;
+      let h = 1;
+      if (srcRatio > ratio) {
+        w = ratio / srcRatio;
+      } else {
+        h = srcRatio / ratio;
+      }
+      onUpdate(scene.id, {
+        image_crop: { x: (1 - w) / 2, y: (1 - h) / 2, w, h },
+      });
+    };
+    if (el.complete && el.naturalWidth) apply(el.naturalWidth, el.naturalHeight);
+    else el.onload = () => apply(el.naturalWidth, el.naturalHeight);
+  };
+
+  /** Copies this scene's framing onto every other scene in the project */
+  const applyFramingToAll = () => {
+    if (!onApplyFramingToAll) return;
+    onApplyFramingToAll({
+      image_fit: fitMode,
+      image_offset_x: offsetX,
+      image_offset_y: offsetY,
+      image_zoom: zoom,
+      image_rotate: rotate,
+      image_flip_h: flipH,
+      image_flip_v: flipV,
+      image_backdrop: backdrop,
+      image_backdrop_blur: backdropBlur,
+      image_backdrop_zoom: backdropZoom,
+      image_backdrop_dim: backdropDim,
+      image_backdrop_color: backdropColor,
+    });
+  };
 
   // Quick search
   const handleQuickSearch = async () => {
@@ -87,14 +182,39 @@ export default function SceneEditor({
     }
   };
 
+  /**
+   * A freshly chosen photo starts unframed. If its shape is a long way from
+   * the video frame's, the blurred fill is picked automatically so the user
+   * never gets a badly cropped subject by default.
+   */
+  const adoptImage = (url: string) => {
+    const frame = frameSizeFor(aspectRatio);
+    const base: Partial<Scene> = {
+      image_url: url,
+      image_offset_x: 0,
+      image_offset_y: 0,
+      image_zoom: 1.0,
+      image_crop: { x: 0, y: 0, w: 1, h: 1 },
+      image_rotate: 0,
+      image_flip_h: false,
+      image_flip_v: false,
+    };
+    onUpdate(scene.id, base);
+    const probe = new Image();
+    probe.onload = () => {
+      onUpdate(scene.id, { image_fit: suggestFit(probe, frame.w, frame.h) });
+    };
+    probe.src = url;
+  };
+
   const handleSelectFromModal = (url: string) => {
-    onUpdate(scene.id, { image_url: url, image_offset_x: 0, image_offset_y: 0, image_zoom: 1.0 });
+    adoptImage(url);
     setShowSearchModal(false);
     setImgError(false);
   };
 
   const handleSelectNatureFallback = (url: string) => {
-    onUpdate(scene.id, { image_url: url, image_offset_x: 0, image_offset_y: 0, image_zoom: 1.0 });
+    adoptImage(url);
     setShowNatureMenu(false);
     setImgError(false);
   };
@@ -122,6 +242,14 @@ export default function SceneEditor({
       image_offset_y: 0,
       image_zoom: 1.0,
       image_fit: "cover",
+      image_crop: { x: 0, y: 0, w: 1, h: 1 },
+      image_rotate: 0,
+      image_flip_h: false,
+      image_flip_v: false,
+      image_backdrop: DEFAULT_FRAMING.backdrop,
+      image_backdrop_blur: DEFAULT_FRAMING.backdropBlur,
+      image_backdrop_zoom: DEFAULT_FRAMING.backdropZoom,
+      image_backdrop_dim: DEFAULT_FRAMING.backdropDim,
     });
   };
 
@@ -157,18 +285,15 @@ export default function SceneEditor({
                 ? "aspect-[4/3] lg:h-[230px]"
                 : "aspect-video lg:h-full"
             }`}>
-              <img
-                src={scene.image_url}
-                alt={`Scene ${index + 1}`}
-                className={`transition-all duration-150 ${
-                  fitMode === "contain" ? "object-contain max-h-full" : "w-full h-full object-cover"
-                }`}
-                style={{
-                  transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})`,
-                  transformOrigin: "center center",
-                  filter: compareOriginal ? "none" : lookCss,
-                }}
-                onError={() => setImgError(true)}
+              {/* True-to-render thumbnail. This used to be an <img> with CSS
+                  object-cover, which did not match the exported frame — the
+                  canvas preview below is drawn by the render engine itself. */}
+              <SceneFramePreview
+                scene={scene}
+                aspectRatio={aspectRatio}
+                width={aspectRatio === "9:16" ? 170 : aspectRatio === "1:1" ? 240 : 300}
+                videoFilter={compareOriginal ? null : videoFilter}
+                className="mx-auto"
               />
 
               {/* Project-wide look badge (configured in Video Studio → Filters) */}
@@ -481,19 +606,32 @@ export default function SceneEditor({
               </div>
             )}
 
-            {/* IMAGE EDITING: CROP, MOVE AROUND, PAN & ZOOM TILL IT FITS */}
+            {/* IMAGE EDITING: CROP, MOVE, SIZE, ROTATE, FIT — all in one place.
+                The preview here is drawn by the same engine as the exported
+                video, so nothing is ever squashed and the blurred fill shows
+                exactly as it will render. */}
             {showCropTools && (
               <div className="bg-gray-900/95 border border-amber-800/50 rounded-xl p-3 space-y-3 animate-fade-in text-xs">
                 <div className="flex items-center justify-between border-b border-gray-800 pb-1.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-amber-400 font-semibold">
-                      ✂️ Image Framing & Positioning
-                    </span>
+                    <span className="text-amber-400 font-semibold">✂️ Crop, Move & Fit</span>
                     <span className="text-[11px] text-gray-400">
-                      Crop, zoom, and move image until it fits the frame perfectly
+                      Drag the preview to move, scroll to zoom — the image keeps its shape
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowGuides((g) => !g)}
+                      className={`text-[11px] px-2 py-0.5 rounded border ${
+                        showGuides
+                          ? "bg-indigo-950 border-indigo-600 text-indigo-300"
+                          : "bg-gray-800 border-gray-700 text-gray-400"
+                      }`}
+                      title="Rule-of-thirds grid and safe area"
+                    >
+                      # Guides
+                    </button>
                     <button
                       type="button"
                       onClick={handleResetFraming}
@@ -511,138 +649,337 @@ export default function SceneEditor({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* Pan X Slider */}
-                  <div>
-                    <div className="flex justify-between text-gray-300 mb-1">
-                      <span>Horizontal Pan (X):</span>
-                      <span className="font-mono text-amber-300">{offsetX}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={-50}
-                      max={50}
-                      step={1}
-                      value={offsetX}
-                      onChange={(e) => onUpdate(scene.id, { image_offset_x: parseInt(e.target.value) })}
-                      className="w-full accent-amber-500 cursor-pointer"
+                <div className="flex flex-col lg:flex-row gap-3">
+                  {/* Live, true-to-render preview */}
+                  <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
+                    <SceneFramePreview
+                      scene={scene}
+                      aspectRatio={aspectRatio}
+                      width={aspectRatio === "9:16" ? 150 : 250}
+                      videoFilter={videoFilter}
+                      interactive
+                      cropMode={cropMode}
+                      showGuides={showGuides}
+                      onChange={(u) => onUpdate(scene.id, u)}
                     />
-                    <div className="flex justify-between text-[10px] text-gray-500 mt-0.5">
-                      <span>Left (-50%)</span>
-                      <span>Center</span>
-                      <span>Right (+50%)</span>
-                    </div>
+                    <span className="text-[10px] text-gray-500 text-center max-w-[250px]">
+                      Exactly how this scene will render at {aspectRatio}
+                    </span>
                   </div>
 
-                  {/* Pan Y Slider */}
-                  <div>
-                    <div className="flex justify-between text-gray-300 mb-1">
-                      <span>Vertical Pan (Y):</span>
-                      <span className="font-mono text-amber-300">{offsetY}%</span>
+                  <div className="flex-1 space-y-3">
+                    {/* ---- Fit mode: the fix for squashed / cut-off images ---- */}
+                    <div className="space-y-1.5">
+                      <span className="text-gray-400 text-[11px]">How the image fills the frame:</span>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {FIT_MODES.map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            title={m.blurb}
+                            onClick={() => onUpdate(scene.id, { image_fit: m.id })}
+                            className={`px-2 py-1.5 rounded-lg border text-[11px] font-medium transition-colors flex flex-col items-center gap-0.5 ${
+                              fitMode === m.id
+                                ? "bg-amber-950 border-amber-600 text-amber-300"
+                                : "bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500"
+                            }`}
+                          >
+                            <span className="text-sm leading-none">{m.icon}</span>
+                            <span>{m.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-gray-500 leading-snug">
+                        {FIT_MODES.find((m) => m.id === fitMode)?.blurb}
+                      </p>
                     </div>
-                    <input
-                      type="range"
-                      min={-50}
-                      max={50}
-                      step={1}
-                      value={offsetY}
-                      onChange={(e) => onUpdate(scene.id, { image_offset_y: parseInt(e.target.value) })}
-                      className="w-full accent-amber-500 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-gray-500 mt-0.5">
-                      <span>Top (-50%)</span>
-                      <span>Center</span>
-                      <span>Bottom (+50%)</span>
-                    </div>
-                  </div>
 
-                  {/* Zoom / Scale Slider */}
-                  <div>
-                    <div className="flex justify-between text-gray-300 mb-1">
-                      <span>Scale / Zoom:</span>
-                      <span className="font-mono text-amber-300">{zoom.toFixed(2)}x</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={1.0}
-                      max={2.5}
-                      step={0.05}
-                      value={zoom}
-                      onChange={(e) => onUpdate(scene.id, { image_zoom: parseFloat(e.target.value) })}
-                      className="w-full accent-amber-500 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-gray-500 mt-0.5">
-                      <span>1.0x (Standard)</span>
-                      <span>1.75x</span>
-                      <span>2.5x (Close-up)</span>
-                    </div>
-                  </div>
-                </div>
+                    {/* ---- Blurred / letterbox backdrop settings ---- */}
+                    {fitMode !== "cover" && (
+                      <div className="bg-gray-950/60 border border-gray-800 rounded-lg p-2.5 space-y-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-gray-400 text-[11px]">Bars filled with:</span>
+                          {BACKDROP_STYLES.map((b) => (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => onUpdate(scene.id, { image_backdrop: b.id })}
+                              className={`px-2 py-1 rounded text-[11px] font-medium border ${
+                                backdrop === b.id
+                                  ? "bg-amber-950 border-amber-600 text-amber-300"
+                                  : "bg-gray-800 border-gray-700 text-gray-400"
+                              }`}
+                            >
+                              {b.icon} {b.name}
+                            </button>
+                          ))}
+                          {backdrop === "colour" && (
+                            <input
+                              type="color"
+                              value={backdropColor}
+                              onChange={(e) => onUpdate(scene.id, { image_backdrop_color: e.target.value })}
+                              className="w-8 h-6 rounded border border-gray-600 bg-transparent cursor-pointer"
+                            />
+                          )}
+                        </div>
 
-                {/* Quick Alignment Presets + Fit Mode */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-800">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-gray-400 text-[11px]">Quick Alignment:</span>
-                    <button
-                      type="button"
-                      onClick={() => setPresetPosition(0, -25)}
-                      className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
-                    >
-                      ⬆ Top
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPresetPosition(0, 0)}
-                      className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
-                    >
-                      ⏺ Center
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPresetPosition(0, 25)}
-                      className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
-                    >
-                      ⬇ Bottom
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPresetPosition(-25, 0)}
-                      className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
-                    >
-                      ⬅ Left
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPresetPosition(25, 0)}
-                      className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
-                    >
-                      ➡ Right
-                    </button>
-                  </div>
+                        {backdrop === "blur" && (
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                            <div>
+                              <div className="flex justify-between text-gray-300 mb-0.5">
+                                <span>Blur amount:</span>
+                                <span className="font-mono text-amber-300">{Math.round(backdropBlur)}px</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={120}
+                                step={2}
+                                value={backdropBlur}
+                                onChange={(e) => onUpdate(scene.id, { image_backdrop_blur: parseInt(e.target.value) })}
+                                className="w-full accent-amber-500 cursor-pointer"
+                              />
+                            </div>
+                            <div>
+                              <div className="flex justify-between text-gray-300 mb-0.5">
+                                <span>Backdrop zoom:</span>
+                                <span className="font-mono text-amber-300">{backdropZoom.toFixed(2)}x</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={1}
+                                max={2.5}
+                                step={0.05}
+                                value={backdropZoom}
+                                onChange={(e) => onUpdate(scene.id, { image_backdrop_zoom: parseFloat(e.target.value) })}
+                                className="w-full accent-amber-500 cursor-pointer"
+                              />
+                            </div>
+                            <div>
+                              <div className="flex justify-between text-gray-300 mb-0.5">
+                                <span>Darken backdrop:</span>
+                                <span className="font-mono text-amber-300">{Math.round(backdropDim * 100)}%</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={0.9}
+                                step={0.05}
+                                value={backdropDim}
+                                onChange={(e) => onUpdate(scene.id, { image_backdrop_dim: parseFloat(e.target.value) })}
+                                className="w-full accent-amber-500 cursor-pointer"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-gray-400 text-[11px]">Fit Mode:</span>
+                    {/* ---- Move & size ---- */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <div className="flex justify-between text-gray-300 mb-1">
+                          <span>Move left / right:</span>
+                          <span className="font-mono text-amber-300">{offsetX}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={-50}
+                          max={50}
+                          step={1}
+                          value={offsetX}
+                          onChange={(e) => onUpdate(scene.id, { image_offset_x: parseInt(e.target.value) })}
+                          className="w-full accent-amber-500 cursor-pointer"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-gray-300 mb-1">
+                          <span>Move up / down:</span>
+                          <span className="font-mono text-amber-300">{offsetY}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={-50}
+                          max={50}
+                          step={1}
+                          value={offsetY}
+                          onChange={(e) => onUpdate(scene.id, { image_offset_y: parseInt(e.target.value) })}
+                          className="w-full accent-amber-500 cursor-pointer"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-gray-300 mb-1">
+                          <span>Size / zoom:</span>
+                          <span className="font-mono text-amber-300">{zoom.toFixed(2)}x</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.25}
+                          max={4}
+                          step={0.05}
+                          value={zoom}
+                          onChange={(e) => onUpdate(scene.id, { image_zoom: parseFloat(e.target.value) })}
+                          className="w-full accent-amber-500 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    {/* ---- Crop rectangle ---- */}
+                    <div className="bg-gray-950/60 border border-gray-800 rounded-lg p-2.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-400 text-[11px]">
+                          Crop — trim the edges off the source photo
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setCropMode((c) => !c)}
+                            className={`px-2 py-0.5 rounded text-[11px] border ${
+                              cropMode
+                                ? "bg-amber-950 border-amber-600 text-amber-300"
+                                : "bg-gray-800 border-gray-700 text-gray-400"
+                            }`}
+                            title="Drag the preview to move the crop window instead of the image"
+                          >
+                            {cropMode ? "Dragging crop" : "Drag crop"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onUpdate(scene.id, { image_crop: { x: 0, y: 0, w: 1, h: 1 } })}
+                            className="text-[11px] text-gray-400 hover:text-white underline"
+                          >
+                            Clear crop
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        {([
+                          ["w", "Width", crop.w],
+                          ["h", "Height", crop.h],
+                          ["x", "Left edge", crop.x],
+                          ["y", "Top edge", crop.y],
+                        ] as const).map(([key, label, val]) => (
+                          <div key={key}>
+                            <div className="flex justify-between text-gray-300 mb-0.5">
+                              <span>{label}:</span>
+                              <span className="font-mono text-amber-300">{Math.round(val * 100)}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={key === "w" || key === "h" ? 0.05 : 0}
+                              max={1}
+                              step={0.01}
+                              value={val}
+                              onChange={(e) => updateCrop(key, parseFloat(e.target.value))}
+                              className="w-full accent-amber-500 cursor-pointer"
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-gray-400 text-[11px]">Crop to shape:</span>
+                        {CROP_SHAPES.map((c) => (
+                          <button
+                            key={c.label}
+                            type="button"
+                            onClick={() => cropToRatio(c.ratio)}
+                            className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
+                            title={`Crop the photo to ${c.label}`}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => cropToRatio(frameSizeFor(aspectRatio).w / frameSizeFor(aspectRatio).h)}
+                          className="px-2 py-0.5 bg-indigo-950 hover:bg-indigo-900 rounded border border-indigo-700 text-indigo-300 text-[11px]"
+                        >
+                          Match frame ({aspectRatio})
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* ---- Rotate, flip, alignment ---- */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-800">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-gray-400 text-[11px]">Align:</span>
+                        {([
+                          ["⬆ Top", 0, -25],
+                          ["⏺ Centre", 0, 0],
+                          ["⬇ Bottom", 0, 25],
+                          ["⬅ Left", -25, 0],
+                          ["➡ Right", 25, 0],
+                        ] as const).map(([label, px, py]) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => setPresetPosition(px, py)}
+                            className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-gray-400 text-[11px]">Rotate:</span>
+                        <button
+                          type="button"
+                          onClick={() => onUpdate(scene.id, { image_rotate: normaliseAngle(rotate - 90) })}
+                          className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
+                        >
+                          ↺ 90°
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onUpdate(scene.id, { image_rotate: normaliseAngle(rotate + 90) })}
+                          className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
+                        >
+                          ↻ 90°
+                        </button>
+                        <input
+                          type="range"
+                          min={-180}
+                          max={180}
+                          step={1}
+                          value={rotate}
+                          onChange={(e) => onUpdate(scene.id, { image_rotate: parseInt(e.target.value) })}
+                          className="w-24 accent-amber-500 cursor-pointer"
+                          title="Fine rotation"
+                        />
+                        <span className="font-mono text-amber-300 w-10 text-right">{rotate}°</span>
+                        <button
+                          type="button"
+                          onClick={() => onUpdate(scene.id, { image_flip_h: !flipH })}
+                          className={`px-2 py-1 rounded border text-[11px] ${
+                            flipH ? "bg-amber-950 border-amber-600 text-amber-300" : "bg-gray-800 border-gray-700 text-gray-300"
+                          }`}
+                        >
+                          ⇋ Flip
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onUpdate(scene.id, { image_flip_v: !flipV })}
+                          className={`px-2 py-1 rounded border text-[11px] ${
+                            flipV ? "bg-amber-950 border-amber-600 text-amber-300" : "bg-gray-800 border-gray-700 text-gray-300"
+                          }`}
+                        >
+                          ⇅ Flip
+                        </button>
+                      </div>
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() => onUpdate(scene.id, { image_fit: "cover" })}
-                      className={`px-2 py-1 rounded text-[11px] font-medium border ${
-                        fitMode === "cover"
-                          ? "bg-amber-950 border-amber-600 text-amber-300"
-                          : "bg-gray-800 border-gray-700 text-gray-400"
-                      }`}
+                      onClick={applyFramingToAll}
+                      className="w-full px-2 py-1.5 bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-700/70 rounded-lg text-indigo-200 text-[11px] font-medium transition-colors"
+                      title="Copy this scene's fit, backdrop, zoom and position to every other scene"
                     >
-                      Fill Frame (Cover)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onUpdate(scene.id, { image_fit: "contain" })}
-                      className={`px-2 py-1 rounded text-[11px] font-medium border ${
-                        fitMode === "contain"
-                          ? "bg-amber-950 border-amber-600 text-amber-300"
-                          : "bg-gray-800 border-gray-700 text-gray-400"
-                      }`}
-                    >
-                      Show Full (Contain)
+                      Apply this framing to all scenes
                     </button>
                   </div>
                 </div>

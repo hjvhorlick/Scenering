@@ -3,6 +3,7 @@ import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { createProjectZip } from "../lib/zip-download";
+import { drawSceneImage } from "../lib/scene-framing";
 import {
   getMotionTransform,
   renderTimelineInsert,
@@ -940,23 +941,21 @@ export default function RenderView({
                 height
               );
               const safeScale = isNaN(scale) ? 1 : scale;
-              const sw = width * safeScale;
-              const sh = height * safeScale;
               const safeDx = isNaN(dx) ? 0 : dx;
               const safeDy = isNaN(dy) ? 0 : dy;
 
-              // Project-wide colour grade baked into the frame pixels
-              const canvasFilter = getFilterCanvas(videoFilter, width);
-              if (canvasFilter && canvasFilter !== "none") {
-                try {
-                  ctx.filter = canvasFilter;
-                } catch {
-                  ctx.filter = "none";
-                }
-              }
-
+              // Framing goes through the shared engine (src/lib/scene-framing.ts)
+              // so the exported video matches the preview exactly and the photo
+              // keeps its own aspect ratio. Previously this drew the image at
+              // the canvas width and height, which squashed every photo that
+              // was not already the output shape.
               try {
-                ctx.drawImage(img, safeDx, safeDy, sw, sh);
+                drawSceneImage(ctx, img, currentScene, width, height, {
+                  motionScale: safeScale,
+                  motionDx: safeDx + (width * safeScale - width) / 2,
+                  motionDy: safeDy + (height * safeScale - height) / 2,
+                  filter: getFilterCanvas(videoFilter, width),
+                });
               } catch (drawErr) {
                 console.warn("Scene draw notice:", drawErr);
               }

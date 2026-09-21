@@ -5,6 +5,7 @@ import { drawSticker, resolveStickerId, STICKER_BY_ID } from "./sticker-3d";
 import { renderTextTemplate, getTextTemplateBounds } from "./render-text-template";
 import { AudioFrame, makeAudioFrame } from "./audio-reactive";
 import { renderAudioVisualizer, getVisualizerFootprint } from "./render-visualizers";
+import { drawSceneImage, drawMediaCover } from "./scene-framing";
 
 // Convert preset position string into normalized (0..1) coordinates
 export function getPresetCoords(preset?: TimelineInsert["presetPosition"]): { x: number; y: number } {
@@ -1327,7 +1328,9 @@ function renderIntroOutroCard(
   if (isImageMedia) {
     const imgEl = getOrLoadIntroLogo(mediaSrc);
     if (imgEl && (imgEl.complete || imgEl.naturalWidth > 0)) {
-      ctx.drawImage(imgEl, 0, 0, canvasWidth, canvasHeight);
+      // aspect-correct: an uploaded photo used as an intro/outro backdrop is
+      // covered and cropped, never stretched to the frame
+      drawMediaCover(ctx, imgEl, imgEl.naturalWidth, imgEl.naturalHeight, 0, 0, canvasWidth, canvasHeight, "cover");
       hasDrawnVideo = true;
     }
   } else {
@@ -1349,7 +1352,7 @@ function renderIntroOutroCard(
           videoEl.play().catch(() => {});
         }
         if (videoEl.readyState >= 2) {
-          ctx.drawImage(videoEl, 0, 0, canvasWidth, canvasHeight);
+          drawMediaCover(ctx, videoEl, videoEl.videoWidth, videoEl.videoHeight, 0, 0, canvasWidth, canvasHeight, "cover");
           hasDrawnVideo = true;
         }
       } catch {
@@ -2053,23 +2056,6 @@ export function drawSceneImageWithMotion(
 ) {
   const p = Math.max(0, Math.min(1, progress));
   const motion = scene.motion_effect || "ken_burns";
-  const userZoom = scene.image_zoom ?? 1.0;
-  const userOffsetX = ((scene.image_offset_x ?? 0) / 100) * canvasW;
-  const userOffsetY = ((scene.image_offset_y ?? 0) / 100) * canvasH;
-
-  // Calculate cover dimensions
-  const imgRatio = (img.naturalWidth || 16) / (img.naturalHeight || 9);
-  const canvasRatio = canvasW / canvasH;
-  let baseW = canvasW;
-  let baseH = canvasH;
-  if (imgRatio > canvasRatio) {
-    baseH = canvasH;
-    baseW = canvasH * imgRatio;
-  } else {
-    baseW = canvasW;
-    baseH = canvasW / imgRatio;
-  }
-
   // Camera Motion transforms
   let motionScale = 1.0;
   let motionPanX = 0;
@@ -2144,15 +2130,14 @@ export function drawSceneImageWithMotion(
     }
   }
 
-  const finalScale = userZoom * motionScale;
-  const drawW = baseW * finalScale;
-  const drawH = baseH * finalScale;
-
-  const centerX = canvasW / 2 + userOffsetX + motionPanX;
-  const centerY = canvasH / 2 + userOffsetY + motionPanY;
-
-  ctx.save();
-  ctx.drawImage(img, centerX - drawW / 2, centerY - drawH / 2, drawW, drawH);
-  ctx.restore();
+  // Placement is delegated to the shared framing engine so this helper, the
+  // live preview and the exported video agree, and so crop / rotate / flip /
+  // blurred-fill all work here too. The engine centres the photo itself, so
+  // only the motion's own pan is handed over.
+  drawSceneImage(ctx, img, scene, canvasW, canvasH, {
+    motionScale,
+    motionDx: motionPanX,
+    motionDy: motionPanY,
+  });
 }
 

@@ -690,6 +690,38 @@ export default function App() {
     fetchProjects();
   };
 
+  /** Scene fields that describe image framing, persisted with the scene meta */
+  const FRAMING_KEYS = [
+    "image_offset_x",
+    "image_offset_y",
+    "image_zoom",
+    "image_fit",
+    "image_crop",
+    "image_rotate",
+    "image_flip_h",
+    "image_flip_v",
+    "image_backdrop",
+    "image_backdrop_blur",
+    "image_backdrop_zoom",
+    "image_backdrop_dim",
+    "image_backdrop_color",
+  ] as const;
+
+  /** Copies one scene's framing onto every scene in the project */
+  const handleApplyFramingToAll = (framing: Partial<Scene>) => {
+    setScenes((prev) => prev.map((s) => ({ ...s, ...framing })));
+    try {
+      for (const s of scenes) {
+        const existing = localStorage.getItem(`scenering_scene_meta_${s.id}`);
+        const parsed = existing ? JSON.parse(existing) : {};
+        localStorage.setItem(
+          `scenering_scene_meta_${s.id}`,
+          JSON.stringify({ ...parsed, ...framing })
+        );
+      }
+    } catch {}
+  };
+
   const handleUpdateScene = async (sceneId: number, updates: Partial<Scene>) => {
     // 1. Immediately update local state
     setScenes((prev) =>
@@ -709,6 +741,13 @@ export default function App() {
         audio_url: updates.audio_url !== undefined ? updates.audio_url : parsed.audio_url,
         audio_name: updates.audio_name !== undefined ? updates.audio_name : parsed.audio_name,
       };
+      // Image framing (crop, fit, blurred fill, zoom, rotation...) is persisted
+      // here too, so a reloaded project renders exactly as it was framed.
+      for (const key of FRAMING_KEYS) {
+        const v = (updates as Record<string, unknown>)[key];
+        if (v !== undefined) newMeta[key] = v;
+        else if (parsed[key] !== undefined) newMeta[key] = parsed[key];
+      }
       localStorage.setItem(`scenering_scene_meta_${sceneId}`, JSON.stringify(newMeta));
     } catch {}
 
@@ -1134,6 +1173,7 @@ export default function App() {
                           onUpdate={handleUpdateScene}
                           onImageSearch={handleImageSearch}
                           onDelete={handleDeleteScene}
+                          onApplyFramingToAll={handleApplyFramingToAll}
                           videoFilter={videoFilter}
                         />
                       ))}

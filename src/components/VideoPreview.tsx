@@ -7,6 +7,7 @@ import {
   getPresetCoords,
   renderTimelineInsert,
 } from "../lib/render-effects";
+import { drawSceneImage } from "../lib/scene-framing";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
@@ -404,67 +405,26 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, w, h);
 
-      // Image with Scene Framing (offset, zoom, fit) and Scene Motion Preset
+      // Image with Scene Framing (crop, offset, zoom, rotate, fit) and Scene
+      // Motion Preset. All framing maths lives in src/lib/scene-framing.ts so
+      // the preview and the exported video place the photo identically — and
+      // no photo is ever stretched out of its own aspect ratio.
       if (img && img.complete && img.naturalWidth > 0) {
-        ctx.save();
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-
-        const zoom = scene.image_zoom ?? 1.0;
-        const userOffsetX = ((scene.image_offset_x ?? 0) / 100) * w;
-        const userOffsetY = ((scene.image_offset_y ?? 0) / 100) * h;
-        const fit = scene.image_fit || "cover";
-
-        // Motion animation transform
-        const { scale: motionScale, dx: motionDx, dy: motionDy } = getMotionTransform(scene.motion_effect, sceneProgress, w, h);
-
-        const imgRatio = img.naturalWidth / img.naturalHeight;
-        const canvasRatio = w / h;
-
-        let renderW = w;
-        let renderH = h;
-        let baseDx = 0;
-        let baseDy = 0;
-
-        if (fit === "contain") {
-          if (imgRatio > canvasRatio) {
-            renderW = w;
-            renderH = w / imgRatio;
-            baseDy = (h - renderH) / 2;
-          } else {
-            renderH = h;
-            renderW = h * imgRatio;
-            baseDx = (w - renderW) / 2;
-          }
-        } else {
-          // "cover"
-          if (imgRatio > canvasRatio) {
-            renderH = h;
-            renderW = h * imgRatio;
-            baseDx = (w - renderW) / 2;
-          } else {
-            renderW = w;
-            renderH = w / imgRatio;
-            baseDy = (h - renderH) / 2;
-          }
-        }
-
-        const totalScale = zoom * motionScale;
-        const scaledW = renderW * totalScale;
-        const scaledH = renderH * totalScale;
-
-        const finalX = baseDx + userOffsetX + motionDx - (scaledW - renderW) / 2;
-        const finalY = baseDy + userOffsetY + motionDy - (scaledH - renderH) / 2;
-
-        // Apply the project-wide colour grade to the image pixels
-        const canvasFilter = getFilterCanvas(videoFilterRef.current, w);
-        if (canvasFilter && canvasFilter !== "none") {
-          ctx.filter = canvasFilter;
-        }
-
-        ctx.drawImage(img, finalX, finalY, scaledW, scaledH);
-        ctx.filter = "none";
-        ctx.restore();
+        const { scale: motionScale, dx: motionDx, dy: motionDy } = getMotionTransform(
+          scene.motion_effect,
+          sceneProgress,
+          w,
+          h
+        );
+        // getMotionTransform returns an offset that recentres a canvas-sized
+        // draw; the framing engine centres the photo itself, so only the
+        // leftover wobble is passed through.
+        drawSceneImage(ctx, img, scene, w, h, {
+          motionScale,
+          motionDx: motionDx + (w * motionScale - w) / 2,
+          motionDy: motionDy + (h * motionScale - h) / 2,
+          filter: getFilterCanvas(videoFilterRef.current, w),
+        });
       }
 
       // Animated atmosphere of the project-wide filter (grain, mist, dust,

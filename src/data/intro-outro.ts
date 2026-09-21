@@ -122,6 +122,8 @@ export interface SectionConfig {
   /** uploaded / pasted media url when kind === "video" | "image" */
   mediaUrl: string;
   mediaName?: string;
+  /** how uploaded media fills the frame — never stretched either way */
+  mediaFit?: "cover" | "blur_fill";
   /** recolour the motion background */
   colorA?: string;
   colorB?: string;

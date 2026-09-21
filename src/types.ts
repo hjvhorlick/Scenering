@@ -53,11 +53,25 @@ export interface Scene {
   transition?: "none" | "crossfade" | "fade_black" | "zoom" | "slide";
   narration_speed?: number;
   burn_caption?: boolean;
-  // Image framing and positioning
-  image_offset_x?: number; // -50 to +50%
-  image_offset_y?: number; // -50 to +50%
-  image_zoom?: number;     // 1.0 to 2.5x
-  image_fit?: "cover" | "contain";
+  // Image framing and positioning — see src/lib/scene-framing.ts.
+  // Nothing here ever changes the image's aspect ratio; photos are cropped or
+  // letterboxed, never stretched.
+  image_offset_x?: number; // -50 to +50% of the frame
+  image_offset_y?: number; // -50 to +50% of the frame
+  image_zoom?: number;     // 0.25x to 4x
+  /** "blur_fill" shows the whole photo with a blurred copy behind the bars */
+  image_fit?: "cover" | "contain" | "blur_fill";
+  /** normalised source crop rectangle, 0..1 */
+  image_crop?: { x: number; y: number; w: number; h: number };
+  image_rotate?: number;   // degrees, -180..180
+  image_flip_h?: boolean;
+  image_flip_v?: boolean;
+  /** what fills the frame where the photo does not reach */
+  image_backdrop?: "blur" | "black" | "colour";
+  image_backdrop_blur?: number;  // px at a 1080-wide frame, 0..120
+  image_backdrop_zoom?: number;  // 1..2.5
+  image_backdrop_dim?: number;   // 0..0.9
+  image_backdrop_color?: string;
   // Imported real voice audio track
   audio_url?: string | null;
   audio_name?: string | null;

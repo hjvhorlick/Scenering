@@ -14,6 +14,7 @@
 
 import { paintMotionBackground, rgba } from "../data/intro-backgrounds";
 import type { SectionConfig } from "../data/intro-outro";
+import { drawMediaCover } from "./scene-framing";
 
 /* ------------------------------ media cache ------------------------------ */
 
@@ -107,20 +108,10 @@ export function renderSection(
   /* ---------------------------- 1. background ---------------------------- */
   let drewMedia = false;
 
+  // Aspect-correct cover, shared with the scene renderer so uploaded intro and
+  // outro media is never stretched either.
   const drawCover = (el: HTMLVideoElement | HTMLImageElement, nw: number, nh: number) => {
-    if (!nw || !nh) return;
-    const ir = nw / nh;
-    const cr = w / h;
-    let dw = w;
-    let dh = h;
-    if (ir > cr) {
-      dh = h;
-      dw = h * ir;
-    } else {
-      dw = w;
-      dh = w / ir;
-    }
-    ctx.drawImage(el, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    drawMediaCover(ctx, el, nw, nh, 0, 0, w, h, cfg.mediaFit === "blur_fill" ? "blur_fill" : "cover");
   };
 
   if (cfg.backgroundKind === "video" && cfg.mediaUrl) {
