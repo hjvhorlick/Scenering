@@ -145,6 +145,8 @@ export default function App() {
     STUDIO_VOICE_PRESETS.map((v) => ({ id: v.id, name: `${v.name} (${v.gender === "male" ? "Male" : "Female"} • ${v.accent})` }))
   );
   const [loading, setLoading] = useState(false);
+  /** Explains why a phase change was refused (e.g. no project yet) */
+  const [navNotice, setNavNotice] = useState<string | null>(null);
   const [fetchingImages, setFetchingImages] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [apiKeysModalOpen, setApiKeysModalOpen] = useState(false);
@@ -320,14 +322,36 @@ export default function App() {
     );
   }, []);
 
+  /**
+   * Persists the title as well as holding it in state. Previously this only
+   * updated React state, so the title was lost the moment the project was
+   * reloaded or reselected.
+   */
   const handleUpdateProjectTitle = useCallback((title: string) => {
-    setCurrentProject((prev) => (prev ? { ...prev, title } : null));
-  }, []);
+    setCurrentProject((prev) => {
+      if (!prev) return null;
+      try {
+        supabase.from("projects").update({ title }).eq("id", prev.id).then();
+      } catch {}
+      return { ...prev, title };
+    });
+    setProjects((prev) => prev.map((p) => (p.id === currentProject?.id ? { ...p, title } : p)));
+  }, [currentProject?.id]);
 
   const handleUpdateScript = useCallback(
     (newScript: string, regenerateScenes: boolean = false, overrideDuration?: number) => {
       setCurrentProject((prev) => (prev ? { ...prev, script: newScript } : null));
       const targetDur = overrideDuration || sceneDuration || 20;
+
+      // Always persist the script text itself. It used to be written only on
+      // the regenerate path, so a plain "save" left the stored script stale
+      // and the setup screen showed the old text after a reload.
+      try {
+        if (currentProject?.id) {
+          supabase.from("projects").update({ script: newScript }).eq("id", currentProject.id).then();
+        }
+      } catch {}
+
       if (regenerateScenes) {
         const parsed = parseScript(newScript, targetDur);
         setScenes((prev) => {
@@ -435,7 +459,11 @@ export default function App() {
     }
   }, [inserts, currentProject]);
 
-  const handleCreateProject = async (title: string, script: string, targetDuration?: number) => {
+  const handleCreateProject = async (
+    title: string,
+    script: string,
+    targetDuration?: number
+  ): Promise<boolean> => {
     const chosenDuration = targetDuration || 20;
     // Keep the canvas choices made on the single setup frame (aspect ratio, resolution, motion)
     const chosenAspect = aspectRatio;
@@ -496,6 +524,7 @@ export default function App() {
       setSceneDuration(chosenDuration);
       setMotionStyle(freshSettings.motion_style);
 
+      setNavNotice(null);
       setCurrentProject(project);
       setScenes(scenesData as Scene[]);
       setInserts([]);
@@ -503,17 +532,31 @@ export default function App() {
       setEditorStep("scenes");
       setView("editor");
       fetchProjects();
+      return true;
     } catch (err) {
       console.error("Failed to create project:", err);
+      return false;
     } finally {
       setLoading(false);
     }
   };
 
   /** Moves between project phases — used by every Previous / Next control */
+  /**
+   * The one navigation entry point for phase changes.
+   *
+   * Every phase after Setup needs a project to work on. Without this guard the
+   * tabs and Next buttons would switch to an empty editor, which looked like
+   * the button "did nothing".
+   */
   const navigateToPhase = (phase: ProjectPhase) => {
     if (phase === "setup") {
       setView("create");
+      return;
+    }
+    if (!currentProject) {
+      setView("create");
+      setNavNotice("Create a project on this screen first — then the other phases open up.");
       return;
     }
     setView("editor");
@@ -563,6 +606,7 @@ export default function App() {
       } catch {}
 
       // Apply this project's setup and effects
+      setNavNotice(null);
       setCustomerLogo(projectSettings.customer_logo);
       setCaptionsConfig(projectSettings.captions_config);
       setSelectedVoice(projectSettings.selected_voice);
@@ -946,20 +990,19 @@ export default function App() {
               return (
                 <button
                   key={phase.id}
-                  onClick={() => {
-                    if (phase.id === "setup") {
-                      setView("create");
-                    } else {
-                      setView("editor");
-                      setEditorStep(phase.editorStep);
-                    }
-                  }}
-                  title={phase.purpose}
+                  onClick={() => navigateToPhase(phase.id)}
+                  title={
+                    phase.id !== "setup" && !currentProject
+                      ? "Create a project on the Setup screen first"
+                      : phase.purpose
+                  }
                   className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
                     isActive
                       ? phase.id === "render"
                         ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow font-semibold"
                         : "bg-indigo-600 text-white shadow font-semibold"
+                      : phase.id !== "setup" && !currentProject
+                      ? "text-gray-600 cursor-not-allowed"
                       : "text-gray-400 hover:text-white"
                   }`}
                 >
@@ -1016,6 +1059,17 @@ export default function App() {
         <div className="flex-1 overflow-y-auto">
           {view === "create" ? (
             <div className="p-4 sm:p-6">
+              {navNotice && (
+                <div className="max-w-4xl mx-auto mb-4 p-3.5 bg-amber-950/80 border border-amber-700/80 rounded-xl text-amber-200 text-xs flex items-center justify-between shadow-lg">
+                  <span className="flex items-center gap-2">
+                    <span>ℹ️</span>
+                    <span className="font-medium">{navNotice}</span>
+                  </span>
+                  <button onClick={() => setNavNotice(null)} className="text-amber-400 hover:text-white text-xs">
+                    ✕
+                  </button>
+                </div>
+              )}
               <SetupStudio
                 project={currentProject}
                 projects={projects}

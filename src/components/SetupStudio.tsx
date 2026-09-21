@@ -1,7 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { AspectRatioType, PacingModeType, Project, ResolutionType, Scene } from "../types";
 import ProjectList from "./ProjectList";
 import StepNav from "./StepNav";
+import {
+  readDraft,
+  writeDraft,
+  clearDraft,
+  resolveSetupFields,
+  shouldReloadFields,
+} from "../lib/setup-draft";
 import {
   DURATION_OPTIONS,
   type DurationOption,
@@ -24,7 +31,8 @@ interface SetupStudioProps {
   onSelectProject: (project: Project) => void;
   onDeleteProject: (projectId: number) => void;
   onStartNewProject: () => void;
-  onCreateProject: (title: string, script: string, sceneDuration: number) => void | Promise<void>;
+  /** Resolves true when the project was created and the app has navigated on */
+  onCreateProject: (title: string, script: string, sceneDuration: number) => boolean | void | Promise<boolean | void>;
   /* Project setup values */
   onUpdateTitle: (title: string) => void;
   onUpdateScript: (script: string, regenerateScenes?: boolean, overrideDuration?: number) => void;
@@ -89,20 +97,18 @@ export default function SetupStudio({
   onUpdateMotionStyle,
   onNavigateToStep,
 }: SetupStudioProps) {
-  const [title, setTitle] = useState(project?.title || "");
-  const [script, setScript] = useState(() => {
-    if (project?.script && project.script.trim().length > 0) {
-      return project.script;
-    }
-    if (scenes && scenes.length > 0 && scenes[0]?.project_id === project?.id) {
-      return scenes.map((s) => s.text).join("\n\n");
-    }
-    return "";
-  });
+  /** Best-known title/script for a project, preferring anything unsaved. */
+  const initialFor = (proj: Project | null | undefined, sc: Scene[]) =>
+    resolveSetupFields(proj, sc, readDraft(proj?.id));
+
+  const [title, setTitle] = useState(() => initialFor(project, scenes).title);
+  const [script, setScript] = useState(() => initialFor(project, scenes).script);
   const [selectedDuration, setSelectedDuration] = useState<DurationOption>(
     () => (sceneDuration as DurationOption) || 20
   );
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
 
   useEffect(() => {
     if (sceneDuration && [10, 20, 30].includes(sceneDuration)) {
@@ -110,17 +116,56 @@ export default function SetupStudio({
     }
   }, [sceneDuration]);
 
-  // Strict isolation: when the selected project changes, load only that project's data
+  /**
+   * Strict isolation: reload the fields ONLY when the user actually switches
+   * to a different project.
+   *
+   * This used to also depend on project.title, project.script and the scenes
+   * array. Changing the aspect ratio, resolution or motion style rewrites the
+   * scenes array, which changed its identity, re-ran this effect and wiped
+   * whatever the user had typed — the "my title and script disappear" bug.
+   */
+  const loadedProjectRef = useRef<number | string | null>(null);
   useEffect(() => {
-    setTitle(project?.title || "");
+    const key = project?.id ?? "new";
+    if (!shouldReloadFields(loadedProjectRef.current, project?.id)) return;
+    loadedProjectRef.current = key;
+    const init = initialFor(project, scenes);
+    setTitle(init.title);
+    setScript(init.script);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
+
+  /** Once the project exists, the anonymous "new" draft has served its purpose */
+  useEffect(() => {
+    if (project?.id) clearDraft(null);
+  }, [project?.id]);
+
+  /**
+   * Keep an unsaved draft so nothing is ever lost, even if this component
+   * unmounts (navigating away and back) or the page is reloaded.
+   */
+  useEffect(() => {
+    try {
+      writeDraft(project?.id, { title, script });
+    } catch {}
+  }, [title, script, project?.id]);
+
+  /**
+   * If the project's saved script arrives after mount (async load) and the box
+   * is still empty with no draft, adopt it rather than leaving the user blank.
+   */
+  useEffect(() => {
+    if (script.trim().length > 0) return;
+    const draft = readDraft(project?.id);
+    if (draft.script !== undefined && draft.script.trim().length > 0) return;
     if (project?.script && project.script.trim().length > 0) {
       setScript(project.script);
-    } else if (scenes && scenes.length > 0 && scenes[0]?.project_id === project?.id) {
+    } else if (scenes.length > 0 && scenes[0]?.project_id === project?.id) {
       setScript(scenes.map((s) => s.text).join("\n\n"));
-    } else {
-      setScript("");
     }
-  }, [project?.id, project?.title, project?.script, scenes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.script, scenes.length]);
 
   const activeDuration = selectedDuration;
   const targetWordsPerScene = getTargetWordCount(activeDuration);
@@ -181,31 +226,58 @@ export default function SetupStudio({
     showNotice(`Scene duration set to ${seconds}s (~${words} target words/scene).`);
   };
 
-  /** Primary action: create the project (new) or save the setup (existing) and continue to Scenes */
+  /**
+   * Primary action: create the project (new) or save the setup (existing) and
+   * continue to Scenes.
+   *
+   * This is guarded and always finishes. Previously a throw anywhere in the
+   * save path (or a create that silently failed) left the user on the setup
+   * screen with no feedback, which is why the button "did not always work".
+   */
   const handleStartProject = async () => {
+    if (starting) return;
     const durToApply = selectedDuration || 20;
+    const scriptText = script.trim();
 
-    if (!isExistingProject) {
-      if (!script.trim()) return;
-      await onCreateProject(title.trim() || "Untitled Video", script.trim(), durToApply);
+    if (!scriptText) {
+      showNotice("Add a script in section 3 before continuing.");
+      document.getElementById("screenplay-script")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
-    if (title.trim()) onUpdateTitle(title.trim());
-    onUpdateSceneDuration?.(durToApply);
-    const currentScriptText = script.trim();
-    if (currentScriptText) {
-      onUpdateScript(currentScriptText, true, durToApply);
-    } else {
-      onCalibrateScenesWordCount?.(durToApply);
+    setStarting(true);
+    setStartError(null);
+    try {
+      if (!isExistingProject) {
+        const ok = await onCreateProject(title.trim() || "Untitled Video", scriptText, durToApply);
+        // A create that returns false failed; anything else is treated as
+        // success because the app navigates itself on the happy path.
+        if (ok === false) {
+          setStartError("Could not create the project. Your title and script are still here — please try again.");
+        }
+        return;
+      }
+
+      if (title.trim()) onUpdateTitle(title.trim());
+      onUpdateSceneDuration?.(durToApply);
+      onUpdateScript(scriptText, true, durToApply);
+      onNavigateToStep("scenes");
+    } catch (err) {
+      console.error("Setup save failed:", err);
+      setStartError("Something went wrong saving the setup. Nothing was lost — please try again.");
+    } finally {
+      setStarting(false);
     }
-    onNavigateToStep("scenes");
   };
 
   const handleStartNewProject = () => {
+    clearDraft(project?.id);
+    clearDraft(null);
+    loadedProjectRef.current = "new";
     onStartNewProject();
     setTitle("");
     setScript("");
+    setStartError(null);
   };
 
   const aspectRatios: {
@@ -308,8 +380,10 @@ export default function SetupStudio({
             onNavigate={() => {}}
             onNext={handleStartProject}
             nextLabel={isExistingProject ? "Next: Scenes (save setup)" : "Next: Scenes (create project)"}
-            nextDisabled={!canStart}
-            busyLabel={loading ? "Creating project…" : undefined}
+            /* The button stays clickable even without a script so it can say
+               WHY it cannot continue, rather than appearing broken. */
+            nextDisabled={false}
+            busyLabel={starting || loading ? (isExistingProject ? "Saving setup…" : "Creating project…") : undefined}
             note={
               canStart
                 ? isExistingProject
@@ -320,6 +394,18 @@ export default function SetupStudio({
           />
         </div>
       </div>
+
+      {startError && (
+        <div className="p-3.5 bg-red-950/80 border border-red-700/80 rounded-xl text-red-200 text-xs flex items-center justify-between shadow-lg">
+          <span className="flex items-center gap-2">
+            <span>⚠️</span>
+            <span className="font-medium">{startError}</span>
+          </span>
+          <button onClick={() => setStartError(null)} className="text-red-400 hover:text-white text-xs">
+            ✕
+          </button>
+        </div>
+      )}
 
       {appliedNotice && (
         <div className="p-3.5 bg-emerald-950/80 border border-emerald-700/80 rounded-xl text-emerald-200 text-xs flex items-center justify-between shadow-lg">
