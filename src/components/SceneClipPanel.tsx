@@ -27,6 +27,12 @@ function fmt(seconds: number): string {
  */
 export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: SceneClipPanelProps) {
   const fileRef = useRef<HTMLInputElement | null>(null);
+  /**
+   * Collapsed unless the scene actually uses a clip. Kept open permanently the
+   * panel added a large block of height to every scene card, which is exactly
+   * the space pressure this screen suffers from.
+   */
+  const [expanded, setExpanded] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [previewTime, setPreviewTime] = useState(0);
@@ -116,8 +122,32 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
 
   const lengthMatches = Math.abs(trimmedLength - narrationDuration) < 0.25;
 
+  // Nothing attached and not being edited: one slim line, not a panel.
+  if (!hasClip && !expanded) {
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="video/*"
+          className="hidden"
+          onChange={(e) => handlePick(e.target.files?.[0])}
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="px-2 py-1 rounded-lg border border-gray-700/70 bg-gray-900/60 text-[11px] text-gray-400 hover:text-white hover:border-indigo-600 transition-colors flex items-center gap-1"
+          title="Use a short video clip for this scene instead of a still image"
+        >
+          🎬 Add video clip
+        </button>
+        {loadError && <span className="text-[10px] text-rose-400">{loadError}</span>}
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-950/70 p-3 space-y-3">
+    <div className="rounded-xl border border-gray-800 bg-gray-950/70 p-2.5 space-y-2.5">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-white flex items-center gap-1.5">
@@ -161,11 +191,19 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
       )}
 
       {!hasClip && (
-        <p className="text-[11px] text-gray-500 leading-relaxed">
-          Drop in a short clip to use instead of the still image for this scene. It is
-          automatically trimmed to the narration length, and its own soundtrack is muted so
-          the script is what the viewer hears.
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-[11px] text-gray-500 leading-relaxed">
+            Trimmed to the narration length automatically; the clip's own soundtrack is
+            muted so the script is what the viewer hears.
+          </p>
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="text-[11px] text-gray-500 hover:text-white shrink-0"
+          >
+            Cancel
+          </button>
+        </div>
       )}
 
       {hasClip && (

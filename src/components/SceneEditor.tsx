@@ -8,6 +8,7 @@ import {
   BACKDROP_STYLES,
   resolveFraming,
   frameSizeFor,
+  fitFrameInBox,
   suggestFit,
   DEFAULT_FRAMING,
 } from "../lib/scene-framing";
@@ -77,6 +78,18 @@ export default function SceneEditor({
   const [imgError, setImgError] = useState(false);
   const [showGuides, setShowGuides] = useState(false);
   const [cropMode, setCropMode] = useState(false);
+
+  /**
+   * The preview is sized from the real frame shape so the card is never taller
+   * or wider than the video it shows. Portrait gets a narrower column and a
+   * shorter cap, because a 9:16 preview at the landscape width would make a
+   * single scene card taller than the whole workspace.
+   */
+  const previewBox = fitFrameInBox(
+    aspectRatio,
+    aspectRatio === "9:16" ? 132 : aspectRatio === "1:1" ? 176 : 232,
+    aspectRatio === "9:16" ? 220 : 176
+  );
 
   const activeLook = getPreset(videoFilter?.id);
   const lookCss = getFilterCss(videoFilter);
@@ -278,46 +291,35 @@ export default function SceneEditor({
     >
       <div className="flex flex-col lg:flex-row">
         {/* Visual Preview with Interactive Framing & Crop (reflects Aspect Ratio from Setup) */}
-        <div className={`flex-shrink-0 relative group bg-gray-950 flex flex-col justify-center overflow-hidden min-h-[210px] ${
-          aspectRatio === "9:16"
-            ? "lg:w-56 w-full"
-            : aspectRatio === "1:1"
-            ? "lg:w-64 w-full"
-            : aspectRatio === "4:3"
-            ? "lg:w-72 w-full"
-            : "lg:w-80 w-full"
-        }`}>
+        <div
+          className="flex-shrink-0 relative group bg-gray-950 flex flex-col items-center justify-center overflow-hidden p-1.5"
+          style={{ width: previewBox.w + 12 }}
+        >
           {/* Active Aspect Ratio Indicator */}
-          <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-gray-900/80 backdrop-blur border border-gray-700/80 rounded text-[10px] font-mono text-gray-300 pointer-events-none flex items-center gap-1">
+          <div className="absolute top-1 left-1 z-10 px-1.5 py-0.5 bg-gray-900/80 backdrop-blur border border-gray-700/80 rounded text-[9px] font-mono text-gray-300 pointer-events-none flex items-center gap-1">
             <span>📐</span>
             <span>{aspectRatio}</span>
           </div>
 
           {scene.image_url && !imgError ? (
-            <div className={`relative w-full overflow-hidden bg-black flex items-center justify-center min-h-[210px] ${
-              aspectRatio === "9:16"
-                ? "aspect-[9/16] lg:h-[300px]"
-                : aspectRatio === "1:1"
-                ? "aspect-square lg:h-[240px]"
-                : aspectRatio === "4:3"
-                ? "aspect-[4/3] lg:h-[230px]"
-                : "aspect-video lg:h-full"
-            }`}>
+            <div
+              className="relative overflow-hidden bg-black flex items-center justify-center rounded-md"
+              style={{ width: previewBox.w, height: previewBox.h }}
+            >
               {/* True-to-render thumbnail. This used to be an <img> with CSS
                   object-cover, which did not match the exported frame — the
                   canvas preview below is drawn by the render engine itself. */}
               <SceneFramePreview
                 scene={scene}
                 aspectRatio={aspectRatio}
-                width={aspectRatio === "9:16" ? 170 : aspectRatio === "1:1" ? 240 : 300}
+                width={previewBox.w}
                 videoFilter={compareOriginal ? null : videoFilter}
-                className="mx-auto"
               />
 
               {/* Project-wide look badge (configured in Video Studio → Filters) */}
               {activeLook && (
                 <div
-                  className="absolute bottom-2 left-2 z-10 px-2 py-0.5 bg-gray-950/85 backdrop-blur border rounded text-[10px] font-semibold flex items-center gap-1 shadow-md"
+                  className="absolute bottom-1 left-1 z-10 px-1.5 py-0.5 bg-gray-950/85 backdrop-blur border rounded text-[9px] font-semibold flex items-center gap-1 shadow-md max-w-[70%] truncate"
                   style={{ borderColor: `${activeLook.accent}cc`, color: activeLook.accent }}
                   title={`${activeLook.name} — applied to the whole video from Video Studio → Filters`}
                 >
@@ -335,7 +337,7 @@ export default function SceneEditor({
                   onMouseLeave={() => setCompareOriginal(false)}
                   onTouchStart={() => setCompareOriginal(true)}
                   onTouchEnd={() => setCompareOriginal(false)}
-                  className="absolute bottom-2 right-2 z-10 px-2 py-0.5 bg-gray-900/90 hover:bg-gray-800 text-gray-300 border border-gray-700 rounded text-[10px] font-medium transition-colors shadow-sm select-none"
+                  className="absolute bottom-1 right-1 z-10 px-1.5 py-0.5 bg-gray-900/90 hover:bg-gray-800 text-gray-300 border border-gray-700 rounded text-[9px] font-medium transition-colors shadow-sm select-none"
                   title="Hold to see original unfiltered image"
                 >
                   {compareOriginal ? "Showing Original" : "Hold: Original"}
@@ -343,11 +345,11 @@ export default function SceneEditor({
               )}
 
               {/* Hover quick action overlay */}
-              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 z-[2]">
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 z-[2]">
                 <button
                   type="button"
                   onClick={() => setShowCropTools((prev) => !prev)}
-                  className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 backdrop-blur rounded-lg text-white text-xs transition-colors flex items-center gap-1.5"
+                  className="px-2 py-1 bg-white/20 hover:bg-white/30 backdrop-blur rounded-lg text-white text-[11px] transition-colors flex items-center gap-1"
                   title="Crop and reposition image"
                 >
                   ✂️ Crop & Fit
@@ -355,7 +357,7 @@ export default function SceneEditor({
                 <button
                   type="button"
                   onClick={() => setShowSearchModal(true)}
-                  className="px-2.5 py-1.5 bg-indigo-600/80 hover:bg-indigo-600 backdrop-blur rounded-lg text-white text-xs transition-colors flex items-center gap-1.5"
+                  className="px-2 py-1 bg-indigo-600/80 hover:bg-indigo-600 backdrop-blur rounded-lg text-white text-[11px] transition-colors flex items-center gap-1"
                   title="Search more photos"
                 >
                   🔍 Research
@@ -363,7 +365,10 @@ export default function SceneEditor({
               </div>
             </div>
           ) : (
-            <div className="aspect-video lg:aspect-auto lg:h-full bg-gray-900/90 flex flex-col items-center justify-center min-h-[210px] p-4 text-center gap-2.5">
+            <div
+              className="bg-gray-900/90 flex flex-col items-center justify-center rounded-md p-2 text-center gap-1.5"
+              style={{ width: previewBox.w, height: previewBox.h }}
+            >
               {imgError && <p className="text-xs text-red-400">Image failed to load</p>}
               <button
                 type="button"
@@ -406,9 +411,9 @@ export default function SceneEditor({
         </div>
 
         {/* Content & Dedicated Scene / Image Settings Section */}
-        <div className="flex-1 p-4 space-y-3.5">
+        <div className="flex-1 min-w-0 p-2.5 space-y-2">
           {/* Header Row: Scene Number + Dialogue Voice + Duration + Delete */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-800/80 pb-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-800/80 pb-1.5">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
                 <span>Scene {index + 1}</span>
@@ -510,7 +515,7 @@ export default function SceneEditor({
           </div>
 
           {/* Typable Scene Script Section */}
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <div className="flex items-center justify-between text-xs">
               <label htmlFor={`scene-script-${scene.id}`} className="font-semibold text-gray-200 flex items-center gap-1.5">
                 <span>📝</span>
@@ -541,7 +546,7 @@ export default function SceneEditor({
               id={`scene-script-${scene.id}`}
               value={textValue}
               onChange={(e) => handleScriptChange(e.target.value)}
-              rows={3}
+              rows={2}
               placeholder="Enter the narration script for this scene..."
               className="w-full px-3 py-2 bg-gray-900/90 border border-gray-700 hover:border-gray-600 focus:border-indigo-500 rounded-xl text-white text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y transition-colors font-sans shadow-inner"
             />
@@ -555,7 +560,7 @@ export default function SceneEditor({
           />
 
           {/* Image Settings Toolbar: Researching, Nature Fallback, Crop & Fit, Filters */}
-          <div className="space-y-2.5 pt-1">
+          <div className="space-y-1.5">
             {/* The small image-topic box was removed: the scene script above is
                 the one place text is edited, and the image search now derives
                 its topic from that script automatically. */}
@@ -1035,14 +1040,14 @@ export default function SceneEditor({
       {/* Insert a brand new scene directly after this one. Placing a scene at a
           chosen position is what the top "Add Scene" button could not do. */}
       {onInsertSceneAt && (
-        <div className="px-4 pb-3 -mt-1">
+        <div className="group/ins relative h-2.5 hover:h-7 transition-all duration-150">
           <button
             type="button"
             onClick={() => onInsertSceneAt(index + 1)}
-            className="w-full px-3 py-1.5 rounded-lg border border-dashed border-gray-700 hover:border-emerald-600 text-[11px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-950/30 transition-colors"
+            className="absolute inset-x-2 inset-y-0 flex items-center justify-center rounded opacity-0 group-hover/ins:opacity-100 transition-opacity text-[10px] text-emerald-300 hover:bg-emerald-950/40 border border-dashed border-transparent hover:border-emerald-700"
             title={`Insert a new scene after scene ${index + 1}`}
           >
-            ➕ Insert a scene here (after scene {index + 1})
+            ➕ Insert a scene here
           </button>
         </div>
       )}

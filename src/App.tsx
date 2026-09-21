@@ -1299,7 +1299,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="space-y-1.5">
                       {scenes.map((scene, index) => (
                         <SceneEditor
                           key={scene.id}

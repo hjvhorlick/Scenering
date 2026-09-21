@@ -395,6 +395,29 @@ export function frameSizeFor(ratio: string | undefined): { w: number; h: number 
   }
 }
 
+/**
+ * Fit a video frame of the given aspect ratio inside a box, preserving shape.
+ *
+ * The scene cards used to hard-code a column width and a canvas width per
+ * aspect ratio, and the two disagreed: at 4:3 the canvas was 300px inside a
+ * 288px column (it overflowed), at 9:16 it was 302px inside a 300px box, and
+ * at 16:9 a forced min-height left 41px of dead space under the image. Sizing
+ * both from one function keeps the preview exactly as big as the frame it
+ * represents — no overflow and no padding.
+ */
+export function fitFrameInBox(
+  ratio: string | undefined,
+  maxW: number,
+  maxH: number
+): { w: number; h: number } {
+  const frame = frameSizeFor(ratio);
+  const scale = Math.min(maxW / frame.w, maxH / frame.h);
+  return {
+    w: Math.max(1, Math.round(frame.w * scale)),
+    h: Math.max(1, Math.round(frame.h * scale)),
+  };
+}
+
 /** Re-exported so callers only need one import. */
 export type { SceneMotionType };
 
