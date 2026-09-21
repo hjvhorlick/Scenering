@@ -220,21 +220,45 @@ export default function App() {
       none: "none",
     };
 
+    /**
+     * Persist each scene's motion to its stored meta. Without this the choice
+     * lived only in React state and was lost on reload, so the setting looked
+     * like it had not applied.
+     */
+    const persistMotion = (sceneId: number, effect: SceneMotionType) => {
+      try {
+        const existing = localStorage.getItem(`scenering_scene_meta_${sceneId}`);
+        const parsed = existing ? JSON.parse(existing) : {};
+        localStorage.setItem(
+          `scenering_scene_meta_${sceneId}`,
+          JSON.stringify({ ...parsed, motion_effect: effect })
+        );
+      } catch {}
+    };
+
     if (style === "dynamic") {
-      const dynamicList: SceneMotionType[] = ["ken_burns", "zoom_in", "zoom_out", "pan_left", "pan_right", "subtle_camera"];
+      const dynamicList: SceneMotionType[] = [
+        "ken_burns",
+        "zoom_in",
+        "pan_left",
+        "zoom_out",
+        "pan_right",
+        "floating",
+      ];
       setScenes((prev) =>
-        prev.map((s, idx) => ({
-          ...s,
-          motion_effect: dynamicList[idx % dynamicList.length],
-        }))
+        prev.map((s, idx) => {
+          const effect = dynamicList[idx % dynamicList.length];
+          persistMotion(s.id, effect);
+          return { ...s, motion_effect: effect };
+        })
       );
     } else {
       const targetEffect = motionMap[style] || "ken_burns";
       setScenes((prev) =>
-        prev.map((s) => ({
-          ...s,
-          motion_effect: targetEffect,
-        }))
+        prev.map((s) => {
+          persistMotion(s.id, targetEffect);
+          return { ...s, motion_effect: targetEffect };
+        })
       );
     }
   }, []);

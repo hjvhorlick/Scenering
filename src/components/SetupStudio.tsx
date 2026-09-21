@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import type { AspectRatioType, PacingModeType, Project, ResolutionType, Scene } from "../types";
+import MotionPreviewCanvas from "./MotionPreviewCanvas";
+import type { AspectRatioType, PacingModeType, Project, ResolutionType, Scene, SceneMotionType } from "../types";
 import ProjectList from "./ProjectList";
 import StepNav from "./StepNav";
 import {
@@ -347,15 +348,28 @@ export default function SetupStudio({
     { id: "4k", name: "4K Ultra HD", badge: "Cinema Master", description: "Maximum cinematic fidelity" },
   ];
 
-  const motionOptions = [
-    { id: "dynamic", label: "🔀 Dynamic Variety", desc: "Rotates Ken Burns, Zoom, Pan & Shake per scene" },
-    { id: "ken_burns", label: "🔍 Gentle Ken Burns", desc: "Documentary slow drift and cinematic push" },
-    { id: "zoom_in", label: "➕ Cinematic Zoom In", desc: "Slow immersive forward push" },
-    { id: "zoom_out", label: "➖ Dramatic Zoom Out", desc: "Slow wide reveal effect" },
-    { id: "pan", label: "↔️ Smooth Camera Pan", desc: "Horizontal sliding panoramic movement" },
-    { id: "shake", label: "📳 Handheld Shake", desc: "Organic documentary subtle handheld tremor" },
-    { id: "none", label: "⏹️ Static (No Motion)", desc: "Still frame without camera motion" },
+  /**
+   * Each option carries the actual SceneMotionType it applies, so the little
+   * preview beside it animates the very same transform the renderer will use.
+   */
+  const motionOptions: {
+    id: string;
+    label: string;
+    desc: string;
+    preview: SceneMotionType;
+  }[] = [
+    { id: "dynamic", label: "🔀 Dynamic Variety", desc: "Rotates Ken Burns, zoom, pan & drift per scene", preview: "ken_burns" },
+    { id: "ken_burns", label: "🔍 Gentle Ken Burns", desc: "Steady push with a visible diagonal drift", preview: "ken_burns" },
+    { id: "zoom_in", label: "➕ Cinematic Zoom In", desc: "Immersive forward push", preview: "zoom_in" },
+    { id: "zoom_out", label: "➖ Dramatic Zoom Out", desc: "Wide reveal, pulling back", preview: "zoom_out" },
+    { id: "pan", label: "↔️ Smooth Camera Pan", desc: "Horizontal panoramic travel", preview: "pan_left" },
+    { id: "shake", label: "📳 Handheld Shake", desc: "Organic handheld tremor that settles", preview: "shake" },
+    { id: "floating", label: "🎈 Floating Drift", desc: "Weightless figure-of-eight drift", preview: "floating" },
+    { id: "none", label: "⏹️ Static (No Motion)", desc: "Still frame, no camera movement", preview: "none" },
   ];
+
+  /** A real scene image makes the preview concrete; otherwise a stand-in is drawn. */
+  const motionPreviewImage = scenes.find((sc) => sc.image_url)?.image_url || null;
 
 
   return (
@@ -723,9 +737,13 @@ export default function SetupStudio({
         <SectionHeading
           step={7}
           title="Camera motion (Ken Burns)"
-          subtitle="Default movement applied to scene images across the whole video."
+          subtitle="Applies to every scene in the whole video. Previews below are live."
         />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <p className="text-[11px] text-gray-500 mb-2.5">
+          Every tile below is live — the movement you see is the exact transform the
+          rendered video uses.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {motionOptions.map((opt) => {
             const isSelected = motionStyle === opt.id;
             return (
@@ -736,17 +754,36 @@ export default function SetupStudio({
                   onUpdateMotionStyle?.(opt.id);
                   showNotice(`Global motion style set to ${opt.label}`);
                 }}
-                className={`w-full p-2.5 rounded-xl border text-left transition-all flex items-center justify-between gap-2 ${
+                className={`w-full p-2 rounded-xl border text-left transition-all ${
                   isSelected
                     ? "bg-indigo-950/80 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-400"
                     : "bg-gray-800/60 border-gray-700/60 text-gray-300 hover:bg-gray-750 hover:text-white"
                 }`}
               >
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold">{opt.label}</div>
-                  <div className="text-[10px] text-gray-400">{opt.desc}</div>
+                <div className="relative overflow-hidden rounded-lg mb-2">
+                  <MotionPreviewCanvas
+                    motion={opt.preview}
+                    imageUrl={motionPreviewImage}
+                    width={300}
+                    height={150}
+                    cycleSeconds={opt.id === "shake" || opt.id === "floating" ? 4 : 6}
+                    className="w-full"
+                  />
+                  {isSelected && (
+                    <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-bold shadow">
+                      ACTIVE
+                    </span>
+                  )}
                 </div>
-                {isSelected && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shrink-0" />}
+                <div className="min-w-0 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold truncate">{opt.label}</div>
+                    <div className="text-[10px] text-gray-400 leading-tight">{opt.desc}</div>
+                  </div>
+                  {isSelected && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shrink-0" />
+                  )}
+                </div>
               </button>
             );
           })}
