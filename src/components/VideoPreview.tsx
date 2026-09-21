@@ -15,9 +15,9 @@ import { calculateDynamicDuration } from "../lib/duration-utils";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
 import { renderSection } from "../lib/render-section";
-import { sectionSoundUrl, type SectionConfig } from "../data/intro-outro";
+import type { SectionConfig } from "../data/intro-outro";
 import { getCachedSceneAudio } from "../lib/tts-cache";
-import { buildInsertAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
+import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
 interface VideoPreviewProps {
   scenes: Scene[];
@@ -127,40 +127,20 @@ export default function VideoPreview({
   const sectionsRef = useRef({ intro: activeIntro, outro: activeOutro });
   sectionsRef.current = { intro: activeIntro, outro: activeOutro };
 
-  /** one <audio> per section, fired once when its segment starts */
-  const sectionAudioRef = useRef<{ intro: HTMLAudioElement | null; outro: HTMLAudioElement | null }>({
-    intro: null,
-    outro: null,
-  });
-  const sectionAudioFiredRef = useRef<{ intro: boolean; outro: boolean }>({ intro: false, outro: false });
+  // ---- Download the preview ----
+  // A silent MediaStreamDestination that sits next to the speakers, so a
+  // recording of the preview carries the same narration, music and stingers
+  // the user just heard.
+  const recordDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const onPlaybackEndRef = useRef<(() => void) | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [downloadName, setDownloadName] = useState("preview.webm");
+  const [downloadSize, setDownloadSize] = useState(0);
 
-  const playSectionSound = useCallback((which: "intro" | "outro", cfg: SectionConfig) => {
-    if (sectionAudioFiredRef.current[which]) return;
-    sectionAudioFiredRef.current[which] = true;
-    const url = sectionSoundUrl(cfg);
-    if (!url) return;
-    try {
-      const el = sectionAudioRef.current[which] ?? new Audio();
-      el.src = url;
-      el.volume = Math.max(0, Math.min(1, cfg.volume));
-      el.currentTime = 0;
-      sectionAudioRef.current[which] = el;
-      void el.play().catch(() => {});
-    } catch {
-      /* autoplay blocked — silent */
-    }
-  }, []);
-
-  const stopSectionSounds = useCallback(() => {
-    (["intro", "outro"] as const).forEach((k) => {
-      const el = sectionAudioRef.current[k];
-      if (el) {
-        try { el.pause(); el.currentTime = 0; } catch {}
-      }
-      sectionAudioFiredRef.current[k] = false;
-    });
-  }, []);
-  const [isPlaying, setIsPlaying] = useState(false);
+ const [isPlaying, setIsPlaying] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [loadingAudio, setLoadingAudio] = useState(false);
@@ -905,6 +885,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       an.maxDecibels = -12;
       analyserRef.current = an;
       an.connect(audioCtx.destination);
+      if (!recordDestRef.current) {
+        try { recordDestRef.current = audioCtx.createMediaStreamDestination(); } catch {}
+      }
+      if (recordDestRef.current) an.connect(recordDestRef.current);
 
       const music = audioCtx.createAnalyser();
       music.fftSize = 512;
@@ -913,14 +897,13 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       music.maxDecibels = -12;
       musicAnalyserRef.current = music;
       music.connect(audioCtx.destination);
+      if (recordDestRef.current) music.connect(recordDestRef.current);
     }
 
     const introSec = activeIntro;
     const outroSec = activeOutro;
     const introDur = introDuration;
     const outroDur = outroDuration;
-    // a fresh run may re-fire each section sound once
-    sectionAudioFiredRef.current = { intro: false, outro: false };
 
     const scriptDur = scenesWithImages.reduce((sum, s) => {
       const sa = buffers.get(s.id);
@@ -937,7 +920,12 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     let insertMixer: InsertAudioMixer | null = null;
     if (audioCtx && totalDur > 0) {
       try {
-        const plans = buildInsertAudioPlan(inserts, totalDur);
+        const plans = [
+          ...buildInsertAudioPlan(inserts, totalDur),
+          // the intro / outro stingers ride the same mixer, so they are heard
+          // in preview AND captured when the preview is downloaded
+          ...buildSectionAudioPlan(introSec, outroSec, introDur, totalDur),
+        ];
         if (plans.length > 0) {
           // Music & SFX feed the music bus so "moves with the music" items
           // follow the soundtrack instead of the narration.
@@ -1033,6 +1021,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         setProgress(1);
         drawScene(ctx, scenesWithImages[0], 0, images[0], 0, 0.4);
         onSeek?.(0);
+        onPlaybackEndRef.current?.();
         return;
       }
 
@@ -1065,7 +1054,6 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       // 1. INTRO SEGMENT: the built section, NO captions, NO speech voiceover
       if (introSec && totalElapsed < introDur) {
         const introProgress = totalElapsed / Math.max(0.1, introDur);
-        playSectionSound("intro", introSec);
         renderSection(ctx, introSec, canvas.width, canvas.height, totalElapsed, introProgress);
         setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
         onSeek?.(totalElapsed);
@@ -1081,7 +1069,6 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         }
         const outroElapsed = totalElapsed - introDur - scriptDur;
         const outroProgress = outroElapsed / Math.max(0.1, outroDur);
-        playSectionSound("outro", outroSec);
         renderSection(ctx, outroSec, canvas.width, canvas.height, outroElapsed, outroProgress);
         setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
         onSeek?.(totalElapsed);
@@ -1141,16 +1128,143 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     }
     insertMixerRef.current?.stop();
     insertMixerRef.current = null;
-    stopSectionSounds();
-  }, [stopSectionSounds]);
+  }, []);
+
+  // ---------- DOWNLOAD THE PREVIEW ----------
+
+  /** Filename stem from the project title */
+  const fileStem = useCallback(() => {
+    const base = (title || "scenering-preview")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60);
+    return base || "scenering-preview";
+  }, [title]);
+
+  const triggerDownload = (url: string, filename: string) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  /** Save the frame currently on the canvas as a PNG */
+  const downloadFrame = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      triggerDownload(url, `${fileStem()}-frame.png`);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }, "image/png");
+  }, [fileStem]);
+
+  /**
+   * Record the preview exactly as it plays — the canvas is captured frame by
+   * frame while the narration, music and intro/outro stingers are tapped off
+   * the audio graph, so what you download is what you just watched.
+   */
+  const downloadPreviewVideo = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || isRecording) return;
+
+    if (typeof MediaRecorder === "undefined") {
+      setAudioStatus("Your browser cannot record the preview — use Render & Export instead");
+      return;
+    }
+
+    // clear any previous capture
+    if (downloadUrl) {
+      URL.revokeObjectURL(downloadUrl);
+      setDownloadUrl(null);
+    }
+
+    if (playingRef.current) stopPreview();
+
+    // Start playback from the top; this also builds the audio graph, which is
+    // what creates the recording destination node.
+    await playPreview(0);
+
+    const videoStream = canvas.captureStream(30);
+    const tracks = [...videoStream.getVideoTracks()];
+    const audioTracks = recordDestRef.current?.stream.getAudioTracks() ?? [];
+    tracks.push(...audioTracks);
+    const combined = new MediaStream(tracks);
+
+    const candidates = [
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+      "video/mp4",
+    ];
+    const mimeType = candidates.find((m) => MediaRecorder.isTypeSupported(m)) || "";
+
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(combined, mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : undefined);
+    } catch {
+      recorder = new MediaRecorder(combined);
+    }
+
+    recordedChunksRef.current = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+    };
+    recorder.onstop = () => {
+      const type = recorder.mimeType || mimeType || "video/webm";
+      const blob = new Blob(recordedChunksRef.current, { type });
+      recordedChunksRef.current = [];
+      const ext = type.includes("mp4") ? "mp4" : "webm";
+      const url = URL.createObjectURL(blob);
+      setDownloadUrl(url);
+      setDownloadName(`${fileStem()}.${ext}`);
+      setDownloadSize(blob.size);
+      setIsRecording(false);
+      setAudioStatus("Preview captured — click Save Video to download");
+      // hand it straight to the browser so one click is enough
+      triggerDownload(url, `${fileStem()}.${ext}`);
+    };
+
+    // Playback reaching the end (or the user pressing stop) finishes the file
+    onPlaybackEndRef.current = () => {
+      onPlaybackEndRef.current = null;
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        try { recorderRef.current.stop(); } catch {}
+      }
+    };
+
+    recorderRef.current = recorder;
+    setIsRecording(true);
+    setAudioStatus("Recording the preview… it will download when playback finishes");
+    try {
+      recorder.start(1000);
+    } catch {
+      recorder.start();
+    }
+  }, [isRecording, downloadUrl, stopPreview, playPreview, fileStem]);
+
+  /** Stop a capture early and keep whatever has been recorded so far */
+  const finishRecordingEarly = useCallback(() => {
+    onPlaybackEndRef.current = null;
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      try { recorderRef.current.stop(); } catch {}
+    }
+    stopPreview();
+  }, [stopPreview]);
 
   const togglePlay = useCallback(() => {
     if (playingRef.current) {
-      stopPreview();
+      // stopping mid-capture still yields a usable file
+      if (isRecording) finishRecordingEarly();
+      else stopPreview();
     } else {
       playPreview();
     }
-  }, [stopPreview, playPreview]);
+  }, [stopPreview, playPreview, isRecording, finishRecordingEarly]);
 
   useEffect(() => {
     onPlayStateChange?.(isPlaying, togglePlay);
@@ -1163,9 +1277,18 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       if (currentSourceRef.current) {
         try { currentSourceRef.current.stop(); } catch {}
       }
-      stopSectionSounds();
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        try { recorderRef.current.stop(); } catch {}
+      }
     };
-  }, [stopSectionSounds]);
+  }, []);
+
+  // release the captured file when it is replaced or the preview goes away
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    };
+  }, [downloadUrl]);
 
   if (scenesWithImages.length === 0) {
     return (
@@ -1274,7 +1397,71 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
               </span>
             </div>
 
+            {/* Download the preview: full capture, a still frame, or re-save */}
+            <div className="flex items-center gap-2">
+              {isRecording ? (
+                <button
+                  onClick={finishRecordingEarly}
+                  className="px-3 py-2 bg-red-600 hover:bg-red-500 rounded-lg transition-colors text-white font-medium text-xs flex items-center gap-2 cursor-pointer"
+                  title="Stop recording and download what has been captured so far"
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
+                  <span>Stop & Save</span>
+                </button>
+              ) : (
+                <button
+                  onClick={downloadPreviewVideo}
+                  disabled={anyAction || scenesWithImages.length === 0}
+                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg transition-colors text-white font-medium text-xs flex items-center gap-2 cursor-pointer"
+                  title="Play the preview through once and download it as a video file"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                  <span>Download Preview</span>
+                </button>
+              )}
+
+              <button
+                onClick={downloadFrame}
+                disabled={scenesWithImages.length === 0}
+                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors text-gray-100 font-medium text-xs flex items-center gap-2 cursor-pointer"
+                title="Save the frame currently showing as a PNG image"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16l5-5 4 4 3-3 6 6" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                </svg>
+                <span>Save Frame</span>
+              </button>
+
+              {downloadUrl && !isRecording && (
+                <a
+                  href={downloadUrl}
+                  download={downloadName}
+                  className="px-3 py-2 bg-emerald-950/70 hover:bg-emerald-900/70 border border-emerald-700/60 rounded-lg transition-colors text-emerald-200 font-medium text-xs flex items-center gap-2 cursor-pointer"
+                  title={`Download ${downloadName} again`}
+                >
+                  <span>💾</span>
+                  <span>
+                    Save Video
+                    {downloadSize > 0 && (
+                      <span className="text-emerald-400/70 font-mono ml-1">
+                        ({(downloadSize / 1048576).toFixed(1)} MB)
+                      </span>
+                    )}
+                  </span>
+                </a>
+              )}
+            </div>
           </div>
+
+          {isRecording && (
+            <p className="text-[11px] text-emerald-300/80 text-center">
+              Recording the preview in real time — keep this tab visible until playback finishes.
+            </p>
+          )}
         </div>
       </div>
     </div>
