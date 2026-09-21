@@ -13,6 +13,8 @@ import {
   DURATION_OPTIONS,
   type DurationOption,
   getTargetWordCount,
+  countScenesFromScript,
+  splitScriptIntoScenes,
   countWords,
 } from "../lib/duration-utils";
 
@@ -170,11 +172,14 @@ export default function SetupStudio({
   const activeDuration = selectedDuration;
   const targetWordsPerScene = getTargetWordCount(activeDuration);
 
-  const SCRIPT_SPLIT_REGEX = /\n\s*\n+|\n+(?=(?:Scene\s*\d+|\[Scene\s*\d+\]|\d+[\.\)]\s))/i;
+  // Scene count comes from the SAME splitter the app uses to create scenes
+  // (src/lib/duration-utils.ts), so the number shown here is always the number
+  // the user actually gets. It used to count paragraphs, which disagreed with
+  // the word-count based split.
 
   const wordsCount = countWords(script);
   const estimatedReadingSec = Math.round((wordsCount / 2.5) * 10) / 10;
-  const detectedScenesCount = script.split(SCRIPT_SPLIT_REGEX).filter((s) => s.trim()).length;
+  const detectedScenesCount = countScenesFromScript(script, activeDuration);
   const isExistingProject = Boolean(project?.id);
   const canStart = script.trim().length > 0;
 
@@ -188,19 +193,29 @@ export default function SetupStudio({
     onUpdateTitle(newTitle);
   };
 
+  /**
+   * Re-flows the script into evenly sized scenes for the chosen duration and
+   * shows the result as one paragraph per scene, so what is on screen matches
+   * what will be created.
+   */
   const handleFormatScriptToTargetDuration = () => {
     const currentScriptText = script.trim() || scenes.map((s) => s.text).join("\n\n");
     if (!currentScriptText) return;
-    const paragraphs = currentScriptText
-      .split(SCRIPT_SPLIT_REGEX)
-      .map((s) => s.trim())
-      .filter(Boolean);
 
-    const cleanScript = paragraphs.join("\n\n");
+    const parts = splitScriptIntoScenes(currentScriptText, activeDuration);
+    if (parts.length === 0) return;
+
+    const cleanScript = parts.join("\n\n");
     setScript(cleanScript);
     onUpdateScript(cleanScript, true, activeDuration);
+
+    const counts = parts.map((x) => countWords(x));
+    const lo = Math.min(...counts);
+    const hi = Math.max(...counts);
     showNotice(
-      `Formatted script into ${paragraphs.length} scenes (${activeDuration}s duration each)!`
+      `Formatted into ${parts.length} even scene${parts.length === 1 ? "" : "s"} of ${
+        lo === hi ? `${lo}` : `${lo}–${hi}`
+      } words (~${activeDuration}s each).`
     );
   };
 

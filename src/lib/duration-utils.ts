@@ -73,23 +73,138 @@ export function getSpokenDurationFromWords(text?: string): number {
 }
 
 /**
- * Predicts how many scenes a script will produce when flattened into one
- * continuous string and sliced into fixed word-count chunks (see parseScript).
- * Tiny leftovers (< 25% of a full chunk) are folded into the previous scene.
- * e.g. 102 words at the 20s default (50 words/scene) = 2 scenes (50 + 52).
+ * Splits a script into scenes of EVEN length.
+ *
+ * The old approach sliced fixed chunks of exactly `targetWords` and left the
+ * remainder as its own scene. An 84-word script at 20s therefore produced
+ * 50 + 34 words, and because every scene is still labelled 20s the short one
+ * held ~6 seconds of silence. That is the "34 words in a 20 second scene" bug.
+ *
+ * Instead we choose the scene COUNT that gets closest to the target, then
+ * spread the words evenly over that many scenes, preferring to break on
+ * sentence boundaries so no scene ends mid-sentence.
+ *
+ * 84 words at 20s  -> 2 scenes of 42
+ * 134 words at 20s -> 3 scenes of ~45
+ * 234 words at 20s -> 5 scenes of ~47
+ */
+export function splitScriptIntoScenes(
+  script: string,
+  targetDuration: number = 20
+): string[] {
+  const targetWords = getTargetWordCount(targetDuration);
+  const continuous = (script || "").replace(/\s+/g, " ").trim();
+  if (!continuous) return [];
+
+  const totalWords = countWords(continuous);
+
+  // How many scenes gets each one closest to the target length?
+  // Math.round means a 74-word script becomes one 74-word scene rather than
+  // 50 + 24, while a 76-word script becomes two of 38.
+  let sceneCount = Math.max(1, Math.round(totalWords / targetWords));
+  // Never let a scene run more than ~1.25x the target, so a 74-word script at
+  // 20s becomes two ~37-word scenes rather than one 30-second scene.
+  while (totalWords / sceneCount > targetWords * 1.25) sceneCount++;
+  if (sceneCount > totalWords) sceneCount = totalWords;
+
+  if (sceneCount === 1) return [continuous];
+
+  // Sentence-aware units, so a scene break lands at a full stop when possible.
+  const sentences = continuous.match(/[^.!?]+[.!?]+(?:["')\]]+)?\s*|[^.!?]+$/g) || [continuous];
+  const perSceneTarget = totalWords / sceneCount;
+
+  // A sentence longer than a whole scene (or unpunctuated text) would block
+  // splitting entirely, so break those on clause marks, then on plain words.
+  const units: string[] = [];
+  const maxUnit = Math.max(8, Math.ceil(perSceneTarget));
+  for (const raw of sentences) {
+    const sentence = raw.trim();
+    if (!sentence) continue;
+    if (countWords(sentence) <= maxUnit) {
+      units.push(sentence);
+      continue;
+    }
+    // try clause boundaries first — commas, semicolons, colons, dashes
+    const clauses = sentence.match(/[^,;:—–]+[,;:—–]+\s*|[^,;:—–]+$/g) || [sentence];
+    for (const clauseRaw of clauses) {
+      const clause = clauseRaw.trim();
+      if (!clause) continue;
+      if (countWords(clause) <= maxUnit) {
+        units.push(clause);
+        continue;
+      }
+      // Last resort: plain word slices. These are cut finer than a scene
+      // (about a quarter) so the boundary picker below still has enough
+      // granularity to make every scene the same length — coarse slices would
+      // force the remainder into a short final scene.
+      const w = clause.split(" ");
+      const grain = Math.max(1, Math.floor(maxUnit / 4));
+      for (let i = 0; i < w.length; i += grain) units.push(w.slice(i, i + grain).join(" "));
+    }
+  }
+  if (units.length === 0) return [continuous];
+
+  // Cumulative word count at every possible break point.
+  const cum: number[] = [0];
+  for (const u of units) cum.push(cum[cum.length - 1] + countWords(u));
+
+  const effectiveCount = Math.min(sceneCount, units.length);
+  const ideal = totalWords / effectiveCount;
+
+  // Choose the break points that minimise total squared deviation from the
+  // ideal scene length. An exact dynamic program rather than a greedy walk,
+  // because greedy accumulates rounding error and dumps the remainder into a
+  // short final scene — exactly the bug this replaces.
+  //
+  // cost[k][i] = best cost using k scenes for the first i units.
+  const INF = Infinity;
+  const cost: number[][] = [];
+  const from: number[][] = [];
+  for (let k = 0; k <= effectiveCount; k++) {
+    cost.push(new Array(units.length + 1).fill(INF));
+    from.push(new Array(units.length + 1).fill(0));
+  }
+  cost[0][0] = 0;
+
+  for (let k = 1; k <= effectiveCount; k++) {
+    for (let i = k; i <= units.length - (effectiveCount - k); i++) {
+      for (let j = k - 1; j < i; j++) {
+        if (cost[k - 1][j] === INF) continue;
+        const len = cum[i] - cum[j];
+        const dev = len - ideal;
+        const c = cost[k - 1][j] + dev * dev;
+        if (c < cost[k][i]) {
+          cost[k][i] = c;
+          from[k][i] = j;
+        }
+      }
+    }
+  }
+
+  // Walk the choices back into scene boundaries.
+  const cuts: number[] = new Array(effectiveCount + 1);
+  cuts[effectiveCount] = units.length;
+  let idx = units.length;
+  for (let k = effectiveCount; k >= 1; k--) {
+    idx = from[k][idx];
+    cuts[k - 1] = idx;
+  }
+
+  const scenes: string[] = [];
+  for (let k = 0; k < effectiveCount; k++) {
+    const text = units.slice(cuts[k], cuts[k + 1]).join(" ").trim();
+    if (text) scenes.push(text);
+  }
+
+  return scenes.length > 0 ? scenes : [continuous];
+}
+
+/**
+ * Predicts how many scenes a script will produce. Always agrees with
+ * splitScriptIntoScenes, so the count shown in Setup matches what is created.
  */
 export function countScenesFromScript(script: string, targetDuration: number = 20): number {
-  const targetWords = getTargetWordCount(targetDuration);
-  const words = countWords(script);
-  if (words === 0) return 0;
-
-  const fullChunks = Math.floor(words / targetWords);
-  const remainder = words % targetWords;
-  if (fullChunks === 0) return 1;
-  if (remainder === 0) return fullChunks;
-
-  const leftoverThreshold = Math.max(3, Math.floor(targetWords * 0.25));
-  return remainder < leftoverThreshold ? fullChunks : fullChunks + 1;
+  return splitScriptIntoScenes(script, targetDuration).length;
 }
 
 /**
@@ -106,6 +221,24 @@ export function isOneLiner(text?: string): boolean {
 export function fitDurationToText(text?: string): number {
   const spoken = getSpokenDurationFromWords(text);
   return Math.max(3, Math.round(spoken));
+}
+
+/**
+ * The duration a scene should hold, given its own text.
+ *
+ * Every scene used to be stamped with the project's target duration, so a
+ * short scene sat in silence for the remainder. Scenes are now split evenly,
+ * and this rounds each one to its actual spoken length while staying within
+ * sensible bounds of the target the user chose.
+ */
+export function sceneDurationForText(text: string, targetDuration: number = 20): number {
+  const spoken = getSpokenDurationFromWords(text);
+  if (spoken <= 0) return targetDuration;
+  // a little breathing room at the end of the narration
+  const withPad = spoken + 0.4;
+  const lo = Math.max(3, targetDuration * 0.5);
+  const hi = targetDuration * 1.6;
+  return Math.round(Math.min(hi, Math.max(lo, withPad)) * 10) / 10;
 }
 
 export interface SceneTimingAssessment {

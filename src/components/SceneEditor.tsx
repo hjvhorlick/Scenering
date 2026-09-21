@@ -49,7 +49,19 @@ export default function SceneEditor({
   onApplyFramingToAll,
 }: SceneEditorProps) {
   const [textValue, setTextValue] = useState(scene.text);
-  const [queryValue, setQueryValue] = useState(scene.image_query);
+  /**
+   * Image search topic. There is no separate box for this any more — it is
+   * derived from the scene script (the single editable text field), falling
+   * back to the query stored when the scene was created.
+   */
+  const deriveImageQuery = (text: string, stored?: string): string => {
+    const words = (text || "")
+      .replace(/[^a-zA-Z\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 3);
+    const fromScript = words.slice(0, 5).join(" ");
+    return fromScript || stored || "abstract background";
+  };
   const [searching, setSearching] = useState(false);
   const [isPlayingAttachedAudio, setIsPlayingAttachedAudio] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
@@ -176,7 +188,7 @@ export default function SceneEditor({
     setSearching(true);
     setImgError(false);
     try {
-      await onImageSearch(scene.id, queryValue);
+      await onImageSearch(scene.id, deriveImageQuery(textValue, scene.image_query));
     } finally {
       setSearching(false);
     }
@@ -502,21 +514,10 @@ export default function SceneEditor({
 
           {/* Image Settings Toolbar: Researching, Nature Fallback, Crop & Fit, Filters */}
           <div className="space-y-2.5 pt-1">
+            {/* The small image-topic box was removed: the scene script above is
+                the one place text is edited, and the image search now derives
+                its topic from that script automatically. */}
             <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-              {/* Research Input */}
-              <div className="flex-1 relative">
-                <input
-                  type="text"
-                  value={queryValue}
-                  onChange={(e) => setQueryValue(e.target.value)}
-                  placeholder="Search image topic..."
-                  className="w-full px-3 py-1.5 bg-gray-700/80 border border-gray-600 rounded-lg text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleQuickSearch();
-                  }}
-                />
-              </div>
-
               {/* Research Action Buttons */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
@@ -992,7 +993,7 @@ export default function SceneEditor({
       {/* 10-result Research Modal */}
       {showSearchModal && (
         <ImageSearchModal
-          initialQuery={queryValue || scene.text.slice(0, 40)}
+          initialQuery={deriveImageQuery(textValue, scene.image_query)}
           onSelect={handleSelectFromModal}
           onClose={() => setShowSearchModal(false)}
         />

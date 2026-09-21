@@ -20,7 +20,8 @@ import {
   calculateDynamicDuration,
   calibrateTextToTargetDuration,
   fitDurationToText,
-  getTargetWordCount,
+  sceneDurationForText,
+  splitScriptIntoScenes,
 } from "./lib/duration-utils";
 import type { Project, Scene, TimelineInsert, SceneMotionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
 import type { VideoFilterConfig } from "./data/video-filters";
@@ -75,37 +76,16 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   outro_section: null,
 };
 
-// Split script into scenes and generate image search queries
-// Strategy: the whole script is first flattened into ONE continuous string
-// (all newlines, paragraph breaks and extra spaces are removed), then it is
-// sliced into fixed word-count chunks so every scene has a consistent length:
-// ~50 words per 20s scene (2.5 words/sec), ~25 per 10s, ~75 per 30s.
+// Split script into scenes and generate image search queries.
+//
+// The split itself lives in src/lib/duration-utils.ts so the count shown on
+// the Setup screen and the scenes actually created can never disagree. Scenes
+// come out EVEN — the old fixed-chunk slicing left a short final scene (e.g.
+// 34 words in a 20-second slot, which played with ~6 seconds of silence).
 function parseScript(script: string, targetDuration: number = 20): { text: string; imageQuery: string }[] {
-  const targetWords = getTargetWordCount(targetDuration);
-
-  // 1) One continuous script — no line breaks, no blank paragraphs
-  const continuous = script.replace(/\s+/g, " ").trim();
-  if (!continuous) return [];
-
-  const words = continuous.split(" ");
-
-  // 2) Fixed-size chunks (e.g. 50 words each for the 20s default)
-  const chunks: string[] = [];
-  for (let i = 0; i < words.length; i += targetWords) {
-    chunks.push(words.slice(i, i + targetWords).join(" "));
-  }
-
-  // 3) If only a few words are left over, fold them into the previous scene
-  //    instead of creating a tiny stub scene (threshold: < 25% of a full chunk)
-  const leftoverThreshold = Math.max(3, Math.floor(targetWords * 0.25));
-  if (chunks.length > 1 && chunks[chunks.length - 1].split(" ").length < leftoverThreshold) {
-    const leftovers = chunks.pop() as string;
-    chunks[chunks.length - 1] += " " + leftovers;
-  }
-
-  return chunks.map((text) => {
+  return splitScriptIntoScenes(script, targetDuration).map((text) => {
     const queryWords = text
-      .replace(/[^a-zA-Z\s]/g, "")
+      .replace(/[^a-zA-Z\s]/g, " ")
       .split(/\s+/)
       .filter((w) => w.length > 3);
     const query = queryWords.slice(0, 5).join(" ");
@@ -264,13 +244,14 @@ export default function App() {
     saveCurrentProjectSettings({ scene_duration: dur });
     setCurrentProject((prev) => (prev ? { ...prev, default_duration: dur } : null));
     setScenes((prev) => {
-      const updated = prev.map((s) => ({ ...s, duration: dur }));
+      // fit each scene to its own narration rather than stamping them all
+      const updated = prev.map((s) => ({ ...s, duration: sceneDurationForText(s.text, dur) }));
       try {
         for (const s of updated) {
-          supabase.from("scenes").update({ duration: dur }).eq("id", s.id).then();
+          supabase.from("scenes").update({ duration: s.duration }).eq("id", s.id).then();
           const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
           const parsed = existingMeta ? JSON.parse(existingMeta) : {};
-          localStorage.setItem(`scenering_scene_meta_${s.id}`, JSON.stringify({ ...parsed, duration: dur }));
+          localStorage.setItem(`scenering_scene_meta_${s.id}`, JSON.stringify({ ...parsed, duration: s.duration }));
         }
       } catch {}
       return updated;
@@ -283,19 +264,21 @@ export default function App() {
     setCurrentProject((prev) => (prev ? { ...prev, default_duration: targetSeconds } : null));
     setScenes((prev) =>
       prev.map((s) => {
+        // Each scene is timed to its own narration, bounded by the target
+        const fitted = sceneDurationForText(s.text, targetSeconds);
         // Persist updated duration without mutating text
         try {
-          supabase.from("scenes").update({ duration: targetSeconds }).eq("id", s.id).then();
+          supabase.from("scenes").update({ duration: fitted }).eq("id", s.id).then();
           const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
           const parsed = existingMeta ? JSON.parse(existingMeta) : {};
           localStorage.setItem(
             `scenering_scene_meta_${s.id}`,
-            JSON.stringify({ ...parsed, duration: targetSeconds })
+            JSON.stringify({ ...parsed, duration: fitted })
           );
         } catch {}
         return {
           ...s,
-          duration: targetSeconds,
+          duration: fitted,
         };
       })
     );
@@ -365,7 +348,9 @@ export default function App() {
               text: sceneText,
               image_url: existing?.image_url || null,
               image_query: item.imageQuery || existing?.image_query || "abstract background",
-              duration: targetDur,
+              // each scene lasts as long as its OWN narration, so no scene
+              // holds on a still image in silence
+              duration: sceneDurationForText(sceneText, targetDur),
               created_at: existing?.created_at || new Date().toISOString(),
               motion_effect: existing?.motion_effect || "slow_zoom",
               audio_url: existing?.audio_url || null,
@@ -385,7 +370,7 @@ export default function App() {
               const parsedMeta = existingMeta ? JSON.parse(existingMeta) : {};
               localStorage.setItem(
                 `scenering_scene_meta_${s.id}`,
-                JSON.stringify({ ...parsedMeta, duration: targetDur, text: s.text })
+                JSON.stringify({ ...parsedMeta, duration: s.duration, text: s.text })
               );
             }
           } catch {}
@@ -503,7 +488,7 @@ export default function App() {
           order_index: i,
           text: sceneText,
           image_query: s.imageQuery,
-          duration: chosenDuration,
+          duration: sceneDurationForText(sceneText, chosenDuration),
         };
       });
 
