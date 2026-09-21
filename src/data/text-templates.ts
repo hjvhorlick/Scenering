@@ -13,7 +13,7 @@
  */
 
 /** Which studio section a template belongs to. */
-export type TemplateSection = "scripture" | "quotes" | "lower_thirds" | "lessons";
+export type TemplateSection = "scripture" | "quotes" | "lower_thirds" | "lessons" | "titles";
 
 /** Layout skeletons the renderer knows how to draw. */
 export type TemplateLayout =
@@ -41,7 +41,12 @@ export type TemplateLayout =
   | "lesson_numbered"    // big number badge on the left
   | "lesson_fact"        // question header + explanation + source
   | "lesson_checklist"   // bulleted items
-  | "lesson_stat";       // oversized figure with a caption
+  | "lesson_stat"        // oversized figure with a caption
+  // titles — the letters themselves are the artwork (see src/lib/text-art.ts)
+  | "title_art"          // headline only
+  | "title_art_sub"      // headline with a subtitle beneath
+  | "title_art_kicker"   // small kicker label above the headline
+  | "title_art_split";   // headline with rules either side
 
 /** Entrance motion for a card. */
 export type TemplateMotion =
@@ -86,6 +91,10 @@ export type BorderMode = "none" | "full" | "left" | "bottom" | "top" | "left_bot
  * the properties modal — this interface IS the settings panel.
  */
 export interface TextTemplateStyle {
+  /* ---- titles only: letter artwork (see src/lib/text-art.ts) ---- */
+  /** partial TextArtStyle overrides for the headline letters */
+  art?: Record<string, unknown>;
+
   /* ---- plate / background ---- */
   bgColor: string;
   /** 0 = fully transparent plate (text floats on the video), 1 = solid */
@@ -127,6 +136,12 @@ export interface TextTemplateStyle {
   motionDuration: number;
 }
 
+/**
+ * Titles carry a second style object describing the LETTER artwork (material,
+ * outline, bevel, extrusion). The plate/border/motion settings above still
+ * apply exactly as they do for every other template, so a title can sit on a
+ * plate, or on nothing at all.
+ */
 export interface TextTemplateDef {
   id: string;
   section: TemplateSection;
@@ -148,6 +163,8 @@ export interface TextTemplateDef {
   /** starting content for the fields this layout uses */
   content: Record<string, string>;
   style: TextTemplateStyle;
+  /** only for section "titles": the letter artwork preset id */
+  artPreset?: string;
 }
 
 /** Sensible baseline every template starts from. */
@@ -756,6 +773,211 @@ export const TEXT_TEMPLATES: TextTemplateDef[] = [
       motion: "pop",
     }),
   },
+
+  // ------- lesson titles: the same text art, sitting in the Lessons section
+  {
+    id: "lesson_title_module",
+    section: "lessons",
+    layout: "title_art_kicker",
+    name: "Module Title",
+    icon: "🎓",
+    blurb: "Text-art module heading with a small lesson label above",
+    defaultDuration: 5,
+    defaultPosition: "center",
+    content: { label: "MODULE 2", primaryText: "FOUNDATIONS" },
+    artPreset: "carved_stone",
+    style: s({
+      bgOpacity: 0,
+      borderMode: "none",
+      accentColor: "#8FD3FF",
+      shadow: 0,
+      glow: 0,
+      motion: "slide_up",
+    }),
+  },
+  {
+    id: "lesson_title_topic",
+    section: "lessons",
+    layout: "title_art_sub",
+    name: "Topic Title",
+    icon: "📚",
+    blurb: "Lesson topic in text art with a one-line summary",
+    defaultDuration: 5.5,
+    defaultPosition: "center",
+    content: { primaryText: "PHOTOSYNTHESIS", secondaryText: "How plants turn light into food" },
+    artPreset: "clean_modern",
+    style: s({
+      bgColor: "#081120",
+      bgOpacity: 0.5,
+      borderMode: "none",
+      bodyColor: "#C9D6EA",
+      cornerRadius: 16,
+      motion: "fade",
+    }),
+  },
+  {
+    id: "lesson_title_term",
+    section: "lessons",
+    layout: "title_art",
+    name: "Key Term",
+    icon: "🔑",
+    blurb: "A single word or term rendered as bold gold lettering",
+    defaultDuration: 4,
+    defaultPosition: "center",
+    content: { primaryText: "MOMENTUM" },
+    artPreset: "classic_gold",
+    style: s({
+      bgOpacity: 0,
+      borderMode: "none",
+      shadow: 0,
+      glow: 0,
+      motion: "pop",
+    }),
+  },
+  {
+    id: "lesson_title_divider",
+    section: "lessons",
+    layout: "title_art_split",
+    name: "Section Divider",
+    icon: "🪧",
+    blurb: "Chapter break between lessons, with rules either side",
+    defaultDuration: 4,
+    defaultPosition: "center",
+    content: { primaryText: "PART TWO" },
+    artPreset: "silver_chrome",
+    style: s({
+      bgColor: "#060A14",
+      bgOpacity: 0.6,
+      borderMode: "none",
+      accentColor: "#9FB3CC",
+      cornerRadius: 14,
+      motion: "wipe_left",
+    }),
+  },
+
+  // ============================== TITLES ==============================
+  // Same card settings as every other template (background, transparency,
+  // border, motion) — the difference is the letters are rendered as text art.
+  {
+    id: "title_hero",
+    section: "titles",
+    layout: "title_art",
+    name: "Hero Title",
+    icon: "🏆",
+    blurb: "Big gold headline, no plate — the letters carry it",
+    defaultDuration: 5,
+    defaultPosition: "center",
+    content: { primaryText: "THE GOLDEN HOUR" },
+    artPreset: "classic_gold",
+    style: s({
+      bgOpacity: 0,
+      borderMode: "none",
+      shadow: 0,
+      glow: 0,
+      motion: "pop",
+    }),
+  },
+  {
+    id: "title_subtitle",
+    section: "titles",
+    layout: "title_art_sub",
+    name: "Title & Subtitle",
+    icon: "📰",
+    blurb: "Chrome headline with a clean subtitle underneath",
+    defaultDuration: 5.5,
+    defaultPosition: "center",
+    content: { primaryText: "CHAPTER ONE", secondaryText: "Where every journey begins" },
+    artPreset: "silver_chrome",
+    style: s({
+      bgOpacity: 0,
+      borderMode: "none",
+      bodyColor: "#E6EDF7",
+      fontId: "inter",
+      shadow: 0,
+      glow: 0,
+      motion: "fade",
+    }),
+  },
+  {
+    id: "title_kicker",
+    section: "titles",
+    layout: "title_art_kicker",
+    name: "Kicker Title",
+    icon: "🔖",
+    blurb: "Small label above a rusted, weathered headline",
+    defaultDuration: 5.5,
+    defaultPosition: "center",
+    content: { label: "EPISODE 04", primaryText: "THE LONG ROAD" },
+    artPreset: "rusted_iron",
+    style: s({
+      bgOpacity: 0,
+      borderMode: "none",
+      accentColor: "#E8A33D",
+      shadow: 0,
+      glow: 0,
+      motion: "slide_up",
+    }),
+  },
+  {
+    id: "title_split",
+    section: "titles",
+    layout: "title_art_split",
+    name: "Ruled Title",
+    icon: "➖",
+    blurb: "Headline flanked by rules, framed on a soft plate",
+    defaultDuration: 5,
+    defaultPosition: "center",
+    content: { primaryText: "FINALE" },
+    artPreset: "elegant_script",
+    style: s({
+      bgColor: "#0A0F1C",
+      bgOpacity: 0.55,
+      borderMode: "none",
+      accentColor: "#E8C55A",
+      cornerRadius: 18,
+      motion: "wipe_left",
+    }),
+  },
+  {
+    id: "title_neon_sign",
+    section: "titles",
+    layout: "title_art",
+    name: "Neon Title",
+    icon: "💡",
+    blurb: "Glowing neon lettering against the footage",
+    defaultDuration: 5,
+    defaultPosition: "center",
+    content: { primaryText: "AFTER DARK" },
+    artPreset: "neon_sign",
+    style: s({
+      bgOpacity: 0,
+      borderMode: "none",
+      shadow: 0,
+      glow: 0,
+      motion: "fade",
+    }),
+  },
+  {
+    id: "title_impact",
+    section: "titles",
+    layout: "title_art_sub",
+    name: "Impact Title",
+    icon: "💥",
+    blurb: "Battle-damaged headline for high-drama moments",
+    defaultDuration: 5,
+    defaultPosition: "center",
+    content: { primaryText: "NO WAY BACK", secondaryText: "A story of survival" },
+    artPreset: "battle_damaged",
+    style: s({
+      bgOpacity: 0,
+      borderMode: "none",
+      bodyColor: "#D8D3CB",
+      shadow: 0,
+      glow: 0,
+      motion: "pop",
+    }),
+  },
+
 ];
 
 export const TEMPLATE_BY_ID: Record<string, TextTemplateDef> = Object.fromEntries(
@@ -772,6 +994,7 @@ export const TEMPLATE_SECTIONS: {
   { id: "quotes", name: "Quotes", icon: "💬", description: "Pull quotes with author attribution" },
   { id: "lower_thirds", name: "Lower Thirds", icon: "👤", description: "Name and role bars that slide in" },
   { id: "lessons", name: "Facts & Lessons", icon: "💡", description: "Takeaways, steps, facts and statistics" },
+  { id: "titles", name: "Titles", icon: "🎨", description: "Display titles rendered as text art — gold, chrome, rusted and more" },
 ];
 
 /** Legacy insert types → new template ids, so saved projects keep rendering. */

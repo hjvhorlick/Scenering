@@ -102,12 +102,13 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
     id: "text_templates",
     name: "Text Templates",
     icon: "📜",
-    description: "Scripture, quote and lesson cards — every one adjustable: background colour and transparency, removable border, font, text colour and slide-in motion",
+    description: "Scripture, quote, lesson and title cards — every one adjustable: background colour and transparency, removable border, font, text colour and slide-in motion. Titles add text art: gold, chrome, rusted and damaged lettering with its own outline and bevel.",
     subcategories: [
       { id: "all", name: "All Templates", icon: "📜" },
       { id: "scripture", name: "Scripture", icon: "📖" },
       { id: "quotes", name: "Quotes", icon: "💬" },
       { id: "lessons", name: "Facts & Lessons", icon: "💡" },
+      { id: "titles", name: "Titles", icon: "🎨" },
     ],
   },
   {

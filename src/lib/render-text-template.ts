@@ -20,6 +20,13 @@ import {
   type BorderMode,
 } from "../data/text-templates";
 import { getCaptionFont } from "../data/caption-styles";
+import {
+  drawTextArt,
+  artFamilyFor,
+  DEFAULT_TEXT_ART,
+  PRESET_BY_ID,
+  type TextArtStyle,
+} from "./text-art";
 import type { TimelineInsert } from "../types";
 
 // ------------------------------------------------------------------ colour
@@ -251,6 +258,8 @@ interface MotionResult {
   wipe: number;
   /** 0-1 of the body text to show for the typewriter */
   type: number;
+  /** which template is being drawn (title layouts need it for the art style) */
+  templateId: string;
 }
 
 function easeOutCubic(t: number) {
@@ -270,7 +279,7 @@ function computeTemplateMotion(
   cardWidth: number,
   cardHeight: number
 ): MotionResult {
-  const res: MotionResult = { dx: 0, dy: 0, scale: 1, alpha: 1, wipe: 1, type: 1 };
+  const res: MotionResult = { dx: 0, dy: 0, scale: 1, alpha: 1, wipe: 1, type: 1, templateId: "" };
   const d = Math.max(0.05, style.motionDuration);
   const tIn = Math.max(0, Math.min(1, elapsed / d));
   const e = easeOutCubic(tIn);
@@ -374,6 +383,14 @@ export function templateFootprint(
       return { w: wide, h: 240 };
     case "lesson_stat":
       return { w: wide, h: 220 };
+    case "title_art":
+      return { w: wide, h: 200 };
+    case "title_art_sub":
+      return { w: wide, h: 250 };
+    case "title_art_kicker":
+      return { w: wide, h: 230 };
+    case "title_art_split":
+      return { w: wide, h: 210 };
     default:
       return { w: wide, h: 200 };
   }
@@ -395,6 +412,50 @@ function refOf(c: Record<string, string>): string {
   const v = c.verse || "";
   if (!book) return c.reference || "";
   return `${book} ${ch}${v ? ":" + v : ""}`.trim();
+}
+
+/**
+ * Resolves the letter artwork for a title: engine defaults, then the
+ * template's chosen preset, then the user's own overrides.
+ */
+export function resolveArtStyle(
+  templateId: string,
+  overrides?: Record<string, unknown> | null
+): TextArtStyle {
+  const def = TEMPLATE_BY_ID[templateId];
+  const preset = def?.artPreset ? PRESET_BY_ID[def.artPreset] : undefined;
+  return {
+    ...DEFAULT_TEXT_ART,
+    ...(preset ? preset.style : {}),
+    ...((overrides || {}) as Partial<TextArtStyle>),
+  } as TextArtStyle;
+}
+
+/** Paints the headline lettering for the title layouts. */
+function paintTitleArt(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  st: TextTemplateStyle,
+  w: number,
+  topY: number,
+  reveal: number,
+  templateId: string
+): { width: number; height: number } {
+  const art = resolveArtStyle(templateId, st.art);
+  // the card's own text scale still multiplies the art size, so the existing
+  // size slider keeps working exactly as it does on every other template
+  const scaled: TextArtStyle = { ...art, fontSize: art.fontSize * st.textScale };
+  const baseFont = getCaptionFont(scaled.fontId);
+  const fam = artFamilyFor(scaled, { family: baseFont.family, fallback: baseFont.fallback });
+  return drawTextArt(ctx, text, scaled, {
+    family: fam.family,
+    fallback: fam.fallback,
+    x: 0,
+    y: topY,
+    maxWidth: w - 56,
+    reveal,
+    seed: 11,
+  });
 }
 
 const LAYOUTS: Record<TemplateLayout, LayoutFn> = {
@@ -916,6 +977,48 @@ const LAYOUTS: Record<TemplateLayout, LayoutFn> = {
     });
   },
 
+  // ------------------------------- titles
+  title_art: (ctx, c, st, w, h, m) => {
+    paintTitleArt(ctx, c.primaryText || "", st, w, -h * 0.12, m.type, m.templateId);
+  },
+
+  title_art_sub: (ctx, c, st, w, h, m) => {
+    const r = paintTitleArt(ctx, c.primaryText || "", st, w, -h * 0.30, m.type, m.templateId);
+    if (c.secondaryText) {
+      ctx.textAlign = "center";
+      ctx.textBaseline = "alphabetic";
+      setFont(ctx, st, 19, 500);
+      ctx.fillStyle = rgba(st.bodyColor, st.bodyOpacity);
+      ctx.fillText(c.secondaryText, 0, -h * 0.30 + r.height + 34);
+    }
+  },
+
+  title_art_kicker: (ctx, c, st, w, h, m) => {
+    if (c.label) {
+      ctx.textAlign = "center";
+      ctx.textBaseline = "alphabetic";
+      setFont(ctx, st, 15, 800);
+      ctx.fillStyle = rgba(st.accentColor, st.accentOpacity);
+      ctx.fillText(st.uppercaseLabel ? c.label.toUpperCase() : c.label, 0, -h * 0.30);
+    }
+    paintTitleArt(ctx, c.primaryText || "", st, w, -h * 0.30 + 22, m.type, m.templateId);
+  },
+
+  title_art_split: (ctx, c, st, w, h, m) => {
+    const r = paintTitleArt(ctx, c.primaryText || "", st, w, -h * 0.16, m.type, m.templateId);
+    // rules either side of the headline
+    const half = Math.min(r.width / 2 + 34, w / 2 - 24);
+    const y = -h * 0.16 + r.height / 2;
+    ctx.strokeStyle = rgba(st.accentColor, st.accentOpacity);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-w / 2 + 28, y);
+    ctx.lineTo(-half, y);
+    ctx.moveTo(half, y);
+    ctx.lineTo(w / 2 - 28, y);
+    ctx.stroke();
+  },
+
   lesson_stat: (ctx, c, st, w, h) => {
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
@@ -998,6 +1101,7 @@ export function renderTextTemplate(
   const h = fp.h;
 
   const motion = computeTemplateMotion(style, elapsed, item.duration, w, h);
+  motion.templateId = templateId;
 
   // Keep the card on screen. Wide cards (especially lower thirds) anchored to a
   // corner preset would otherwise hang off the frame edge.

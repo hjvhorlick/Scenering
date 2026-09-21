@@ -14,6 +14,14 @@ import {
   type TextTemplateStyle,
 } from "../data/text-templates";
 import { CAPTION_FONTS } from "../data/caption-styles";
+import {
+  TEXT_MATERIALS,
+  LETTER_STYLES,
+  TEXT_ART_PRESETS,
+  ART_CONTROLS,
+  type TextArtStyle,
+} from "../lib/text-art";
+import { resolveArtStyle } from "../lib/render-text-template";
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
@@ -415,6 +423,40 @@ function InsertPropertiesContent({
         },
       },
     }));
+  };
+
+  /** Patch one field of the title's letter artwork */
+  const updateArtStyle = (field: string, value: unknown) => {
+    setData((prev) => {
+      const tplStyle = (prev.visualOptions?.templateStyle as Record<string, unknown>) || {};
+      return {
+        ...prev,
+        visualOptions: {
+          ...prev.visualOptions,
+          templateStyle: {
+            ...tplStyle,
+            art: { ...((tplStyle.art as Record<string, unknown>) || {}), [field]: value },
+          },
+        },
+      };
+    });
+  };
+
+  /** Apply a whole text-art preset at once (material, outline, bevel, ...) */
+  const applyArtPreset = (presetStyle: Partial<TextArtStyle>) => {
+    setData((prev) => {
+      const tplStyle = (prev.visualOptions?.templateStyle as Record<string, unknown>) || {};
+      return {
+        ...prev,
+        visualOptions: {
+          ...prev.visualOptions,
+          templateStyle: {
+            ...tplStyle,
+            art: { ...((tplStyle.art as Record<string, unknown>) || {}), ...presetStyle },
+          },
+        },
+      };
+    });
   };
 
   /** Drop all overrides and go back to the template's designed look */
@@ -3089,6 +3131,212 @@ function InsertPropertiesContent({
                     />
                   </div>
                 </div>
+
+                {/* ---- Text Art: the letters themselves (titles only) ---- */}
+                {tplDef?.section === "titles" || tplDef?.layout.startsWith("title_art") ? (() => {
+                  const art = resolveArtStyle(tplId, (overrides as Record<string, unknown>)?.art as Record<string, unknown>);
+                  const artFmt = (v: number, suffix?: string) =>
+                    suffix === "percent" ? `${Math.round(v * 100)}%`
+                    : suffix === "px" ? `${Math.round(v)}px`
+                    : suffix === "deg" ? `${Math.round(v)}°`
+                    : v.toFixed(2);
+                  const artGroup = (g: string) =>
+                    ART_CONTROLS.filter((c) => c.group === g).map((c) => (
+                      <div key={c.key} className="flex items-center justify-between">
+                        <span className="text-xs text-gray-300">{c.label}:</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min={c.min}
+                            max={c.max}
+                            step={c.step}
+                            value={art[c.key] as number}
+                            onChange={(e) => updateArtStyle(c.key, parseFloat(e.target.value))}
+                            className="w-32 accent-amber-500 cursor-pointer"
+                          />
+                          <span className="font-mono text-xs text-gray-300 w-12 text-right">
+                            {artFmt(art[c.key] as number, c.suffix)}
+                          </span>
+                        </div>
+                      </div>
+                    ));
+                  return (
+                    <div className="bg-amber-950/20 border border-amber-800/40 rounded-xl p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-amber-200">🎨 Text Art — the letters</span>
+                        <button
+                          type="button"
+                          onClick={() => updateTemplateStyle("art", undefined)}
+                          className="text-[10px] px-2 py-1 rounded border border-amber-700/60 text-amber-200 hover:border-amber-400 transition-colors cursor-pointer"
+                        >
+                          Reset art
+                        </button>
+                      </div>
+
+                      {/* Ready-made looks */}
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] text-gray-400 block">Ready-made looks</span>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {TEXT_ART_PRESETS.map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              title={p.blurb}
+                              onClick={() => applyArtPreset(p.style)}
+                              className="px-1.5 py-2 rounded-lg border border-gray-700 bg-gray-900/70 text-gray-300 hover:border-amber-400 text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer"
+                            >
+                              <span className="text-base leading-none">{p.icon}</span>
+                              <span className="leading-tight text-center">{p.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Material */}
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] text-gray-400 block">Material — gold, silver, rusted, damaged and more</span>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {TEXT_MATERIALS.map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              title={m.blurb}
+                              onClick={() => updateArtStyle("material", m.id)}
+                              className={`px-1 py-1.5 rounded-lg border text-[9px] font-semibold transition-colors flex flex-col items-center gap-1 cursor-pointer ${
+                                art.material === m.id
+                                  ? "bg-amber-600 border-amber-300 text-white"
+                                  : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                              }`}
+                            >
+                              <span
+                                className="w-full h-3 rounded-sm border border-black/40"
+                                style={{ background: `linear-gradient(135deg, ${m.swatch[0]}, ${m.swatch[1]})` }}
+                              />
+                              <span className="leading-tight text-center">{m.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Letter style */}
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] text-gray-400 block">Letter style — bold, script, slanted</span>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {LETTER_STYLES.map((l) => (
+                            <button
+                              key={l.id}
+                              type="button"
+                              title={l.blurb}
+                              onClick={() => updateArtStyle("letterStyle", l.id)}
+                              className={`px-1.5 py-1.5 rounded-lg border text-[10px] font-semibold transition-colors cursor-pointer ${
+                                art.letterStyle === l.id
+                                  ? "bg-amber-600 border-amber-300 text-white"
+                                  : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                              }`}
+                            >
+                              {l.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Letter font */}
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] text-gray-400 block">Letter font</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                          {CAPTION_FONTS.map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() => updateArtStyle("fontId", f.id)}
+                              style={{ fontFamily: `"${f.family}", ${f.fallback}` }}
+                              className={`px-2 py-1.5 rounded-lg border text-[11px] transition-colors cursor-pointer ${
+                                art.fontId === f.id
+                                  ? "bg-amber-600 border-amber-300 text-white"
+                                  : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                              }`}
+                            >
+                              {f.family}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Colours */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">Letter colour</span>
+                          <input
+                            type="color"
+                            value={art.color1}
+                            onChange={(e) => updateArtStyle("color1", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">Shade colour</span>
+                          <input
+                            type="color"
+                            value={art.color2}
+                            onChange={(e) => updateArtStyle("color2", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">Letter border</span>
+                          <input
+                            type="color"
+                            value={art.outlineColor}
+                            onChange={(e) => updateArtStyle("outlineColor", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">Outer border</span>
+                          <input
+                            type="color"
+                            value={art.outline2Color}
+                            onChange={(e) => updateArtStyle("outline2Color", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">3D side</span>
+                          <input
+                            type="color"
+                            value={art.depthColor}
+                            onChange={(e) => updateArtStyle("depthColor", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">Glow colour</span>
+                          <input
+                            type="color"
+                            value={art.glowColor}
+                            onChange={(e) => updateArtStyle("glowColor", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                      </div>
+
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={art.uppercase}
+                          onChange={(e) => updateArtStyle("uppercase", e.target.checked)}
+                          className="accent-amber-500 cursor-pointer"
+                        />
+                        <span className="text-xs text-gray-300">Force capital letters</span>
+                      </label>
+
+                      <div className="space-y-2">{artGroup("letters")}</div>
+                      <div className="space-y-2 pt-1 border-t border-gray-700/60">{artGroup("outline")}</div>
+                      <div className="space-y-2 pt-1 border-t border-gray-700/60">{artGroup("depth")}</div>
+                      <div className="space-y-2 pt-1 border-t border-gray-700/60">{artGroup("finish")}</div>
+                    </div>
+                  );
+                })() : null}
 
                 {/* ---- Motion & depth ---- */}
                 <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
