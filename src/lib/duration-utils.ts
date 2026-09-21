@@ -294,15 +294,21 @@ export function calculateDynamicDuration(
   audioDuration?: number,
   targetDuration: number = 20
 ): number {
+  // A scene lasts as long as its narration — no longer.
+  //
+  // This used to return Math.max(targetDuration, spoken), which padded every
+  // scene out to the configured length and left a silent stretch on screen
+  // whenever the narration was shorter. The voice is now the authority; the
+  // target is only a fallback for scenes with no words at all.
   if (audioDuration && audioDuration > 0.3) {
-    const audioSec = Math.round((audioDuration + 0.1) * 10) / 10;
-    return targetDuration ? Math.max(targetDuration, audioSec) : audioSec;
+    // A short breath so the cut does not clip the last syllable.
+    return Math.round((audioDuration + 0.35) * 10) / 10;
   }
   const clean = (text || "").trim();
   if (!clean) return targetDuration || 20;
 
   const spoken = getSpokenDurationFromWords(clean);
-  return targetDuration ? Math.max(targetDuration, spoken) : (spoken > 0 ? spoken : 20);
+  return spoken > 0 ? Math.round(spoken * 10) / 10 : targetDuration || 20;
 }
 
 // Topic-aware sentence expansions to turn 1-line text into a coherent 20s narration

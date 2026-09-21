@@ -8,6 +8,7 @@ import {
   renderTimelineInsert,
 } from "../lib/render-effects";
 import { drawSceneImage } from "../lib/scene-framing";
+import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
@@ -46,9 +47,12 @@ interface VideoPreviewProps {
 
 // Playback timing helper: respects scene.duration while ensuring audio is never cut short
 function getSceneSpeechDuration(scene: Scene, audioBuf?: AudioBuffer): number {
+  // The decoded narration is the authority on how long the scene runs, so the
+  // video never sits on a still frame in silence. Previously a longer
+  // configured `scene.duration` won, which is exactly what produced the quiet
+  // stretches at the end of scenes.
   if (audioBuf && audioBuf.duration > 0.3) {
-    const audioSec = Math.round((audioBuf.duration + 0.1) * 10) / 10;
-    return scene.duration && scene.duration > audioSec ? scene.duration : audioSec;
+    return Math.round((audioBuf.duration + 0.35) * 10) / 10;
   }
   if (scene.duration && scene.duration > 0) {
     return scene.duration;
@@ -169,6 +173,8 @@ export default function VideoPreview({
 
   const animFrameRef = useRef<number>(0);
   const playingRef = useRef(false);
+  /** Hidden <video> elements for scenes that use a short clip instead of a still. */
+  const clipPoolRef = useRef<ClipPool>(new ClipPool());
   const audioCtxRef = useRef<AudioContext | null>(null);
   // Voice and background-music are analysed on separate buses so a visualiser
   // set to "moves with the music" reacts to the music, not to the narration.
@@ -224,7 +230,8 @@ export default function VideoPreview({
     }
   }, [customerLogo?.url]);
 
-  const scenesWithImages = scenes.filter((s) => s.image_url);
+  // A scene counts as renderable if it has a still OR a short video clip.
+  const scenesWithImages = scenes.filter((s) => s.image_url || s.video_url);
 
 function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: number): SceneAudio {
   const sampleRate = audioCtx.sampleRate || 44100;
@@ -387,6 +394,12 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     };
   }, []);
 
+  // Release clip decoders when the preview goes away.
+  useEffect(() => {
+    const pool = clipPoolRef.current;
+    return () => pool.dispose();
+  }, []);
+
   const drawScene = useCallback(
     (
       ctx: CanvasRenderingContext2D,
@@ -409,7 +422,26 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       // Motion Preset. All framing maths lives in src/lib/scene-framing.ts so
       // the preview and the exported video place the photo identically — and
       // no photo is ever stretched out of its own aspect ratio.
-      if (img && img.complete && img.naturalWidth > 0) {
+      // A scene with a short clip draws the clip's current frame instead of the
+      // still. It goes through the same framing engine, so crop, blur-fill and
+      // aspect handling are identical and the clip is never squashed.
+      let source: (CanvasImageSource & { naturalWidth: number; naturalHeight: number; complete?: boolean }) | null =
+        img as any;
+      if (sceneHasClip(scene)) {
+        const pool = clipPoolRef.current;
+        const el = pool.get(scene);
+        if (el) {
+          if (!playingRef.current) {
+            pool.seekToProgress(scene, sceneProgress, Math.max(0.1, scene.duration || 1));
+          }
+          if (el.readyState >= 2 && el.videoWidth > 0) {
+            source = asDrawableClip(el) as any;
+          }
+        }
+      }
+
+      if (source && (source.complete ?? true) && source.naturalWidth > 0) {
+        const img = source;
         const { scale: motionScale, dx: motionDx, dy: motionDy } = getMotionTransform(
           scene.motion_effect,
           sceneProgress,
@@ -1065,6 +1097,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         currentPlayingSceneIdx = activeIdx;
         setCurrentSceneIndex(activeIdx);
         playSceneAudio(activeIdx, activeOffset);
+
+        // Hand over to the new scene's clip (if it has one) and silence the
+        // one we just left, so two clips never overlap.
+        const pool = clipPoolRef.current;
+        pool.pauseAll();
+        const entering = scenesWithImages[activeIdx];
+        if (entering && sceneHasClip(entering)) {
+          void pool.play(entering, activeOffset / Math.max(0.1, activeSceneDur), activeSceneDur);
+        }
       }
 
       const activeScene = scenesWithImages[activeIdx];
@@ -1082,6 +1123,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
   const stopPreview = useCallback(() => {
     playingRef.current = false;
     setIsPlaying(false);
+    clipPoolRef.current.pauseAll();
     cancelAnimationFrame(animFrameRef.current);
     if (currentSourceRef.current) {
       try { currentSourceRef.current.stop(); } catch {}

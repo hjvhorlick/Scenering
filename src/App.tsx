@@ -736,6 +736,19 @@ export default function App() {
     "image_backdrop_color",
   ] as const;
 
+  /** Short-video-clip fields, persisted with the scene like the framing keys. */
+  const CLIP_KEYS = [
+    "video_url",
+    "video_name",
+    "video_duration",
+    "video_trim_start",
+    "video_trim_end",
+    "video_mute",
+    "video_volume",
+    "video_fit_mode",
+    "is_inserted",
+  ] as const;
+
   /** Copies one scene's framing onto every scene in the project */
   const handleApplyFramingToAll = (framing: Partial<Scene>) => {
     setScenes((prev) => prev.map((s) => ({ ...s, ...framing })));
@@ -772,7 +785,7 @@ export default function App() {
       };
       // Image framing (crop, fit, blurred fill, zoom, rotation...) is persisted
       // here too, so a reloaded project renders exactly as it was framed.
-      for (const key of FRAMING_KEYS) {
+      for (const key of [...FRAMING_KEYS, ...CLIP_KEYS]) {
         const v = (updates as Record<string, unknown>)[key];
         if (v !== undefined) newMeta[key] = v;
         else if (parsed[key] !== undefined) newMeta[key] = parsed[key];
@@ -823,7 +836,8 @@ export default function App() {
   const handleFetchAllImages = async () => {
     setFetchingImages(true);
     try {
-      const scenesWithoutImages = scenes.filter((s) => !s.image_url);
+      // Scenes already carrying a video clip do not need a stock photo.
+      const scenesWithoutImages = scenes.filter((s) => !s.image_url && !s.video_url);
       for (const scene of scenesWithoutImages) {
         await handleImageSearch(scene.id, scene.image_query);
       }
@@ -832,18 +846,36 @@ export default function App() {
     }
   };
 
-  const handleAddScene = async () => {
+  /**
+   * Insert a scene at a chosen position.
+   *
+   * The old version always appended and, critically, never rewrote
+   * `order_index` on the other scenes — so the new row shared an index with an
+   * existing one, the ordered reload put it in an arbitrary place, and to the
+   * user the "insert a scene" button looked like it did nothing at all.
+   *
+   * `position` is the index the new scene should occupy. Passing
+   * `scenes.length` (or omitting it) appends.
+   */
+  const handleAddScene = async (position?: number) => {
     if (!currentProject) return;
-    const newOrderIndex = scenes.length;
-    const initialDuration = sceneDuration || 20;
-    const initialText = `Scene ${newOrderIndex + 1} narrative.`;
+
+    const insertAt = Math.max(
+      0,
+      Math.min(typeof position === "number" ? position : scenes.length, scenes.length)
+    );
+    const initialText = "New scene — replace this with your narration.";
+    const initialDuration = sceneDurationForText(initialText, sceneDuration || 20);
+
     const newSceneRow = {
       project_id: currentProject.id,
-      order_index: newOrderIndex,
+      order_index: insertAt,
       text: initialText,
       image_query: "cinematic background",
       duration: initialDuration,
     };
+
+    let created: Scene | null = null;
     try {
       const { data, error } = await supabase
         .from("scenes")
@@ -851,23 +883,67 @@ export default function App() {
         .select()
         .single();
       if (error) throw error;
-      if (data) {
-        setScenes((prev) => [...prev, data as Scene]);
-      }
+      if (data) created = data as Scene;
     } catch {
-      // Offline / fallback scene
-      const localScene: Scene = {
+      created = null;
+    }
+
+    if (!created) {
+      created = {
         id: Date.now(),
         project_id: currentProject.id,
-        order_index: newOrderIndex,
+        order_index: insertAt,
         text: initialText,
         image_query: "cinematic background",
         image_url: null,
         duration: initialDuration,
         created_at: new Date().toISOString(),
       };
-      setScenes((prev) => [...prev, localScene]);
     }
+
+    // An inserted scene keeps its own clip audio rather than being overridden
+    // by script narration — that is what makes it "inserted" rather than a
+    // regular script scene.
+    created.is_inserted = true;
+
+    setScenes((prev) => {
+      const next = [...prev];
+      next.splice(insertAt, 0, created as Scene);
+      // Renumber every scene so the stored order matches what is on screen.
+      const renumbered = next.map((sc, idx) => ({ ...sc, order_index: idx }));
+      try {
+        for (const sc of renumbered) {
+          supabase.from("scenes").update({ order_index: sc.order_index }).eq("id", sc.id).then();
+        }
+        const meta = localStorage.getItem(`scenering_scene_meta_${(created as Scene).id}`);
+        const parsed = meta ? JSON.parse(meta) : {};
+        localStorage.setItem(
+          `scenering_scene_meta_${(created as Scene).id}`,
+          JSON.stringify({ ...parsed, is_inserted: true, duration: initialDuration })
+        );
+      } catch {}
+      return renumbered;
+    });
+  };
+
+  /** Move a scene up or down the running order. */
+  const handleReorderScene = (sceneId: number, direction: -1 | 1) => {
+    setScenes((prev) => {
+      const from = prev.findIndex((s) => s.id === sceneId);
+      if (from < 0) return prev;
+      const to = from + direction;
+      if (to < 0 || to >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      const renumbered = next.map((sc, idx) => ({ ...sc, order_index: idx }));
+      try {
+        for (const sc of renumbered) {
+          supabase.from("scenes").update({ order_index: sc.order_index }).eq("id", sc.id).then();
+        }
+      } catch {}
+      return renumbered;
+    });
   };
 
   const handleDeleteScene = async (sceneId: number) => {
@@ -1191,7 +1267,7 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={handleAddScene}
+                          onClick={() => handleAddScene(scenes.length)}
                           className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow transition-colors"
                         >
                           <span>➕ Add Scene</span>
@@ -1214,6 +1290,8 @@ export default function App() {
                           onDelete={handleDeleteScene}
                           onApplyFramingToAll={handleApplyFramingToAll}
                           videoFilter={videoFilter}
+                          onInsertSceneAt={handleAddScene}
+                          onReorderScene={handleReorderScene}
                         />
                       ))}
                     </div>
@@ -1222,7 +1300,7 @@ export default function App() {
                     <div className="pt-4 flex items-center justify-between border-t border-gray-800">
                       <button
                         type="button"
-                        onClick={handleAddScene}
+                        onClick={() => handleAddScene(scenes.length)}
                         className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-semibold text-xs rounded-xl shadow transition-all flex items-center gap-2"
                       >
                         <span>➕ Add Another Scene</span>

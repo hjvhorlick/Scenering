@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { Scene, AspectRatioType } from "../types";
 import ImageSearchModal from "./ImageSearchModal";
 import SceneFramePreview from "./SceneFramePreview";
+import SceneClipPanel from "./SceneClipPanel";
 import {
   FIT_MODES,
   BACKDROP_STYLES,
@@ -11,6 +12,8 @@ import {
   DEFAULT_FRAMING,
 } from "../lib/scene-framing";
 import { NATURE_FALLBACKS } from "../data/nature-fallbacks";
+import { buildSceneImageQuery, describeSceneTopic } from "../lib/topic-extract";
+import { sceneDurationForText } from "../lib/duration-utils";
 import { getFilterCss, getPreset, type VideoFilterConfig } from "../data/video-filters";
 import {
   countWords,
@@ -33,6 +36,10 @@ interface SceneEditorProps {
   onDelete?: (sceneId: number) => void;
   /** copy this scene's framing to every scene in the project */
   onApplyFramingToAll?: (framing: Partial<Scene>) => void;
+  /** insert a brand new scene at the given index in the running order */
+  onInsertSceneAt?: (position: number) => void;
+  /** nudge this scene earlier (-1) or later (+1) in the running order */
+  onReorderScene?: (sceneId: number, direction: -1 | 1) => void;
 }
 
 export default function SceneEditor({
@@ -47,21 +54,20 @@ export default function SceneEditor({
   onImageSearch,
   onDelete,
   onApplyFramingToAll,
+  onInsertSceneAt,
+  onReorderScene,
 }: SceneEditorProps) {
   const [textValue, setTextValue] = useState(scene.text);
   /**
    * Image search topic. There is no separate box for this any more — it is
-   * derived from the scene script (the single editable text field), falling
-   * back to the query stored when the scene was created.
+   * derived from the scene script (the single editable text field).
+   *
+   * The topic is extracted by ranking the WHOLE scene with names and places
+   * weighted highest (see src/lib/topic-extract.ts), rather than by taking the
+   * opening words, which are usually connectives and returned the wrong photo.
    */
-  const deriveImageQuery = (text: string, stored?: string): string => {
-    const words = (text || "")
-      .replace(/[^a-zA-Z\s]/g, " ")
-      .split(/\s+/)
-      .filter((w) => w.length > 3);
-    const fromScript = words.slice(0, 5).join(" ");
-    return fromScript || stored || "abstract background";
-  };
+  const deriveImageQuery = (text: string, stored?: string): string =>
+    buildSceneImageQuery(text, { stored, fallback: "abstract background" });
   const [searching, setSearching] = useState(false);
   const [isPlayingAttachedAudio, setIsPlayingAttachedAudio] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
@@ -415,6 +421,11 @@ export default function SceneEditor({
                   </>
                 )}
               </span>
+              {scene.is_inserted && (
+                <span className="text-[11px] px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-700/60 font-medium">
+                  Inserted
+                </span>
+              )}
               {scene.speaker_name && (
                 <span className="text-[11px] px-2 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-medium">
                   {scene.speaker_name}
@@ -459,6 +470,30 @@ export default function SceneEditor({
                   {currentSceneDuration}s
                 </span>
               </div>
+
+              {/* Move this scene earlier / later in the running order */}
+              {onReorderScene && totalScenes > 1 && (
+                <div className="flex items-center rounded-lg border border-gray-700 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => onReorderScene(scene.id, -1)}
+                    disabled={index === 0}
+                    className="px-1.5 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                    title="Move this scene earlier"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onReorderScene(scene.id, 1)}
+                    disabled={index === totalScenes - 1}
+                    className="px-1.5 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent transition-colors border-l border-gray-700"
+                    title="Move this scene later"
+                  >
+                    ↓
+                  </button>
+                </div>
+              )}
 
               {/* Delete Scene Button */}
               {onDelete && totalScenes > 1 && (
@@ -511,6 +546,13 @@ export default function SceneEditor({
               className="w-full px-3 py-2 bg-gray-900/90 border border-gray-700 hover:border-gray-600 focus:border-indigo-500 rounded-xl text-white text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y transition-colors font-sans shadow-inner"
             />
           </div>
+
+          {/* Short video clip for this scene (optional, replaces the still) */}
+          <SceneClipPanel
+            scene={scene}
+            narrationDuration={sceneDurationForText(textValue, targetDuration)}
+            onUpdate={onUpdate}
+          />
 
           {/* Image Settings Toolbar: Researching, Nature Fallback, Crop & Fit, Filters */}
           <div className="space-y-2.5 pt-1">
@@ -989,6 +1031,21 @@ export default function SceneEditor({
           </div>
         </div>
       </div>
+
+      {/* Insert a brand new scene directly after this one. Placing a scene at a
+          chosen position is what the top "Add Scene" button could not do. */}
+      {onInsertSceneAt && (
+        <div className="px-4 pb-3 -mt-1">
+          <button
+            type="button"
+            onClick={() => onInsertSceneAt(index + 1)}
+            className="w-full px-3 py-1.5 rounded-lg border border-dashed border-gray-700 hover:border-emerald-600 text-[11px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-950/30 transition-colors"
+            title={`Insert a new scene after scene ${index + 1}`}
+          >
+            ➕ Insert a scene here (after scene {index + 1})
+          </button>
+        </div>
+      )}
 
       {/* 10-result Research Modal */}
       {showSearchModal && (

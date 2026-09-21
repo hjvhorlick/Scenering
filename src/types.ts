@@ -76,6 +76,33 @@ export interface Scene {
   audio_url?: string | null;
   audio_name?: string | null;
   audio_duration?: number;
+
+  // --- Short video clip attached to this scene -------------------------
+  /** Object URL or remote URL of a short clip used instead of a still image. */
+  video_url?: string | null;
+  video_name?: string | null;
+  /** Full, untrimmed length of the source clip in seconds. */
+  video_duration?: number;
+  /** Trim window into the source clip, in seconds from its start. */
+  video_trim_start?: number;
+  video_trim_end?: number;
+  /**
+   * When true the clip's own soundtrack is muted and the scene's script
+   * narration is heard instead. Default true for script scenes; inserted
+   * scenes keep their own audio unless the user says otherwise.
+   */
+  video_mute?: boolean;
+  /** Volume of the clip's own audio when it is not muted, 0..1. */
+  video_volume?: number;
+  /** How the clip is fitted when its length differs from the scene's. */
+  video_fit_mode?: "trim" | "loop" | "slow";
+
+  /**
+   * Marks a scene the user inserted manually rather than one generated from
+   * the script. Inserted scenes keep their clip audio and are not forced to
+   * follow narration length.
+   */
+  is_inserted?: boolean;
 }
 
 export type EditorStep = "setup" | "scenes" | "voice_captions" | "voiceover" | "captions" | "studio" | "render";

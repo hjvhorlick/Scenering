@@ -4,6 +4,7 @@ import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { createProjectZip } from "../lib/zip-download";
 import { drawSceneImage } from "../lib/scene-framing";
+import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import {
   getMotionTransform,
   renderTimelineInsert,
@@ -100,7 +101,7 @@ export function generateSrtSubtitles(scenes: Scene[]): string {
 
   let acc = 0;
   return scenes
-    .filter((s) => s.image_url)
+    .filter((s) => s.image_url || s.video_url)
     .map((s, i) => {
       const start = acc;
       const end = acc + s.duration;
@@ -135,7 +136,8 @@ export default function RenderView({
   onOpenSetup,
   onNavigatePhase,
 }: RenderViewProps) {
-  const scenesWithImages = scenes.filter((s) => s.image_url);
+  // Scenes with a short video clip are renderable even without a still image.
+  const scenesWithImages = scenes.filter((s) => s.image_url || s.video_url);
   const activeLook = getPreset(videoFilter?.id);
   const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
   const totalDuration = scenesWithImages.reduce((sum, s) => sum + getSceneDuration(s), 0);
@@ -191,6 +193,8 @@ export default function RenderView({
   const [showAttributionPreview, setShowAttributionPreview] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /** Clip decoders in use by the current export, released when it ends. */
+  const clipPoolRef = useRef<ClipPool | null>(null);
   const watermarkImgRef = useRef<HTMLImageElement | null>(null);
   const customerLogoImgRef = useRef<HTMLImageElement | null>(null);
   const abortControllerRef = useRef<boolean>(false);
@@ -463,6 +467,25 @@ export default function RenderView({
 
       const images = await Promise.all(
         scenesWithImages.map((s) => loadImage(s.image_url || ""))
+      );
+
+      // Prepare any short video clips so their frames are decodable while the
+      // canvas is being captured.
+      const clipPool = new ClipPool();
+      clipPoolRef.current = clipPool;
+      await Promise.all(
+        scenesWithImages.filter(sceneHasClip).map(
+          (s) =>
+            new Promise<void>((resolve) => {
+              const el = clipPool.get(s);
+              if (!el) return resolve();
+              if (el.readyState >= 2) return resolve();
+              const done = () => resolve();
+              el.addEventListener("loadeddata", done, { once: true });
+              el.addEventListener("error", done, { once: true });
+              setTimeout(done, 8000);
+            })
+        )
       );
 
       // Watermark image
@@ -931,8 +954,20 @@ export default function RenderView({
             ctx.fillStyle = "#000";
             ctx.fillRect(0, 0, width, height);
 
-            // --- Draw image with Camera Motion ---
-            const img = images[currentSceneIdx];
+            // --- Draw image (or the scene's short video clip) with Camera Motion ---
+            let img: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
+              images[currentSceneIdx] as any;
+            if (sceneHasClip(currentScene)) {
+              // Park the clip on the exact frame this moment of the scene needs,
+              // then draw it through the same framing engine as a still.
+              const el = clipPool.get(currentScene);
+              if (el) {
+                clipPool.seekToProgress(currentScene, progressInScene, sceneDuration);
+                if (el.readyState >= 2 && el.videoWidth > 0) {
+                  img = asDrawableClip(el) as any;
+                }
+              }
+            }
             if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
               const { scale, dx, dy } = getMotionTransform(
                 currentScene.motion_effect,
@@ -1187,6 +1222,11 @@ export default function RenderView({
       setRenderError(err.message || "Failed to render video");
     } finally {
       setIsRendering(false);
+      // Release every clip decoder used during the export.
+      try {
+        clipPoolRef.current?.dispose();
+        clipPoolRef.current = null;
+      } catch {}
     }
   };
 
