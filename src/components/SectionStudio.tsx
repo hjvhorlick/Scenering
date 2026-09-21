@@ -158,7 +158,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
   const activeSound = sectionSoundUrl({ ...cfg, enabled: true });
 
   return (
-    <div className="max-w-5xl mx-auto space-y-4">
+    <div className="max-w-5xl 2xl:max-w-7xl mx-auto space-y-3 sm:space-y-4">
       {/* ------------------------------ header ------------------------------ */}
       <div
         className={`rounded-xl p-3.5 border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md ${

@@ -14,6 +14,7 @@ import {
 } from "../lib/scene-framing";
 import { NATURE_FALLBACKS } from "../data/nature-fallbacks";
 import { buildSceneImageQuery, describeSceneTopic } from "../lib/topic-extract";
+import { useViewport } from "../lib/use-breakpoint";
 import { sceneDurationForText } from "../lib/duration-utils";
 import { getFilterCss, getPreset, type VideoFilterConfig } from "../data/video-filters";
 import {
@@ -85,10 +86,47 @@ export default function SceneEditor({
    * shorter cap, because a 9:16 preview at the landscape width would make a
    * single scene card taller than the whole workspace.
    */
-  const previewBox = fitFrameInBox(
+  const viewport = useViewport();
+
+  /**
+   * On a phone the card stacks, so the preview spans the card width instead of
+   * sitting in a narrow side column — a 132px thumbnail on a 360px screen
+   * wastes the width and is too small to judge framing on. Wide screens get a
+   * slightly larger preview because the space is there.
+   */
+  const previewBox = viewport.isPhone
+    ? fitFrameInBox(
+        aspectRatio,
+        // Card width less its padding; capped so portrait does not fill the screen.
+        Math.min(viewport.width - 56, 420),
+        aspectRatio === "9:16" ? 300 : 240
+      )
+    : fitFrameInBox(
+        aspectRatio,
+        aspectRatio === "9:16"
+          ? viewport.isWide ? 150 : 132
+          : aspectRatio === "1:1"
+          ? viewport.isWide ? 200 : 176
+          : viewport.isWide ? 268 : 232,
+        aspectRatio === "9:16" ? (viewport.isWide ? 250 : 220) : viewport.isWide ? 200 : 176
+      );
+
+  /**
+   * The interactive crop surface stays as large as the screen allows, because
+   * that is where precise framing happens — but a fixed 250px surface plus the
+   * panel's padding overflowed a 320px phone, so it is measured against the
+   * viewport.
+   */
+  const cropSurface = fitFrameInBox(
     aspectRatio,
-    aspectRatio === "9:16" ? 132 : aspectRatio === "1:1" ? 176 : 232,
-    aspectRatio === "9:16" ? 220 : 176
+    viewport.isPhone
+      ? Math.max(120, Math.min(viewport.width - 96, 320))
+      : aspectRatio === "9:16"
+      ? 150
+      : viewport.isWide
+      ? 300
+      : 250,
+    viewport.isPhone ? 320 : aspectRatio === "9:16" ? 270 : 240
   );
 
   const activeLook = getPreset(videoFilter?.id);
@@ -292,8 +330,8 @@ export default function SceneEditor({
       <div className="flex flex-col lg:flex-row">
         {/* Visual Preview with Interactive Framing & Crop (reflects Aspect Ratio from Setup) */}
         <div
-          className="flex-shrink-0 relative group bg-gray-950 flex flex-col items-center justify-center overflow-hidden p-1.5"
-          style={{ width: previewBox.w + 12 }}
+          className="flex-shrink-0 relative group bg-gray-950 flex flex-col items-center justify-center overflow-hidden p-1.5 w-full lg:w-auto"
+          style={viewport.isPhone ? undefined : { width: previewBox.w + 12 }}
         >
           {/* Active Aspect Ratio Indicator */}
           <div className="absolute top-1 left-1 z-10 px-1.5 py-0.5 bg-gray-900/80 backdrop-blur border border-gray-700/80 rounded text-[9px] font-mono text-gray-300 pointer-events-none flex items-center gap-1">
@@ -703,14 +741,17 @@ export default function SceneEditor({
                     <SceneFramePreview
                       scene={scene}
                       aspectRatio={aspectRatio}
-                      width={aspectRatio === "9:16" ? 150 : 250}
+                      width={cropSurface.w}
                       videoFilter={videoFilter}
                       interactive
                       cropMode={cropMode}
                       showGuides={showGuides}
                       onChange={(u) => onUpdate(scene.id, u)}
                     />
-                    <span className="text-[10px] text-gray-500 text-center max-w-[250px]">
+                    <span
+                      className="text-[10px] text-gray-500 text-center"
+                      style={{ maxWidth: cropSurface.w }}
+                    >
                       Exactly how this scene will render at {aspectRatio}
                     </span>
                   </div>

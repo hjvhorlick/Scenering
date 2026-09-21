@@ -373,7 +373,7 @@ export default function SetupStudio({
 
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-5 sm:space-y-6 pb-12 animate-fade-in">
+    <div className="w-full max-w-4xl 2xl:max-w-6xl mx-auto space-y-3 sm:space-y-5 lg:space-y-6 pb-12 animate-fade-in px-1 sm:px-0">
       {/* ---------------- Frame header ---------------- */}
       <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
         <div className="min-w-0">
@@ -602,7 +602,7 @@ export default function SetupStudio({
             </span>
           }
         />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-2.5">
           {DURATION_OPTIONS.map((opt) => {
             const isSelected = activeDuration === opt.seconds;
             return (
@@ -649,7 +649,7 @@ export default function SetupStudio({
           title="Aspect ratio"
           subtitle="Target display format & canvas orientation for every preview and render."
         />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
           {aspectRatios.map((r) => {
             const isActive = aspectRatio === r.id;
             return (
@@ -696,7 +696,7 @@ export default function SetupStudio({
             </span>
           }
         />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
           {resolutions.map((res) => {
             const isActive = resolution === res.id;
             const dimension = getResolutionDimensions(aspectRatio, res.id);
@@ -743,7 +743,7 @@ export default function SetupStudio({
           Every tile below is live — the movement you see is the exact transform the
           rendered video uses.
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-2 sm:gap-2.5">
           {motionOptions.map((opt) => {
             const isSelected = motionStyle === opt.id;
             return (
@@ -766,8 +766,8 @@ export default function SetupStudio({
                     imageUrl={motionPreviewImage}
                     width={300}
                     height={150}
+                    responsive
                     cycleSeconds={opt.id === "shake" || opt.id === "floating" ? 4 : 6}
-                    className="w-full"
                   />
                   {isSelected && (
                     <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-bold shadow">
@@ -819,7 +819,7 @@ export default function SetupStudio({
         </div>
 
         {/* 3-Tier Pricing Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-5 pt-2">
           {/* Tier 1: Free Starter */}
           <div className="bg-gray-800/60 border border-gray-700/80 rounded-2xl p-5 flex flex-col justify-between hover:border-gray-600 transition-all shadow-md">
             <div className="space-y-4">

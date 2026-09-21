@@ -234,7 +234,7 @@ export default function CaptionsStudio({
   ]);
 
   return (
-    <div className="max-w-5xl mx-auto w-full space-y-6 animate-fade-in p-2 sm:p-0">
+    <div className="max-w-5xl 2xl:max-w-7xl mx-auto w-full space-y-3 sm:space-y-6 animate-fade-in p-1.5 sm:p-0">
       {/* Single Previous / Next control — always at the top of the phase */}
       {onNavigateToStep && (
         <StepNav current="captions" onNavigate={onNavigateToStep} note="subtitle styling applies to every scene" />
@@ -321,7 +321,7 @@ export default function CaptionsStudio({
               {mode === "karaoke" ? "Dynamic Sync" : "Clean Subtitle"}
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 sm:gap-2.5">
             <button
               type="button"
               onClick={() => handleModeChange("karaoke")}
@@ -370,7 +370,7 @@ export default function CaptionsStudio({
               {backgroundStyle === "transparent" ? "No Box" : "Backdrop Pill"}
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 sm:gap-2.5">
             <button
               type="button"
               onClick={() => handleBackgroundChange("transparent")}
@@ -516,7 +516,7 @@ export default function CaptionsStudio({
           {/* Position */}
           <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
             <span className="text-gray-400 block font-medium">Placement:</span>
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid grid-cols-2 xs:grid-cols-3 gap-1">
               {(["top", "center", "bottom"] as const).map((pos) => (
                 <button
                   key={pos}
@@ -540,7 +540,7 @@ export default function CaptionsStudio({
           {/* Size */}
           <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
             <span className="text-gray-400 block font-medium">Text Scale:</span>
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid grid-cols-2 xs:grid-cols-3 gap-1">
               {(["small", "medium", "large"] as const).map((s) => (
                 <button
                   key={s}

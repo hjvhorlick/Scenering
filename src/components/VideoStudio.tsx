@@ -321,7 +321,7 @@ export default function VideoStudio({
       <div className="flex-1 overflow-y-auto p-5">
         {/* 1. LOGO SECTION */}
         {selectedCategory === "logo" && (
-          <div className="max-w-3xl mx-auto space-y-4">
+          <div className="max-w-3xl 2xl:max-w-5xl mx-auto space-y-3 sm:space-y-4">
             <CustomerLogoSection
               config={customerLogo}
               onChange={onUpdateCustomerLogo}

@@ -1400,7 +1400,7 @@ export default function RenderView({
   ).length;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12 animate-fade-in">
+    <div className="space-y-3 sm:space-y-6 max-w-5xl 2xl:max-w-7xl mx-auto pb-12 animate-fade-in px-1 sm:px-0">
       {/* Top Banner & Summary */}
       <div className="bg-gray-800/60 border border-gray-700/80 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

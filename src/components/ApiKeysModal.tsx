@@ -103,11 +103,11 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm animate-fade-in p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-xl flex flex-col overflow-hidden shadow-2xl animate-slide-in"
+        className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-slide-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}

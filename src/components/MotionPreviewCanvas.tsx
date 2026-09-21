@@ -1,8 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SceneMotionType } from "../types";
 import { getMotionTransform } from "../lib/render-effects";
 
 interface MotionPreviewCanvasProps {
+  /** Fill the parent's width instead of using a fixed CSS size. */
+  responsive?: boolean;
   /** The motion applied to the sample image. */
   motion: SceneMotionType;
   /** Optional real scene image; a drawn stand-in is used when absent. */
@@ -29,9 +31,13 @@ export default function MotionPreviewCanvas({
   width = 320,
   height = 180,
   paused = false,
+  responsive = false,
   className = "",
 }: MotionPreviewCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  /** Measured CSS width when responsive; falls back to the width prop. */
+  const [boxW, setBoxW] = useState(width);
   const rafRef = useRef<number>(0);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const startRef = useRef<number>(performance.now());
@@ -57,6 +63,24 @@ export default function MotionPreviewCanvas({
     };
   }, [imageUrl]);
 
+  // Track the container width so the preview scales with the viewport rather
+  // than overflowing a narrow phone screen.
+  useEffect(() => {
+    if (!responsive) {
+      setBoxW(width);
+      return;
+    }
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width;
+      if (w && w > 0) setBoxW(Math.round(w));
+    });
+    ro.observe(el);
+    setBoxW(Math.round(el.getBoundingClientRect().width) || width);
+    return () => ro.disconnect();
+  }, [responsive, width]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -64,8 +88,10 @@ export default function MotionPreviewCanvas({
     if (!ctx) return;
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    const cssW = responsive ? Math.max(1, boxW) : width;
+    const cssH = responsive ? Math.max(1, Math.round((cssW * height) / width)) : height;
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
     const w = canvas.width;
     const h = canvas.height;
 
@@ -195,7 +221,20 @@ export default function MotionPreviewCanvas({
     }
 
     return () => cancelAnimationFrame(rafRef.current);
-  }, [motion, cycleSeconds, width, height, paused, imageUrl]);
+  }, [motion, cycleSeconds, width, height, paused, imageUrl, responsive, boxW]);
+
+  if (responsive) {
+    const cssH = Math.max(1, Math.round((Math.max(1, boxW) * height) / width));
+    return (
+      <div ref={wrapRef} className="w-full">
+        <canvas
+          ref={canvasRef}
+          style={{ width: "100%", height: cssH }}
+          className={`rounded-lg bg-black ${className}`}
+        />
+      </div>
+    );
+  }
 
   return (
     <canvas

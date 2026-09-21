@@ -547,9 +547,9 @@ function InsertPropertiesContent({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
       <div
-        className={`bg-gray-900 border border-gray-700 rounded-2xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden ${
+        className={`bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden ${
           isCallToAction && !isIntroOutro ? "max-w-3xl" : "max-w-xl"
         }`}
       >
@@ -1126,7 +1126,7 @@ function InsertPropertiesContent({
                 </div>
 
                 {/* Logo Position */}
-                <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 xs:gap-3 pt-2">
                   <div>
                     <label className="text-xs font-semibold text-white block mb-1">
                       Logo Position:
@@ -1628,7 +1628,7 @@ function InsertPropertiesContent({
                   {/* Swap the sticker without deleting and re-adding it */}
                   <div className="pt-2 border-t border-gray-750 space-y-2">
                     <span className="text-xs text-gray-300 block">Swap sticker:</span>
-                    <div className="grid grid-cols-8 gap-1 max-h-32 overflow-y-auto pr-1">
+                    <div className="grid grid-cols-6 xs:grid-cols-8 gap-1 max-h-32 overflow-y-auto pr-1">
                       {STICKER_LIBRARY.map((st) => {
                         const active = (data.visualOptions?.stickerId || insert.type) === st.id;
                         return (
@@ -2195,7 +2195,7 @@ function InsertPropertiesContent({
                   })}
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 pt-2 border-t border-gray-700/80">
+                <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 xs:gap-3 pt-2 border-t border-gray-700/80">
                   <div>
                     <span className="text-[10px] text-gray-400 block mb-1">Top colour</span>
                     <input

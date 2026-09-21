@@ -464,7 +464,7 @@ export default function VoiceoverStudio({
   };
 
   return (
-    <div className="max-w-5xl mx-auto w-full space-y-5 animate-fade-in p-2 sm:p-0">
+    <div className="max-w-5xl 2xl:max-w-7xl mx-auto w-full space-y-3 sm:space-y-5 animate-fade-in p-1.5 sm:p-0">
       {/* Single Previous / Next control — always at the top of the phase */}
       {onNavigateToStep && (
         <StepNav

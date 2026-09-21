@@ -1047,7 +1047,7 @@ export default function App() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 flex-shrink-0 bg-gray-900/50">
+        <div className="min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
           {/* Logo */}
           <button
             onClick={() => setView("create")}
@@ -1091,8 +1091,12 @@ export default function App() {
                       : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  <span>
-                    {i + 1}. {phase.icon} {phase.tab}
+                  <span className="flex items-center gap-1 whitespace-nowrap">
+                    <span className="text-gray-500 sm:text-inherit">{i + 1}.</span>
+                    <span>{phase.icon}</span>
+                    {/* The word is dropped on phones; the number and icon still
+                        identify the step and the row stops overflowing. */}
+                    <span className="hidden xs:inline sm:inline">{phase.tab}</span>
                   </span>
                 </button>
               );
@@ -1111,18 +1115,10 @@ export default function App() {
               </span>
             )}
 
-            <button
-              onClick={() => setView("create")}
-              className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                view === "create"
-                  ? "bg-indigo-600 border-indigo-500 text-white shadow"
-                  : "bg-gray-800/80 border-gray-700 text-gray-200 hover:bg-gray-750 hover:text-white"
-              }`}
-              title="Projects & project setup"
-            >
-              <span>🗂️</span>
-              <span className="hidden sm:inline">Projects</span>
-            </button>
+            {/* The "Projects" button was removed: the logo and the "1. Setup"
+                phase tab already open this same view, so it was a third way to
+                reach one screen and cost space in the top bar on small
+                displays. */}
 
             <button
               onClick={() => setApiKeysModalOpen(true)}
@@ -1186,7 +1182,7 @@ export default function App() {
             </div>
           ) : editorStep === "render" ? (
             /* Step 5: Final Render & Export View */
-            <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+            <div className="p-2 sm:p-4 lg:p-6 max-w-6xl 2xl:max-w-[1600px] mx-auto">
               <RenderView
                 project={currentProject}
                 scenes={scenes}
@@ -1217,11 +1213,11 @@ export default function App() {
               />
             </div>
           ) : (
-            <div className="p-4 sm:p-6 space-y-6">
+            <div className="p-2 sm:p-4 lg:p-6 space-y-3 sm:space-y-6">
               {/* Steps Workspace */}
               {editorStep === "scenes" ? (
                 /* Step 1: Scene Editor View */
-                <div className="max-w-4xl mx-auto w-full space-y-6">
+                <div className="max-w-4xl 2xl:max-w-6xl mx-auto w-full space-y-3 sm:space-y-6">
                   <StepNav
                     current="scenes"
                     onNavigate={(phase) => navigateToPhase(phase)}
@@ -1357,7 +1353,7 @@ export default function App() {
                 />
               ) : (
                 /* Step 4: Video Studio & Timeline View */
-                <div className="max-w-5xl mx-auto w-full space-y-5">
+                <div className="max-w-5xl 2xl:max-w-7xl mx-auto w-full space-y-3 sm:space-y-5">
                   <StepNav
                     current="studio"
                     onNavigate={(phase) => navigateToPhase(phase)}
