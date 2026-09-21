@@ -66,40 +66,43 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
 };
 
 // Split script into scenes and generate image search queries
-// Strategy: the whole script is first flattened into ONE continuous string
-// (all newlines, paragraph breaks and extra spaces are removed), then it is
-// sliced into fixed word-count chunks so every scene has a consistent length:
-// ~50 words per 20s scene (2.5 words/sec), ~25 per 10s, ~75 per 30s.
+// Rule: the script inserted to be split into scenes MUST be edited before the scene splitting:
+// Take away all spaces, newlines, carriage returns, tabs, and paragraph spaces into ONE continuous script.
+// Only then is it split into ~20-second (or ~50-word) sections per scene.
+// No outside or additional sentences are allowed to be added into the scenes.
 function parseScript(script: string, targetDuration: number = 20): { text: string; imageQuery: string }[] {
-  const targetWords = getTargetWordCount(targetDuration);
+  const targetWords = getTargetWordCount(targetDuration) || 50;
 
-  // 1) One continuous script — no line breaks, no blank paragraphs
-  const continuous = script.replace(/\s+/g, " ").trim();
+  // 1) Flatten into ONE continuous script — strip all newlines, carriage returns, tabs and collapse spaces
+  const continuous = (script || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
   if (!continuous) return [];
 
-  const words = continuous.split(" ");
+  const words = continuous.split(" ").filter(Boolean);
+  if (words.length === 0) return [];
 
-  // 2) Fixed-size chunks (e.g. 50 words each for the 20s default)
+  // 2) Split into exact ~50-word sections per scene (matching targetDuration)
   const chunks: string[] = [];
   for (let i = 0; i < words.length; i += targetWords) {
     chunks.push(words.slice(i, i + targetWords).join(" "));
   }
 
-  // 3) If only a few words are left over, fold them into the previous scene
-  //    instead of creating a tiny stub scene (threshold: < 25% of a full chunk)
-  const leftoverThreshold = Math.max(3, Math.floor(targetWords * 0.25));
+  // 3) If only a tiny fragment remains (< 10 words and we have more than 1 chunk),
+  // fold it into the previous scene rather than having an awkward 2-word scene.
+  // Never add any external sentences!
+  const leftoverThreshold = Math.min(10, Math.max(3, Math.floor(targetWords * 0.25)));
   if (chunks.length > 1 && chunks[chunks.length - 1].split(" ").length < leftoverThreshold) {
     const leftovers = chunks.pop() as string;
     chunks[chunks.length - 1] += " " + leftovers;
   }
 
+  // 4) Map directly to scenes with genuine query words extracted purely from scene text
   return chunks.map((text) => {
     const queryWords = text
       .replace(/[^a-zA-Z\s]/g, "")
       .split(/\s+/)
       .filter((w) => w.length > 3);
     const query = queryWords.slice(0, 5).join(" ");
-    return { text, imageQuery: query || "abstract background" };
+    return { text, imageQuery: query || "cinematic scene" };
   });
 }
 
@@ -298,10 +301,11 @@ export default function App() {
 
   const handleUpdateScript = useCallback(
     (newScript: string, regenerateScenes: boolean = false, overrideDuration?: number) => {
-      setCurrentProject((prev) => (prev ? { ...prev, script: newScript } : null));
+      const cleanContinuous = (newScript || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+      setCurrentProject((prev) => (prev ? { ...prev, script: cleanContinuous } : null));
       const targetDur = overrideDuration || sceneDuration || 20;
       if (regenerateScenes) {
-        const parsed = parseScript(newScript, targetDur);
+        const parsed = parseScript(cleanContinuous, targetDur);
         setScenes((prev) => {
           const newScenes: Scene[] = parsed.map((item, idx) => {
             const existing = prev[idx];
@@ -410,6 +414,8 @@ export default function App() {
 
   const handleCreateProject = async (title: string, script: string, targetDuration?: number) => {
     const chosenDuration = targetDuration || 20;
+    // Flatten script into one continuous script before project creation & scene splitting
+    const continuousScript = (script || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
     // Keep the canvas choices made on the single setup frame (aspect ratio, resolution, motion)
     const chosenAspect = aspectRatio;
     const chosenResolution = resolution;
@@ -418,13 +424,13 @@ export default function App() {
     try {
       const { data: projectData, error: projectError } = await supabase
         .from("projects")
-        .insert({ title, script, default_duration: chosenDuration })
+        .insert({ title, script: continuousScript, default_duration: chosenDuration })
         .select()
         .single();
       if (projectError) throw projectError;
 
       const project = projectData as Project;
-      const parsedScenes = parseScript(script, chosenDuration);
+      const parsedScenes = parseScript(continuousScript, chosenDuration);
 
       // Clean, isolated project setup with defaults
       const freshSettings: ProjectSettings = {

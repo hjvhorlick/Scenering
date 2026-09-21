@@ -232,6 +232,7 @@ class TTSAudioPlayer {
       }
 
       const audio = new Audio(audioUrl);
+      audio.loop = false;
       this.activeAudio = audio;
       audio.playbackRate = Math.max(0.5, Math.min(2.0, speed));
       audio.volume = Math.max(0, Math.min(1.0, volume));
@@ -263,6 +264,7 @@ class TTSAudioPlayer {
   ): Promise<void> {
     try {
       const audio = new Audio(audioUrl);
+      audio.loop = false;
       this.activeAudio = audio;
       audio.playbackRate = Math.max(0.5, Math.min(2.0, speed));
       audio.volume = Math.max(0, Math.min(1.0, volume));

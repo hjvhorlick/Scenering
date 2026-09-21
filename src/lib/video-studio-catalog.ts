@@ -1186,7 +1186,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
     defaultAudioSettings: {
       soundUrl: t.url,
       soundName: t.name,
-      volume: 0.5,
+      volume: 0.85,
       loop: true,
     },
     defaultContent: {
@@ -1232,7 +1232,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
     defaultAudioSettings: {
       soundUrl: s.url,
       soundName: s.name,
-      volume: 0.9,
+      volume: 1.0,
       loop: false,
     },
     defaultContent: {

@@ -11,6 +11,7 @@ export interface CachedAudioItem {
 
 // In-memory global cache for synthesized speech audio
 const memoryAudioCache = new Map<string, CachedAudioItem>();
+const sceneIdAudioCache = new Map<number, CachedAudioItem>();
 let sharedAudioContext: AudioContext | null = null;
 
 export function getSharedAudioContext(): AudioContext {
@@ -30,12 +31,17 @@ export function getAudioCacheKey(sceneId: number, voiceId: string, text: string)
 
 export function getCachedSceneAudio(sceneId: number, voiceId: string, text: string): CachedAudioItem | undefined {
   const key = getAudioCacheKey(sceneId, voiceId, text);
-  return memoryAudioCache.get(key);
+  return memoryAudioCache.get(key) || sceneIdAudioCache.get(sceneId);
+}
+
+export function getCachedSceneAudioBySceneId(sceneId: number): CachedAudioItem | undefined {
+  return sceneIdAudioCache.get(sceneId);
 }
 
 export function setCachedSceneAudio(sceneId: number, voiceId: string, text: string, item: CachedAudioItem): void {
   const key = getAudioCacheKey(sceneId, voiceId, text);
   memoryAudioCache.set(key, item);
+  sceneIdAudioCache.set(sceneId, item);
 }
 
 // Pre-generate and cache TTS audio for all scenes in memory

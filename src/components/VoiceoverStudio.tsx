@@ -411,35 +411,6 @@ export default function VoiceoverStudio({
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() =>
-                handlePlayVoicePreview(
-                  `Hello! This is a test of the selected ${activeVoiceInfo.gender} voice.`,
-                  "test-global",
-                  selectedVoice,
-                  globalSpeed
-                )
-              }
-              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 active:bg-gray-900 text-white rounded-xl text-xs font-semibold border border-gray-700 flex items-center gap-2 transition-colors shadow"
-            >
-              {loadingId === "test-global" ? (
-                <>
-                  <span className="animate-spin text-indigo-400">⏳</span>
-                  <span>Generating Audio...</span>
-                </>
-              ) : playingId === "test-global" ? (
-                <>
-                  <span className="animate-pulse text-amber-400">⏹️</span>
-                  <span>Stop Preview</span>
-                </>
-              ) : (
-                <>
-                  <span>🔊</span>
-                  <span>Test Active Voice</span>
-                </>
-              )}
-            </button>
-
-            <button
               disabled={isGeneratingAll}
               onClick={() => handleGenerateAndSaveAllVoiceovers(selectedVoice)}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"

@@ -14,7 +14,7 @@ import { isVisualizerFullWidth } from "../lib/render-visualizers";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { calculateDynamicDuration } from "../lib/duration-utils";
 import { getCanvasFilterString } from "../data/filters-library";
-import { getCachedSceneAudio } from "../lib/tts-cache";
+import { getCachedSceneAudio, setCachedSceneAudio } from "../lib/tts-cache";
 import { buildInsertAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
 interface VideoPreviewProps {
@@ -202,7 +202,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
   // Load voice list on mount
   useEffect(() => {
-    fetch(`${EDGE_FUNCTION_BASE}/tts`)
+    fetch("/api/tts")
       .then((r) => r.json())
       .then((data) => {
         if (data.voices) {
@@ -229,47 +229,64 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     });
   }, [scenes, propSelectedVoice, selectedVoice]);
 
-  // Synthesize audio for a single scene with per-scene voice support
+  // Synthesize or decode audio for a single scene with per-scene voice support
+  // CRITICAL: If a scene already has an audio_url saved from VoiceoverStudio, NEVER re-synthesize!
   const synthesizeScene = useCallback(
     async (scene: Scene, audioCtx: AudioContext): Promise<SceneAudio> => {
       const activeVoice = propSelectedVoice || selectedVoice;
       const voiceToUse = scene.voice_id || activeVoice;
       const text = (scene.text || "").trim();
+      const voiceKey = scene.audio_url
+        ? `imported_${scene.audio_url}`
+        : `${voiceToUse}_${text}`;
 
       // 0. Check pre-generated/saved audio from Voiceover Studio cache
       const cached = getCachedSceneAudio(scene.id, voiceToUse, text);
       if (cached) {
         return {
           buffer: cached.audioBuffer,
-          url: cached.blobUrl,
-          voiceKey: scene.audio_url ? `imported_${scene.audio_url}` : `${voiceToUse}_${text}`,
+          url: cached.blobUrl || scene.audio_url || "",
+          voiceKey,
         };
       }
 
-      // 1. If scene has an imported real voice audio track, use it directly!
+      // 1. If scene already has an audio track (from Voiceover Studio or import), load & decode directly
+      // NEVER trigger TTS when scene.audio_url is present!
       if (scene.audio_url) {
-        const voiceKey = `imported_${scene.audio_url}`;
         try {
           const res = await fetch(scene.audio_url);
           if (res.ok) {
             const arrayBuf = await res.arrayBuffer();
             const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+            // Cache in memory so we never fetch or decode it again
+            setCachedSceneAudio(scene.id, voiceToUse, text, {
+              audioBuffer,
+              blobUrl: scene.audio_url,
+              duration: audioBuffer.duration,
+              voiceId: voiceToUse,
+              text,
+            });
             return { buffer: audioBuffer, url: scene.audio_url, voiceKey };
           }
         } catch (err) {
-          console.warn("Failed to load imported audio for scene:", scene.id, err);
+          console.warn("Failed to decode saved audio for scene:", scene.id, err);
         }
       }
 
-      const voiceKey = `${voiceToUse}_${text}`;
+      // 2. Only if scene has NO audio_url at all, call TTS
+      if (!text) {
+        const fallback = createFallbackSceneAudio(audioCtx, scene.duration || 4);
+        return { ...fallback, voiceKey };
+      }
+
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
 
       try {
-        const res = await fetch(`${EDGE_FUNCTION_BASE}/tts`, {
+        const res = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: scene.text, voice: voiceToUse }),
+          body: JSON.stringify({ text, voice: voiceToUse }),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
@@ -279,6 +296,13 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
           const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
           const url = URL.createObjectURL(blob);
+          setCachedSceneAudio(scene.id, voiceToUse, text, {
+            audioBuffer,
+            blobUrl: url,
+            duration: audioBuffer.duration,
+            voiceId: voiceToUse,
+            text,
+          });
           return { buffer: audioBuffer, url, voiceKey };
         }
       } catch (err) {
@@ -293,11 +317,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     [selectedVoice, propSelectedVoice]
   );
 
-  // Pre-generate all scene audio in parallel with live status
-  const generateAllAudio = useCallback(async () => {
+  // Pre-generate / decode all scene audio in parallel with live status
+  const generateAllAudio = useCallback(async (isSilent: boolean = false) => {
     if (scenesWithImages.length === 0) return;
 
-    setLoadingAudio(true);
+    if (!isSilent) setLoadingAudio(true);
 
     const audioCtx = new AudioContext();
     if (audioCtx.state === "suspended") {
@@ -309,9 +333,16 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     const newBuffers = new Map<number, SceneAudio>();
 
     let completedCount = 0;
-    setAudioStatus(`Preparing narration: 0/${scenesWithImages.length} ready...`);
+    const hasAnySavedAudio = scenesWithImages.some((s) => Boolean(s.audio_url));
+    if (!isSilent) {
+      setAudioStatus(
+        hasAnySavedAudio
+          ? `Loading narration audio: 0/${scenesWithImages.length} ready...`
+          : `Preparing narration: 0/${scenesWithImages.length} ready...`
+      );
+    }
 
-    // Concurrent synthesis across all scenes for instant readiness
+    // Concurrent synthesis/decoding across all scenes for instant readiness
     await Promise.all(
       scenesWithImages.map(async (scene) => {
         const activeVoice = propSelectedVoice || selectedVoice;
@@ -328,15 +359,41 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         const audio = await synthesizeScene(scene, audioCtx);
         newBuffers.set(scene.id, audio);
         completedCount++;
-        setAudioStatus(`Generating voice: ${completedCount}/${scenesWithImages.length} ready...`);
+        if (!isSilent) {
+          setAudioStatus(
+            scene.audio_url
+              ? `Loaded narration ${completedCount}/${scenesWithImages.length}`
+              : `Ready ${completedCount}/${scenesWithImages.length}`
+          );
+        }
       })
     );
 
     audioBuffersRef.current = newBuffers;
-    setAudioStatus(`${newBuffers.size} scene(s) ready`);
-    setLoadingAudio(false);
+    if (!isSilent) {
+      setAudioStatus(`${newBuffers.size} scene(s) ready`);
+      setLoadingAudio(false);
+    }
     return { audioCtx, buffers: newBuffers };
   }, [scenesWithImages, synthesizeScene, propSelectedVoice, selectedVoice]);
+
+  // Proactively warm up and decode audio buffers in the background
+  // so pressing Play in Video Preview never triggers a redundant second voiceover creation
+  useEffect(() => {
+    if (scenesWithImages.length === 0) return;
+    const activeVoice = propSelectedVoice || selectedVoice;
+    const hasAllReady = scenesWithImages.every((s) => {
+      const existing = audioBuffersRef.current.get(s.id);
+      const expectedKey = s.audio_url
+        ? `imported_${s.audio_url}`
+        : `${s.voice_id || activeVoice}_${(s.text || "").trim()}`;
+      return existing && existing.voiceKey === expectedKey;
+    });
+
+    if (!hasAllReady) {
+      generateAllAudio(true).catch(() => {});
+    }
+  }, [scenesWithImages, propSelectedVoice, selectedVoice, generateAllAudio]);
 
   // Unified Scene & Insert Drawing Function
   useEffect(() => {

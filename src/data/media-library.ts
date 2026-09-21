@@ -1,3 +1,5 @@
+import { ttsPlayer } from "../lib/tts-player";
+
 export interface SoundAsset {
   id: string;
   filename: string;
@@ -526,6 +528,7 @@ export function stopAllSoundPreviews(): void {
     try {
       currentActiveAudio.pause();
       currentActiveAudio.currentTime = 0;
+      currentActiveAudio.loop = false;
       currentActiveAudio.onended = null;
       currentActiveAudio.onerror = null;
     } catch {}
@@ -538,10 +541,17 @@ export function stopAllSoundPreviews(): void {
     currentStopSynth = null;
   }
   currentSynthGain = null;
-  const oldUrl = currentActiveUrl;
   currentActiveUrl = null;
-  if (oldUrl) {
-    notifyAudioListeners(null, false, currentPreviewVolume);
+  notifyAudioListeners(null, false, currentPreviewVolume);
+
+  // Also stop any TTS or SpeechSynthesis that might be speaking
+  try {
+    ttsPlayer.stop();
+  } catch {}
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
   }
 }
 
@@ -556,7 +566,7 @@ export function setSoundPreviewVolume(volume: number): void {
   }
   if (currentSynthGain) {
     try {
-      currentSynthGain.gain.setValueAtTime(Math.max(0.001, safeVol * 0.35), 0);
+      currentSynthGain.gain.setValueAtTime(Math.max(0.01, safeVol), 0);
     } catch {}
   }
   notifyAudioListeners(currentActiveUrl, Boolean(currentActiveUrl), safeVol);
@@ -574,7 +584,7 @@ function playSynthesizedAcousticPreview(url: string, volume: number, onEnd?: () 
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
     if (ctx.state === "suspended") {
-      ctx.resume();
+      ctx.resume().catch(() => {});
     }
     const isMusic =
       url.includes("gymnopedie") ||
@@ -587,16 +597,28 @@ function playSynthesizedAcousticPreview(url: string, volume: number, onEnd?: () 
       url.includes("ethereal") ||
       url.includes("solitude") ||
       url.includes("midnight") ||
-      url.includes("music");
+      url.includes("music") ||
+      url.includes("sunrise") ||
+      url.includes("strum") ||
+      url.includes("bounce") ||
+      url.includes("marimba") ||
+      url.includes("triumph") ||
+      url.includes("reflection") ||
+      url.includes("study") ||
+      url.includes("campfire") ||
+      url.includes("neon") ||
+      url.includes("celebration") ||
+      BACKGROUND_MUSIC_TRACKS.some((t) => url.includes(t.id) || url === t.url);
 
     const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(Math.max(0.01, Math.min(1, volume * 0.35)), ctx.currentTime);
+    const effectiveVol = Math.max(0.1, Math.min(1.0, volume));
+    masterGain.gain.setValueAtTime(effectiveVol, ctx.currentTime);
     masterGain.connect(ctx.destination);
     currentSynthGain = masterGain;
 
     const chords = isMusic
       ? [261.63, 329.63, 392.00, 523.25, 440.0, 349.23, 392.0, 523.25] // C maj / F maj soothing progression
-      : [523.25, 659.25, 783.99]; // Chime arpeggio
+      : [523.25, 659.25, 783.99, 1046.5]; // Crisp, high-impact chime arpeggio
 
     const oscillators: OscillatorNode[] = [];
     chords.forEach((freq, i) => {
@@ -605,15 +627,15 @@ function playSynthesizedAcousticPreview(url: string, volume: number, onEnd?: () 
       osc.type = isMusic ? "sine" : "triangle";
       osc.frequency.setValueAtTime(freq, ctx.currentTime);
 
-      const startTime = ctx.currentTime + (isMusic ? i * 0.5 : i * 0.12);
+      const startTime = ctx.currentTime + (isMusic ? i * 0.45 : i * 0.1);
       noteGain.gain.setValueAtTime(0.001, startTime);
-      noteGain.gain.linearRampToValueAtTime(0.18, startTime + 0.05);
-      noteGain.gain.exponentialRampToValueAtTime(0.001, startTime + (isMusic ? 3.0 : 0.8));
+      noteGain.gain.linearRampToValueAtTime(isMusic ? 0.35 : 0.7, startTime + 0.04);
+      noteGain.gain.exponentialRampToValueAtTime(0.001, startTime + (isMusic ? 2.8 : 0.85));
 
       osc.connect(noteGain);
       noteGain.connect(masterGain);
       osc.start(startTime);
-      osc.stop(startTime + (isMusic ? 3.2 : 0.9));
+      osc.stop(startTime + (isMusic ? 3.0 : 0.9));
       oscillators.push(osc);
     });
 
@@ -661,6 +683,7 @@ export function toggleSoundPreview(
 
   try {
     const audio = new Audio(url);
+    audio.loop = false;
     audio.volume = safeVol;
     currentActiveAudio = audio;
 

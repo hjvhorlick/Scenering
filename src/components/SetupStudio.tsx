@@ -123,15 +123,15 @@ export default function SetupStudio({
   }, [project?.id, project?.title, project?.script, scenes]);
 
   const activeDuration = selectedDuration;
-  const targetWordsPerScene = getTargetWordCount(activeDuration);
+  const targetWordsPerScene = getTargetWordCount(activeDuration) || 50;
 
-  const SCRIPT_SPLIT_REGEX = /\n\s*\n+|\n+(?=(?:Scene\s*\d+|\[Scene\s*\d+\]|\d+[\.\)]\s))/i;
-
-  const wordsCount = countWords(script);
+  // Flatten into continuous script (all newlines, paragraph breaks, and duplicate whitespace removed)
+  const continuousScript = (script || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+  const wordsCount = continuousScript ? continuousScript.split(" ").filter(Boolean).length : 0;
   const estimatedReadingSec = Math.round((wordsCount / 2.5) * 10) / 10;
-  const detectedScenesCount = script.split(SCRIPT_SPLIT_REGEX).filter((s) => s.trim()).length;
+  const detectedScenesCount = wordsCount > 0 ? Math.max(1, Math.ceil(wordsCount / targetWordsPerScene)) : 0;
   const isExistingProject = Boolean(project?.id);
-  const canStart = script.trim().length > 0;
+  const canStart = continuousScript.length > 0;
 
   const showNotice = (msg: string) => {
     setAppliedNotice(msg);
@@ -144,26 +144,26 @@ export default function SetupStudio({
   };
 
   const handleFormatScriptToTargetDuration = () => {
-    const currentScriptText = script.trim() || scenes.map((s) => s.text).join("\n\n");
-    if (!currentScriptText) return;
-    const paragraphs = currentScriptText
-      .split(SCRIPT_SPLIT_REGEX)
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    const cleanScript = paragraphs.join("\n\n");
-    setScript(cleanScript);
-    onUpdateScript(cleanScript, true, activeDuration);
+    const raw = script.trim() || scenes.map((s) => s.text).join(" ");
+    if (!raw) return;
+    const cleanContinuous = raw.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+    setScript(cleanContinuous);
+    onUpdateScript(cleanContinuous, true, activeDuration);
+    const sceneWords = cleanContinuous.split(" ").filter(Boolean).length;
+    const estCount = Math.max(1, Math.ceil(sceneWords / targetWordsPerScene));
     showNotice(
-      `Formatted script into ${paragraphs.length} scenes (${activeDuration}s duration each)!`
+      `Flattened into continuous script and split into ${estCount} scenes (${activeDuration}s / ~${targetWordsPerScene}w each)!`
     );
   };
 
   const handleApplyScript = (regenerate: boolean) => {
-    if (!script.trim()) return;
-    onUpdateScript(script.trim(), regenerate, activeDuration);
+    const raw = script.trim();
+    if (!raw) return;
+    const cleanContinuous = raw.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+    setScript(cleanContinuous);
+    onUpdateScript(cleanContinuous, regenerate, activeDuration);
     showNotice(
-      regenerate ? `Re-generated ${detectedScenesCount} scenes from script!` : "Script updated successfully!"
+      regenerate ? `Re-generated ${detectedScenesCount} scenes from continuous script!` : "Script updated successfully!"
     );
   };
 
@@ -172,9 +172,9 @@ export default function SetupStudio({
     onUpdateSceneDuration?.(seconds);
     onCalibrateScenesWordCount?.(seconds);
 
-    const currentScriptText = script.trim();
-    if (isExistingProject && currentScriptText) {
-      onUpdateScript(currentScriptText, true, seconds);
+    const cleanContinuous = (script || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+    if (isExistingProject && cleanContinuous) {
+      onUpdateScript(cleanContinuous, true, seconds);
     }
 
     const words = getTargetWordCount(seconds);
@@ -184,18 +184,18 @@ export default function SetupStudio({
   /** Primary action: create the project (new) or save the setup (existing) and continue to Scenes */
   const handleStartProject = async () => {
     const durToApply = selectedDuration || 20;
+    const cleanContinuous = (script || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
 
     if (!isExistingProject) {
-      if (!script.trim()) return;
-      await onCreateProject(title.trim() || "Untitled Video", script.trim(), durToApply);
+      if (!cleanContinuous) return;
+      await onCreateProject(title.trim() || "Untitled Video", cleanContinuous, durToApply);
       return;
     }
 
     if (title.trim()) onUpdateTitle(title.trim());
     onUpdateSceneDuration?.(durToApply);
-    const currentScriptText = script.trim();
-    if (currentScriptText) {
-      onUpdateScript(currentScriptText, true, durToApply);
+    if (cleanContinuous) {
+      onUpdateScript(cleanContinuous, true, durToApply);
     } else {
       onCalibrateScenesWordCount?.(durToApply);
     }
@@ -403,7 +403,7 @@ export default function SetupStudio({
         <SectionHeading
           step={3}
           title="Screenplay script & narration"
-          subtitle="Paste the full script. Each paragraph becomes a scene. There is no limit on the number of scenes."
+          subtitle="Paste your script. All line breaks and paragraph spaces are removed into one continuous script, then split into 20-second (50-word) scenes without adding external sentences."
           badge={
             <div className="hidden sm:flex items-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-gray-700 text-[11px] shrink-0">
               <span className="text-indigo-300 font-semibold">{detectedScenesCount} Scenes</span>
@@ -426,16 +426,16 @@ export default function SetupStudio({
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <span className="text-[11px] font-medium text-gray-400">
-            Write or paste your own script below — each paragraph becomes one scene.
+            Continuous script input — split automatically into ~{targetWordsPerScene}-word scenes ({activeDuration}s each).
           </span>
           <button
             type="button"
             onClick={handleFormatScriptToTargetDuration}
             className="px-2.5 py-1 bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-300 border border-indigo-700/60 rounded-lg text-[11px] font-semibold transition-colors flex items-center justify-center gap-1 shadow-sm shrink-0"
-            title={`Calibrate each paragraph to ~${targetWordsPerScene} words so each scene lasts ${activeDuration}s`}
+            title={`Flatten into continuous script and split into ~${targetWordsPerScene} words per scene`}
           >
             <span>✨</span>
-            <span>Calibrate My Script to {activeDuration}s (~{targetWordsPerScene}w)</span>
+            <span>Flatten & Split Script ({activeDuration}s / ~{targetWordsPerScene}w)</span>
           </button>
         </div>
 
@@ -444,7 +444,7 @@ export default function SetupStudio({
           value={script}
           onChange={(e) => setScript(e.target.value)}
           rows={11}
-          placeholder={`Scene 1: Type ~${targetWordsPerScene} words to last ${activeDuration} seconds when read aloud...\n\nScene 2: Type another ~${targetWordsPerScene} words for the second scene...\n\nScene 3: Each paragraph becomes a separate scene.`}
+          placeholder="Paste your screenplay script or narration here. All line breaks and paragraph spaces are removed into one continuous script, then cleanly split into 20-second (50-word) scenes without adding any other sentences."
           className="w-full px-4 py-3.5 bg-gray-800/90 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-xs leading-relaxed shadow-inner"
         />
 
@@ -452,7 +452,7 @@ export default function SetupStudio({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-[11px] text-gray-400 flex items-center gap-1.5">
               <span>💡</span>
-              <span>Each paragraph becomes a scene calibrated for {activeDuration}s (~{targetWordsPerScene} words).</span>
+              <span>Flattened into continuous script and split into {activeDuration}s scenes (~{targetWordsPerScene} words each).</span>
             </div>
             <div className="flex items-center gap-2">
               <button

@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { Scene, AspectRatioType } from "../types";
 import ImageSearchModal from "./ImageSearchModal";
 import { NATURE_FALLBACKS } from "../data/nature-fallbacks";
 import { REAL_FILTER_PRESETS, getFilterPreset, type FilterPreset } from "../data/filters-library";
+import { stopAllSoundPreviews } from "../data/media-library";
 import {
   countWords,
   getSpokenDurationFromWords,
@@ -95,18 +96,56 @@ export default function SceneEditor({
     setImgError(false);
   };
 
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   const handleToggleAttachedAudio = () => {
     if (!scene.audio_url) return;
     if (isPlayingAttachedAudio) {
+      if (audioRef.current) {
+        try {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+        } catch {}
+        audioRef.current = null;
+      }
       setIsPlayingAttachedAudio(false);
       return;
     }
-    const audio = new Audio(scene.audio_url);
-    setIsPlayingAttachedAudio(true);
-    audio.play();
-    audio.onended = () => setIsPlayingAttachedAudio(false);
-    audio.onerror = () => setIsPlayingAttachedAudio(false);
+
+    stopAllSoundPreviews();
+
+    try {
+      const audio = new Audio(scene.audio_url);
+      audio.loop = false;
+      audioRef.current = audio;
+      setIsPlayingAttachedAudio(true);
+      audio.play().catch(() => {
+        setIsPlayingAttachedAudio(false);
+        audioRef.current = null;
+      });
+      audio.onended = () => {
+        setIsPlayingAttachedAudio(false);
+        audioRef.current = null;
+      };
+      audio.onerror = () => {
+        setIsPlayingAttachedAudio(false);
+        audioRef.current = null;
+      };
+    } catch {
+      setIsPlayingAttachedAudio(false);
+      audioRef.current = null;
+    }
   };
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        try {
+          audioRef.current.pause();
+        } catch {}
+      }
+    };
+  }, []);
 
   const setPresetPosition = (x: number, y: number) => {
     onUpdate(scene.id, { image_offset_x: x, image_offset_y: y });
