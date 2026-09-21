@@ -2,6 +2,7 @@ import { Scene, SceneMotionType, TimelineInsert } from "../types";
 import { resolveCtaPlatform, type CtaPlatform } from "../data/cta-library";
 import { computeMotion, applyMotion, type MotionPreset } from "./overlay-motion";
 import { drawSticker, resolveStickerId, STICKER_BY_ID } from "./sticker-3d";
+import { renderTextTemplate, getTextTemplateBounds } from "./render-text-template";
 import { AudioFrame, makeAudioFrame } from "./audio-reactive";
 import { renderAudioVisualizer, getVisualizerFootprint } from "./render-visualizers";
 
@@ -180,7 +181,10 @@ export function renderTimelineInsert(
     case "content_cards":
     case "other_cards":
     case "text_templates":
-      renderContentCard(ctx, insert, cx, cy, size, w);
+    case "lower_thirds":
+      // Text cards are data-driven now: plate, border, fonts, colours,
+      // transparency and slide-in motion all come from the template style.
+      renderTextTemplate(ctx, insert, cx, cy, size, w, elapsed);
       break;
     case "intro":
     case "outro":
@@ -409,9 +413,18 @@ export function getInsertBounds(
     case "content_cards":
     case "other_cards":
     case "text_templates":
-      bw = Math.min(840, w * 0.8) * size;
-      bh = 280 * size;
-      break;
+    case "lower_thirds": {
+      // real drawn footprint so lower thirds get a tight, grabbable box
+      const b = getTextTemplateBounds(item, w);
+      bw = b.w;
+      bh = b.h;
+      // match the on-screen clamp applied by the renderer
+      const margin = w * 0.03;
+      const minX = bw / 2 + margin;
+      const maxX = w - bw / 2 - margin;
+      const clamped = maxX > minX ? Math.max(minX, Math.min(maxX, cx)) : w / 2;
+      return { cx: clamped, cy, x: clamped - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+    }
     case "audio_visualizers":
     case "speech_reactive":
     case "meditation": {
@@ -1245,338 +1258,11 @@ function renderSticker(
 }
 
 // ---------------- CONTENT CARDS ----------------
-function renderContentCard(
-  ctx: CanvasRenderingContext2D,
-  item: TimelineInsert,
-  x: number,
-  y: number,
-  size: number,
-  canvasWidth: number
-) {
-  const content = item.content || {};
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(size, size);
-
-  const cardW = Math.min(840, canvasWidth * 0.8);
-
-  switch (item.type) {
-    case "scripture":
-    case "template_scripture": {
-      const cardH = 210;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
-      ctx.strokeStyle = "rgba(245, 158, 11, 0.85)"; // gold border
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = "rgba(245, 158, 11, 0.35)";
-      ctx.shadowBlur = 24;
-      ctx.fill();
-      ctx.stroke();
-
-      // Golden Header Label
-      ctx.fillStyle = "#f59e0b";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      const book = content.book || "John";
-      const ch = content.chapter || "3";
-      const vs = content.verse || "16";
-      const version = content.secondaryText || "King James Version (KJV)";
-      const label = content.label || "HOLY SCRIPTURE";
-      ctx.fillText(`${label} · ${book.toUpperCase()} ${ch}:${vs}`, 0, -cardH / 2 + 34);
-
-      // Quote Text
-      ctx.fillStyle = "#fef3c7";
-      ctx.font = "italic 20px Georgia, serif";
-      wrapText(ctx, `“${content.primaryText || "For God so loved the world, that he gave his only begotten Son..."}”`, 0, -cardH / 2 + 82, cardW - 80, 28);
-
-      // Version Translation Footer
-      ctx.fillStyle = "#d97706";
-      ctx.font = "600 13px system-ui";
-      ctx.fillText(`— ${book} ${ch}:${vs} (${version})`, 0, cardH / 2 - 24);
-      break;
-    }
-
-    case "quote":
-    case "template_quote": {
-      const cardH = 190;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(10, 15, 30, 0.88)";
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "rgba(56, 189, 248, 0.3)";
-      ctx.shadowBlur = 20;
-      ctx.fill();
-      ctx.stroke();
-
-      // Quote mark
-      ctx.fillStyle = "rgba(56, 189, 248, 0.35)";
-      ctx.font = "bold 64px Georgia, serif";
-      ctx.textAlign = "center";
-      ctx.fillText("“", 0, -cardH / 2 + 45);
-
-      // Quote text
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "italic 21px Georgia, serif";
-      wrapText(ctx, `“${content.primaryText || "The only limit to our realization of tomorrow is our doubts of today."}”`, 0, -cardH / 2 + 75, cardW - 70, 30);
-
-      const author = content.author || content.secondaryText;
-      if (author) {
-        ctx.fillStyle = "#38bdf8";
-        ctx.font = "bold 15px system-ui";
-        ctx.fillText(`— ${author}`, 0, cardH / 2 - 24);
-      }
-      break;
-    }
-
-    case "template_lower_third": {
-      const barW = Math.min(680, canvasWidth * 0.7);
-      const barH = 76;
-      ctx.save();
-      roundRect(ctx, -barW / 2, -barH / 2, barW, barH, 12);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.95)";
-      ctx.strokeStyle = "rgba(99, 102, 241, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "rgba(0,0,0,0.8)";
-      ctx.shadowBlur = 18;
-      ctx.fill();
-      ctx.stroke();
-
-      // Left Accent Strip
-      ctx.fillStyle = "#6366f1";
-      roundRect(ctx, -barW / 2, -barH / 2, 8, barH, 4);
-      ctx.fill();
-
-      // Name & Title
-      ctx.textAlign = "left";
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 20px system-ui";
-      ctx.fillText(content.primaryText || "Featured Presenter", -barW / 2 + 24, -4);
-
-      ctx.fillStyle = "#a5b4fc";
-      ctx.font = "14px system-ui";
-      ctx.fillText(content.secondaryText || "Lead Specialist & Speaker", -barW / 2 + 24, 22);
-      ctx.restore();
-      break;
-    }
-
-    case "template_key_takeaway": {
-      const cardH = 160;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(6, 78, 59, 0.9)";
-      ctx.strokeStyle = "rgba(52, 211, 153, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "rgba(16, 185, 129, 0.35)";
-      ctx.shadowBlur = 20;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#34d399";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`💡 ${content.label || "KEY TAKEAWAY"}`, 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 21px system-ui";
-      wrapText(ctx, content.primaryText || "Consistency compounds faster than occasional intensity.", 0, -cardH / 2 + 72, cardW - 60, 28);
-
-      if (content.secondaryText) {
-        ctx.fillStyle = "#a7f3d0";
-        ctx.font = "14px system-ui";
-        ctx.fillText(content.secondaryText, 0, cardH / 2 - 20);
-      }
-      break;
-    }
-
-    case "template_did_you_know": {
-      const cardH = 170;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(80, 7, 36, 0.9)";
-      ctx.strokeStyle = "rgba(244, 63, 94, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#fb7185";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`🧠 ${content.label || "DID YOU KNOW?"}`, 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 20px system-ui";
-      wrapText(ctx, content.primaryText || "Honey never spoils in archaeological tombs.", 0, -cardH / 2 + 72, cardW - 60, 28);
-
-      if (content.secondaryText) {
-        ctx.fillStyle = "#fecdd3";
-        ctx.font = "14px system-ui";
-        ctx.fillText(content.secondaryText, 0, cardH / 2 - 20);
-      }
-      break;
-    }
-
-    case "template_numbered_step": {
-      const cardH = 150;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(46, 16, 101, 0.92)";
-      ctx.strokeStyle = "rgba(167, 139, 250, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#c4b5fd";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`🎯 STEP ${content.number || "01"} — ${content.label || "ACTION ITEM"}`, 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 20px system-ui";
-      wrapText(ctx, content.primaryText || "Calibrate your baseline before beginning the pipeline.", 0, -cardH / 2 + 72, cardW - 60, 28);
-      break;
-    }
-
-    case "fact": {
-      const cardH = 170;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(20, 24, 40, 0.9)";
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#38bdf8";
-      ctx.font = "bold 14px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`💡 ${content.label || "DID YOU KNOW?"}`, 0, -cardH / 2 + 34);
-
-      ctx.fillStyle = "#f1f5f9";
-      ctx.font = "500 21px system-ui";
-      wrapText(ctx, content.primaryText || "Octopuses have three hearts and blue copper-based blood.", 0, -cardH / 2 + 80, cardW - 80, 30);
-      break;
-    }
-
-    case "key_point": {
-      const cardH = 150;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 14);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
-      ctx.strokeStyle = "rgba(168, 85, 247, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#c084fc";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`★ ${content.label || "KEY TAKEAWAY"}`, 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 22px system-ui";
-      wrapText(ctx, content.primaryText || "Focus on compounding small daily improvements.", 0, -cardH / 2 + 75, cardW - 70, 32);
-      break;
-    }
-
-    case "definition": {
-      const cardH = 180;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
-      ctx.strokeStyle = "rgba(148, 163, 184, 0.5)";
-      ctx.lineWidth = 1.5;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#94a3b8";
-      ctx.font = "bold 12px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText("📖 DEFINITION", 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#38bdf8";
-      ctx.font = "bold 24px system-ui";
-      ctx.fillText(content.primaryText || "Resilience", 0, -cardH / 2 + 70);
-
-      ctx.fillStyle = "#cbd5e1";
-      ctx.font = "17px system-ui";
-      wrapText(ctx, content.secondaryText || "The capacity to recover quickly from difficulties; toughness.", 0, -cardH / 2 + 105, cardW - 80, 26);
-      break;
-    }
-
-    case "tip": {
-      const cardH = 130;
-      const tw = 480;
-      roundRect(ctx, -tw / 2, -cardH / 2, tw, cardH, 14);
-      ctx.fillStyle = "rgba(6, 78, 59, 0.88)";
-      ctx.strokeStyle = "rgba(52, 211, 153, 0.6)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#34d399";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`✨ ${content.label || "PRO TIP"}`, 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "500 18px system-ui";
-      wrapText(ctx, content.primaryText || "Review your highlights once every Sunday.", 0, -cardH / 2 + 70, tw - 40, 26);
-      break;
-    }
-
-    case "question": {
-      const cardH = 160;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(30, 27, 75, 0.9)";
-      ctx.strokeStyle = "rgba(129, 140, 248, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#818cf8";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText("❓ QUESTION FOR YOU", 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "600 22px system-ui";
-      wrapText(ctx, content.primaryText || "What would you attempt if you knew you could not fail?", 0, -cardH / 2 + 75, cardW - 70, 32);
-      break;
-    }
-
-    case "list": {
-      const items = content.items || ["1. First priority item", "2. Second crucial factor", "3. Third action item"];
-      const cardH = 80 + items.length * 36;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
-      ctx.strokeStyle = "rgba(99, 102, 241, 0.6)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#818cf8";
-      ctx.font = "bold 14px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`📋 ${content.label || "KEY POINTS"}`, 0, -cardH / 2 + 34);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "18px system-ui";
-      ctx.textAlign = "left";
-      items.forEach((it, idx) => {
-        ctx.fillText(it, -cardW / 2 + 40, -cardH / 2 + 75 + idx * 36);
-      });
-      break;
-    }
-
-    default: {
-      const cardH = 150;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 14);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 20px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(content.primaryText || item.title, 0, 0);
-      break;
-    }
-  }
-
-  ctx.restore();
-}
+// NOTE: renderContentCard() was removed when text cards became data-driven.
+// Every scripture / quote / lower-third / lesson card is now described in
+// src/data/text-templates.ts and painted by renderTextTemplate(), so the plate,
+// border, fonts, colours, transparency and entrance motion are all adjustable
+// per insert instead of hard-coded per design.
 
 // ---------------- INTRO & OUTRO OVERLAYS (FULL-SCREEN TENSION GETTERS & BRANDING) ----------------
 const introVideoCache = new Map<string, HTMLVideoElement>();

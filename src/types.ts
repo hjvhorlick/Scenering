@@ -100,6 +100,11 @@ export interface InsertVisualOptions {
   motionSpeed?: number;   // 0.25 - 2.5 cycle rate (default 1)
   motionAmount?: number;  // 0 - 2 travel/angle multiplier (default 1)
   motionEntrance?: boolean; // play the pop-in on appear (default true)
+  /* ---- Text templates ---- */
+  /** id from TEXT_TEMPLATES in src/data/text-templates.ts */
+  templateId?: string;
+  /** per-insert overrides of the template's default look */
+  templateStyle?: Record<string, unknown>;
   /* ---- 3D sticker look ---- */
   stickerId?: string;     // id from STICKER_LIBRARY in src/lib/sticker-3d.ts
   stickerTint?: string | null; // recolour the sticker (null = its own palette)
@@ -131,6 +136,8 @@ export type InsertCategory =
   | "stickers"
   | "content_cards"
   | "text_templates"
+  /** Lower thirds are their own studio section (name/role bars) */
+  | "lower_thirds"
   | "audio_visualizers"
   | "speech_reactive"
   | "background_music"
@@ -173,6 +180,10 @@ export interface TimelineInsert {
     number?: string;
     label?: string;
     items?: string[];
+    item1?: string;
+    item2?: string;
+    item3?: string;
+    item4?: string;
     // Specialized text template fields
     reference?: string;
     scriptureText?: string;

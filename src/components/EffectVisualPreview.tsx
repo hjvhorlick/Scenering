@@ -3,6 +3,7 @@ import { CatalogItem } from "../lib/video-studio-catalog";
 import { getPresetCoords, renderTimelineInsert } from "../lib/render-effects";
 import type { TimelineInsert } from "../types";
 import StickerPreviewCanvas from "./StickerPreviewCanvas";
+import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
 import { MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 
 interface EffectVisualPreviewProps {
@@ -318,64 +319,21 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     );
   }
 
-  // ---------------- 6. TEXT TEMPLATES PREVIEWS ----------------
-  if (item.category === "text_templates") {
-    if (item.type === "template_scripture") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-r from-amber-950/80 via-gray-950 to-amber-950/80 border border-amber-500/60 p-2.5 flex flex-col justify-between relative overflow-hidden group shadow-md">
-          <div className="flex items-center justify-between border-b border-amber-600/30 pb-1">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-amber-300">📖</span>
-              <span className="text-[9px] font-black text-amber-300 tracking-wider">JOHN 3:16</span>
-            </div>
-            <span className="text-[8px] font-mono text-amber-200/70 bg-amber-950 px-1 rounded border border-amber-600/30">KJV</span>
-          </div>
-          <div className="text-[9px] text-amber-100 font-serif italic line-clamp-2 leading-relaxed my-auto">
-            &ldquo;For God so loved the world, that he gave his only begotten Son...&rdquo;
-          </div>
-          <div className="text-[8px] text-amber-400/80 text-right font-medium">Holy Scripture Verse Card</div>
-        </div>
-      );
-    }
-
-    if (item.type === "template_quote") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-sky-500/50 p-2.5 flex flex-col justify-between relative overflow-hidden group">
-          <div className="flex items-center gap-1 text-sky-400 text-xs font-serif leading-none">
-            <span>❝</span>
-            <span className="text-[9px] font-sans font-bold text-sky-300 uppercase tracking-wider">INSPIRATION</span>
-          </div>
-          <div className="text-[9px] text-gray-200 italic line-clamp-2 my-auto font-serif">
-            &ldquo;The only limit to our realization of tomorrow is our doubts of today.&rdquo;
-          </div>
-          <div className="text-[8px] text-sky-400 font-medium text-right">— Franklin D. Roosevelt</div>
-        </div>
-      );
-    }
-
-    if (item.type === "template_lower_third") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2 flex items-end relative overflow-hidden group">
-          <div className="w-full bg-gradient-to-r from-indigo-900/90 via-indigo-950/80 to-transparent p-2 rounded-lg border-l-4 border-l-indigo-500 border-t border-indigo-700/40">
-            <div className="text-[10px] font-black text-white leading-tight">Dr. Elizabeth Vance</div>
-            <div className="text-[8px] text-indigo-300 font-medium">Lead Astrobiologist & Research Fellow</div>
-          </div>
-        </div>
-      );
-    }
-
-    // Generic Template
+  // ---------------- 6. TEXT TEMPLATE & LOWER THIRD PREVIEWS ----------------
+  // Rendered with the real template renderer over a mock frame, so the button
+  // shows the true plate, transparency, font and slide-in motion.
+  if (item.category === "text_templates" || item.category === "lower_thirds") {
     return (
-      <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-center relative overflow-hidden group">
-        <div className="bg-gray-900/80 p-2 rounded border border-gray-700">
-          <div className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider">{item.name}</div>
-          <div className="text-[10px] text-gray-200 mt-0.5 line-clamp-2 leading-tight">
-            {item.defaultContent?.primaryText || item.description}
-          </div>
-        </div>
+      <div className="w-full rounded-lg overflow-hidden border border-gray-800 bg-gray-950 flex items-center justify-center">
+        <TemplatePreviewCanvas
+          templateId={(item.defaultVisualOptions?.templateId as string) || item.type}
+          content={item.defaultContent as Record<string, string>}
+          width={252}
+        />
       </div>
     );
   }
+
 
   // ---------------- 8. BACKGROUND MUSIC PREVIEWS ----------------
   // Background Music: intentionally NO preview graphic — audio items stay

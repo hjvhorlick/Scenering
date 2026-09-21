@@ -320,7 +320,8 @@ export default function Timeline({
 
             let badgeColor = "bg-indigo-600/90 border-indigo-400 text-indigo-100";
             if (item.category === "stickers") badgeColor = "bg-pink-600/90 border-pink-400 text-pink-100";
-            else if (item.category === "content_cards") badgeColor = "bg-amber-600/90 border-amber-400 text-amber-100";
+            else if (item.category === "content_cards" || item.category === "text_templates") badgeColor = "bg-amber-600/90 border-amber-400 text-amber-100";
+            else if (item.category === "lower_thirds") badgeColor = "bg-violet-600/90 border-violet-400 text-violet-100";
             else if (item.category === "audio_visualizers" || item.category === "speech_reactive") badgeColor = "bg-cyan-600/90 border-cyan-400 text-cyan-100";
             else if (item.category === "special_effects") badgeColor = "bg-emerald-600/90 border-emerald-400 text-emerald-100";
 

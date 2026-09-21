@@ -1,6 +1,19 @@
 import { useState, useRef, useEffect } from "react";
 import { TimelineInsert, AspectRatioType } from "../types";
 import StickerPreviewCanvas from "./StickerPreviewCanvas";
+import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
+import {
+  TEXT_TEMPLATES,
+  TEMPLATE_BY_ID,
+  TEMPLATE_MOTIONS,
+  STYLE_CONTROLS,
+  BORDER_MODES,
+  PLATE_SHAPES,
+  resolveTemplateId,
+  resolveTemplateStyle,
+  type TextTemplateStyle,
+} from "../data/text-templates";
+import { CAPTION_FONTS } from "../data/caption-styles";
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
@@ -180,7 +193,8 @@ function InsertPropertiesContent({
   const isContentCard =
     insert.category === "content_cards" ||
     insert.category === "other_cards" ||
-    insert.category === "text_templates";
+    insert.category === "text_templates" ||
+    insert.category === "lower_thirds";
   const isCallToAction = insert.category === "call_to_action";
   const isSticker = insert.category === "stickers";
   const isScriptureTemplate = insert.type === "template_scripture" || insert.type.includes("scripture");
@@ -387,6 +401,28 @@ function InsertPropertiesContent({
     }
     onUpdate(data);
     onClose();
+  };
+
+  /** Patch one field of the template's look, keeping the rest of the overrides */
+  const updateTemplateStyle = (field: string, value: unknown) => {
+    setData((prev) => ({
+      ...prev,
+      visualOptions: {
+        ...prev.visualOptions,
+        templateStyle: {
+          ...((prev.visualOptions?.templateStyle as Record<string, unknown>) || {}),
+          [field]: value,
+        },
+      },
+    }));
+  };
+
+  /** Drop all overrides and go back to the template's designed look */
+  const resetTemplateStyle = () => {
+    setData((prev) => ({
+      ...prev,
+      visualOptions: { ...prev.visualOptions, templateStyle: undefined },
+    }));
   };
 
   const updateVisualOptions = (field: string, value: any) => {
@@ -683,6 +719,22 @@ function InsertPropertiesContent({
             >
               <span>📝</span>
               <span>Text Content</span>
+            </button>
+          )}
+
+          {/* Design tab: plate, border, fonts, colours, transparency, motion */}
+          {!isIntroOutro && isContentCard && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("design")}
+              className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                activeTab === "design"
+                  ? "border-indigo-500 text-indigo-400"
+                  : "border-transparent text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              <span>🎨</span>
+              <span>Design</span>
             </button>
           )}
 
@@ -2720,6 +2772,371 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: TEXT CONTENT & COMPLETED CTA TEMPLATES */}
+          {/* ============ DESIGN TAB: the full adjustable look ============ */}
+          {activeTab === "design" && !isIntroOutro && isContentCard && (() => {
+            const tplId = resolveTemplateId(
+              (data.visualOptions?.templateId as string) || insert.type
+            );
+            const overrides = (data.visualOptions?.templateStyle || {}) as Partial<TextTemplateStyle>;
+            const st = resolveTemplateStyle(tplId, overrides);
+            const tplDef = TEMPLATE_BY_ID[tplId];
+            const section = tplDef?.section;
+            const siblings = TEXT_TEMPLATES.filter((t) => t.section === section);
+            const fmt = (v: number, suffix?: string) =>
+              suffix === "percent" ? `${Math.round(v * 100)}%`
+              : suffix === "px" ? `${v}px`
+              : suffix === "x" ? `${v.toFixed(2)}×`
+              : v.toFixed(2);
+
+            return (
+              <div className="space-y-5">
+                {/* Live preview of exactly what will be drawn */}
+                <div className="bg-gray-950/70 border border-gray-800 rounded-xl p-3 flex flex-col items-center gap-2">
+                  <TemplatePreviewCanvas
+                    templateId={tplId}
+                    content={data.content as Record<string, string>}
+                    styleOverrides={overrides}
+                    width={420}
+                  />
+                  <span className="text-[10px] text-gray-500">
+                    Live preview — background, border, font and motion as they will render
+                  </span>
+                </div>
+
+                {/* Swap to another template in the same section */}
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-white">Template</span>
+                    <button
+                      type="button"
+                      onClick={resetTemplateStyle}
+                      className="text-[10px] px-2 py-1 rounded border border-gray-600 text-gray-300 hover:border-gray-400 transition-colors cursor-pointer"
+                    >
+                      Reset design
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {siblings.map((t) => {
+                      const active = t.id === tplId;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          title={t.blurb}
+                          onClick={() => updateVisualOptions("templateId", t.id)}
+                          className={`px-2 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
+                            active
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                          }`}
+                        >
+                          <span className="text-sm">{t.icon}</span>
+                          <span className="truncate text-left">{t.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* ---- Background ---- */}
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <span className="text-xs font-semibold text-white block">🎨 Background</span>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-300">Colour:</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={st.bgColor}
+                        onChange={(e) => updateTemplateStyle("bgColor", e.target.value)}
+                        className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                      />
+                      <input
+                        type="color"
+                        value={st.bgColor2 || st.bgColor}
+                        onChange={(e) => updateTemplateStyle("bgColor2", e.target.value)}
+                        className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        title="Second colour (gradient)"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateTemplateStyle("bgColor2", st.bgColor2 ? null : "#1E293B")}
+                        className={`px-2 py-1 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
+                          st.bgColor2
+                            ? "bg-indigo-600 border-indigo-400 text-white"
+                            : "bg-gray-900 border-gray-600 text-gray-300"
+                        }`}
+                      >
+                        Gradient
+                      </button>
+                    </div>
+                  </div>
+
+                  {STYLE_CONTROLS.filter((c) => c.group === "background").map((c) => (
+                    <div key={c.key} className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300">{c.label}:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={c.min}
+                          max={c.max}
+                          step={c.step}
+                          value={st[c.key] as number}
+                          onChange={(e) => updateTemplateStyle(c.key, parseFloat(e.target.value))}
+                          className="w-32 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-gray-300 w-12 text-right">
+                          {fmt(st[c.key] as number, c.suffix)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-gray-300">Plate shape:</span>
+                    <div className="flex gap-1">
+                      {PLATE_SHAPES.map((sh) => (
+                        <button
+                          key={sh.id}
+                          type="button"
+                          onClick={() => updateTemplateStyle("plateShape", sh.id)}
+                          className={`px-2 py-1 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
+                            st.plateShape === sh.id
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                          }`}
+                        >
+                          {sh.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => updateTemplateStyle("bgOpacity", st.bgOpacity > 0.02 ? 0 : 0.88)}
+                    className={`w-full py-2 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                      st.bgOpacity <= 0.02
+                        ? "bg-indigo-600 border-indigo-400 text-white"
+                        : "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                    }`}
+                  >
+                    {st.bgOpacity <= 0.02 ? "✓ No background (text floats on video)" : "Remove background entirely"}
+                  </button>
+                </div>
+
+                {/* ---- Border ---- */}
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <span className="text-xs font-semibold text-white block">▢ Border</span>
+
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {BORDER_MODES.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => updateTemplateStyle("borderMode", b.id)}
+                        className={`px-2 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
+                          st.borderMode === b.id
+                            ? "bg-indigo-600 border-indigo-400 text-white"
+                            : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                        }`}
+                      >
+                        <span className="font-mono">{b.icon}</span>
+                        <span className="truncate">{b.name}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {st.borderMode !== "none" && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-300">Border colour:</span>
+                        <input
+                          type="color"
+                          value={st.borderColor}
+                          onChange={(e) => updateTemplateStyle("borderColor", e.target.value)}
+                          className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        />
+                      </div>
+                      {STYLE_CONTROLS.filter((c) => c.group === "border").map((c) => (
+                        <div key={c.key} className="flex items-center justify-between">
+                          <span className="text-xs text-gray-300">{c.label}:</span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="range"
+                              min={c.min}
+                              max={c.max}
+                              step={c.step}
+                              value={st[c.key] as number}
+                              onChange={(e) => updateTemplateStyle(c.key, parseFloat(e.target.value))}
+                              className="w-32 accent-indigo-500 cursor-pointer"
+                            />
+                            <span className="font-mono text-xs text-gray-300 w-12 text-right">
+                              {fmt(st[c.key] as number, c.suffix)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+
+                {/* ---- Text & font ---- */}
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <span className="text-xs font-semibold text-white block">🔤 Text & Font</span>
+
+                  <div className="space-y-1.5">
+                    <span className="text-xs text-gray-300">Font:</span>
+                    <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                      {CAPTION_FONTS.map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => updateTemplateStyle("fontId", f.id)}
+                          style={{ fontFamily: `"${f.family}", ${f.fallback}` }}
+                          className={`px-2 py-2 rounded-lg border text-xs transition-colors text-left cursor-pointer ${
+                            st.fontId === f.id
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-gray-900/70 border-gray-700 text-gray-200 hover:border-gray-500"
+                          }`}
+                        >
+                          {f.family}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-gray-300">Colours:</span>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1 text-[10px] text-gray-400">
+                        Title
+                        <input
+                          type="color"
+                          value={st.titleColor}
+                          onChange={(e) => updateTemplateStyle("titleColor", e.target.value)}
+                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        />
+                      </label>
+                      <label className="flex items-center gap-1 text-[10px] text-gray-400">
+                        Body
+                        <input
+                          type="color"
+                          value={st.bodyColor}
+                          onChange={(e) => updateTemplateStyle("bodyColor", e.target.value)}
+                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        />
+                      </label>
+                      <label className="flex items-center gap-1 text-[10px] text-gray-400">
+                        Accent
+                        <input
+                          type="color"
+                          value={st.accentColor}
+                          onChange={(e) => updateTemplateStyle("accentColor", e.target.value)}
+                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  {STYLE_CONTROLS.filter((c) => c.group === "text").map((c) => (
+                    <div key={c.key} className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300">{c.label}:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={c.min}
+                          max={c.max}
+                          step={c.step}
+                          value={st[c.key] as number}
+                          onChange={(e) => updateTemplateStyle(c.key, parseFloat(e.target.value))}
+                          className="w-32 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-gray-300 w-12 text-right">
+                          {fmt(st[c.key] as number, c.suffix)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-gray-300">Align:</span>
+                    <div className="flex gap-1">
+                      {(["left", "center", "right"] as const).map((a) => (
+                        <button
+                          key={a}
+                          type="button"
+                          onClick={() => updateTemplateStyle("textAlign", a)}
+                          className={`px-2.5 py-1 rounded text-[10px] font-semibold border capitalize transition-colors cursor-pointer ${
+                            st.textAlign === a
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                          }`}
+                        >
+                          {a}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-300">Uppercase labels</span>
+                    <input
+                      type="checkbox"
+                      checked={st.uppercaseLabel}
+                      onChange={(e) => updateTemplateStyle("uppercaseLabel", e.target.checked)}
+                      className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* ---- Motion & depth ---- */}
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <span className="text-xs font-semibold text-white block">🎞️ Entrance & Depth</span>
+
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {TEMPLATE_MOTIONS.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        title={m.blurb}
+                        onClick={() => updateTemplateStyle("motion", m.id)}
+                        className={`px-1.5 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer ${
+                          st.motion === m.id
+                            ? "bg-indigo-600 border-indigo-400 text-white"
+                            : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                        }`}
+                      >
+                        <span className="text-base leading-none">{m.icon}</span>
+                        <span className="leading-tight text-center">{m.name}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {STYLE_CONTROLS.filter((c) => c.group === "depth").map((c) => (
+                    <div key={c.key} className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300">{c.label}:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={c.min}
+                          max={c.max}
+                          step={c.step}
+                          value={st[c.key] as number}
+                          onChange={(e) => updateTemplateStyle(c.key, parseFloat(e.target.value))}
+                          className="w-32 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-gray-300 w-12 text-right">
+                          {fmt(st[c.key] as number, c.suffix)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           {activeTab === "content" && !isIntroOutro && (isContentCard || isCallToAction) && (
             <div className="space-y-4">
               {isCallToAction ? (
@@ -2964,46 +3381,88 @@ function InsertPropertiesContent({
                   </div>
                 </div>
               ) : (
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
-                  <div>
-                    <label className="text-xs font-semibold text-white block mb-1">
-                      Header / Category Label:
-                    </label>
-                    <input
-                      type="text"
-                      value={data.content?.label || ""}
-                      onChange={(e) => updateContent("label", e.target.value)}
-                      placeholder="e.g. KEY TAKEAWAY, DID YOU KNOW?, INSPIRATION..."
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 font-mono"
-                    />
-                  </div>
+                (() => {
+                  // The editor follows the template: only the fields this
+                  // layout actually draws are shown, labelled for that layout.
+                  const tplId = resolveTemplateId(
+                    (data.visualOptions?.templateId as string) || insert.type
+                  );
+                  const tplDef = TEMPLATE_BY_ID[tplId];
+                  const keys = tplDef ? Object.keys(tplDef.content) : ["label", "primaryText", "secondaryText"];
+                  const LABELS: Record<string, string> = {
+                    label: "Header / category label",
+                    primaryText: tplDef?.section === "scripture" ? "Verse text"
+                      : tplDef?.section === "quotes" ? "Quote text"
+                      : tplDef?.section === "lower_thirds" ? "Name"
+                      : "Main text",
+                    secondaryText: tplDef?.section === "scripture" ? "Translation / version"
+                      : tplDef?.section === "lower_thirds" ? "Role / title / handle"
+                      : "Secondary line",
+                    author: "Author",
+                    book: "Book",
+                    chapter: "Chapter",
+                    verse: "Verse",
+                    number: "Number / figure",
+                    item1: "Point 1",
+                    item2: "Point 2",
+                    item3: "Point 3",
+                    item4: "Point 4",
+                  };
+                  const LONG = new Set(["primaryText"]);
+                  const SHORT_ROW = ["book", "chapter", "verse"];
+                  const rowKeys = keys.filter((k) => SHORT_ROW.includes(k));
+                  const restKeys = keys.filter((k) => !SHORT_ROW.includes(k));
 
-                  <div>
-                    <label className="text-xs font-semibold text-white block mb-1">
-                      Primary Card / Quote / Point Text:
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={data.content?.primaryText || ""}
-                      onChange={(e) => updateContent("primaryText", e.target.value)}
-                      placeholder="Enter main text..."
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
+                  return (
+                    <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                      {rowKeys.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {rowKeys.map((k) => (
+                            <div key={k}>
+                              <label className="text-xs font-semibold text-white block mb-1">
+                                {LABELS[k] || k}:
+                              </label>
+                              <input
+                                type="text"
+                                value={(data.content as Record<string, string>)?.[k] || ""}
+                                onChange={(e) => updateContent(k, e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
-                  <div>
-                    <label className="text-xs font-semibold text-white block mb-1">
-                      Secondary Text / Subtitle / Author / Citation:
-                    </label>
-                    <input
-                      type="text"
-                      value={data.content?.secondaryText || data.content?.author || ""}
-                      onChange={(e) => updateContent("secondaryText", e.target.value)}
-                      placeholder="Optional author, subtitle, or citation..."
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
+                      {restKeys.map((k) => (
+                        <div key={k}>
+                          <label className="text-xs font-semibold text-white block mb-1">
+                            {LABELS[k] || k}:
+                          </label>
+                          {LONG.has(k) ? (
+                            <textarea
+                              rows={3}
+                              value={(data.content as Record<string, string>)?.[k] || ""}
+                              onChange={(e) => updateContent(k, e.target.value)}
+                              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              value={(data.content as Record<string, string>)?.[k] || ""}
+                              onChange={(e) => updateContent(k, e.target.value)}
+                              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          )}
+                        </div>
+                      ))}
+
+                      <p className="text-[10px] text-gray-500 pt-1">
+                        Colours, fonts, background transparency, border and slide-in motion live in the
+                        <span className="text-gray-300 font-semibold"> Design </span> tab.
+                      </p>
+                    </div>
+                  );
+                })()
               )}
             </div>
           )}

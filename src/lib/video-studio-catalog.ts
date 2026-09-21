@@ -2,6 +2,7 @@ import type { InsertCategory, InsertVisualOptions, InsertAudioSettings, AudioSou
 import { BACKGROUND_MUSIC_TRACKS, SOUND_LIBRARY } from "../data/media-library";
 import { CTA_PLATFORMS, CTA_GROUPS } from "../data/cta-library";
 import { STICKER_LIBRARY, STICKER_GROUPS } from "./sticker-3d";
+import { TEXT_TEMPLATES } from "../data/text-templates";
 import { VIDEO_FILTERS, FILTER_GROUPS } from "../data/video-filters";
 
 export interface CatalogItem {
@@ -101,13 +102,19 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
     id: "text_templates",
     name: "Text Templates",
     icon: "📜",
-    description: "Dedicated text templates for Scriptures, Quotes, Lower Thirds, Facts, and Key Lessons",
+    description: "Scripture, quote and lesson cards — every one adjustable: background colour and transparency, removable border, font, text colour and slide-in motion",
     subcategories: [
       { id: "all", name: "All Templates", icon: "📜" },
-      { id: "scripture", name: "Holy Scripture", icon: "📖" },
-      { id: "quotes", name: "Quotes & Titles", icon: "💬" },
+      { id: "scripture", name: "Scripture", icon: "📖" },
+      { id: "quotes", name: "Quotes", icon: "💬" },
       { id: "lessons", name: "Facts & Lessons", icon: "💡" },
     ],
+  },
+  {
+    id: "lower_thirds",
+    name: "Lower Thirds",
+    icon: "👤",
+    description: "Name and role bars that slide in from the left or right — fully adjustable background, border, font and transparency",
   },
   {
     id: "audio_visualizers",
@@ -580,140 +587,45 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
     },
   ],
 
-  text_templates: [
-    {
-      type: "template_scripture",
-      category: "text_templates",
-      subCategory: "scripture",
-      name: "Holy Scripture Verse Card",
-      icon: "📖",
-      description: "Dedicated spiritual scripture template with dedicated reference field, translation version, paste scripture text, and sacred gold accents",
-      defaultDuration: 7.0,
-      defaultPosition: "center",
-      defaultSize: 1.0,
-      defaultContent: {
-        label: "HOLY SCRIPTURE",
-        primaryText: "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.",
-        book: "John",
-        chapter: "3",
-        verse: "16",
-        secondaryText: "King James Version (KJV)",
-      },
-      defaultVisualOptions: {
-        primaryColor: "#f59e0b",
-        secondaryColor: "#78350f",
-        has3DLook: true,
-        animationPreset: "pop_in",
-      },
-    },
-    {
-      type: "template_quote",
-      category: "text_templates",
-      subCategory: "quotes",
-      name: "Inspirational Quote Frame",
-      icon: "💬",
-      description: "Editorial quote template with prominent quotation marks, quotation text field, author attribution, and source",
-      defaultDuration: 5.5,
-      defaultPosition: "center",
-      defaultSize: 1.0,
-      defaultContent: {
-        primaryText: "The only limit to our realization of tomorrow is our doubts of today.",
-        author: "Franklin D. Roosevelt",
-        secondaryText: "32nd U.S. President",
-        label: "WORDS OF WISDOM",
-      },
-      defaultVisualOptions: {
-        primaryColor: "#38bdf8",
-        secondaryColor: "#0369a1",
-        has3DLook: true,
-      },
-    },
-    {
-      type: "template_lower_third",
-      category: "text_templates",
-      subCategory: "quotes",
-      name: "Speaker & Guest Lower-Third",
-      icon: "👤",
-      description: "Broadcasting lower-third bar with speaker full name, official title, and handle tag",
-      defaultDuration: 4.5,
-      defaultPosition: "bottom-left",
-      defaultSize: 1.0,
-      defaultContent: {
-        primaryText: "Dr. Elizabeth Vance",
-        secondaryText: "Lead Astrobiologist & Research Fellow",
-        label: "FEATURED SPEAKER",
-      },
-      defaultVisualOptions: {
-        primaryColor: "#6366f1",
-        secondaryColor: "#4338ca",
-        has3DLook: true,
-      },
-    },
-    {
-      type: "template_key_takeaway",
-      category: "text_templates",
-      subCategory: "lessons",
-      name: "Key Insight & Takeaway Card",
-      icon: "💡",
-      description: "Bold lesson highlight frame showcasing the core concept or moral lesson from the scene",
-      defaultDuration: 5.0,
-      defaultPosition: "bottom",
-      defaultSize: 1.0,
-      defaultContent: {
-        label: "KEY TAKEAWAY",
-        primaryText: "Consistency compounds faster than occasional intensity.",
-        secondaryText: "Small daily actions yield monumental long-term transformation.",
-      },
-      defaultVisualOptions: {
-        primaryColor: "#10b981",
-        secondaryColor: "#047857",
-        has3DLook: true,
-      },
-    },
-    {
-      type: "template_did_you_know",
-      category: "text_templates",
-      subCategory: "lessons",
-      name: "Did You Know? Fact Card",
-      icon: "🧠",
-      description: "Attention-grabbing trivia callout card with question header and verified explanation text",
-      defaultDuration: 5.5,
-      defaultPosition: "top",
-      defaultSize: 1.0,
-      defaultContent: {
-        label: "DID YOU KNOW?",
-        primaryText: "Honey found in ancient Egyptian tombs is still perfectly edible after 3,000 years.",
-        secondaryText: "Archaeologists routinely uncover intact honey pots that remain unspoiled.",
-      },
-      defaultVisualOptions: {
-        primaryColor: "#ec4899",
-        secondaryColor: "#be185d",
-        has3DLook: true,
-      },
-    },
-    {
-      type: "template_numbered_step",
-      category: "text_templates",
-      subCategory: "lessons",
-      name: "Numbered Action Step / Tip",
-      icon: "🎯",
-      description: "Structured step card with glowing 3D sequence badge, action instruction, and advice details",
-      defaultDuration: 5.0,
-      defaultPosition: "center",
-      defaultSize: 1.0,
-      defaultContent: {
-        label: "ACTION STEP",
-        number: "01",
-        primaryText: "Calibrate your baseline and inspect all inputs thoroughly.",
-        secondaryText: "Double-check your workspace parameters before continuing.",
-      },
-      defaultVisualOptions: {
-        primaryColor: "#8b5cf6",
-        secondaryColor: "#6d28d9",
-        has3DLook: true,
-      },
-    },
-  ],
+  // Text templates are generated from the template library so the catalog,
+  // the renderer and the properties panel can never drift apart. Lower thirds
+  // are their own category (see below).
+  text_templates: TEXT_TEMPLATES.filter((t) => t.section !== "lower_thirds").map((t) => ({
+    type: t.id,
+    category: "text_templates" as InsertCategory,
+    subCategory: t.section,
+    name: t.name,
+    icon: t.icon,
+    description: t.blurb,
+    defaultDuration: t.defaultDuration,
+    defaultPosition: t.defaultPosition,
+    defaultSize: 1.0,
+    defaultContent: { ...t.content },
+    defaultVisualOptions: {
+      templateId: t.id,
+      primaryColor: t.style.accentColor,
+      secondaryColor: t.style.bgColor,
+    } as InsertVisualOptions,
+  })),
+
+  // Lower Thirds: their own section, all with slide-in motion
+  lower_thirds: TEXT_TEMPLATES.filter((t) => t.section === "lower_thirds").map((t) => ({
+    type: t.id,
+    category: "lower_thirds" as InsertCategory,
+    subCategory: "lower_thirds",
+    name: t.name,
+    icon: t.icon,
+    description: t.blurb,
+    defaultDuration: t.defaultDuration,
+    defaultPosition: t.defaultPosition,
+    defaultSize: 1.0,
+    defaultContent: { ...t.content },
+    defaultVisualOptions: {
+      templateId: t.id,
+      primaryColor: t.style.accentColor,
+      secondaryColor: t.style.bgColor,
+    } as InsertVisualOptions,
+  })),
 
   // Background Music tracks (soft relaxing instrumental tracks, no singing, auto credit)
   background_music: BACKGROUND_MUSIC_TRACKS.map((t) => ({
