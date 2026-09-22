@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { CALIBRATED_SAMPLES, type CalibratedSample } from "../data/calibrated-samples";
 import { countWords, countScenesFromScript } from "../lib/duration-utils";
 
 interface ScriptInputProps {
@@ -23,12 +22,6 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
     if (title.trim() && script.trim()) {
       onSubmit(title.trim(), script.trim());
     }
-  };
-
-  const loadSample = (sample: CalibratedSample) => {
-    const durScript = sample.scripts[20] || sample.scripts[10] || Object.values(sample.scripts)[0] || "";
-    setTitle(sample.title);
-    setScript(durScript);
   };
 
   return (
@@ -61,26 +54,6 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
           </button>
         </div>
       )}
-
-      {/* Sample Scripts */}
-      <div className="space-y-2">
-        <span className="text-xs text-gray-400 font-medium">
-          Try a sample script:
-        </span>
-        <div className="flex flex-wrap gap-2">
-          {CALIBRATED_SAMPLES.map((sample) => (
-            <button
-              key={sample.title}
-              type="button"
-              onClick={() => loadSample(sample)}
-              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-300 hover:text-white transition-colors border border-gray-700 flex items-center gap-1.5 shadow-sm"
-            >
-              <span>📜</span>
-              <span>{sample.title}</span>
-            </button>
-          ))}
-        </div>
-      </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>

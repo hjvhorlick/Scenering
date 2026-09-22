@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <radialGradient id="heartBody" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FF99B0"/>
+      <stop offset="25%" stop-color="#FF2456"/>
+      <stop offset="70%" stop-color="#B80036"/>
+      <stop offset="95%" stop-color="#6B001E"/>
+      <stop offset="100%" stop-color="#400010"/>
+    </radialGradient>
+    <radialGradient id="heartSpecular" cx="30%" cy="25%" r="30%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="70%" stop-color="#FFADC2" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#FF2456" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="heartShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="12" stdDeviation="10" flood-color="#550015" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <g filter="url(#heartShadow)">
+    <path d="M100,175 C50,135 15,100 15,62 C15,32 38,12 68,12 C84,12 99,22 100,32 C101,22 116,12 132,12 C162,12 185,32 185,62 C185,100 150,135 100,175 Z" fill="url(#heartBody)"/>
+    <ellipse cx="60" cy="42" rx="28" ry="16" fill="url(#heartSpecular)" transform="rotate(-25 60 42)"/>
+    <path d="M132,16 C155,16 173,32 177,56 C172,40 155,24 132,24 Z" fill="#FFFFFF" fill-opacity="0.45"/>
+    <path d="M100,175 C85,160 55,130 40,110 C50,128 80,158 100,175 Z" fill="#38000C" fill-opacity="0.4"/>
+  </g>
+</svg>

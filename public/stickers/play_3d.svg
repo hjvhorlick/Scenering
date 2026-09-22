@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <radialGradient id="playCircle" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FF5277"/>
+      <stop offset="40%" stop-color="#E11D48"/>
+      <stop offset="85%" stop-color="#9F1239"/>
+      <stop offset="100%" stop-color="#4C0519"/>
+    </radialGradient>
+    <linearGradient id="triangleGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FFE4E6"/>
+    </linearGradient>
+    <filter id="playShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="12" stdDeviation="10" flood-color="#4C0519" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <g filter="url(#playShadow)">
+    <circle cx="100" cy="100" r="82" fill="url(#playCircle)"/>
+    <circle cx="100" cy="100" r="76" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-opacity="0.4"/>
+    <polygon points="82,65 142,100 82,135" fill="url(#triangleGlow)"/>
+    <path d="M50,60 C70,35 120,35 150,60" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" opacity="0.6"/>
+  </g>
+</svg>

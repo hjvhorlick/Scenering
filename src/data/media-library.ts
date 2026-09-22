@@ -1,3 +1,5 @@
+import { ttsPlayer } from "../lib/tts-player";
+
 export interface SoundAsset {
   id: string;
   filename: string;
@@ -408,6 +410,7 @@ export function stopAllSoundPreviews(): void {
     try {
       currentActiveAudio.pause();
       currentActiveAudio.currentTime = 0;
+      currentActiveAudio.loop = false;
       currentActiveAudio.onended = null;
       currentActiveAudio.onerror = null;
     } catch {}
@@ -420,10 +423,18 @@ export function stopAllSoundPreviews(): void {
     currentStopSynth = null;
   }
   currentSynthGain = null;
-  const oldUrl = currentActiveUrl;
   currentActiveUrl = null;
-  if (oldUrl) {
-    notifyAudioListeners(null, false, currentPreviewVolume);
+  notifyAudioListeners(null, false, currentPreviewVolume);
+
+  // Also stop any TTS or SpeechSynthesis that might be speaking, so a preview
+  // never keeps talking over the next one.
+  try {
+    ttsPlayer.stop();
+  } catch {}
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
   }
 }
 

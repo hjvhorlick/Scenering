@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <radialGradient id="bellGold" cx="38%" cy="30%" r="65%">
+      <stop offset="0%" stop-color="#FFFAD0"/>
+      <stop offset="30%" stop-color="#FFD700"/>
+      <stop offset="70%" stop-color="#DA9100"/>
+      <stop offset="100%" stop-color="#7A4800"/>
+    </radialGradient>
+    <linearGradient id="bellRim" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7A4800"/>
+      <stop offset="25%" stop-color="#FFD700"/>
+      <stop offset="50%" stop-color="#FFFAD0"/>
+      <stop offset="75%" stop-color="#FFD700"/>
+      <stop offset="100%" stop-color="#7A4800"/>
+    </linearGradient>
+    <filter id="bellShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="10" stdDeviation="8" flood-color="#402000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <g filter="url(#bellShadow)">
+    <path d="M100,15 C90,15 84,23 84,32 C84,35 88,38 92,38 C96,38 98,34 100,34 C102,34 104,38 108,38 C112,38 116,35 116,32 C116,23 110,15 100,15 Z" fill="#DA9100"/>
+    <ellipse cx="100" cy="165" rx="18" ry="18" fill="#603000"/>
+    <ellipse cx="98" cy="164" rx="14" ry="14" fill="#DA9100"/>
+    <path d="M100,32 C72,32 55,75 50,125 C45,138 32,142 32,152 C32,158 45,160 100,160 C155,160 168,158 168,152 C168,142 155,138 150,125 C145,75 128,32 100,32 Z" fill="url(#bellGold)"/>
+    <ellipse cx="100" cy="154" rx="68" ry="10" fill="url(#bellRim)"/>
+    <path d="M85,45 C80,68 76,98 75,125" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-opacity="0.75"/>
+  </g>
+</svg>
