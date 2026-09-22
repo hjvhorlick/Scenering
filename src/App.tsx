@@ -131,6 +131,8 @@ export default function App() {
   const [fetchingImages, setFetchingImages] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [apiKeysModalOpen, setApiKeysModalOpen] = useState(false);
+  /** Scene jumped-to from the timeline — briefly highlighted in Scene Editor */
+  const [focusedSceneId, setFocusedSceneId] = useState<number | null>(null);
   const [hasCustomKeys, setHasCustomKeys] = useState(() => {
     const k = getStoredApiKeys();
     return Boolean(k.pexelsKey || k.pixabayKey);
@@ -872,6 +874,25 @@ export default function App() {
   };
 
   /**
+   * Timeline scene click → open the Scenes phase with that scene's frame in
+   * view and briefly highlighted, so the user lands exactly where they edit
+   * the frame, narration and options of that scene.
+   */
+  const handleEditSceneFromTimeline = useCallback((scene: Scene) => {
+    setNavNotice(null);
+    setView("editor");
+    setEditorStep("scenes");
+    setFocusedSceneId(scene.id);
+    // Wait for the scenes list to mount, then bring the card into view
+    window.setTimeout(() => {
+      document
+        .getElementById(`scene-card-${scene.id}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
+    window.setTimeout(() => setFocusedSceneId((cur) => (cur === scene.id ? null : cur)), 4200);
+  }, []);
+
+  /**
    * Insert a scene at a chosen position.
    *
    * The old version always appended and, critically, never rewrote
@@ -1301,22 +1322,31 @@ export default function App() {
 
                     <div className="space-y-1.5">
                       {scenes.map((scene, index) => (
-                        <SceneEditor
+                        <div
                           key={scene.id}
-                          scene={scene}
-                          index={index}
-                          totalScenes={scenes.length}
-                          aspectRatio={aspectRatio}
-                          targetDuration={sceneDuration || 20}
-                          onUpdateTargetDuration={handleUpdateSceneDuration}
-                          onUpdate={handleUpdateScene}
-                          onImageSearch={handleImageSearch}
-                          onDelete={handleDeleteScene}
-                          onApplyFramingToAll={handleApplyFramingToAll}
-                          videoFilter={videoFilter}
-                          onInsertSceneAt={handleAddScene}
-                          onReorderScene={handleReorderScene}
-                        />
+                          id={`scene-card-${scene.id}`}
+                          className={`rounded-xl transition-all duration-500 ${
+                            focusedSceneId === scene.id
+                              ? "ring-2 ring-indigo-400 shadow-xl shadow-indigo-950/50 scale-[1.01]"
+                              : ""
+                          }`}
+                        >
+                          <SceneEditor
+                            scene={scene}
+                            index={index}
+                            totalScenes={scenes.length}
+                            aspectRatio={aspectRatio}
+                            targetDuration={sceneDuration || 20}
+                            onUpdateTargetDuration={handleUpdateSceneDuration}
+                            onUpdate={handleUpdateScene}
+                            onImageSearch={handleImageSearch}
+                            onDelete={handleDeleteScene}
+                            onApplyFramingToAll={handleApplyFramingToAll}
+                            videoFilter={videoFilter}
+                            onInsertSceneAt={handleAddScene}
+                            onReorderScene={handleReorderScene}
+                          />
+                        </div>
                       ))}
                     </div>
 
@@ -1413,6 +1443,7 @@ export default function App() {
                     onUpdateInsert={handleUpdateInsert}
                     onDeleteInsert={handleDeleteInsert}
                     onEditInsertDetails={openInsertEditor}
+                    onEditScene={handleEditSceneFromTimeline}
                   />
 
                   {/* Video Studio Insert Catalog with Working Settings Button & Customer Brand Logo */}
