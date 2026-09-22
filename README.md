@@ -1,2 +1,95 @@
 # Scenering
-Script to image fetcher and Srudio to ad features to Video. THe Renders the completed Video.
+
+Turn a script into a finished video. Scenering splits your script into scenes,
+finds an image for each one, narrates it, lets you style the result in a video
+studio, and renders the whole thing out.
+
+## Running it
+
+You need [Node.js](https://nodejs.org) 18 or newer. Then:
+
+```bash
+npm install
+npm run dev
+```
+
+Open **http://localhost:3000**. That is the whole setup — no database, no API
+keys, no accounts. Projects are saved in your browser's local storage.
+
+To run the production build instead:
+
+```bash
+npm run build
+npm start
+```
+
+Set `PORT` to use a different port (`PORT=8080 npm start`).
+
+## Optional API keys
+
+The app works without any of these. Copy `.env.example` to `.env` and fill in
+whichever you want:
+
+| Key | What it adds | Without it |
+|---|---|---|
+| `GEMINI_API_KEY` | Highest-quality narration | Free Edge voices, then a silent track |
+| `PEXELS_API_KEY` | Stock photo search | Wikimedia Commons |
+| `PIXABAY_API_KEY` | More stock photos | Wikimedia Commons |
+| `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` | Projects sync across devices | Saved in your browser |
+
+Narration falls back in that order automatically, so it never hard-fails — if
+every option is unavailable you get a silent track of the right length and the
+video still renders.
+
+## How a project flows
+
+1. **Setup** — title, script, aspect ratio, scene length and camera motion.
+   The script is split into evenly-sized scenes; each scene's length follows
+   its own narration, so there are no silent gaps.
+2. **Scenes** — one card per scene. Swap the image, drop in a video clip, crop
+   and reposition (aspect ratio is always preserved), edit the narration.
+3. **Voiceover** — pick a voice, generate narration, download the audio.
+4. **Captions** — styling and timing.
+5. **Video Studio** — the look of the finished video: filters, text templates,
+   3D stickers, lower thirds, titles, call-to-action badges, music and sound
+   effects, intro and outro.
+6. **Render** — preview and export.
+
+## Project layout
+
+```
+src/
+  components/   React UI, one studio per phase
+  lib/          the engines — framing, motion, text art, rendering, filters
+  data/         catalogues: templates, filters, voices, caption styles
+public/
+  sounds/       music and sound effects
+  videos/       intro and outro clips
+server.ts       Express API: narration, image search, hosts Vite in dev
+tests/          the test suite
+```
+
+Some `lib` modules are worth knowing about, because they are deliberately the
+single source of truth for their job:
+
+- **`scene-framing.ts`** — every image placement in the app. The editor
+  preview, the live preview and the exported video all call into it, which is
+  what guarantees a photo is never stretched out of shape.
+- **`render-effects.ts`** — `getMotionTransform()` drives all camera motion.
+- **`text-art.ts`** / **`render-text-template.ts`** — title lettering and the
+  29 text templates.
+
+## Tests
+
+```bash
+npm test      # ~135,000 checks, about 3 seconds
+npm run verify  # typecheck + tests + production build
+```
+
+Each suite in `tests/` is a plain script run with `tsx` — no test-runner
+dependency. They share a harness whose stub canvas throws on any non-finite
+drawing argument, which is how the geometry gets checked without a real
+browser. The suites cover image framing (aspect ratio is never distorted
+across every fit/zoom/crop/rotate/flip combination), camera motion (edge-safe
+and actually visible), scene splitting and durations, the sticker/template/
+filter catalogues, and responsive layout from 320px to 2560px.

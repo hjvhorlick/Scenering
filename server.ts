@@ -709,7 +709,9 @@ function generatePlaceholder(seedText = "Scene Visual"): string {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // Honour the PORT the host gives us (Render, Railway, Fly, Heroku and most
+  // local setups set it); fall back to 3000 for plain `npm run dev`.
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
 
