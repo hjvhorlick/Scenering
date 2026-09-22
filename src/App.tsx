@@ -11,6 +11,7 @@ import VoiceoverStudio, { STUDIO_VOICE_PRESETS } from "./components/VoiceoverStu
 import CaptionsStudio from "./components/CaptionsStudio";
 import SetupStudio from "./components/SetupStudio";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./components/StepNav";
+import ThemeSwitcher from "./components/ThemeSwitcher";
 import { stretchFullVideoVisualisers } from "./lib/render-visualizers";
 import InsertPropertiesModal from "./components/InsertPropertiesModal";
 import sceneringLogo from "./assets/scenering-logo.png";
@@ -1047,7 +1048,7 @@ export default function App() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
+        <div className="t-app-hdr min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
           {/* Logo */}
           <button
             onClick={() => setView("create")}
@@ -1068,7 +1069,7 @@ export default function App() {
           </h2>
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
-          <div className="flex items-center bg-gray-800/80 border border-gray-700/80 rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto scrollbar-thin order-last w-full sm:order-none sm:w-auto">
+          <div className="t-tabbar flex items-center bg-gray-800/80 border border-gray-700/80 rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto scrollbar-thin order-last w-full sm:order-none sm:w-auto">
             {PROJECT_PHASES.map((phase, i) => {
               const isActive =
                 phase.id === "setup" ? view === "create" : view === "editor" && editorStep === phase.editorStep;
@@ -1093,7 +1094,7 @@ export default function App() {
                 >
                   <span className="flex items-center gap-1 whitespace-nowrap">
                     <span className="text-gray-500 sm:text-inherit">{i + 1}.</span>
-                    <span>{phase.icon}</span>
+                    <span className="t-ico">{phase.icon}</span>
                     {/* The word is dropped on phones; the number and icon still
                         identify the step and the row stops overflowing. */}
                     <span className="hidden xs:inline sm:inline">{phase.tab}</span>
@@ -1106,7 +1107,7 @@ export default function App() {
           <div className="ml-auto flex items-center gap-2 shrink-0">
             {view === "editor" && (
               <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 shadow-sm hidden lg:flex items-center gap-1.5">
-                <span>🎬</span>
+                <span className="t-ico">🎬</span>
                 <span>
                   {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
                 </span>
@@ -1120,12 +1121,15 @@ export default function App() {
                 reach one screen and cost space in the top bar on small
                 displays. */}
 
+            {/* Theme picker — top right corner */}
+            <ThemeSwitcher />
+
             <button
               onClick={() => setApiKeysModalOpen(true)}
               className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-gray-700 bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
               title="Image search API keys (Pexels & Pixabay)"
             >
-              <span>🔑</span>
+              <span className="t-ico">🔑</span>
               <span className="hidden sm:inline">API Keys</span>
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -1230,7 +1234,7 @@ export default function App() {
                       <button
                         onClick={handleFetchAllImages}
                         disabled={fetchingImages}
-                        className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 rounded-lg text-white text-xs font-medium transition-colors flex items-center gap-1.5 shadow"
+                        className="t-btn-hero px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 rounded-lg text-white text-xs font-medium transition-colors flex items-center gap-1.5 shadow"
                       >
                         {fetchingImages ? (
                           <>
