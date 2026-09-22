@@ -367,7 +367,7 @@ export default function SceneEditor({
 
   return (
     <div
-      className="animate-slide-in bg-gray-800/60 border border-gray-700/80 rounded-xl overflow-hidden shadow-sm hover:border-gray-600 transition-colors"
+      className="animate-slide-in bg-gray-800/60 border border-hairline rounded-xl overflow-hidden shadow-sm hover:border-hairline transition-colors"
       style={{ animationDelay: `${index * 80}ms` }}
     >
       <div className="flex flex-col lg:flex-row">
@@ -377,7 +377,7 @@ export default function SceneEditor({
           style={viewport.isPhone ? undefined : { width: previewBox.w + 12 }}
         >
           {/* Active Aspect Ratio Indicator */}
-          <div className="absolute top-1 left-1 z-10 px-1.5 py-0.5 bg-gray-900/80 backdrop-blur border border-gray-700/80 rounded text-[9px] font-mono text-gray-300 pointer-events-none flex items-center gap-1">
+          <div className="absolute top-1 left-1 z-10 px-1.5 py-0.5 bg-gray-900/80 backdrop-blur border border-hairline rounded text-[9px] font-mono text-gray-300 pointer-events-none flex items-center gap-1">
             <span>📐</span>
             <span>{aspectRatio}</span>
           </div>
@@ -418,7 +418,7 @@ export default function SceneEditor({
                   onMouseLeave={() => setCompareOriginal(false)}
                   onTouchStart={() => setCompareOriginal(true)}
                   onTouchEnd={() => setCompareOriginal(false)}
-                  className="absolute bottom-1 right-1 z-10 px-1.5 py-0.5 bg-gray-900/90 hover:bg-gray-800 text-gray-300 border border-gray-700 rounded text-[9px] font-medium transition-colors shadow-sm select-none"
+                  className="absolute bottom-1 right-1 z-10 px-1.5 py-0.5 bg-gray-900/90 hover:bg-gray-800 text-gray-300 border border-hairline rounded text-[9px] font-medium transition-colors shadow-sm select-none"
                   title="Hold to see original unfiltered image"
                 >
                   {compareOriginal ? "Showing Original" : "Hold: Original"}
@@ -494,7 +494,7 @@ export default function SceneEditor({
         {/* Content & Dedicated Scene / Image Settings Section */}
         <div className="flex-1 min-w-0 p-2.5 space-y-2">
           {/* Header Row: Scene Number + Dialogue Voice + Duration + Delete */}
-          <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-800/80 pb-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-hairline pb-1.5">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
                 <span>Scene {index + 1}</span>
@@ -559,7 +559,7 @@ export default function SceneEditor({
 
               {/* Move this scene earlier / later in the running order */}
               {onReorderScene && totalScenes > 1 && (
-                <div className="flex items-center rounded-lg border border-gray-700 overflow-hidden">
+                <div className="flex items-center rounded-lg border border-hairline overflow-hidden">
                   <button
                     type="button"
                     onClick={() => onReorderScene(scene.id, -1)}
@@ -573,7 +573,7 @@ export default function SceneEditor({
                     type="button"
                     onClick={() => onReorderScene(scene.id, 1)}
                     disabled={index === totalScenes - 1}
-                    className="px-1.5 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent transition-colors border-l border-gray-700"
+                    className="px-1.5 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent transition-colors border-l border-hairline"
                     title="Move this scene later"
                   >
                     ↓
@@ -629,7 +629,7 @@ export default function SceneEditor({
               onChange={(e) => handleScriptChange(e.target.value)}
               rows={2}
               placeholder="Enter the narration script for this scene..."
-              className="w-full px-3 py-2 bg-gray-900/90 border border-gray-700 hover:border-gray-600 focus:border-indigo-500 rounded-xl text-white text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y transition-colors font-sans shadow-inner"
+              className="w-full px-3 py-2 bg-gray-900/90 border border-hairline hover:border-hairline focus:border-indigo-500 rounded-xl text-white text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y transition-colors font-sans shadow-inner"
             />
           </div>
 
@@ -685,7 +685,7 @@ export default function SceneEditor({
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap flex items-center gap-1 ${
                     showCropTools || (offsetX !== 0 || offsetY !== 0 || zoom !== 1.0)
                       ? "bg-amber-950/70 border-amber-600 text-amber-300"
-                      : "bg-gray-700 hover:bg-gray-600 border-gray-600 text-gray-200"
+                      : "bg-gray-700 hover:bg-gray-600 border-hairline text-gray-200"
                   }`}
                   title="Crop, pan, and move around until it fits"
                 >
@@ -717,7 +717,7 @@ export default function SceneEditor({
                       key={bg.id}
                       type="button"
                       onClick={() => handleSelectNatureFallback(bg.url)}
-                      className="group relative rounded-lg overflow-hidden border border-gray-700 hover:border-emerald-500 transition-all text-left aspect-video"
+                      className="group relative rounded-lg overflow-hidden border border-hairline hover:border-emerald-500 transition-all text-left aspect-video"
                     >
                       <img
                         src={bg.thumb}
@@ -741,7 +741,7 @@ export default function SceneEditor({
                 exactly as it will render. */}
             {showCropTools && (
               <div className="bg-gray-900/95 border border-amber-800/50 rounded-xl p-3 space-y-3 animate-fade-in text-xs">
-                <div className="flex items-center justify-between border-b border-gray-800 pb-1.5">
+                <div className="flex items-center justify-between border-b border-hairline pb-1.5">
                   <div className="flex items-center gap-2">
                     <span className="text-amber-400 font-semibold">✂️ Crop, Move & Fit</span>
                     <span className="text-[11px] text-gray-400">
@@ -755,7 +755,7 @@ export default function SceneEditor({
                       className={`text-[11px] px-2 py-0.5 rounded border ${
                         showGuides
                           ? "bg-indigo-950 border-indigo-600 text-indigo-300"
-                          : "bg-gray-800 border-gray-700 text-gray-400"
+                          : "bg-gray-800 border-hairline text-gray-400"
                       }`}
                       title="Rule-of-thirds grid and safe area"
                     >
@@ -813,7 +813,7 @@ export default function SceneEditor({
                             className={`px-2 py-1.5 rounded-lg border text-[11px] font-medium transition-colors flex flex-col items-center gap-0.5 ${
                               fitMode === m.id
                                 ? "bg-amber-950 border-amber-600 text-amber-300"
-                                : "bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500"
+                                : "bg-gray-800 border-hairline text-gray-400 hover:border-hairline"
                             }`}
                           >
                             <span className="text-sm leading-none">{m.icon}</span>
@@ -828,7 +828,7 @@ export default function SceneEditor({
 
                     {/* ---- Blurred / letterbox backdrop settings ---- */}
                     {fitMode !== "cover" && (
-                      <div className="bg-gray-950/60 border border-gray-800 rounded-lg p-2.5 space-y-2">
+                      <div className="bg-gray-950/60 border border-hairline rounded-lg p-2.5 space-y-2">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-gray-400 text-[11px]">Bars filled with:</span>
                           {BACKDROP_STYLES.map((b) => (
@@ -839,7 +839,7 @@ export default function SceneEditor({
                               className={`px-2 py-1 rounded text-[11px] font-medium border ${
                                 backdrop === b.id
                                   ? "bg-amber-950 border-amber-600 text-amber-300"
-                                  : "bg-gray-800 border-gray-700 text-gray-400"
+                                  : "bg-gray-800 border-hairline text-gray-400"
                               }`}
                             >
                               {b.icon} {b.name}
@@ -850,7 +850,7 @@ export default function SceneEditor({
                               type="color"
                               value={backdropColor}
                               onChange={(e) => onUpdate(scene.id, { image_backdrop_color: e.target.value })}
-                              className="w-8 h-6 rounded border border-gray-600 bg-transparent cursor-pointer"
+                              className="w-8 h-6 rounded border border-hairline bg-transparent cursor-pointer"
                             />
                           )}
                         </div>
@@ -959,7 +959,7 @@ export default function SceneEditor({
                     </div>
 
                     {/* ---- Crop rectangle ---- */}
-                    <div className="bg-gray-950/60 border border-gray-800 rounded-lg p-2.5 space-y-2">
+                    <div className="bg-gray-950/60 border border-hairline rounded-lg p-2.5 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-gray-400 text-[11px]">
                           Crop — trim the edges off the source photo
@@ -971,7 +971,7 @@ export default function SceneEditor({
                             className={`px-2 py-0.5 rounded text-[11px] border ${
                               cropMode
                                 ? "bg-amber-950 border-amber-600 text-amber-300"
-                                : "bg-gray-800 border-gray-700 text-gray-400"
+                                : "bg-gray-800 border-hairline text-gray-400"
                             }`}
                             title="Drag the preview to move the crop window instead of the image"
                           >
@@ -1019,7 +1019,7 @@ export default function SceneEditor({
                             key={c.label}
                             type="button"
                             onClick={() => cropToRatio(c.ratio)}
-                            className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
+                            className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 rounded border border-hairline text-gray-300 text-[11px]"
                             title={`Crop the photo to ${c.label}`}
                           >
                             {c.label}
@@ -1036,7 +1036,7 @@ export default function SceneEditor({
                     </div>
 
                     {/* ---- Rotate, flip, alignment ---- */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-hairline">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-gray-400 text-[11px]">Align:</span>
                         {([
@@ -1050,7 +1050,7 @@ export default function SceneEditor({
                             key={label}
                             type="button"
                             onClick={() => setPresetPosition(px, py)}
-                            className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
+                            className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-hairline text-gray-300 text-[11px]"
                           >
                             {label}
                           </button>
@@ -1062,14 +1062,14 @@ export default function SceneEditor({
                         <button
                           type="button"
                           onClick={() => onUpdate(scene.id, { image_rotate: normaliseAngle(rotate - 90) })}
-                          className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
+                          className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-hairline text-gray-300 text-[11px]"
                         >
                           ↺ 90°
                         </button>
                         <button
                           type="button"
                           onClick={() => onUpdate(scene.id, { image_rotate: normaliseAngle(rotate + 90) })}
-                          className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300 text-[11px]"
+                          className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-hairline text-gray-300 text-[11px]"
                         >
                           ↻ 90°
                         </button>
@@ -1088,7 +1088,7 @@ export default function SceneEditor({
                           type="button"
                           onClick={() => onUpdate(scene.id, { image_flip_h: !flipH })}
                           className={`px-2 py-1 rounded border text-[11px] ${
-                            flipH ? "bg-amber-950 border-amber-600 text-amber-300" : "bg-gray-800 border-gray-700 text-gray-300"
+                            flipH ? "bg-amber-950 border-amber-600 text-amber-300" : "bg-gray-800 border-hairline text-gray-300"
                           }`}
                         >
                           ⇋ Flip
@@ -1097,7 +1097,7 @@ export default function SceneEditor({
                           type="button"
                           onClick={() => onUpdate(scene.id, { image_flip_v: !flipV })}
                           className={`px-2 py-1 rounded border text-[11px] ${
-                            flipV ? "bg-amber-950 border-amber-600 text-amber-300" : "bg-gray-800 border-gray-700 text-gray-300"
+                            flipV ? "bg-amber-950 border-amber-600 text-amber-300" : "bg-gray-800 border-hairline text-gray-300"
                           }`}
                         >
                           ⇅ Flip

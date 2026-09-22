@@ -153,7 +153,7 @@ export default function CtaBadgePreview({ item, aspectRatio = "16:9", background
       className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border transition-colors ${
         backdrop === id
           ? "bg-indigo-600 border-indigo-400 text-white"
-          : "bg-gray-900/80 border-gray-700 text-gray-300 hover:bg-gray-800"
+          : "bg-gray-900/80 border-hairline text-gray-300 hover:bg-gray-800"
       }`}
     >
       {label}
@@ -163,7 +163,7 @@ export default function CtaBadgePreview({ item, aspectRatio = "16:9", background
   return (
     <div className="bg-gray-950 border border-indigo-800/60 rounded-xl p-2.5 flex flex-col sm:flex-row sm:items-center gap-3">
       {/* Cropped, true-size preview of the badge */}
-      <div className="rounded-lg overflow-hidden border border-gray-800 bg-black shrink-0">
+      <div className="rounded-lg overflow-hidden border border-hairline bg-black shrink-0">
         <canvas ref={canvasRef} className="block max-w-full" />
       </div>
 

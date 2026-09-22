@@ -505,7 +505,7 @@ export default function VoiceoverStudio({
                   globalSpeed
                 )
               }
-              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 active:bg-gray-900 text-white rounded-xl text-xs font-semibold border border-gray-700 flex items-center gap-2 transition-colors shadow"
+              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 active:bg-gray-900 text-white rounded-xl text-xs font-semibold border border-hairline flex items-center gap-2 transition-colors shadow"
             >
               {loadingId === "test-global" ? (
                 <>
@@ -595,7 +595,7 @@ export default function VoiceoverStudio({
         )}
 
         {downloadNotice && (
-          <div className="mt-3 p-3 bg-gray-900 border border-gray-700 rounded-xl text-gray-200 text-xs flex items-center justify-between gap-3 shadow-lg animate-fade-in">
+          <div className="mt-3 p-3 bg-gray-900 border border-hairline rounded-xl text-gray-200 text-xs flex items-center justify-between gap-3 shadow-lg animate-fade-in">
             <span className="flex items-center gap-2">
               <span>⬇️</span>
               <span>{downloadNotice}</span>
@@ -646,7 +646,7 @@ export default function VoiceoverStudio({
                 }`}>
                   {activeVoiceInfo.gender}
                 </span>
-                <span className="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-300 border border-gray-700">
+                <span className="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-300 border border-hairline">
                   {activeVoiceInfo.type}
                 </span>
               </div>
@@ -670,14 +670,10 @@ export default function VoiceoverStudio({
       </div>
 
       {/* Exactly 2 Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-gray-800 pb-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-hairline pb-3" role="tablist" aria-label="Voiceover sections">
         <button
           onClick={() => setActiveTab("natural_voices")}
-          className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-            activeTab === "natural_voices"
-              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
-              : "bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-gray-200 border border-gray-800"
-          }`}
+          className={`opt-btn ${activeTab === "natural_voices" ? "opt-btn-on" : ""}`}
         >
           <span>🎭</span>
           <span>10 Natural Voices (5 Male • 5 Female)</span>
@@ -685,11 +681,7 @@ export default function VoiceoverStudio({
 
         <button
           onClick={() => setActiveTab("import_tts")}
-          className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-            activeTab === "import_tts"
-              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
-              : "bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-gray-200 border border-gray-800"
-          }`}
+          className={`opt-btn ${activeTab === "import_tts" ? "opt-btn-on" : ""}`}
         >
           <span>📁</span>
           <span>Import Prepared TTS File</span>
@@ -699,9 +691,9 @@ export default function VoiceoverStudio({
       {/* TAB 1: 10 NATURAL SPEAKING VOICES (5 MALE AND 5 FEMALE) */}
       {activeTab === "natural_voices" && (
         <div className="space-y-4">
-          <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-4">
+          <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-xl space-y-4">
             {/* Toolbar: Gender Filters & Speed Control */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <span>🎭</span> 10 Natural Speaking Voices
@@ -712,7 +704,7 @@ export default function VoiceoverStudio({
               </div>
 
               {/* Gender Filter Buttons */}
-              <div className="flex items-center gap-1.5 bg-gray-800 p-1 rounded-xl border border-gray-700">
+              <div className="flex items-center gap-1.5 bg-gray-800 p-1 rounded-xl border border-hairline">
                 <button
                   type="button"
                   onClick={() => setGenderFilter("all")}
@@ -744,7 +736,7 @@ export default function VoiceoverStudio({
             </div>
 
             {/* Pacing / Speed Slider */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-800/40 p-3 rounded-xl border border-gray-700/60">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-800/40 p-3 rounded-xl border border-hairline">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-300 font-medium">Narration Pacing & Speed:</span>
                 <span className="text-xs font-bold text-indigo-400 font-mono">{globalSpeed.toFixed(2)}x</span>
@@ -781,7 +773,7 @@ export default function VoiceoverStudio({
                         ? isMale
                           ? "bg-blue-950/40 border-blue-500 ring-1 ring-blue-500 shadow-md"
                           : "bg-pink-950/40 border-pink-500 ring-1 ring-pink-500 shadow-md"
-                        : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+                        : "bg-gray-800/40 hover:bg-gray-800/80 border-hairline text-gray-300"
                     }`}
                   >
                     <div>
@@ -822,7 +814,7 @@ export default function VoiceoverStudio({
                       </div>
                     </div>
 
-                    <div className="pt-2.5 border-t border-gray-700/50 flex items-center justify-between">
+                    <div className="pt-2.5 border-t border-hairline flex items-center justify-between">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -866,7 +858,7 @@ export default function VoiceoverStudio({
                           handleDownloadSample(voice);
                         }}
                         title={`Download a sample of ${voice.name}`}
-                        className="px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-700/60 border border-gray-700/60 transition-colors"
+                        className="px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-700/60 border border-hairline transition-colors"
                       >
                         {downloadingId === `sample-${voice.id}` ? "⏳" : "⬇️"}
                       </button>
@@ -895,7 +887,7 @@ export default function VoiceoverStudio({
           </div>
 
           {/* Compact Spoken Scene Scripts Review */}
-          <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4">
+          <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4">
             <button
               type="button"
               onClick={() => setShowSceneReview(!showSceneReview)}
@@ -909,13 +901,13 @@ export default function VoiceoverStudio({
             </button>
 
             {showSceneReview && (
-              <div className="mt-3 space-y-2.5 pt-3 border-t border-gray-800">
+              <div className="mt-3 space-y-2.5 pt-3 border-t border-hairline">
                 {scenes.map((scene, idx) => {
                   const hasSavedAudio = Boolean(scene.audio_url);
                   const isSingleGen = singleGeneratingId === scene.id;
 
                   return (
-                    <div key={scene.id} className="p-3 bg-gray-800/40 rounded-xl border border-gray-700/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div key={scene.id} className="p-3 bg-gray-800/40 rounded-xl border border-hairline flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex-1">
                         <div className="flex flex-wrap items-center gap-2 mb-1">
                           <span className="text-[11px] font-bold text-indigo-400">Scene {idx + 1} ({scene.duration}s):</span>
@@ -943,7 +935,7 @@ export default function VoiceoverStudio({
                               globalSpeed
                             )
                           }
-                          className="px-2.5 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg border border-gray-700 flex items-center gap-1 transition-colors"
+                          className="px-2.5 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg border border-hairline flex items-center gap-1 transition-colors"
                         >
                           {playingId === scene.id ? "⏹️ Stop" : "▶ Play Audio"}
                         </button>
@@ -1006,8 +998,8 @@ export default function VoiceoverStudio({
 
       {/* TAB 2: IMPORT PREPARED TTS FILE */}
       {activeTab === "import_tts" && (
-        <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-5">
-          <div className="border-b border-gray-800 pb-3">
+        <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-xl space-y-5">
+          <div className="border-b border-hairline pb-3">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <span>📁</span> Import Prepared TTS Audio File
             </h3>
@@ -1039,7 +1031,7 @@ export default function VoiceoverStudio({
                 handleFileUpload(e.dataTransfer.files[0]);
               }
             }}
-            className="border-2 border-dashed border-indigo-700/60 hover:border-indigo-500 rounded-2xl p-8 text-center bg-gray-800/30 hover:bg-gray-800/50 cursor-pointer transition-all space-y-3"
+            className="border border-dashed border-indigo-700/60 hover:border-indigo-500 rounded-2xl p-8 text-center bg-gray-800/30 hover:bg-gray-800/50 cursor-pointer transition-all space-y-3"
           >
             <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-2xl mx-auto text-indigo-400">
               📤
@@ -1068,7 +1060,7 @@ export default function VoiceoverStudio({
           {/* Imported File Review & Assignment Controls */}
           {importedAudioUrl && (
             <div className="bg-gray-800/50 border border-indigo-900/50 rounded-xl p-4 space-y-4 animate-fade-in">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-700/60 pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-base">
                     🎵
@@ -1121,7 +1113,7 @@ export default function VoiceoverStudio({
                     value={customVoiceLabel}
                     onChange={(e) => setCustomVoiceLabel(e.target.value)}
                     placeholder="e.g. My ElevenLabs Adam Voice, Custom TTS Studio..."
-                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-gray-900 border border-hairline rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                   <p className="text-[10px] text-gray-500 mt-1">
                     This label will be printed in your exported video description credits.
@@ -1135,7 +1127,7 @@ export default function VoiceoverStudio({
                   <select
                     value={importTargetScene}
                     onChange={(e) => setImportTargetScene(e.target.value)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-gray-900 border border-hairline rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="all">Apply to All Scenes (Global Voiceover)</option>
                     {scenes.map((s, i) => (
@@ -1164,7 +1156,7 @@ export default function VoiceoverStudio({
           )}
 
           {/* Attribution Notice */}
-          <div className="p-3 bg-gray-950/60 rounded-xl border border-gray-800 text-xs text-gray-400 flex items-start gap-2">
+          <div className="p-3 bg-gray-950/60 rounded-xl border border-hairline text-xs text-gray-400 flex items-start gap-2">
             <span className="text-base">📢</span>
             <p>
               <strong className="text-gray-200">Full Video Attribution:</strong> When exporting your video, the attribution document in the Export/Render tab will automatically credit your voice narration with the specified voice profile and licensing terms.

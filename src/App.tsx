@@ -1043,11 +1043,11 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-950 text-white overflow-hidden font-sans">
+    <div className="flex min-h-screen bg-gray-950 text-white font-sans">
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col">
         {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
+        <div className="min-h-14 border-b border-hairline flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
           {/* Logo */}
           <button
             onClick={() => setView("create")}
@@ -1068,7 +1068,7 @@ export default function App() {
           </h2>
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
-          <div className="flex items-center bg-gray-800/80 border border-gray-700/80 rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto scrollbar-thin order-last w-full sm:order-none sm:w-auto">
+          <div className="opt-group ml-0 sm:ml-2 overflow-x-auto no-scrollbar order-last w-full sm:order-none sm:w-auto" role="tablist" aria-label="Project phases">
             {PROJECT_PHASES.map((phase, i) => {
               const isActive =
                 phase.id === "setup" ? view === "create" : view === "editor" && editorStep === phase.editorStep;
@@ -1081,18 +1081,10 @@ export default function App() {
                       ? "Create a project on the Setup screen first"
                       : phase.purpose
                   }
-                  className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
-                    isActive
-                      ? phase.id === "render"
-                        ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow font-semibold"
-                        : "bg-indigo-600 text-white shadow font-semibold"
-                      : phase.id !== "setup" && !currentProject
-                      ? "text-gray-600 cursor-not-allowed"
-                      : "text-gray-400 hover:text-white"
-                  }`}
+                  className={`opt-btn ${isActive ? "opt-btn-on" : phase.id !== "setup" && !currentProject ? "opacity-40 cursor-not-allowed" : ""}`}
                 >
                   <span className="flex items-center gap-1 whitespace-nowrap">
-                    <span className="text-gray-500 sm:text-inherit">{i + 1}.</span>
+                    <span className={isActive ? "" : "text-indigo-300/80"}>{i + 1}.</span>
                     <span>{phase.icon}</span>
                     {/* The word is dropped on phones; the number and icon still
                         identify the step and the row stops overflowing. */}
@@ -1122,7 +1114,7 @@ export default function App() {
 
             <button
               onClick={() => setApiKeysModalOpen(true)}
-              className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-gray-700 bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
+              className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-hairline bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
               title="Image search API keys (Pexels & Pixabay)"
             >
               <span>🔑</span>
@@ -1137,7 +1129,7 @@ export default function App() {
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1">
           {view === "create" ? (
             <div className="p-4 sm:p-6">
               {navNotice && (
@@ -1225,7 +1217,7 @@ export default function App() {
                   />
 
                   {/* Top Controls & Presets Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900/60 p-3 rounded-xl border border-gray-800">
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900/60 p-3 rounded-xl border border-hairline">
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleFetchAllImages}
@@ -1317,11 +1309,11 @@ export default function App() {
                     </div>
 
                     {/* Bottom Action Bar */}
-                    <div className="pt-4 flex items-center justify-between border-t border-gray-800">
+                    <div className="pt-4 flex items-center justify-between border-t border-hairline">
                       <button
                         type="button"
                         onClick={() => handleAddScene(scenes.length)}
-                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-semibold text-xs rounded-xl shadow transition-all flex items-center gap-2"
+                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-hairline font-semibold text-xs rounded-xl shadow transition-all flex items-center gap-2"
                       >
                         <span>➕ Add Another Scene</span>
                       </button>

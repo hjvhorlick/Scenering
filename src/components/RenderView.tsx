@@ -1402,7 +1402,7 @@ export default function RenderView({
   return (
     <div className="space-y-3 sm:space-y-6 max-w-5xl 2xl:max-w-7xl mx-auto pb-12 animate-fade-in px-1 sm:px-0">
       {/* Top Banner & Summary */}
-      <div className="bg-gray-800/60 border border-gray-700/80 rounded-2xl p-5 shadow-xl">
+      <div className="bg-gray-800/60 border border-hairline rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
@@ -1438,12 +1438,12 @@ export default function RenderView({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: READ-ONLY summary of the choices made on the Project Setup screen */}
         <div className="order-2 lg:order-1 lg:col-span-4 space-y-4">
-          <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between border-b border-gray-700 pb-2 gap-2">
+          <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between border-b border-hairline pb-2 gap-2">
               <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <span>📋</span> Your Choices
               </h3>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-900 border border-gray-700 text-gray-400 font-semibold shrink-0">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-900 border border-hairline text-gray-400 font-semibold shrink-0">
                 Read-only
               </span>
             </div>
@@ -1453,7 +1453,7 @@ export default function RenderView({
               here can change your video.
             </p>
 
-            <dl className="space-y-2.5 pt-1 border-t border-gray-700/70">
+            <dl className="space-y-2.5 pt-1 border-t border-hairline">
               <SummaryRow icon="🏷️" label="Project" value={project?.title || "Untitled Video"} />
               <SummaryRow
                 icon="🎞️"
@@ -1525,7 +1525,7 @@ export default function RenderView({
               <button
                 type="button"
                 onClick={onOpenSetup}
-                className="w-full mt-1 py-2 px-3 bg-gray-900 hover:bg-gray-750 border border-gray-700 rounded-xl text-[11px] font-semibold text-gray-200 hover:text-white transition-all flex items-center justify-center gap-1.5"
+                className="w-full mt-1 py-2 px-3 bg-gray-900 hover:bg-gray-750 border border-hairline rounded-xl text-[11px] font-semibold text-gray-200 hover:text-white transition-all flex items-center justify-center gap-1.5"
               >
                 <span>⚙️</span>
                 <span>Change these in Project Setup</span>
@@ -1533,7 +1533,7 @@ export default function RenderView({
             )}
           </div>
 
-          <div className="bg-gray-800/30 border border-gray-700/60 rounded-xl p-3 flex items-start gap-2">
+          <div className="bg-gray-800/30 border border-hairline rounded-xl p-3 flex items-start gap-2">
             <span className="text-sm">🔒</span>
             <p className="text-[10px] text-gray-400 leading-relaxed">
               The render screen does not allow any changes. Go back to Scenes, Voiceover, Captions or Studio
@@ -1543,7 +1543,7 @@ export default function RenderView({
         </div>
 
         <div className="order-1 lg:order-2 lg:col-span-8 space-y-4">
-          <div className="bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden shadow-2xl">
+          <div className="bg-gray-800/50 border border-hairline rounded-xl overflow-hidden shadow-2xl">
             {/* Viewport: Live Render Canvas OR Finished HTML5 Video Player */}
             <div className={`relative ${aspectClass || "aspect-video"} bg-black flex items-center justify-center overflow-hidden mx-auto`}>
               {renderedUrl && !isRendering ? (
@@ -1608,7 +1608,7 @@ export default function RenderView({
                   </h4>
                   <p className="text-xs text-indigo-300 font-medium mb-3">{renderStage}</p>
 
-                  <div className="w-64 bg-gray-800 rounded-full h-2 overflow-hidden border border-gray-700">
+                  <div className="w-64 bg-gray-800 rounded-full h-2 overflow-hidden border border-hairline">
                     <div
                       className="bg-indigo-500 h-full rounded-full transition-all duration-150"
                       style={{ width: `${Math.round(renderProgress * 100)}%` }}
@@ -1655,7 +1655,7 @@ export default function RenderView({
                     </span>
                     <button
                       onClick={handleStartRender}
-                      className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs border border-gray-700 transition-colors"
+                      className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs border border-hairline transition-colors"
                     >
                       🔄 Re-render
                     </button>
@@ -1703,14 +1703,14 @@ export default function RenderView({
                   <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
                     <button
                       onClick={downloadSrtSubtitles}
-                      className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-colors flex items-center justify-center gap-1.5"
+                      className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-hairline transition-colors flex items-center justify-center gap-1.5"
                     >
                       <span>📄</span> Download Subtitles (.srt)
                     </button>
 
                     <button
                       onClick={downloadFullPackageZip}
-                      className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-colors flex items-center justify-center gap-1.5"
+                      className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-hairline transition-colors flex items-center justify-center gap-1.5"
                     >
                       <span>📦</span> Download Assets & Scripts
                     </button>
@@ -1723,8 +1723,8 @@ export default function RenderView({
       </div>
 
       {/* Video Attribution & Credits Section */}
-      <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
+      <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="p-1.5 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg text-sm">
@@ -1746,7 +1746,7 @@ export default function RenderView({
             <button
               type="button"
               onClick={() => setShowAttributionPreview(!showAttributionPreview)}
-              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-gray-700 transition-colors flex items-center gap-1.5 shadow"
+              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-hairline transition-colors flex items-center gap-1.5 shadow"
             >
               <span>👁️</span>
               <span>{showAttributionPreview ? "Hide Credits" : "View Credits"}</span>
@@ -1755,7 +1755,7 @@ export default function RenderView({
             <button
               type="button"
               onClick={downloadAttributionDoc}
-              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-gray-700 transition-colors flex items-center gap-1.5 shadow"
+              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-hairline transition-colors flex items-center gap-1.5 shadow"
             >
               <span>⬇️</span>
               <span>Download (.txt)</span>
@@ -1791,14 +1791,14 @@ export default function RenderView({
 
           {showAttributionPreview && (
             <div className="relative">
-              <pre className="w-full bg-black/80 border border-gray-800 rounded-xl p-4 text-xs font-mono text-gray-300 whitespace-pre-wrap overflow-x-auto max-h-64 scrollbar-thin select-all leading-relaxed">
+              <pre className="w-full bg-black/80 border border-hairline rounded-xl p-4 text-xs font-mono text-gray-300 whitespace-pre-wrap overflow-x-auto max-h-64 scrollbar-thin select-all leading-relaxed">
                 {getAttributionText()}
               </pre>
               <div className="absolute right-3 top-3">
                 <button
                   type="button"
                   onClick={copyAttributionDoc}
-                  className="px-2.5 py-1 rounded bg-gray-800/90 hover:bg-gray-700 border border-gray-700 text-gray-200 text-[10px] font-medium transition-colors"
+                  className="px-2.5 py-1 rounded bg-gray-800/90 hover:bg-gray-700 border border-hairline text-gray-200 text-[10px] font-medium transition-colors"
                 >
                   {copiedAttribution ? "✓ Copied" : "Copy"}
                 </button>

@@ -35,7 +35,7 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
 
       {/* Customer API Keys Notice */}
       {onOpenApiKeys && (
-        <div className="p-3.5 bg-gray-900 border border-gray-800 rounded-xl flex items-center justify-between gap-3 shadow-sm">
+        <div className="p-3.5 bg-gray-900 border border-hairline rounded-xl flex items-center justify-between gap-3 shadow-sm">
           <div className="flex items-center gap-3">
             <span className="text-xl">🔑</span>
             <div>
@@ -66,7 +66,7 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="My Amazing Video"
-            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+            className="w-full px-4 py-3 bg-gray-800 border border-hairline rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
             required
           />
         </div>
@@ -89,7 +89,7 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
             onChange={(e) => setScript(e.target.value)}
             placeholder={`Paste your full script below. It will be split automatically into ~50-word scenes (~20 seconds each) — line breaks and blank lines are ignored.`}
             rows={10}
-            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-sm leading-relaxed"
+            className="w-full px-4 py-3 bg-gray-800 border border-hairline rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-sm leading-relaxed"
             required
           />
           <div className="flex items-center justify-between text-xs text-gray-500 mt-1">

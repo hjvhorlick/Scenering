@@ -157,7 +157,7 @@ export default function Timeline({
   );
 
   return (
-    <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-3.5 space-y-3 shadow-lg select-none">
+    <div className="bg-gray-900/90 border border-hairline rounded-xl p-3.5 space-y-3 shadow-lg select-none">
       {/* Playhead Top Controls Bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -209,7 +209,7 @@ export default function Timeline({
       <div
         ref={trackRef}
         onMouseDown={handleMouseDown}
-        className="relative h-20 bg-gray-950 border border-gray-800 rounded-lg overflow-hidden cursor-pointer group"
+        className="relative h-20 bg-gray-950 border border-hairline rounded-lg overflow-hidden cursor-pointer group"
       >
         {/* Scene Blocks Layer (Intro + Script Scenes + Outro) */}
         <div className="absolute inset-0 flex">
@@ -251,7 +251,7 @@ export default function Timeline({
                       : "bg-rose-950/30 hover:bg-rose-950/50 border-rose-700/60"
                     : isCurrent
                     ? "bg-indigo-950/50 border-indigo-500/60"
-                    : "bg-gray-900/40 hover:bg-gray-900/60 border-gray-800/80"
+                    : "bg-gray-900/40 hover:bg-gray-900/60 border-hairline"
                 }`}
                 title={
                   isIntro
@@ -387,7 +387,7 @@ export default function Timeline({
           className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none shadow-[0_0_8px_rgba(239,68,68,0.8)]"
         >
           {/* Cursor Head Knob */}
-          <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-white shadow" />
+          <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-red-500 rounded-full border border-white shadow" />
         </div>
       </div>
 
@@ -404,7 +404,7 @@ export default function Timeline({
                 <button
                   type="button"
                   onClick={() => onEditInsertDetails(selectedInsert)}
-                  className="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-yellow-300 text-[10px] font-medium border border-gray-700 ml-1"
+                  className="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-yellow-300 text-[10px] font-medium border border-hairline ml-1"
                 >
                   ✏️ Edit
                 </button>

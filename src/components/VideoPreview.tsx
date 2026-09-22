@@ -1294,7 +1294,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
   if (scenesWithImages.length === 0) {
     return (
-      <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-8 text-center">
+      <div className="bg-gray-800/50 border border-hairline rounded-xl p-8 text-center">
         <div className="text-4xl mb-3">🎬</div>
         <h3 className="text-lg font-semibold mb-1">No Images Yet</h3>
         <p className="text-gray-400 text-sm">
@@ -1308,7 +1308,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
   return (
     <div className="space-y-4">
-      <div className="bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden shadow-xl">
+      <div className="bg-gray-800/50 border border-hairline rounded-xl overflow-hidden shadow-xl">
         {/* Canvas & Interactive Repositioning Layer */}
         <div className="relative group flex justify-center items-center bg-black/40">
           <canvas
@@ -1325,7 +1325,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           />
 
           {/* Hint Overlay when hovering canvas */}
-          <div className="absolute bottom-2 right-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur px-2.5 py-1 rounded-md text-[11px] text-gray-300 border border-gray-700">
+          <div className="absolute bottom-2 right-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur px-2.5 py-1 rounded-md text-[11px] text-gray-300 border border-hairline">
             🖱️ Drag elements to reposition
           </div>
 
@@ -1341,7 +1341,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
                   setLoadingAudio(false);
                   setAudioStatus("Narration ready");
                 }}
-                className="mt-3 px-3 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-600 text-xs text-gray-200 rounded-md transition-colors cursor-pointer"
+                className="mt-3 px-3 py-1 bg-gray-800 hover:bg-gray-700 border border-hairline text-xs text-gray-200 rounded-md transition-colors cursor-pointer"
               >
                 Skip & Play Video
               </button>
@@ -1367,7 +1367,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           )}
 
           {/* Action Buttons Row - Playback & Render Section */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-750">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-hairline">
             <div className="flex items-center gap-3">
               <button
                 onClick={togglePlay}

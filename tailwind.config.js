@@ -3,6 +3,16 @@ export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
+      colors: {
+        /**
+         * The single neutral dividing line used across the UI.
+         * Translucent, so it sits softly on any dark surface and keeps
+         * borders reading as fine lines rather than chunky gray frames.
+         * (Barse `border-hairline`; opacity modifiers intentionally
+         * unneeded — use the token as-is.)
+         */
+        hairline: "var(--hairline)",
+      },
       screens: {
         /**
          * Small-phone breakpoint. Tailwind's smallest default is `sm` at

@@ -136,7 +136,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="px-2 py-1 rounded-lg border border-gray-700/70 bg-gray-900/60 text-[11px] text-gray-400 hover:text-white hover:border-indigo-600 transition-colors flex items-center gap-1"
+          className="px-2 py-1 rounded-lg border border-hairline bg-gray-900/60 text-[11px] text-gray-400 hover:text-white hover:border-indigo-600 transition-colors flex items-center gap-1"
           title="Use a short video clip for this scene instead of a still image"
         >
           🎬 Add video clip
@@ -147,7 +147,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
   }
 
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-950/70 p-2.5 space-y-2.5">
+    <div className="rounded-xl border border-hairline bg-gray-950/70 p-2.5 space-y-2.5">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-white flex items-center gap-1.5">
@@ -178,7 +178,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
             <button
               type="button"
               onClick={removeClip}
-              className="px-2.5 py-1.5 bg-gray-800 hover:bg-rose-900 text-gray-300 hover:text-white border border-gray-700 rounded-lg text-xs transition-colors"
+              className="px-2.5 py-1.5 bg-gray-800 hover:bg-rose-900 text-gray-300 hover:text-white border border-hairline rounded-lg text-xs transition-colors"
             >
               Remove
             </button>
@@ -212,7 +212,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
             <video
               ref={videoRef}
               src={scene.video_url || undefined}
-              className="w-full sm:w-48 rounded-lg border border-gray-800 bg-black"
+              className="w-full sm:w-48 rounded-lg border border-hairline bg-black"
               muted={muted}
               controls
               onTimeUpdate={(e) => setPreviewTime((e.target as HTMLVideoElement).currentTime)}
@@ -284,7 +284,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
           </div>
 
           {/* Audio handling */}
-          <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-2.5 space-y-2">
+          <div className="rounded-lg border border-hairline bg-gray-900/60 p-2.5 space-y-2">
             <label className="flex items-start gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -344,7 +344,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
                 className={`px-2 py-1 rounded-lg text-[11px] border transition-colors ${
                   fitMode === mode
                     ? "bg-indigo-600 border-indigo-500 text-white"
-                    : "bg-gray-900 border-gray-700 text-gray-400 hover:text-white"
+                    : "bg-gray-900 border-hairline text-gray-400 hover:text-white"
                 }`}
               >
                 {label}

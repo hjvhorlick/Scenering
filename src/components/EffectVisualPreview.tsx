@@ -92,7 +92,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   // If this is an audio visualizer, return the live animated canvas
   if (item.category === "audio_visualizers") {
     return (
-      <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 overflow-hidden relative shadow-inner flex items-center justify-center">
+      <div className="w-full h-24 rounded-lg bg-gray-950 border border-hairline overflow-hidden relative shadow-inner flex items-center justify-center">
         <canvas
           ref={canvasRef}
           width={512}
@@ -113,7 +113,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   if (item.category === "call_to_action") {
     if (item.type === "subscribe_cta") {
       return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
+        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-hairline p-2 flex items-center justify-center relative overflow-hidden group">
           {/* Subtle video background grid */}
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f293710_1px,transparent_1px),linear-gradient(to_bottom,#1f293710_1px,transparent_1px)] bg-[size:16px_16px]" />
           
@@ -131,7 +131,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
 
     if (item.type === "follow_cta") {
       return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
+        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-hairline p-2 flex items-center justify-center relative overflow-hidden group">
           <div className="relative z-10 flex items-center gap-2 bg-gradient-to-r from-sky-600 to-blue-600 text-white px-3.5 py-1.5 rounded-full shadow-[0_4px_14px_rgba(2,132,199,0.4),inset_0_1px_1px_rgba(255,255,255,0.3)] border border-sky-400/40">
             <span className="text-xs">✨</span>
             <span className="text-xs font-bold tracking-wide">FOLLOW FOR MORE</span>
@@ -143,7 +143,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
 
     if (item.type === "like_share_cta") {
       return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
+        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-hairline p-2 flex items-center justify-center relative overflow-hidden group">
           <div className="relative z-10 flex items-center gap-3 bg-indigo-950/80 backdrop-blur-md px-3.5 py-2 rounded-xl border border-indigo-500/40 shadow-lg">
             <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-200">
               <span className="text-sm">👍</span>
@@ -161,7 +161,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
 
     if (item.type === "buy_now_cta") {
       return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
+        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-hairline p-2 flex items-center justify-center relative overflow-hidden group">
           <div className="relative z-10 flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-2 rounded-full shadow-[0_5px_15px_rgba(16,185,129,0.35)] border border-emerald-400/30">
             <span>🛍️</span>
             <span className="text-xs font-black tracking-wide">SHOP NOW — 20% OFF</span>
@@ -172,7 +172,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
 
     // Generic CTA
     return (
-      <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
+      <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-hairline p-2 flex items-center justify-center relative overflow-hidden group">
         <div className="relative z-10 flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-1.5 rounded-lg shadow-md border border-indigo-400/30">
           <span className="text-sm">{item.icon}</span>
           <span className="text-xs font-bold uppercase tracking-wider">{item.defaultContent?.primaryText || item.name}</span>
@@ -187,7 +187,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   if (item.category === "stickers") {
     const vo = item.defaultVisualOptions || {};
     return (
-      <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 flex items-center justify-center relative overflow-hidden">
+      <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-hairline flex items-center justify-center relative overflow-hidden">
         <StickerPreviewCanvas
           stickerId={vo.stickerId || item.type}
           motionPreset={vo.motionPreset}
@@ -198,7 +198,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
           size={88}
           backdrop="none"
         />
-        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-semibold text-gray-300 uppercase tracking-wider bg-gray-950/80 px-2 py-0.5 rounded border border-gray-700/60 whitespace-nowrap">
+        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-semibold text-gray-300 uppercase tracking-wider bg-gray-950/80 px-2 py-0.5 rounded border border-hairline whitespace-nowrap">
           {MOTION_PRESETS_BY_ID[vo.motionPreset || ""]?.name || "3D"}
         </span>
       </div>
@@ -267,21 +267,21 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       return (
         <div className="w-full h-24 rounded-lg bg-gray-950 border border-red-600/40 p-2 flex items-center justify-between relative overflow-hidden group">
           {/* Watch Next Box 1 */}
-          <div className="w-16 h-14 bg-gray-900 border border-gray-700 rounded flex flex-col items-center justify-center text-[8px] text-gray-400 font-mono">
+          <div className="w-16 h-14 bg-gray-900 border border-hairline rounded flex flex-col items-center justify-center text-[8px] text-gray-400 font-mono">
             <span>📺</span>
             <span>NEXT VIDEO</span>
           </div>
 
           {/* Center Subscribe Circle */}
           <div className="flex flex-col items-center">
-            <div className="w-8 h-8 rounded-full bg-red-600 border-2 border-white shadow-[0_0_12px_rgba(239,68,68,0.7)] flex items-center justify-center text-xs text-white">
+            <div className="w-8 h-8 rounded-full bg-red-600 border border-white shadow-[0_0_12px_rgba(239,68,68,0.7)] flex items-center justify-center text-xs text-white">
               🏷️
             </div>
             <span className="text-[8px] font-black text-red-400 mt-1">SUBSCRIBE</span>
           </div>
 
           {/* Watch Next Box 2 */}
-          <div className="w-16 h-14 bg-gray-900 border border-gray-700 rounded flex flex-col items-center justify-center text-[8px] text-gray-400 font-mono">
+          <div className="w-16 h-14 bg-gray-900 border border-hairline rounded flex flex-col items-center justify-center text-[8px] text-gray-400 font-mono">
             <span>▶️</span>
             <span>PLAYLIST</span>
           </div>
@@ -299,7 +299,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
           <div className="flex items-center gap-1.5">
             <span className="w-6 h-6 rounded-full bg-red-900/60 border border-red-500/50 flex items-center justify-center text-[10px]">YT</span>
             <span className="w-6 h-6 rounded-full bg-pink-900/60 border border-pink-500/50 flex items-center justify-center text-[10px]">IG</span>
-            <span className="w-6 h-6 rounded-full bg-gray-800 border border-gray-600 flex items-center justify-center text-[10px]">X</span>
+            <span className="w-6 h-6 rounded-full bg-gray-800 border border-hairline flex items-center justify-center text-[10px]">X</span>
             <span className="w-6 h-6 rounded-full bg-cyan-900/60 border border-cyan-500/50 flex items-center justify-center text-[10px]">TT</span>
           </div>
           <span className="text-[8px] text-gray-400 mt-1 font-mono">@sceneringstudio</span>
@@ -324,7 +324,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   // shows the true plate, transparency, font and slide-in motion.
   if (item.category === "text_templates" || item.category === "lower_thirds") {
     return (
-      <div className="w-full rounded-lg overflow-hidden border border-gray-800 bg-gray-950 flex items-center justify-center">
+      <div className="w-full rounded-lg overflow-hidden border border-hairline bg-gray-950 flex items-center justify-center">
         <TemplatePreviewCanvas
           templateId={(item.defaultVisualOptions?.templateId as string) || item.type}
           content={item.defaultContent as Record<string, string>}
@@ -353,8 +353,8 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
 
   // ---------------- BRAND LOGO PREVIEW ----------------
   return (
-    <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-      <div className="relative z-10 flex items-center gap-2 bg-gray-900/90 px-3 py-1.5 rounded-lg border border-gray-700">
+    <div className="w-full h-24 rounded-lg bg-gray-950 border border-hairline p-2 flex items-center justify-center relative overflow-hidden group">
+      <div className="relative z-10 flex items-center gap-2 bg-gray-900/90 px-3 py-1.5 rounded-lg border border-hairline">
         <span className="text-base">🏷️</span>
         <span className="text-xs font-semibold text-gray-200">Official Brand Watermark</span>
       </div>
