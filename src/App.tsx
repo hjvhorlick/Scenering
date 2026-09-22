@@ -1084,6 +1084,7 @@ export default function App() {
                   className={`opt-btn ${isActive ? "opt-btn-on" : phase.id !== "setup" && !currentProject ? "opacity-40 cursor-not-allowed" : ""}`}
                 >
                   <span className="flex items-center gap-1 whitespace-nowrap">
+                    {phase.id !== "setup" && !currentProject && <span className="text-[9px] opacity-90">🔒</span>}
                     <span className={isActive ? "" : "text-indigo-300/80"}>{i + 1}.</span>
                     <span>{phase.icon}</span>
                     {/* The word is dropped on phones; the number and icon still
@@ -1093,6 +1094,14 @@ export default function App() {
                 </button>
               );
             })}
+            {/* Locked-tab explanation: steps 2–6 edit a project's content, so
+                they only light up once a project exists on this screen. */}
+            {!currentProject && (
+              <span className="opt-hint ml-auto shrink-0 hidden lg:inline-flex pr-1" title="Steps 2–6 edit a project's scenes, voices and video — they unlock as soon as you create or select a project in Setup">
+                <span>🔓</span>
+                <span>create or select a project to unlock steps 2–6</span>
+              </span>
+            )}
           </div>
 
           <div className="ml-auto flex items-center gap-2 shrink-0">
