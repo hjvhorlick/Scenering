@@ -1,11 +1,21 @@
-import { useState, useEffect } from "react";
-import type { AspectRatioType, PacingModeType, Project, ResolutionType, Scene } from "../types";
+import { useState, useEffect, useRef } from "react";
+import MotionPreviewCanvas from "./MotionPreviewCanvas";
+import type { AspectRatioType, PacingModeType, Project, ResolutionType, Scene, SceneMotionType } from "../types";
 import ProjectList from "./ProjectList";
 import StepNav from "./StepNav";
+import {
+  readDraft,
+  writeDraft,
+  clearDraft,
+  resolveSetupFields,
+  shouldReloadFields,
+} from "../lib/setup-draft";
 import {
   DURATION_OPTIONS,
   type DurationOption,
   getTargetWordCount,
+  countScenesFromScript,
+  splitScriptIntoScenes,
   countWords,
 } from "../lib/duration-utils";
 
@@ -24,7 +34,8 @@ interface SetupStudioProps {
   onSelectProject: (project: Project) => void;
   onDeleteProject: (projectId: number) => void;
   onStartNewProject: () => void;
-  onCreateProject: (title: string, script: string, sceneDuration: number) => void | Promise<void>;
+  /** Resolves true when the project was created and the app has navigated on */
+  onCreateProject: (title: string, script: string, sceneDuration: number) => boolean | void | Promise<boolean | void>;
   /* Project setup values */
   onUpdateTitle: (title: string) => void;
   onUpdateScript: (script: string, regenerateScenes?: boolean, overrideDuration?: number) => void;
@@ -89,20 +100,18 @@ export default function SetupStudio({
   onUpdateMotionStyle,
   onNavigateToStep,
 }: SetupStudioProps) {
-  const [title, setTitle] = useState(project?.title || "");
-  const [script, setScript] = useState(() => {
-    if (project?.script && project.script.trim().length > 0) {
-      return project.script;
-    }
-    if (scenes && scenes.length > 0 && scenes[0]?.project_id === project?.id) {
-      return scenes.map((s) => s.text).join("\n\n");
-    }
-    return "";
-  });
+  /** Best-known title/script for a project, preferring anything unsaved. */
+  const initialFor = (proj: Project | null | undefined, sc: Scene[]) =>
+    resolveSetupFields(proj, sc, readDraft(proj?.id));
+
+  const [title, setTitle] = useState(() => initialFor(project, scenes).title);
+  const [script, setScript] = useState(() => initialFor(project, scenes).script);
   const [selectedDuration, setSelectedDuration] = useState<DurationOption>(
     () => (sceneDuration as DurationOption) || 20
   );
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
 
   useEffect(() => {
     if (sceneDuration && [10, 20, 30].includes(sceneDuration)) {
@@ -110,28 +119,70 @@ export default function SetupStudio({
     }
   }, [sceneDuration]);
 
-  // Strict isolation: when the selected project changes, load only that project's data
+  /**
+   * Strict isolation: reload the fields ONLY when the user actually switches
+   * to a different project.
+   *
+   * This used to also depend on project.title, project.script and the scenes
+   * array. Changing the aspect ratio, resolution or motion style rewrites the
+   * scenes array, which changed its identity, re-ran this effect and wiped
+   * whatever the user had typed — the "my title and script disappear" bug.
+   */
+  const loadedProjectRef = useRef<number | string | null>(null);
   useEffect(() => {
-    setTitle(project?.title || "");
+    const key = project?.id ?? "new";
+    if (!shouldReloadFields(loadedProjectRef.current, project?.id)) return;
+    loadedProjectRef.current = key;
+    const init = initialFor(project, scenes);
+    setTitle(init.title);
+    setScript(init.script);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
+
+  /** Once the project exists, the anonymous "new" draft has served its purpose */
+  useEffect(() => {
+    if (project?.id) clearDraft(null);
+  }, [project?.id]);
+
+  /**
+   * Keep an unsaved draft so nothing is ever lost, even if this component
+   * unmounts (navigating away and back) or the page is reloaded.
+   */
+  useEffect(() => {
+    try {
+      writeDraft(project?.id, { title, script });
+    } catch {}
+  }, [title, script, project?.id]);
+
+  /**
+   * If the project's saved script arrives after mount (async load) and the box
+   * is still empty with no draft, adopt it rather than leaving the user blank.
+   */
+  useEffect(() => {
+    if (script.trim().length > 0) return;
+    const draft = readDraft(project?.id);
+    if (draft.script !== undefined && draft.script.trim().length > 0) return;
     if (project?.script && project.script.trim().length > 0) {
       setScript(project.script);
-    } else if (scenes && scenes.length > 0 && scenes[0]?.project_id === project?.id) {
+    } else if (scenes.length > 0 && scenes[0]?.project_id === project?.id) {
       setScript(scenes.map((s) => s.text).join("\n\n"));
-    } else {
-      setScript("");
     }
-  }, [project?.id, project?.title, project?.script, scenes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.script, scenes.length]);
 
   const activeDuration = selectedDuration;
-  const targetWordsPerScene = getTargetWordCount(activeDuration) || 50;
+  const targetWordsPerScene = getTargetWordCount(activeDuration);
 
-  // Flatten into continuous script (all newlines, paragraph breaks, and duplicate whitespace removed)
-  const continuousScript = (script || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
-  const wordsCount = continuousScript ? continuousScript.split(" ").filter(Boolean).length : 0;
+  // Scene count comes from the SAME splitter the app uses to create scenes
+  // (src/lib/duration-utils.ts), so the number shown here is always the number
+  // the user actually gets. It used to count paragraphs, which disagreed with
+  // the word-count based split.
+
+  const wordsCount = countWords(script);
   const estimatedReadingSec = Math.round((wordsCount / 2.5) * 10) / 10;
-  const detectedScenesCount = wordsCount > 0 ? Math.max(1, Math.ceil(wordsCount / targetWordsPerScene)) : 0;
+  const detectedScenesCount = countScenesFromScript(script, activeDuration);
   const isExistingProject = Boolean(project?.id);
-  const canStart = continuousScript.length > 0;
+  const canStart = script.trim().length > 0;
 
   const showNotice = (msg: string) => {
     setAppliedNotice(msg);
@@ -143,27 +194,37 @@ export default function SetupStudio({
     onUpdateTitle(newTitle);
   };
 
+  /**
+   * Re-flows the script into evenly sized scenes for the chosen duration and
+   * shows the result as one paragraph per scene, so what is on screen matches
+   * what will be created.
+   */
   const handleFormatScriptToTargetDuration = () => {
-    const raw = script.trim() || scenes.map((s) => s.text).join(" ");
-    if (!raw) return;
-    const cleanContinuous = raw.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
-    setScript(cleanContinuous);
-    onUpdateScript(cleanContinuous, true, activeDuration);
-    const sceneWords = cleanContinuous.split(" ").filter(Boolean).length;
-    const estCount = Math.max(1, Math.ceil(sceneWords / targetWordsPerScene));
+    const currentScriptText = script.trim() || scenes.map((s) => s.text).join("\n\n");
+    if (!currentScriptText) return;
+
+    const parts = splitScriptIntoScenes(currentScriptText, activeDuration);
+    if (parts.length === 0) return;
+
+    const cleanScript = parts.join("\n\n");
+    setScript(cleanScript);
+    onUpdateScript(cleanScript, true, activeDuration);
+
+    const counts = parts.map((x) => countWords(x));
+    const lo = Math.min(...counts);
+    const hi = Math.max(...counts);
     showNotice(
-      `Flattened into continuous script and split into ${estCount} scenes (${activeDuration}s / ~${targetWordsPerScene}w each)!`
+      `Formatted into ${parts.length} even scene${parts.length === 1 ? "" : "s"} of ${
+        lo === hi ? `${lo}` : `${lo}–${hi}`
+      } words (~${activeDuration}s each).`
     );
   };
 
   const handleApplyScript = (regenerate: boolean) => {
-    const raw = script.trim();
-    if (!raw) return;
-    const cleanContinuous = raw.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
-    setScript(cleanContinuous);
-    onUpdateScript(cleanContinuous, regenerate, activeDuration);
+    if (!script.trim()) return;
+    onUpdateScript(script.trim(), regenerate, activeDuration);
     showNotice(
-      regenerate ? `Re-generated ${detectedScenesCount} scenes from continuous script!` : "Script updated successfully!"
+      regenerate ? `Re-generated ${detectedScenesCount} scenes from script!` : "Script updated successfully!"
     );
   };
 
@@ -172,40 +233,67 @@ export default function SetupStudio({
     onUpdateSceneDuration?.(seconds);
     onCalibrateScenesWordCount?.(seconds);
 
-    const cleanContinuous = (script || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
-    if (isExistingProject && cleanContinuous) {
-      onUpdateScript(cleanContinuous, true, seconds);
+    const currentScriptText = script.trim();
+    if (isExistingProject && currentScriptText) {
+      onUpdateScript(currentScriptText, true, seconds);
     }
 
     const words = getTargetWordCount(seconds);
     showNotice(`Scene duration set to ${seconds}s (~${words} target words/scene).`);
   };
 
-  /** Primary action: create the project (new) or save the setup (existing) and continue to Scenes */
+  /**
+   * Primary action: create the project (new) or save the setup (existing) and
+   * continue to Scenes.
+   *
+   * This is guarded and always finishes. Previously a throw anywhere in the
+   * save path (or a create that silently failed) left the user on the setup
+   * screen with no feedback, which is why the button "did not always work".
+   */
   const handleStartProject = async () => {
+    if (starting) return;
     const durToApply = selectedDuration || 20;
-    const cleanContinuous = (script || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+    const scriptText = script.trim();
 
-    if (!isExistingProject) {
-      if (!cleanContinuous) return;
-      await onCreateProject(title.trim() || "Untitled Video", cleanContinuous, durToApply);
+    if (!scriptText) {
+      showNotice("Add a script in section 3 before continuing.");
+      document.getElementById("screenplay-script")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
-    if (title.trim()) onUpdateTitle(title.trim());
-    onUpdateSceneDuration?.(durToApply);
-    if (cleanContinuous) {
-      onUpdateScript(cleanContinuous, true, durToApply);
-    } else {
-      onCalibrateScenesWordCount?.(durToApply);
+    setStarting(true);
+    setStartError(null);
+    try {
+      if (!isExistingProject) {
+        const ok = await onCreateProject(title.trim() || "Untitled Video", scriptText, durToApply);
+        // A create that returns false failed; anything else is treated as
+        // success because the app navigates itself on the happy path.
+        if (ok === false) {
+          setStartError("Could not create the project. Your title and script are still here — please try again.");
+        }
+        return;
+      }
+
+      if (title.trim()) onUpdateTitle(title.trim());
+      onUpdateSceneDuration?.(durToApply);
+      onUpdateScript(scriptText, true, durToApply);
+      onNavigateToStep("scenes");
+    } catch (err) {
+      console.error("Setup save failed:", err);
+      setStartError("Something went wrong saving the setup. Nothing was lost — please try again.");
+    } finally {
+      setStarting(false);
     }
-    onNavigateToStep("scenes");
   };
 
   const handleStartNewProject = () => {
+    clearDraft(project?.id);
+    clearDraft(null);
+    loadedProjectRef.current = "new";
     onStartNewProject();
     setTitle("");
     setScript("");
+    setStartError(null);
   };
 
   const aspectRatios: {
@@ -260,19 +348,32 @@ export default function SetupStudio({
     { id: "4k", name: "4K Ultra HD", badge: "Cinema Master", description: "Maximum cinematic fidelity" },
   ];
 
-  const motionOptions = [
-    { id: "dynamic", label: "🔀 Dynamic Variety", desc: "Rotates Ken Burns, Zoom, Pan & Shake per scene" },
-    { id: "ken_burns", label: "🔍 Gentle Ken Burns", desc: "Documentary slow drift and cinematic push" },
-    { id: "zoom_in", label: "➕ Cinematic Zoom In", desc: "Slow immersive forward push" },
-    { id: "zoom_out", label: "➖ Dramatic Zoom Out", desc: "Slow wide reveal effect" },
-    { id: "pan", label: "↔️ Smooth Camera Pan", desc: "Horizontal sliding panoramic movement" },
-    { id: "shake", label: "📳 Handheld Shake", desc: "Organic documentary subtle handheld tremor" },
-    { id: "none", label: "⏹️ Static (No Motion)", desc: "Still frame without camera motion" },
+  /**
+   * Each option carries the actual SceneMotionType it applies, so the little
+   * preview beside it animates the very same transform the renderer will use.
+   */
+  const motionOptions: {
+    id: string;
+    label: string;
+    desc: string;
+    preview: SceneMotionType;
+  }[] = [
+    { id: "dynamic", label: "🔀 Dynamic Variety", desc: "Rotates Ken Burns, zoom, pan & drift per scene", preview: "ken_burns" },
+    { id: "ken_burns", label: "🔍 Gentle Ken Burns", desc: "Steady push with a visible diagonal drift", preview: "ken_burns" },
+    { id: "zoom_in", label: "➕ Cinematic Zoom In", desc: "Immersive forward push", preview: "zoom_in" },
+    { id: "zoom_out", label: "➖ Dramatic Zoom Out", desc: "Wide reveal, pulling back", preview: "zoom_out" },
+    { id: "pan", label: "↔️ Smooth Camera Pan", desc: "Horizontal panoramic travel", preview: "pan_left" },
+    { id: "shake", label: "📳 Handheld Shake", desc: "Organic handheld tremor that settles", preview: "shake" },
+    { id: "floating", label: "🎈 Floating Drift", desc: "Weightless figure-of-eight drift", preview: "floating" },
+    { id: "none", label: "⏹️ Static (No Motion)", desc: "Still frame, no camera movement", preview: "none" },
   ];
+
+  /** A real scene image makes the preview concrete; otherwise a stand-in is drawn. */
+  const motionPreviewImage = scenes.find((sc) => sc.image_url)?.image_url || null;
 
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-5 sm:space-y-6 pb-12 animate-fade-in">
+    <div className="w-full max-w-4xl 2xl:max-w-6xl mx-auto space-y-3 sm:space-y-5 lg:space-y-6 pb-12 animate-fade-in px-1 sm:px-0">
       {/* ---------------- Frame header ---------------- */}
       <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
         <div className="min-w-0">
@@ -308,8 +409,10 @@ export default function SetupStudio({
             onNavigate={() => {}}
             onNext={handleStartProject}
             nextLabel={isExistingProject ? "Next: Scenes (save setup)" : "Next: Scenes (create project)"}
-            nextDisabled={!canStart}
-            busyLabel={loading ? "Creating project…" : undefined}
+            /* The button stays clickable even without a script so it can say
+               WHY it cannot continue, rather than appearing broken. */
+            nextDisabled={false}
+            busyLabel={starting || loading ? (isExistingProject ? "Saving setup…" : "Creating project…") : undefined}
             note={
               canStart
                 ? isExistingProject
@@ -320,6 +423,18 @@ export default function SetupStudio({
           />
         </div>
       </div>
+
+      {startError && (
+        <div className="p-3.5 bg-red-950/80 border border-red-700/80 rounded-xl text-red-200 text-xs flex items-center justify-between shadow-lg">
+          <span className="flex items-center gap-2">
+            <span>⚠️</span>
+            <span className="font-medium">{startError}</span>
+          </span>
+          <button onClick={() => setStartError(null)} className="text-red-400 hover:text-white text-xs">
+            ✕
+          </button>
+        </div>
+      )}
 
       {appliedNotice && (
         <div className="p-3.5 bg-emerald-950/80 border border-emerald-700/80 rounded-xl text-emerald-200 text-xs flex items-center justify-between shadow-lg">
@@ -403,7 +518,7 @@ export default function SetupStudio({
         <SectionHeading
           step={3}
           title="Screenplay script & narration"
-          subtitle="Paste your script. All line breaks and paragraph spaces are removed into one continuous script, then split into 20-second (50-word) scenes without adding external sentences."
+          subtitle="Paste the full script. Each paragraph becomes a scene. There is no limit on the number of scenes."
           badge={
             <div className="hidden sm:flex items-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-gray-700 text-[11px] shrink-0">
               <span className="text-indigo-300 font-semibold">{detectedScenesCount} Scenes</span>
@@ -426,16 +541,16 @@ export default function SetupStudio({
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <span className="text-[11px] font-medium text-gray-400">
-            Continuous script input — split automatically into ~{targetWordsPerScene}-word scenes ({activeDuration}s each).
+            Write or paste your own script below — each paragraph becomes one scene.
           </span>
           <button
             type="button"
             onClick={handleFormatScriptToTargetDuration}
             className="px-2.5 py-1 bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-300 border border-indigo-700/60 rounded-lg text-[11px] font-semibold transition-colors flex items-center justify-center gap-1 shadow-sm shrink-0"
-            title={`Flatten into continuous script and split into ~${targetWordsPerScene} words per scene`}
+            title={`Calibrate each paragraph to ~${targetWordsPerScene} words so each scene lasts ${activeDuration}s`}
           >
             <span>✨</span>
-            <span>Flatten & Split Script ({activeDuration}s / ~{targetWordsPerScene}w)</span>
+            <span>Calibrate My Script to {activeDuration}s (~{targetWordsPerScene}w)</span>
           </button>
         </div>
 
@@ -444,7 +559,7 @@ export default function SetupStudio({
           value={script}
           onChange={(e) => setScript(e.target.value)}
           rows={11}
-          placeholder="Paste your screenplay script or narration here. All line breaks and paragraph spaces are removed into one continuous script, then cleanly split into 20-second (50-word) scenes without adding any other sentences."
+          placeholder={`Scene 1: Type ~${targetWordsPerScene} words to last ${activeDuration} seconds when read aloud...\n\nScene 2: Type another ~${targetWordsPerScene} words for the second scene...\n\nScene 3: Each paragraph becomes a separate scene.`}
           className="w-full px-4 py-3.5 bg-gray-800/90 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-xs leading-relaxed shadow-inner"
         />
 
@@ -452,7 +567,7 @@ export default function SetupStudio({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-[11px] text-gray-400 flex items-center gap-1.5">
               <span>💡</span>
-              <span>Flattened into continuous script and split into {activeDuration}s scenes (~{targetWordsPerScene} words each).</span>
+              <span>Each paragraph becomes a scene calibrated for {activeDuration}s (~{targetWordsPerScene} words).</span>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -487,7 +602,7 @@ export default function SetupStudio({
             </span>
           }
         />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-2.5">
           {DURATION_OPTIONS.map((opt) => {
             const isSelected = activeDuration === opt.seconds;
             return (
@@ -534,7 +649,7 @@ export default function SetupStudio({
           title="Aspect ratio"
           subtitle="Target display format & canvas orientation for every preview and render."
         />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
           {aspectRatios.map((r) => {
             const isActive = aspectRatio === r.id;
             return (
@@ -581,7 +696,7 @@ export default function SetupStudio({
             </span>
           }
         />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
           {resolutions.map((res) => {
             const isActive = resolution === res.id;
             const dimension = getResolutionDimensions(aspectRatio, res.id);
@@ -622,9 +737,13 @@ export default function SetupStudio({
         <SectionHeading
           step={7}
           title="Camera motion (Ken Burns)"
-          subtitle="Default movement applied to scene images across the whole video."
+          subtitle="Applies to every scene in the whole video. Previews below are live."
         />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <p className="text-[11px] text-gray-500 mb-2.5">
+          Every tile below is live — the movement you see is the exact transform the
+          rendered video uses.
+        </p>
+        <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-2 sm:gap-2.5">
           {motionOptions.map((opt) => {
             const isSelected = motionStyle === opt.id;
             return (
@@ -635,17 +754,36 @@ export default function SetupStudio({
                   onUpdateMotionStyle?.(opt.id);
                   showNotice(`Global motion style set to ${opt.label}`);
                 }}
-                className={`w-full p-2.5 rounded-xl border text-left transition-all flex items-center justify-between gap-2 ${
+                className={`w-full p-2 rounded-xl border text-left transition-all ${
                   isSelected
                     ? "bg-indigo-950/80 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-400"
                     : "bg-gray-800/60 border-gray-700/60 text-gray-300 hover:bg-gray-750 hover:text-white"
                 }`}
               >
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold">{opt.label}</div>
-                  <div className="text-[10px] text-gray-400">{opt.desc}</div>
+                <div className="relative overflow-hidden rounded-lg mb-2">
+                  <MotionPreviewCanvas
+                    motion={opt.preview}
+                    imageUrl={motionPreviewImage}
+                    width={300}
+                    height={150}
+                    responsive
+                    cycleSeconds={opt.id === "shake" || opt.id === "floating" ? 4 : 6}
+                  />
+                  {isSelected && (
+                    <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-bold shadow">
+                      ACTIVE
+                    </span>
+                  )}
                 </div>
-                {isSelected && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shrink-0" />}
+                <div className="min-w-0 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold truncate">{opt.label}</div>
+                    <div className="text-[10px] text-gray-400 leading-tight">{opt.desc}</div>
+                  </div>
+                  {isSelected && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shrink-0" />
+                  )}
+                </div>
               </button>
             );
           })}
@@ -681,7 +819,7 @@ export default function SetupStudio({
         </div>
 
         {/* 3-Tier Pricing Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-5 pt-2">
           {/* Tier 1: Free Starter */}
           <div className="bg-gray-800/60 border border-gray-700/80 rounded-2xl p-5 flex flex-col justify-between hover:border-gray-600 transition-all shadow-md">
             <div className="space-y-4">

@@ -7,6 +7,7 @@
  * attribution — it was never actually heard in preview or render.
  */
 import type { TimelineInsert } from "../types";
+import { sectionSoundUrl, type SectionConfig } from "../data/intro-outro";
 
 export interface InsertAudioPlan {
   key: string;
@@ -79,6 +80,53 @@ export function buildInsertAudioPlan(
     if (startTime >= totalDuration || endTime <= startTime) continue;
 
     plans.push({ key: ins.id, url: as.soundUrl, startTime, endTime, volume, loop });
+  }
+
+  return plans;
+}
+
+/**
+ * Sound plan for the Intro / Outro sections built in the Intro & Outro studio.
+ * These are not timeline inserts — they live on the project settings — but they
+ * ride the exact same mixer so they are heard in preview and baked into the
+ * exported file.
+ */
+export function buildSectionAudioPlan(
+  intro: SectionConfig | null | undefined,
+  outro: SectionConfig | null | undefined,
+  introDuration: number,
+  totalDuration: number
+): InsertAudioPlan[] {
+  const plans: InsertAudioPlan[] = [];
+  if (totalDuration <= 0) return plans;
+
+  if (intro?.enabled) {
+    const url = sectionSoundUrl(intro);
+    if (url) {
+      plans.push({
+        key: "section_intro",
+        url,
+        startTime: 0,
+        endTime: Math.min(totalDuration, Math.max(0.5, introDuration)),
+        volume: Math.max(0, Math.min(1, intro.volume)),
+        loop: false,
+      });
+    }
+  }
+
+  if (outro?.enabled) {
+    const url = sectionSoundUrl(outro);
+    if (url) {
+      const dur = Math.max(0.5, outro.duration);
+      plans.push({
+        key: "section_outro",
+        url,
+        startTime: Math.max(0, totalDuration - dur),
+        endTime: totalDuration,
+        volume: Math.max(0, Math.min(1, outro.volume)),
+        loop: false,
+      });
+    }
   }
 
   return plans;

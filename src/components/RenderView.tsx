@@ -3,8 +3,9 @@ import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { createProjectZip } from "../lib/zip-download";
+import { drawSceneImage } from "../lib/scene-framing";
+import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import {
-  applySceneFilter,
   getMotionTransform,
   renderTimelineInsert,
 } from "../lib/render-effects";
@@ -13,8 +14,11 @@ import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
-import { getCanvasFilterString } from "../data/filters-library";
-import { buildInsertAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
+import { getFilterCanvas, getPreset, type VideoFilterConfig } from "../data/video-filters";
+import { paintVideoFilter } from "../lib/video-filter-render";
+import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
+import { renderSection } from "../lib/render-section";
+import type { SectionConfig } from "../data/intro-outro";
 
 export interface RenderSettings {
   format: "mp4" | "webm";
@@ -51,6 +55,10 @@ interface RenderViewProps {
   /* Setup choices — shown read-only on this screen */
   sceneDuration?: number;
   motionStyle?: string;
+  /** the single look applied across the whole video */
+  videoFilter?: VideoFilterConfig | null;
+  introSection?: SectionConfig | null;
+  outroSection?: SectionConfig | null;
   onOpenSetup?: () => void;
   onNavigatePhase?: (phase: ProjectPhase) => void;
 }
@@ -93,7 +101,7 @@ export function generateSrtSubtitles(scenes: Scene[]): string {
 
   let acc = 0;
   return scenes
-    .filter((s) => s.image_url)
+    .filter((s) => s.image_url || s.video_url)
     .map((s, i) => {
       const start = acc;
       const end = acc + s.duration;
@@ -122,10 +130,15 @@ export default function RenderView({
   onRenderSuccess,
   sceneDuration = 20,
   motionStyle = "dynamic",
+  videoFilter = null,
+  introSection = null,
+  outroSection = null,
   onOpenSetup,
   onNavigatePhase,
 }: RenderViewProps) {
-  const scenesWithImages = scenes.filter((s) => s.image_url);
+  // Scenes with a short video clip are renderable even without a still image.
+  const scenesWithImages = scenes.filter((s) => s.image_url || s.video_url);
+  const activeLook = getPreset(videoFilter?.id);
   const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
   const totalDuration = scenesWithImages.reduce((sum, s) => sum + getSceneDuration(s), 0);
 
@@ -180,6 +193,8 @@ export default function RenderView({
   const [showAttributionPreview, setShowAttributionPreview] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /** Clip decoders in use by the current export, released when it ends. */
+  const clipPoolRef = useRef<ClipPool | null>(null);
   const watermarkImgRef = useRef<HTMLImageElement | null>(null);
   const customerLogoImgRef = useRef<HTMLImageElement | null>(null);
   const abortControllerRef = useRef<boolean>(false);
@@ -454,6 +469,25 @@ export default function RenderView({
         scenesWithImages.map((s) => loadImage(s.image_url || ""))
       );
 
+      // Prepare any short video clips so their frames are decodable while the
+      // canvas is being captured.
+      const clipPool = new ClipPool();
+      clipPoolRef.current = clipPool;
+      await Promise.all(
+        scenesWithImages.filter(sceneHasClip).map(
+          (s) =>
+            new Promise<void>((resolve) => {
+              const el = clipPool.get(s);
+              if (!el) return resolve();
+              if (el.readyState >= 2) return resolve();
+              const done = () => resolve();
+              el.addEventListener("loadeddata", done, { once: true });
+              el.addEventListener("error", done, { once: true });
+              setTimeout(done, 8000);
+            })
+        )
+      );
+
       // Watermark image
       if (!watermarkImgRef.current) {
         const wm = await loadImage("/scenering-logo.png");
@@ -665,10 +699,10 @@ export default function RenderView({
         }
       };
 
-      const introInsert = inserts?.find((ins) => ins.category === "intro");
-      const outroInsert = inserts?.find((ins) => ins.category === "outro");
-      const introDuration = introInsert ? introInsert.duration : 0;
-      const outroDuration = outroInsert ? outroInsert.duration : 0;
+      const introSec = introSection?.enabled ? introSection : null;
+      const outroSec = outroSection?.enabled ? outroSection : null;
+      const introDuration = introSec ? Math.max(0.5, introSec.duration) : 0;
+      const outroDuration = outroSec ? Math.max(0.5, outroSec.duration) : 0;
 
       const scriptTotalDuration = Math.max(1, scenesWithImages.reduce((sum, s) => {
         const aud = audioBuffers.get(s.id);
@@ -680,7 +714,10 @@ export default function RenderView({
       // Mix timeline insert audio (BGM, SFX, CTA jingles, intro/outro sounds) into the render
       let insertMixer: InsertAudioMixer | null = null;
       try {
-        const insertPlans = buildInsertAudioPlan(inserts, estimatedTotalDuration);
+        const insertPlans = [
+          ...buildInsertAudioPlan(inserts, estimatedTotalDuration),
+          ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
+        ];
         if (insertPlans.length > 0) {
           insertMixer = new InsertAudioMixer(audioCtx, musicAnalyser);
           const loaded = await insertMixer.load(insertPlans);
@@ -694,7 +731,7 @@ export default function RenderView({
       }
       const renderStartTime = performance.now();
 
-      let renderPhase: "intro" | "scenes" | "outro" = introInsert ? "intro" : "scenes";
+      let renderPhase: "intro" | "scenes" | "outro" = introSec ? "intro" : "scenes";
       let phaseStartTime = performance.now();
 
       // Only start scene voiceover audio if we are starting directly in scenes phase
@@ -758,7 +795,7 @@ export default function RenderView({
             // ==========================================
             // PHASE 1: INTRO SEGMENT (Full screen insert, NO captions, NO speech voice)
             // ==========================================
-            if (renderPhase === "intro" && introInsert) {
+            if (renderPhase === "intro" && introSec) {
               const elapsedInIntro = Math.max(0, (now - phaseStartTime) / 1000);
               const currentGlobalTime = elapsedInIntro;
               const progressInIntro = Math.min(1, elapsedInIntro / Math.max(0.1, introDuration));
@@ -779,11 +816,11 @@ export default function RenderView({
               ctx.fillStyle = "#000";
               ctx.fillRect(0, 0, width, height);
 
-              // Render Intro full screen (video or image with its own clip sound)
+              // Render the intro section built in the Intro & Outro studio
               try {
-                renderTimelineInsert(ctx, introInsert, currentGlobalTime, width, height, 0.4, null);
+                renderSection(ctx, introSec, width, height, currentGlobalTime, progressInIntro);
               } catch (e) {
-                console.warn("Intro insert render notice:", e);
+                console.warn("Intro section render notice:", e);
               }
 
               // Render active overlay inserts in intro (excluding intro/outro cards)
@@ -813,7 +850,7 @@ export default function RenderView({
             // ==========================================
             // PHASE 3: OUTRO SEGMENT (Full screen insert, NO captions, NO speech voice)
             // ==========================================
-            if (renderPhase === "outro" && outroInsert) {
+            if (renderPhase === "outro" && outroSec) {
               const elapsedInOutro = Math.max(0, (now - phaseStartTime) / 1000);
               const currentGlobalTime = introDuration + scriptTotalDuration + elapsedInOutro;
               const progressInOutro = Math.min(1, elapsedInOutro / Math.max(0.1, outroDuration));
@@ -834,11 +871,11 @@ export default function RenderView({
               ctx.fillStyle = "#000";
               ctx.fillRect(0, 0, width, height);
 
-              // Render Outro full screen (video or image with its own clip sound)
+              // Render the outro section built in the Intro & Outro studio
               try {
-                renderTimelineInsert(ctx, outroInsert, currentGlobalTime, width, height, 0.4, null);
+                renderSection(ctx, outroSec, width, height, elapsedInOutro, progressInOutro);
               } catch (e) {
-                console.warn("Outro insert render notice:", e);
+                console.warn("Outro section render notice:", e);
               }
 
               // Render active overlay inserts in outro (excluding intro/outro cards)
@@ -870,7 +907,7 @@ export default function RenderView({
             const currentScene = scenesWithImages[currentSceneIdx];
 
             if (!currentScene) {
-              if (outroInsert) {
+              if (outroSec) {
                 renderPhase = "outro";
                 phaseStartTime = performance.now();
                 if (activeAudioSource) {
@@ -917,8 +954,20 @@ export default function RenderView({
             ctx.fillStyle = "#000";
             ctx.fillRect(0, 0, width, height);
 
-            // --- Draw image with Camera Motion ---
-            const img = images[currentSceneIdx];
+            // --- Draw image (or the scene's short video clip) with Camera Motion ---
+            let img: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
+              images[currentSceneIdx] as any;
+            if (sceneHasClip(currentScene)) {
+              // Park the clip on the exact frame this moment of the scene needs,
+              // then draw it through the same framing engine as a still.
+              const el = clipPool.get(currentScene);
+              if (el) {
+                clipPool.seekToProgress(currentScene, progressInScene, sceneDuration);
+                if (el.readyState >= 2 && el.videoWidth > 0) {
+                  img = asDrawableClip(el) as any;
+                }
+              }
+            }
             if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
               const { scale, dx, dy } = getMotionTransform(
                 currentScene.motion_effect,
@@ -927,23 +976,21 @@ export default function RenderView({
                 height
               );
               const safeScale = isNaN(scale) ? 1 : scale;
-              const sw = width * safeScale;
-              const sh = height * safeScale;
               const safeDx = isNaN(dx) ? 0 : dx;
               const safeDy = isNaN(dy) ? 0 : dy;
 
-              // Apply authentic photographic color grade to frame canvas
-              const canvasFilter = getCanvasFilterString(currentScene.filter);
-              if (canvasFilter && canvasFilter !== "none") {
-                try {
-                  ctx.filter = canvasFilter;
-                } catch {
-                  ctx.filter = "none";
-                }
-              }
-
+              // Framing goes through the shared engine (src/lib/scene-framing.ts)
+              // so the exported video matches the preview exactly and the photo
+              // keeps its own aspect ratio. Previously this drew the image at
+              // the canvas width and height, which squashed every photo that
+              // was not already the output shape.
               try {
-                ctx.drawImage(img, safeDx, safeDy, sw, sh);
+                drawSceneImage(ctx, img, currentScene, width, height, {
+                  motionScale: safeScale,
+                  motionDx: safeDx + (width * safeScale - width) / 2,
+                  motionDy: safeDy + (height * safeScale - height) / 2,
+                  filter: getFilterCanvas(videoFilter, width),
+                });
               } catch (drawErr) {
                 console.warn("Scene draw notice:", drawErr);
               }
@@ -953,11 +1000,13 @@ export default function RenderView({
               } catch {}
             }
 
-            // --- Apply Visual Filter Overlays (scratches, dust bokeh, flares, CRT scanlines) ---
+            // --- Animated atmosphere of the project-wide filter (grain, mist,
+            //     dust, sun flare, VHS artefacts). Uses the GLOBAL timeline
+            //     clock so the motion flows continuously across scene cuts. ---
             try {
-              applySceneFilter(ctx, currentScene.filter, width, height, elapsedInScene);
+              paintVideoFilter(ctx, videoFilter, width, height, currentGlobalTime);
             } catch (filterErr) {
-              console.warn("Scene filter notice:", filterErr);
+              console.warn("Video filter notice:", filterErr);
             }
 
             // --- Crisp Logo Watermark in Top-Left Corner (Permanent & Stands Out) ---
@@ -1121,7 +1170,7 @@ export default function RenderView({
             if (progressInScene >= 1) {
               currentSceneIdx++;
               if (currentSceneIdx >= scenesWithImages.length) {
-                if (outroInsert) {
+                if (outroSec) {
                   renderPhase = "outro";
                   phaseStartTime = performance.now();
                   if (activeAudioSource) {
@@ -1173,6 +1222,11 @@ export default function RenderView({
       setRenderError(err.message || "Failed to render video");
     } finally {
       setIsRendering(false);
+      // Release every clip decoder used during the export.
+      try {
+        clipPoolRef.current?.dispose();
+        clipPoolRef.current = null;
+      } catch {}
     }
   };
 
@@ -1346,7 +1400,7 @@ export default function RenderView({
   ).length;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12 animate-fade-in">
+    <div className="space-y-3 sm:space-y-6 max-w-5xl 2xl:max-w-7xl mx-auto pb-12 animate-fade-in px-1 sm:px-0">
       {/* Top Banner & Summary */}
       <div className="bg-gray-800/60 border border-gray-700/80 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1439,6 +1493,12 @@ export default function RenderView({
                     ? `${(captionsConfig?.mode || settings.subtitleStyle) === "karaoke" ? "Karaoke word-pop" : "Normal"} · ${captionsConfig?.position || "bottom"}`
                     : "No subtitles in the video"
                 }
+              />
+              <SummaryRow
+                icon="🎨"
+                label="Video look / filter"
+                value={activeLook ? activeLook.name : "None"}
+                hint={activeLook ? `${activeLook.tagline} · every scene` : "Pick one in Video Studio → Filters"}
               />
               <SummaryRow
                 icon="🎵"

@@ -16,7 +16,7 @@ export async function createProjectZip(options: ZipOptions): Promise<Blob> {
   const zip = new JSZip();
   const safeName = title.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
 
-  const scenesWithImages = scenes.filter((s) => s.image_url);
+  const scenesWithImages = scenes.filter((s) => s.image_url || s.video_url);
 
   const imagesFolder = zip.folder("images")!;
   const audioFolder = zip.folder("audio")!;

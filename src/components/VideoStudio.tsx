@@ -9,6 +9,10 @@ import {
 } from "../data/media-library";
 import CustomerLogoSection from "./CustomerLogoSection";
 import EffectVisualPreview from "./EffectVisualPreview";
+import FiltersStudio from "./FiltersStudio";
+import SectionStudio from "./SectionStudio";
+import type { VideoFilterConfig } from "../data/video-filters";
+import type { SectionConfig } from "../data/intro-outro";
 
 interface VideoStudioProps {
   currentPlayheadTime: number;
@@ -19,6 +23,14 @@ interface VideoStudioProps {
   onUpdateCustomerLogo: (updates: Partial<CustomerLogoConfig>) => void;
   aspectRatio?: AspectRatioType;
   sampleBackgroundImage?: string;
+  /** the single look applied to the entire video */
+  videoFilter?: VideoFilterConfig | null;
+  onUpdateVideoFilter?: (config: VideoFilterConfig | null) => void;
+  /** the intro & outro sections built in this studio */
+  introSection?: SectionConfig | null;
+  outroSection?: SectionConfig | null;
+  onUpdateIntroSection?: (cfg: SectionConfig | null) => void;
+  onUpdateOutroSection?: (cfg: SectionConfig | null) => void;
 }
 
 export default function VideoStudio({
@@ -30,6 +42,12 @@ export default function VideoStudio({
   onUpdateCustomerLogo,
   aspectRatio,
   sampleBackgroundImage,
+  videoFilter = null,
+  onUpdateVideoFilter,
+  introSection = null,
+  outroSection = null,
+  onUpdateIntroSection,
+  onUpdateOutroSection,
 }: VideoStudioProps) {
   // Default to the first of the tabs: "logo"
   const [selectedCategory, setSelectedCategory] = useState<string>("logo");
@@ -148,6 +166,10 @@ export default function VideoStudio({
     (c) => c.id === selectedCategory
   );
 
+  /** Tabs with their own bespoke editor instead of the generic catalog grid */
+  const CUSTOM_TABS = ["logo", "filters", "intro", "outro"];
+  const isCustomTab = CUSTOM_TABS.includes(selectedCategory);
+
   // Filter catalog items
   const itemsForCategory = CATALOG_ITEMS[selectedCategory] || [];
   const filteredItems = itemsForCategory.filter((item) => {
@@ -220,7 +242,7 @@ export default function VideoStudio({
             )}
           </div>
 
-          {selectedCategory !== "logo" && (
+          {!isCustomTab && (
             <div className="relative w-48 sm:w-56">
               <input
                 type="text"
@@ -271,7 +293,7 @@ export default function VideoStudio({
       </div>
 
       {/* Subcategory Filter Pills (if category has subcategories) */}
-      {selectedCategory !== "logo" && currentCategoryDef?.subcategories && (
+      {!isCustomTab && currentCategoryDef?.subcategories && (
         <div className="bg-gray-950/70 px-5 py-2 border-b border-gray-800/80 flex items-center gap-2 overflow-x-auto">
           <span className="text-[11px] text-gray-400 font-medium mr-1">Section:</span>
           {currentCategoryDef.subcategories.map((sub) => {
@@ -299,7 +321,7 @@ export default function VideoStudio({
       <div className="flex-1 overflow-y-auto p-5">
         {/* 1. LOGO SECTION */}
         {selectedCategory === "logo" && (
-          <div className="max-w-3xl mx-auto space-y-4">
+          <div className="max-w-3xl 2xl:max-w-5xl mx-auto space-y-3 sm:space-y-4">
             <CustomerLogoSection
               config={customerLogo}
               onChange={onUpdateCustomerLogo}
@@ -309,71 +331,31 @@ export default function VideoStudio({
           </div>
         )}
 
+        {/* INTRO & OUTRO: build the opening / closing moment (background + text + logo + sound) */}
+        {(selectedCategory === "intro" || selectedCategory === "outro") && (
+          <SectionStudio
+            kind={selectedCategory === "intro" ? "intro" : "outro"}
+            config={selectedCategory === "intro" ? introSection : outroSection}
+            onChange={(cfg) =>
+              selectedCategory === "intro" ? onUpdateIntroSection?.(cfg) : onUpdateOutroSection?.(cfg)
+            }
+            aspectRatio={aspectRatio}
+            brandLogoUrl={customerLogo?.enabled && customerLogo.url ? customerLogo.url : undefined}
+          />
+        )}
+
+        {/* FILTERS: the one and only place video looks are applied (whole video) */}
+        {selectedCategory === "filters" && (
+          <FiltersStudio
+            value={videoFilter}
+            onChange={(cfg) => onUpdateVideoFilter?.(cfg)}
+            sampleImage={sampleBackgroundImage}
+          />
+        )}
+
         {/* 2 - 10: CALL TO ACTION, INTRO, OUTRO, STICKERS, TEXT CONTENT, AUDIO VISUALISERS, ETC */}
-        {selectedCategory !== "logo" && (
+        {!isCustomTab && (
           <div className="space-y-4">
-            {/* Contextual Guidance Banner for Intro */}
-            {selectedCategory === "intro" && (
-              <div className="bg-gradient-to-r from-amber-950/80 via-gray-900 to-amber-950/80 border border-amber-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl p-2 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300">
-                    🎬
-                  </span>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-bold text-amber-200">High-Tension Cinematic Intros</h3>
-                      <span className="text-[10px] bg-amber-950 border border-amber-600/50 text-amber-300 px-2 py-0.5 rounded-full font-mono font-semibold">
-                        Inserts at 0.0s
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-300 mt-0.5">
-                      Placed before your script starts with high-impact tension getters (3-2-1 countdown, glitch, warp, lens aperture), headline text, and brand logo reveal.
-                    </p>
-                  </div>
-                </div>
-                {filteredItems[0] && (
-                  <button
-                    type="button"
-                    onClick={() => handleAdd(filteredItems[0])}
-                    className="whitespace-nowrap px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-gray-950 font-bold rounded-lg text-xs shadow-md transition-all flex items-center gap-1.5"
-                  >
-                    <span>⚡ Quick Insert Intro (0.0s)</span>
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Contextual Guidance Banner for Outro */}
-            {selectedCategory === "outro" && (
-              <div className="bg-gradient-to-r from-rose-950/80 via-gray-900 to-rose-950/80 border border-rose-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl p-2 bg-rose-500/20 border border-rose-500/40 rounded-lg text-rose-300">
-                    🏁
-                  </span>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-bold text-rose-200">Broadcast End-Screens & Outros</h3>
-                      <span className="text-[10px] bg-rose-950 border border-rose-600/50 text-rose-300 px-2 py-0.5 rounded-full font-mono font-semibold">
-                        Inserts After Script (End)
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-300 mt-0.5">
-                      Placed after your script ends with interactive YouTube &quot;Watch Next&quot; slates, subscribe buttons, social media handles, and farewell credits.
-                    </p>
-                  </div>
-                </div>
-                {filteredItems[0] && (
-                  <button
-                    type="button"
-                    onClick={() => handleAdd(filteredItems[0])}
-                    className="whitespace-nowrap px-3.5 py-1.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-bold rounded-lg text-xs shadow-md transition-all flex items-center gap-1.5"
-                  >
-                    <span>⚡ Quick Insert Outro (End)</span>
-                  </button>
-                )}
-              </div>
-            )}
-
             {/* Contextual Guidance Banner for Background Music */}
             {selectedCategory === "background_music" && (
               <div className="bg-gradient-to-r from-indigo-950/90 via-gray-900 to-purple-950/90 border border-indigo-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">

@@ -2,20 +2,24 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import type { Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, PacingModeType } from "../types";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import {
-  applySceneFilter,
   getInsertBounds,
   getMotionTransform,
   getPresetCoords,
   renderTimelineInsert,
 } from "../lib/render-effects";
+import { drawSceneImage } from "../lib/scene-framing";
+import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { calculateDynamicDuration } from "../lib/duration-utils";
-import { getCanvasFilterString } from "../data/filters-library";
-import { getCachedSceneAudio, setCachedSceneAudio } from "../lib/tts-cache";
-import { buildInsertAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
+import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
+import { paintVideoFilter } from "../lib/video-filter-render";
+import { renderSection } from "../lib/render-section";
+import type { SectionConfig } from "../data/intro-outro";
+import { getCachedSceneAudio } from "../lib/tts-cache";
+import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
 interface VideoPreviewProps {
   scenes: Scene[];
@@ -34,13 +38,21 @@ interface VideoPreviewProps {
   selectedVoice?: string;
   aspectRatio?: AspectRatioType;
   pacingMode?: PacingModeType;
+  /** one look across the whole video (set in Video Studio → Filters) */
+  videoFilter?: VideoFilterConfig | null;
+  /** opening / closing sections built in Video Studio → Intro / Outro */
+  introSection?: SectionConfig | null;
+  outroSection?: SectionConfig | null;
 }
 
 // Playback timing helper: respects scene.duration while ensuring audio is never cut short
 function getSceneSpeechDuration(scene: Scene, audioBuf?: AudioBuffer): number {
+  // The decoded narration is the authority on how long the scene runs, so the
+  // video never sits on a still frame in silence. Previously a longer
+  // configured `scene.duration` won, which is exactly what produced the quiet
+  // stretches at the end of scenes.
   if (audioBuf && audioBuf.duration > 0.3) {
-    const audioSec = Math.round((audioBuf.duration + 0.1) * 10) / 10;
-    return scene.duration && scene.duration > audioSec ? scene.duration : audioSec;
+    return Math.round((audioBuf.duration + 0.35) * 10) / 10;
   }
   if (scene.duration && scene.duration > 0) {
     return scene.duration;
@@ -101,9 +113,39 @@ export default function VideoPreview({
   selectedVoice: propSelectedVoice,
   aspectRatio = "16:9",
   pacingMode = "auto_speech",
+  videoFilter = null,
+  introSection = null,
+  outroSection = null,
 }: VideoPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  // kept in a ref so the draw loop always grades with the latest settings
+  // without having to rebuild every callback while the sliders are dragged
+  const videoFilterRef = useRef<VideoFilterConfig | null>(videoFilter);
+  videoFilterRef.current = videoFilter;
+
+  // Intro / outro sections (built in the studio, stored on the project — they
+  // are NOT timeline inserts any more).
+  const activeIntro = introSection?.enabled ? introSection : null;
+  const activeOutro = outroSection?.enabled ? outroSection : null;
+  const introDuration = activeIntro ? Math.max(0.5, activeIntro.duration) : 0;
+  const outroDuration = activeOutro ? Math.max(0.5, activeOutro.duration) : 0;
+  const sectionsRef = useRef({ intro: activeIntro, outro: activeOutro });
+  sectionsRef.current = { intro: activeIntro, outro: activeOutro };
+
+  // ---- Download the preview ----
+  // A silent MediaStreamDestination that sits next to the speakers, so a
+  // recording of the preview carries the same narration, music and stingers
+  // the user just heard.
+  const recordDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const onPlaybackEndRef = useRef<(() => void) | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [downloadName, setDownloadName] = useState("preview.webm");
+  const [downloadSize, setDownloadSize] = useState(0);
+
+ const [isPlaying, setIsPlaying] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [loadingAudio, setLoadingAudio] = useState(false);
@@ -131,6 +173,8 @@ export default function VideoPreview({
 
   const animFrameRef = useRef<number>(0);
   const playingRef = useRef(false);
+  /** Hidden <video> elements for scenes that use a short clip instead of a still. */
+  const clipPoolRef = useRef<ClipPool>(new ClipPool());
   const audioCtxRef = useRef<AudioContext | null>(null);
   // Voice and background-music are analysed on separate buses so a visualiser
   // set to "moves with the music" reacts to the music, not to the narration.
@@ -186,7 +230,8 @@ export default function VideoPreview({
     }
   }, [customerLogo?.url]);
 
-  const scenesWithImages = scenes.filter((s) => s.image_url);
+  // A scene counts as renderable if it has a still OR a short video clip.
+  const scenesWithImages = scenes.filter((s) => s.image_url || s.video_url);
 
 function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: number): SceneAudio {
   const sampleRate = audioCtx.sampleRate || 44100;
@@ -202,7 +247,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
   // Load voice list on mount
   useEffect(() => {
-    fetch("/api/tts")
+    fetch(`${EDGE_FUNCTION_BASE}/tts`)
       .then((r) => r.json())
       .then((data) => {
         if (data.voices) {
@@ -229,64 +274,47 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     });
   }, [scenes, propSelectedVoice, selectedVoice]);
 
-  // Synthesize or decode audio for a single scene with per-scene voice support
-  // CRITICAL: If a scene already has an audio_url saved from VoiceoverStudio, NEVER re-synthesize!
+  // Synthesize audio for a single scene with per-scene voice support
   const synthesizeScene = useCallback(
     async (scene: Scene, audioCtx: AudioContext): Promise<SceneAudio> => {
       const activeVoice = propSelectedVoice || selectedVoice;
       const voiceToUse = scene.voice_id || activeVoice;
       const text = (scene.text || "").trim();
-      const voiceKey = scene.audio_url
-        ? `imported_${scene.audio_url}`
-        : `${voiceToUse}_${text}`;
 
       // 0. Check pre-generated/saved audio from Voiceover Studio cache
       const cached = getCachedSceneAudio(scene.id, voiceToUse, text);
       if (cached) {
         return {
           buffer: cached.audioBuffer,
-          url: cached.blobUrl || scene.audio_url || "",
-          voiceKey,
+          url: cached.blobUrl,
+          voiceKey: scene.audio_url ? `imported_${scene.audio_url}` : `${voiceToUse}_${text}`,
         };
       }
 
-      // 1. If scene already has an audio track (from Voiceover Studio or import), load & decode directly
-      // NEVER trigger TTS when scene.audio_url is present!
+      // 1. If scene has an imported real voice audio track, use it directly!
       if (scene.audio_url) {
+        const voiceKey = `imported_${scene.audio_url}`;
         try {
           const res = await fetch(scene.audio_url);
           if (res.ok) {
             const arrayBuf = await res.arrayBuffer();
             const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-            // Cache in memory so we never fetch or decode it again
-            setCachedSceneAudio(scene.id, voiceToUse, text, {
-              audioBuffer,
-              blobUrl: scene.audio_url,
-              duration: audioBuffer.duration,
-              voiceId: voiceToUse,
-              text,
-            });
             return { buffer: audioBuffer, url: scene.audio_url, voiceKey };
           }
         } catch (err) {
-          console.warn("Failed to decode saved audio for scene:", scene.id, err);
+          console.warn("Failed to load imported audio for scene:", scene.id, err);
         }
       }
 
-      // 2. Only if scene has NO audio_url at all, call TTS
-      if (!text) {
-        const fallback = createFallbackSceneAudio(audioCtx, scene.duration || 4);
-        return { ...fallback, voiceKey };
-      }
-
+      const voiceKey = `${voiceToUse}_${text}`;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
 
       try {
-        const res = await fetch("/api/tts", {
+        const res = await fetch(`${EDGE_FUNCTION_BASE}/tts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, voice: voiceToUse }),
+          body: JSON.stringify({ text: scene.text, voice: voiceToUse }),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
@@ -296,13 +324,6 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
           const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
           const url = URL.createObjectURL(blob);
-          setCachedSceneAudio(scene.id, voiceToUse, text, {
-            audioBuffer,
-            blobUrl: url,
-            duration: audioBuffer.duration,
-            voiceId: voiceToUse,
-            text,
-          });
           return { buffer: audioBuffer, url, voiceKey };
         }
       } catch (err) {
@@ -317,11 +338,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     [selectedVoice, propSelectedVoice]
   );
 
-  // Pre-generate / decode all scene audio in parallel with live status
-  const generateAllAudio = useCallback(async (isSilent: boolean = false) => {
+  // Pre-generate all scene audio in parallel with live status
+  const generateAllAudio = useCallback(async () => {
     if (scenesWithImages.length === 0) return;
 
-    if (!isSilent) setLoadingAudio(true);
+    setLoadingAudio(true);
 
     const audioCtx = new AudioContext();
     if (audioCtx.state === "suspended") {
@@ -333,16 +354,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     const newBuffers = new Map<number, SceneAudio>();
 
     let completedCount = 0;
-    const hasAnySavedAudio = scenesWithImages.some((s) => Boolean(s.audio_url));
-    if (!isSilent) {
-      setAudioStatus(
-        hasAnySavedAudio
-          ? `Loading narration audio: 0/${scenesWithImages.length} ready...`
-          : `Preparing narration: 0/${scenesWithImages.length} ready...`
-      );
-    }
+    setAudioStatus(`Preparing narration: 0/${scenesWithImages.length} ready...`);
 
-    // Concurrent synthesis/decoding across all scenes for instant readiness
+    // Concurrent synthesis across all scenes for instant readiness
     await Promise.all(
       scenesWithImages.map(async (scene) => {
         const activeVoice = propSelectedVoice || selectedVoice;
@@ -359,41 +373,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         const audio = await synthesizeScene(scene, audioCtx);
         newBuffers.set(scene.id, audio);
         completedCount++;
-        if (!isSilent) {
-          setAudioStatus(
-            scene.audio_url
-              ? `Loaded narration ${completedCount}/${scenesWithImages.length}`
-              : `Ready ${completedCount}/${scenesWithImages.length}`
-          );
-        }
+        setAudioStatus(`Generating voice: ${completedCount}/${scenesWithImages.length} ready...`);
       })
     );
 
     audioBuffersRef.current = newBuffers;
-    if (!isSilent) {
-      setAudioStatus(`${newBuffers.size} scene(s) ready`);
-      setLoadingAudio(false);
-    }
+    setAudioStatus(`${newBuffers.size} scene(s) ready`);
+    setLoadingAudio(false);
     return { audioCtx, buffers: newBuffers };
   }, [scenesWithImages, synthesizeScene, propSelectedVoice, selectedVoice]);
-
-  // Proactively warm up and decode audio buffers in the background
-  // so pressing Play in Video Preview never triggers a redundant second voiceover creation
-  useEffect(() => {
-    if (scenesWithImages.length === 0) return;
-    const activeVoice = propSelectedVoice || selectedVoice;
-    const hasAllReady = scenesWithImages.every((s) => {
-      const existing = audioBuffersRef.current.get(s.id);
-      const expectedKey = s.audio_url
-        ? `imported_${s.audio_url}`
-        : `${s.voice_id || activeVoice}_${(s.text || "").trim()}`;
-      return existing && existing.voiceKey === expectedKey;
-    });
-
-    if (!hasAllReady) {
-      generateAllAudio(true).catch(() => {});
-    }
-  }, [scenesWithImages, propSelectedVoice, selectedVoice, generateAllAudio]);
 
   // Unified Scene & Insert Drawing Function
   useEffect(() => {
@@ -404,6 +392,12 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Release clip decoders when the preview goes away.
+  useEffect(() => {
+    const pool = clipPoolRef.current;
+    return () => pool.dispose();
   }, []);
 
   const drawScene = useCallback(
@@ -424,84 +418,63 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, w, h);
 
-      // Image with Scene Framing (offset, zoom, fit) and Scene Motion Preset
-      if (img && img.complete && img.naturalWidth > 0) {
-        ctx.save();
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-
-        const zoom = scene.image_zoom ?? 1.0;
-        const userOffsetX = ((scene.image_offset_x ?? 0) / 100) * w;
-        const userOffsetY = ((scene.image_offset_y ?? 0) / 100) * h;
-        const fit = scene.image_fit || "cover";
-
-        // Motion animation transform
-        const { scale: motionScale, dx: motionDx, dy: motionDy } = getMotionTransform(scene.motion_effect, sceneProgress, w, h);
-
-        const imgRatio = img.naturalWidth / img.naturalHeight;
-        const canvasRatio = w / h;
-
-        let renderW = w;
-        let renderH = h;
-        let baseDx = 0;
-        let baseDy = 0;
-
-        if (fit === "contain") {
-          if (imgRatio > canvasRatio) {
-            renderW = w;
-            renderH = w / imgRatio;
-            baseDy = (h - renderH) / 2;
-          } else {
-            renderH = h;
-            renderW = h * imgRatio;
-            baseDx = (w - renderW) / 2;
+      // Image with Scene Framing (crop, offset, zoom, rotate, fit) and Scene
+      // Motion Preset. All framing maths lives in src/lib/scene-framing.ts so
+      // the preview and the exported video place the photo identically — and
+      // no photo is ever stretched out of its own aspect ratio.
+      // A scene with a short clip draws the clip's current frame instead of the
+      // still. It goes through the same framing engine, so crop, blur-fill and
+      // aspect handling are identical and the clip is never squashed.
+      let source: (CanvasImageSource & { naturalWidth: number; naturalHeight: number; complete?: boolean }) | null =
+        img as any;
+      if (sceneHasClip(scene)) {
+        const pool = clipPoolRef.current;
+        const el = pool.get(scene);
+        if (el) {
+          if (!playingRef.current) {
+            pool.seekToProgress(scene, sceneProgress, Math.max(0.1, scene.duration || 1));
           }
-        } else {
-          // "cover"
-          if (imgRatio > canvasRatio) {
-            renderH = h;
-            renderW = h * imgRatio;
-            baseDx = (w - renderW) / 2;
-          } else {
-            renderW = w;
-            renderH = w / imgRatio;
-            baseDy = (h - renderH) / 2;
+          if (el.readyState >= 2 && el.videoWidth > 0) {
+            source = asDrawableClip(el) as any;
           }
         }
-
-        const totalScale = zoom * motionScale;
-        const scaledW = renderW * totalScale;
-        const scaledH = renderH * totalScale;
-
-        const finalX = baseDx + userOffsetX + motionDx - (scaledW - renderW) / 2;
-        const finalY = baseDy + userOffsetY + motionDy - (scaledH - renderH) / 2;
-
-        // Apply real photographic color grade to image canvas pixels
-        const canvasFilter = getCanvasFilterString(scene.filter);
-        if (canvasFilter && canvasFilter !== "none") {
-          ctx.filter = canvasFilter;
-        }
-
-        ctx.drawImage(img, finalX, finalY, scaledW, scaledH);
-        ctx.filter = "none";
-        ctx.restore();
       }
 
-      // Apply Scene Visual Filter overlays (film scratches, dust motes, VHS scanlines, sun flares, vignettes)
-      applySceneFilter(ctx, scene.filter, w, h, absoluteTime);
+      if (source && (source.complete ?? true) && source.naturalWidth > 0) {
+        const img = source;
+        const { scale: motionScale, dx: motionDx, dy: motionDy } = getMotionTransform(
+          scene.motion_effect,
+          sceneProgress,
+          w,
+          h
+        );
+        // getMotionTransform returns an offset that recentres a canvas-sized
+        // draw; the framing engine centres the photo itself, so only the
+        // leftover wobble is passed through.
+        drawSceneImage(ctx, img, scene, w, h, {
+          motionScale,
+          motionDx: motionDx + (w * motionScale - w) / 2,
+          motionDy: motionDy + (h * motionScale - h) / 2,
+          filter: getFilterCanvas(videoFilterRef.current, w),
+        });
+      }
+
+      // Animated atmosphere of the project-wide filter (grain, mist, dust,
+      // sun flare, VHS artefacts...). Runs over every scene, whole video.
+      paintVideoFilter(ctx, videoFilterRef.current, w, h, absoluteTime);
 
       // Check if we are currently inside an Intro or Outro segment
-      const introInsert = inserts?.find((ins) => ins.category === "intro");
-      const outroInsert = inserts?.find((ins) => ins.category === "outro");
-      const introDur = introInsert ? introInsert.duration : 0;
-      const outroDur = outroInsert ? outroInsert.duration : 0;
+      const introSec = sectionsRef.current.intro;
+      const outroSec = sectionsRef.current.outro;
+      const introDur = introSec ? Math.max(0.5, introSec.duration) : 0;
+      const outroDur = outroSec ? Math.max(0.5, outroSec.duration) : 0;
       const scriptDur = scenesWithImages.reduce((sum, s) => {
         const sa = audioBuffersRef.current.get(s.id);
         return sum + getSceneSpeechDuration(s, sa?.buffer);
       }, 0);
 
-      const isIntroSegment = Boolean(introInsert && absoluteTime < introDur);
-      const isOutroSegment = Boolean(outroInsert && absoluteTime >= introDur + scriptDur);
+      const isIntroSegment = Boolean(introSec && absoluteTime < introDur);
+      const isOutroSegment = Boolean(outroSec && absoluteTime >= introDur + scriptDur);
       const isIntroOrOutro = isIntroSegment || isOutroSegment;
 
       // Render Subtitles / Captions (Strictly disabled for Intro and Outro segments per user instruction)
@@ -654,10 +627,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     if (!ctx) return;
 
     const scrubTime = currentPlayheadTime;
-    const introInsert = inserts?.find((ins) => ins.category === "intro");
-    const outroInsert = inserts?.find((ins) => ins.category === "outro");
-    const introDur = introInsert ? introInsert.duration : 0;
-    const outroDur = outroInsert ? outroInsert.duration : 0;
+    const introSec = activeIntro;
+    const outroSec = activeOutro;
+    const introDur = introDuration;
+    const outroDur = outroDuration;
     const scriptDur = scenesWithImages.reduce((sum, s) => {
       const sa = audioBuffersRef.current.get(s.id);
       return sum + getSceneSpeechDuration(s, sa?.buffer);
@@ -667,15 +640,14 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     let targetIdx = 0;
     let sceneProgress = 0;
 
-    if (introInsert && scrubTime < introDur) {
-      targetScene = scenesWithImages[0];
-      targetIdx = 0;
-      sceneProgress = scrubTime / Math.max(0.1, introDur);
-    } else if (outroInsert && scrubTime >= introDur + scriptDur) {
-      const lastIdx = scenesWithImages.length - 1;
-      targetScene = scenesWithImages[lastIdx];
-      targetIdx = lastIdx;
-      sceneProgress = (scrubTime - introDur - scriptDur) / Math.max(0.1, outroDur);
+    if (introSec && scrubTime < introDur) {
+      const p = scrubTime / Math.max(0.1, introDur);
+      renderSection(ctx, introSec, canvas.width, canvas.height, scrubTime, p);
+      return;
+    } else if (outroSec && scrubTime >= introDur + scriptDur) {
+      const oe = scrubTime - introDur - scriptDur;
+      renderSection(ctx, outroSec, canvas.width, canvas.height, oe, oe / Math.max(0.1, outroDur));
+      return;
     } else {
       const scriptTime = Math.max(0, scrubTime - introDur);
       let acc = 0;
@@ -712,6 +684,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     logoLoadedCounter,
     fontsLoadedCounter,
     captionsConfig,
+    videoFilter,
+    activeIntro,
+    activeOutro,
+    introDuration,
+    outroDuration,
   ]);
 
   /** Snap a normalized position to safe-area margins / centre lines */
@@ -900,6 +877,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       an.maxDecibels = -12;
       analyserRef.current = an;
       an.connect(audioCtx.destination);
+      if (!recordDestRef.current) {
+        try { recordDestRef.current = audioCtx.createMediaStreamDestination(); } catch {}
+      }
+      if (recordDestRef.current) an.connect(recordDestRef.current);
 
       const music = audioCtx.createAnalyser();
       music.fftSize = 512;
@@ -908,12 +889,13 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       music.maxDecibels = -12;
       musicAnalyserRef.current = music;
       music.connect(audioCtx.destination);
+      if (recordDestRef.current) music.connect(recordDestRef.current);
     }
 
-    const introInsert = inserts?.find((ins) => ins.category === "intro");
-    const outroInsert = inserts?.find((ins) => ins.category === "outro");
-    const introDur = introInsert ? introInsert.duration : 0;
-    const outroDur = outroInsert ? outroInsert.duration : 0;
+    const introSec = activeIntro;
+    const outroSec = activeOutro;
+    const introDur = introDuration;
+    const outroDur = outroDuration;
 
     const scriptDur = scenesWithImages.reduce((sum, s) => {
       const sa = buffers.get(s.id);
@@ -930,7 +912,12 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     let insertMixer: InsertAudioMixer | null = null;
     if (audioCtx && totalDur > 0) {
       try {
-        const plans = buildInsertAudioPlan(inserts, totalDur);
+        const plans = [
+          ...buildInsertAudioPlan(inserts, totalDur),
+          // the intro / outro stingers ride the same mixer, so they are heard
+          // in preview AND captured when the preview is downloaded
+          ...buildSectionAudioPlan(introSec, outroSec, introDur, totalDur),
+        ];
         if (plans.length > 0) {
           // Music & SFX feed the music bus so "moves with the music" items
           // follow the soundtrack instead of the narration.
@@ -1026,6 +1013,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         setProgress(1);
         drawScene(ctx, scenesWithImages[0], 0, images[0], 0, 0.4);
         onSeek?.(0);
+        onPlaybackEndRef.current?.();
         return;
       }
 
@@ -1055,10 +1043,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         freqData = (loudest.freq as Uint8Array) || null;
       }
 
-      // 1. INTRO SEGMENT: Full screen insert, NO captions, NO speech voiceover
-      if (introInsert && totalElapsed < introDur) {
+      // 1. INTRO SEGMENT: the built section, NO captions, NO speech voiceover
+      if (introSec && totalElapsed < introDur) {
         const introProgress = totalElapsed / Math.max(0.1, introDur);
-        drawScene(ctx, scenesWithImages[0], introProgress, images[0], totalElapsed, audioLevel, freqData, audioFrame);
+        renderSection(ctx, introSec, canvas.width, canvas.height, totalElapsed, introProgress);
         setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
         onSeek?.(totalElapsed);
         animFrameRef.current = requestAnimationFrame(animate);
@@ -1066,14 +1054,14 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       }
 
       // 2. OUTRO SEGMENT: Full screen insert, NO captions, NO speech voiceover
-      if (outroInsert && totalElapsed >= introDur + scriptDur) {
+      if (outroSec && totalElapsed >= introDur + scriptDur) {
         if (currentAudioSource) {
           try { currentAudioSource.stop(); } catch {}
           currentAudioSource = null;
         }
-        const lastIdx = scenesWithImages.length - 1;
-        const outroProgress = (totalElapsed - introDur - scriptDur) / Math.max(0.1, outroDur);
-        drawScene(ctx, scenesWithImages[lastIdx], outroProgress, images[lastIdx], totalElapsed, audioLevel, freqData, audioFrame);
+        const outroElapsed = totalElapsed - introDur - scriptDur;
+        const outroProgress = outroElapsed / Math.max(0.1, outroDur);
+        renderSection(ctx, outroSec, canvas.width, canvas.height, outroElapsed, outroProgress);
         setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
         onSeek?.(totalElapsed);
         animFrameRef.current = requestAnimationFrame(animate);
@@ -1109,6 +1097,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         currentPlayingSceneIdx = activeIdx;
         setCurrentSceneIndex(activeIdx);
         playSceneAudio(activeIdx, activeOffset);
+
+        // Hand over to the new scene's clip (if it has one) and silence the
+        // one we just left, so two clips never overlap.
+        const pool = clipPoolRef.current;
+        pool.pauseAll();
+        const entering = scenesWithImages[activeIdx];
+        if (entering && sceneHasClip(entering)) {
+          void pool.play(entering, activeOffset / Math.max(0.1, activeSceneDur), activeSceneDur);
+        }
       }
 
       const activeScene = scenesWithImages[activeIdx];
@@ -1126,6 +1123,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
   const stopPreview = useCallback(() => {
     playingRef.current = false;
     setIsPlaying(false);
+    clipPoolRef.current.pauseAll();
     cancelAnimationFrame(animFrameRef.current);
     if (currentSourceRef.current) {
       try { currentSourceRef.current.stop(); } catch {}
@@ -1134,13 +1132,141 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     insertMixerRef.current = null;
   }, []);
 
+  // ---------- DOWNLOAD THE PREVIEW ----------
+
+  /** Filename stem from the project title */
+  const fileStem = useCallback(() => {
+    const base = (title || "scenering-preview")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60);
+    return base || "scenering-preview";
+  }, [title]);
+
+  const triggerDownload = (url: string, filename: string) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  /** Save the frame currently on the canvas as a PNG */
+  const downloadFrame = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      triggerDownload(url, `${fileStem()}-frame.png`);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }, "image/png");
+  }, [fileStem]);
+
+  /**
+   * Record the preview exactly as it plays — the canvas is captured frame by
+   * frame while the narration, music and intro/outro stingers are tapped off
+   * the audio graph, so what you download is what you just watched.
+   */
+  const downloadPreviewVideo = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || isRecording) return;
+
+    if (typeof MediaRecorder === "undefined") {
+      setAudioStatus("Your browser cannot record the preview — use Render & Export instead");
+      return;
+    }
+
+    // clear any previous capture
+    if (downloadUrl) {
+      URL.revokeObjectURL(downloadUrl);
+      setDownloadUrl(null);
+    }
+
+    if (playingRef.current) stopPreview();
+
+    // Start playback from the top; this also builds the audio graph, which is
+    // what creates the recording destination node.
+    await playPreview(0);
+
+    const videoStream = canvas.captureStream(30);
+    const tracks = [...videoStream.getVideoTracks()];
+    const audioTracks = recordDestRef.current?.stream.getAudioTracks() ?? [];
+    tracks.push(...audioTracks);
+    const combined = new MediaStream(tracks);
+
+    const candidates = [
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+      "video/mp4",
+    ];
+    const mimeType = candidates.find((m) => MediaRecorder.isTypeSupported(m)) || "";
+
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(combined, mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : undefined);
+    } catch {
+      recorder = new MediaRecorder(combined);
+    }
+
+    recordedChunksRef.current = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+    };
+    recorder.onstop = () => {
+      const type = recorder.mimeType || mimeType || "video/webm";
+      const blob = new Blob(recordedChunksRef.current, { type });
+      recordedChunksRef.current = [];
+      const ext = type.includes("mp4") ? "mp4" : "webm";
+      const url = URL.createObjectURL(blob);
+      setDownloadUrl(url);
+      setDownloadName(`${fileStem()}.${ext}`);
+      setDownloadSize(blob.size);
+      setIsRecording(false);
+      setAudioStatus("Preview captured — click Save Video to download");
+      // hand it straight to the browser so one click is enough
+      triggerDownload(url, `${fileStem()}.${ext}`);
+    };
+
+    // Playback reaching the end (or the user pressing stop) finishes the file
+    onPlaybackEndRef.current = () => {
+      onPlaybackEndRef.current = null;
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        try { recorderRef.current.stop(); } catch {}
+      }
+    };
+
+    recorderRef.current = recorder;
+    setIsRecording(true);
+    setAudioStatus("Recording the preview… it will download when playback finishes");
+    try {
+      recorder.start(1000);
+    } catch {
+      recorder.start();
+    }
+  }, [isRecording, downloadUrl, stopPreview, playPreview, fileStem]);
+
+  /** Stop a capture early and keep whatever has been recorded so far */
+  const finishRecordingEarly = useCallback(() => {
+    onPlaybackEndRef.current = null;
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      try { recorderRef.current.stop(); } catch {}
+    }
+    stopPreview();
+  }, [stopPreview]);
+
   const togglePlay = useCallback(() => {
     if (playingRef.current) {
-      stopPreview();
+      // stopping mid-capture still yields a usable file
+      if (isRecording) finishRecordingEarly();
+      else stopPreview();
     } else {
       playPreview();
     }
-  }, [stopPreview, playPreview]);
+  }, [stopPreview, playPreview, isRecording, finishRecordingEarly]);
 
   useEffect(() => {
     onPlayStateChange?.(isPlaying, togglePlay);
@@ -1153,8 +1279,18 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       if (currentSourceRef.current) {
         try { currentSourceRef.current.stop(); } catch {}
       }
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        try { recorderRef.current.stop(); } catch {}
+      }
     };
   }, []);
+
+  // release the captured file when it is replaced or the preview goes away
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    };
+  }, [downloadUrl]);
 
   if (scenesWithImages.length === 0) {
     return (
@@ -1263,7 +1399,71 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
               </span>
             </div>
 
+            {/* Download the preview: full capture, a still frame, or re-save */}
+            <div className="flex items-center gap-2">
+              {isRecording ? (
+                <button
+                  onClick={finishRecordingEarly}
+                  className="px-3 py-2 bg-red-600 hover:bg-red-500 rounded-lg transition-colors text-white font-medium text-xs flex items-center gap-2 cursor-pointer"
+                  title="Stop recording and download what has been captured so far"
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
+                  <span>Stop & Save</span>
+                </button>
+              ) : (
+                <button
+                  onClick={downloadPreviewVideo}
+                  disabled={anyAction || scenesWithImages.length === 0}
+                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg transition-colors text-white font-medium text-xs flex items-center gap-2 cursor-pointer"
+                  title="Play the preview through once and download it as a video file"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                  <span>Download Preview</span>
+                </button>
+              )}
+
+              <button
+                onClick={downloadFrame}
+                disabled={scenesWithImages.length === 0}
+                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors text-gray-100 font-medium text-xs flex items-center gap-2 cursor-pointer"
+                title="Save the frame currently showing as a PNG image"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16l5-5 4 4 3-3 6 6" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                </svg>
+                <span>Save Frame</span>
+              </button>
+
+              {downloadUrl && !isRecording && (
+                <a
+                  href={downloadUrl}
+                  download={downloadName}
+                  className="px-3 py-2 bg-emerald-950/70 hover:bg-emerald-900/70 border border-emerald-700/60 rounded-lg transition-colors text-emerald-200 font-medium text-xs flex items-center gap-2 cursor-pointer"
+                  title={`Download ${downloadName} again`}
+                >
+                  <span>💾</span>
+                  <span>
+                    Save Video
+                    {downloadSize > 0 && (
+                      <span className="text-emerald-400/70 font-mono ml-1">
+                        ({(downloadSize / 1048576).toFixed(1)} MB)
+                      </span>
+                    )}
+                  </span>
+                </a>
+              )}
+            </div>
           </div>
+
+          {isRecording && (
+            <p className="text-[11px] text-emerald-300/80 text-center">
+              Recording the preview in real time — keep this tab visible until playback finishes.
+            </p>
+          )}
         </div>
       </div>
     </div>

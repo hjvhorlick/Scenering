@@ -2,6 +2,9 @@ import React, { useEffect, useRef } from "react";
 import { CatalogItem } from "../lib/video-studio-catalog";
 import { getPresetCoords, renderTimelineInsert } from "../lib/render-effects";
 import type { TimelineInsert } from "../types";
+import StickerPreviewCanvas from "./StickerPreviewCanvas";
+import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
+import { MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 
 interface EffectVisualPreviewProps {
   item: CatalogItem;
@@ -179,174 +182,29 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   }
 
   // ---------------- STICKERS PREVIEWS (3D RENDERED ON-VIDEO VISUALS) ----------------
+  // Stickers preview with the real renderer: the button shows the actual
+  // shaded 3D object doing its actual motion, not an emoji stand-in.
   if (item.category === "stickers") {
-    if (item.type === "trophy") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="text-3xl filter drop-shadow-[0_4px_10px_rgba(234,179,8,0.5)] transform group-hover:scale-110 group-hover:-rotate-3 transition-transform">
-              🏆
-            </div>
-            <div className="w-10 h-1.5 bg-yellow-500/20 rounded-full filter blur-[1px] mt-1" />
-            <span className="text-[10px] font-bold text-amber-300 mt-1 uppercase tracking-wider bg-amber-950/60 px-2 py-0.5 rounded border border-amber-600/30">
-              Winner Trophy
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "emoji_fire") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="text-3xl filter drop-shadow-[0_4px_12px_rgba(249,115,22,0.6)] transform group-hover:scale-110 transition-transform">
-              🔥
-            </div>
-            <span className="text-[10px] font-bold text-orange-300 mt-1 uppercase tracking-wider bg-orange-950/60 px-2 py-0.5 rounded border border-orange-600/30">
-              Volumetric Fire
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "heart") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="text-3xl filter drop-shadow-[0_4px_12px_rgba(244,63,94,0.6)] transform group-hover:scale-110 transition-transform">
-              ❤️
-            </div>
-            <span className="text-[10px] font-bold text-rose-300 mt-1 uppercase tracking-wider bg-rose-950/60 px-2 py-0.5 rounded border border-rose-600/30">
-              3D Ruby Heart
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "check") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-600 to-cyan-400 flex items-center justify-center text-white text-xl font-bold shadow-[0_4px_12px_rgba(6,182,212,0.45)] border-2 border-white/80">
-              ✓
-            </div>
-            <span className="text-[10px] font-bold text-cyan-300 mt-1 uppercase tracking-wider bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-600/30">
-              Verified Badge
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    // Other 3D Stickers
+    const vo = item.defaultVisualOptions || {};
     return (
-      <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-        <div className="relative z-10 flex flex-col items-center">
-          <div className="text-3xl filter drop-shadow-[0_4px_10px_rgba(255,255,255,0.25)] transform group-hover:scale-110 transition-transform">
-            {item.icon}
-          </div>
-          <span className="text-[10px] font-bold text-gray-300 mt-1 uppercase tracking-wider bg-gray-800/80 px-2 py-0.5 rounded border border-gray-700">
-            {item.name}
-          </span>
-        </div>
+      <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 flex items-center justify-center relative overflow-hidden">
+        <StickerPreviewCanvas
+          stickerId={vo.stickerId || item.type}
+          motionPreset={vo.motionPreset}
+          motionSpeed={vo.motionSpeed}
+          motionAmount={vo.motionAmount}
+          glow={vo.stickerGlow}
+          shadow={vo.shadowIntensity}
+          size={88}
+          backdrop="none"
+        />
+        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-semibold text-gray-300 uppercase tracking-wider bg-gray-950/80 px-2 py-0.5 rounded border border-gray-700/60 whitespace-nowrap">
+          {MOTION_PRESETS_BY_ID[vo.motionPreset || ""]?.name || "3D"}
+        </span>
       </div>
     );
   }
 
-  // ---------------- TEXT CONTENT & LOWER THIRDS (TRUE VIDEO ON-SCREEN CARDS) ----------------
-  if (item.category === "content_cards") {
-    if (item.type === "person") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-end relative overflow-hidden group">
-          {/* Broadcaster lower third ribbon */}
-          <div className="relative z-10 bg-gradient-to-r from-gray-900/95 via-gray-900/80 to-transparent p-2 rounded-l border-l-4 border-amber-500 shadow-md">
-            <div className="text-xs font-bold text-white flex items-center gap-1.5">
-              <span>Dr. Elizabeth Vance</span>
-            </div>
-            <div className="text-[10px] text-amber-300/90 font-medium">Lead Astrobiologist, NASA</div>
-          </div>
-          <div className="absolute top-1.5 right-2 text-[9px] text-gray-500 font-mono">Lower-Third</div>
-        </div>
-      );
-    }
-
-    if (item.type === "scripture") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-amber-950/20 border border-amber-700/40 p-2.5 flex flex-col justify-center relative overflow-hidden group">
-          <div className="relative z-10 text-center space-y-1">
-            <div className="text-[10px] font-bold text-amber-400 tracking-widest uppercase flex items-center justify-center gap-1.5">
-              <span>✦</span>
-              <span>JOHN 3:16</span>
-              <span>✦</span>
-            </div>
-            <div className="text-[11px] text-gray-200 italic font-serif line-clamp-2 px-2">
-              &quot;For God so loved the world, that he gave his only begotten Son...&quot;
-            </div>
-          </div>
-          <div className="absolute top-1.5 right-2 text-[9px] text-amber-500/70 font-mono">Holy Scripture</div>
-        </div>
-      );
-    }
-
-    if (item.type === "quote") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-center relative overflow-hidden group">
-          <div className="relative z-10 bg-gray-900/70 backdrop-blur-sm p-2 rounded-lg border border-gray-700/50">
-            <div className="text-amber-400 text-base leading-none font-serif">&ldquo;</div>
-            <div className="text-[10px] text-gray-200 italic line-clamp-1">
-              The only limit to our realization of tomorrow is our doubts...
-            </div>
-            <div className="text-[9px] text-gray-400 font-medium text-right mt-0.5">— Franklin D. Roosevelt</div>
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "chapter") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-center items-center relative overflow-hidden group">
-          <div className="relative z-10 text-center space-y-0.5">
-            <div className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">CHAPTER 2</div>
-            <div className="text-xs font-black text-white tracking-wide">The Turning Point</div>
-            <div className="w-16 h-0.5 bg-indigo-500 mx-auto mt-1" />
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "fact" || item.type === "key_point") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-center relative overflow-hidden group">
-          <div className="relative z-10 bg-indigo-950/40 p-2 rounded-lg border border-indigo-700/50">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-xs">💡</span>
-              <span className="text-[9px] font-bold text-indigo-300 uppercase tracking-wider">
-                {item.type === "fact" ? "DID YOU KNOW?" : "KEY TAKEAWAY"}
-              </span>
-            </div>
-            <div className="text-[10px] text-gray-200 line-clamp-2 leading-tight">
-              {item.defaultContent?.primaryText || "Consistency compounds faster than occasional intensity."}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Generic Content Card
-    return (
-      <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-center relative overflow-hidden group">
-        <div className="relative z-10 bg-gray-900/80 p-2 rounded border border-gray-700">
-          <div className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider">{item.name}</div>
-          <div className="text-[10px] text-gray-200 mt-0.5 line-clamp-2 leading-tight">
-            {item.defaultContent?.primaryText || item.description}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ---------------- 2. INTRO PREVIEWS ----------------
   if (item.category === "intro") {
@@ -461,64 +319,21 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     );
   }
 
-  // ---------------- 6. TEXT TEMPLATES PREVIEWS ----------------
-  if (item.category === "text_templates") {
-    if (item.type === "template_scripture") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-r from-amber-950/80 via-gray-950 to-amber-950/80 border border-amber-500/60 p-2.5 flex flex-col justify-between relative overflow-hidden group shadow-md">
-          <div className="flex items-center justify-between border-b border-amber-600/30 pb-1">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-amber-300">📖</span>
-              <span className="text-[9px] font-black text-amber-300 tracking-wider">JOHN 3:16</span>
-            </div>
-            <span className="text-[8px] font-mono text-amber-200/70 bg-amber-950 px-1 rounded border border-amber-600/30">KJV</span>
-          </div>
-          <div className="text-[9px] text-amber-100 font-serif italic line-clamp-2 leading-relaxed my-auto">
-            &ldquo;For God so loved the world, that he gave his only begotten Son...&rdquo;
-          </div>
-          <div className="text-[8px] text-amber-400/80 text-right font-medium">Holy Scripture Verse Card</div>
-        </div>
-      );
-    }
-
-    if (item.type === "template_quote") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-sky-500/50 p-2.5 flex flex-col justify-between relative overflow-hidden group">
-          <div className="flex items-center gap-1 text-sky-400 text-xs font-serif leading-none">
-            <span>❝</span>
-            <span className="text-[9px] font-sans font-bold text-sky-300 uppercase tracking-wider">INSPIRATION</span>
-          </div>
-          <div className="text-[9px] text-gray-200 italic line-clamp-2 my-auto font-serif">
-            &ldquo;The only limit to our realization of tomorrow is our doubts of today.&rdquo;
-          </div>
-          <div className="text-[8px] text-sky-400 font-medium text-right">— Franklin D. Roosevelt</div>
-        </div>
-      );
-    }
-
-    if (item.type === "template_lower_third") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2 flex items-end relative overflow-hidden group">
-          <div className="w-full bg-gradient-to-r from-indigo-900/90 via-indigo-950/80 to-transparent p-2 rounded-lg border-l-4 border-l-indigo-500 border-t border-indigo-700/40">
-            <div className="text-[10px] font-black text-white leading-tight">Dr. Elizabeth Vance</div>
-            <div className="text-[8px] text-indigo-300 font-medium">Lead Astrobiologist & Research Fellow</div>
-          </div>
-        </div>
-      );
-    }
-
-    // Generic Template
+  // ---------------- 6. TEXT TEMPLATE & LOWER THIRD PREVIEWS ----------------
+  // Rendered with the real template renderer over a mock frame, so the button
+  // shows the true plate, transparency, font and slide-in motion.
+  if (item.category === "text_templates" || item.category === "lower_thirds") {
     return (
-      <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 p-2.5 flex flex-col justify-center relative overflow-hidden group">
-        <div className="bg-gray-900/80 p-2 rounded border border-gray-700">
-          <div className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider">{item.name}</div>
-          <div className="text-[10px] text-gray-200 mt-0.5 line-clamp-2 leading-tight">
-            {item.defaultContent?.primaryText || item.description}
-          </div>
-        </div>
+      <div className="w-full rounded-lg overflow-hidden border border-gray-800 bg-gray-950 flex items-center justify-center">
+        <TemplatePreviewCanvas
+          templateId={(item.defaultVisualOptions?.templateId as string) || item.type}
+          content={item.defaultContent as Record<string, string>}
+          width={252}
+        />
       </div>
     );
   }
+
 
   // ---------------- 8. BACKGROUND MUSIC PREVIEWS ----------------
   // Background Music: intentionally NO preview graphic — audio items stay
@@ -528,40 +343,8 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     return null;
   }
 
-  // ---------------- 9. FILTERS PREVIEWS (REAL VISIBLE COLOR GRADES) ----------------
-  if (item.category === "filters") {
-    const filterId = item.type.replace("filter_", "");
-    const primaryColor = item.defaultVisualOptions?.primaryColor || "#6366f1";
-    const secondaryColor = item.defaultVisualOptions?.secondaryColor || "#1e1b4b";
-
-    return (
-      <div className="w-full h-24 rounded-lg border border-gray-800 p-2 flex flex-col justify-between relative overflow-hidden group shadow-inner">
-        {/* Colorful real gradient background simulating scene image under filter */}
-        <div
-          className="absolute inset-0 transition-transform duration-300 group-hover:scale-105"
-          style={{
-            background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 60%, #030712 100%)`,
-          }}
-        />
-
-        {/* Diagonal split badge */}
-        <div className="relative z-10 flex items-center justify-between">
-          <span className="text-[10px] font-bold text-white drop-shadow bg-black/60 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10">
-            {item.name}
-          </span>
-          <span className="text-[8px] font-mono text-gray-200 bg-black/60 px-1.5 py-0.5 rounded border border-white/10">
-            {filterId}
-          </span>
-        </div>
-
-        {/* Split comparison preview line */}
-        <div className="relative z-10 flex items-center justify-between text-[8px] text-white/90 bg-black/50 px-2 py-1 rounded backdrop-blur-sm">
-          <span>Preset Color Grade</span>
-          <span className="text-amber-300 font-semibold">Live Preview</span>
-        </div>
-      </div>
-    );
-  }
+  // Filters have their own dedicated studio with live animated previews
+  // (see FiltersStudio.tsx) and are never rendered as catalog cards.
 
   // Sound Effects: intentionally NO preview graphic (see note above).
   if (item.category === "sound_effects") {

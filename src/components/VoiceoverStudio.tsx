@@ -3,6 +3,12 @@ import StepNav from "./StepNav";
 import type { Scene } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
 import { setCachedSceneAudio, getSharedAudioContext } from "../lib/tts-cache";
+import {
+  downloadSceneVoiceover,
+  downloadAllVoiceovers,
+  downloadVoiceSample,
+  type BulkDownloadProgress,
+} from "../lib/voice-download";
 
 interface VoiceoverStudioProps {
   scenes: Scene[];
@@ -198,6 +204,63 @@ export default function VoiceoverStudio({
     }
   };
 
+  // --- Voice download state ---
+  const [downloadingId, setDownloadingId] = useState<string | number | null>(null);
+  const [bulkDownload, setBulkDownload] = useState<BulkDownloadProgress | null>(null);
+  const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
+  /** Set when the server reports the audio is a silent placeholder. */
+  const [ttsDegraded, setTtsDegraded] = useState(false);
+
+  const announce = (msg: string) => {
+    setDownloadNotice(msg);
+    setTimeout(() => setDownloadNotice((curr) => (curr === msg ? null : curr)), 6000);
+  };
+
+  const handleDownloadScene = async (scene: Scene) => {
+    setDownloadingId(scene.id);
+    try {
+      await downloadSceneVoiceover(scene, selectedVoice, "scene");
+      announce(`Downloaded narration for scene ${(scene.order_index ?? 0) + 1}.`);
+    } catch (err: any) {
+      announce(err?.message || "Could not download that narration.");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleDownloadAll = async () => {
+    if (bulkDownload) return;
+    setBulkDownload({ current: 0, total: scenes.length, label: "Starting" });
+    try {
+      const { saved, failed, silent } = await downloadAllVoiceovers(
+        scenes,
+        selectedVoice,
+        "scenering_project",
+        (p) => setBulkDownload(p)
+      );
+      let msg = `Downloaded ${saved} narration track${saved === 1 ? "" : "s"} as a ZIP.`;
+      if (failed) msg += ` ${failed} failed.`;
+      if (silent) msg += ` ${silent} are silent placeholders — the speech service was unreachable.`;
+      announce(msg);
+    } catch (err: any) {
+      announce(err?.message || "Could not build the voiceover ZIP.");
+    } finally {
+      setBulkDownload(null);
+    }
+  };
+
+  const handleDownloadSample = async (preset: VoicePreset) => {
+    setDownloadingId(`sample-${preset.id}`);
+    try {
+      await downloadVoiceSample(preset.sampleText, preset.id, `${preset.name}_sample`);
+      announce(`Saved a sample of ${preset.name}.`);
+    } catch (err: any) {
+      announce(err?.message || "Could not download that sample.");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<{ current: number; total: number; sceneIndex: number } | null>(null);
   const [singleGeneratingId, setSingleGeneratingId] = useState<number | null>(null);
@@ -218,16 +281,31 @@ export default function VoiceoverStudio({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, voice: voiceToUse }),
       });
-      if (!res.ok) throw new Error("TTS generation failed");
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try {
+          const body = await res.json();
+          if (body?.error) detail = body.error;
+        } catch {}
+        throw new Error(detail);
+      }
+
+      // The server tells us which engine produced the audio. "silent" means
+      // real speech could not be reached and the buffer is a placeholder, so
+      // the user is warned instead of silently shipping a mute video.
+      if (res.headers.get("X-TTS-Source") === "silent") setTtsDegraded(true);
+      else setTtsDegraded(false);
+
+      const contentType = res.headers.get("Content-Type") || "audio/mpeg";
       const arrayBuf = await res.arrayBuffer();
-      const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+      const blob = new Blob([arrayBuf], { type: contentType });
       const blobUrl = URL.createObjectURL(blob);
 
       let spokenDuration = scene.duration || 10;
       try {
         const audioCtx = getSharedAudioContext();
         const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-        spokenDuration = Math.ceil(decoded.duration);
+        spokenDuration = decoded.duration;
         setCachedSceneAudio(scene.id, voiceToUse, text, {
           audioBuffer: decoded,
           blobUrl,
@@ -237,11 +315,19 @@ export default function VoiceoverStudio({
         });
       } catch {}
 
+      // The scene lasts exactly as long as the voice does (plus a short breath
+      // so the cut does not clip the final word). It used to take
+      // Math.max(configured, spoken), which left a silent tail on every scene
+      // whose narration was shorter than the configured length.
+      const BREATH = 0.35;
+      const fitted = Math.max(1, Math.round((spokenDuration + BREATH) * 10) / 10);
+
       onUpdateScene(scene.id, {
         audio_url: blobUrl,
         audio_name: `${voiceName} Narration`,
         voice_id: voiceToUse,
-        duration: Math.max(scene.duration || 10, spokenDuration),
+        duration: fitted,
+        audio_duration: spokenDuration,
       });
 
       return blobUrl;
@@ -378,7 +464,7 @@ export default function VoiceoverStudio({
   };
 
   return (
-    <div className="max-w-5xl mx-auto w-full space-y-5 animate-fade-in p-2 sm:p-0">
+    <div className="max-w-5xl 2xl:max-w-7xl mx-auto w-full space-y-3 sm:space-y-5 animate-fade-in p-1.5 sm:p-0">
       {/* Single Previous / Next control — always at the top of the phase */}
       {onNavigateToStep && (
         <StepNav
@@ -411,6 +497,35 @@ export default function VoiceoverStudio({
 
           <div className="flex flex-wrap items-center gap-2">
             <button
+              onClick={() =>
+                handlePlayVoicePreview(
+                  `Hello! This is a test of the selected ${activeVoiceInfo.gender} voice.`,
+                  "test-global",
+                  selectedVoice,
+                  globalSpeed
+                )
+              }
+              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 active:bg-gray-900 text-white rounded-xl text-xs font-semibold border border-gray-700 flex items-center gap-2 transition-colors shadow"
+            >
+              {loadingId === "test-global" ? (
+                <>
+                  <span className="animate-spin text-indigo-400">⏳</span>
+                  <span>Generating Audio...</span>
+                </>
+              ) : playingId === "test-global" ? (
+                <>
+                  <span className="animate-pulse text-amber-400">⏹️</span>
+                  <span>Stop Preview</span>
+                </>
+              ) : (
+                <>
+                  <span>🔊</span>
+                  <span>Test Active Voice</span>
+                </>
+              )}
+            </button>
+
+            <button
               disabled={isGeneratingAll}
               onClick={() => handleGenerateAndSaveAllVoiceovers(selectedVoice)}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"
@@ -432,8 +547,67 @@ export default function VoiceoverStudio({
                 </>
               )}
             </button>
+
+            {/* Download every generated narration track as a ZIP */}
+            <button
+              type="button"
+              disabled={Boolean(bulkDownload) || scenes.length === 0}
+              onClick={handleDownloadAll}
+              title="Download every scene's narration as audio files in a ZIP"
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"
+            >
+              {bulkDownload ? (
+                <>
+                  <span className="animate-spin text-sm">⏳</span>
+                  <span>
+                    Packaging ({bulkDownload.current}/{bulkDownload.total})...
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span>⬇️</span>
+                  <span>Download All Voices (ZIP)</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
+
+        {/* The speech service could not be reached — the audio is a silent
+            placeholder, so say so rather than shipping a mute video. */}
+        {ttsDegraded && (
+          <div className="mt-3 p-3 bg-amber-950/80 border border-amber-600/80 rounded-xl text-amber-200 text-xs flex items-start justify-between gap-3 shadow-lg">
+            <span className="flex items-start gap-2 font-medium">
+              <span>⚠️</span>
+              <span>
+                The neural speech service could not be reached, so the generated tracks are
+                silent placeholders of the right length. Check the machine's internet
+                connection and generate again — no re-editing is needed.
+              </span>
+            </span>
+            <button
+              onClick={() => setTtsDegraded(false)}
+              className="text-amber-400 hover:text-white text-sm font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {downloadNotice && (
+          <div className="mt-3 p-3 bg-gray-900 border border-gray-700 rounded-xl text-gray-200 text-xs flex items-center justify-between gap-3 shadow-lg animate-fade-in">
+            <span className="flex items-center gap-2">
+              <span>⬇️</span>
+              <span>{downloadNotice}</span>
+            </span>
+            <button
+              onClick={() => setDownloadNotice(null)}
+              className="text-gray-400 hover:text-white text-sm font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {isGeneratingAll && (
           <div className="mt-3 p-3 bg-indigo-950/90 border border-indigo-500/80 rounded-xl text-indigo-200 text-xs flex items-center justify-between animate-pulse shadow-lg">
@@ -683,6 +857,20 @@ export default function VoiceoverStudio({
                         )}
                       </button>
 
+                      {/* Save this voice's sample as an audio file */}
+                      <button
+                        type="button"
+                        disabled={downloadingId === `sample-${voice.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadSample(voice);
+                        }}
+                        title={`Download a sample of ${voice.name}`}
+                        className="px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-700/60 border border-gray-700/60 transition-colors"
+                      >
+                        {downloadingId === `sample-${voice.id}` ? "⏳" : "⬇️"}
+                      </button>
+
                       {isSelected ? (
                         <span className={`text-xs font-bold flex items-center gap-1 ${isMale ? "text-blue-400" : "text-pink-400"}`}>
                           <span>✓</span> Active Voice
@@ -775,6 +963,23 @@ export default function VoiceoverStudio({
                             <>
                               <span>🎙️</span>
                               <span>{hasSavedAudio ? "Re-generate" : "Generate Audio"}</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={downloadingId === scene.id}
+                          onClick={() => handleDownloadScene(scene)}
+                          title="Download this scene's narration as an audio file"
+                          className="px-2.5 py-1 text-xs bg-emerald-900/50 hover:bg-emerald-800 text-emerald-200 disabled:opacity-50 rounded-lg border border-emerald-700/60 flex items-center gap-1 transition-colors"
+                        >
+                          {downloadingId === scene.id ? (
+                            <span className="animate-spin text-xs">⏳</span>
+                          ) : (
+                            <>
+                              <span>⬇️</span>
+                              <span>Download</span>
                             </>
                           )}
                         </button>

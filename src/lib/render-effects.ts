@@ -1,7 +1,11 @@
-import { Scene, SceneFilterType, SceneMotionType, TimelineInsert } from "../types";
+import { Scene, SceneMotionType, TimelineInsert } from "../types";
 import { resolveCtaPlatform, type CtaPlatform } from "../data/cta-library";
+import { computeMotion, applyMotion, type MotionPreset } from "./overlay-motion";
+import { drawSticker, resolveStickerId, STICKER_BY_ID } from "./sticker-3d";
+import { renderTextTemplate, getTextTemplateBounds } from "./render-text-template";
 import { AudioFrame, makeAudioFrame } from "./audio-reactive";
 import { renderAudioVisualizer, getVisualizerFootprint } from "./render-visualizers";
+import { drawSceneImage, drawMediaCover } from "./scene-framing";
 
 // Convert preset position string into normalized (0..1) coordinates
 export function getPresetCoords(preset?: TimelineInsert["presetPosition"]): { x: number; y: number } {
@@ -29,6 +33,44 @@ export function getPresetCoords(preset?: TimelineInsert["presetPosition"]): { x:
   }
 }
 
+/**
+ * Camera motion for scene images (the "Ken Burns" setting in Setup, which
+ * applies to the whole video).
+ *
+ * Two rules govern everything here:
+ *
+ * 1. MOTION MUST BE VISIBLE. The previous Ken Burns drifted 20px across an
+ *    entire scene — about 1% of the frame, or roughly one pixel per second.
+ *    That reads as a completely static image. Movement is now expressed as a
+ *    PERCENTAGE OF THE FRAME rather than in absolute pixels, so it looks the
+ *    same at 720p and 4K, and the amounts are large enough to actually see.
+ *
+ * 2. MOTION MUST NEVER EXPOSE AN EDGE. Panning an image that is only scaled
+ *    1.0 slides a blank gap into frame. Every preset that moves therefore
+ *    scales up first, and the drift is clamped to the headroom that the
+ *    zoom creates: at scale s the image overhangs the frame by (s-1)/2 on
+ *    each side, so that is the furthest it may travel.
+ */
+
+/** Smooth start and end so moves feel like a camera, not a slide projector. */
+function easeInOutSine(p: number): number {
+  return -(Math.cos(Math.PI * p) - 1) / 2;
+}
+
+/**
+ * Largest drift, in pixels, that keeps the frame covered at this scale.
+ * A small safety margin absorbs rounding in the framing engine.
+ */
+function driftHeadroom(size: number, scale: number): number {
+  return Math.max(0, (size * (scale - 1)) / 2 - 1);
+}
+
+/** Clamp a desired drift to what the current zoom can cover. */
+function safeDrift(desired: number, size: number, scale: number): number {
+  const limit = driftHeadroom(size, scale);
+  return Math.max(-limit, Math.min(limit, desired));
+}
+
 // Compute transform for scene movement
 export function getMotionTransform(
   motion: SceneMotionType | undefined,
@@ -36,481 +78,119 @@ export function getMotionTransform(
   w: number,
   h: number
 ): { scale: number; dx: number; dy: number } {
-  const p = Math.max(0, Math.min(1, progress));
+  // A non-finite progress (a zero-length scene divides by zero upstream) would
+  // otherwise propagate NaN into the canvas transform and blank the frame.
+  const safeProgress = Number.isFinite(progress) ? progress : 0;
+  const p = Math.max(0, Math.min(1, safeProgress));
+  const e = easeInOutSine(p);
+  // Signed -1..+1 ramp, for moves that travel through centre.
+  const centred = e - 0.5;
+
+  const centre = (s: number) => ({
+    scale: s,
+    dx: -(w * s - w) / 2,
+    dy: -(h * s - h) / 2,
+  });
+
   switch (motion) {
     case "slow_zoom": {
-      const s = 1 + p * 0.08;
-      return { scale: s, dx: -(w * s - w) / 2, dy: -(h * s - h) / 2 };
+      // Gentle but perceptible push: 12% over the scene.
+      const s = 1 + e * 0.12;
+      return centre(s);
     }
     case "zoom_in": {
-      const s = 1 + p * 0.22;
-      return { scale: s, dx: -(w * s - w) / 2, dy: -(h * s - h) / 2 };
+      // Decisive cinematic push.
+      const s = 1 + e * 0.32;
+      return centre(s);
     }
     case "zoom_out": {
-      const s = 1.22 - p * 0.18;
-      return { scale: s, dx: -(w * s - w) / 2, dy: -(h * s - h) / 2 };
+      // Wide reveal, pulling back from a tight framing.
+      const s = 1.34 - e * 0.30;
+      return centre(s);
     }
     case "pan_left": {
-      const s = 1.15;
-      const totalDx = w * (s - 1);
-      return { scale: s, dx: -p * totalDx, dy: -(h * s - h) / 2 };
+      // Travel 60% of the available headroom so the move is obvious while
+      // the frame stays covered from first frame to last.
+      const s = 1.24;
+      const travel = driftHeadroom(w, s) * 1.2;
+      const base = centre(s);
+      return { ...base, dx: base.dx + safeDrift(-centred * travel, w, s) };
     }
     case "pan_right": {
-      const s = 1.15;
-      const totalDx = w * (s - 1);
-      return { scale: s, dx: -(1 - p) * totalDx, dy: -(h * s - h) / 2 };
+      const s = 1.24;
+      const travel = driftHeadroom(w, s) * 1.2;
+      const base = centre(s);
+      return { ...base, dx: base.dx + safeDrift(centred * travel, w, s) };
     }
     case "subtle_camera": {
-      const s = 1.05;
-      const wobbleX = Math.sin(p * Math.PI * 4) * 8;
-      const wobbleY = Math.cos(p * Math.PI * 3) * 6;
-      return { scale: s, dx: -(w * s - w) / 2 + wobbleX, dy: -(h * s - h) / 2 + wobbleY };
+      // Slow breathing drift — restrained, but no longer invisible.
+      const s = 1.12;
+      const base = centre(s);
+      const driftX = Math.sin(p * Math.PI * 2) * w * 0.022;
+      const driftY = Math.cos(p * Math.PI * 1.5) * h * 0.018;
+      return {
+        ...base,
+        dx: base.dx + safeDrift(driftX, w, s),
+        dy: base.dy + safeDrift(driftY, h, s),
+      };
     }
     case "shake": {
-      const s = 1.08;
-      const shakeAmt = (1 - p * 0.7) * 9;
-      const sx = (Math.sin(p * 50) + Math.cos(p * 37)) * shakeAmt;
-      const sy = (Math.cos(p * 45) + Math.sin(p * 29)) * shakeAmt;
-      return { scale: s, dx: -(w * s - w) / 2 + sx, dy: -(h * s - h) / 2 + sy };
+      // Handheld tremor that settles as the scene goes on.
+      const s = 1.14;
+      const base = centre(s);
+      const decay = 1 - p * 0.55;
+      const amp = w * 0.011 * decay;
+      const sx = (Math.sin(p * 190) + Math.cos(p * 143) * 0.6) * amp;
+      const sy = (Math.cos(p * 167) + Math.sin(p * 121) * 0.6) * amp * 0.8;
+      return {
+        ...base,
+        dx: base.dx + safeDrift(sx, w, s),
+        dy: base.dy + safeDrift(sy, h, s),
+      };
     }
     case "pulse": {
-      const beat = Math.sin(p * Math.PI * 8);
-      const s = 1.03 + Math.max(0, beat) * 0.06;
-      return { scale: s, dx: -(w * s - w) / 2, dy: -(h * s - h) / 2 };
+      // Rhythmic beat, roughly four pulses per scene. The phase is offset so
+      // the very first frames are already moving — sampling exactly on a zero
+      // crossing made the effect look dead at the start of a scene.
+      const beat = Math.sin(p * Math.PI * 8 + Math.PI * 0.25);
+      const s = 1.06 + (beat * 0.5 + 0.5) * 0.10;
+      return centre(s);
     }
     case "floating": {
-      const s = 1.08;
-      const floatY = Math.sin(p * Math.PI * 2) * 12;
-      const floatX = Math.cos(p * Math.PI * 1.5) * 8;
-      return { scale: s, dx: -(w * s - w) / 2 + floatX, dy: -(h * s - h) / 2 + floatY };
+      // Slow weightless drift in a shallow figure of eight.
+      const s = 1.16;
+      const base = centre(s);
+      const floatX = Math.cos(p * Math.PI * 2) * w * 0.028;
+      const floatY = Math.sin(p * Math.PI * 4) * h * 0.022;
+      return {
+        ...base,
+        dx: base.dx + safeDrift(floatX, w, s),
+        dy: base.dy + safeDrift(floatY, h, s),
+      };
     }
     case "none":
       return { scale: 1, dx: 0, dy: 0 };
     case "ken_burns":
     default: {
-      const s = 1 + p * 0.08;
-      const driftX = (p - 0.5) * 20;
-      return { scale: s, dx: -(w * s - w) / 2 + driftX, dy: -(h * s - h) / 2 };
+      // The classic: a steady push combined with a clearly visible diagonal
+      // drift. Starts at 1.08 rather than 1.0 so there is headroom to move
+      // into from the very first frame.
+      const s = 1.08 + e * 0.16;
+      const base = centre(s);
+      const driftX = centred * w * 0.09;
+      const driftY = centred * h * 0.05;
+      return {
+        ...base,
+        dx: base.dx + safeDrift(driftX, w, s),
+        dy: base.dy + safeDrift(driftY, h, s),
+      };
     }
   }
 }
 
 // Apply scene-level filter effects
-export function applySceneFilter(
-  ctx: CanvasRenderingContext2D,
-  filter: SceneFilterType | undefined,
-  w: number,
-  h: number,
-  timeSec: number = 0
-) {
-  if (!filter || filter === "none") return;
-
-  ctx.save();
-  switch (filter) {
-    case "old_movie": {
-      // 1. Vintage Warm Sepia Tint
-      ctx.fillStyle = "rgba(180, 130, 60, 0.16)";
-      ctx.fillRect(0, 0, w, h);
-
-      // 2. High-Density Film Grain & Dirt Specks
-      const speckCount = Math.floor((w * h) / 4500);
-      for (let i = 0; i < speckCount; i++) {
-        const gx = Math.random() * w;
-        const gy = Math.random() * h;
-        const size = Math.random() < 0.9 ? 1.5 : Math.random() * 3 + 1;
-        const isWhite = Math.random() > 0.45;
-        ctx.fillStyle = isWhite ? "rgba(255, 255, 255, 0.2)" : "rgba(15, 12, 10, 0.35)";
-        ctx.fillRect(gx, gy, size, size);
-      }
-
-      // 3. Film Marks, Hair, and Blotches (Fashion Marks & Spots)
-      const spotSeed = Math.floor(timeSec * 8);
-      const spotsCount = 4 + (spotSeed % 5);
-      for (let s = 0; s < spotsCount; s++) {
-        const sx = ((spotSeed * 173 + s * 397) % 1000) / 1000 * w;
-        const sy = ((spotSeed * 241 + s * 509) % 1000) / 1000 * h;
-        const radius = 2 + (s % 4) * 2;
-        ctx.beginPath();
-        ctx.arc(sx, sy, radius, 0, Math.PI * 2);
-        ctx.fillStyle = s % 2 === 0 ? "rgba(20, 15, 10, 0.45)" : "rgba(240, 230, 210, 0.35)";
-        ctx.fill();
-
-        // Irregular tiny hair/curl mark
-        if (s % 3 === 0) {
-          ctx.beginPath();
-          ctx.moveTo(sx, sy);
-          ctx.quadraticCurveTo(sx + 6, sy - 8, sx + 14, sy + 4);
-          ctx.strokeStyle = "rgba(15, 10, 5, 0.5)";
-          ctx.lineWidth = 1.2;
-          ctx.stroke();
-        }
-      }
-
-      // 4. Vertical Film Scratches that jitter
-      const scratchCount = 2 + (spotSeed % 3);
-      for (let sc = 0; sc < scratchCount; sc++) {
-        const scrX = ((spotSeed * 311 + sc * 487) % 1000) / 1000 * w;
-        ctx.beginPath();
-        ctx.moveTo(scrX + (Math.random() - 0.5) * 2, 0);
-        ctx.lineTo(scrX + (Math.random() - 0.5) * 3, h);
-        ctx.strokeStyle = sc === 0 ? "rgba(255, 255, 255, 0.28)" : "rgba(20, 15, 10, 0.3)";
-        ctx.lineWidth = sc === 0 ? 1 : 1.5;
-        ctx.stroke();
-      }
-
-      // 5. Projector Light Vignette
-      const vGrad = ctx.createRadialGradient(w / 2, h / 2, w * 0.28, w / 2, h / 2, w * 0.72);
-      vGrad.addColorStop(0, "rgba(0,0,0,0)");
-      vGrad.addColorStop(1, "rgba(20, 10, 5, 0.65)");
-      ctx.fillStyle = vGrad;
-      ctx.fillRect(0, 0, w, h);
-
-      // 6. Subtle projector flicker
-      const flicker = Math.sin(timeSec * 45) * 0.04;
-      if (flicker > 0) {
-        ctx.fillStyle = `rgba(255, 240, 200, ${flicker})`;
-        ctx.fillRect(0, 0, w, h);
-      }
-      break;
-    }
-
-    case "dust_particles": {
-      // Atmospheric Hazy Dust Particles with Out-of-Focus Floating Bokeh
-      // 1. Warm Atmospheric Base Haze
-      const hazeGrad = ctx.createLinearGradient(0, 0, w, h);
-      hazeGrad.addColorStop(0, "rgba(255, 220, 160, 0.12)");
-      hazeGrad.addColorStop(1, "rgba(200, 140, 80, 0.08)");
-      ctx.fillStyle = hazeGrad;
-      ctx.fillRect(0, 0, w, h);
-
-      // 2. Multi-layered Out-of-Focus Floating Dust Motes (Bokeh)
-      const t = timeSec || 0;
-      const numParticles = 32;
-      for (let i = 0; i < numParticles; i++) {
-        // Deterministic pseudo-random seed per particle
-        const baseSpeed = 0.02 + (i % 5) * 0.015;
-        const driftAngle = 0.3 + (i % 3) * 0.2; // drift diagonally down-right
-        const initX = ((i * 197.3) % 1) * w;
-        const initY = ((i * 283.7) % 1) * h;
-
-        // Smooth cyclic movement with Brownian wobble
-        const wobbleX = Math.sin(t * 1.2 + i) * 25;
-        const wobbleY = Math.cos(t * 0.9 + i * 1.5) * 20;
-        const currentX = (initX + t * 40 * baseSpeed + wobbleX) % (w + 100) - 50;
-        const currentY = (initY + t * 25 * baseSpeed * driftAngle + wobbleY) % (h + 100) - 50;
-
-        // Size classes: large out-of-focus bokeh vs tiny shimmering motes
-        const isBokeh = i % 4 === 0;
-        const radius = isBokeh ? (18 + (i % 3) * 12) * (w / 1280) : (2 + (i % 3) * 2) * (w / 1280);
-        const alpha = isBokeh
-          ? 0.12 + Math.sin(t * 2 + i) * 0.05
-          : 0.35 + Math.sin(t * 3 + i) * 0.15;
-
-        // Draw soft radial particle
-        const pGrad = ctx.createRadialGradient(currentX, currentY, 0, currentX, currentY, Math.max(1, radius));
-        pGrad.addColorStop(0, `rgba(255, 245, 210, ${alpha * 1.3})`);
-        pGrad.addColorStop(0.4, `rgba(255, 220, 160, ${alpha * 0.7})`);
-        pGrad.addColorStop(1, "rgba(255, 200, 120, 0)");
-
-        ctx.fillStyle = pGrad;
-        ctx.beginPath();
-        ctx.arc(currentX, currentY, Math.max(1, radius), 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 3. Soft golden sun glow in top-left
-      const sunGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, w * 0.6);
-      sunGrad.addColorStop(0, "rgba(255, 235, 180, 0.16)");
-      sunGrad.addColorStop(1, "rgba(255, 235, 180, 0)");
-      ctx.fillStyle = sunGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-
-    case "sun_flare": {
-      // Golden Volumetric Sunbeams & Light Streak
-      const beamGrad = ctx.createLinearGradient(0, 0, w * 0.8, h);
-      beamGrad.addColorStop(0, "rgba(255, 240, 190, 0.22)");
-      beamGrad.addColorStop(0.3, "rgba(255, 210, 140, 0.14)");
-      beamGrad.addColorStop(0.7, "rgba(255, 180, 100, 0.08)");
-      beamGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
-      ctx.fillStyle = beamGrad;
-      ctx.fillRect(0, 0, w, h);
-
-      // Top corner radiant orb
-      const orb = ctx.createRadialGradient(w * 0.15, 0, 0, w * 0.15, 0, w * 0.5);
-      orb.addColorStop(0, "rgba(255, 255, 240, 0.28)");
-      orb.addColorStop(0.5, "rgba(255, 200, 100, 0.12)");
-      orb.addColorStop(1, "rgba(255, 200, 100, 0)");
-      ctx.fillStyle = orb;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-
-    case "vhs_glitch": {
-      // Horizontal CRT Scanlines
-      const scanlineGap = Math.max(3, Math.floor(h / 240));
-      ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
-      for (let y = 0; y < h; y += scanlineGap) {
-        ctx.fillRect(0, y, w, 1);
-      }
-
-      // Subtle RGB Chromatic Shift on borders
-      ctx.fillStyle = "rgba(255, 0, 60, 0.05)";
-      ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = "rgba(0, 200, 255, 0.05)";
-      ctx.fillRect(3, 0, w, h);
-
-      // Tracking noise band that rolls slowly
-      const noiseY = ((timeSec * 80) % (h + 60)) - 30;
-      ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
-      ctx.fillRect(0, noiseY, w, 6);
-      break;
-    }
-
-    case "noir": {
-      // High-Contrast Silver Gelatin B&W
-      ctx.globalCompositeOperation = "color";
-      ctx.fillStyle = "#808080";
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalCompositeOperation = "source-over";
-
-      // Deep Shadow Contrast
-      ctx.fillStyle = "rgba(0, 0, 0, 0.16)";
-      ctx.fillRect(0, 0, w, h);
-
-      // Heavy Noir Vignette
-      const nGrad = ctx.createRadialGradient(w / 2, h / 2, w * 0.25, w / 2, h / 2, w * 0.7);
-      nGrad.addColorStop(0, "rgba(0,0,0,0)");
-      nGrad.addColorStop(1, "rgba(0,0,0,0.7)");
-      ctx.fillStyle = nGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-
-    case "cinematic": {
-      // Teal & Orange tone mapping
-      const grad = ctx.createLinearGradient(0, 0, w, h);
-      grad.addColorStop(0, "rgba(0, 40, 60, 0.15)");
-      grad.addColorStop(1, "rgba(220, 110, 20, 0.12)");
-      ctx.globalCompositeOperation = "color";
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "dark_cinematic": {
-      // Moody Dark Cinema: Rich cool shadows & dramatic edge darkness
-      ctx.fillStyle = "rgba(5, 12, 24, 0.28)";
-      ctx.fillRect(0, 0, w, h);
-      const dcGrad = ctx.createRadialGradient(w / 2, h / 2, w * 0.2, w / 2, h / 2, w * 0.7);
-      dcGrad.addColorStop(0, "rgba(0,0,0,0)");
-      dcGrad.addColorStop(1, "rgba(2, 6, 15, 0.65)");
-      ctx.fillStyle = dcGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "warm_movie": {
-      // Warm Golden Cinema: Amber midtones & creamy light halation
-      const wGrad = ctx.createLinearGradient(0, 0, w, h);
-      wGrad.addColorStop(0, "rgba(255, 160, 40, 0.22)");
-      wGrad.addColorStop(1, "rgba(230, 110, 20, 0.16)");
-      ctx.fillStyle = wGrad;
-      ctx.fillRect(0, 0, w, h);
-      const wBloom = ctx.createRadialGradient(w * 0.5, h * 0.4, 0, w * 0.5, h * 0.4, w * 0.6);
-      wBloom.addColorStop(0, "rgba(255, 230, 170, 0.18)");
-      wBloom.addColorStop(1, "rgba(255, 200, 120, 0)");
-      ctx.fillStyle = wBloom;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "cool_movie": {
-      // Nordic Cool Cinema: Icy steel-blue clarity & crisp highlights
-      const cGrad = ctx.createLinearGradient(0, 0, w, h);
-      cGrad.addColorStop(0, "rgba(30, 130, 240, 0.2)");
-      cGrad.addColorStop(1, "rgba(10, 60, 140, 0.25)");
-      ctx.fillStyle = cGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "high_contrast": {
-      // Punchy High Contrast: Crushed blacks & intense highlights
-      const hcGrad = ctx.createRadialGradient(w / 2, h / 2, w * 0.25, w / 2, h / 2, w * 0.75);
-      hcGrad.addColorStop(0, "rgba(255, 255, 255, 0.08)");
-      hcGrad.addColorStop(0.6, "rgba(0, 0, 0, 0.15)");
-      hcGrad.addColorStop(1, "rgba(0, 0, 0, 0.55)");
-      ctx.fillStyle = hcGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "vintage": {
-      // 1970s Vintage Film: Warm faded tones & soft vignette
-      ctx.fillStyle = "rgba(200, 150, 70, 0.26)";
-      ctx.fillRect(0, 0, w, h);
-      const vGrad = ctx.createRadialGradient(w / 2, h / 2, w * 0.35, w / 2, h / 2, w * 0.75);
-      vGrad.addColorStop(0, "rgba(0,0,0,0)");
-      vGrad.addColorStop(1, "rgba(80, 50, 20, 0.45)");
-      ctx.fillStyle = vGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "film_grain": {
-      // 35mm Celluloid Film Grain with animated jitter
-      const seed = Math.floor(timeSec * 24);
-      ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
-      for (let i = 0; i < 450; i++) {
-        const gx = ((i * 397 + seed * 97) % 1000) / 1000 * w;
-        const gy = ((i * 613 + seed * 193) % 1000) / 1000 * h;
-        ctx.fillRect(gx, gy, 1.8, 1.8);
-      }
-      ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
-      for (let i = 0; i < 350; i++) {
-        const gx = ((i * 541 + seed * 223) % 1000) / 1000 * w;
-        const gy = ((i * 709 + seed * 317) % 1000) / 1000 * h;
-        ctx.fillRect(gx, gy, 1.8, 1.8);
-      }
-      break;
-    }
-    case "soft_glow": {
-      // Soft Dream Bloom: Luminous highlight diffusion
-      const glowGrad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.6);
-      glowGrad.addColorStop(0, "rgba(255, 245, 215, 0.28)");
-      glowGrad.addColorStop(0.5, "rgba(255, 225, 180, 0.14)");
-      glowGrad.addColorStop(1, "rgba(255, 210, 160, 0)");
-      ctx.fillStyle = glowGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "dreamy": {
-      // Dreamy Pastel Fantasy: Ethereal lavender-pink and cyan gradient
-      const dGrad = ctx.createLinearGradient(0, 0, w, h);
-      dGrad.addColorStop(0, "rgba(245, 170, 240, 0.26)");
-      dGrad.addColorStop(0.5, "rgba(180, 200, 255, 0.18)");
-      dGrad.addColorStop(1, "rgba(140, 230, 250, 0.22)");
-      ctx.fillStyle = dGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "golden_hour": {
-      // Golden Hour: Rich twilight sunset radiance with warm solar orb
-      const grad = ctx.createLinearGradient(0, 0, 0, h);
-      grad.addColorStop(0, "rgba(255, 180, 30, 0.32)");
-      grad.addColorStop(0.6, "rgba(240, 100, 20, 0.22)");
-      grad.addColorStop(1, "rgba(180, 40, 10, 0.2)");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, w, h);
-      const sun = ctx.createRadialGradient(w * 0.85, h * 0.15, 0, w * 0.85, h * 0.15, w * 0.5);
-      sun.addColorStop(0, "rgba(255, 250, 210, 0.35)");
-      sun.addColorStop(0.5, "rgba(255, 190, 80, 0.15)");
-      sun.addColorStop(1, "rgba(255, 160, 40, 0)");
-      ctx.fillStyle = sun;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "sunset_warmth": {
-      // Sunset Purple & Gold: Dusky twilight with violet skies and amber horizon
-      const sGrad = ctx.createLinearGradient(0, 0, 0, h);
-      sGrad.addColorStop(0, "rgba(130, 30, 140, 0.26)");
-      sGrad.addColorStop(0.5, "rgba(255, 90, 80, 0.28)");
-      sGrad.addColorStop(1, "rgba(255, 170, 40, 0.22)");
-      ctx.fillStyle = sGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "cold_blue": {
-      // Deep Ocean Blue: Cool futuristic sapphire and cyan depth
-      const cbGrad = ctx.createLinearGradient(0, 0, w, h);
-      cbGrad.addColorStop(0, "rgba(0, 150, 240, 0.24)");
-      cbGrad.addColorStop(1, "rgba(10, 40, 130, 0.35)");
-      ctx.fillStyle = cbGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "haze_fog": {
-      // Atmospheric Morning Mist: Foggy ground haze and soft light
-      ctx.fillStyle = "rgba(225, 235, 245, 0.18)";
-      ctx.fillRect(0, 0, w, h);
-      const fogGrad = ctx.createLinearGradient(0, h * 0.4, 0, h);
-      fogGrad.addColorStop(0, "rgba(240, 248, 255, 0)");
-      fogGrad.addColorStop(1, "rgba(240, 248, 255, 0.42)");
-      ctx.fillStyle = fogGrad;
-      ctx.fillRect(0, h * 0.4, w, h * 0.6);
-      break;
-    }
-    case "vignette": {
-      // Focus Dark Vignette: Deep feathered corner fall-off
-      const vGrad = ctx.createRadialGradient(w / 2, h / 2, w * 0.25, w / 2, h / 2, w * 0.72);
-      vGrad.addColorStop(0, "rgba(0,0,0,0)");
-      vGrad.addColorStop(0.7, "rgba(0,0,0,0.35)");
-      vGrad.addColorStop(1, "rgba(0,0,0,0.78)");
-      ctx.fillStyle = vGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "black_and_white": {
-      // Classic Monochrome: High-definition grayscale
-      ctx.globalCompositeOperation = "color";
-      ctx.fillStyle = "#808080";
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalCompositeOperation = "source-over";
-      // Subtle contrast punch
-      ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "sepia": {
-      // Antique Sepia: 19th-century photographic print
-      ctx.globalCompositeOperation = "color";
-      ctx.fillStyle = "#808080";
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = "rgba(125, 75, 25, 0.38)";
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "desaturated": {
-      // Muted Desaturated: Gritty documentary look
-      ctx.globalCompositeOperation = "color";
-      ctx.fillStyle = "rgba(128,128,128,0.65)";
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = "rgba(10, 15, 20, 0.15)";
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "deep_shadows": {
-      // Dramatic Deep Shadows: Crushed blacks & moody chiaroscuro
-      ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
-      ctx.fillRect(0, 0, w, h);
-      const dsGrad = ctx.createRadialGradient(w / 2, h / 2, w * 0.2, w / 2, h / 2, w * 0.7);
-      dsGrad.addColorStop(0, "rgba(0,0,0,0)");
-      dsGrad.addColorStop(1, "rgba(0, 0, 0, 0.65)");
-      ctx.fillStyle = dsGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "color_boost": {
-      // Zen Nature Vibrant: Heightened lush color & clarity
-      const cbBoost = ctx.createLinearGradient(0, 0, w, h);
-      cbBoost.addColorStop(0, "rgba(34, 197, 94, 0.12)");
-      cbBoost.addColorStop(0.5, "rgba(234, 179, 8, 0.1)");
-      cbBoost.addColorStop(1, "rgba(59, 130, 246, 0.12)");
-      ctx.fillStyle = cbBoost;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-    case "dramatic_hdr": {
-      // Dramatic Vivid HDR: Local micro-contrast & punch
-      const hdrGrad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.65);
-      hdrGrad.addColorStop(0, "rgba(255, 255, 255, 0.12)");
-      hdrGrad.addColorStop(0.7, "rgba(0, 0, 0, 0.1)");
-      hdrGrad.addColorStop(1, "rgba(0, 0, 0, 0.45)");
-      ctx.fillStyle = hdrGrad;
-      ctx.fillRect(0, 0, w, h);
-      break;
-    }
-  }
-  ctx.restore();
-}
+/* NOTE: per-scene filters were replaced by ONE project-wide video look.
+   See src/data/video-filters.ts + src/lib/video-filter-render.ts. */
 
 // Draw a rounded rectangle path helper
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -591,17 +271,19 @@ export function renderTimelineInsert(
     case "content_cards":
     case "other_cards":
     case "text_templates":
-      renderContentCard(ctx, insert, cx, cy, size, w);
+    case "lower_thirds":
+      // Text cards are data-driven now: plate, border, fonts, colours,
+      // transparency and slide-in motion all come from the template style.
+      renderTextTemplate(ctx, insert, cx, cy, size, w, elapsed);
       break;
     case "intro":
     case "outro":
       renderIntroOutroCard(ctx, insert, cx, cy, size, w, h, elapsed, progress);
       break;
-    case "filters": {
-      const filterKey = (insert.type.replace("filter_", "") || insert.content?.label || "cinematic") as SceneFilterType;
-      applySceneFilter(ctx, filterKey, w, h, currentTime);
+    case "filters":
+      // Filters are no longer timeline inserts — they run across the whole
+      // video and are painted by paintVideoFilter() in the draw loop.
       break;
-    }
     case "background_music":
     case "sound_effects":
       // Audio tracks handled by media player
@@ -821,9 +503,18 @@ export function getInsertBounds(
     case "content_cards":
     case "other_cards":
     case "text_templates":
-      bw = Math.min(840, w * 0.8) * size;
-      bh = 280 * size;
-      break;
+    case "lower_thirds": {
+      // real drawn footprint so lower thirds get a tight, grabbable box
+      const b = getTextTemplateBounds(item, w);
+      bw = b.w;
+      bh = b.h;
+      // match the on-screen clamp applied by the renderer
+      const margin = w * 0.03;
+      const minX = bw / 2 + margin;
+      const maxX = w - bw / 2 - margin;
+      const clamped = maxX > minX ? Math.max(minX, Math.min(maxX, cx)) : w / 2;
+      return { cx: clamped, cy, x: clamped - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+    }
     case "audio_visualizers":
     case "speech_reactive":
     case "meditation": {
@@ -1448,12 +1139,24 @@ export function renderCallToAction(
   ctx.translate(x, y);
   ctx.scale(size, size);
 
-  // Gentle breathing pulse (very subtle so the badge stays crisp)
-  const pulse = 1 + Math.sin(elapsed * 3.2) * 0.012;
-  ctx.scale(pulse, pulse);
-
   if (visual.rotation) {
     ctx.rotate((visual.rotation * Math.PI) / 180);
+  }
+
+  // Shared overlay motion — the same engine the 3D stickers use, so a CTA can
+  // swing, bounce or turn to pull the eye. Defaults to the old subtle breath.
+  const ctaMotion = computeMotion(elapsed, item.duration, {
+    preset: (visual.motionPreset as MotionPreset) || "none",
+    speed: visual.motionSpeed,
+    amount: visual.motionAmount,
+    entrance: visual.motionEntrance,
+  });
+  if (visual.motionPreset && visual.motionPreset !== "none") {
+    applyMotion(ctx, ctaMotion);
+  } else {
+    // legacy gentle breathing pulse (keeps existing projects looking the same)
+    const pulse = 1 + Math.sin(elapsed * 3.2) * 0.012;
+    ctx.scale(pulse, pulse);
   }
 
   const bwU = layout.width; // unscaled (ctx already scaled by size)
@@ -1600,6 +1303,11 @@ export function renderCallToAction(
 }
 
 // ---------------- STICKERS ----------------
+/**
+ * Stickers are drawn as shaded 3D objects (src/lib/sticker-3d.ts) and moved by
+ * the shared overlay motion engine (src/lib/overlay-motion.ts), so they spin,
+ * bounce and catch the light instead of sitting flat on the frame.
+ */
 function renderSticker(
   ctx: CanvasRenderingContext2D,
   item: TimelineInsert,
@@ -1608,500 +1316,43 @@ function renderSticker(
   size: number,
   elapsed: number
 ) {
+  const vo = item.visualOptions || {};
+  // Projects saved before the 3D rebuild only have the old `type`, so the
+  // legacy map resolves them onto the nearest new sticker and the library's
+  // own default motion takes over.
+  const stickerId = resolveStickerId(vo.stickerId || item.type);
+  const def = STICKER_BY_ID[stickerId];
+
+  const motion = computeMotion(elapsed, item.duration, {
+    preset: (vo.motionPreset as MotionPreset) || (def?.defaultMotion as MotionPreset) || "float",
+    speed: vo.motionSpeed,
+    amount: vo.motionAmount,
+    entrance: vo.motionEntrance,
+  });
+
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(size, size);
+  if (vo.rotation) ctx.rotate((vo.rotation * Math.PI) / 180);
+  applyMotion(ctx, motion);
 
-  switch (item.type) {
-    case "subscribe": {
-      // YouTube style red button with bell
-      const pulse = 1 + Math.sin(elapsed * 4) * 0.03;
-      ctx.scale(pulse, pulse);
-
-      const bw = 240;
-      const bh = 56;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 28);
-      ctx.fillStyle = "#e50914";
-      ctx.shadowColor = "rgba(229, 9, 20, 0.4)";
-      ctx.shadowBlur = 16;
-      ctx.fill();
-
-      // Text
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 20px system-ui, -apple-system, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("SUBSCRIBE 🔔", 0, 0);
-      break;
-    }
-    case "like": {
-      const pulse = 1 + Math.sin(elapsed * 5) * 0.04;
-      ctx.scale(pulse, pulse);
-      const bw = 170;
-      const bh = 50;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 25);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-      ctx.strokeStyle = "rgba(99, 102, 241, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#6366f1";
-      ctx.font = "bold 22px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("👍 LIKE", 0, 0);
-      break;
-    }
-    case "follow": {
-      const bw = 160;
-      const bh = 46;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 23);
-      ctx.fillStyle = "#4f46e5";
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 18px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("+ FOLLOW", 0, 0);
-      break;
-    }
-    case "share": {
-      const bw = 150;
-      const bh = 46;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 23);
-      ctx.fillStyle = "rgba(17, 24, 39, 0.9)";
-      ctx.strokeStyle = "#38bdf8";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "#38bdf8";
-      ctx.font = "bold 18px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("↗ SHARE", 0, 0);
-      break;
-    }
-    case "comment": {
-      const bw = 180;
-      const bh = 46;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 23);
-      ctx.fillStyle = "rgba(30, 41, 59, 0.9)";
-      ctx.fill();
-      ctx.fillStyle = "#e2e8f0";
-      ctx.font = "bold 17px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("💬 COMMENT", 0, 0);
-      break;
-    }
-    case "bell": {
-      const rot = Math.sin(elapsed * 12) * 0.15;
-      ctx.rotate(rot);
-      ctx.font = "56px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("🔔", 0, 0);
-      break;
-    }
-    case "heart": {
-      const pulse = 1 + Math.sin(elapsed * 6) * 0.12;
-      ctx.scale(pulse, pulse);
-      ctx.font = "56px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("❤️", 0, 0);
-      break;
-    }
-    case "arrow": {
-      const bounce = Math.sin(elapsed * 8) * 8;
-      ctx.font = "50px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("👉", bounce, 0);
-      break;
-    }
-    case "check": {
-      const bw = 160;
-      const bh = 46;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 23);
-      ctx.fillStyle = "#059669";
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 18px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("✓ VERIFIED", 0, 0);
-      break;
-    }
-    case "warning": {
-      const bw = 180;
-      const bh = 46;
-      roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 23);
-      ctx.fillStyle = "#d97706";
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 18px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("⚠️ WARNING", 0, 0);
-      break;
-    }
-    case "emoji_fire": {
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "56px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("🔥", 0, 0);
-      break;
-    }
-    default: {
-      // emoji stickers must not inherit the previous fill colour
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "50px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("⭐", 0, 0);
-      break;
-    }
-  }
+  drawSticker(ctx, stickerId, {
+    motion,
+    time: elapsed,
+    tint: vo.stickerTint ?? vo.primaryColor ?? null,
+    shadow: vo.shadowIntensity ?? 0.85,
+    glow: vo.stickerGlow ?? 0.35,
+  });
 
   ctx.restore();
 }
 
 // ---------------- CONTENT CARDS ----------------
-function renderContentCard(
-  ctx: CanvasRenderingContext2D,
-  item: TimelineInsert,
-  x: number,
-  y: number,
-  size: number,
-  canvasWidth: number
-) {
-  const content = item.content || {};
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(size, size);
-
-  const cardW = Math.min(840, canvasWidth * 0.8);
-
-  switch (item.type) {
-    case "scripture":
-    case "template_scripture": {
-      const cardH = 210;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
-      ctx.strokeStyle = "rgba(245, 158, 11, 0.85)"; // gold border
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = "rgba(245, 158, 11, 0.35)";
-      ctx.shadowBlur = 24;
-      ctx.fill();
-      ctx.stroke();
-
-      // Golden Header Label
-      ctx.fillStyle = "#f59e0b";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      const book = content.book || "John";
-      const ch = content.chapter || "3";
-      const vs = content.verse || "16";
-      const version = content.secondaryText || "King James Version (KJV)";
-      const label = content.label || "HOLY SCRIPTURE";
-      ctx.fillText(`${label} · ${book.toUpperCase()} ${ch}:${vs}`, 0, -cardH / 2 + 34);
-
-      // Quote Text
-      ctx.fillStyle = "#fef3c7";
-      ctx.font = "italic 20px Georgia, serif";
-      wrapText(ctx, `“${content.primaryText || "For God so loved the world, that he gave his only begotten Son..."}”`, 0, -cardH / 2 + 82, cardW - 80, 28);
-
-      // Version Translation Footer
-      ctx.fillStyle = "#d97706";
-      ctx.font = "600 13px system-ui";
-      ctx.fillText(`— ${book} ${ch}:${vs} (${version})`, 0, cardH / 2 - 24);
-      break;
-    }
-
-    case "quote":
-    case "template_quote": {
-      const cardH = 190;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(10, 15, 30, 0.88)";
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "rgba(56, 189, 248, 0.3)";
-      ctx.shadowBlur = 20;
-      ctx.fill();
-      ctx.stroke();
-
-      // Quote mark
-      ctx.fillStyle = "rgba(56, 189, 248, 0.35)";
-      ctx.font = "bold 64px Georgia, serif";
-      ctx.textAlign = "center";
-      ctx.fillText("“", 0, -cardH / 2 + 45);
-
-      // Quote text
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "italic 21px Georgia, serif";
-      wrapText(ctx, `“${content.primaryText || "The only limit to our realization of tomorrow is our doubts of today."}”`, 0, -cardH / 2 + 75, cardW - 70, 30);
-
-      const author = content.author || content.secondaryText;
-      if (author) {
-        ctx.fillStyle = "#38bdf8";
-        ctx.font = "bold 15px system-ui";
-        ctx.fillText(`— ${author}`, 0, cardH / 2 - 24);
-      }
-      break;
-    }
-
-    case "template_lower_third": {
-      const barW = Math.min(680, canvasWidth * 0.7);
-      const barH = 76;
-      ctx.save();
-      roundRect(ctx, -barW / 2, -barH / 2, barW, barH, 12);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.95)";
-      ctx.strokeStyle = "rgba(99, 102, 241, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "rgba(0,0,0,0.8)";
-      ctx.shadowBlur = 18;
-      ctx.fill();
-      ctx.stroke();
-
-      // Left Accent Strip
-      ctx.fillStyle = "#6366f1";
-      roundRect(ctx, -barW / 2, -barH / 2, 8, barH, 4);
-      ctx.fill();
-
-      // Name & Title
-      ctx.textAlign = "left";
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 20px system-ui";
-      ctx.fillText(content.primaryText || "Featured Presenter", -barW / 2 + 24, -4);
-
-      ctx.fillStyle = "#a5b4fc";
-      ctx.font = "14px system-ui";
-      ctx.fillText(content.secondaryText || "Lead Specialist & Speaker", -barW / 2 + 24, 22);
-      ctx.restore();
-      break;
-    }
-
-    case "template_key_takeaway": {
-      const cardH = 160;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(6, 78, 59, 0.9)";
-      ctx.strokeStyle = "rgba(52, 211, 153, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "rgba(16, 185, 129, 0.35)";
-      ctx.shadowBlur = 20;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#34d399";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`💡 ${content.label || "KEY TAKEAWAY"}`, 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 21px system-ui";
-      wrapText(ctx, content.primaryText || "Consistency compounds faster than occasional intensity.", 0, -cardH / 2 + 72, cardW - 60, 28);
-
-      if (content.secondaryText) {
-        ctx.fillStyle = "#a7f3d0";
-        ctx.font = "14px system-ui";
-        ctx.fillText(content.secondaryText, 0, cardH / 2 - 20);
-      }
-      break;
-    }
-
-    case "template_did_you_know": {
-      const cardH = 170;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(80, 7, 36, 0.9)";
-      ctx.strokeStyle = "rgba(244, 63, 94, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#fb7185";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`🧠 ${content.label || "DID YOU KNOW?"}`, 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 20px system-ui";
-      wrapText(ctx, content.primaryText || "Honey never spoils in archaeological tombs.", 0, -cardH / 2 + 72, cardW - 60, 28);
-
-      if (content.secondaryText) {
-        ctx.fillStyle = "#fecdd3";
-        ctx.font = "14px system-ui";
-        ctx.fillText(content.secondaryText, 0, cardH / 2 - 20);
-      }
-      break;
-    }
-
-    case "template_numbered_step": {
-      const cardH = 150;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(46, 16, 101, 0.92)";
-      ctx.strokeStyle = "rgba(167, 139, 250, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#c4b5fd";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`🎯 STEP ${content.number || "01"} — ${content.label || "ACTION ITEM"}`, 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 20px system-ui";
-      wrapText(ctx, content.primaryText || "Calibrate your baseline before beginning the pipeline.", 0, -cardH / 2 + 72, cardW - 60, 28);
-      break;
-    }
-
-    case "fact": {
-      const cardH = 170;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(20, 24, 40, 0.9)";
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#38bdf8";
-      ctx.font = "bold 14px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`💡 ${content.label || "DID YOU KNOW?"}`, 0, -cardH / 2 + 34);
-
-      ctx.fillStyle = "#f1f5f9";
-      ctx.font = "500 21px system-ui";
-      wrapText(ctx, content.primaryText || "Octopuses have three hearts and blue copper-based blood.", 0, -cardH / 2 + 80, cardW - 80, 30);
-      break;
-    }
-
-    case "key_point": {
-      const cardH = 150;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 14);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
-      ctx.strokeStyle = "rgba(168, 85, 247, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#c084fc";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`★ ${content.label || "KEY TAKEAWAY"}`, 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 22px system-ui";
-      wrapText(ctx, content.primaryText || "Focus on compounding small daily improvements.", 0, -cardH / 2 + 75, cardW - 70, 32);
-      break;
-    }
-
-    case "definition": {
-      const cardH = 180;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
-      ctx.strokeStyle = "rgba(148, 163, 184, 0.5)";
-      ctx.lineWidth = 1.5;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#94a3b8";
-      ctx.font = "bold 12px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText("📖 DEFINITION", 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#38bdf8";
-      ctx.font = "bold 24px system-ui";
-      ctx.fillText(content.primaryText || "Resilience", 0, -cardH / 2 + 70);
-
-      ctx.fillStyle = "#cbd5e1";
-      ctx.font = "17px system-ui";
-      wrapText(ctx, content.secondaryText || "The capacity to recover quickly from difficulties; toughness.", 0, -cardH / 2 + 105, cardW - 80, 26);
-      break;
-    }
-
-    case "tip": {
-      const cardH = 130;
-      const tw = 480;
-      roundRect(ctx, -tw / 2, -cardH / 2, tw, cardH, 14);
-      ctx.fillStyle = "rgba(6, 78, 59, 0.88)";
-      ctx.strokeStyle = "rgba(52, 211, 153, 0.6)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#34d399";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`✨ ${content.label || "PRO TIP"}`, 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "500 18px system-ui";
-      wrapText(ctx, content.primaryText || "Review your highlights once every Sunday.", 0, -cardH / 2 + 70, tw - 40, 26);
-      break;
-    }
-
-    case "question": {
-      const cardH = 160;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(30, 27, 75, 0.9)";
-      ctx.strokeStyle = "rgba(129, 140, 248, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#818cf8";
-      ctx.font = "bold 13px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText("❓ QUESTION FOR YOU", 0, -cardH / 2 + 32);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "600 22px system-ui";
-      wrapText(ctx, content.primaryText || "What would you attempt if you knew you could not fail?", 0, -cardH / 2 + 75, cardW - 70, 32);
-      break;
-    }
-
-    case "list": {
-      const items = content.items || ["1. First priority item", "2. Second crucial factor", "3. Third action item"];
-      const cardH = 80 + items.length * 36;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 16);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
-      ctx.strokeStyle = "rgba(99, 102, 241, 0.6)";
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#818cf8";
-      ctx.font = "bold 14px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(`📋 ${content.label || "KEY POINTS"}`, 0, -cardH / 2 + 34);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "18px system-ui";
-      ctx.textAlign = "left";
-      items.forEach((it, idx) => {
-        ctx.fillText(it, -cardW / 2 + 40, -cardH / 2 + 75 + idx * 36);
-      });
-      break;
-    }
-
-    default: {
-      const cardH = 150;
-      roundRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 14);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 20px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(content.primaryText || item.title, 0, 0);
-      break;
-    }
-  }
-
-  ctx.restore();
-}
+// NOTE: renderContentCard() was removed when text cards became data-driven.
+// Every scripture / quote / lower-third / lesson card is now described in
+// src/data/text-templates.ts and painted by renderTextTemplate(), so the plate,
+// border, fonts, colours, transparency and entrance motion are all adjustable
+// per insert instead of hard-coded per design.
 
 // ---------------- INTRO & OUTRO OVERLAYS (FULL-SCREEN TENSION GETTERS & BRANDING) ----------------
 const introVideoCache = new Map<string, HTMLVideoElement>();
@@ -2166,7 +1417,9 @@ function renderIntroOutroCard(
   if (isImageMedia) {
     const imgEl = getOrLoadIntroLogo(mediaSrc);
     if (imgEl && (imgEl.complete || imgEl.naturalWidth > 0)) {
-      ctx.drawImage(imgEl, 0, 0, canvasWidth, canvasHeight);
+      // aspect-correct: an uploaded photo used as an intro/outro backdrop is
+      // covered and cropped, never stretched to the frame
+      drawMediaCover(ctx, imgEl, imgEl.naturalWidth, imgEl.naturalHeight, 0, 0, canvasWidth, canvasHeight, "cover");
       hasDrawnVideo = true;
     }
   } else {
@@ -2188,7 +1441,7 @@ function renderIntroOutroCard(
           videoEl.play().catch(() => {});
         }
         if (videoEl.readyState >= 2) {
-          ctx.drawImage(videoEl, 0, 0, canvasWidth, canvasHeight);
+          drawMediaCover(ctx, videoEl, videoEl.videoWidth, videoEl.videoHeight, 0, 0, canvasWidth, canvasHeight, "cover");
           hasDrawnVideo = true;
         }
       } catch {
@@ -2879,8 +2132,14 @@ function wrapText(
 }
 
 /**
- * Standardized High-Precision Image Drawer with Visible Camera Motion (Ken Burns, Zooms, Pans, Shakes)
- * Used across both VideoPreview and RenderView to guarantee identical, cinematic results.
+ * Draws a scene image with its camera motion applied.
+ *
+ * This used to carry its OWN copy of the motion maths, which drifted out of
+ * sync with getMotionTransform(): it still had the old barely-visible Ken
+ * Burns (a 4% pan starting at scale 1.04) long after the real engine was
+ * fixed. Nothing calls it today, but a duplicate implementation is a trap for
+ * whoever reaches for it next, so it now delegates to the single source of
+ * truth and cannot diverge again.
  */
 export function drawSceneImageWithMotion(
   ctx: CanvasRenderingContext2D,
@@ -2890,108 +2149,22 @@ export function drawSceneImageWithMotion(
   canvasW: number,
   canvasH: number
 ) {
-  const p = Math.max(0, Math.min(1, progress));
-  const motion = scene.motion_effect || "ken_burns";
-  const userZoom = scene.image_zoom ?? 1.0;
-  const userOffsetX = ((scene.image_offset_x ?? 0) / 100) * canvasW;
-  const userOffsetY = ((scene.image_offset_y ?? 0) / 100) * canvasH;
+  const { scale, dx, dy } = getMotionTransform(
+    scene.motion_effect,
+    progress,
+    canvasW,
+    canvasH
+  );
 
-  // Calculate cover dimensions
-  const imgRatio = (img.naturalWidth || 16) / (img.naturalHeight || 9);
-  const canvasRatio = canvasW / canvasH;
-  let baseW = canvasW;
-  let baseH = canvasH;
-  if (imgRatio > canvasRatio) {
-    baseH = canvasH;
-    baseW = canvasH * imgRatio;
-  } else {
-    baseW = canvasW;
-    baseH = canvasW / imgRatio;
-  }
-
-  // Camera Motion transforms
-  let motionScale = 1.0;
-  let motionPanX = 0;
-  let motionPanY = 0;
-
-  switch (motion) {
-    case "zoom_in": {
-      // Smooth cinematic push-in from 1.0 to 1.24
-      motionScale = 1.0 + p * 0.24;
-      break;
-    }
-    case "zoom_out": {
-      // Smooth dramatic pull-out from 1.24 down to 1.02
-      motionScale = 1.24 - p * 0.22;
-      break;
-    }
-    case "pan_left": {
-      // Zoomed slightly so no black edges, panning smoothly right-to-left
-      motionScale = 1.18;
-      const travel = canvasW * 0.12;
-      motionPanX = (0.5 - p) * travel;
-      break;
-    }
-    case "pan_right": {
-      // Zoomed slightly, panning smoothly left-to-right
-      motionScale = 1.18;
-      const travel = canvasW * 0.12;
-      motionPanX = (p - 0.5) * travel;
-      break;
-    }
-    case "shake": {
-      // Visible handheld camera shake
-      motionScale = 1.14;
-      const shakeAmt = (1 - p * 0.3) * (canvasW * 0.018);
-      motionPanX = (Math.sin(p * 45) + Math.cos(p * 31)) * shakeAmt;
-      motionPanY = (Math.cos(p * 41) + Math.sin(p * 27)) * shakeAmt;
-      break;
-    }
-    case "floating": {
-      // Gentle floating dream drift
-      motionScale = 1.12;
-      motionPanX = Math.sin(p * Math.PI * 2) * (canvasW * 0.025);
-      motionPanY = Math.cos(p * Math.PI * 1.5) * (canvasH * 0.025);
-      break;
-    }
-    case "slow_zoom": {
-      motionScale = 1.0 + p * 0.10;
-      break;
-    }
-    case "subtle_camera": {
-      motionScale = 1.08;
-      motionPanX = Math.sin(p * Math.PI * 3) * (canvasW * 0.015);
-      motionPanY = Math.cos(p * Math.PI * 2) * (canvasH * 0.015);
-      break;
-    }
-    case "pulse": {
-      const beat = Math.sin(p * Math.PI * 8);
-      motionScale = 1.04 + Math.max(0, beat) * 0.08;
-      break;
-    }
-    case "none": {
-      motionScale = 1.0;
-      break;
-    }
-    case "ken_burns":
-    default: {
-      // Classic Ken Burns: gentle zoom + subtle diagonal drift
-      motionScale = 1.04 + p * 0.14;
-      motionPanX = (p - 0.5) * (canvasW * 0.04);
-      motionPanY = (0.5 - p) * (canvasH * 0.03);
-      break;
-    }
-  }
-
-  const finalScale = userZoom * motionScale;
-  const drawW = baseW * finalScale;
-  const drawH = baseH * finalScale;
-
-  const centerX = canvasW / 2 + userOffsetX + motionPanX;
-  const centerY = canvasH / 2 + userOffsetY + motionPanY;
-
-  ctx.save();
-  ctx.drawImage(img, centerX - drawW / 2, centerY - drawH / 2, drawW, drawH);
-  ctx.restore();
+  // Placement is delegated to the shared framing engine so this helper, the
+  // live preview and the exported video agree, and so crop / rotate / flip /
+  // blurred-fill all work here too. getMotionTransform returns an offset that
+  // recentres a canvas-sized draw; the framing engine centres the photo
+  // itself, so only the leftover motion is handed over.
+  drawSceneImage(ctx, img, scene, canvasW, canvasH, {
+    motionScale: scale,
+    motionDx: dx + (canvasW * scale - canvasW) / 2,
+    motionDy: dy + (canvasH * scale - canvasH) / 2,
+  });
 }
 

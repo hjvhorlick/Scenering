@@ -16,34 +16,6 @@ export interface Project {
   updated_at: string;
 }
 
-export type SceneFilterType =
-  | "none"
-  | "old_movie"
-  | "dust_particles"
-  | "sun_flare"
-  | "vhs_glitch"
-  | "noir"
-  | "cinematic"
-  | "dark_cinematic"
-  | "warm_movie"
-  | "cool_movie"
-  | "high_contrast"
-  | "vintage"
-  | "film_grain"
-  | "soft_glow"
-  | "dreamy"
-  | "golden_hour"
-  | "sunset_warmth"
-  | "cold_blue"
-  | "haze_fog"
-  | "vignette"
-  | "black_and_white"
-  | "sepia"
-  | "desaturated"
-  | "deep_shadows"
-  | "color_boost"
-  | "dramatic_hdr";
-
 export type SceneMotionType =
   | "none"
   | "ken_burns"
@@ -77,20 +49,60 @@ export interface Scene {
   voice_id?: string;
   speaker_name?: string;
   dialogue?: DialogueLine[];
-  filter?: SceneFilterType;
   motion_effect?: SceneMotionType;
   transition?: "none" | "crossfade" | "fade_black" | "zoom" | "slide";
   narration_speed?: number;
   burn_caption?: boolean;
-  // Image framing and positioning
-  image_offset_x?: number; // -50 to +50%
-  image_offset_y?: number; // -50 to +50%
-  image_zoom?: number;     // 1.0 to 2.5x
-  image_fit?: "cover" | "contain";
+  // Image framing and positioning — see src/lib/scene-framing.ts.
+  // Nothing here ever changes the image's aspect ratio; photos are cropped or
+  // letterboxed, never stretched.
+  image_offset_x?: number; // -50 to +50% of the frame
+  image_offset_y?: number; // -50 to +50% of the frame
+  image_zoom?: number;     // 0.25x to 4x
+  /** "blur_fill" shows the whole photo with a blurred copy behind the bars */
+  image_fit?: "cover" | "contain" | "blur_fill";
+  /** normalised source crop rectangle, 0..1 */
+  image_crop?: { x: number; y: number; w: number; h: number };
+  image_rotate?: number;   // degrees, -180..180
+  image_flip_h?: boolean;
+  image_flip_v?: boolean;
+  /** what fills the frame where the photo does not reach */
+  image_backdrop?: "blur" | "black" | "colour";
+  image_backdrop_blur?: number;  // px at a 1080-wide frame, 0..120
+  image_backdrop_zoom?: number;  // 1..2.5
+  image_backdrop_dim?: number;   // 0..0.9
+  image_backdrop_color?: string;
   // Imported real voice audio track
   audio_url?: string | null;
   audio_name?: string | null;
   audio_duration?: number;
+
+  // --- Short video clip attached to this scene -------------------------
+  /** Object URL or remote URL of a short clip used instead of a still image. */
+  video_url?: string | null;
+  video_name?: string | null;
+  /** Full, untrimmed length of the source clip in seconds. */
+  video_duration?: number;
+  /** Trim window into the source clip, in seconds from its start. */
+  video_trim_start?: number;
+  video_trim_end?: number;
+  /**
+   * When true the clip's own soundtrack is muted and the scene's script
+   * narration is heard instead. Default true for script scenes; inserted
+   * scenes keep their own audio unless the user says otherwise.
+   */
+  video_mute?: boolean;
+  /** Volume of the clip's own audio when it is not muted, 0..1. */
+  video_volume?: number;
+  /** How the clip is fitted when its length differs from the scene's. */
+  video_fit_mode?: "trim" | "loop" | "slow";
+
+  /**
+   * Marks a scene the user inserted manually rather than one generated from
+   * the script. Inserted scenes keep their clip audio and are not forced to
+   * follow narration length.
+   */
+  is_inserted?: boolean;
 }
 
 export type EditorStep = "setup" | "scenes" | "voice_captions" | "voiceover" | "captions" | "studio" | "render";
@@ -123,6 +135,21 @@ export interface InsertVisualOptions {
   rotation?: number; // degrees -180 to 180
   animationPreset?: "pop_in" | "bounce" | "float_3d" | "fade" | "spin" | "pulse";
   assetUrl?: string;
+  /* ---- Overlay motion (stickers & CTA badges) ---- */
+  /** id from MOTION_PRESETS in src/lib/overlay-motion.ts */
+  motionPreset?: string;
+  motionSpeed?: number;   // 0.25 - 2.5 cycle rate (default 1)
+  motionAmount?: number;  // 0 - 2 travel/angle multiplier (default 1)
+  motionEntrance?: boolean; // play the pop-in on appear (default true)
+  /* ---- Text templates ---- */
+  /** id from TEXT_TEMPLATES in src/data/text-templates.ts */
+  templateId?: string;
+  /** per-insert overrides of the template's default look */
+  templateStyle?: Record<string, unknown>;
+  /* ---- 3D sticker look ---- */
+  stickerId?: string;     // id from STICKER_LIBRARY in src/lib/sticker-3d.ts
+  stickerTint?: string | null; // recolour the sticker (null = its own palette)
+  stickerGlow?: number;   // 0 - 1 ambient glow behind the sticker
   fullWidth?: boolean; // stretch over entire scene (default true for linear visualizers)
   barThickness?: number; // width/thickness of bars or wave stroke
   glowIntensity?: number; // 0 to 1
@@ -150,6 +177,8 @@ export type InsertCategory =
   | "stickers"
   | "content_cards"
   | "text_templates"
+  /** Lower thirds are their own studio section (name/role bars) */
+  | "lower_thirds"
   | "audio_visualizers"
   | "speech_reactive"
   | "background_music"
@@ -192,6 +221,10 @@ export interface TimelineInsert {
     number?: string;
     label?: string;
     items?: string[];
+    item1?: string;
+    item2?: string;
+    item3?: string;
+    item4?: string;
     // Specialized text template fields
     reference?: string;
     scriptureText?: string;

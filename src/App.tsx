@@ -20,9 +20,12 @@ import {
   calculateDynamicDuration,
   calibrateTextToTargetDuration,
   fitDurationToText,
-  getTargetWordCount,
+  sceneDurationForText,
+  splitScriptIntoScenes,
 } from "./lib/duration-utils";
-import type { Project, Scene, TimelineInsert, SceneFilterType, SceneMotionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
+import type { Project, Scene, TimelineInsert, SceneMotionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
+import type { VideoFilterConfig } from "./data/video-filters";
+import type { SectionConfig } from "./data/intro-outro";
 
 type View = "create" | "editor";
 
@@ -35,6 +38,11 @@ export interface ProjectSettings {
   selected_voice: string;
   customer_logo: CustomerLogoConfig;
   captions_config: CaptionsConfig;
+  /** ONE look applied to the entire video (every scene), like the music track */
+  video_filter: VideoFilterConfig | null;
+  /** the intro that plays before the script and the outro that plays after */
+  intro_section: SectionConfig | null;
+  outro_section: SectionConfig | null;
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -63,46 +71,25 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
     highlightColor: "#facc15",
     bgColor: "rgba(0, 0, 0, 0.75)",
   },
+  video_filter: null,
+  intro_section: null,
+  outro_section: null,
 };
 
-// Split script into scenes and generate image search queries
-// Rule: the script inserted to be split into scenes MUST be edited before the scene splitting:
-// Take away all spaces, newlines, carriage returns, tabs, and paragraph spaces into ONE continuous script.
-// Only then is it split into ~20-second (or ~50-word) sections per scene.
-// No outside or additional sentences are allowed to be added into the scenes.
+// Split script into scenes and generate image search queries.
+//
+// The split itself lives in src/lib/duration-utils.ts so the count shown on
+// the Setup screen and the scenes actually created can never disagree. Scenes
+// come out EVEN — the old fixed-chunk slicing left a short final scene (e.g.
+// 34 words in a 20-second slot, which played with ~6 seconds of silence).
 function parseScript(script: string, targetDuration: number = 20): { text: string; imageQuery: string }[] {
-  const targetWords = getTargetWordCount(targetDuration) || 50;
-
-  // 1) Flatten into ONE continuous script — strip all newlines, carriage returns, tabs and collapse spaces
-  const continuous = (script || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
-  if (!continuous) return [];
-
-  const words = continuous.split(" ").filter(Boolean);
-  if (words.length === 0) return [];
-
-  // 2) Split into exact ~50-word sections per scene (matching targetDuration)
-  const chunks: string[] = [];
-  for (let i = 0; i < words.length; i += targetWords) {
-    chunks.push(words.slice(i, i + targetWords).join(" "));
-  }
-
-  // 3) If only a tiny fragment remains (< 10 words and we have more than 1 chunk),
-  // fold it into the previous scene rather than having an awkward 2-word scene.
-  // Never add any external sentences!
-  const leftoverThreshold = Math.min(10, Math.max(3, Math.floor(targetWords * 0.25)));
-  if (chunks.length > 1 && chunks[chunks.length - 1].split(" ").length < leftoverThreshold) {
-    const leftovers = chunks.pop() as string;
-    chunks[chunks.length - 1] += " " + leftovers;
-  }
-
-  // 4) Map directly to scenes with genuine query words extracted purely from scene text
-  return chunks.map((text) => {
+  return splitScriptIntoScenes(script, targetDuration).map((text) => {
     const queryWords = text
-      .replace(/[^a-zA-Z\s]/g, "")
+      .replace(/[^a-zA-Z\s]/g, " ")
       .split(/\s+/)
       .filter((w) => w.length > 3);
     const query = queryWords.slice(0, 5).join(" ");
-    return { text, imageQuery: query || "cinematic scene" };
+    return { text, imageQuery: query || "abstract background" };
   });
 }
 
@@ -138,6 +125,8 @@ export default function App() {
     STUDIO_VOICE_PRESETS.map((v) => ({ id: v.id, name: `${v.name} (${v.gender === "male" ? "Male" : "Female"} • ${v.accent})` }))
   );
   const [loading, setLoading] = useState(false);
+  /** Explains why a phase change was refused (e.g. no project yet) */
+  const [navNotice, setNavNotice] = useState<string | null>(null);
   const [fetchingImages, setFetchingImages] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [apiKeysModalOpen, setApiKeysModalOpen] = useState(false);
@@ -154,6 +143,9 @@ export default function App() {
   const [resolution, setResolution] = useState<ResolutionType>(DEFAULT_PROJECT_SETTINGS.resolution);
   const [pacingMode, setPacingMode] = useState<PacingModeType>(DEFAULT_PROJECT_SETTINGS.pacing_mode);
   const [motionStyle, setMotionStyle] = useState<string>(DEFAULT_PROJECT_SETTINGS.motion_style);
+  const [videoFilter, setVideoFilter] = useState<VideoFilterConfig | null>(DEFAULT_PROJECT_SETTINGS.video_filter);
+  const [introSection, setIntroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.intro_section);
+  const [outroSection, setOutroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.outro_section);
 
   // Helper to save per-project settings so each project maintains isolated configuration
   const saveCurrentProjectSettings = useCallback((partial: Partial<ProjectSettings>) => {
@@ -169,6 +161,21 @@ export default function App() {
   const handleUpdateCaptionsConfig = useCallback((cfg: CaptionsConfig) => {
     setCaptionsConfig(cfg);
     saveCurrentProjectSettings({ captions_config: cfg });
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateVideoFilter = useCallback((cfg: VideoFilterConfig | null) => {
+    setVideoFilter(cfg);
+    saveCurrentProjectSettings({ video_filter: cfg });
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateIntroSection = useCallback((cfg: SectionConfig | null) => {
+    setIntroSection(cfg);
+    saveCurrentProjectSettings({ intro_section: cfg });
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateOutroSection = useCallback((cfg: SectionConfig | null) => {
+    setOutroSection(cfg);
+    saveCurrentProjectSettings({ outro_section: cfg });
   }, [saveCurrentProjectSettings]);
 
   const handleSelectVoice = useCallback((voiceId: string) => {
@@ -213,21 +220,45 @@ export default function App() {
       none: "none",
     };
 
+    /**
+     * Persist each scene's motion to its stored meta. Without this the choice
+     * lived only in React state and was lost on reload, so the setting looked
+     * like it had not applied.
+     */
+    const persistMotion = (sceneId: number, effect: SceneMotionType) => {
+      try {
+        const existing = localStorage.getItem(`scenering_scene_meta_${sceneId}`);
+        const parsed = existing ? JSON.parse(existing) : {};
+        localStorage.setItem(
+          `scenering_scene_meta_${sceneId}`,
+          JSON.stringify({ ...parsed, motion_effect: effect })
+        );
+      } catch {}
+    };
+
     if (style === "dynamic") {
-      const dynamicList: SceneMotionType[] = ["ken_burns", "zoom_in", "zoom_out", "pan_left", "pan_right", "subtle_camera"];
+      const dynamicList: SceneMotionType[] = [
+        "ken_burns",
+        "zoom_in",
+        "pan_left",
+        "zoom_out",
+        "pan_right",
+        "floating",
+      ];
       setScenes((prev) =>
-        prev.map((s, idx) => ({
-          ...s,
-          motion_effect: dynamicList[idx % dynamicList.length],
-        }))
+        prev.map((s, idx) => {
+          const effect = dynamicList[idx % dynamicList.length];
+          persistMotion(s.id, effect);
+          return { ...s, motion_effect: effect };
+        })
       );
     } else {
       const targetEffect = motionMap[style] || "ken_burns";
       setScenes((prev) =>
-        prev.map((s) => ({
-          ...s,
-          motion_effect: targetEffect,
-        }))
+        prev.map((s) => {
+          persistMotion(s.id, targetEffect);
+          return { ...s, motion_effect: targetEffect };
+        })
       );
     }
   }, []);
@@ -237,13 +268,14 @@ export default function App() {
     saveCurrentProjectSettings({ scene_duration: dur });
     setCurrentProject((prev) => (prev ? { ...prev, default_duration: dur } : null));
     setScenes((prev) => {
-      const updated = prev.map((s) => ({ ...s, duration: dur }));
+      // fit each scene to its own narration rather than stamping them all
+      const updated = prev.map((s) => ({ ...s, duration: sceneDurationForText(s.text, dur) }));
       try {
         for (const s of updated) {
-          supabase.from("scenes").update({ duration: dur }).eq("id", s.id).then();
+          supabase.from("scenes").update({ duration: s.duration }).eq("id", s.id).then();
           const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
           const parsed = existingMeta ? JSON.parse(existingMeta) : {};
-          localStorage.setItem(`scenering_scene_meta_${s.id}`, JSON.stringify({ ...parsed, duration: dur }));
+          localStorage.setItem(`scenering_scene_meta_${s.id}`, JSON.stringify({ ...parsed, duration: s.duration }));
         }
       } catch {}
       return updated;
@@ -256,19 +288,21 @@ export default function App() {
     setCurrentProject((prev) => (prev ? { ...prev, default_duration: targetSeconds } : null));
     setScenes((prev) =>
       prev.map((s) => {
+        // Each scene is timed to its own narration, bounded by the target
+        const fitted = sceneDurationForText(s.text, targetSeconds);
         // Persist updated duration without mutating text
         try {
-          supabase.from("scenes").update({ duration: targetSeconds }).eq("id", s.id).then();
+          supabase.from("scenes").update({ duration: fitted }).eq("id", s.id).then();
           const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
           const parsed = existingMeta ? JSON.parse(existingMeta) : {};
           localStorage.setItem(
             `scenering_scene_meta_${s.id}`,
-            JSON.stringify({ ...parsed, duration: targetSeconds })
+            JSON.stringify({ ...parsed, duration: fitted })
           );
         } catch {}
         return {
           ...s,
-          duration: targetSeconds,
+          duration: fitted,
         };
       })
     );
@@ -295,17 +329,38 @@ export default function App() {
     );
   }, []);
 
+  /**
+   * Persists the title as well as holding it in state. Previously this only
+   * updated React state, so the title was lost the moment the project was
+   * reloaded or reselected.
+   */
   const handleUpdateProjectTitle = useCallback((title: string) => {
-    setCurrentProject((prev) => (prev ? { ...prev, title } : null));
-  }, []);
+    setCurrentProject((prev) => {
+      if (!prev) return null;
+      try {
+        supabase.from("projects").update({ title }).eq("id", prev.id).then();
+      } catch {}
+      return { ...prev, title };
+    });
+    setProjects((prev) => prev.map((p) => (p.id === currentProject?.id ? { ...p, title } : p)));
+  }, [currentProject?.id]);
 
   const handleUpdateScript = useCallback(
     (newScript: string, regenerateScenes: boolean = false, overrideDuration?: number) => {
-      const cleanContinuous = (newScript || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
-      setCurrentProject((prev) => (prev ? { ...prev, script: cleanContinuous } : null));
+      setCurrentProject((prev) => (prev ? { ...prev, script: newScript } : null));
       const targetDur = overrideDuration || sceneDuration || 20;
+
+      // Always persist the script text itself. It used to be written only on
+      // the regenerate path, so a plain "save" left the stored script stale
+      // and the setup screen showed the old text after a reload.
+      try {
+        if (currentProject?.id) {
+          supabase.from("projects").update({ script: newScript }).eq("id", currentProject.id).then();
+        }
+      } catch {}
+
       if (regenerateScenes) {
-        const parsed = parseScript(cleanContinuous, targetDur);
+        const parsed = parseScript(newScript, targetDur);
         setScenes((prev) => {
           const newScenes: Scene[] = parsed.map((item, idx) => {
             const existing = prev[idx];
@@ -317,9 +372,10 @@ export default function App() {
               text: sceneText,
               image_url: existing?.image_url || null,
               image_query: item.imageQuery || existing?.image_query || "abstract background",
-              duration: targetDur,
+              // each scene lasts as long as its OWN narration, so no scene
+              // holds on a still image in silence
+              duration: sceneDurationForText(sceneText, targetDur),
               created_at: existing?.created_at || new Date().toISOString(),
-              filter: existing?.filter || "cinematic",
               motion_effect: existing?.motion_effect || "slow_zoom",
               audio_url: existing?.audio_url || null,
               audio_name: existing?.audio_name || null,
@@ -338,7 +394,7 @@ export default function App() {
               const parsedMeta = existingMeta ? JSON.parse(existingMeta) : {};
               localStorage.setItem(
                 `scenering_scene_meta_${s.id}`,
-                JSON.stringify({ ...parsedMeta, duration: targetDur, text: s.text })
+                JSON.stringify({ ...parsedMeta, duration: s.duration, text: s.text })
               );
             }
           } catch {}
@@ -412,10 +468,12 @@ export default function App() {
     }
   }, [inserts, currentProject]);
 
-  const handleCreateProject = async (title: string, script: string, targetDuration?: number) => {
+  const handleCreateProject = async (
+    title: string,
+    script: string,
+    targetDuration?: number
+  ): Promise<boolean> => {
     const chosenDuration = targetDuration || 20;
-    // Flatten script into one continuous script before project creation & scene splitting
-    const continuousScript = (script || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
     // Keep the canvas choices made on the single setup frame (aspect ratio, resolution, motion)
     const chosenAspect = aspectRatio;
     const chosenResolution = resolution;
@@ -424,13 +482,13 @@ export default function App() {
     try {
       const { data: projectData, error: projectError } = await supabase
         .from("projects")
-        .insert({ title, script: continuousScript, default_duration: chosenDuration })
+        .insert({ title, script, default_duration: chosenDuration })
         .select()
         .single();
       if (projectError) throw projectError;
 
       const project = projectData as Project;
-      const parsedScenes = parseScript(continuousScript, chosenDuration);
+      const parsedScenes = parseScript(script, chosenDuration);
 
       // Clean, isolated project setup with defaults
       const freshSettings: ProjectSettings = {
@@ -454,7 +512,7 @@ export default function App() {
           order_index: i,
           text: sceneText,
           image_query: s.imageQuery,
-          duration: chosenDuration,
+          duration: sceneDurationForText(sceneText, chosenDuration),
         };
       });
 
@@ -475,6 +533,7 @@ export default function App() {
       setSceneDuration(chosenDuration);
       setMotionStyle(freshSettings.motion_style);
 
+      setNavNotice(null);
       setCurrentProject(project);
       setScenes(scenesData as Scene[]);
       setInserts([]);
@@ -482,17 +541,31 @@ export default function App() {
       setEditorStep("scenes");
       setView("editor");
       fetchProjects();
+      return true;
     } catch (err) {
       console.error("Failed to create project:", err);
+      return false;
     } finally {
       setLoading(false);
     }
   };
 
   /** Moves between project phases — used by every Previous / Next control */
+  /**
+   * The one navigation entry point for phase changes.
+   *
+   * Every phase after Setup needs a project to work on. Without this guard the
+   * tabs and Next buttons would switch to an empty editor, which looked like
+   * the button "did nothing".
+   */
   const navigateToPhase = (phase: ProjectPhase) => {
     if (phase === "setup") {
       setView("create");
+      return;
+    }
+    if (!currentProject) {
+      setView("create");
+      setNavNotice("Create a project on this screen first — then the other phases open up.");
       return;
     }
     setView("editor");
@@ -519,6 +592,9 @@ export default function App() {
     setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
     setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
     setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
+    setVideoFilter(DEFAULT_PROJECT_SETTINGS.video_filter);
+    setIntroSection(DEFAULT_PROJECT_SETTINGS.intro_section);
+    setOutroSection(DEFAULT_PROJECT_SETTINGS.outro_section);
     setView("create");
   };
 
@@ -539,6 +615,7 @@ export default function App() {
       } catch {}
 
       // Apply this project's setup and effects
+      setNavNotice(null);
       setCustomerLogo(projectSettings.customer_logo);
       setCaptionsConfig(projectSettings.captions_config);
       setSelectedVoice(projectSettings.selected_voice);
@@ -547,6 +624,9 @@ export default function App() {
       setPacingMode(projectSettings.pacing_mode);
       setSceneDuration(projectSettings.scene_duration);
       setMotionStyle(projectSettings.motion_style);
+      setVideoFilter(projectSettings.video_filter ?? null);
+      setIntroSection(projectSettings.intro_section ?? null);
+      setOutroSection(projectSettings.outro_section ?? null);
 
       const { data, error } = await supabase
         .from("scenes")
@@ -663,6 +743,51 @@ export default function App() {
     fetchProjects();
   };
 
+  /** Scene fields that describe image framing, persisted with the scene meta */
+  const FRAMING_KEYS = [
+    "image_offset_x",
+    "image_offset_y",
+    "image_zoom",
+    "image_fit",
+    "image_crop",
+    "image_rotate",
+    "image_flip_h",
+    "image_flip_v",
+    "image_backdrop",
+    "image_backdrop_blur",
+    "image_backdrop_zoom",
+    "image_backdrop_dim",
+    "image_backdrop_color",
+  ] as const;
+
+  /** Short-video-clip fields, persisted with the scene like the framing keys. */
+  const CLIP_KEYS = [
+    "video_url",
+    "video_name",
+    "video_duration",
+    "video_trim_start",
+    "video_trim_end",
+    "video_mute",
+    "video_volume",
+    "video_fit_mode",
+    "is_inserted",
+  ] as const;
+
+  /** Copies one scene's framing onto every scene in the project */
+  const handleApplyFramingToAll = (framing: Partial<Scene>) => {
+    setScenes((prev) => prev.map((s) => ({ ...s, ...framing })));
+    try {
+      for (const s of scenes) {
+        const existing = localStorage.getItem(`scenering_scene_meta_${s.id}`);
+        const parsed = existing ? JSON.parse(existing) : {};
+        localStorage.setItem(
+          `scenering_scene_meta_${s.id}`,
+          JSON.stringify({ ...parsed, ...framing })
+        );
+      }
+    } catch {}
+  };
+
   const handleUpdateScene = async (sceneId: number, updates: Partial<Scene>) => {
     // 1. Immediately update local state
     setScenes((prev) =>
@@ -675,7 +800,6 @@ export default function App() {
       const parsed = existing ? JSON.parse(existing) : {};
       const newMeta = {
         ...parsed,
-        filter: updates.filter !== undefined ? updates.filter : parsed.filter,
         motion_effect: updates.motion_effect !== undefined ? updates.motion_effect : parsed.motion_effect,
         voice_id: updates.voice_id !== undefined ? updates.voice_id : parsed.voice_id,
         speaker_name: updates.speaker_name !== undefined ? updates.speaker_name : parsed.speaker_name,
@@ -683,6 +807,13 @@ export default function App() {
         audio_url: updates.audio_url !== undefined ? updates.audio_url : parsed.audio_url,
         audio_name: updates.audio_name !== undefined ? updates.audio_name : parsed.audio_name,
       };
+      // Image framing (crop, fit, blurred fill, zoom, rotation...) is persisted
+      // here too, so a reloaded project renders exactly as it was framed.
+      for (const key of [...FRAMING_KEYS, ...CLIP_KEYS]) {
+        const v = (updates as Record<string, unknown>)[key];
+        if (v !== undefined) newMeta[key] = v;
+        else if (parsed[key] !== undefined) newMeta[key] = parsed[key];
+      }
       localStorage.setItem(`scenering_scene_meta_${sceneId}`, JSON.stringify(newMeta));
     } catch {}
 
@@ -729,7 +860,8 @@ export default function App() {
   const handleFetchAllImages = async () => {
     setFetchingImages(true);
     try {
-      const scenesWithoutImages = scenes.filter((s) => !s.image_url);
+      // Scenes already carrying a video clip do not need a stock photo.
+      const scenesWithoutImages = scenes.filter((s) => !s.image_url && !s.video_url);
       for (const scene of scenesWithoutImages) {
         await handleImageSearch(scene.id, scene.image_query);
       }
@@ -738,18 +870,36 @@ export default function App() {
     }
   };
 
-  const handleAddScene = async () => {
+  /**
+   * Insert a scene at a chosen position.
+   *
+   * The old version always appended and, critically, never rewrote
+   * `order_index` on the other scenes — so the new row shared an index with an
+   * existing one, the ordered reload put it in an arbitrary place, and to the
+   * user the "insert a scene" button looked like it did nothing at all.
+   *
+   * `position` is the index the new scene should occupy. Passing
+   * `scenes.length` (or omitting it) appends.
+   */
+  const handleAddScene = async (position?: number) => {
     if (!currentProject) return;
-    const newOrderIndex = scenes.length;
-    const initialDuration = sceneDuration || 20;
-    const initialText = `Scene ${newOrderIndex + 1} narrative.`;
+
+    const insertAt = Math.max(
+      0,
+      Math.min(typeof position === "number" ? position : scenes.length, scenes.length)
+    );
+    const initialText = "New scene — replace this with your narration.";
+    const initialDuration = sceneDurationForText(initialText, sceneDuration || 20);
+
     const newSceneRow = {
       project_id: currentProject.id,
-      order_index: newOrderIndex,
+      order_index: insertAt,
       text: initialText,
       image_query: "cinematic background",
       duration: initialDuration,
     };
+
+    let created: Scene | null = null;
     try {
       const { data, error } = await supabase
         .from("scenes")
@@ -757,23 +907,67 @@ export default function App() {
         .select()
         .single();
       if (error) throw error;
-      if (data) {
-        setScenes((prev) => [...prev, data as Scene]);
-      }
+      if (data) created = data as Scene;
     } catch {
-      // Offline / fallback scene
-      const localScene: Scene = {
+      created = null;
+    }
+
+    if (!created) {
+      created = {
         id: Date.now(),
         project_id: currentProject.id,
-        order_index: newOrderIndex,
+        order_index: insertAt,
         text: initialText,
         image_query: "cinematic background",
         image_url: null,
         duration: initialDuration,
         created_at: new Date().toISOString(),
       };
-      setScenes((prev) => [...prev, localScene]);
     }
+
+    // An inserted scene keeps its own clip audio rather than being overridden
+    // by script narration — that is what makes it "inserted" rather than a
+    // regular script scene.
+    created.is_inserted = true;
+
+    setScenes((prev) => {
+      const next = [...prev];
+      next.splice(insertAt, 0, created as Scene);
+      // Renumber every scene so the stored order matches what is on screen.
+      const renumbered = next.map((sc, idx) => ({ ...sc, order_index: idx }));
+      try {
+        for (const sc of renumbered) {
+          supabase.from("scenes").update({ order_index: sc.order_index }).eq("id", sc.id).then();
+        }
+        const meta = localStorage.getItem(`scenering_scene_meta_${(created as Scene).id}`);
+        const parsed = meta ? JSON.parse(meta) : {};
+        localStorage.setItem(
+          `scenering_scene_meta_${(created as Scene).id}`,
+          JSON.stringify({ ...parsed, is_inserted: true, duration: initialDuration })
+        );
+      } catch {}
+      return renumbered;
+    });
+  };
+
+  /** Move a scene up or down the running order. */
+  const handleReorderScene = (sceneId: number, direction: -1 | 1) => {
+    setScenes((prev) => {
+      const from = prev.findIndex((s) => s.id === sceneId);
+      if (from < 0) return prev;
+      const to = from + direction;
+      if (to < 0 || to >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      const renumbered = next.map((sc, idx) => ({ ...sc, order_index: idx }));
+      try {
+        for (const sc of renumbered) {
+          supabase.from("scenes").update({ order_index: sc.order_index }).eq("id", sc.id).then();
+        }
+      } catch {}
+      return renumbered;
+    });
   };
 
   const handleDeleteScene = async (sceneId: number) => {
@@ -810,11 +1004,11 @@ export default function App() {
   /** Intro + script + outro. Used to stretch whole-video visualisers and to fill
    *  the timeline readouts in the studio and the properties editor. */
   const estimatedTotalDuration = useMemo(() => {
-    const intro = inserts.find((i) => i.category === "intro")?.duration ?? 0;
-    const outro = inserts.find((i) => i.category === "outro")?.duration ?? 0;
+    const intro = introSection?.enabled ? Math.max(0.5, introSection.duration) : 0;
+    const outro = outroSection?.enabled ? Math.max(0.5, outroSection.duration) : 0;
     const script = scenes.reduce((sum, sc) => sum + Math.max(1, sc.duration || 0), 0);
     return Math.max(1, Math.round((intro + script + outro) * 10) / 10);
-  }, [scenes, inserts]);
+  }, [scenes, introSection, outroSection]);
 
   // Visualisers added with "runs for the entire video" stay pinned to the full
   // length, even after scenes are re-timed or the voiceover changes.
@@ -835,12 +1029,6 @@ export default function App() {
   };
 
   // Quick Preset Styles across all scenes
-  const applyPresetToAllScenes = (filter: SceneFilterType, motion: SceneMotionType) => {
-    scenes.forEach((sc) => {
-      handleUpdateScene(sc.id, { filter, motion_effect: motion });
-    });
-  };
-
   const handleApplyVoiceToAll = (voiceId: string, _speed: number) => {
     handleSelectVoice(voiceId);
     scenes.forEach((sc) => {
@@ -859,7 +1047,7 @@ export default function App() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 flex-shrink-0 bg-gray-900/50">
+        <div className="min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
           {/* Logo */}
           <button
             onClick={() => setView("create")}
@@ -887,25 +1075,28 @@ export default function App() {
               return (
                 <button
                   key={phase.id}
-                  onClick={() => {
-                    if (phase.id === "setup") {
-                      setView("create");
-                    } else {
-                      setView("editor");
-                      setEditorStep(phase.editorStep);
-                    }
-                  }}
-                  title={phase.purpose}
+                  onClick={() => navigateToPhase(phase.id)}
+                  title={
+                    phase.id !== "setup" && !currentProject
+                      ? "Create a project on the Setup screen first"
+                      : phase.purpose
+                  }
                   className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
                     isActive
                       ? phase.id === "render"
                         ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow font-semibold"
                         : "bg-indigo-600 text-white shadow font-semibold"
+                      : phase.id !== "setup" && !currentProject
+                      ? "text-gray-600 cursor-not-allowed"
                       : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  <span>
-                    {i + 1}. {phase.icon} {phase.tab}
+                  <span className="flex items-center gap-1 whitespace-nowrap">
+                    <span className="text-gray-500 sm:text-inherit">{i + 1}.</span>
+                    <span>{phase.icon}</span>
+                    {/* The word is dropped on phones; the number and icon still
+                        identify the step and the row stops overflowing. */}
+                    <span className="hidden xs:inline sm:inline">{phase.tab}</span>
                   </span>
                 </button>
               );
@@ -924,18 +1115,10 @@ export default function App() {
               </span>
             )}
 
-            <button
-              onClick={() => setView("create")}
-              className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                view === "create"
-                  ? "bg-indigo-600 border-indigo-500 text-white shadow"
-                  : "bg-gray-800/80 border-gray-700 text-gray-200 hover:bg-gray-750 hover:text-white"
-              }`}
-              title="Projects & project setup"
-            >
-              <span>🗂️</span>
-              <span className="hidden sm:inline">Projects</span>
-            </button>
+            {/* The "Projects" button was removed: the logo and the "1. Setup"
+                phase tab already open this same view, so it was a third way to
+                reach one screen and cost space in the top bar on small
+                displays. */}
 
             <button
               onClick={() => setApiKeysModalOpen(true)}
@@ -957,6 +1140,17 @@ export default function App() {
         <div className="flex-1 overflow-y-auto">
           {view === "create" ? (
             <div className="p-4 sm:p-6">
+              {navNotice && (
+                <div className="max-w-4xl mx-auto mb-4 p-3.5 bg-amber-950/80 border border-amber-700/80 rounded-xl text-amber-200 text-xs flex items-center justify-between shadow-lg">
+                  <span className="flex items-center gap-2">
+                    <span>ℹ️</span>
+                    <span className="font-medium">{navNotice}</span>
+                  </span>
+                  <button onClick={() => setNavNotice(null)} className="text-amber-400 hover:text-white text-xs">
+                    ✕
+                  </button>
+                </div>
+              )}
               <SetupStudio
                 project={currentProject}
                 projects={projects}
@@ -988,7 +1182,7 @@ export default function App() {
             </div>
           ) : editorStep === "render" ? (
             /* Step 5: Final Render & Export View */
-            <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+            <div className="p-2 sm:p-4 lg:p-6 max-w-6xl 2xl:max-w-[1600px] mx-auto">
               <RenderView
                 project={currentProject}
                 scenes={scenes}
@@ -1009,6 +1203,9 @@ export default function App() {
                 onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
                 sceneDuration={sceneDuration}
                 motionStyle={motionStyle}
+                videoFilter={videoFilter}
+                introSection={introSection}
+                outroSection={outroSection}
                 onOpenSetup={() => setView("create")}
                 onBack={() => setEditorStep("studio")}
                 onNavigateToStep={setEditorStep}
@@ -1016,11 +1213,11 @@ export default function App() {
               />
             </div>
           ) : (
-            <div className="p-4 sm:p-6 space-y-6">
+            <div className="p-2 sm:p-4 lg:p-6 space-y-3 sm:space-y-6">
               {/* Steps Workspace */}
               {editorStep === "scenes" ? (
                 /* Step 1: Scene Editor View */
-                <div className="max-w-4xl mx-auto w-full space-y-6">
+                <div className="max-w-4xl 2xl:max-w-6xl mx-auto w-full space-y-3 sm:space-y-6">
                   <StepNav
                     current="scenes"
                     onNavigate={(phase) => navigateToPhase(phase)}
@@ -1058,47 +1255,17 @@ export default function App() {
                       </span>
                     </div>
 
-                    {/* Quick Presets Dropdown / Buttons */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-gray-400 font-medium mr-1">
-                        ✨ Style Presets:
-                      </span>
-                      <button
-                        onClick={() => applyPresetToAllScenes("cinematic", "slow_zoom")}
-                        className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[11px] text-gray-200 border border-gray-700"
-                        title="Apply Cinematic Filter & Slow Zoom to all scenes"
-                      >
-                        🎬 Cinematic
-                      </button>
-                      <button
-                        onClick={() => applyPresetToAllScenes("vintage", "subtle_camera")}
-                        className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[11px] text-gray-200 border border-gray-700"
-                        title="Apply 1970s Vintage Film to all scenes"
-                      >
-                        📼 Vintage
-                      </button>
-                      <button
-                        onClick={() => applyPresetToAllScenes("golden_hour", "pan_right")}
-                        className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[11px] text-gray-200 border border-gray-700"
-                        title="Apply Warm Golden Hour to all scenes"
-                      >
-                        🌅 Golden Hour
-                      </button>
-                      <button
-                        onClick={() => applyPresetToAllScenes("color_boost", "floating")}
-                        className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[11px] text-gray-200 border border-gray-700"
-                        title="Apply Zen Relaxation to all scenes"
-                      >
-                        🌿 Zen Nature
-                      </button>
-                      <button
-                        onClick={() => applyPresetToAllScenes("none", "ken_burns")}
-                        className="px-2 py-1 rounded bg-gray-900 hover:bg-gray-800 text-[10px] text-gray-400 border border-gray-800"
-                        title="Reset to default clean style"
-                      >
-                        Reset
-                      </button>
-                    </div>
+                    {/* Filters now live in ONE place: Video Studio → Filters tab.
+                        (The old per-scene "Style Presets" bar was removed on purpose.) */}
+                    <button
+                      type="button"
+                      onClick={() => setEditorStep("studio")}
+                      className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white text-[11px] font-semibold border border-fuchsia-400/40 shadow flex items-center gap-1.5"
+                      title="Filters & video looks are applied to the whole video in the Video Studio"
+                    >
+                      <span>🎨 Video Look & Filters</span>
+                      <span className="text-[10px] font-normal opacity-80">in Video Studio</span>
+                    </button>
                   </div>
 
                   {/* Scene List */}
@@ -1120,7 +1287,7 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={handleAddScene}
+                          onClick={() => handleAddScene(scenes.length)}
                           className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow transition-colors"
                         >
                           <span>➕ Add Scene</span>
@@ -1128,7 +1295,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="space-y-1.5">
                       {scenes.map((scene, index) => (
                         <SceneEditor
                           key={scene.id}
@@ -1141,6 +1308,10 @@ export default function App() {
                           onUpdate={handleUpdateScene}
                           onImageSearch={handleImageSearch}
                           onDelete={handleDeleteScene}
+                          onApplyFramingToAll={handleApplyFramingToAll}
+                          videoFilter={videoFilter}
+                          onInsertSceneAt={handleAddScene}
+                          onReorderScene={handleReorderScene}
                         />
                       ))}
                     </div>
@@ -1149,7 +1320,7 @@ export default function App() {
                     <div className="pt-4 flex items-center justify-between border-t border-gray-800">
                       <button
                         type="button"
-                        onClick={handleAddScene}
+                        onClick={() => handleAddScene(scenes.length)}
                         className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-semibold text-xs rounded-xl shadow transition-all flex items-center gap-2"
                       >
                         <span>➕ Add Another Scene</span>
@@ -1182,7 +1353,7 @@ export default function App() {
                 />
               ) : (
                 /* Step 4: Video Studio & Timeline View */
-                <div className="max-w-5xl mx-auto w-full space-y-5">
+                <div className="max-w-5xl 2xl:max-w-7xl mx-auto w-full space-y-3 sm:space-y-5">
                   <StepNav
                     current="studio"
                     onNavigate={(phase) => navigateToPhase(phase)}
@@ -1220,6 +1391,9 @@ export default function App() {
                     selectedVoice={selectedVoice}
                     aspectRatio={aspectRatio}
                     pacingMode={pacingMode}
+                    videoFilter={videoFilter}
+                    introSection={introSection}
+                    outroSection={outroSection}
                   />
 
                   {/* Timeline with Playhead & Inserts */}
@@ -1247,6 +1421,12 @@ export default function App() {
                     onUpdateCustomerLogo={handleUpdateCustomerLogo}
                     aspectRatio={aspectRatio}
                     sampleBackgroundImage={scenes.find((s) => s.image_url)?.image_url || undefined}
+                    videoFilter={videoFilter}
+                    onUpdateVideoFilter={handleUpdateVideoFilter}
+                    introSection={introSection}
+                    outroSection={outroSection}
+                    onUpdateIntroSection={handleUpdateIntroSection}
+                    onUpdateOutroSection={handleUpdateOutroSection}
                   />
                 </div>
               )}

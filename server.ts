@@ -356,11 +356,48 @@ function resolveVoiceShortName(voiceId: string): string {
   return "en-US-GuyNeural";
 }
 
-// Synthesizes speech using authentic Microsoft Edge Read Aloud Neural Voices
+/**
+ * Microsoft's newer "Multilingual" neural voices are markedly more lifelike
+ * than the original v1 neural models — better prosody, breathing and sentence
+ * stress — so the realistic variant is tried first and the classic one is kept
+ * as a fallback for locales where it does not exist.
+ */
+const REALISTIC_VOICE_UPGRADES: Record<string, string> = {
+  "en-US-GuyNeural": "en-US-AndrewMultilingualNeural",
+  "en-US-ChristopherNeural": "en-US-ChristopherMultilingualNeural",
+  "en-US-BrianNeural": "en-US-BrianMultilingualNeural",
+  "en-GB-RyanNeural": "en-GB-RyanMultilingualNeural",
+  "en-US-JennyNeural": "en-US-EmmaMultilingualNeural",
+  "en-US-AriaNeural": "en-US-AvaMultilingualNeural",
+  "en-US-AvaNeural": "en-US-AvaMultilingualNeural",
+  "en-GB-SoniaNeural": "en-GB-SoniaNeural",
+  "en-AU-NatashaNeural": "en-AU-NatashaNeural",
+};
+
+/** Higher bitrate than before: 96kbps mono was audibly lossy on sibilants. */
+const TTS_OUTPUT_FORMAT = OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3;
+
+// Synthesizes speech using authentic Microsoft Edge Read Aloud Neural Voices.
+// Tries the most lifelike variant of the requested voice, then the exact one.
 async function synthesizeRealEdgeTTS(text: string, voiceId: string): Promise<Buffer> {
   const shortName = resolveVoiceShortName(voiceId);
+  const upgraded = REALISTIC_VOICE_UPGRADES[shortName];
+  const candidates = upgraded && upgraded !== shortName ? [upgraded, shortName] : [shortName];
+
+  let lastError: any = null;
+  for (const candidate of candidates) {
+    try {
+      return await synthesizeWithEdgeVoice(text, candidate);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("Edge TTS failed");
+}
+
+async function synthesizeWithEdgeVoice(text: string, shortName: string): Promise<Buffer> {
   const tts = new MsEdgeTTS();
-  await tts.setMetadata(shortName, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+  await tts.setMetadata(shortName, TTS_OUTPUT_FORMAT);
 
   return new Promise<Buffer>((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -432,6 +469,60 @@ function getVoiceLanguage(voice: string): string {
   return "en";
 }
 
+/**
+ * Google Translate's read-aloud endpoint, used when Edge Neural TTS cannot be
+ * reached. It only accepts ~200 characters per request, so long narration is
+ * split and the MP3 fragments concatenated.
+ *
+ * This function was REFERENCED but never defined, so every TTS request threw
+ * "synthesizeGoogleTTSFallback is not defined" and the whole voiceover feature
+ * returned HTTP 500.
+ */
+async function synthesizeGoogleTTSFallback(text: string, voice: string): Promise<Buffer> {
+  const lang = getVoiceLanguage(voice);
+  const chunks = splitTextIntoChunks(text, 190);
+  const parts: Buffer[] = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const url =
+      `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob` +
+      `&tl=${encodeURIComponent(lang)}&total=${chunks.length}&idx=${i}` +
+      `&textlen=${chunks[i].length}&q=${encodeURIComponent(chunks[i])}`;
+
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+        Referer: "https://translate.google.com/",
+      },
+    });
+    if (!res.ok) throw new Error(`Google TTS HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 200) throw new Error("Google TTS returned an empty fragment");
+    parts.push(buf);
+  }
+
+  const combined = Buffer.concat(parts);
+  if (combined.length < 500) throw new Error("Google TTS produced no audio");
+  return combined;
+}
+
+/**
+ * Last-resort silent WAV so a failed synthesis never hangs the client or
+ * corrupts the timeline: the scene still occupies its correct duration.
+ *
+ * Also referenced but never defined — the cause of the HTTP 500.
+ * Deliberately silent rather than a tone: a beep in place of narration would
+ * be worse than a gap, and the UI reports the failure separately.
+ */
+function generateFallbackToneBuffer(durationSeconds: number): Buffer {
+  const sampleRate = 24000;
+  const seconds = Math.max(0.5, Math.min(60, durationSeconds || 2));
+  const samples = Math.floor(sampleRate * seconds);
+  const pcm = Buffer.alloc(samples * 2); // 16-bit mono, all zeroes = silence
+  return pcmToWav(pcm, sampleRate, 1, 16);
+}
+
 // In-memory cache for high-fidelity synthesized speech
 const ttsAudioCache = new Map<string, Buffer>();
 
@@ -462,9 +553,47 @@ async function synthesizeTTS(text: string, voice: string): Promise<Buffer> {
     console.warn("Google TTS notice:", googleErr?.message);
   }
 
-  // 3. Guaranteed tone buffer so client never hangs
-  const approxDuration = Math.max(2, Math.min(10, Math.ceil(text.split(" ").length / 2.5)));
+  // 3. Guaranteed buffer so the client never hangs. The scene keeps its
+  //    correct length, but the caller is told this is NOT real speech via the
+  //    X-TTS-Source header so the UI can warn instead of shipping silence.
+  const approxDuration = Math.max(2, text.split(/\s+/).filter(Boolean).length / 2.5);
   return generateFallbackToneBuffer(approxDuration);
+}
+
+/** Which engine produced the audio for the most recent synthesis. */
+type TtsSource = "edge" | "google" | "silent";
+
+/**
+ * Same as synthesizeTTS but also reports which engine succeeded, so the API
+ * can tell the client when the audio is only a silent placeholder.
+ */
+async function synthesizeTTSWithSource(
+  text: string,
+  voice: string
+): Promise<{ buffer: Buffer; source: TtsSource }> {
+  const shortName = resolveVoiceShortName(voice);
+  const cacheKey = `${shortName}_${text.trim()}`;
+  const cached = ttsAudioCache.get(cacheKey);
+  if (cached) return { buffer: cached, source: "edge" };
+
+  try {
+    const buf = await synthesizeRealEdgeTTS(text, voice);
+    ttsAudioCache.set(cacheKey, buf);
+    return { buffer: buf, source: "edge" };
+  } catch (err: any) {
+    console.warn("Primary Edge TTS notice:", err?.message);
+  }
+
+  try {
+    const buf = await synthesizeGoogleTTSFallback(text, voice);
+    ttsAudioCache.set(cacheKey, buf);
+    return { buffer: buf, source: "google" };
+  } catch (googleErr: any) {
+    console.warn("Google TTS notice:", googleErr?.message);
+  }
+
+  const approxDuration = Math.max(2, text.split(/\s+/).filter(Boolean).length / 2.5);
+  return { buffer: generateFallbackToneBuffer(approxDuration), source: "silent" };
 }
 
 // --- Pexels ---
@@ -580,7 +709,9 @@ function generatePlaceholder(seedText = "Scene Visual"): string {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // Honour the PORT the host gives us (Render, Railway, Fly, Heroku and most
+  // local setups set it); fall back to 3000 for plain `npm run dev`.
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
 
@@ -765,10 +896,14 @@ async function startServer() {
     try {
       const voice = (req.query.voice as string) || "guy";
       const trimmedText = text.slice(0, 2000);
-      const audioBuffer = await synthesizeTTS(trimmedText, voice);
+      const { buffer: audioBuffer, source } = await synthesizeTTSWithSource(trimmedText, voice);
       const isWav = audioBuffer.length > 4 && audioBuffer.subarray(0, 4).toString() === "RIFF";
       res.setHeader("Content-Type", isWav ? "audio/wav" : "audio/mpeg");
-      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.setHeader("X-TTS-Source", source);
+      res.setHeader("X-TTS-Voice", resolveVoiceShortName(voice));
+      res.setHeader("Access-Control-Expose-Headers", "X-TTS-Source, X-TTS-Voice");
+      // never cache a silent placeholder — the network may recover
+      res.setHeader("Cache-Control", source === "silent" ? "no-store" : "public, max-age=3600");
       return res.send(audioBuffer);
     } catch (err: any) {
       return res.status(500).json({ error: err.message || "Failed to generate speech" });
@@ -793,11 +928,14 @@ async function startServer() {
       }
 
       const trimmedText = text.slice(0, 2000);
-      const audioBuffer = await synthesizeTTS(trimmedText, voice);
+      const { buffer: audioBuffer, source } = await synthesizeTTSWithSource(trimmedText, voice);
 
       const isWav = audioBuffer.length > 4 && audioBuffer.subarray(0, 4).toString() === "RIFF";
       res.setHeader("Content-Type", isWav ? "audio/wav" : "audio/mpeg");
-      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.setHeader("X-TTS-Source", source);
+      res.setHeader("X-TTS-Voice", resolveVoiceShortName(voice));
+      res.setHeader("Access-Control-Expose-Headers", "X-TTS-Source, X-TTS-Voice");
+      res.setHeader("Cache-Control", source === "silent" ? "no-store" : "public, max-age=3600");
       return res.send(audioBuffer);
     } catch (err: any) {
       console.warn("TTS synthesis error, returning 500:", err.message);

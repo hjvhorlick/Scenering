@@ -1,5 +1,29 @@
 import { useState, useRef, useEffect } from "react";
 import { TimelineInsert, AspectRatioType } from "../types";
+import StickerPreviewCanvas from "./StickerPreviewCanvas";
+import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
+import {
+  TEXT_TEMPLATES,
+  TEMPLATE_BY_ID,
+  TEMPLATE_MOTIONS,
+  STYLE_CONTROLS,
+  BORDER_MODES,
+  PLATE_SHAPES,
+  resolveTemplateId,
+  resolveTemplateStyle,
+  type TextTemplateStyle,
+} from "../data/text-templates";
+import { CAPTION_FONTS } from "../data/caption-styles";
+import {
+  TEXT_MATERIALS,
+  LETTER_STYLES,
+  TEXT_ART_PRESETS,
+  ART_CONTROLS,
+  type TextArtStyle,
+} from "../lib/text-art";
+import { resolveArtStyle } from "../lib/render-text-template";
+import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
+import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
   SOUND_LIBRARY,
   toggleSoundPreview,
@@ -177,7 +201,8 @@ function InsertPropertiesContent({
   const isContentCard =
     insert.category === "content_cards" ||
     insert.category === "other_cards" ||
-    insert.category === "text_templates";
+    insert.category === "text_templates" ||
+    insert.category === "lower_thirds";
   const isCallToAction = insert.category === "call_to_action";
   const isSticker = insert.category === "stickers";
   const isScriptureTemplate = insert.type === "template_scripture" || insert.type.includes("scripture");
@@ -386,6 +411,62 @@ function InsertPropertiesContent({
     onClose();
   };
 
+  /** Patch one field of the template's look, keeping the rest of the overrides */
+  const updateTemplateStyle = (field: string, value: unknown) => {
+    setData((prev) => ({
+      ...prev,
+      visualOptions: {
+        ...prev.visualOptions,
+        templateStyle: {
+          ...((prev.visualOptions?.templateStyle as Record<string, unknown>) || {}),
+          [field]: value,
+        },
+      },
+    }));
+  };
+
+  /** Patch one field of the title's letter artwork */
+  const updateArtStyle = (field: string, value: unknown) => {
+    setData((prev) => {
+      const tplStyle = (prev.visualOptions?.templateStyle as Record<string, unknown>) || {};
+      return {
+        ...prev,
+        visualOptions: {
+          ...prev.visualOptions,
+          templateStyle: {
+            ...tplStyle,
+            art: { ...((tplStyle.art as Record<string, unknown>) || {}), [field]: value },
+          },
+        },
+      };
+    });
+  };
+
+  /** Apply a whole text-art preset at once (material, outline, bevel, ...) */
+  const applyArtPreset = (presetStyle: Partial<TextArtStyle>) => {
+    setData((prev) => {
+      const tplStyle = (prev.visualOptions?.templateStyle as Record<string, unknown>) || {};
+      return {
+        ...prev,
+        visualOptions: {
+          ...prev.visualOptions,
+          templateStyle: {
+            ...tplStyle,
+            art: { ...((tplStyle.art as Record<string, unknown>) || {}), ...presetStyle },
+          },
+        },
+      };
+    });
+  };
+
+  /** Drop all overrides and go back to the template's designed look */
+  const resetTemplateStyle = () => {
+    setData((prev) => ({
+      ...prev,
+      visualOptions: { ...prev.visualOptions, templateStyle: undefined },
+    }));
+  };
+
   const updateVisualOptions = (field: string, value: any) => {
     setData((prev) => ({
       ...prev,
@@ -466,9 +547,9 @@ function InsertPropertiesContent({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
       <div
-        className={`bg-gray-900 border border-gray-700 rounded-2xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden ${
+        className={`bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden ${
           isCallToAction && !isIntroOutro ? "max-w-3xl" : "max-w-xl"
         }`}
       >
@@ -680,6 +761,22 @@ function InsertPropertiesContent({
             >
               <span>📝</span>
               <span>Text Content</span>
+            </button>
+          )}
+
+          {/* Design tab: plate, border, fonts, colours, transparency, motion */}
+          {!isIntroOutro && isContentCard && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("design")}
+              className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                activeTab === "design"
+                  ? "border-indigo-500 text-indigo-400"
+                  : "border-transparent text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              <span>🎨</span>
+              <span>Design</span>
             </button>
           )}
 
@@ -1029,7 +1126,7 @@ function InsertPropertiesContent({
                 </div>
 
                 {/* Logo Position */}
-                <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 xs:gap-3 pt-2">
                   <div>
                     <label className="text-xs font-semibold text-white block mb-1">
                       Logo Position:
@@ -1343,6 +1440,217 @@ function InsertPropertiesContent({
                   ))}
                 </div>
               </div>
+
+              {/* Motion — shared by stickers and CTA badges. This is what puts
+                  movement in the video and pulls the viewer's eye. */}
+              {(isSticker || isCallToAction) && (
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-4">
+                  <div>
+                    <span className="text-xs font-semibold text-white block">🎞️ Motion</span>
+                    <span className="text-[11px] text-gray-400">
+                      How this element moves while it is on screen
+                    </span>
+                  </div>
+
+                  {/* Live preview of the current settings (stickers only) */}
+                  {isSticker && (
+                    <div className="flex items-center gap-4 bg-gray-950/60 border border-gray-800 rounded-lg p-3">
+                      <StickerPreviewCanvas
+                        stickerId={data.visualOptions?.stickerId || insert.type}
+                        motionPreset={data.visualOptions?.motionPreset}
+                        motionSpeed={data.visualOptions?.motionSpeed}
+                        motionAmount={data.visualOptions?.motionAmount}
+                        tint={data.visualOptions?.stickerTint ?? null}
+                        glow={data.visualOptions?.stickerGlow}
+                        shadow={data.visualOptions?.shadowIntensity}
+                        size={104}
+                        backdrop="checker"
+                      />
+                      <div className="text-[11px] text-gray-400 leading-relaxed">
+                        <span className="text-gray-200 font-semibold block mb-0.5">
+                          {MOTION_PRESETS_BY_ID[data.visualOptions?.motionPreset || ""]?.name || "Static"}
+                        </span>
+                        {MOTION_PRESETS_BY_ID[data.visualOptions?.motionPreset || ""]?.blurb ||
+                          "Pick a motion below to bring it to life."}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Motion preset grid */}
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                    {MOTION_PRESETS.map((m) => {
+                      const active = (data.visualOptions?.motionPreset || "none") === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => updateVisualOptions("motionPreset", m.id)}
+                          title={m.blurb}
+                          className={`px-1.5 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer ${
+                            active
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                          }`}
+                        >
+                          <span className="text-base leading-none">{m.icon}</span>
+                          <span className="leading-tight text-center">{m.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Speed & amount */}
+                  <div className="space-y-2.5 pt-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300">Speed:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={0.25}
+                          max={2.5}
+                          step={0.05}
+                          value={data.visualOptions?.motionSpeed ?? 1}
+                          onChange={(e) => updateVisualOptions("motionSpeed", parseFloat(e.target.value))}
+                          className="w-32 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-gray-300 w-10 text-right">
+                          {(data.visualOptions?.motionSpeed ?? 1).toFixed(2)}×
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300">Intensity:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={0}
+                          max={2}
+                          step={0.05}
+                          value={data.visualOptions?.motionAmount ?? 1}
+                          onChange={(e) => updateVisualOptions("motionAmount", parseFloat(e.target.value))}
+                          className="w-32 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-gray-300 w-10 text-right">
+                          {Math.round((data.visualOptions?.motionAmount ?? 1) * 100)}%
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <div>
+                        <span className="text-xs text-gray-300 block">Pop in on appear</span>
+                        <span className="text-[10px] text-gray-500">Overshooting entrance when it first shows</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={data.visualOptions?.motionEntrance ?? true}
+                        onChange={(e) => updateVisualOptions("motionEntrance", e.target.checked)}
+                        className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 3D look controls specific to stickers */}
+              {isSticker && (
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <div>
+                    <span className="text-xs font-semibold text-white block">✨ 3D Look</span>
+                    <span className="text-[11px] text-gray-400">
+                      Depth shadow, ambient glow and colour
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-300">Drop shadow:</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={data.visualOptions?.shadowIntensity ?? 0.85}
+                        onChange={(e) => updateVisualOptions("shadowIntensity", parseFloat(e.target.value))}
+                        className="w-32 accent-indigo-500 cursor-pointer"
+                      />
+                      <span className="font-mono text-xs text-gray-300 w-10 text-right">
+                        {Math.round((data.visualOptions?.shadowIntensity ?? 0.85) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-300">Ambient glow:</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={data.visualOptions?.stickerGlow ?? 0.35}
+                        onChange={(e) => updateVisualOptions("stickerGlow", parseFloat(e.target.value))}
+                        className="w-32 accent-indigo-500 cursor-pointer"
+                      />
+                      <span className="font-mono text-xs text-gray-300 w-10 text-right">
+                        {Math.round((data.visualOptions?.stickerGlow ?? 0.35) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-750">
+                    <div>
+                      <span className="text-xs text-gray-300 block">Recolour</span>
+                      <span className="text-[10px] text-gray-500">Off = the sticker's own materials</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={data.visualOptions?.stickerTint || "#FFC400"}
+                        onChange={(e) => updateVisualOptions("stickerTint", e.target.value)}
+                        className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateVisualOptions("stickerTint", null)}
+                        className={`px-2 py-1 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
+                          data.visualOptions?.stickerTint
+                            ? "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                            : "bg-indigo-600 border-indigo-400 text-white"
+                        }`}
+                      >
+                        Original
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Swap the sticker without deleting and re-adding it */}
+                  <div className="pt-2 border-t border-gray-750 space-y-2">
+                    <span className="text-xs text-gray-300 block">Swap sticker:</span>
+                    <div className="grid grid-cols-6 xs:grid-cols-8 gap-1 max-h-32 overflow-y-auto pr-1">
+                      {STICKER_LIBRARY.map((st) => {
+                        const active = (data.visualOptions?.stickerId || insert.type) === st.id;
+                        return (
+                          <button
+                            key={st.id}
+                            type="button"
+                            title={`${st.name} — ${st.blurb}`}
+                            onClick={() => updateVisualOptions("stickerId", st.id)}
+                            className={`aspect-square rounded-md border flex items-center justify-center text-base transition-colors cursor-pointer ${
+                              active
+                                ? "bg-indigo-600 border-indigo-400"
+                                : "bg-gray-900/70 border-gray-700 hover:border-gray-500"
+                            }`}
+                          >
+                            {st.icon}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Visual 3D Styling (for stickers & CTAs) */}
               {(isSticker || isCallToAction) && (
@@ -1887,7 +2195,7 @@ function InsertPropertiesContent({
                   })}
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 pt-2 border-t border-gray-700/80">
+                <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 xs:gap-3 pt-2 border-t border-gray-700/80">
                   <div>
                     <span className="text-[10px] text-gray-400 block mb-1">Top colour</span>
                     <input
@@ -2506,6 +2814,577 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: TEXT CONTENT & COMPLETED CTA TEMPLATES */}
+          {/* ============ DESIGN TAB: the full adjustable look ============ */}
+          {activeTab === "design" && !isIntroOutro && isContentCard && (() => {
+            const tplId = resolveTemplateId(
+              (data.visualOptions?.templateId as string) || insert.type
+            );
+            const overrides = (data.visualOptions?.templateStyle || {}) as Partial<TextTemplateStyle>;
+            const st = resolveTemplateStyle(tplId, overrides);
+            const tplDef = TEMPLATE_BY_ID[tplId];
+            const section = tplDef?.section;
+            const siblings = TEXT_TEMPLATES.filter((t) => t.section === section);
+            const fmt = (v: number, suffix?: string) =>
+              suffix === "percent" ? `${Math.round(v * 100)}%`
+              : suffix === "px" ? `${v}px`
+              : suffix === "x" ? `${v.toFixed(2)}×`
+              : v.toFixed(2);
+
+            return (
+              <div className="space-y-5">
+                {/* Live preview of exactly what will be drawn */}
+                <div className="bg-gray-950/70 border border-gray-800 rounded-xl p-3 flex flex-col items-center gap-2">
+                  <TemplatePreviewCanvas
+                    templateId={tplId}
+                    content={data.content as Record<string, string>}
+                    styleOverrides={overrides}
+                    width={420}
+                  />
+                  <span className="text-[10px] text-gray-500">
+                    Live preview — background, border, font and motion as they will render
+                  </span>
+                </div>
+
+                {/* Swap to another template in the same section */}
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-white">Template</span>
+                    <button
+                      type="button"
+                      onClick={resetTemplateStyle}
+                      className="text-[10px] px-2 py-1 rounded border border-gray-600 text-gray-300 hover:border-gray-400 transition-colors cursor-pointer"
+                    >
+                      Reset design
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {siblings.map((t) => {
+                      const active = t.id === tplId;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          title={t.blurb}
+                          onClick={() => updateVisualOptions("templateId", t.id)}
+                          className={`px-2 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
+                            active
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                          }`}
+                        >
+                          <span className="text-sm">{t.icon}</span>
+                          <span className="truncate text-left">{t.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* ---- Background ---- */}
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <span className="text-xs font-semibold text-white block">🎨 Background</span>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-300">Colour:</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={st.bgColor}
+                        onChange={(e) => updateTemplateStyle("bgColor", e.target.value)}
+                        className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                      />
+                      <input
+                        type="color"
+                        value={st.bgColor2 || st.bgColor}
+                        onChange={(e) => updateTemplateStyle("bgColor2", e.target.value)}
+                        className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        title="Second colour (gradient)"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateTemplateStyle("bgColor2", st.bgColor2 ? null : "#1E293B")}
+                        className={`px-2 py-1 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
+                          st.bgColor2
+                            ? "bg-indigo-600 border-indigo-400 text-white"
+                            : "bg-gray-900 border-gray-600 text-gray-300"
+                        }`}
+                      >
+                        Gradient
+                      </button>
+                    </div>
+                  </div>
+
+                  {STYLE_CONTROLS.filter((c) => c.group === "background").map((c) => (
+                    <div key={c.key} className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300">{c.label}:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={c.min}
+                          max={c.max}
+                          step={c.step}
+                          value={st[c.key] as number}
+                          onChange={(e) => updateTemplateStyle(c.key, parseFloat(e.target.value))}
+                          className="w-32 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-gray-300 w-12 text-right">
+                          {fmt(st[c.key] as number, c.suffix)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-gray-300">Plate shape:</span>
+                    <div className="flex gap-1">
+                      {PLATE_SHAPES.map((sh) => (
+                        <button
+                          key={sh.id}
+                          type="button"
+                          onClick={() => updateTemplateStyle("plateShape", sh.id)}
+                          className={`px-2 py-1 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
+                            st.plateShape === sh.id
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                          }`}
+                        >
+                          {sh.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => updateTemplateStyle("bgOpacity", st.bgOpacity > 0.02 ? 0 : 0.88)}
+                    className={`w-full py-2 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                      st.bgOpacity <= 0.02
+                        ? "bg-indigo-600 border-indigo-400 text-white"
+                        : "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                    }`}
+                  >
+                    {st.bgOpacity <= 0.02 ? "✓ No background (text floats on video)" : "Remove background entirely"}
+                  </button>
+                </div>
+
+                {/* ---- Border ---- */}
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <span className="text-xs font-semibold text-white block">▢ Border</span>
+
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {BORDER_MODES.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => updateTemplateStyle("borderMode", b.id)}
+                        className={`px-2 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
+                          st.borderMode === b.id
+                            ? "bg-indigo-600 border-indigo-400 text-white"
+                            : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                        }`}
+                      >
+                        <span className="font-mono">{b.icon}</span>
+                        <span className="truncate">{b.name}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {st.borderMode !== "none" && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-300">Border colour:</span>
+                        <input
+                          type="color"
+                          value={st.borderColor}
+                          onChange={(e) => updateTemplateStyle("borderColor", e.target.value)}
+                          className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        />
+                      </div>
+                      {STYLE_CONTROLS.filter((c) => c.group === "border").map((c) => (
+                        <div key={c.key} className="flex items-center justify-between">
+                          <span className="text-xs text-gray-300">{c.label}:</span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="range"
+                              min={c.min}
+                              max={c.max}
+                              step={c.step}
+                              value={st[c.key] as number}
+                              onChange={(e) => updateTemplateStyle(c.key, parseFloat(e.target.value))}
+                              className="w-32 accent-indigo-500 cursor-pointer"
+                            />
+                            <span className="font-mono text-xs text-gray-300 w-12 text-right">
+                              {fmt(st[c.key] as number, c.suffix)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+
+                {/* ---- Text & font ---- */}
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <span className="text-xs font-semibold text-white block">🔤 Text & Font</span>
+
+                  <div className="space-y-1.5">
+                    <span className="text-xs text-gray-300">Font:</span>
+                    <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                      {CAPTION_FONTS.map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => updateTemplateStyle("fontId", f.id)}
+                          style={{ fontFamily: `"${f.family}", ${f.fallback}` }}
+                          className={`px-2 py-2 rounded-lg border text-xs transition-colors text-left cursor-pointer ${
+                            st.fontId === f.id
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-gray-900/70 border-gray-700 text-gray-200 hover:border-gray-500"
+                          }`}
+                        >
+                          {f.family}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-gray-300">Colours:</span>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1 text-[10px] text-gray-400">
+                        Title
+                        <input
+                          type="color"
+                          value={st.titleColor}
+                          onChange={(e) => updateTemplateStyle("titleColor", e.target.value)}
+                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        />
+                      </label>
+                      <label className="flex items-center gap-1 text-[10px] text-gray-400">
+                        Body
+                        <input
+                          type="color"
+                          value={st.bodyColor}
+                          onChange={(e) => updateTemplateStyle("bodyColor", e.target.value)}
+                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        />
+                      </label>
+                      <label className="flex items-center gap-1 text-[10px] text-gray-400">
+                        Accent
+                        <input
+                          type="color"
+                          value={st.accentColor}
+                          onChange={(e) => updateTemplateStyle("accentColor", e.target.value)}
+                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  {STYLE_CONTROLS.filter((c) => c.group === "text").map((c) => (
+                    <div key={c.key} className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300">{c.label}:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={c.min}
+                          max={c.max}
+                          step={c.step}
+                          value={st[c.key] as number}
+                          onChange={(e) => updateTemplateStyle(c.key, parseFloat(e.target.value))}
+                          className="w-32 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-gray-300 w-12 text-right">
+                          {fmt(st[c.key] as number, c.suffix)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-gray-300">Align:</span>
+                    <div className="flex gap-1">
+                      {(["left", "center", "right"] as const).map((a) => (
+                        <button
+                          key={a}
+                          type="button"
+                          onClick={() => updateTemplateStyle("textAlign", a)}
+                          className={`px-2.5 py-1 rounded text-[10px] font-semibold border capitalize transition-colors cursor-pointer ${
+                            st.textAlign === a
+                              ? "bg-indigo-600 border-indigo-400 text-white"
+                              : "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                          }`}
+                        >
+                          {a}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-300">Uppercase labels</span>
+                    <input
+                      type="checkbox"
+                      checked={st.uppercaseLabel}
+                      onChange={(e) => updateTemplateStyle("uppercaseLabel", e.target.checked)}
+                      className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* ---- Text Art: the letters themselves (titles only) ---- */}
+                {tplDef?.section === "titles" || tplDef?.layout.startsWith("title_art") ? (() => {
+                  const art = resolveArtStyle(tplId, (overrides as Record<string, unknown>)?.art as Record<string, unknown>);
+                  const artFmt = (v: number, suffix?: string) =>
+                    suffix === "percent" ? `${Math.round(v * 100)}%`
+                    : suffix === "px" ? `${Math.round(v)}px`
+                    : suffix === "deg" ? `${Math.round(v)}°`
+                    : v.toFixed(2);
+                  const artGroup = (g: string) =>
+                    ART_CONTROLS.filter((c) => c.group === g).map((c) => (
+                      <div key={c.key} className="flex items-center justify-between">
+                        <span className="text-xs text-gray-300">{c.label}:</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min={c.min}
+                            max={c.max}
+                            step={c.step}
+                            value={art[c.key] as number}
+                            onChange={(e) => updateArtStyle(c.key, parseFloat(e.target.value))}
+                            className="w-32 accent-amber-500 cursor-pointer"
+                          />
+                          <span className="font-mono text-xs text-gray-300 w-12 text-right">
+                            {artFmt(art[c.key] as number, c.suffix)}
+                          </span>
+                        </div>
+                      </div>
+                    ));
+                  return (
+                    <div className="bg-amber-950/20 border border-amber-800/40 rounded-xl p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-amber-200">🎨 Text Art — the letters</span>
+                        <button
+                          type="button"
+                          onClick={() => updateTemplateStyle("art", undefined)}
+                          className="text-[10px] px-2 py-1 rounded border border-amber-700/60 text-amber-200 hover:border-amber-400 transition-colors cursor-pointer"
+                        >
+                          Reset art
+                        </button>
+                      </div>
+
+                      {/* Ready-made looks */}
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] text-gray-400 block">Ready-made looks</span>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {TEXT_ART_PRESETS.map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              title={p.blurb}
+                              onClick={() => applyArtPreset(p.style)}
+                              className="px-1.5 py-2 rounded-lg border border-gray-700 bg-gray-900/70 text-gray-300 hover:border-amber-400 text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer"
+                            >
+                              <span className="text-base leading-none">{p.icon}</span>
+                              <span className="leading-tight text-center">{p.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Material */}
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] text-gray-400 block">Material — gold, silver, rusted, damaged and more</span>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {TEXT_MATERIALS.map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              title={m.blurb}
+                              onClick={() => updateArtStyle("material", m.id)}
+                              className={`px-1 py-1.5 rounded-lg border text-[9px] font-semibold transition-colors flex flex-col items-center gap-1 cursor-pointer ${
+                                art.material === m.id
+                                  ? "bg-amber-600 border-amber-300 text-white"
+                                  : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                              }`}
+                            >
+                              <span
+                                className="w-full h-3 rounded-sm border border-black/40"
+                                style={{ background: `linear-gradient(135deg, ${m.swatch[0]}, ${m.swatch[1]})` }}
+                              />
+                              <span className="leading-tight text-center">{m.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Letter style */}
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] text-gray-400 block">Letter style — bold, script, slanted</span>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {LETTER_STYLES.map((l) => (
+                            <button
+                              key={l.id}
+                              type="button"
+                              title={l.blurb}
+                              onClick={() => updateArtStyle("letterStyle", l.id)}
+                              className={`px-1.5 py-1.5 rounded-lg border text-[10px] font-semibold transition-colors cursor-pointer ${
+                                art.letterStyle === l.id
+                                  ? "bg-amber-600 border-amber-300 text-white"
+                                  : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                              }`}
+                            >
+                              {l.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Letter font */}
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] text-gray-400 block">Letter font</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                          {CAPTION_FONTS.map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() => updateArtStyle("fontId", f.id)}
+                              style={{ fontFamily: `"${f.family}", ${f.fallback}` }}
+                              className={`px-2 py-1.5 rounded-lg border text-[11px] transition-colors cursor-pointer ${
+                                art.fontId === f.id
+                                  ? "bg-amber-600 border-amber-300 text-white"
+                                  : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                              }`}
+                            >
+                              {f.family}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Colours */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">Letter colour</span>
+                          <input
+                            type="color"
+                            value={art.color1}
+                            onChange={(e) => updateArtStyle("color1", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">Shade colour</span>
+                          <input
+                            type="color"
+                            value={art.color2}
+                            onChange={(e) => updateArtStyle("color2", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">Letter border</span>
+                          <input
+                            type="color"
+                            value={art.outlineColor}
+                            onChange={(e) => updateArtStyle("outlineColor", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">Outer border</span>
+                          <input
+                            type="color"
+                            value={art.outline2Color}
+                            onChange={(e) => updateArtStyle("outline2Color", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">3D side</span>
+                          <input
+                            type="color"
+                            value={art.depthColor}
+                            onChange={(e) => updateArtStyle("depthColor", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-300">Glow colour</span>
+                          <input
+                            type="color"
+                            value={art.glowColor}
+                            onChange={(e) => updateArtStyle("glowColor", e.target.value)}
+                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                          />
+                        </label>
+                      </div>
+
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={art.uppercase}
+                          onChange={(e) => updateArtStyle("uppercase", e.target.checked)}
+                          className="accent-amber-500 cursor-pointer"
+                        />
+                        <span className="text-xs text-gray-300">Force capital letters</span>
+                      </label>
+
+                      <div className="space-y-2">{artGroup("letters")}</div>
+                      <div className="space-y-2 pt-1 border-t border-gray-700/60">{artGroup("outline")}</div>
+                      <div className="space-y-2 pt-1 border-t border-gray-700/60">{artGroup("depth")}</div>
+                      <div className="space-y-2 pt-1 border-t border-gray-700/60">{artGroup("finish")}</div>
+                    </div>
+                  );
+                })() : null}
+
+                {/* ---- Motion & depth ---- */}
+                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <span className="text-xs font-semibold text-white block">🎞️ Entrance & Depth</span>
+
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {TEMPLATE_MOTIONS.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        title={m.blurb}
+                        onClick={() => updateTemplateStyle("motion", m.id)}
+                        className={`px-1.5 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer ${
+                          st.motion === m.id
+                            ? "bg-indigo-600 border-indigo-400 text-white"
+                            : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                        }`}
+                      >
+                        <span className="text-base leading-none">{m.icon}</span>
+                        <span className="leading-tight text-center">{m.name}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {STYLE_CONTROLS.filter((c) => c.group === "depth").map((c) => (
+                    <div key={c.key} className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300">{c.label}:</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={c.min}
+                          max={c.max}
+                          step={c.step}
+                          value={st[c.key] as number}
+                          onChange={(e) => updateTemplateStyle(c.key, parseFloat(e.target.value))}
+                          className="w-32 accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-gray-300 w-12 text-right">
+                          {fmt(st[c.key] as number, c.suffix)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           {activeTab === "content" && !isIntroOutro && (isContentCard || isCallToAction) && (
             <div className="space-y-4">
               {isCallToAction ? (
@@ -2750,46 +3629,88 @@ function InsertPropertiesContent({
                   </div>
                 </div>
               ) : (
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
-                  <div>
-                    <label className="text-xs font-semibold text-white block mb-1">
-                      Header / Category Label:
-                    </label>
-                    <input
-                      type="text"
-                      value={data.content?.label || ""}
-                      onChange={(e) => updateContent("label", e.target.value)}
-                      placeholder="e.g. KEY TAKEAWAY, DID YOU KNOW?, INSPIRATION..."
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 font-mono"
-                    />
-                  </div>
+                (() => {
+                  // The editor follows the template: only the fields this
+                  // layout actually draws are shown, labelled for that layout.
+                  const tplId = resolveTemplateId(
+                    (data.visualOptions?.templateId as string) || insert.type
+                  );
+                  const tplDef = TEMPLATE_BY_ID[tplId];
+                  const keys = tplDef ? Object.keys(tplDef.content) : ["label", "primaryText", "secondaryText"];
+                  const LABELS: Record<string, string> = {
+                    label: "Header / category label",
+                    primaryText: tplDef?.section === "scripture" ? "Verse text"
+                      : tplDef?.section === "quotes" ? "Quote text"
+                      : tplDef?.section === "lower_thirds" ? "Name"
+                      : "Main text",
+                    secondaryText: tplDef?.section === "scripture" ? "Translation / version"
+                      : tplDef?.section === "lower_thirds" ? "Role / title / handle"
+                      : "Secondary line",
+                    author: "Author",
+                    book: "Book",
+                    chapter: "Chapter",
+                    verse: "Verse",
+                    number: "Number / figure",
+                    item1: "Point 1",
+                    item2: "Point 2",
+                    item3: "Point 3",
+                    item4: "Point 4",
+                  };
+                  const LONG = new Set(["primaryText"]);
+                  const SHORT_ROW = ["book", "chapter", "verse"];
+                  const rowKeys = keys.filter((k) => SHORT_ROW.includes(k));
+                  const restKeys = keys.filter((k) => !SHORT_ROW.includes(k));
 
-                  <div>
-                    <label className="text-xs font-semibold text-white block mb-1">
-                      Primary Card / Quote / Point Text:
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={data.content?.primaryText || ""}
-                      onChange={(e) => updateContent("primaryText", e.target.value)}
-                      placeholder="Enter main text..."
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
+                  return (
+                    <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                      {rowKeys.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {rowKeys.map((k) => (
+                            <div key={k}>
+                              <label className="text-xs font-semibold text-white block mb-1">
+                                {LABELS[k] || k}:
+                              </label>
+                              <input
+                                type="text"
+                                value={(data.content as Record<string, string>)?.[k] || ""}
+                                onChange={(e) => updateContent(k, e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
-                  <div>
-                    <label className="text-xs font-semibold text-white block mb-1">
-                      Secondary Text / Subtitle / Author / Citation:
-                    </label>
-                    <input
-                      type="text"
-                      value={data.content?.secondaryText || data.content?.author || ""}
-                      onChange={(e) => updateContent("secondaryText", e.target.value)}
-                      placeholder="Optional author, subtitle, or citation..."
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
+                      {restKeys.map((k) => (
+                        <div key={k}>
+                          <label className="text-xs font-semibold text-white block mb-1">
+                            {LABELS[k] || k}:
+                          </label>
+                          {LONG.has(k) ? (
+                            <textarea
+                              rows={3}
+                              value={(data.content as Record<string, string>)?.[k] || ""}
+                              onChange={(e) => updateContent(k, e.target.value)}
+                              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              value={(data.content as Record<string, string>)?.[k] || ""}
+                              onChange={(e) => updateContent(k, e.target.value)}
+                              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          )}
+                        </div>
+                      ))}
+
+                      <p className="text-[10px] text-gray-500 pt-1">
+                        Colours, fonts, background transparency, border and slide-in motion live in the
+                        <span className="text-gray-300 font-semibold"> Design </span> tab.
+                      </p>
+                    </div>
+                  );
+                })()
               )}
             </div>
           )}

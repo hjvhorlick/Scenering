@@ -6,3 +6,5 @@ public/Scenering-full-app.zip
 
 # Local app-package builds made by scripts/package-app.py
 dist-package/
+
+dist/
