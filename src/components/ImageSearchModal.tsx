@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "../lib/api-keys";
+import { IMAGE_SEARCH_COUNT, pickRandomSample } from "../lib/image-picker";
 import ApiKeysModal from "./ApiKeysModal";
 
 interface ImageResult {
@@ -43,7 +44,7 @@ export default function ImageSearchModal({
       const headers = getApiKeysHeaders();
       const queryParams = getApiKeysQueryParams();
       const res = await fetch(
-        `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(q)}&count=12${queryParams}`,
+        `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(q)}&count=${IMAGE_SEARCH_COUNT}${queryParams}`,
         { headers }
       );
       if (!res.ok) {
@@ -53,7 +54,9 @@ export default function ImageSearchModal({
       if (data.error) {
         throw new Error(data.error);
       }
-      setImages(data.images || []);
+      // Show a random dozen out of the ~100 ranked candidates: repeating the
+      // same search must not serve the identical grid every time.
+      setImages(pickRandomSample((data.images || []) as ImageResult[], 12));
       setSource(data.source || "");
       if (!data.images || data.images.length === 0) {
         setError("No images found. Try a different search term or add your Pexels/Pixabay API key.");

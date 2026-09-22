@@ -14,6 +14,7 @@ import {
   DEFAULT_FRAMING,
 } from "../lib/scene-framing";
 import { NATURE_FALLBACKS } from "../data/nature-fallbacks";
+import { pickRandomSample } from "../lib/image-picker";
 import { buildSceneImageQuery, describeSceneTopic } from "../lib/topic-extract";
 import { useViewport } from "../lib/use-breakpoint";
 import { sceneDurationForText } from "../lib/duration-utils";
@@ -75,6 +76,13 @@ export default function SceneEditor({
   const [isPlayingAttachedAudio, setIsPlayingAttachedAudio] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showNatureMenu, setShowNatureMenu] = useState(false);
+  // Shuffle the curated deck on every open so the fallback gallery doesn't
+  // look like the same frozen nine images each time it is opened.
+  const [natureDeck, setNatureDeck] = useState(() => [...NATURE_FALLBACKS]);
+  const openNatureMenu = () => {
+    setNatureDeck(pickRandomSample(NATURE_FALLBACKS, NATURE_FALLBACKS.length));
+    setShowNatureMenu(true);
+  };
   const [showCropTools, setShowCropTools] = useState(false);
   const [compareOriginal, setCompareOriginal] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -481,7 +489,7 @@ export default function SceneEditor({
                 <span className="text-gray-600">•</span>
                 <button
                   type="button"
-                  onClick={() => setShowNatureMenu(true)}
+                  onClick={openNatureMenu}
                   className="text-emerald-400 hover:text-emerald-300 underline"
                 >
                   Nature Fallback
@@ -670,9 +678,9 @@ export default function SceneEditor({
                 {/* Nature Fallback Button */}
                 <button
                   type="button"
-                  onClick={() => setShowNatureMenu((prev) => !prev)}
+                  onClick={() => (showNatureMenu ? setShowNatureMenu(false) : openNatureMenu())}
                   className="px-2.5 py-1.5 bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1"
-                  title="Select high-definition verified nature fallback background"
+                  title="Select high-definition verified nature fallback background — reshuffled on every open"
                 >
                   <span>🌿 Nature Fallback</span>
                   <span className="text-[10px]">{showNatureMenu ? "▲" : "▼"}</span>
@@ -712,7 +720,7 @@ export default function SceneEditor({
                   </button>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                  {NATURE_FALLBACKS.map((bg) => (
+                  {natureDeck.map((bg) => (
                     <button
                       key={bg.id}
                       type="button"

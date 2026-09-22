@@ -6,6 +6,7 @@ import ProjectList from "./components/ProjectList";
 import ApiKeysModal from "./components/ApiKeysModal";
 import Timeline from "./components/Timeline";
 import VideoStudio from "./components/VideoStudio";
+import { pickRandomImageUrl, rawImageUrl, IMAGE_SEARCH_COUNT } from "./lib/image-picker";
 import RenderView from "./components/RenderView";
 import VoiceoverStudio, { STUDIO_VOICE_PRESETS } from "./components/VoiceoverStudio";
 import CaptionsStudio from "./components/CaptionsStudio";
@@ -93,19 +94,39 @@ function parseScript(script: string, targetDuration: number = 20): { text: strin
   });
 }
 
-// Quick image search via edge function — returns first match only (uses customer's API keys if provided)
-async function quickImageSearch(query: string): Promise<string | null> {
+/**
+ * Image search via edge function.
+ *
+ * Asks for the top ~100 ranked candidates and picks ONE at random (see
+ * lib/image-picker), so every search/re-search produces a different photo
+ * instead of always serving the identical first-ranked hit. URLs already
+ * used by other scenes are excluded via fetchAll images runs so a whole
+ * project never ends up with duplicate photos.
+ *
+ * Returns the proxied url plus the raw upstream url (for dedup tracking).
+ */
+async function quickImageSearch(
+  query: string,
+  usedUrls?: ReadonlySet<string>
+): Promise<{ proxyUrl: string; rawUrl: string } | null> {
   try {
     const headers = getApiKeysHeaders();
     const queryParams = getApiKeysQueryParams();
     const res = await fetch(
-      `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(query)}&count=1${queryParams}`,
+      `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(query)}&count=${IMAGE_SEARCH_COUNT}${queryParams}`,
       { headers }
     );
     if (!res.ok) return null;
     const data = await res.json();
-    if (!data.images || data.images.length === 0) return null;
-    return `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(data.images[0].url)}`;
+    const pool: string[] = Array.isArray(data.images)
+      ? data.images.map((img: { url?: string }) => img?.url || "").filter(Boolean)
+      : [];
+    const chosen = pickRandomImageUrl(pool, usedUrls);
+    if (!chosen) return null;
+    return {
+      proxyUrl: `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(chosen)}`,
+      rawUrl: chosen,
+    };
   } catch {
     return null;
   }
@@ -838,19 +859,31 @@ export default function App() {
 
   const handleImageSearch = async (
     sceneId: number,
-    query: string
+    query: string,
+    /** URLs already handed out to other scenes — never re-picked. */
+    usedUrls?: Set<string>
   ): Promise<{ imageUrl: string; allImages?: string[] } | undefined> => {
     try {
       if (!currentProject) return undefined;
-      const proxyUrl = await quickImageSearch(query);
-      if (!proxyUrl) return undefined;
+
+      // Never offer the photo this scene (or a sibling scene) already has.
+      const excluded = usedUrls ?? new Set<string>();
+      for (const scene of scenes) {
+        if (scene.id !== sceneId && scene.image_url) {
+          excluded.add(rawImageUrl(scene.image_url));
+        }
+      }
+
+      const hit = await quickImageSearch(query, excluded);
+      if (!hit) return undefined;
+      usedUrls?.add(hit.rawUrl);
 
       await handleUpdateScene(sceneId, {
-        image_url: proxyUrl,
+        image_url: hit.proxyUrl,
         image_query: query,
       });
 
-      return { imageUrl: proxyUrl };
+      return { imageUrl: hit.proxyUrl };
     } catch (err) {
       console.error("Image search failed:", err);
       return undefined;
@@ -860,11 +893,19 @@ export default function App() {
   const handleFetchAllImages = async () => {
     setFetchingImages(true);
     try {
+      // Seed the dedup set with every photo already placed on a scene so a
+      // batch run can't hand out an image the project is already showing.
+      const used = new Set(
+        scenes.filter((s) => s.image_url).map((s) => rawImageUrl(s.image_url as string))
+      );
       // Scenes already carrying a video clip do not need a stock photo.
       const scenesWithoutImages = scenes.filter((s) => !s.image_url && !s.video_url);
-      for (const scene of scenesWithoutImages) {
-        await handleImageSearch(scene.id, scene.image_query);
-      }
+      // Searches ran strictly one after another before, which made a full
+      // project wait on a chain of round-trips. They are independent — run
+      // them in parallel and the batch is as fast as the slowest search.
+      await Promise.all(
+        scenesWithoutImages.map((scene) => handleImageSearch(scene.id, scene.image_query, used))
+      );
     } finally {
       setFetchingImages(false);
     }
