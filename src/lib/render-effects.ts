@@ -2132,8 +2132,14 @@ function wrapText(
 }
 
 /**
- * Standardized High-Precision Image Drawer with Visible Camera Motion (Ken Burns, Zooms, Pans, Shakes)
- * Used across both VideoPreview and RenderView to guarantee identical, cinematic results.
+ * Draws a scene image with its camera motion applied.
+ *
+ * This used to carry its OWN copy of the motion maths, which drifted out of
+ * sync with getMotionTransform(): it still had the old barely-visible Ken
+ * Burns (a 4% pan starting at scale 1.04) long after the real engine was
+ * fixed. Nothing calls it today, but a duplicate implementation is a trap for
+ * whoever reaches for it next, so it now delegates to the single source of
+ * truth and cannot diverge again.
  */
 export function drawSceneImageWithMotion(
   ctx: CanvasRenderingContext2D,
@@ -2143,90 +2149,22 @@ export function drawSceneImageWithMotion(
   canvasW: number,
   canvasH: number
 ) {
-  const p = Math.max(0, Math.min(1, progress));
-  const motion = scene.motion_effect || "ken_burns";
-  // Camera Motion transforms
-  let motionScale = 1.0;
-  let motionPanX = 0;
-  let motionPanY = 0;
-
-  switch (motion) {
-    case "zoom_in": {
-      // Smooth cinematic push-in from 1.0 to 1.24
-      motionScale = 1.0 + p * 0.24;
-      break;
-    }
-    case "zoom_out": {
-      // Smooth dramatic pull-out from 1.24 down to 1.02
-      motionScale = 1.24 - p * 0.22;
-      break;
-    }
-    case "pan_left": {
-      // Zoomed slightly so no black edges, panning smoothly right-to-left
-      motionScale = 1.18;
-      const travel = canvasW * 0.12;
-      motionPanX = (0.5 - p) * travel;
-      break;
-    }
-    case "pan_right": {
-      // Zoomed slightly, panning smoothly left-to-right
-      motionScale = 1.18;
-      const travel = canvasW * 0.12;
-      motionPanX = (p - 0.5) * travel;
-      break;
-    }
-    case "shake": {
-      // Visible handheld camera shake
-      motionScale = 1.14;
-      const shakeAmt = (1 - p * 0.3) * (canvasW * 0.018);
-      motionPanX = (Math.sin(p * 45) + Math.cos(p * 31)) * shakeAmt;
-      motionPanY = (Math.cos(p * 41) + Math.sin(p * 27)) * shakeAmt;
-      break;
-    }
-    case "floating": {
-      // Gentle floating dream drift
-      motionScale = 1.12;
-      motionPanX = Math.sin(p * Math.PI * 2) * (canvasW * 0.025);
-      motionPanY = Math.cos(p * Math.PI * 1.5) * (canvasH * 0.025);
-      break;
-    }
-    case "slow_zoom": {
-      motionScale = 1.0 + p * 0.10;
-      break;
-    }
-    case "subtle_camera": {
-      motionScale = 1.08;
-      motionPanX = Math.sin(p * Math.PI * 3) * (canvasW * 0.015);
-      motionPanY = Math.cos(p * Math.PI * 2) * (canvasH * 0.015);
-      break;
-    }
-    case "pulse": {
-      const beat = Math.sin(p * Math.PI * 8);
-      motionScale = 1.04 + Math.max(0, beat) * 0.08;
-      break;
-    }
-    case "none": {
-      motionScale = 1.0;
-      break;
-    }
-    case "ken_burns":
-    default: {
-      // Classic Ken Burns: gentle zoom + subtle diagonal drift
-      motionScale = 1.04 + p * 0.14;
-      motionPanX = (p - 0.5) * (canvasW * 0.04);
-      motionPanY = (0.5 - p) * (canvasH * 0.03);
-      break;
-    }
-  }
+  const { scale, dx, dy } = getMotionTransform(
+    scene.motion_effect,
+    progress,
+    canvasW,
+    canvasH
+  );
 
   // Placement is delegated to the shared framing engine so this helper, the
   // live preview and the exported video agree, and so crop / rotate / flip /
-  // blurred-fill all work here too. The engine centres the photo itself, so
-  // only the motion's own pan is handed over.
+  // blurred-fill all work here too. getMotionTransform returns an offset that
+  // recentres a canvas-sized draw; the framing engine centres the photo
+  // itself, so only the leftover motion is handed over.
   drawSceneImage(ctx, img, scene, canvasW, canvasH, {
-    motionScale,
-    motionDx: motionPanX,
-    motionDy: motionPanY,
+    motionScale: scale,
+    motionDx: dx + (canvasW * scale - canvasW) / 2,
+    motionDy: dy + (canvasH * scale - canvasH) / 2,
   });
 }
 

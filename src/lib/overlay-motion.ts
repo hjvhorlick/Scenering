@@ -137,7 +137,12 @@ export function computeMotion(
   const wantEntrance = opts.entrance !== false;
 
   const s: MotionState = { ...NEUTRAL_MOTION };
-  const t = Math.max(0, elapsed) * speed;
+  // A non-finite elapsed time (a zero-length insert divides by zero upstream)
+  // would otherwise spread NaN through every offset and rotation, and a NaN in
+  // a canvas transform silently blanks the element instead of erroring.
+  const safeElapsed = Number.isFinite(elapsed) ? elapsed : 0;
+  const safeLifetime = Number.isFinite(lifetime) ? lifetime : 0;
+  const t = Math.max(0, safeElapsed) * speed;
 
   // ---------------- continuous motion ----------------
   switch (preset) {
@@ -264,8 +269,8 @@ export function computeMotion(
   }
 
   // ---------------- entrance ----------------
-  if (wantEntrance && elapsed < entranceDur) {
-    const e = Math.max(0, Math.min(1, elapsed / entranceDur));
+  if (wantEntrance && safeElapsed < entranceDur) {
+    const e = Math.max(0, Math.min(1, safeElapsed / entranceDur));
     const pop = easeOutBack(e, 2.1);
     s.scale *= pop;
     // a touch of spin on the way in reads as the sticker being "thrown" on
@@ -280,8 +285,8 @@ export function computeMotion(
   }
 
   // ---------------- exit ----------------
-  const remaining = lifetime - elapsed;
-  if (lifetime > 0 && remaining < 0.35) {
+  const remaining = safeLifetime - safeElapsed;
+  if (safeLifetime > 0 && remaining < 0.35) {
     const e = Math.max(0, remaining / 0.35);
     s.scale *= 0.7 + easeOutCubic(e) * 0.3;
   }
