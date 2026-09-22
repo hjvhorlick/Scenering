@@ -67,6 +67,67 @@ function BlockTitle({ id, icon, title, hint }: { id: string; icon: string; title
   );
 }
 
+/**
+ * Floating mini replica of the call-to-action badge preview.
+ *
+ * The editor is one long scrolling page now, so the moment the full-size
+ * preview at the top scrolls out of view, this compact copy docks in the
+ * corner and follows the user down — the badge stays visible while any of
+ * the stacked sections below are being edited. It hides again when the
+ * full preview is back in view, and never covers the footer actions
+ * (it docks above them on short pages).
+ */
+function CtaFloatingPreview({
+  item,
+  aspectRatio,
+  backgroundImage,
+}: {
+  item: import("../types").TimelineInsert;
+  aspectRatio?: import("../types").AspectRatioType;
+  backgroundImage?: string;
+}) {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const anchor = document.getElementById("ipm-cta-preview");
+    if (!anchor) return;
+    const observer = new IntersectionObserver(([entry]) => setShow(!entry.isIntersecting), {
+      threshold: 0,
+    });
+    observer.observe(anchor);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      aria-hidden={!show}
+      className={`fixed bottom-4 right-4 z-30 w-[280px] transition-all duration-200 ${
+        show ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0"
+      }`}
+    >
+      <div className="rounded-xl border border-indigo-500/50 bg-gray-950/95 p-2 shadow-2xl">
+        <div className="pb-1.5 flex items-center justify-between text-[9px]">
+          <span className="font-bold text-indigo-300">👁️ Live preview</span>
+          <button
+            type="button"
+            onClick={() =>
+              document
+                .getElementById("ipm-cta-preview")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
+            className="text-indigo-400/90 underline decoration-dotted underline-offset-2 hover:text-indigo-200 transition-colors"
+            title="Scroll back to the full-size preview at the top"
+          >
+            full view ↑
+          </button>
+        </div>
+        <CtaBadgePreview item={item} aspectRatio={aspectRatio} backgroundImage={backgroundImage} compact />
+      </div>
+    </div>
+  );
+}
+
 /** A section jump button: every section is already rendered below, so the
  *  header row scrolls the chosen one into view instead of hiding the rest. */
 interface SectionTab {
@@ -666,12 +727,16 @@ function InsertPropertiesContent({
           </button>
         </div>
 
-        {/* Live call-to-action preview — part of the flow; scrolls away
-            with the rest of the settings instead of pinning itself */}
+        {/* Live call-to-action preview — part of the flow at the top; a
+            floating mini copy keeps the badge visible anywhere on this
+            long page once this strip scrolls out of view */}
         {isCallToAction && !isIntroOutro && (
-          <div className="px-6 pt-4">
-            <CtaBadgePreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
-          </div>
+          <>
+            <div id="ipm-cta-preview" className="px-6 pt-4">
+              <CtaBadgePreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
+            </div>
+            <CtaFloatingPreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
+          </>
         )}
 
         {/* Section jump row — every section is stacked below; the buttons

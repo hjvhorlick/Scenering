@@ -31,9 +31,15 @@ interface CtaBadgePreviewProps {
   aspectRatio?: AspectRatioType;
   /** Still from the scene the badge sits on, so the preview matches the real frame */
   backgroundImage?: string;
+  /**
+   * Compact mode renders only the painted badge (no side panel) at a small
+   * size — used by the floating mini preview that follows the editor while
+   * it is scrolled deep into settings.
+   */
+  compact?: boolean;
 }
 
-export default function CtaBadgePreview({ item, aspectRatio = "16:9", backgroundImage }: CtaBadgePreviewProps) {
+export default function CtaBadgePreview({ item, aspectRatio = "16:9", backgroundImage, compact = false }: CtaBadgePreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [backdrop, setBackdrop] = useState<Backdrop>(backgroundImage ? "video" : "dark");
@@ -87,7 +93,9 @@ export default function CtaBadgePreview({ item, aspectRatio = "16:9", background
     // CSS caps how much room the preview takes; the height follows the canvas
     // aspect ratio, so the badge is always shown undistorted and true-size when
     // it fits (a standard pill lands at its real 245px width).
-    const fit = Math.min(1, MAX_DISPLAY_WIDTH / cropW, MAX_DISPLAY_HEIGHT / cropH);
+    const maxW = compact ? 280 : MAX_DISPLAY_WIDTH;
+    const maxH = compact ? 90 : MAX_DISPLAY_HEIGHT;
+    const fit = Math.min(1, maxW / cropW, maxH / cropH);
     canvas.style.width = `${Math.round(cropW * fit)}px`;
     canvas.style.height = "auto";
 
@@ -143,7 +151,7 @@ export default function CtaBadgePreview({ item, aspectRatio = "16:9", background
     setOversize(widerThanFrame);
     setShape(item.visualOptions?.ctaShape || "pill");
     setInfo(`${Math.round(bw)} × ${Math.round(bh)} px · ${Math.round(size * 100)}%`);
-  }, [item, backdrop, image, dims.w, dims.h]);
+  }, [item, backdrop, image, dims.w, dims.h, compact]);
 
   const backdropBtn = (id: Backdrop, label: string) => (
     <button
@@ -159,6 +167,16 @@ export default function CtaBadgePreview({ item, aspectRatio = "16:9", background
       {label}
     </button>
   );
+
+  // Compact mode is just the painted badge itself — used by the floating
+  // mini preview; its wrapper supplies the frame and caption.
+  if (compact) {
+    return (
+      <div className="rounded-lg overflow-hidden border border-hairline bg-black">
+        <canvas ref={canvasRef} className="block max-w-full" />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gray-950 border border-indigo-800/60 rounded-xl p-2.5 flex flex-col sm:flex-row sm:items-center gap-3">
