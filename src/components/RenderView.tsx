@@ -531,6 +531,7 @@ export default function RenderView({
       }
 
       // Ambient background music node
+      let ambientGainNode: AudioNode | null = null;
       if (settings.backgroundMusic !== "none" && settings.musicVolume > 0) {
         const ambientGain = createAmbientMusicNode(
           audioCtx,
@@ -540,6 +541,7 @@ export default function RenderView({
         );
         if (ambientGain) {
           ambientGain.connect(dest);
+          ambientGainNode = ambientGain;
         }
       }
 
@@ -654,8 +656,8 @@ export default function RenderView({
       }
 
       let currentSceneIdx = 0;
-      let sceneStartTime = performance.now();
-      let activeAudioSource: AudioBufferSourceNode | null = null;
+      // Filled with the audio-timeline clock once rendering starts.
+      let sceneStartTime = 0;
       let lastProgressUiUpdate = 0;
       let lastProgressVal = 0.35;
 
@@ -677,25 +679,23 @@ export default function RenderView({
       musicAnalyser.connect(dest);
       // NOTE: Quiet rendering - deliberately DO NOT connect analysers to audioCtx.destination!
 
-      const playSceneAudio = (idx: number) => {
-        if (activeAudioSource) {
+      // Route the ambient BGM through the MUSIC analyser (instead of straight
+      // to the recorder) so "moves with the music" waves actually respond to
+      // the background track in the rendered file. Re-route, don't double-feed:
+      if (ambientGainNode) {
+        try {
+          ambientGainNode.disconnect();
+        } catch {}
+        ambientGainNode.connect(musicAnalyser);
+      }
+
+      const scheduledSources: AudioBufferSourceNode[] = [];
+      /** Hard-stops every pre-scheduled narration buffer (cancel / finish). */
+      const stopScheduledAudio = () => {
+        for (const src of scheduledSources) {
           try {
-            activeAudioSource.stop();
+            src.stop();
           } catch {}
-        }
-        const sc = scenesWithImages[idx];
-        if (!sc) return;
-        const item = audioBuffers.get(sc.id);
-        if (item) {
-          try {
-            const source = audioCtx.createBufferSource();
-            source.buffer = item.buffer;
-            source.connect(analyser);
-            source.start();
-            activeAudioSource = source;
-          } catch (audioErr) {
-            console.warn("Error playing scene audio:", audioErr);
-          }
         }
       };
 
@@ -731,13 +731,45 @@ export default function RenderView({
       }
       const renderStartTime = performance.now();
 
-      let renderPhase: "intro" | "scenes" | "outro" = introSec ? "intro" : "scenes";
-      let phaseStartTime = performance.now();
+      // --- Timeline clock -------------------------------------------------
+      // The audio MediaRecorder captures follows the AudioContext DEVICE
+      // clock — never the (janky) wall clock. Driving all visual timing from
+      // the same clock keeps voice, captions, waves and video in sync even on
+      // slow machines where frame painting stutters. `timelineNow()` returns
+      // the audio clock in the same units/scale as performance.now(), so the
+      // frame math below is unchanged.
+      const renderAudioT0 = audioCtx.currentTime + 0.15;
+      const timelineNow = () =>
+        renderStartTime + Math.max(0, audioCtx.currentTime - renderAudioT0) * 1000;
+      let lastResumeAttempt = 0;
 
-      // Only start scene voiceover audio if we are starting directly in scenes phase
-      if (renderPhase === "scenes") {
-        playSceneAudio(0);
-      }
+      // Pre-schedule EVERY scene's narration at its exact planned offset.
+      // Web Audio plays these sample-accurately on the audio thread, so the
+      // voice can never gap out or cut off because the main thread was busy
+      // painting frames — this is what keeps the voice smooth and in sync
+      // with the captions on slower computers.
+      let narrationOffset = introDuration;
+      scenesWithImages.forEach((sc) => {
+        const item = audioBuffers.get(sc.id);
+        const dur = Math.max(1, getEffectiveSceneDuration(sc, item?.duration));
+        if (item) {
+          try {
+            const source = audioCtx.createBufferSource();
+            source.buffer = item.buffer;
+            // Voice feeds the voice analyser → speech-reactive waves respond
+            source.connect(analyser);
+            source.start(renderAudioT0 + narrationOffset);
+            scheduledSources.push(source);
+          } catch (audioErr) {
+            console.warn("Error scheduling scene audio:", audioErr);
+          }
+        }
+        narrationOffset += dur;
+      });
+
+      let renderPhase: "intro" | "scenes" | "outro" = introSec ? "intro" : "scenes";
+      let phaseStartTime = timelineNow();
+      sceneStartTime = timelineNow();
 
       // Frame drawing loop with robust error boundaries and background tab resilience
       await new Promise<void>((resolveLoop) => {
@@ -785,7 +817,15 @@ export default function RenderView({
           }
 
           try {
-            const now = performance.now();
+            // Audio clock, not the wall clock (see timelineNow above).
+            const now = timelineNow();
+
+            // If a browser re-suspends the context mid-render, nudge it back —
+            // otherwise the whole timeline clock (and the recording) freezes.
+            if (audioCtx.state !== "running" && now - renderStartTime - lastResumeAttempt > 2000) {
+              lastResumeAttempt = now - renderStartTime;
+              audioCtx.resume().catch(() => {});
+            }
 
             // Drive insert audio (BGM / SFX / CTA / intro-outro sounds)
             try {
@@ -839,8 +879,7 @@ export default function RenderView({
               if (progressInIntro >= 1) {
                 renderPhase = "scenes";
                 currentSceneIdx = 0;
-                sceneStartTime = performance.now();
-                playSceneAudio(0);
+                sceneStartTime = timelineNow();
               }
 
               scheduleNextFrame();
@@ -909,13 +948,7 @@ export default function RenderView({
             if (!currentScene) {
               if (outroSec) {
                 renderPhase = "outro";
-                phaseStartTime = performance.now();
-                if (activeAudioSource) {
-                  try {
-                    activeAudioSource.stop();
-                  } catch {}
-                  activeAudioSource = null;
-                }
+                phaseStartTime = timelineNow();
                 scheduleNextFrame();
                 return;
               }
@@ -1150,7 +1183,9 @@ export default function RenderView({
                   const musicBus = readBus(musicAnalyser);
                   audioFrame = { voice: voiceBus, music: musicBus };
                   const loudest = voiceBus.level >= musicBus.level ? voiceBus : musicBus;
-                  audioLevel = Math.max(0.15, loudest.level);
+                  // Speech/music averages sit low (broad frequency spectrum),
+                  // so scale the level up — otherwise reactive overlays look dead.
+                  audioLevel = Math.min(1, 0.15 + loudest.level * 2.6);
                   freqData = (loudest.freq as Uint8Array) || null;
                 }
 
@@ -1172,20 +1207,13 @@ export default function RenderView({
               if (currentSceneIdx >= scenesWithImages.length) {
                 if (outroSec) {
                   renderPhase = "outro";
-                  phaseStartTime = performance.now();
-                  if (activeAudioSource) {
-                    try {
-                      activeAudioSource.stop();
-                    } catch {}
-                    activeAudioSource = null;
-                  }
+                  phaseStartTime = timelineNow();
                 } else {
                   cleanupAndFinish();
                   return;
                 }
               } else {
-                sceneStartTime = performance.now();
-                playSceneAudio(currentSceneIdx);
+                sceneStartTime = timelineNow();
               }
             }
 
@@ -1205,11 +1233,7 @@ export default function RenderView({
       setRenderProgress(0.95);
 
       const finalBlob = await videoPromise;
-      if (activeAudioSource) {
-        try {
-          (activeAudioSource as any).stop();
-        } catch {}
-      }
+      stopScheduledAudio();
 
       const url = URL.createObjectURL(finalBlob);
       setRenderedBlob(finalBlob);
