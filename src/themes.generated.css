@@ -2341,10 +2341,10 @@ html[data-theme="windows"] .disabled\:bg-indigo-800:disabled {
   background-color: rgb(37 92 158 / 1);
 }
 html[data-theme="windows"] .disabled\:text-gray-500:disabled {
-  color: rgb(123 137 162 / 1);
+  color: rgb(147 162 185 / 1);
 }
 html[data-theme="windows"] .disabled\:text-gray-600:disabled {
-  color: rgb(92 104 128 / 1);
+  color: rgb(125 139 162 / 1);
 }
 html[data-theme="windows"] .focus\:border-amber-500:focus {
   border-color: rgb(231 154 25 / 1);
@@ -2666,7 +2666,7 @@ html[data-theme="windows"] .hover\:text-emerald-300:hover {
   color: rgb(117 224 182 / 1);
 }
 html[data-theme="windows"] .hover\:text-gray-200:hover {
-  color: rgb(217 225 238 / 1);
+  color: rgb(226 233 244 / 1);
 }
 html[data-theme="windows"] .hover\:text-indigo-300:hover {
   color: rgb(150 217 255 / 1);
@@ -2684,7 +2684,7 @@ html[data-theme="windows"] .hover\:text-rose-400:hover {
   color: rgb(243 121 139 / 1);
 }
 html[data-theme="windows"] .hover\:text-white:hover {
-  color: rgb(242 246 252 / 1);
+  color: rgb(244 248 253 / 1);
 }
 html[data-theme="windows"] .hover\:text-yellow-200:hover {
   color: rgb(247 235 145 / 1);
@@ -2693,10 +2693,10 @@ html[data-theme="windows"] .hover\:to-purple-500:hover {
   --tw-gradient-to: rgb(168 95 237 / 1) var(--tw-gradient-to-position);
 }
 html[data-theme="windows"] .placeholder-gray-500::placeholder {
-  color: rgb(123 137 162 / 1);
+  color: rgb(147 162 185 / 1);
 }
 html[data-theme="windows"] .placeholder-gray-600::placeholder {
-  color: rgb(92 104 128 / 1);
+  color: rgb(125 139 162 / 1);
 }
 html[data-theme="windows"] .ring-amber-400 {
   --tw-ring-color: rgb(238 185 49 / 1);
@@ -2837,25 +2837,25 @@ html[data-theme="windows"] .text-fuchsia-400 {
   color: rgb(226 129 241 / 1);
 }
 html[data-theme="windows"] .text-gray-100 {
-  color: rgb(217 225 238 / 1);
+  color: rgb(226 233 244 / 1);
 }
 html[data-theme="windows"] .text-gray-200 {
-  color: rgb(217 225 238 / 1);
+  color: rgb(226 233 244 / 1);
 }
 html[data-theme="windows"] .text-gray-300 {
-  color: rgb(191 202 221 / 1);
+  color: rgb(201 212 228 / 1);
 }
 html[data-theme="windows"] .text-gray-400 {
-  color: rgb(150 163 186 / 1);
+  color: rgb(170 184 204 / 1);
 }
 html[data-theme="windows"] .text-gray-500 {
-  color: rgb(123 137 162 / 1);
+  color: rgb(147 162 185 / 1);
 }
 html[data-theme="windows"] .text-gray-600 {
-  color: rgb(92 104 128 / 1);
+  color: rgb(125 139 162 / 1);
 }
 html[data-theme="windows"] .text-gray-950 {
-  color: rgb(72 84 108 / 1);
+  color: rgb(95 108 132 / 1);
 }
 html[data-theme="windows"] .text-green-300 {
   color: rgb(140 233 174 / 1);
@@ -2939,16 +2939,16 @@ html[data-theme="windows"] .text-violet-100 {
   color: rgb(196 231 255 / 1);
 }
 html[data-theme="windows"] .text-white {
-  color: rgb(242 246 252 / 1);
+  color: rgb(244 248 253 / 1);
 }
 html[data-theme="windows"] .text-white\/50 {
-  color: rgb(242 246 252 / 0.5);
+  color: rgb(244 248 253 / 0.5);
 }
 html[data-theme="windows"] .text-white\/70 {
-  color: rgb(242 246 252 / 0.7);
+  color: rgb(244 248 253 / 0.7);
 }
 html[data-theme="windows"] .text-white\/80 {
-  color: rgb(242 246 252 / 0.8);
+  color: rgb(244 248 253 / 0.8);
 }
 html[data-theme="windows"] .text-yellow-300 {
   color: rgb(242 217 82 / 1);
@@ -3856,10 +3856,10 @@ html[data-theme="playful"] .disabled\:bg-indigo-800:disabled {
   background-color: rgb(176 42 104 / 1);
 }
 html[data-theme="playful"] .disabled\:text-gray-500:disabled {
-  color: rgb(157 142 199 / 1);
+  color: rgb(179 164 220 / 1);
 }
 html[data-theme="playful"] .disabled\:text-gray-600:disabled {
-  color: rgb(126 110 166 / 1);
+  color: rgb(151 135 196 / 1);
 }
 html[data-theme="playful"] .focus\:border-amber-500:focus {
   border-color: rgb(255 162 6 / 1);
@@ -4181,7 +4181,7 @@ html[data-theme="playful"] .hover\:text-emerald-300:hover {
   color: rgb(97 251 190 / 1);
 }
 html[data-theme="playful"] .hover\:text-gray-200:hover {
-  color: rgb(243 237 255 / 1);
+  color: rgb(245 240 255 / 1);
 }
 html[data-theme="playful"] .hover\:text-indigo-300:hover {
   color: rgb(255 173 210 / 1);
@@ -4208,10 +4208,10 @@ html[data-theme="playful"] .hover\:to-purple-500:hover {
   --tw-gradient-to: rgb(171 84 255 / 1) var(--tw-gradient-to-position);
 }
 html[data-theme="playful"] .placeholder-gray-500::placeholder {
-  color: rgb(157 142 199 / 1);
+  color: rgb(179 164 220 / 1);
 }
 html[data-theme="playful"] .placeholder-gray-600::placeholder {
-  color: rgb(126 110 166 / 1);
+  color: rgb(151 135 196 / 1);
 }
 html[data-theme="playful"] .ring-amber-400 {
   --tw-ring-color: rgb(255 194 38 / 1);
@@ -4352,25 +4352,25 @@ html[data-theme="playful"] .text-fuchsia-400 {
   color: rgb(237 122 255 / 1);
 }
 html[data-theme="playful"] .text-gray-100 {
-  color: rgb(243 237 255 / 1);
+  color: rgb(245 240 255 / 1);
 }
 html[data-theme="playful"] .text-gray-200 {
-  color: rgb(243 237 255 / 1);
+  color: rgb(245 240 255 / 1);
 }
 html[data-theme="playful"] .text-gray-300 {
-  color: rgb(221 210 247 / 1);
+  color: rgb(228 219 250 / 1);
 }
 html[data-theme="playful"] .text-gray-400 {
-  color: rgb(192 177 230 / 1);
+  color: rgb(203 189 236 / 1);
 }
 html[data-theme="playful"] .text-gray-500 {
-  color: rgb(157 142 199 / 1);
+  color: rgb(179 164 220 / 1);
 }
 html[data-theme="playful"] .text-gray-600 {
-  color: rgb(126 110 166 / 1);
+  color: rgb(151 135 196 / 1);
 }
 html[data-theme="playful"] .text-gray-950 {
-  color: rgb(95 81 136 / 1);
+  color: rgb(111 97 152 / 1);
 }
 html[data-theme="playful"] .text-green-300 {
   color: rgb(125 255 172 / 1);

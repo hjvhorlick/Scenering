@@ -5,6 +5,7 @@ import type { TimelineInsert } from "../types";
 import StickerPreviewCanvas from "./StickerPreviewCanvas";
 import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
 import { MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
+import { startPreviewLoop } from "../lib/preview-loop";
 
 interface EffectVisualPreviewProps {
   item: CatalogItem;
@@ -47,14 +48,8 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     } as unknown as TimelineInsert;
 
     const startedAt = performance.now();
-    let raf = 0;
-    let lastPaint = 0;
 
     const renderLoop = (now: number) => {
-      raf = requestAnimationFrame(renderLoop);
-      // ~30fps is plenty for a thumbnail and keeps a grid of cards cheap
-      if (now - lastPaint < 33) return;
-      lastPaint = now;
       const elapsed = (now - startedAt) / 1000;
       const w = canvas.width;
       const h = canvas.height;
@@ -78,14 +73,11 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       // No analyser data here: the rhythm engine drives it, exactly like it does
       // whenever a project has no audio loaded yet.
       renderTimelineInsert(ctx, previewInsert, 0.4 + (elapsed % 12), w, h, 0, null, null);
-
-      raf = raf; // keep the handle for cleanup
     };
 
-    raf = requestAnimationFrame(renderLoop);
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-    };
+    // ~30fps is plenty for a thumbnail, and skip painting entirely while the
+    // card is scrolled off-screen so a full catalogue grid can't stall scrolling
+    return startPreviewLoop(canvas, renderLoop, { fps: 30 });
   }, [item]);
 
 

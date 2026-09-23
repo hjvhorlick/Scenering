@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { renderTextTemplate } from "../lib/render-text-template";
 import type { TimelineInsert } from "../types";
 import type { TextTemplateStyle } from "../data/text-templates";
+import { startPreviewLoop } from "../lib/preview-loop";
 
 interface TemplatePreviewCanvasProps {
   templateId: string;
@@ -30,7 +31,6 @@ export default function TemplatePreviewCanvas({
   className = "",
 }: TemplatePreviewCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rafRef = useRef<number>(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -114,16 +114,8 @@ export default function TemplatePreviewCanvas({
     }
 
     const start = performance.now();
-    let last = 0;
-    const tick = (now: number) => {
-      if (now - last >= 33) {
-        last = now;
-        frame(((now - start) / 1000) % LOOP);
-      }
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
+    // ~30fps cap + skip painting while off-screen
+    return startPreviewLoop(canvas, (now) => frame((((now - start) / 1000) % LOOP)), { fps: 30 });
   }, [templateId, content, styleOverrides, width, loop, paused]);
 
   return (

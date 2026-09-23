@@ -705,3 +705,12 @@ html[data-theme="glass"] .t-studio-subbar .t-spill-active {
   box-shadow: 0 6px 18px rgb(168 138 222 / 0.38);
   font-weight: 800;
 }
+
+/* ---- CLASSIC dark readability: lift the low-contrast greys ----
+   Users on dim/older screens reported the mid-grey writing was nearly
+   unreadable, so the helper greys get pulled closer to the body text. */
+html[data-theme="classic"] .text-gray-600 { color: #8b98ac; }
+html[data-theme="classic"] .text-gray-500 { color: #9aa6b9; }
+html[data-theme="classic"] .text-gray-400 { color: #b8c1d0; }
+html[data-theme="classic"] .placeholder-gray-600::placeholder { color: #8b98ac; }
+html[data-theme="classic"] .placeholder-gray-500::placeholder { color: #9aa6b9; }

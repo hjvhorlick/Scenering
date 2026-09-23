@@ -12,7 +12,7 @@ import {
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { loadCaptionFonts } from "../data/caption-styles";
-import { generateAttributionDocument } from "../data/media-library";
+import { generateAttributionDocument, getBackgroundMusicTrack, AMBIENT_STYLE_TO_TRACK } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
 import { getFilterCanvas, getPreset, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
@@ -530,19 +530,42 @@ export default function RenderView({
         console.warn("Carrier oscillator warning:", carrierErr);
       }
 
-      // Ambient background music node
+      // Ambient background music: REAL instrumental recordings from the
+      // library (no synthetic tones). Falls back to the old Web Audio loop
+      // only if the file can't be fetched/decoded.
       let ambientGainNode: AudioNode | null = null;
       if (settings.backgroundMusic !== "none" && settings.musicVolume > 0) {
-        const ambientGain = createAmbientMusicNode(
-          audioCtx,
-          settings.backgroundMusic,
-          totalDuration + 5,
-          settings.musicVolume
-        );
-        if (ambientGain) {
-          ambientGain.connect(dest);
-          ambientGainNode = ambientGain;
+        const styleTrackId = AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic];
+        const track = styleTrackId ? getBackgroundMusicTrack(styleTrackId) : undefined;
+        let ambientGain: AudioNode | null = null;
+        if (track) {
+          try {
+            const res = await fetch(track.url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const musicBuf = await audioCtx.decodeAudioData(await res.arrayBuffer());
+            const src = audioCtx.createBufferSource();
+            src.buffer = musicBuf;
+            src.loop = true; // real tracks loop to fill the whole video
+            const g = audioCtx.createGain();
+            g.gain.value = Math.max(0, Math.min(1, settings.musicVolume)) * 0.85;
+            src.connect(g);
+            g.connect(dest);
+            src.start();
+            ambientGain = g;
+          } catch (musicErr) {
+            console.warn("Real background track failed to load — synth fallback used:", musicErr);
+          }
         }
+        if (!ambientGain) {
+          ambientGain = createAmbientMusicNode(
+            audioCtx,
+            settings.backgroundMusic,
+            totalDuration + 5,
+            settings.musicVolume
+          );
+          if (ambientGain) ambientGain.connect(dest);
+        }
+        ambientGainNode = ambientGain;
       }
 
       // Paint initial background on canvas so captureStream receives valid dimensions & non-empty buffer immediately
@@ -1305,7 +1328,8 @@ export default function RenderView({
       projectTitle: project?.title || "My Video Project",
       soundsUsed: soundUrlsUsed,
       includeBackgroundMusic: settings.backgroundMusic !== "none",
-      musicType: settings.backgroundMusic,
+      // report the REAL track used for the chosen style in the credits doc
+      musicType: AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic] || settings.backgroundMusic,
       imageSources: ["Pexels (CC0 / Free License)", "Pixabay (Content License)"],
       voiceName: voiceDisplay,
       voiceGender: isCustomImport ? "User Prepared Voice" : isMale ? "Male Narrator" : "Female Narrator",

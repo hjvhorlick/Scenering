@@ -209,8 +209,8 @@ const THEME_SPECS = {
         600: [96, 114, 143, 0.6], 500: [126, 143, 170], white: [203, 213, 225, 0.35], black: [0, 0, 0, 0.5],
       },
       text: {
-        white: "#f2f6fc", 200: "#d9e1ee", 300: "#bfcadd", 400: "#96a3ba",
-        500: "#7b89a2", 600: "#5c6880", 700: "#48546c", black: "#0b0f16",
+        white: "#f4f8fd", 200: "#e2e9f4", 300: "#c9d4e4", 400: "#aab8cc",
+        500: "#93a2b9", 600: "#7d8ba2", 700: "#5f6c84", black: "#0b0f16",
       },
     },
     accent: {
@@ -233,8 +233,8 @@ const THEME_SPECS = {
         500: [147, 127, 196], white: "#ffffff", black: [10, 7, 18],
       },
       text: {
-        white: "#ffffff", 200: "#f3edff", 300: "#ddd2f7", 400: "#c0b1e6",
-        500: "#9d8ec7", 600: "#7e6ea6", 700: "#5f5188", black: "#0d0a16",
+        white: "#ffffff", 200: "#f5f0ff", 300: "#e4dbfa", 400: "#cbbdec",
+        500: "#b3a4dc", 600: "#9787c4", 700: "#6f6198", black: "#0d0a16",
       },
     },
     accent: {
