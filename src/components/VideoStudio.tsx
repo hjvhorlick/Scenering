@@ -277,13 +277,13 @@ export default function VideoStudio({
                 setSelectedCategory(cat.id);
                 setSelectedSubcategory("all");
               }}
-              className={`px-3.5 py-2 rounded-t-lg font-medium text-xs whitespace-nowrap transition-all flex items-center gap-2 border-t border-x ${
+              className={`t-stab px-4 py-2.5 rounded-t-lg font-semibold text-sm whitespace-nowrap transition-all flex items-center gap-2 border-t border-x ${
                 isSelected
-                  ? "bg-gray-950 text-white border-gray-700 border-b-2 border-b-transparent shadow-sm"
+                  ? "t-stab-active bg-gray-950 text-white border-gray-700 border-b-2 border-b-transparent shadow-sm"
                   : "bg-gray-900/30 text-gray-400 border-transparent hover:text-gray-200 hover:bg-gray-800/40"
               }`}
             >
-              <span className="t-ico text-sm">{cat.icon}</span>
+              <span className="t-ico text-base">{cat.icon}</span>
               <span>
                 {idx + 1}. {cat.name}
               </span>
@@ -303,9 +303,9 @@ export default function VideoStudio({
                 key={sub.id}
                 type="button"
                 onClick={() => setSelectedSubcategory(sub.id)}
-                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                className={`t-spill px-3 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 ${
                   isSubSelected
-                    ? "bg-indigo-600 text-white shadow-sm"
+                    ? "t-spill-active bg-indigo-600 text-white shadow-md"
                     : "bg-gray-800/70 text-gray-300 hover:bg-gray-700/80 hover:text-white"
                 }`}
               >

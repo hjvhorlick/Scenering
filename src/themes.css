@@ -511,3 +511,197 @@ html[data-theme="apple"] * { scrollbar-color: #c7c7cc transparent; }
 html[data-theme="windows"] * { scrollbar-color: #2d7fd9 transparent; }
 html[data-theme="playful"] * { scrollbar-color: #604e91 transparent; }
 html[data-theme="glass"] * { scrollbar-color: #b79ee6 transparent; }
+
+/* ================================================================== */
+/*  GUIDANCE UPGRADE — the elements that walk the user through the     */
+/*  app are deliberately loud: the active step tab, the NEXT step tab  */
+/*  (with a pulsing cue dot), the hero Next button (expanding halo +   */
+/*  nudging arrow), and the Video Studio main tabs / sub-pills.        */
+/*  Appended last so these rules win over the sections above.          */
+/* ================================================================== */
+
+:root {
+  --t-cue: rgb(129 140 248 / 0.9);
+  --t-halo: rgb(139 92 246 / 0.7);
+}
+html[data-theme="apple"]   { --t-cue: rgb(10 132 255 / 0.9);   --t-halo: rgb(0 122 255 / 0.5); }
+html[data-theme="windows"] { --t-cue: rgb(76 194 255 / 0.9);   --t-halo: rgb(76 194 255 / 0.55); }
+html[data-theme="playful"] { --t-cue: rgb(255 210 63 / 0.95);  --t-halo: rgb(255 210 63 / 0.8); }
+html[data-theme="glass"]   { --t-cue: rgb(164 136 221 / 0.9);  --t-halo: rgb(168 138 222 / 0.75); }
+
+/* pulsing dot shown inside the NEXT step tab */
+@keyframes tCuePulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.75); }
+  50%      { opacity: 1;    transform: scale(1.2); }
+}
+.t-next-cue {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--t-cue);
+  animation: tCuePulse 1.8s ease-in-out infinite;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+/* glowing ring that draws the eye to the next step tab */
+@keyframes tNextPulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0); }
+  50%      { box-shadow: inset 0 0 0 2px var(--t-cue); }
+}
+.t-tab-next {
+  animation: tNextPulse 2.2s ease-in-out infinite;
+  font-weight: 700;
+}
+
+/* expanding halo behind the hero Next button (keeps the base shadow) */
+@keyframes tHeroHalo {
+  0%   { opacity: 0.9; transform: scale(0.97); }
+  70%  { opacity: 0;   transform: scale(1.1); }
+  100% { opacity: 0;   transform: scale(1.1); }
+}
+.t-hero-pulse {
+  position: relative;
+  z-index: 0;
+}
+.t-hero-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  z-index: -1;
+  border: 2px solid var(--t-halo);
+  opacity: 0;
+  animation: tHeroHalo 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+/* the → on the hero Next button gently nudges forward */
+@keyframes tNudge {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(3px); }
+}
+.t-hero-arrow {
+  display: inline-block;
+  animation: tNudge 1.6s ease-in-out infinite;
+  font-weight: 800;
+}
+
+/* ------------ header phase tabs: ACTIVE state per theme ------------ */
+
+html[data-theme="classic"] .t-tabbar .t-tab-active {
+  background: linear-gradient(90deg, #4f46e5, #7c3aed);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgb(165 180 252 / 0.6), 0 5px 18px rgb(79 70 229 / 0.55);
+}
+html[data-theme="apple"] .t-tabbar .t-tab-active {
+  background: #ffffff;
+  color: #007aff;
+  font-weight: 800;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.16), 0 0 0 0.5px rgb(0 0 0 / 0.04);
+}
+html[data-theme="windows"] .t-tabbar .t-tab-active {
+  background: #4cc2ff;
+  color: #08192b;
+  font-weight: 800;
+  box-shadow: 0 4px 16px rgb(76 194 255 / 0.4);
+}
+html[data-theme="playful"] .t-tabbar .t-tab-active {
+  background: linear-gradient(90deg, #7c3aed, #f43f8e);
+  color: #ffffff;
+  font-weight: 800;
+  border: 2px solid #120a1e;
+  box-shadow: 3px 3px 0 rgb(10 6 22 / 0.8);
+}
+html[data-theme="glass"] .t-tabbar .t-tab-active {
+  background: rgb(255 255 255 / 0.9);
+  color: #4a3b73;
+  font-weight: 800;
+  box-shadow: 0 8px 22px rgb(150 120 200 / 0.35), inset 0 1px 0 #ffffff;
+}
+
+/* ------------ header phase tabs: NEXT-step color cue ------------ */
+
+html[data-theme="classic"] .t-tabbar .t-tab-next { color: #c7d2fe; }
+html[data-theme="apple"]   .t-tabbar .t-tab-next { color: #0a84ff; }
+html[data-theme="windows"] .t-tabbar .t-tab-next { color: #96d9ff; }
+html[data-theme="playful"] .t-tabbar .t-tab-next { color: #ffd23f; }
+html[data-theme="glass"]   .t-tabbar .t-tab-next { color: #7a5fc0; }
+
+/* ------------ Video Studio main tabs: ACTIVE state ------------ */
+
+html[data-theme="classic"] .t-studio-tabbar .t-stab-active {
+  background: linear-gradient(180deg, #4f46e5, #4338ca);
+  color: #ffffff;
+  border-color: rgb(129 140 248 / 0.7);
+  box-shadow: 0 6px 18px rgb(79 70 229 / 0.45);
+  font-weight: 800;
+}
+html[data-theme="apple"] .t-studio-tabbar .t-stab-active {
+  background: #ffffff;
+  color: #007aff;
+  border-color: #c7c7cc;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.12);
+  font-weight: 800;
+}
+html[data-theme="windows"] .t-studio-tabbar .t-stab-active {
+  background: #4cc2ff;
+  color: #08192b;
+  border-color: rgb(255 255 255 / 0.4);
+  box-shadow: 0 6px 18px rgb(76 194 255 / 0.35);
+  font-weight: 800;
+}
+html[data-theme="playful"] .t-studio-tabbar .t-stab-active {
+  background: linear-gradient(90deg, #7c3aed, #f43f8e);
+  color: #ffffff;
+  border: 2px solid #120a1e;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 3px -1px 0 rgb(10 6 22 / 0.5);
+  font-weight: 800;
+}
+html[data-theme="glass"] .t-studio-tabbar .t-stab-active {
+  background: rgb(255 255 255 / 0.85);
+  color: #4a3b73;
+  border-color: #ffffff;
+  box-shadow: 0 8px 22px rgb(150 120 200 / 0.3), inset 0 1px 0 #ffffff;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-weight: 800;
+}
+
+/* ------------ Video Studio sub-section pills: ACTIVE state ------------ */
+
+html[data-theme="classic"] .t-studio-subbar .t-spill-active {
+  background: linear-gradient(90deg, #4f46e5, #7c3aed);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgb(165 180 252 / 0.5), 0 3px 12px rgb(79 70 229 / 0.45);
+  font-weight: 800;
+}
+html[data-theme="apple"] .t-studio-subbar .t-spill-active {
+  background: #007aff;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgb(0 122 255 / 0.4);
+  font-weight: 800;
+}
+html[data-theme="windows"] .t-studio-subbar .t-spill-active {
+  background: #4cc2ff;
+  color: #08192b;
+  box-shadow: 0 4px 14px rgb(76 194 255 / 0.4);
+  font-weight: 800;
+}
+html[data-theme="playful"] .t-studio-subbar .t-spill-active {
+  background: linear-gradient(90deg, #ffd23f, #ff8fab);
+  color: #2b0f2e;
+  border: 2px solid #120a1e;
+  box-shadow: 3px 3px 0 rgb(10 6 22 / 0.8);
+  font-weight: 800;
+}
+html[data-theme="glass"] .t-studio-subbar .t-spill-active {
+  background: linear-gradient(120deg, rgb(255 255 255 / 0.95), rgb(224 209 250 / 0.85));
+  color: #4a3b73;
+  border: 1px solid #ffffff;
+  box-shadow: 0 6px 18px rgb(168 138 222 / 0.38);
+  font-weight: 800;
+}

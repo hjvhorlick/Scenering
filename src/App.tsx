@@ -1091,38 +1091,48 @@ export default function App() {
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
           <div className="t-tabbar flex items-center bg-gray-800/80 border border-gray-700/80 rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto scrollbar-thin order-last w-full sm:order-none sm:w-auto">
-            {PROJECT_PHASES.map((phase, i) => {
-              const isActive =
-                phase.id === "setup" ? view === "create" : view === "editor" && editorStep === phase.editorStep;
-              return (
-                <button
-                  key={phase.id}
-                  onClick={() => navigateToPhase(phase.id)}
-                  title={
-                    phase.id !== "setup" && !currentProject
-                      ? "Create a project on the Setup screen first"
-                      : phase.purpose
-                  }
-                  className={`px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 whitespace-nowrap ${
-                    isActive
-                      ? phase.id === "render"
-                        ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow font-semibold"
-                        : "bg-indigo-600 text-white shadow font-semibold"
-                      : phase.id !== "setup" && !currentProject
-                      ? "text-gray-600 cursor-not-allowed"
-                      : "text-gray-400 hover:text-white"
-                  }`}
-                >
-                  <span className="flex items-center gap-1 whitespace-nowrap">
-                    <span className="text-gray-500 sm:text-inherit">{i + 1}.</span>
-                    <span className="t-ico">{phase.icon}</span>
-                    {/* The word is dropped on phones; the number and icon still
-                        identify the step and the row stops overflowing. */}
-                    <span className="hidden xs:inline sm:inline">{phase.tab}</span>
-                  </span>
-                </button>
+            {(() => {
+              const activeIdx = PROJECT_PHASES.findIndex((phase) =>
+                phase.id === "setup" ? view === "create" : view === "editor" && editorStep === phase.editorStep
               );
-            })}
+              return PROJECT_PHASES.map((phase, i) => {
+                const isActive = i === activeIdx;
+                const isNext = activeIdx >= 0 && i === activeIdx + 1;
+                return (
+                  <button
+                    key={phase.id}
+                    onClick={() => navigateToPhase(phase.id)}
+                    title={
+                      phase.id !== "setup" && !currentProject
+                        ? "Create a project on the Setup screen first"
+                        : phase.purpose
+                    }
+                    className={`t-tab px-3 sm:px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap ${
+                      isActive
+                        ? `t-tab-active ${
+                            phase.id === "render"
+                              ? "bg-gradient-to-r from-purple-600 to-indigo-600"
+                              : "bg-indigo-600"
+                          } text-white shadow font-bold`
+                        : isNext && !(phase.id !== "setup" && !currentProject)
+                        ? "t-tab-next text-gray-200"
+                        : phase.id !== "setup" && !currentProject
+                        ? "text-gray-600 cursor-not-allowed"
+                        : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    <span className="flex items-center gap-1 whitespace-nowrap">
+                      <span className="text-gray-500 sm:text-inherit">{i + 1}.</span>
+                      <span className="t-ico">{phase.icon}</span>
+                      {/* The word is dropped on phones; the number and icon still
+                          identify the step and the row stops overflowing. */}
+                      <span className="hidden xs:inline sm:inline">{phase.tab}</span>
+                      {isNext && <span className="t-next-cue" aria-hidden="true" />}
+                    </span>
+                  </button>
+                );
+              });
+            })()}
           </div>
 
           <div className="ml-auto flex items-center gap-2 shrink-0">

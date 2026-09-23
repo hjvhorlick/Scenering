@@ -146,7 +146,7 @@ export default function StepNav({
             type="button"
             disabled={nextDisabled || busy}
             onClick={() => (onNext ? onNext() : onNavigate(nextPhase.id))}
-            className="t-btn-hero w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow transition-all flex items-center justify-center gap-1.5"
+            className="t-btn-hero t-hero-pulse w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
             title={`Continue to ${nextPhase.phase}: ${nextPhase.purpose}`}
           >
             {busy ? (
@@ -157,7 +157,7 @@ export default function StepNav({
             ) : (
               <>
                 <span>{nextLabel || `Next: ${nextPhase.phase}`}</span>
-                <span>→</span>
+                <span className="t-hero-arrow">→</span>
               </>
             )}
           </button>
