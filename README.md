@@ -41,6 +41,25 @@ Narration falls back in that order automatically, so it never hard-fails — if
 every option is unavailable you get a silent track of the right length and the
 video still renders.
 
+## Themes
+
+The app ships with five switchable looks — click the **🎨 Theme** button in
+the top-right corner:
+
+| Theme | Feel |
+|---|---|
+| **Classic Dark** | The original dark panels with thin lines |
+| **Apple Light** | Crisp white, sharp borders, clean line icons — fits iPad & iPhone |
+| **Fluent 11** | Windows 11 style: darker frosted see-through panels, rounded corners |
+| **Neon Pop** | Colourful, fun, chunky 2D depth on deep purple-charcoal |
+| **Fairytale Glass** | Frosted glass, pastels, elegant serif type |
+
+The choice is remembered in your browser. Themes are implemented as a CSS
+layer (`src/themes.css` for the hand-crafted design language,
+`src/themes.generated.css` for the machine-built utility colour matrix) plus
+a small registry in `src/lib/themes.ts`. If you add new colour utility
+classes to components, regenerate the matrix with `npm run theme:css`.
+
 ## How a project flows
 
 1. **Setup** — title, script, aspect ratio, scene length and camera motion.

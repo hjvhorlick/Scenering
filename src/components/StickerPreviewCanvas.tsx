@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { computeMotion, applyMotion, type MotionPreset } from "../lib/overlay-motion";
 import { drawSticker, resolveStickerId } from "../lib/sticker-3d";
 
+import { startPreviewLoop } from "../lib/preview-loop";
 interface StickerPreviewCanvasProps {
   stickerId: string;
   motionPreset?: string;
@@ -38,7 +39,6 @@ export default function StickerPreviewCanvas({
   className = "",
 }: StickerPreviewCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rafRef = useRef<number>(0);
   const startRef = useRef<number>(performance.now());
 
   useEffect(() => {
@@ -57,15 +57,7 @@ export default function StickerPreviewCanvas({
     // loop the motion over 4s so short presets still read as continuous
     const LOOP = 4;
 
-    let last = 0;
     const draw = (now: number) => {
-      // ~30fps is plenty for a thumbnail and keeps a full grid cheap
-      if (now - last < 33) {
-        rafRef.current = requestAnimationFrame(draw);
-        return;
-      }
-      last = now;
-
       const elapsed = ((now - startRef.current) / 1000) % LOOP;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -108,8 +100,6 @@ export default function StickerPreviewCanvas({
       applyMotion(ctx, motion);
       drawSticker(ctx, resolved, { motion, time: elapsed, tint, shadow, glow });
       ctx.restore();
-
-      rafRef.current = requestAnimationFrame(draw);
     };
 
     if (paused) {
@@ -129,10 +119,12 @@ export default function StickerPreviewCanvas({
       ctx.restore();
     } else {
       startRef.current = performance.now();
-      rafRef.current = requestAnimationFrame(draw);
+      // ~30fps cap + skip painting while off-screen (keeps scrolling smooth
+      // on slower machines, even with dozens of sticker cards mounted)
+      return startPreviewLoop(canvas, draw, { fps: 30 });
     }
 
-    return () => cancelAnimationFrame(rafRef.current);
+    return undefined;
   }, [stickerId, motionPreset, motionSpeed, motionAmount, tint, glow, shadow, size, paused, backdrop]);
 
   return (

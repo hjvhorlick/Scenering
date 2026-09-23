@@ -140,7 +140,7 @@ const OUTRO_PRESETS = [
     id: "outro_cinematic_sunset",
     name: "Cinematic Sunset & Social Hub",
     videoUrl: "/videos/outros/outro_cinematic_sunset.mp4",
-    soundUrl: "/sounds/gentle_reflection.mp3",
+    soundUrl: "/sounds/real_gentle_reflection.mp3",
     icon: "🌅",
     desc: "Warm twilight bokeh background with social handles showcase",
   },

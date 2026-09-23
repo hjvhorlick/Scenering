@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
+import { startPreviewLoop } from "../lib/preview-loop";
 
 /* A synthetic "scene" is painted whenever no real project image is available,
    so every filter example still shows a believable photo-like frame. */
@@ -90,7 +91,6 @@ export default function FilterPreviewCanvas({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const rafRef = useRef<number>(0);
   const startRef = useRef<number>(performance.now());
   const stateRef = useRef({ config, showOriginal, paused });
 
@@ -120,14 +120,7 @@ export default function FilterPreviewCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    let lastPaint = 0;
-
     const draw = (now: number) => {
-      rafRef.current = requestAnimationFrame(draw);
-      // thumbnails animate at ~24fps to keep a full grid cheap
-      if (now - lastPaint < 41) return;
-      lastPaint = now;
-
       const { config: cfg, showOriginal: orig, paused: isPaused } = stateRef.current;
       const t = isPaused ? 1.2 : (now - startRef.current) / 1000;
       const w = canvas.width;
@@ -169,8 +162,9 @@ export default function FilterPreviewCanvas({
       if (!orig && cfg) paintVideoFilter(ctx, cfg, w, h, t);
     };
 
-    rafRef.current = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(rafRef.current);
+    // ~24fps thumbnails + no painting while off-screen — a full filter grid
+    // can hold dozens of animated canvases, which used to stall scrolling
+    return startPreviewLoop(canvas, draw, { fps: 24 });
   }, [width, height]);
 
   return <canvas ref={canvasRef} className={className} />;

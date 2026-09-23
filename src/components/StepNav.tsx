@@ -115,15 +115,15 @@ export default function StepNav({
           <button
             type="button"
             onClick={() => onNavigate(prevPhase.id)}
-            className="w-full sm:w-auto px-3.5 py-2 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-xl text-xs font-semibold text-gray-200 hover:text-white transition-colors flex items-center justify-center gap-1.5"
+            className="t-btn-hero-ghost w-full sm:w-auto px-3.5 py-2 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-xl text-xs font-semibold text-gray-200 hover:text-white transition-colors flex items-center justify-center gap-1.5"
             title={`Go back to ${prevPhase.phase}`}
           >
-            <span>←</span>
+            <span className="t-ico">←</span>
             <span>Previous: {prevPhase.phase}</span>
           </button>
         ) : (
           <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-gray-500 px-1">
-            <span>🏁</span>
+            <span className="t-ico">🏁</span>
             <span>First phase</span>
           </span>
         )}
@@ -133,7 +133,7 @@ export default function StepNav({
       <div className="flex-1 min-w-0 text-center sm:text-left">
         <p className="text-[11px] text-gray-400 truncate">
           <span className="text-gray-300 font-semibold">
-            {getPhase(current).icon} {getPhase(current).phase}
+            <span className="t-ico">{getPhase(current).icon}</span> {getPhase(current).phase}
           </span>
           {note ? <span className="text-gray-500"> — {note}</span> : null}
         </p>
@@ -146,24 +146,24 @@ export default function StepNav({
             type="button"
             disabled={nextDisabled || busy}
             onClick={() => (onNext ? onNext() : onNavigate(nextPhase.id))}
-            className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow transition-all flex items-center justify-center gap-1.5"
+            className="t-btn-hero t-hero-pulse w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
             title={`Continue to ${nextPhase.phase}: ${nextPhase.purpose}`}
           >
             {busy ? (
               <>
-                <span className="animate-spin">⏳</span>
+                <span className="t-ico animate-spin">⏳</span>
                 <span>{busyLabel}</span>
               </>
             ) : (
               <>
                 <span>{nextLabel || `Next: ${nextPhase.phase}`}</span>
-                <span>→</span>
+                <span className="t-hero-arrow">→</span>
               </>
             )}
           </button>
         ) : (
           <span className="flex items-center justify-center gap-1.5 text-[11px] text-emerald-300 px-1">
-            <span>✅</span>
+            <span className="t-ico">✅</span>
             <span>Final phase — render & download</span>
           </span>
         )}
