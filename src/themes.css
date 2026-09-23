@@ -1,0 +1,716 @@
+/* ================================================================== */
+/*  Scenering theme system — hand-crafted design language per theme    */
+/*                                                                     */
+/*  What lives here (per theme):                                       */
+/*    • corner radii, shadows, fonts, page backdrop                    */
+/*    • the HERO treatments that make the main choices pop:            */
+/*        .t-btn-hero        primary top-section CTA (StepNav Next…)   */
+/*        .t-btn-hero-ghost  secondary top-section action              */
+/*        .t-card-cta        Video Studio "Add / Insert" buttons       */
+/*        .t-card-cta-ghost  Video Studio "Edit" buttons               */
+/*        .t-tabbar          the phase tabs in the header              */
+/*        .t-studio-tabbar   Video Studio main category tabs           */
+/*        .t-studio-subbar   Video Studio sub-section pills            */
+/*    • .t-ico  emoji-icon treatment (Apple line-look, fairy glow…)    */
+/*                                                                     */
+/*  Plain colour remapping lives in themes.generated.css (machine      */
+/*  built). This file is imported AFTER it, so at equal specificity    */
+/*  these rules win.                                                   */
+/* ================================================================== */
+
+/* ---------------- shared bits ------------------------------------- */
+
+html[data-theme] body {
+  transition: background-color 0.25s ease;
+}
+
+/* ================================================================== */
+/* 1 · CLASSIC — the original look. Nothing overridden: dark panels,   */
+/*    thin lines, indigo accents. Only the hero treatments are added   */
+/*    so the main choices still stand forward.                         */
+/* ================================================================== */
+
+html[data-theme="classic"] .t-btn-hero {
+  background: linear-gradient(90deg, #4f46e5, #7c3aed);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgb(129 140 248 / 0.45), 0 10px 24px rgb(79 70 229 / 0.35);
+}
+html[data-theme="classic"] .t-btn-hero:hover:not(:disabled) {
+  background: linear-gradient(90deg, #5352ec, #8a4bf5);
+}
+html[data-theme="classic"] .t-btn-hero-ghost {
+  border-color: rgb(99 102 241 / 0.5);
+}
+html[data-theme="classic"] .t-card-cta {
+  box-shadow: 0 0 0 1px rgb(129 140 248 / 0.35), 0 4px 14px rgb(79 70 229 / 0.3);
+}
+
+/* ================================================================== */
+/* 2 · APPLE — crisp white, sharp corners, line borders, clean icons.  */
+/* ================================================================== */
+
+html[data-theme="apple"] {
+  color-scheme: light;
+}
+
+html[data-theme="apple"] body {
+  background: #e9e9ee;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: -0.011em;
+}
+html[data-theme="apple"] .font-sans {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* sharp corners everywhere (pills/circles keep their shape) */
+html[data-theme="apple"] .rounded     { border-radius: 2px; }
+html[data-theme="apple"] .rounded-sm  { border-radius: 1px; }
+html[data-theme="apple"] .rounded-md  { border-radius: 2px; }
+html[data-theme="apple"] .rounded-lg  { border-radius: 3px; }
+html[data-theme="apple"] .rounded-xl  { border-radius: 4px; }
+html[data-theme="apple"] .rounded-2xl { border-radius: 6px; }
+
+/* crisp, short, "printed-on-paper" shadows */
+html[data-theme="apple"] .shadow       { --tw-shadow: 0 1px 2px rgb(0 0 0 / 0.08); --tw-shadow-colored: 0 1px 2px var(--tw-shadow-color); }
+html[data-theme="apple"] .shadow-sm    { --tw-shadow: 0 1px 1px rgb(0 0 0 / 0.06); --tw-shadow-colored: 0 1px 1px var(--tw-shadow-color); }
+html[data-theme="apple"] .shadow-md    { --tw-shadow: 0 2px 6px rgb(0 0 0 / 0.09); --tw-shadow-colored: 0 2px 6px var(--tw-shadow-color); }
+html[data-theme="apple"] .shadow-lg    { --tw-shadow: 0 4px 14px rgb(0 0 0 / 0.11); --tw-shadow-colored: 0 4px 14px var(--tw-shadow-color); }
+html[data-theme="apple"] .shadow-xl    { --tw-shadow: 0 8px 26px rgb(0 0 0 / 0.13); --tw-shadow-colored: 0 8px 26px var(--tw-shadow-color); }
+html[data-theme="apple"] .shadow-2xl   { --tw-shadow: 0 14px 40px rgb(0 0 0 / 0.17); --tw-shadow-colored: 0 14px 40px var(--tw-shadow-color); }
+html[data-theme="apple"] .shadow-inner { --tw-shadow: inset 0 1px 3px rgb(0 0 0 / 0.07); --tw-shadow-colored: inset 0 1px 3px var(--tw-shadow-color); }
+
+/* clean monochrome line-icon look on top of the emojis already in the UI */
+html[data-theme="apple"] .t-ico {
+  filter: grayscale(1) brightness(0.22) contrast(1.15);
+}
+
+/* hero buttons: iOS filled blue, slightly rounded rect, confident */
+html[data-theme="apple"] .t-btn-hero,
+html[data-theme="apple"] .t-card-cta {
+  background: #007aff;
+  color: #ffffff;
+  border: 1px solid rgb(0 90 210 / 0.55);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 122 255 / 0.32), inset 0 1px 0 rgb(255 255 255 / 0.22);
+  font-weight: 700;
+}
+html[data-theme="apple"] .t-btn-hero:hover:not(:disabled),
+html[data-theme="apple"] .t-card-cta:hover:not(:disabled) {
+  background: #0a84ff;
+  box-shadow: 0 3px 12px rgb(0 122 255 / 0.4), inset 0 1px 0 rgb(255 255 255 / 0.25);
+}
+html[data-theme="apple"] .t-btn-hero-ghost,
+html[data-theme="apple"] .t-card-cta-ghost {
+  background: #ffffff;
+  color: #007aff;
+  border: 1px solid #d2d2d7;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+}
+html[data-theme="apple"] .t-btn-hero-ghost:hover:not(:disabled),
+html[data-theme="apple"] .t-card-cta-ghost:hover:not(:disabled) {
+  border-color: #aeaeb2;
+  color: #005ec4;
+}
+
+/* header phase tabs → iOS segmented control */
+html[data-theme="apple"] .t-tabbar {
+  background: rgb(228 228 235 / 0.95) !important;
+  border-color: rgb(199 199 204 / 0.85) !important;
+}
+html[data-theme="apple"] .t-tabbar button.bg-indigo-600,
+html[data-theme="apple"] .t-tabbar button.from-purple-600 {
+  background: #ffffff;
+  color: #1d1d1f;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.14), 0 0 0 0.5px rgb(0 0 0 / 0.03);
+}
+
+/* Video Studio main tabs */
+html[data-theme="apple"] .t-studio-tabbar {
+  background: rgb(245 245 247 / 0.92);
+}
+html[data-theme="apple"] .t-studio-tabbar button.bg-gray-950 {
+  background: #ffffff;
+  color: #007aff;
+  border-color: #c7c7cc;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+  font-weight: 700;
+}
+html[data-theme="apple"] .t-studio-subbar {
+  background: rgb(250 250 252 / 0.8);
+}
+html[data-theme="apple"] .t-studio-subbar button.bg-indigo-600 {
+  background: #007aff;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgb(0 122 255 / 0.35);
+  font-weight: 700;
+}
+
+html[data-theme="apple"] ::selection { background: rgb(0 122 255 / 0.25); }
+html[data-theme="apple"] *:focus-visible { outline: 2px solid rgb(0 122 255 / 0.55); outline-offset: 1px; }
+
+/* ================================================================== */
+/* 3 · FLUENT 11 — Windows 11 mica: darker, see-through frosted        */
+/*    panels, rounded corners, modern Segoe type.                      */
+/* ================================================================== */
+
+html[data-theme="windows"] {
+  color-scheme: dark;
+}
+
+html[data-theme="windows"] body {
+  background:
+    radial-gradient(1200px 800px at 15% -10%, rgb(76 194 255 / 0.12), transparent 60%),
+    radial-gradient(1000px 700px at 110% 10%, rgb(120 80 220 / 0.14), transparent 55%),
+    linear-gradient(160deg, #10161f, #0c1119 70%);
+  background-attachment: fixed;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
+html[data-theme="windows"] .font-sans {
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
+
+/* the sticky top bar gets real acrylic: you see the content slide behind it */
+html[data-theme="windows"] .t-app-hdr,
+html[data-theme="windows"] .t-theme-menu {
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+}
+
+/* Windows radii: 4px controls, 8px cards */
+html[data-theme="windows"] .rounded     { border-radius: 4px; }
+html[data-theme="windows"] .rounded-sm  { border-radius: 4px; }
+html[data-theme="windows"] .rounded-md  { border-radius: 6px; }
+html[data-theme="windows"] .rounded-lg  { border-radius: 8px; }
+html[data-theme="windows"] .rounded-xl  { border-radius: 8px; }
+html[data-theme="windows"] .rounded-2xl { border-radius: 10px; }
+
+/* deep, soft ambient shadows */
+html[data-theme="windows"] .shadow       { --tw-shadow: 0 2px 6px rgb(2 6 14 / 0.4); --tw-shadow-colored: 0 2px 6px var(--tw-shadow-color); }
+html[data-theme="windows"] .shadow-sm    { --tw-shadow: 0 1px 3px rgb(2 6 14 / 0.35); --tw-shadow-colored: 0 1px 3px var(--tw-shadow-color); }
+html[data-theme="windows"] .shadow-md    { --tw-shadow: 0 4px 14px rgb(2 6 14 / 0.45); --tw-shadow-colored: 0 4px 14px var(--tw-shadow-color); }
+html[data-theme="windows"] .shadow-lg    { --tw-shadow: 0 8px 26px rgb(2 6 14 / 0.5); --tw-shadow-colored: 0 8px 26px var(--tw-shadow-color); }
+html[data-theme="windows"] .shadow-xl    { --tw-shadow: 0 14px 40px rgb(2 6 14 / 0.55); --tw-shadow-colored: 0 14px 40px var(--tw-shadow-color); }
+html[data-theme="windows"] .shadow-2xl   { --tw-shadow: 0 20px 60px rgb(2 6 14 / 0.6); --tw-shadow-colored: 0 20px 60px var(--tw-shadow-color); }
+html[data-theme="windows"] .shadow-inner { --tw-shadow: inset 0 1px 3px rgb(2 6 14 / 0.4); --tw-shadow-colored: inset 0 1px 3px var(--tw-shadow-color); }
+
+/* icons cool down slightly to sit with the palette */
+html[data-theme="windows"] .t-ico {
+  filter: saturate(1.1) hue-rotate(185deg) brightness(1.06);
+}
+
+/* hero: Fluent accent layer — light-blue fill, dark ink, glow edge */
+html[data-theme="windows"] .t-btn-hero,
+html[data-theme="windows"] .t-card-cta {
+  background: linear-gradient(180deg, #5dc6ff, #3ba7ec);
+  color: #08192b;
+  border: 1px solid rgb(255 255 255 / 0.4);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 6px 18px rgb(76 194 255 / 0.28);
+  font-weight: 700;
+}
+html[data-theme="windows"] .t-btn-hero:hover:not(:disabled),
+html[data-theme="windows"] .t-card-cta:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+html[data-theme="windows"] .t-btn-hero-ghost,
+html[data-theme="windows"] .t-card-cta-ghost {
+  background: rgb(255 255 255 / 0.06);
+  color: #96d9ff;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 6px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+html[data-theme="windows"] .t-btn-hero-ghost:hover:not(:disabled),
+html[data-theme="windows"] .t-card-cta-ghost:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.11);
+  color: #c4e7ff;
+}
+
+/* header phase tabs: subtle layer + accent underline for the active one */
+html[data-theme="windows"] .t-tabbar button.bg-indigo-600,
+html[data-theme="windows"] .t-tabbar button.from-purple-600 {
+  background: rgb(255 255 255 / 0.08);
+  color: #eaf4ff;
+  box-shadow: inset 0 -2px 0 #4cc2ff;
+}
+
+/* Video Studio tabs */
+html[data-theme="windows"] .t-studio-tabbar button.bg-gray-950 {
+  background: rgb(255 255 255 / 0.07);
+  color: #eaf4ff;
+  border-color: rgb(255 255 255 / 0.14);
+  box-shadow: inset 0 -2px 0 #4cc2ff;
+}
+html[data-theme="windows"] .t-studio-subbar button.bg-indigo-600 {
+  background: #4cc2ff;
+  color: #08192b;
+  box-shadow: 0 4px 14px rgb(76 194 255 / 0.3);
+  font-weight: 700;
+}
+
+html[data-theme="windows"] ::selection { background: rgb(76 194 255 / 0.35); }
+html[data-theme="windows"] *:focus-visible { outline: 2px solid rgb(76 194 255 / 0.6); outline-offset: 1px; }
+
+/* ================================================================== */
+/* 4 · NEON POP — colourful, fun, flat-ish 2D shapes with hard offset  */
+/*    shadows for depth, on deep purple-charcoal.                      */
+/* ================================================================== */
+
+html[data-theme="playful"] {
+  color-scheme: dark;
+}
+
+html[data-theme="playful"] body {
+  background:
+    radial-gradient(900px 600px at 90% -10%, rgb(244 63 142 / 0.16), transparent 55%),
+    radial-gradient(900px 700px at -10% 20%, rgb(124 58 237 / 0.18), transparent 60%),
+    linear-gradient(150deg, #1a1428, #120e1e 70%);
+  background-attachment: fixed;
+  font-family: "Baloo 2", ui-rounded, "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0.01em;
+}
+html[data-theme="playful"] .font-sans {
+  font-family: "Baloo 2", ui-rounded, "Segoe UI", system-ui, sans-serif;
+}
+html[data-theme="playful"] h1,
+html[data-theme="playful"] h2,
+html[data-theme="playful"] h3,
+html[data-theme="playful"] h4 {
+  font-weight: 800;
+}
+
+/* chunky corners + bolder outlines for the cartoon feel */
+html[data-theme="playful"] .rounded     { border-radius: 10px; }
+html[data-theme="playful"] .rounded-sm  { border-radius: 8px; }
+html[data-theme="playful"] .rounded-md  { border-radius: 12px; }
+html[data-theme="playful"] .rounded-lg  { border-radius: 14px; }
+html[data-theme="playful"] .rounded-xl  { border-radius: 16px; }
+html[data-theme="playful"] .rounded-2xl { border-radius: 20px; }
+html[data-theme="playful"] .border      { border-width: 2px; }
+
+/* hard-edge offset shadows = 2D depth */
+html[data-theme="playful"] .shadow,
+html[data-theme="playful"] .shadow-sm    { --tw-shadow: 2px 2px 0 rgb(10 6 22 / 0.55); --tw-shadow-colored: 2px 2px 0 var(--tw-shadow-color); }
+html[data-theme="playful"] .shadow-md    { --tw-shadow: 4px 4px 0 rgb(10 6 22 / 0.55); --tw-shadow-colored: 4px 4px 0 var(--tw-shadow-color); }
+html[data-theme="playful"] .shadow-lg    { --tw-shadow: 5px 5px 0 rgb(10 6 22 / 0.55); --tw-shadow-colored: 5px 5px 0 var(--tw-shadow-color); }
+html[data-theme="playful"] .shadow-xl    { --tw-shadow: 6px 6px 0 rgb(10 6 22 / 0.6); --tw-shadow-colored: 6px 6px 0 var(--tw-shadow-color); }
+html[data-theme="playful"] .shadow-2xl   { --tw-shadow: 8px 8px 0 rgb(10 6 22 / 0.65); --tw-shadow-colored: 8px 8px 0 var(--tw-shadow-color); }
+html[data-theme="playful"] .shadow-inner { --tw-shadow: inset 2px 2px 0 rgb(255 255 255 / 0.04); --tw-shadow-colored: inset 2px 2px 0 var(--tw-shadow-color); }
+
+html[data-theme="playful"] .t-ico {
+  filter: saturate(1.6) contrast(1.15) drop-shadow(1px 1px 0 rgb(10 6 22 / 0.6));
+}
+
+/* hero: arcade push-button — candy gradient, inked edge, springy press */
+html[data-theme="playful"] .t-btn-hero,
+html[data-theme="playful"] .t-card-cta {
+  font-family: "Baloo 2", ui-rounded, system-ui, sans-serif;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: linear-gradient(90deg, #ffd23f, #ff8fab 55%, #f43f8e);
+  color: #2b0f2e;
+  border: 2px solid #120a1e;
+  border-radius: 12px;
+  box-shadow: 4px 4px 0 rgb(10 6 22 / 0.9);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+html[data-theme="playful"] .t-btn-hero:hover:not(:disabled),
+html[data-theme="playful"] .t-card-cta:hover:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 3px 3px 0 rgb(10 6 22 / 0.9);
+}
+html[data-theme="playful"] .t-btn-hero:active:not(:disabled),
+html[data-theme="playful"] .t-card-cta:active:not(:disabled) {
+  transform: translate(3px, 3px);
+  box-shadow: 1px 1px 0 rgb(10 6 22 / 0.9);
+}
+html[data-theme="playful"] .t-btn-hero-ghost,
+html[data-theme="playful"] .t-card-cta-ghost {
+  background: #241b3d;
+  color: #ffadd2;
+  border: 2px solid rgb(150 120 200 / 0.65);
+  border-radius: 12px;
+  box-shadow: 3px 3px 0 rgb(10 6 22 / 0.8);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+html[data-theme="playful"] .t-btn-hero-ghost:hover:not(:disabled),
+html[data-theme="playful"] .t-card-cta-ghost:hover:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 rgb(10 6 22 / 0.8);
+}
+
+/* header phase tabs: the active tab jumps forward as a candy chip */
+html[data-theme="playful"] .t-tabbar button.bg-indigo-600,
+html[data-theme="playful"] .t-tabbar button.from-purple-600 {
+  background: linear-gradient(90deg, #7c3aed, #f43f8e);
+  color: #ffffff;
+  border: 2px solid #120a1e;
+  border-radius: 10px;
+  box-shadow: 3px 3px 0 rgb(10 6 22 / 0.8);
+}
+
+/* Video Studio tabs */
+html[data-theme="playful"] .t-studio-tabbar button.bg-gray-950 {
+  background: linear-gradient(90deg, #7c3aed, #f43f8e);
+  color: #ffffff;
+  border: 2px solid #120a1e;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 3px -1px 0 rgb(10 6 22 / 0.5);
+  font-weight: 800;
+}
+html[data-theme="playful"] .t-studio-subbar button.bg-indigo-600 {
+  background: linear-gradient(90deg, #ffd23f, #ff8fab);
+  color: #2b0f2e;
+  border: 2px solid #120a1e;
+  box-shadow: 3px 3px 0 rgb(10 6 22 / 0.8);
+  font-weight: 800;
+}
+
+html[data-theme="playful"] ::selection { background: rgb(244 63 142 / 0.45); }
+html[data-theme="playful"] *:focus-visible { outline: 3px solid rgb(255 210 63 / 0.8); outline-offset: 1px; }
+
+/* ================================================================== */
+/* 5 · FAIRYTALE GLASS — frosted pastel glass, big soft radii,         */
+/*    elegant serif type, warm golden icon glow.                       */
+/* ================================================================== */
+
+html[data-theme="glass"] {
+  color-scheme: light;
+}
+
+html[data-theme="glass"] body {
+  background:
+    radial-gradient(800px 600px at 15% 10%, rgb(251 207 232 / 0.65), transparent 55%),
+    radial-gradient(900px 700px at 85% 15%, rgb(196 181 253 / 0.6), transparent 55%),
+    radial-gradient(900px 800px at 50% 110%, rgb(186 230 253 / 0.55), transparent 60%),
+    linear-gradient(160deg, #f3eefa, #eae3f8 45%, #e2e9fb);
+  background-attachment: fixed;
+  font-family: "EB Garamond", Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  letter-spacing: 0.012em;
+}
+html[data-theme="glass"] .font-sans {
+  font-family: "EB Garamond", Georgia, "Times New Roman", serif;
+}
+html[data-theme="glass"] h1,
+html[data-theme="glass"] h2,
+html[data-theme="glass"] h3,
+html[data-theme="glass"] h4 {
+  font-family: "Cormorant Garamond", "EB Garamond", Georgia, serif;
+  font-weight: 700;
+}
+
+/* generous storybook radii */
+html[data-theme="glass"] .rounded,
+html[data-theme="glass"] .rounded-sm  { border-radius: 12px; }
+html[data-theme="glass"] .rounded-md  { border-radius: 14px; }
+html[data-theme="glass"] .rounded-lg  { border-radius: 16px; }
+html[data-theme="glass"] .rounded-xl  { border-radius: 20px; }
+html[data-theme="glass"] .rounded-2xl { border-radius: 26px; }
+
+/* real frost on the always-on chrome (header + menus) */
+html[data-theme="glass"] .t-app-hdr,
+html[data-theme="glass"] .t-theme-menu {
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+}
+
+/* soft diffused pastel shadows */
+html[data-theme="glass"] .shadow,
+html[data-theme="glass"] .shadow-sm    { --tw-shadow: 0 4px 14px rgb(150 120 200 / 0.14); --tw-shadow-colored: 0 4px 14px var(--tw-shadow-color); }
+html[data-theme="glass"] .shadow-md    { --tw-shadow: 0 8px 22px rgb(150 120 200 / 0.16); --tw-shadow-colored: 0 8px 22px var(--tw-shadow-color); }
+html[data-theme="glass"] .shadow-lg    { --tw-shadow: 0 12px 32px rgb(150 120 200 / 0.18); --tw-shadow-colored: 0 12px 32px var(--tw-shadow-color); }
+html[data-theme="glass"] .shadow-xl    { --tw-shadow: 0 18px 44px rgb(150 120 200 / 0.2); --tw-shadow-colored: 0 18px 44px var(--tw-shadow-color); }
+html[data-theme="glass"] .shadow-2xl   { --tw-shadow: 0 24px 60px rgb(150 120 200 / 0.24); --tw-shadow-colored: 0 24px 60px var(--tw-shadow-color); }
+html[data-theme="glass"] .shadow-inner { --tw-shadow: inset 0 2px 6px rgb(150 120 200 / 0.1); --tw-shadow-colored: inset 0 2px 6px var(--tw-shadow-color); }
+
+/* warm fairy-dust tint on every icon */
+html[data-theme="glass"] .t-ico {
+  filter: sepia(0.5) saturate(2.4) hue-rotate(-12deg) brightness(1.02);
+}
+
+/* hero: glowing frosted pill with storybook caps */
+html[data-theme="glass"] .t-btn-hero,
+html[data-theme="glass"] .t-card-cta {
+  font-family: "Cinzel", "Cormorant Garamond", Georgia, serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: linear-gradient(120deg, rgb(255 255 255 / 0.9), rgb(224 209 250 / 0.75));
+  color: #4a3b73;
+  border: 1px solid rgb(255 255 255 / 0.95);
+  border-radius: 999px;
+  box-shadow: 0 12px 30px rgb(168 138 222 / 0.35), inset 0 1px 0 #ffffff;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+html[data-theme="glass"] .t-btn-hero:hover:not(:disabled),
+html[data-theme="glass"] .t-card-cta:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 38px rgb(168 138 222 / 0.45), inset 0 1px 0 #ffffff;
+  color: #38295e;
+}
+html[data-theme="glass"] .t-btn-hero-ghost,
+html[data-theme="glass"] .t-card-cta-ghost {
+  background: rgb(255 255 255 / 0.4);
+  color: #6a54a8;
+  border: 1px solid rgb(255 255 255 / 0.8);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 4px 14px rgb(150 120 200 / 0.18);
+}
+html[data-theme="glass"] .t-btn-hero-ghost:hover:not(:disabled),
+html[data-theme="glass"] .t-card-cta-ghost:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.62);
+  color: #4a3b73;
+}
+
+/* header phase tabs: frosted pill rail, active tab like sea-glass */
+html[data-theme="glass"] .t-tabbar {
+  background: rgb(255 255 255 / 0.5) !important;
+  border-color: rgb(255 255 255 / 0.75) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+html[data-theme="glass"] .t-tabbar button.bg-indigo-600,
+html[data-theme="glass"] .t-tabbar button.from-purple-600 {
+  background: rgb(255 255 255 / 0.88);
+  color: #4a3b73;
+  box-shadow: 0 6px 18px rgb(150 120 200 / 0.3), inset 0 1px 0 #ffffff;
+  font-weight: 700;
+}
+
+/* Video Studio tabs */
+html[data-theme="glass"] .t-studio-tabbar button.bg-gray-950 {
+  background: rgb(255 255 255 / 0.78);
+  color: #4a3b73;
+  border-color: rgb(255 255 255 / 0.9);
+  box-shadow: 0 8px 22px rgb(150 120 200 / 0.28), inset 0 1px 0 #ffffff;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-weight: 700;
+}
+html[data-theme="glass"] .t-studio-subbar button.bg-indigo-600 {
+  background: linear-gradient(120deg, rgb(255 255 255 / 0.92), rgb(224 209 250 / 0.8));
+  color: #4a3b73;
+  border: 1px solid rgb(255 255 255 / 0.95);
+  box-shadow: 0 6px 18px rgb(168 138 222 / 0.32);
+  font-weight: 700;
+}
+
+html[data-theme="glass"] ::selection { background: rgb(183 158 230 / 0.4); }
+html[data-theme="glass"] *:focus-visible { outline: 2px solid rgb(164 136 221 / 0.65); outline-offset: 1px; }
+
+/* themed scrollbars for every theme except classic (its default is fine) */
+html[data-theme="apple"] * { scrollbar-color: #c7c7cc transparent; }
+html[data-theme="windows"] * { scrollbar-color: #2d7fd9 transparent; }
+html[data-theme="playful"] * { scrollbar-color: #604e91 transparent; }
+html[data-theme="glass"] * { scrollbar-color: #b79ee6 transparent; }
+
+/* ================================================================== */
+/*  GUIDANCE UPGRADE — the elements that walk the user through the     */
+/*  app are deliberately loud: the active step tab, the NEXT step tab  */
+/*  (with a pulsing cue dot), the hero Next button (expanding halo +   */
+/*  nudging arrow), and the Video Studio main tabs / sub-pills.        */
+/*  Appended last so these rules win over the sections above.          */
+/* ================================================================== */
+
+:root {
+  --t-cue: rgb(129 140 248 / 0.9);
+  --t-halo: rgb(139 92 246 / 0.7);
+}
+html[data-theme="apple"]   { --t-cue: rgb(10 132 255 / 0.9);   --t-halo: rgb(0 122 255 / 0.5); }
+html[data-theme="windows"] { --t-cue: rgb(76 194 255 / 0.9);   --t-halo: rgb(76 194 255 / 0.55); }
+html[data-theme="playful"] { --t-cue: rgb(255 210 63 / 0.95);  --t-halo: rgb(255 210 63 / 0.8); }
+html[data-theme="glass"]   { --t-cue: rgb(164 136 221 / 0.9);  --t-halo: rgb(168 138 222 / 0.75); }
+
+/* pulsing dot shown inside the NEXT step tab */
+@keyframes tCuePulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.75); }
+  50%      { opacity: 1;    transform: scale(1.2); }
+}
+.t-next-cue {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--t-cue);
+  animation: tCuePulse 1.8s ease-in-out infinite;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+/* glowing ring that draws the eye to the next step tab */
+@keyframes tNextPulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0); }
+  50%      { box-shadow: inset 0 0 0 2px var(--t-cue); }
+}
+.t-tab-next {
+  animation: tNextPulse 2.2s ease-in-out infinite;
+  font-weight: 700;
+}
+
+/* expanding halo behind the hero Next button (keeps the base shadow) */
+@keyframes tHeroHalo {
+  0%   { opacity: 0.9; transform: scale(0.97); }
+  70%  { opacity: 0;   transform: scale(1.1); }
+  100% { opacity: 0;   transform: scale(1.1); }
+}
+.t-hero-pulse {
+  position: relative;
+  z-index: 0;
+}
+.t-hero-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  z-index: -1;
+  border: 2px solid var(--t-halo);
+  opacity: 0;
+  animation: tHeroHalo 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+/* the → on the hero Next button gently nudges forward */
+@keyframes tNudge {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(3px); }
+}
+.t-hero-arrow {
+  display: inline-block;
+  animation: tNudge 1.6s ease-in-out infinite;
+  font-weight: 800;
+}
+
+/* ------------ header phase tabs: ACTIVE state per theme ------------ */
+
+html[data-theme="classic"] .t-tabbar .t-tab-active {
+  background: linear-gradient(90deg, #4f46e5, #7c3aed);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgb(165 180 252 / 0.6), 0 5px 18px rgb(79 70 229 / 0.55);
+}
+html[data-theme="apple"] .t-tabbar .t-tab-active {
+  background: #ffffff;
+  color: #007aff;
+  font-weight: 800;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.16), 0 0 0 0.5px rgb(0 0 0 / 0.04);
+}
+html[data-theme="windows"] .t-tabbar .t-tab-active {
+  background: #4cc2ff;
+  color: #08192b;
+  font-weight: 800;
+  box-shadow: 0 4px 16px rgb(76 194 255 / 0.4);
+}
+html[data-theme="playful"] .t-tabbar .t-tab-active {
+  background: linear-gradient(90deg, #7c3aed, #f43f8e);
+  color: #ffffff;
+  font-weight: 800;
+  border: 2px solid #120a1e;
+  box-shadow: 3px 3px 0 rgb(10 6 22 / 0.8);
+}
+html[data-theme="glass"] .t-tabbar .t-tab-active {
+  background: rgb(255 255 255 / 0.9);
+  color: #4a3b73;
+  font-weight: 800;
+  box-shadow: 0 8px 22px rgb(150 120 200 / 0.35), inset 0 1px 0 #ffffff;
+}
+
+/* ------------ header phase tabs: NEXT-step color cue ------------ */
+
+html[data-theme="classic"] .t-tabbar .t-tab-next { color: #c7d2fe; }
+html[data-theme="apple"]   .t-tabbar .t-tab-next { color: #0a84ff; }
+html[data-theme="windows"] .t-tabbar .t-tab-next { color: #96d9ff; }
+html[data-theme="playful"] .t-tabbar .t-tab-next { color: #ffd23f; }
+html[data-theme="glass"]   .t-tabbar .t-tab-next { color: #7a5fc0; }
+
+/* ------------ Video Studio main tabs: ACTIVE state ------------ */
+
+html[data-theme="classic"] .t-studio-tabbar .t-stab-active {
+  background: linear-gradient(180deg, #4f46e5, #4338ca);
+  color: #ffffff;
+  border-color: rgb(129 140 248 / 0.7);
+  box-shadow: 0 6px 18px rgb(79 70 229 / 0.45);
+  font-weight: 800;
+}
+html[data-theme="apple"] .t-studio-tabbar .t-stab-active {
+  background: #ffffff;
+  color: #007aff;
+  border-color: #c7c7cc;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.12);
+  font-weight: 800;
+}
+html[data-theme="windows"] .t-studio-tabbar .t-stab-active {
+  background: #4cc2ff;
+  color: #08192b;
+  border-color: rgb(255 255 255 / 0.4);
+  box-shadow: 0 6px 18px rgb(76 194 255 / 0.35);
+  font-weight: 800;
+}
+html[data-theme="playful"] .t-studio-tabbar .t-stab-active {
+  background: linear-gradient(90deg, #7c3aed, #f43f8e);
+  color: #ffffff;
+  border: 2px solid #120a1e;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 3px -1px 0 rgb(10 6 22 / 0.5);
+  font-weight: 800;
+}
+html[data-theme="glass"] .t-studio-tabbar .t-stab-active {
+  background: rgb(255 255 255 / 0.85);
+  color: #4a3b73;
+  border-color: #ffffff;
+  box-shadow: 0 8px 22px rgb(150 120 200 / 0.3), inset 0 1px 0 #ffffff;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-weight: 800;
+}
+
+/* ------------ Video Studio sub-section pills: ACTIVE state ------------ */
+
+html[data-theme="classic"] .t-studio-subbar .t-spill-active {
+  background: linear-gradient(90deg, #4f46e5, #7c3aed);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgb(165 180 252 / 0.5), 0 3px 12px rgb(79 70 229 / 0.45);
+  font-weight: 800;
+}
+html[data-theme="apple"] .t-studio-subbar .t-spill-active {
+  background: #007aff;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgb(0 122 255 / 0.4);
+  font-weight: 800;
+}
+html[data-theme="windows"] .t-studio-subbar .t-spill-active {
+  background: #4cc2ff;
+  color: #08192b;
+  box-shadow: 0 4px 14px rgb(76 194 255 / 0.4);
+  font-weight: 800;
+}
+html[data-theme="playful"] .t-studio-subbar .t-spill-active {
+  background: linear-gradient(90deg, #ffd23f, #ff8fab);
+  color: #2b0f2e;
+  border: 2px solid #120a1e;
+  box-shadow: 3px 3px 0 rgb(10 6 22 / 0.8);
+  font-weight: 800;
+}
+html[data-theme="glass"] .t-studio-subbar .t-spill-active {
+  background: linear-gradient(120deg, rgb(255 255 255 / 0.95), rgb(224 209 250 / 0.85));
+  color: #4a3b73;
+  border: 1px solid #ffffff;
+  box-shadow: 0 6px 18px rgb(168 138 222 / 0.38);
+  font-weight: 800;
+}
+
+/* ---- CLASSIC dark readability: lift the low-contrast greys ----
+   Users on dim/older screens reported the mid-grey writing was nearly
+   unreadable, so the helper greys get pulled closer to the body text. */
+html[data-theme="classic"] .text-gray-600 { color: #8b98ac; }
+html[data-theme="classic"] .text-gray-500 { color: #9aa6b9; }
+html[data-theme="classic"] .text-gray-400 { color: #b8c1d0; }
+html[data-theme="classic"] .placeholder-gray-600::placeholder { color: #8b98ac; }
+html[data-theme="classic"] .placeholder-gray-500::placeholder { color: #9aa6b9; }

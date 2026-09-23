@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { SceneMotionType } from "../types";
 import { getMotionTransform } from "../lib/render-effects";
+import { startPreviewLoop } from "../lib/preview-loop";
 
 interface MotionPreviewCanvasProps {
   /** Fill the parent's width instead of using a fixed CSS size. */
@@ -38,7 +39,6 @@ export default function MotionPreviewCanvas({
   const wrapRef = useRef<HTMLDivElement | null>(null);
   /** Measured CSS width when responsive; falls back to the width prop. */
   const [boxW, setBoxW] = useState(width);
-  const rafRef = useRef<number>(0);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const startRef = useRef<number>(performance.now());
 
@@ -201,8 +201,6 @@ export default function MotionPreviewCanvas({
       ctx.translate(dx + (w * scale - w) / 2, dy + (h * scale - h) / 2);
       ctx.drawImage(sample, -(w * scale - w) / 2, -(h * scale - h) / 2, w * scale, h * scale);
       ctx.restore();
-
-      if (!paused) rafRef.current = requestAnimationFrame(frame);
     };
 
     if (paused) {
@@ -217,10 +215,11 @@ export default function MotionPreviewCanvas({
       ctx.restore();
     } else {
       startRef.current = performance.now();
-      rafRef.current = requestAnimationFrame(frame);
+      // capped fps + no painting while the preview is scrolled away
+      return startPreviewLoop(canvas, frame, { fps: 24 });
     }
 
-    return () => cancelAnimationFrame(rafRef.current);
+    return undefined;
   }, [motion, cycleSeconds, width, height, paused, imageUrl, responsive, boxW]);
 
   if (responsive) {

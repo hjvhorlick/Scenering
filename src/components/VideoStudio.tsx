@@ -266,7 +266,7 @@ export default function VideoStudio({
       </div>
 
       {/* 5 Ordered Main Tabs: 1. Logo, 2. Call to action, 3. Stickers, 4. Text Content, 5. Audio visualisers */}
-      <div className="bg-gray-900/60 border-b border-gray-800 px-4 pt-2.5 flex gap-1.5 overflow-x-auto no-scrollbar">
+      <div className="t-studio-tabbar bg-gray-900/60 border-b border-gray-800 px-4 pt-2.5 flex gap-1.5 overflow-x-auto no-scrollbar">
         {STUDIO_CATEGORIES.map((cat, idx) => {
           const isSelected = selectedCategory === cat.id;
           return (
@@ -277,13 +277,13 @@ export default function VideoStudio({
                 setSelectedCategory(cat.id);
                 setSelectedSubcategory("all");
               }}
-              className={`px-3.5 py-2 rounded-t-lg font-medium text-xs whitespace-nowrap transition-all flex items-center gap-2 border-t border-x ${
+              className={`t-stab px-4 py-2.5 rounded-t-lg font-semibold text-sm whitespace-nowrap transition-all flex items-center gap-2 border-t border-x ${
                 isSelected
-                  ? "bg-gray-950 text-white border-gray-700 border-b-2 border-b-transparent shadow-sm"
+                  ? "t-stab-active bg-gray-950 text-white border-gray-700 border-b-2 border-b-transparent shadow-sm"
                   : "bg-gray-900/30 text-gray-400 border-transparent hover:text-gray-200 hover:bg-gray-800/40"
               }`}
             >
-              <span className="text-sm">{cat.icon}</span>
+              <span className="t-ico text-base">{cat.icon}</span>
               <span>
                 {idx + 1}. {cat.name}
               </span>
@@ -294,7 +294,7 @@ export default function VideoStudio({
 
       {/* Subcategory Filter Pills (if category has subcategories) */}
       {!isCustomTab && currentCategoryDef?.subcategories && (
-        <div className="bg-gray-950/70 px-5 py-2 border-b border-gray-800/80 flex items-center gap-2 overflow-x-auto">
+        <div className="t-studio-subbar bg-gray-950/70 px-5 py-2 border-b border-gray-800/80 flex items-center gap-2 overflow-x-auto">
           <span className="text-[11px] text-gray-400 font-medium mr-1">Section:</span>
           {currentCategoryDef.subcategories.map((sub) => {
             const isSubSelected = selectedSubcategory === sub.id;
@@ -303,13 +303,13 @@ export default function VideoStudio({
                 key={sub.id}
                 type="button"
                 onClick={() => setSelectedSubcategory(sub.id)}
-                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                className={`t-spill px-3 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 ${
                   isSubSelected
-                    ? "bg-indigo-600 text-white shadow-sm"
+                    ? "t-spill-active bg-indigo-600 text-white shadow-md"
                     : "bg-gray-800/70 text-gray-300 hover:bg-gray-700/80 hover:text-white"
                 }`}
               >
-                <span>{sub.icon}</span>
+                <span className="t-ico">{sub.icon}</span>
                 <span>{sub.name}</span>
               </button>
             );
@@ -529,7 +529,7 @@ export default function VideoStudio({
                               ? "bg-amber-600 hover:bg-amber-500 text-white"
                               : item.category === "outro"
                               ? "bg-rose-600 hover:bg-rose-500 text-white"
-                              : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                              : "t-card-cta bg-indigo-600 hover:bg-indigo-500 text-white"
                           }`}
                         >
                           <span>
@@ -543,7 +543,7 @@ export default function VideoStudio({
                         <button
                           type="button"
                           onClick={() => handleConfigure(item)}
-                          className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-gray-700 rounded-lg text-xs transition-colors"
+                          className="t-card-cta-ghost px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-gray-700 rounded-lg text-xs transition-colors"
                           title="Customise before placing"
                         >
                           ⚙️ Edit

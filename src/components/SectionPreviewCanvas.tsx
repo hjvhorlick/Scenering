@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { SectionConfig } from "../data/intro-outro";
 import { renderSection } from "../lib/render-section";
+import { startPreviewLoop } from "../lib/preview-loop";
 
 interface Props {
   config: SectionConfig;
@@ -27,7 +28,6 @@ export default function SectionPreviewCanvas({
   onProgress,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rafRef = useRef<number>(0);
   const startRef = useRef<number>(performance.now());
   const stateRef = useRef({ config, playing, staticProgress, onProgress });
   stateRef.current = { config, playing, staticProgress, onProgress };
@@ -44,12 +44,7 @@ export default function SectionPreviewCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    let last = 0;
     const draw = (now: number) => {
-      rafRef.current = requestAnimationFrame(draw);
-      if (now - last < 33) return; // ~30fps is plenty for a preview
-      last = now;
-
       const { config: cfg, playing: isPlaying, staticProgress: sp, onProgress: cb } = stateRef.current;
       const dur = Math.max(0.5, cfg.duration || 4);
 
@@ -79,8 +74,8 @@ export default function SectionPreviewCanvas({
       cb?.(p);
     };
 
-    rafRef.current = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(rafRef.current);
+    // ~30fps is plenty for a preview; also stops painting while off-screen
+    return startPreviewLoop(canvas, draw, { fps: 30 });
   }, [width, height]);
 
   return <canvas ref={canvasRef} className={className} />;
