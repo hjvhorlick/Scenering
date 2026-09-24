@@ -69,9 +69,17 @@ export function createHarness(): Harness {
  */
 export function createStubContext(width = 1920, height = 1080) {
   const ops: string[] = [];
+  /** Same calls, but with their arguments — lets a suite assert *how* something
+   *  was drawn (e.g. "no scale(0,0)" or "no rotate() a badge"). */
+  const opsWithArgs: string[] = [];
 
+  // Gradients are where most colours end up in these renderers, so their colour
+  // stops are logged too — that is how a suite can prove a colour theme (or a
+  // user's own picker) really reached the drawing.
   const gradient = {
-    addColorStop: () => {},
+    addColorStop: (_stop: number, color: string) => {
+      opsWithArgs.push(`grad(${color})`);
+    },
   };
 
   const target: Record<string, unknown> = {
@@ -115,6 +123,7 @@ export function createStubContext(width = 1920, height = 1080) {
           }
         }
         ops.push(prop);
+        opsWithArgs.push(`${prop}(${args.join(",")})`);
         return undefined;
       };
     },
@@ -122,12 +131,17 @@ export function createStubContext(width = 1920, height = 1080) {
       if (typeof value === "number" && !Number.isFinite(value)) {
         throw new Error(`ctx.${prop} was set to a non-finite value: ${value}`);
       }
+      // Style assignments are logged too, so a suite can prove which colours a
+      // renderer reached for (e.g. that a colour theme actually took hold).
+      if (prop === "fillStyle" || prop === "strokeStyle" || prop === "shadowColor") {
+        opsWithArgs.push(`set:${prop}=${String(value)}`);
+      }
       obj[prop] = value;
       return true;
     },
   }) as unknown as CanvasRenderingContext2D;
 
-  return { ctx, ops };
+  return { ctx, ops, opsWithArgs };
 }
 
 /** A stand-in image with the shape of a real photo. */

@@ -159,6 +159,18 @@ export interface InsertVisualOptions {
   /* ---- Audio visualiser reactivity ---- */
   reactivity?: number; // 0.2 - 2.4 reaction strength (default 1)
   spanFullVideo?: boolean; // run for the whole video, not a fixed 8s window (default true for visualisers)
+  /** id from VISUALIZER_PALETTES — the colour theme the visualiser is drawn in */
+  colorTheme?: string;
+  /** how many frequency bands the analyser splits the sound into (16 chunky - 128 detailed) */
+  bandCount?: number;
+  /** accent colour (hot cores, spike tips, flashes) used by the immersive styles */
+  accentColor?: string;
+  /**
+   * Draw the user's own logo in the middle of a centre visualiser (audio orb,
+   * orbit disc, circular analysers). Defaults to on for the orb and the disc,
+   * off elsewhere. No logo is drawn when the project has none.
+   */
+  centreLogo?: boolean;
 }
 
 export interface InsertAudioSettings {

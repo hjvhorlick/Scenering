@@ -20,6 +20,14 @@ import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from ".
 import { renderSection } from "../lib/render-section";
 import type { SectionConfig } from "../data/intro-outro";
 import {
+  VoiceEchoConfig,
+  VoiceEchoGraph,
+  createVoiceEchoGraph,
+  resolveVoiceEcho,
+  voiceEchoIsActive,
+  describeVoiceEcho,
+} from "../lib/voice-echo";
+import {
   MAX_VAULT_RENDERS,
   type VaultRender,
   saveBlobToDisk,
@@ -76,6 +84,8 @@ interface RenderViewProps {
   videoFilter?: VideoFilterConfig | null;
   introSection?: SectionConfig | null;
   outroSection?: SectionConfig | null;
+  /** echo / ambience on the narration, set in the Voiceover step */
+  voiceEcho?: VoiceEchoConfig;
   onOpenSetup?: () => void;
   onNavigatePhase?: (phase: ProjectPhase) => void;
 }
@@ -150,6 +160,7 @@ export default function RenderView({
   videoFilter = null,
   introSection = null,
   outroSection = null,
+  voiceEcho,
   onOpenSetup,
   onNavigatePhase,
 }: RenderViewProps) {
@@ -854,6 +865,22 @@ export default function RenderView({
         renderStartTime + Math.max(0, audioCtx.currentTime - renderAudioT0) * 1000;
       let lastResumeAttempt = 0;
 
+      // Echo / ambience for the narration (Voiceover step). The chain sits
+      // between every narration buffer and the voice bus, so what is recorded
+      // into the video is the voice *with* its echo — and the visualisers still
+      // react to the processed voice, exactly as they do in the preview.
+      const echoCfg = resolveVoiceEcho(voiceEcho);
+      let voiceEchoGraph: VoiceEchoGraph | null = null;
+      if (voiceEchoIsActive(echoCfg)) {
+        try {
+          voiceEchoGraph = createVoiceEchoGraph(audioCtx, echoCfg);
+          voiceEchoGraph.output.connect(analyser);
+        } catch (echoErr) {
+          console.warn("Voice echo could not be created, rendering a dry voice:", echoErr);
+          voiceEchoGraph = null;
+        }
+      }
+
       // Pre-schedule EVERY scene's narration at its exact planned offset.
       // Web Audio plays these sample-accurately on the audio thread, so the
       // voice can never gap out or cut off because the main thread was busy
@@ -868,7 +895,8 @@ export default function RenderView({
             const source = audioCtx.createBufferSource();
             source.buffer = item.buffer;
             // Voice feeds the voice analyser → speech-reactive waves respond
-            source.connect(analyser);
+            // (through the echo chain when one is set, so the tail is heard too)
+            source.connect(voiceEchoGraph ? voiceEchoGraph.input : analyser);
             source.start(renderAudioT0 + narrationOffset);
             scheduledSources.push(source);
           } catch (audioErr) {
@@ -893,6 +921,9 @@ export default function RenderView({
           if (backgroundTimerId) clearTimeout(backgroundTimerId);
           try {
             insertMixer?.stop();
+          } catch {}
+          try {
+            voiceEchoGraph?.dispose();
           } catch {}
           try {
             if (recorder && recorder.state !== "inactive") {
@@ -1302,7 +1333,10 @@ export default function RenderView({
 
                 inserts.forEach((insert) => {
                   try {
-                    renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData, audioFrame);
+                    renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData, audioFrame, {
+                      // the project's own logo for the centre visualisers
+                      logo: customerLogo?.enabled ? customerLogoImgRef.current : null,
+                    });
                   } catch (insErr) {
                     console.warn("Insert notice:", insErr);
                   }
@@ -1700,6 +1734,12 @@ export default function RenderView({
                 label="Voiceover"
                 value={voiceDisplayName}
                 hint={selectedVoice?.startsWith("browser:") ? "Browser voice" : "Neural voice"}
+              />
+              <SummaryRow
+                icon="🔊"
+                label="Voice echo"
+                value={describeVoiceEcho(voiceEcho)}
+                hint={voiceEchoIsActive(voiceEcho) ? "Written into the video" : "Dry narration"}
               />
               <SummaryRow
                 icon="💬"

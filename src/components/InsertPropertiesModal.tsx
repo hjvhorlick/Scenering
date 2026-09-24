@@ -23,6 +23,8 @@ import {
 } from "../lib/text-art";
 import { resolveArtStyle } from "../lib/render-text-template";
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
+import { VISUALIZER_PALETTES } from "../lib/visualizer-palettes";
+import { isRoundVisualizer, wantsCentreLogo } from "../lib/render-visualizers";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
   SOUND_LIBRARY,
@@ -39,6 +41,7 @@ import {
   type CtaStyle,
 } from "../data/cta-library";
 import CtaBadgePreview from "./CtaBadgePreview";
+import CtaOptionThumb from "./CtaOptionThumb";
 
 interface InsertPropertiesModalProps {
   insert: TimelineInsert | null;
@@ -608,13 +611,6 @@ function InsertPropertiesContent({
           </button>
         </div>
 
-        {/* Live call-to-action preview — sits above the tabs, always visible while editing */}
-        {isCallToAction && !isIntroOutro && (
-          <div className="shrink-0 px-6 pt-4">
-            <CtaBadgePreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
-          </div>
-        )}
-
         {/* Dynamic Contextual Navigation Tabs */}
         <div className="shrink-0 min-h-[46px] px-6 border-b border-gray-800 flex items-center gap-2 bg-gray-950/40 overflow-x-auto">
           {/* INTRO / OUTRO TABS */}
@@ -813,6 +809,12 @@ function InsertPropertiesContent({
 
         {/* Modal Scrollable Body */}
         <div className="p-6 flex-1 min-h-0 overflow-y-auto space-y-5 text-sm">
+          {/* Live call-to-action preview — scrolls with the settings below it, so
+              it never pins itself over the choices the user is working through. */}
+          {isCallToAction && !isIntroOutro && (
+            <CtaBadgePreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
+          )}
+
           {/* Quick Intro / Outro Alignment Banner */}
           {isIntroOutro && (
             <div
@@ -1273,12 +1275,158 @@ function InsertPropertiesContent({
                     </div>
                   </div>
 
+                  {/* Colour theme — the "look" of the visualiser, in one tap */}
+                  <div className="space-y-2 pt-3 border-t border-gray-750">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-white">Colour Theme:</span>
+                      <span className="text-[11px] text-gray-400">
+                        {data.visualOptions?.colorTheme
+                          ? VISUALIZER_PALETTES.find((p) => p.id === data.visualOptions?.colorTheme)?.name ||
+                            "Custom colours"
+                          : "Custom colours"}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {VISUALIZER_PALETTES.map((pal) => {
+                        const active = data.visualOptions?.colorTheme === pal.id;
+                        return (
+                          <button
+                            key={pal.id}
+                            type="button"
+                            title={pal.name}
+                            onClick={() =>
+                              updateVisual({
+                                colorTheme: pal.id,
+                                primaryColor: pal.primary,
+                                secondaryColor: pal.secondary,
+                                accentColor: pal.accent,
+                              })
+                            }
+                            className={`h-7 pl-1 pr-2 rounded-full border flex items-center gap-1.5 transition-all ${
+                              active
+                                ? "border-indigo-400 ring-1 ring-indigo-400 bg-gray-800"
+                                : "border-gray-700 hover:border-gray-500 bg-gray-900"
+                            }`}
+                          >
+                            <span
+                              className="w-4 h-4 rounded-full border border-black/40"
+                              style={{
+                                background: `linear-gradient(135deg, ${pal.primary} 0%, ${pal.secondary} 60%, ${pal.accent} 100%)`,
+                              }}
+                            />
+                            <span className="text-[10px] text-gray-200">{pal.name}</span>
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => updateVisual({ colorTheme: "custom" })}
+                        className={`h-7 px-2 rounded-full border text-[10px] transition-all ${
+                          !data.visualOptions?.colorTheme || data.visualOptions?.colorTheme === "custom"
+                            ? "border-indigo-400 ring-1 ring-indigo-400 bg-gray-800 text-white"
+                            : "border-gray-700 hover:border-gray-500 bg-gray-900 text-gray-300"
+                        }`}
+                      >
+                        Custom
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      <div>
+                        <span className="text-[10px] text-gray-400 block mb-1">Main colour</span>
+                        <input
+                          type="color"
+                          value={data.visualOptions?.primaryColor || "#38bdf8"}
+                          onChange={(e) =>
+                            updateVisual({ primaryColor: e.target.value, colorTheme: "custom" })
+                          }
+                          className="w-full h-7 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-400 block mb-1">Second colour</span>
+                        <input
+                          type="color"
+                          value={data.visualOptions?.secondaryColor || "#f43f5e"}
+                          onChange={(e) =>
+                            updateVisual({ secondaryColor: e.target.value, colorTheme: "custom" })
+                          }
+                          className="w-full h-7 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-400 block mb-1">Highlight</span>
+                        <input
+                          type="color"
+                          value={data.visualOptions?.accentColor || "#f0abfc"}
+                          onChange={(e) =>
+                            updateVisual({ accentColor: e.target.value, colorTheme: "custom" })
+                          }
+                          className="w-full h-7 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Centre logo — the user's own brand mark in the middle */}
+                  {(data.type === "audio_orb" ||
+                    data.type === "orbit_disc" ||
+                    data.type === "circular_wave" ||
+                    data.type === "voice_pulse" ||
+                    data.type === "energy_ring" ||
+                    data.type === "pulse_circle") && (
+                    <div className="pt-3 border-t border-gray-750 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-medium text-white block">
+                            Show My Logo in the Middle
+                          </span>
+                          <span className="text-[11px] text-gray-400">
+                            Uses the logo from Setup → Customer Logo. With no logo, the centre stays a
+                            glowing core
+                          </span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={wantsCentreLogo(data)}
+                          onChange={(e) => updateVisualOptions("centreLogo", e.target.checked)}
+                          className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sound detail — how many frequency bands the analyser splits */}
+                  <div className="space-y-1.5 pt-3 border-t border-gray-750">
+                    <div className="flex justify-between text-xs text-gray-300">
+                      <span className="text-xs font-medium text-white">Sound Detail (Bands):</span>
+                      <span className="font-mono text-indigo-400 font-semibold">
+                        {data.visualOptions?.bandCount ?? 64} bands
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={16}
+                      max={128}
+                      step={8}
+                      value={data.visualOptions?.bandCount ?? 64}
+                      onChange={(e) => updateVisualOptions("bandCount", parseInt(e.target.value))}
+                      className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-500">
+                      <span>16 · chunky</span>
+                      <span>64 · balanced</span>
+                      <span>128 · very detailed</span>
+                    </div>
+                    <p className="text-[11px] text-gray-400">
+                      The scenes (terrain, starfield, plasma, jellyfish, ring of fire) use this many
+                      frequency bands for their detail, so every part of the music has its own place
+                      in the picture.
+                    </p>
+                  </div>
+
                   {/* Full scene width toggle for linear visualizers */}
-                  {data.type !== "circular_wave" &&
-                    data.type !== "voice_pulse" &&
-                    data.type !== "energy_ring" &&
-                    data.type !== "minimal_voice" &&
-                    data.type !== "pulse_circle" && (
+                  {!isRoundVisualizer(data.type) && (
                       <div className="flex items-center justify-between pb-3 border-b border-gray-750">
                         <div>
                           <span className="text-xs font-medium text-white block">
@@ -2136,8 +2284,11 @@ function InsertPropertiesContent({
                             : "bg-gray-900 border-gray-700 hover:bg-gray-800"
                         }`}
                       >
-                        <div className="text-base mb-0.5">{sh.icon}</div>
-                        <div className="text-[11px] font-semibold text-white">{sh.name}</div>
+                        <CtaOptionThumb item={data} patch={{ ctaShape: sh.id }} width={128} height={52} />
+                        <div className="text-[11px] font-semibold text-white mt-1.5 flex items-center gap-1">
+                          <span>{sh.icon}</span>
+                          <span>{sh.name}</span>
+                        </div>
                         <div className="text-[9px] text-gray-400 leading-tight">{sh.desc}</div>
                       </button>
                     );
@@ -2161,7 +2312,8 @@ function InsertPropertiesContent({
                             : "bg-gray-900 border-gray-700 hover:bg-gray-800"
                         }`}
                       >
-                        <div className="text-[11px] font-semibold text-white">{st.name}</div>
+                        <CtaOptionThumb item={data} patch={{ ctaStyle: st.id }} width={148} height={54} />
+                        <div className="text-[11px] font-semibold text-white mt-1.5">{st.name}</div>
                         <div className="text-[9px] text-gray-400 leading-tight">{st.desc}</div>
                       </button>
                     );
@@ -2185,11 +2337,13 @@ function InsertPropertiesContent({
                         }`}
                         title={cp.name}
                       >
-                        <div
-                          className="h-6 w-full rounded-md mb-1 shadow-sm"
-                          style={{ background: `linear-gradient(180deg, ${cp.c1}, ${cp.c2})` }}
+                        <CtaOptionThumb
+                          item={data}
+                          patch={{ primaryColor: cp.c1, secondaryColor: cp.c2 }}
+                          width={112}
+                          height={48}
                         />
-                        <div className="text-[9px] text-gray-300 truncate">{cp.name}</div>
+                        <div className="text-[9px] text-gray-300 truncate mt-1">{cp.name}</div>
                       </button>
                     );
                   })}

@@ -29,6 +29,7 @@ import {
 import type { Project, Scene, TimelineInsert, SceneMotionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
 import type { VideoFilterConfig } from "./data/video-filters";
 import type { SectionConfig } from "./data/intro-outro";
+import { VoiceEchoConfig, DEFAULT_VOICE_ECHO, resolveVoiceEcho } from "./lib/voice-echo";
 
 type View = "create" | "editor";
 
@@ -46,6 +47,8 @@ export interface ProjectSettings {
   /** the intro that plays before the script and the outro that plays after */
   intro_section: SectionConfig | null;
   outro_section: SectionConfig | null;
+  /** echo / ambience on the narration — heard in the preview and rendered in */
+  voice_echo: VoiceEchoConfig;
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -77,6 +80,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   video_filter: null,
   intro_section: null,
   outro_section: null,
+  voice_echo: DEFAULT_VOICE_ECHO,
 };
 
 // Split script into scenes and generate image search queries.
@@ -151,6 +155,7 @@ export default function App() {
   const [videoFilter, setVideoFilter] = useState<VideoFilterConfig | null>(DEFAULT_PROJECT_SETTINGS.video_filter);
   const [introSection, setIntroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.intro_section);
   const [outroSection, setOutroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.outro_section);
+  const [voiceEcho, setVoiceEcho] = useState<VoiceEchoConfig>(DEFAULT_PROJECT_SETTINGS.voice_echo);
 
   // Helper to save per-project settings so each project maintains isolated configuration
   const saveCurrentProjectSettings = useCallback((partial: Partial<ProjectSettings>) => {
@@ -186,6 +191,12 @@ export default function App() {
   const handleSelectVoice = useCallback((voiceId: string) => {
     setSelectedVoice(voiceId);
     saveCurrentProjectSettings({ selected_voice: voiceId });
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateVoiceEcho = useCallback((cfg: VoiceEchoConfig) => {
+    const resolved = resolveVoiceEcho(cfg);
+    setVoiceEcho(resolved);
+    saveCurrentProjectSettings({ voice_echo: resolved });
   }, [saveCurrentProjectSettings]);
 
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(null);
@@ -557,6 +568,7 @@ export default function App() {
       setCustomerLogo(freshSettings.customer_logo);
       setCaptionsConfig(freshSettings.captions_config);
       setSelectedVoice(freshSettings.selected_voice);
+      setVoiceEcho(resolveVoiceEcho(freshSettings.voice_echo));
       setAspectRatio(freshSettings.aspect_ratio);
       setResolution(freshSettings.resolution);
       setPacingMode(freshSettings.pacing_mode);
@@ -617,6 +629,7 @@ export default function App() {
     setCustomerLogo(DEFAULT_PROJECT_SETTINGS.customer_logo);
     setCaptionsConfig(DEFAULT_PROJECT_SETTINGS.captions_config);
     setSelectedVoice(DEFAULT_PROJECT_SETTINGS.selected_voice);
+    setVoiceEcho(DEFAULT_PROJECT_SETTINGS.voice_echo);
     setAspectRatio(DEFAULT_PROJECT_SETTINGS.aspect_ratio);
     setResolution(DEFAULT_PROJECT_SETTINGS.resolution);
     setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
@@ -649,6 +662,7 @@ export default function App() {
       setCustomerLogo(projectSettings.customer_logo);
       setCaptionsConfig(projectSettings.captions_config);
       setSelectedVoice(projectSettings.selected_voice);
+      setVoiceEcho(resolveVoiceEcho(projectSettings.voice_echo));
       setAspectRatio(projectSettings.aspect_ratio);
       setResolution(projectSettings.resolution);
       setPacingMode(projectSettings.pacing_mode);
@@ -762,6 +776,7 @@ export default function App() {
       setCustomerLogo(DEFAULT_PROJECT_SETTINGS.customer_logo);
       setCaptionsConfig(DEFAULT_PROJECT_SETTINGS.captions_config);
       setSelectedVoice(DEFAULT_PROJECT_SETTINGS.selected_voice);
+      setVoiceEcho(DEFAULT_PROJECT_SETTINGS.voice_echo);
       setAspectRatio(DEFAULT_PROJECT_SETTINGS.aspect_ratio);
       setResolution(DEFAULT_PROJECT_SETTINGS.resolution);
       setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
@@ -1309,6 +1324,7 @@ export default function App() {
                 videoFilter={videoFilter}
                 introSection={introSection}
                 outroSection={outroSection}
+                voiceEcho={voiceEcho}
                 onOpenSetup={() => setView("create")}
                 onBack={() => setEditorStep("studio")}
                 onNavigateToStep={setEditorStep}
@@ -1454,6 +1470,8 @@ export default function App() {
                   onNavigateToStep={setEditorStep}
                   selectedVoice={selectedVoice}
                   onSelectVoice={handleSelectVoice}
+                  voiceEcho={voiceEcho}
+                  onUpdateVoiceEcho={handleUpdateVoiceEcho}
                 />
               ) : editorStep === "captions" ? (
                 /* Step 3: Captions & Subtitles Studio */
@@ -1508,6 +1526,7 @@ export default function App() {
                     videoFilter={videoFilter}
                     introSection={introSection}
                     outroSection={outroSection}
+                    voiceEcho={voiceEcho}
                   />
 
                   {/* Timeline with Playhead & Inserts */}

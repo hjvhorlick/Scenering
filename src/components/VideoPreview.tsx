@@ -18,6 +18,13 @@ import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
 import { renderSection } from "../lib/render-section";
 import type { SectionConfig } from "../data/intro-outro";
+import {
+  VoiceEchoConfig,
+  VoiceEchoGraph,
+  createVoiceEchoGraph,
+  voiceEchoIsActive,
+  resolveVoiceEcho,
+} from "../lib/voice-echo";
 import { getCachedSceneAudio } from "../lib/tts-cache";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
@@ -43,6 +50,8 @@ interface VideoPreviewProps {
   /** opening / closing sections built in Video Studio → Intro / Outro */
   introSection?: SectionConfig | null;
   outroSection?: SectionConfig | null;
+  /** echo / ambience on the narration (Voiceover step) — the preview plays the voice exactly as the render will */
+  voiceEcho?: VoiceEchoConfig;
 }
 
 // Playback timing helper: respects scene.duration while ensuring audio is never cut short
@@ -116,12 +125,25 @@ export default function VideoPreview({
   videoFilter = null,
   introSection = null,
   outroSection = null,
+  voiceEcho,
 }: VideoPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // kept in a ref so the draw loop always grades with the latest settings
   // without having to rebuild every callback while the sliders are dragged
   const videoFilterRef = useRef<VideoFilterConfig | null>(videoFilter);
   videoFilterRef.current = videoFilter;
+
+  // live echo setting — a change made in the Voiceover step is heard the next
+  // time the preview plays, and while playing the graph is retuned in place
+  const echoRef = useRef<VoiceEchoConfig | undefined>(voiceEcho);
+  echoRef.current = voiceEcho;
+  useEffect(() => {
+    const existing = echoGraphRef.current;
+    if (!existing) return;
+    try {
+      existing.graph.update(resolveVoiceEcho(voiceEcho));
+    } catch {}
+  }, [voiceEcho]);
 
   // Intro / outro sections (built in the studio, stored on the project — they
   // are NOT timeline inserts any more).
@@ -182,6 +204,9 @@ export default function VideoPreview({
   const musicAnalyserRef = useRef<AnalyserNode | null>(null);
   const audioBuffersRef = useRef<Map<number, SceneAudio>>(new Map());
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  // The narration's echo chain for the current playback session. It is kept
+  // alive between scenes so the tail rings on instead of being chopped off.
+  const echoGraphRef = useRef<{ ctx: AudioContext; graph: VoiceEchoGraph } | null>(null);
   const insertMixerRef = useRef<InsertAudioMixer | null>(null);
   const watermarkImgRef = useRef<HTMLImageElement | null>(null);
   const customerLogoImgRef = useRef<HTMLImageElement | null>(null);
@@ -574,7 +599,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       // Render Active Timeline Inserts (Stickers, Cards, Visualizers, Special FX)
       if (inserts && inserts.length > 0) {
         inserts.forEach((insert) => {
-          renderTimelineInsert(ctx, insert, absoluteTime, w, h, audioLevel, freqData, audioFrame);
+          renderTimelineInsert(ctx, insert, absoluteTime, w, h, audioLevel, freqData, audioFrame, {
+            // the project's own logo, so a centre visualiser can show it in
+            // the middle of the live preview exactly as the render will
+            logo: customerLogo?.enabled ? customerLogoImgRef.current : null,
+          });
         });
       }
 
@@ -892,6 +921,27 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       if (recordDestRef.current) music.connect(recordDestRef.current);
     }
 
+    // ---- Narration echo (set in the Voiceover step) ---------------------
+    // Built fresh for this playback session, on the same AudioContext the
+    // narration plays on, and fed into the voice bus so the visualisers react
+    // to the voice exactly as it sounds.
+    if (audioCtx) {
+      const echoCfg = resolveVoiceEcho(echoRef.current);
+      const target = analyserRef.current || audioCtx.destination;
+      const existing = echoGraphRef.current;
+      if (existing && existing.ctx !== audioCtx) {
+        try { existing.graph.dispose(); } catch {}
+        echoGraphRef.current = null;
+      }
+      if (!echoGraphRef.current) {
+        const graph = createVoiceEchoGraph(audioCtx, echoCfg);
+        try { graph.output.connect(target); } catch {}
+        echoGraphRef.current = { ctx: audioCtx, graph };
+      } else {
+        echoGraphRef.current.graph.update(echoCfg);
+      }
+    }
+
     const introSec = activeIntro;
     const outroSec = activeOutro;
     const introDur = introDuration;
@@ -952,7 +1002,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       if (sceneAudio) {
         const source = audioCtx.createBufferSource();
         source.buffer = sceneAudio.buffer;
-        if (analyserRef.current) {
+        const echo = echoGraphRef.current;
+        if (echo && echo.ctx === audioCtx && voiceEchoIsActive(echoRef.current)) {
+          // Dry voice + echo tail, both landing on the voice bus
+          source.connect(echo.graph.input);
+        } else if (analyserRef.current) {
           source.connect(analyserRef.current);
         } else {
           source.connect(audioCtx.destination);

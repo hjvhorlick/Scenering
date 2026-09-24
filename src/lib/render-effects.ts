@@ -218,7 +218,11 @@ export function renderTimelineInsert(
   freqData?: Uint8Array | number[] | null,
   /** Voice + music analyser buses. When omitted, level/freq are used for both
    *  buses so older call sites keep working unchanged. */
-  audioFrame?: AudioFrame | null
+  audioFrame?: AudioFrame | null,
+  /** Extras the frame already has to hand. `logo` is the project's own logo
+   *  image, used by the centre visualisers — passed in rather than fetched so a
+   *  render never stalls on a network request. */
+  extras?: { logo?: CanvasImageSource | null }
 ) {
   // Check if item is within active time window
   const start = insert.startTime;
@@ -300,6 +304,7 @@ export function renderTimelineInsert(
         canvasHeight: h,
         elapsed,
         frame,
+        logo: extras?.logo || null,
       });
       break;
     case "special_effects":
@@ -455,8 +460,9 @@ export function getCtaPreviewCrop(
   const rotatedH = Math.abs(height * Math.cos(rot)) + Math.abs(width * Math.sin(rot));
   const elevation = item.visualOptions?.elevation ?? 0.45;
   // The drop shadow is painted inside the scaled context, so its room scales with
-  // the badge too — that keeps small badges from sitting in an oversized box.
-  const shadowPad = Math.max(8, (10 + elevation * 12) * size + 4);
+  // the badge too — that keeps small badges from sitting in an oversized box,
+  // while still leaving room for the soft shadow that floats the badge.
+  const shadowPad = Math.max(12, (26 + elevation * 14) * size + 6);
 
   const wantedW = Math.ceil(rotatedW + shadowPad * 2);
   const wantedH = Math.ceil(rotatedH + shadowPad * 2);
@@ -550,6 +556,9 @@ export function getInsertBounds(
  */
 const FLOAT_SHADOW_CATEGORIES: Record<string, boolean> = {
   stickers: true,
+  // Badges are the one overlay that must read as lifted off the video: they get
+  // the same soft shadow underneath so the button sits "a little in the air".
+  call_to_action: true,
   content_cards: true,
   other_cards: true,
   text_templates: true,
@@ -1101,13 +1110,78 @@ function relativeLuminance(hex: string) {
  * The badge sits on a soft plate shadow with a light top bevel and a darker
  * bottom bevel — a slightly raised, clean 2D look.
  */
+/**
+ * Paints a call-to-action badge **exactly the way the video does**, shadow and
+ * all: the badge is drawn into an offscreen buffer and then blitted with the
+ * same soft shadow the render pipeline puts under every overlay. The editor's
+ * live preview and the studio cards both use this, so what the user is looking
+ * at while choosing options is the badge that lands in the export.
+ *
+ * Returns false when the browser has no 2D buffer available (the caller then
+ * falls back to painting straight onto the canvas).
+ */
+export function paintCtaWithFloatShadow(
+  ctx: CanvasRenderingContext2D,
+  item: TimelineInsert,
+  opts: { settled?: boolean; shadowIntensity?: number } = {}
+): boolean {
+  const layout = getCtaBadgeLayout(item, ctx);
+  const pad = Math.ceil(Math.max(layout.width, layout.height) * 0.25) + 24;
+  const bw = Math.ceil(layout.width + pad * 2);
+  const bh = Math.ceil(layout.height + pad * 2);
+
+  let buffer: CanvasRenderingContext2D | null = null;
+  try {
+    const canvas =
+      typeof document !== "undefined"
+        ? document.createElement("canvas")
+        : typeof OffscreenCanvas !== "undefined"
+        ? new OffscreenCanvas(bw, bh)
+        : null;
+    if (canvas) {
+      if (canvas instanceof HTMLCanvasElement) {
+        canvas.width = bw;
+        canvas.height = bh;
+      }
+      buffer = canvas.getContext("2d") as CanvasRenderingContext2D | null;
+    }
+  } catch {
+    buffer = null;
+  }
+  if (!buffer) return false;
+
+  renderCallToAction(buffer, item, bw / 2, bh / 2, 1, 0, { settled: opts.settled !== false });
+
+  const strength = Math.max(0, Math.min(1, opts.shadowIntensity ?? item.visualOptions?.shadowIntensity ?? 0.7));
+  ctx.save();
+  ctx.shadowColor = `rgba(0, 0, 0, ${(0.34 + strength * 0.42).toFixed(3)})`;
+  ctx.shadowBlur = 11 + strength * 15;
+  ctx.shadowOffsetY = 5 + strength * 8;
+  ctx.drawImage(
+    buffer.canvas as CanvasImageSource,
+    -bw / 2,
+    -bh / 2,
+    bw,
+    bh
+  );
+  ctx.restore();
+  return true;
+}
+
 export function renderCallToAction(
   ctx: CanvasRenderingContext2D,
   item: TimelineInsert,
   x: number,
   y: number,
   size: number,
-  elapsed: number
+  elapsed: number,
+  /**
+   * `settled` paints the badge at rest: no entrance pop and no drifting motion.
+   * Still previews (the editor's live badge preview and the studio cards) use it
+   * so they always show the badge at full size — the entrance animation starts
+   * at zero scale, which would otherwise leave a still frame blank.
+   */
+  opts?: { settled?: boolean }
 ) {
   const platform = resolveCtaPlatform(item.type, item.visualOptions?.platform);
   const visual = item.visualOptions || {};
@@ -1144,19 +1218,25 @@ export function renderCallToAction(
   }
 
   // Shared overlay motion — the same engine the 3D stickers use, so a CTA can
-  // swing, bounce or turn to pull the eye. Defaults to the old subtle breath.
-  const ctaMotion = computeMotion(elapsed, item.duration, {
-    preset: (visual.motionPreset as MotionPreset) || "none",
-    speed: visual.motionSpeed,
-    amount: visual.motionAmount,
-    entrance: visual.motionEntrance,
-  });
-  if (visual.motionPreset && visual.motionPreset !== "none") {
-    applyMotion(ctx, ctaMotion);
-  } else {
-    // legacy gentle breathing pulse (keeps existing projects looking the same)
-    const pulse = 1 + Math.sin(elapsed * 3.2) * 0.012;
-    ctx.scale(pulse, pulse);
+  // drift, bounce or pop to pull the eye. A badge is a text plate, though, so
+  // the motion never tilts it: the rotation slider is the only source of tilt
+  // and every badge therefore sits dead straight in the preview, the studio
+  // cards and the final render until the user deliberately angles it.
+  if (!opts?.settled) {
+    if (visual.motionPreset && visual.motionPreset !== "none") {
+      const ctaMotion = computeMotion(elapsed, item.duration, {
+        preset: (visual.motionPreset as MotionPreset) || "none",
+        speed: visual.motionSpeed,
+        amount: visual.motionAmount,
+        entrance: visual.motionEntrance,
+      });
+      ctaMotion.rotate = 0;
+      applyMotion(ctx, ctaMotion);
+    } else {
+      // legacy gentle breathing pulse (keeps existing projects looking the same)
+      const pulse = 1 + Math.sin(elapsed * 3.2) * 0.012;
+      ctx.scale(pulse, pulse);
+    }
   }
 
   const bwU = layout.width; // unscaled (ctx already scaled by size)

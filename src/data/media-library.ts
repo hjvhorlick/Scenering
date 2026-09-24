@@ -5,6 +5,12 @@ export interface SoundAsset {
   filename: string;
   name: string;
   category: "sfx" | "bell" | "cinematic" | "ui" | "music";
+  /**
+   * Which group the Sound Effects tab files it under: Bells & UI Chimes, Whooshes
+   * & Pops, or Camera & Applause. Spelled out per sound so a group can only ever
+   * hold the kind of sound its name promises.
+   */
+  section?: "ui" | "impact" | "foley";
   url: string;
   duration: number; // in seconds approx
   author: string;
@@ -21,6 +27,7 @@ export const SOUND_LIBRARY: SoundAsset[] = [
     filename: "ting.ogg",
     name: "Ting Bell Chime",
     category: "bell",
+    section: "ui",
     url: "/sounds/ting.ogg",
     duration: 1.2,
     author: "Wikimedia Commons",
@@ -34,6 +41,7 @@ export const SOUND_LIBRARY: SoundAsset[] = [
     filename: "whoosh_appear.wav",
     name: "Whoosh / Swoosh Appear",
     category: "sfx",
+    section: "impact",
     url: "/sounds/whoosh_appear.wav",
     duration: 1.4,
     author: "RunnerPack",
@@ -47,6 +55,7 @@ export const SOUND_LIBRARY: SoundAsset[] = [
     filename: "jump_pop.wav",
     name: "Jump / Bounce Pop",
     category: "sfx",
+    section: "impact",
     url: "/sounds/jump_pop.wav",
     duration: 0.8,
     author: "LloydEvans09",
@@ -60,8 +69,9 @@ export const SOUND_LIBRARY: SoundAsset[] = [
     filename: "camera_shutter.ogg",
     name: "SLR Camera Shutter",
     category: "sfx",
+    section: "foley",
     url: "/sounds/camera_shutter.ogg",
-    duration: 0.9,
+    duration: 3.5,
     author: "Francois C",
     source: "Wikimedia Commons",
     sourceUrl: "https://commons.wikimedia.org/wiki/File:Camera_shutter.ogg",
@@ -73,8 +83,9 @@ export const SOUND_LIBRARY: SoundAsset[] = [
     filename: "dramatic_chord.ogg",
     name: "Dramatic Sting (Dun Dun Dun)",
     category: "cinematic",
+    section: "impact",
     url: "/sounds/dramatic_chord.ogg",
-    duration: 2.8,
+    duration: 4.4,
     author: "Wikimedia Commons Community",
     source: "Wikimedia Commons",
     sourceUrl: "https://commons.wikimedia.org/wiki/File:Dun_dun_duuun!.ogg",
@@ -86,6 +97,7 @@ export const SOUND_LIBRARY: SoundAsset[] = [
     filename: "achievement_bell.wav",
     name: "Achievement Unlocked Chime",
     category: "bell",
+    section: "ui",
     url: "/sounds/achievement_bell.wav",
     duration: 2.2,
     author: "rhodesmas",
@@ -99,8 +111,9 @@ export const SOUND_LIBRARY: SoundAsset[] = [
     filename: "applause.ogg",
     name: "Audience Applause & Cheer",
     category: "sfx",
+    section: "foley",
     url: "/sounds/applause.ogg",
-    duration: 5.0,
+    duration: 10.2,
     author: "Thore",
     source: "Wikimedia Commons",
     sourceUrl: "https://commons.wikimedia.org/wiki/File:Applause.ogg",
@@ -112,6 +125,7 @@ export const SOUND_LIBRARY: SoundAsset[] = [
     filename: "computer_beep.wav",
     name: "Tech UI Computer Beep",
     category: "ui",
+    section: "ui",
     url: "/sounds/computer_beep.wav",
     duration: 1.0,
     author: "Gravity Sound",
@@ -125,6 +139,7 @@ export const SOUND_LIBRARY: SoundAsset[] = [
     filename: "retro_fx.mp3",
     name: "Retro 8-Bit Game FX",
     category: "sfx",
+    section: "ui",
     url: "/sounds/retro_fx.mp3",
     duration: 1.2,
     author: "Gravity Sound",
@@ -136,10 +151,11 @@ export const SOUND_LIBRARY: SoundAsset[] = [
   {
     id: "ui_beep",
     filename: "ui_beep.ogg",
-    name: "Subtle UI Beep (400ms)",
+    name: "Subtle UI Beep",
     category: "ui",
+    section: "ui",
     url: "/sounds/ui_beep.ogg",
-    duration: 0.4,
+    duration: 1.2,
     author: "Wikimedia Commons",
     source: "Wikimedia Commons",
     sourceUrl: "https://commons.wikimedia.org/wiki/File:Beep_400ms.ogg",
@@ -147,32 +163,33 @@ export const SOUND_LIBRARY: SoundAsset[] = [
     description: "Clean modern minimal click/beep for quick UI transitions.",
   },
   {
+    id: "camera_click",
+    filename: "camera_click.ogg",
+    name: "Camera Shutter Click",
+    category: "sfx",
+    section: "foley",
+    url: "/sounds/camera_click.ogg",
+    duration: 0.7,
+    author: "Scenering sound set",
+    source: "Project sound library (free-licence recordings)",
+    sourceUrl: "",
+    license: "Free / royalty-free",
+    description: "Tight mechanical shutter click — cameras, photos and snap reveals.",
+  },
+  {
     id: "bicycle_bell",
     filename: "bicycle_bell.ogg",
     name: "Ding-Dong Bicycle Bell",
     category: "bell",
+    section: "ui",
     url: "/sounds/bicycle_bell.ogg",
-    duration: 1.5,
+    duration: 2.2,
     author: "Wikimedia Commons",
     source: "Wikimedia Commons",
     sourceUrl: "https://commons.wikimedia.org/wiki/File:Ding_Dong_Bicycle_Bell_A.ogg",
     license: "Public Domain",
     description: "Classic acoustic brass ding-dong bicycle bell chime.",
-  },
-  {
-    id: "gymnopedie_no1",
-    filename: "gymnopedie_no1.mp3",
-    name: "Erik Satie - Gymnopédie No. 1",
-    category: "music",
-    url: "/sounds/gymnopedie_no1.mp3",
-    duration: 184,
-    author: "Composed by Erik Satie, performed by Kevin MacLeod",
-    source: "Incompetech / Wikimedia Commons",
-    sourceUrl: "https://commons.wikimedia.org/wiki/File:Gymnopedie_No._1_(ISRC_USUAN1100787).mp3",
-    license: "CC BY 3.0 (incompetech.com)",
-    description: "High Definition 320 kbps peaceful classical piano soundtrack.",
-  }
-];
+  },];
 
 export interface BackgroundMusicTrack {
   id: string;

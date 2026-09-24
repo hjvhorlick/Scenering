@@ -1,6 +1,12 @@
 import React, { useEffect, useRef } from "react";
 import { CatalogItem } from "../lib/video-studio-catalog";
-import { getPresetCoords, renderTimelineInsert } from "../lib/render-effects";
+import {
+  getCtaBadgeLayout,
+  getPresetCoords,
+  paintCtaWithFloatShadow,
+  renderCallToAction,
+  renderTimelineInsert,
+} from "../lib/render-effects";
 import type { TimelineInsert } from "../types";
 import StickerPreviewCanvas from "./StickerPreviewCanvas";
 import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
@@ -81,6 +87,68 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   }, [item]);
 
 
+  // Call-to-action cards: one still frame of the real badge, drawn from the
+  // card's own default settings. Settled (no entrance, no tilt) so the badge is
+  // straight and whole in the thumbnail, exactly as it reads in the video.
+  useEffect(() => {
+    if (item.category !== "call_to_action") return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const previewInsert = {
+      id: `preview-${item.type}`,
+      category: item.category,
+      type: item.type,
+      title: item.name,
+      startTime: 0,
+      duration: item.defaultDuration || 8,
+      presetPosition: "center",
+      size: 1,
+      opacity: 1,
+      content: item.defaultContent ? { ...item.defaultContent } : {},
+      visualOptions: item.defaultVisualOptions ? { ...item.defaultVisualOptions } : undefined,
+    } as unknown as TimelineInsert;
+
+    // A soft "video still" stage: the badge has to be judged the way it will be
+    // seen — sitting on footage with the light and shade of a real frame.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    const stage = ctx.createLinearGradient(0, 0, W * 0.4, H);
+    stage.addColorStop(0, "#26314d");
+    stage.addColorStop(0.5, "#151c30");
+    stage.addColorStop(1, "#0a0e18");
+    ctx.fillStyle = stage;
+    ctx.fillRect(0, 0, W, H);
+    const light = ctx.createRadialGradient(W * 0.3, H * 0.22, 0, W * 0.3, H * 0.22, Math.max(W, H) * 0.6);
+    light.addColorStop(0, "rgba(255, 255, 255, 0.16)");
+    light.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = light;
+    ctx.fillRect(0, 0, W, H);
+    const floor = ctx.createLinearGradient(0, H * 0.55, 0, H);
+    floor.addColorStop(0, "rgba(0, 0, 0, 0)");
+    floor.addColorStop(1, "rgba(0, 0, 0, 0.5)");
+    ctx.fillStyle = floor;
+    ctx.fillRect(0, H * 0.55, W, H * 0.45);
+
+    // Scale the badge to fill the card without distorting it, then paint it with
+    // the same shadow the video puts under it — the raised, floating look.
+    const layout = getCtaBadgeLayout(previewInsert, ctx);
+    const fit = Math.min((W * 0.82) / layout.width, (H * 0.5) / layout.height);
+
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(fit, fit);
+    const painted = paintCtaWithFloatShadow(ctx, previewInsert, { settled: true });
+    if (!painted) {
+      renderCallToAction(ctx, previewInsert, 0, 0, 1, 0, { settled: true });
+    }
+  }, [item]);
+
   // If this is an audio visualizer, return the live animated canvas
   if (item.category === "audio_visualizers") {
     return (
@@ -101,73 +169,20 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     );
   }
 
-  // ---------------- CALL TO ACTION PREVIEWS (TRUE TO LIFE ON-VIDEO APPEARANCE) ----------------
+  // ---------------- CALL TO ACTION PREVIEWS (THE REAL BADGE, NOT A STAND-IN) ----------------
+  // Every CTA card is painted by renderCallToAction() — the same function the
+  // video preview and the final render use — using the badge's own settings
+  // (brand colours, shape, style, mark, wording, bevel, raised shadow). So the
+  // grid shows the 36 platforms exactly as they will look on the video instead
+  // of one generic indigo pill.
   if (item.category === "call_to_action") {
-    if (item.type === "subscribe_cta") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          {/* Subtle video background grid */}
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f293710_1px,transparent_1px),linear-gradient(to_bottom,#1f293710_1px,transparent_1px)] bg-[size:16px_16px]" />
-          
-          {/* 3D Subscribe Pill */}
-          <div className="relative z-10 flex items-center gap-2 bg-gradient-to-r from-red-600 via-red-500 to-red-600 text-white px-4 py-2 rounded-full shadow-[0_6px_16px_rgba(239,68,68,0.45),inset_0_1px_1px_rgba(255,255,255,0.4)] border border-red-400/40 transform transition-transform group-hover:scale-105">
-            <span className="text-xs font-black tracking-wider drop-shadow">SUBSCRIBE</span>
-            <div className="w-6 h-6 rounded-full bg-red-700/80 border border-red-300/40 flex items-center justify-center text-xs shadow-inner">
-              🔔
-            </div>
-          </div>
-          <div className="absolute bottom-1 right-2 text-[9px] text-gray-400 font-mono">Video Overlay</div>
-        </div>
-      );
-    }
-
-    if (item.type === "follow_cta") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex items-center gap-2 bg-gradient-to-r from-sky-600 to-blue-600 text-white px-3.5 py-1.5 rounded-full shadow-[0_4px_14px_rgba(2,132,199,0.4),inset_0_1px_1px_rgba(255,255,255,0.3)] border border-sky-400/40">
-            <span className="text-xs">✨</span>
-            <span className="text-xs font-bold tracking-wide">FOLLOW FOR MORE</span>
-            <span className="w-4 h-4 rounded-full bg-white text-blue-600 font-bold text-[10px] flex items-center justify-center">✓</span>
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "like_share_cta") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex items-center gap-3 bg-indigo-950/80 backdrop-blur-md px-3.5 py-2 rounded-xl border border-indigo-500/40 shadow-lg">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-200">
-              <span className="text-sm">👍</span>
-              <span>LIKE</span>
-            </div>
-            <span className="text-gray-500">•</span>
-            <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-200">
-              <span className="text-sm">↗️</span>
-              <span>SHARE</span>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    if (item.type === "buy_now_cta") {
-      return (
-        <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-          <div className="relative z-10 flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-2 rounded-full shadow-[0_5px_15px_rgba(16,185,129,0.35)] border border-emerald-400/30">
-            <span>🛍️</span>
-            <span className="text-xs font-black tracking-wide">SHOP NOW — 20% OFF</span>
-          </div>
-        </div>
-      );
-    }
-
-    // Generic CTA
     return (
-      <div className="w-full h-24 rounded-lg bg-gradient-to-b from-gray-950 to-gray-900 border border-gray-800 p-2 flex items-center justify-center relative overflow-hidden group">
-        <div className="relative z-10 flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-1.5 rounded-lg shadow-md border border-indigo-400/30">
-          <span className="text-sm">{item.icon}</span>
-          <span className="text-xs font-bold uppercase tracking-wider">{item.defaultContent?.primaryText || item.name}</span>
+      <div className="w-full h-24 rounded-lg bg-gray-950 border border-gray-800 overflow-hidden relative shadow-inner flex items-center justify-center">
+        <canvas ref={canvasRef} width={512} height={176} className="w-full h-full" />
+        <div className="absolute bottom-1 right-2 flex items-center gap-1">
+          <span className="text-[9px] font-mono text-gray-400 uppercase tracking-wider">
+            Real badge · same engine as render
+          </span>
         </div>
       </div>
     );

@@ -9,7 +9,9 @@
  */
 import type { TimelineInsert } from "../types";
 import {
+  AudioBus,
   AudioFrame,
+  BarsResult,
   ReactionSource,
   EMPTY_FRAME,
   getBars,
@@ -17,10 +19,29 @@ import {
   beatPulse,
   pickBus,
 } from "./audio-reactive";
+import { resolveVisualizerPalette } from "./visualizer-palettes";
 
 /* ------------------------------------------------------------------ *
  * Geometry helpers shared with hit-testing / dragging
  * ------------------------------------------------------------------ */
+
+/**
+ * Full-frame "scenes": instead of a rack or a ring, these fill the picture with
+ * a moving world (a wireframe landscape, a warp starfield, plasma blobs...). They
+ * are drawn from the same spectrum data as everything else, so they react just as
+ * hard, and because the whole scene is code it stays pin sharp in a 4K render.
+ */
+export const IMMERSIVE_VISUALIZER_TYPES = [
+  "terrain_grid",
+  "warp_starfield",
+  "glow_pills",
+  "particle_swarm",
+  "lava_blobs",
+  "jellyfish_mesh",
+  "ring_of_fire",
+] as const;
+
+const IMMERSIVE_TYPES = new Set<string>(IMMERSIVE_VISUALIZER_TYPES);
 
 /** Compact visualisers: circular/radial shapes and the small talking-dot cluster.
  *  They are never stretched across the frame and can be dragged anywhere. */
@@ -31,7 +52,33 @@ const ROUND_TYPES = new Set([
   "pulse_circle",
   "radial_pulse",
   "minimal_voice",
+  "audio_orb",
+  "orbit_disc",
 ]);
+
+/** Centre visualisers: a ring / disc built around the middle of the frame.
+ *  They can carry the user's own logo in the middle. */
+export const CENTRE_VISUALIZER_TYPES = ["audio_orb", "orbit_disc", "circular_wave", "voice_pulse", "energy_ring", "pulse_circle"] as const;
+
+const CENTRE_LOGO_TYPES = new Set<string>([
+  "audio_orb",
+  "orbit_disc",
+  "circular_wave",
+  "voice_pulse",
+  "energy_ring",
+  "pulse_circle",
+]);
+
+/** The two styles that are *built* around a centre: the logo is on by default */
+const CENTRE_STAGE_TYPES = new Set<string>(["audio_orb", "orbit_disc"]);
+
+/** Does this insert want the user's logo in its middle? */
+export function wantsCentreLogo(item: TimelineInsert): boolean {
+  if (!CENTRE_LOGO_TYPES.has(item.type)) return false;
+  const choice = item.visualOptions?.centreLogo;
+  if (choice === undefined) return CENTRE_STAGE_TYPES.has(item.type);
+  return choice === true;
+}
 
 /** Types that stretch across the full frame width */
 const LINEAR_TYPES = new Set([
@@ -48,9 +95,6 @@ const LINEAR_TYPES = new Set([
   "spectrum_bars",
 ]);
 
-/** Extra visualisers added with the modernisation pass */
-export const MODERN_VISUALIZER_TYPES = ["neon_ribbon", "led_meter_wall", "dot_matrix_eq"] as const;
-
 export function isRoundVisualizer(type: string): boolean {
   return ROUND_TYPES.has(type);
 }
@@ -61,6 +105,8 @@ export function isLinearVisualizer(type: string): boolean {
 
 /** Full width unless the user switched it off (round types are never full width) */
 export function isVisualizerFullWidth(item: TimelineInsert): boolean {
+  // Scenes always fill the frame: they are the picture, not an overlay on it.
+  if (IMMERSIVE_TYPES.has(item.type)) return true;
   if (isRoundVisualizer(item.type)) return false;
   if (!isLinearVisualizer(item.type)) return false;
   return item.visualOptions?.fullWidth !== false;
@@ -74,7 +120,15 @@ export function visualizerBodyHeight(item: TimelineInsert, canvasHeight: number)
   // in a 720p render and in a small studio thumbnail (just smaller).
   const ofFrame = (ratio: number) =>
     Math.max(canvasHeight * ratio * Math.max(0.32, size), canvasHeight * 0.055);
+  if (CENTRE_STAGE_TYPES.has(type)) {
+    // the orb and the disc are bigger than the small round badges: they are the
+    // centrepiece of the shot
+    return Math.max(canvasHeight * 0.34 * Math.max(0.45, Math.min(1.6, size)), 40);
+  }
   if (ROUND_TYPES.has(type)) return Math.max(canvasHeight * 0.22 * Math.min(1.35, size), 34);
+  // Scenes are pushed a little smaller than the frame so dragging them stays
+  // usable; the drawing itself always uses the full frame.
+  if (IMMERSIVE_TYPES.has(type)) return canvasHeight * 0.62 * Math.max(0.4, Math.min(1.6, size));
   if (type === "neon_ribbon") return ofFrame(0.17);
   if (type === "oscilloscope") return ofFrame(0.16);
   if (type === "waveform" || type === "voice_wave") return ofFrame(0.15);
@@ -95,8 +149,13 @@ export function getVisualizerFootprint(
   const body = visualizerBodyHeight(item, canvasHeight);
   if (isRoundVisualizer(item.type)) {
     const size = item.size || 1;
-    // the talking-dot cluster is far smaller than the circular analysers
-    const d = item.type === "minimal_voice" ? Math.max(120, 190 * size) : Math.max(150, 300 * size);
+    // the talking-dot cluster is far smaller than the circular analysers, and
+    // the centre stages are the largest of all
+    const d = CENTRE_STAGE_TYPES.has(item.type)
+      ? Math.max(200, canvasHeight * 0.92 * Math.max(0.45, Math.min(1.6, size)))
+      : item.type === "minimal_voice"
+      ? Math.max(120, 190 * size)
+      : Math.max(150, 300 * size);
     return { w: d, h: d };
   }
   const full = isVisualizerFullWidth(item);
@@ -433,6 +492,722 @@ function drawBarRack(ctx: CanvasRenderingContext2D, o: RackOptions) {
  * Main renderer
  * ------------------------------------------------------------------ */
 
+
+/* ------------------------------------------------------------------ *
+ * Centre stage helper — the user's own logo in the middle
+ * ------------------------------------------------------------------ */
+
+/**
+ * Draws the hub every centre visualiser is built around: a glass disc that
+ * pulses with the bass with the user's logo sitting on it. When the project has
+ * no logo, the hub falls back to a plain glowing core — no third-party mark is
+ * ever drawn here.
+ */
+function drawCentreCore(
+  ctx: CanvasRenderingContext2D,
+  radius: number,
+  colours: { primary: string; secondary: string; accent: string },
+  opts: { logo?: CanvasImageSource | null; beat: number; low: number; glow: number; reveal?: number }
+) {
+  const { primary, secondary, accent } = colours;
+  const r = Math.max(6, radius);
+  const pulse = 1 + opts.beat * 0.05 + opts.low * 0.06;
+
+  // halo behind the disc so the logo sits in light
+  const halo = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 2.1);
+  halo.addColorStop(0, rgba(accent, 0.3 + opts.beat * 0.25));
+  halo.addColorStop(0.45, rgba(primary, 0.14));
+  halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 2.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // glass disc
+  ctx.save();
+  ctx.scale(pulse, pulse);
+  const disc = ctx.createRadialGradient(0, -r * 0.25, r * 0.1, 0, 0, r);
+  disc.addColorStop(0, "rgba(12, 16, 28, 0.92)");
+  disc.addColorStop(0.75, "rgba(8, 11, 20, 0.88)");
+  disc.addColorStop(1, rgba(primary, 0.35));
+  ctx.fillStyle = disc;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.lineWidth = Math.max(1.2, r * 0.055);
+  ctx.strokeStyle = rgba(mixColors(primary, "#ffffff", 0.35), 0.55 + opts.beat * 0.35);
+  if (opts.glow > 0.05) {
+    ctx.shadowColor = rgba(primary, 0.9);
+    ctx.shadowBlur = 22 * opts.glow;
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  const logo = opts.logo;
+  if (logo) {
+    // fit the logo inside the hub without ever distorting it
+    const nat = logo as unknown as { naturalWidth?: number; naturalHeight?: number; width?: number; height?: number };
+    const iw = nat.naturalWidth || nat.width || 1;
+    const ih = nat.naturalHeight || nat.height || 1;
+    const box = r * 1.52;
+    const scale = Math.min(box / iw, box / ih);
+    const dw = iw * scale;
+    const dh = ih * scale;
+    ctx.save();
+    ctx.scale(pulse, pulse);
+    if (opts.glow > 0.05) {
+      ctx.shadowColor = rgba(accent, 0.75);
+      ctx.shadowBlur = 18 * opts.glow;
+    }
+    try {
+      ctx.drawImage(logo, -dw / 2, -dh / 2, dw, dh);
+    } catch {
+      // A logo that cannot be drawn (cross-origin taint, broken image) simply
+      // leaves the glowing core showing.
+      ctx.shadowBlur = 0;
+    }
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    return;
+  }
+
+  // no logo: a white-hot core that thumps on the beat
+  const coreR = r * (0.34 + opts.beat * 0.12 + opts.low * 0.1);
+  const core = ctx.createRadialGradient(0, 0, 1, 0, 0, coreR);
+  core.addColorStop(0, "#ffffff");
+  core.addColorStop(0.4, rgba(accent, 0.95));
+  core.addColorStop(0.8, rgba(secondary, 0.6));
+  core.addColorStop(1, rgba(primary, 0));
+  ctx.fillStyle = core;
+  ctx.beginPath();
+  ctx.arc(0, 0, coreR, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/* ================================================================== *
+ * IMMERSIVE SCENES
+ * ------------------------------------------------------------------
+ * Seven full-frame visualisers built for drama: a wireframe landscape, a
+ * warp starfield, glowing pills, a particle swarm, lava-lamp plasma, a
+ * jellyfish wireframe and a ring of fire. Every one of them is driven by
+ * the same spectrum snapshot as the racks (values, peaks, energy, beat),
+ * is fully deterministic from `elapsed` (so the studio preview and the
+ * render agree frame for frame) and is drawn at the frame's own size so it
+ * stays sharp in any export resolution.
+ * ================================================================== */
+
+export type ImmersiveStyle =
+  | "terrain_grid"
+  | "warp_starfield"
+  | "glow_pills"
+  | "particle_swarm"
+  | "lava_blobs"
+  | "jellyfish_mesh"
+  | "ring_of_fire";
+
+export function isImmersiveVisualizer(type: string): boolean {
+  return IMMERSIVE_TYPES.has(type);
+}
+
+interface SceneCtx {
+  ctx: CanvasRenderingContext2D;
+  /** frame size in px — the scene is drawn centred on the origin */
+  w: number;
+  h: number;
+  elapsed: number;
+  primary: string;
+  secondary: string;
+  accent: string;
+  glow: number;
+  reactive: number;
+  bands: BarsResult;
+  beat: number;
+  compact: boolean;
+}
+
+/** Deterministic 0..1 from an index: no Math.random, so stars, particles and
+ *  blobs land in exactly the same place in the preview and in the render. */
+function hash01(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+  return x - Math.floor(x);
+}
+
+/** Soft radial bloom used by the plasma and ring styles. */
+function softGlow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  inner: string,
+  mid: string,
+  alpha: number
+) {
+  if (r <= 0.5 || alpha <= 0.01) return;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, inner);
+  g.addColorStop(0.42, mid);
+  g.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ---------------- 1. TERRAIN OVERDRIVE ---------------- */
+/** A 3D wireframe landscape flying toward the viewer: every ridge is a frequency
+ *  band, the bass lifts the whole range and the beat lights the near rows. */
+function drawTerrain(s: SceneCtx) {
+  const { ctx, w, h } = s;
+  const values = s.bands.values;
+  const cols = Math.max(24, Math.min(64, values.length));
+  const rows = 26;
+  const horizon = -h * 0.2;
+  const scroll = (s.elapsed * 0.5) % 1;
+  const energy = Math.max(0, Math.min(1.4, s.bands.energy));
+  const amp = h * (0.5 + energy * 0.7) * s.reactive;
+
+  // a dark sky behind the mesh so the neon lines have something to burn against
+  const sky = ctx.createLinearGradient(0, -h / 2, 0, h * 0.35);
+  sky.addColorStop(0, "rgba(4, 6, 16, 0.82)");
+  sky.addColorStop(0.55, "rgba(6, 8, 20, 0.4)");
+  sky.addColorStop(1, "rgba(4, 6, 16, 0)");
+  ctx.fillStyle = sky;
+  ctx.fillRect(-w / 2, -h / 2, w, h * 0.85);
+
+  // -- sun disc on the horizon, breathing with the bass -----------------------
+  const sunR = Math.min(w, h) * (0.13 + s.bands.low * 0.05);
+  softGlow(ctx, 0, horizon, sunR * 1.7, rgba(s.accent, 0.3 + s.beat * 0.25), rgba(s.primary, 0.12), 1);
+  ctx.save();
+  const sun = ctx.createLinearGradient(0, horizon - sunR, 0, horizon + sunR);
+  sun.addColorStop(0, rgba(s.accent, 0.95));
+  sun.addColorStop(0.5, rgba(s.primary, 0.8));
+  sun.addColorStop(1, rgba(s.secondary, 0.4));
+  ctx.fillStyle = sun;
+  ctx.beginPath();
+  ctx.arc(0, horizon, sunR, 0, Math.PI * 2);
+  ctx.fill();
+  // scan lines across the disc keep the retro grade
+  ctx.globalCompositeOperation = "destination-out";
+  for (let i = 1; i < 7; i++) {
+    const y = horizon - sunR * 0.05 + i * sunR * 0.15;
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(-sunR, y, sunR * 2, Math.max(1, sunR * 0.045 * i * 0.6));
+  }
+  ctx.restore();
+
+  // -- the mesh: rows recede into the distance, each row a spectrum slice -------
+  for (let r = rows - 1; r >= 0; r--) {
+    const z = r + 1 + scroll;
+    const persp = 1 - 1 / (1 + z * 0.2);              // 0 at the horizon … ~0.8 up close
+    const y = horizon + (h * 0.55 - horizon) * persp * 1.15;
+    const depth = 0.25 + persp * 1.15;
+    const alpha = 0.16 + persp * 0.78;
+    const liftOf = (c: number) => {
+      const band = values[(c + r * 3) % values.length] || 0;
+      // a little expansion on the peaks: the loud bands tower over the quiet ones
+      return Math.pow(Math.max(0, Math.min(1.3, band)), 0.8) * amp * depth * 0.42;
+    };
+
+    // the ridge line itself
+    ctx.beginPath();
+    for (let c = 0; c <= cols; c++) {
+      const x = -w / 2 + (c / cols) * w;
+      const yy = y - liftOf(c);
+      if (c === 0) ctx.moveTo(x, yy);
+      else ctx.lineTo(x, yy);
+    }
+    ctx.strokeStyle = rgba(
+      mixColors(s.primary, s.accent, persp * 0.85),
+      Math.min(1, 0.32 + persp * 0.78 + energy * 0.1)
+    );
+    ctx.lineWidth = Math.max(1.1, h * 0.003 * (0.55 + persp));
+    if (s.glow > 0.05) {
+      ctx.shadowColor = rgba(s.primary, 0.9);
+      ctx.shadowBlur = 20 * s.glow * persp * (0.6 + s.beat * 0.9);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // upright wires give the mesh its structure
+    ctx.beginPath();
+    for (let c = 0; c <= cols; c += 3) {
+      const x = -w / 2 + (c / cols) * w;
+      ctx.moveTo(x, y - liftOf(c));
+      ctx.lineTo(x, y + h * 0.02 * (0.4 + persp));
+    }
+    ctx.strokeStyle = rgba(s.accent, alpha * 0.22);
+    ctx.lineWidth = Math.max(0.6, h * 0.0012 * (0.4 + persp));
+    ctx.stroke();
+  }
+
+  // -- floor haze so the nearest row sits in light instead of stopping dead ----
+  const haze = ctx.createLinearGradient(0, h * 0.06, 0, h * 0.5);
+  haze.addColorStop(0, "rgba(0,0,0,0)");
+  haze.addColorStop(1, rgba(s.primary, 0.1 + s.beat * 0.1));
+  ctx.fillStyle = haze;
+  ctx.fillRect(-w / 2, h * 0.06, w, h * 0.44);
+}
+
+/* ---------------- 2. WARP STARFIELD ---------------- */
+/** Thousands of stars streaming past the camera in a tunnel: the bass opens the
+ *  warp, the beat fires a shockwave and the nearest stars burn white hot. */
+function drawStarfield(s: SceneCtx) {
+  const { ctx, w, h } = s;
+  const stars = s.compact ? 170 : 420;
+  const energy = Math.max(0, Math.min(1.4, s.bands.energy));
+  const speed = 0.2 + energy * 0.45 + s.beat * 0.2;
+  const base = Math.min(w, h) * 0.5;
+  const eye = 1.05;
+  const dz = 0.045 + speed * 0.06;
+
+  // the tunnel mouth: a soft glow that breathes with the bass
+  softGlow(
+    ctx,
+    0,
+    0,
+    base * (0.65 + s.bands.low * 0.5),
+    rgba(s.primary, 0.14 + s.bands.low * 0.16),
+    rgba(s.secondary, 0.07),
+    1
+  );
+
+  ctx.save();
+  ctx.lineCap = "round";
+  for (let i = 0; i < stars; i++) {
+    const seed = hash01(i * 3 + 1);
+    const angle = hash01(i * 3 + 2) * Math.PI * 2;
+    const away = 0.18 + hash01(i * 3 + 3) * 0.95;
+    const phase = (seed + s.elapsed * speed) % 1;      // 0 = far away … 1 = at the eye
+    const z = eye - phase * eye;                       // eye … 0 in front of the lens
+    if (z < 0.04) continue;
+    const k = 1 / z;
+    const wx = Math.cos(angle) * away * k * w * 0.3;
+    const wy = Math.sin(angle) * away * k * h * 0.3;
+    if (Math.abs(wx) > w * 0.78 || Math.abs(wy) > h * 0.78) continue;
+
+    // where the same star was a moment ago: the length of its streak
+    const kp = 1 / Math.min(eye, z + dz);
+    const tx = Math.cos(angle) * away * kp * w * 0.3;
+    const ty = Math.sin(angle) * away * kp * h * 0.3;
+
+    const near = 1 - z / eye;                          // 0 far … ~1 right here
+    const colour = mixColors(s.primary, s.accent, Math.min(1, near * 1.15));
+    ctx.strokeStyle = rgba(colour, Math.min(1, 0.18 + near * 0.9));
+    ctx.lineWidth = Math.max(0.7, near * Math.min(w, h) * 0.006);
+    if (s.glow > 0.05 && near > 0.45) {
+      ctx.shadowColor = colour;
+      ctx.shadowBlur = 14 * s.glow * near;
+    }
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(wx, wy);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // white-hot head on the stars rushing past
+    if (near > 0.7) {
+      ctx.fillStyle = rgba(s.accent, Math.min(1, (near - 0.7) * 3));
+      ctx.beginPath();
+      ctx.arc(wx, wy, Math.max(0.8, near * Math.min(w, h) * 0.0045), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // beat flash: a shockwave ring racing outward
+  if (s.beat > 0.2) {
+    const t = (s.elapsed * 0.9) % 1;
+    const r = Math.min(w, h) * (0.06 + t * 0.6);
+    ctx.save();
+    ctx.strokeStyle = rgba(s.accent, 0.5 * s.beat * (1 - t));
+    ctx.lineWidth = Math.max(1, Math.min(w, h) * 0.005 * (1 - t));
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r, r * 0.74, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ---------------- 3. GLOW PILLS ---------------- */
+/** Fat glowing capsules with floating peak caps and a floor reflection. */
+function drawGlowPills(s: SceneCtx) {
+  const { ctx, w, h } = s;
+  const values = s.bands.values;
+  const peaks = s.bands.peaks;
+  const count = Math.max(10, Math.min(72, values.length));
+  const slot = w / count;
+  const pillW = Math.max(4, slot * 0.62);
+  const maxH = h * 0.56 * Math.max(0.6, Math.min(1.5, s.reactive));
+  const base = h * 0.24;
+  const energy = Math.max(0, Math.min(1.4, s.bands.energy));
+
+  // stage glow under the rack
+  const stage = ctx.createRadialGradient(0, base, 4, 0, base, w * 0.5);
+  stage.addColorStop(0, rgba(s.primary, 0.3 + energy * 0.2));
+  stage.addColorStop(0.5, rgba(s.secondary, 0.12));
+  stage.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = stage;
+  ctx.fillRect(-w / 2, base - h * 0.3, w, h * 0.6);
+
+  for (let i = 0; i < count; i++) {
+    const v = Math.max(0, values[i] || 0);
+    const pk = Math.max(0, peaks[i] || 0);
+    const x = -w / 2 + slot * (i + 0.5);
+    const height = Math.max(pillW, v * maxH);
+    const top = base - height;
+
+    // reflection first, so the pill sits on top of it
+    const reflH = Math.min(height * 0.55, h * 0.22);
+    const refl = ctx.createLinearGradient(0, base, 0, base + reflH);
+    refl.addColorStop(0, rgba(s.primary, 0.3));
+    refl.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = refl;
+    roundRectPath(ctx, x - pillW / 2, base + 2, pillW, reflH, pillW / 2);
+    ctx.fill();
+
+    // the pill body
+    const body = ctx.createLinearGradient(x, base, x, top);
+    body.addColorStop(0, rgba(s.primary, 0.55));
+    body.addColorStop(0.35, s.primary);
+    body.addColorStop(0.8, mixColors(s.primary, s.secondary, 0.55));
+    body.addColorStop(1, s.accent);
+    if (s.glow > 0.05) {
+      ctx.shadowColor = rgba(s.primary, 0.9);
+      ctx.shadowBlur = (18 + s.beat * 22) * s.glow;
+    }
+    ctx.fillStyle = body;
+    roundRectPath(ctx, x - pillW / 2, top, pillW, height, pillW / 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // glass highlight down the left side of the capsule
+    ctx.save();
+    roundRectPath(ctx, x - pillW / 2, top, pillW, height, pillW / 2);
+    ctx.clip();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+    ctx.fillRect(x - pillW / 2, top, Math.max(1, pillW * 0.26), height);
+    ctx.restore();
+
+    // floating cap that marks the band's peak
+    const capY = base - Math.max(pillW, pk * maxH) - pillW * 0.85;
+    ctx.fillStyle = rgba(s.accent, 0.75);
+    roundRectPath(ctx, x - pillW * 0.36, capY, pillW * 0.72, Math.max(2.5, pillW * 0.3), pillW * 0.2);
+    ctx.fill();
+  }
+}
+
+/* ---------------- 4. PARTICLE SWARM ---------------- */
+/** A rotating sphere of particles that swells with the bass and bursts on the beat. */
+function drawParticleSwarm(s: SceneCtx) {
+  const { ctx, w, h } = s;
+  const count = s.compact ? 130 : 240;
+  const R = Math.min(w, h) * 0.3 * (0.82 + s.bands.low * 0.5 + s.beat * 0.22);
+  const spin = s.elapsed * (0.28 + s.bands.mid * 0.5);
+  const burst = s.beat * R * 0.22;
+  const tilt = 0.42;
+
+  softGlow(ctx, 0, 0, R * 2.2, rgba(s.primary, 0.14 + s.bands.low * 0.16), rgba(s.secondary, 0.08), 1);
+
+  const pts: { x: number; y: number; z: number; i: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    const u = hash01(i * 5 + 1);
+    const v = hash01(i * 5 + 2);
+    const theta = u * Math.PI * 2 + spin * (0.7 + hash01(i * 5 + 3) * 0.6);
+    const phi = Math.acos(2 * v - 1);
+    const r = R * (0.62 + hash01(i * 5 + 4) * 0.38);
+    const band = s.bands.values[i % s.bands.values.length] || 0;
+    const rr = r + band * R * 0.34 + burst;
+    const sx = Math.sin(phi) * Math.cos(theta) * rr;
+    const syRaw = Math.cos(phi) * rr;
+    const sz = Math.sin(phi) * Math.sin(theta) * rr;
+    const sy = syRaw * Math.cos(tilt) - sz * Math.sin(tilt);
+    const zz = syRaw * Math.sin(tilt) + sz * Math.cos(tilt);
+    const persp = 1 / (1 + (zz / R) * 0.55);
+    pts.push({ x: sx * persp, y: sy * persp, z: zz, i });
+  }
+
+  // constellation lines between the closest few neighbours give the swarm detail
+  ctx.save();
+  ctx.lineWidth = Math.max(0.5, Math.min(w, h) * 0.0012);
+  for (let i = 0; i < pts.length; i += 3) {
+    const a = pts[i];
+    const b = pts[(i + 7) % pts.length];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d < R * 0.22) {
+      ctx.strokeStyle = rgba(s.accent, 0.16 * (1 - d / (R * 0.22)));
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  for (const p of pts) {
+    const near = (p.z / R + 1) / 2; // 0 back … 1 front
+    const size = Math.max(0.9, Math.min(w, h) * 0.0045 * (0.4 + near * 1.5 + s.beat * 0.5));
+    const colour = mixColors(s.secondary, s.primary, near);
+    if (s.glow > 0.05 && near > 0.5) {
+      ctx.shadowColor = colour;
+      ctx.shadowBlur = 12 * s.glow * near;
+    }
+    ctx.fillStyle = rgba(colour, 0.28 + near * 0.7);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // hot core
+  const coreR = Math.min(w, h) * (0.035 + s.bands.low * 0.03 + s.beat * 0.02);
+  softGlow(ctx, 0, 0, coreR * 3.2, rgba(s.accent, 0.85), rgba(s.primary, 0.4), 1);
+}
+
+/* ---------------- 5. LAVA LAMP ---------------- */
+/** Molten metaballs rising through dark liquid. The low end swells them and the
+ *  beat makes them collide; the treble shimmers on their surface. Layers are
+ *  added with low alpha so overlapping blobs fuse into one glowing fluid
+ *  instead of blowing out to white. */
+function drawLavaBlobs(s: SceneCtx) {
+  const { ctx, w, h } = s;
+  const blobs = 8;
+  const energy = Math.max(0, Math.min(1.4, s.bands.energy));
+
+  // dark liquid: almost black, with the faintest warm pool underneath
+  const pool = ctx.createRadialGradient(0, h * 0.15, 0, 0, h * 0.15, Math.max(w, h) * 0.8);
+  pool.addColorStop(0, "rgba(10, 5, 14, 0.8)");
+  pool.addColorStop(0.6, "rgba(6, 3, 10, 0.72)");
+  pool.addColorStop(1, "rgba(2, 1, 6, 0.5)");
+  ctx.fillStyle = pool;
+  ctx.fillRect(-w / 2, -h / 2, w, h);
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < blobs; i++) {
+    const lane = hash01(i * 7 + 1);
+    const phase = hash01(i * 7 + 2);
+    const speed = 0.04 + hash01(i * 7 + 3) * 0.045;
+    const rise = ((s.elapsed * speed + phase) % 1 + 1) % 1;
+    const band = s.bands.values[(i * 5) % s.bands.values.length] || 0;
+    const x = -w * 0.34 + lane * w * 0.68 + Math.sin(s.elapsed * 0.55 + i * 1.7) * w * 0.05;
+    const y = h * 0.46 - rise * h * 0.92;
+    const r =
+      Math.min(w, h) *
+      (0.07 + hash01(i * 7 + 4) * 0.055) *
+      (0.85 + band * 1.25 * s.reactive + energy * 0.2);
+
+    // deep body → molten core → white-hot heart
+    softGlow(ctx, x, y, r * 2.5, rgba(s.secondary, 0.14 + band * 0.1), rgba(s.secondary, 0.06), 0.95);
+    softGlow(ctx, x, y, r * 1.2, rgba(s.primary, 0.34 + band * 0.12), rgba(s.secondary, 0.16), 0.92);
+    softGlow(
+      ctx,
+      x,
+      y,
+      r * 0.45,
+      rgba(mixColors(s.primary, s.accent, 0.55), 0.45 + band * 0.25),
+      rgba(s.primary, 0.2),
+      0.95
+    );
+  }
+  ctx.restore();
+
+}
+
+/* ---------------- 6. JELLYFISH MESH ---------------- */
+/** A wireframe bell that breathes with the bass while glowing tendrils trail the
+ *  highs — projected properly (a dome, not stacked ellipses) so it reads as a
+ *  living 3D creature hanging in the frame. */
+function drawJellyfishMesh(s: SceneCtx) {
+  const { ctx, w, h } = s;
+  const rings = 8;
+  const spokes = 28;
+  const bell =
+    Math.min(w * 0.31, h * 0.42) * (0.85 + s.bands.low * 0.3 + s.beat * 0.08);
+  const cy = h * 0.02;
+  const spin = s.elapsed * 0.4;
+  const focal = bell * 2.8;                      // perspective strength
+
+  /** Projects a point of the dome: (x, y from the bell centre, z) → screen. */
+  const project = (x: number, yLocal: number, z: number) => {
+    const p = focal / (focal + z);
+    return { x: x * p, y: cy + yLocal * p, z };
+  };
+
+  const point = (ri: number, si: number) => {
+    const rr = ri / (rings - 1);                 // 0 = top pole … 1 = rim
+    const lat = rr * Math.PI * 0.58;             // slightly taller than a hemisphere
+    const breathe = 1 + Math.sin(s.elapsed * 2.2 - rr * 3.1) * 0.06 * (1 + s.bands.mid * 1.2);
+    const radius = bell * Math.sin(lat) * breathe;
+    const a = (si / spokes) * Math.PI * 2 + spin * (0.3 + rr * 0.5);
+    const x = Math.cos(a) * radius;
+    const z = Math.sin(a) * radius * 0.55;       // depth squashed: no rubbery stretch
+    const wave = Math.sin(a * 2 + s.elapsed * 1.8) * bell * 0.025 * (1 + s.bands.high * 2);
+    return project(x, -Math.cos(lat) * bell * 0.72 + wave, z);
+  };
+
+  ctx.save();
+  ctx.lineCap = "round";
+
+  // latitude rings: the bell's ribs
+  for (let ri = 1; ri < rings; ri++) {
+    const rr = ri / (rings - 1);
+    ctx.beginPath();
+    for (let si = 0; si <= spokes; si++) {
+      const p = point(ri, si % spokes);
+      if (si === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = rgba(mixColors(s.primary, s.accent, rr), 0.22 + rr * 0.55);
+    ctx.lineWidth = Math.max(0.7, Math.min(w, h) * 0.0016 * (0.5 + rr));
+    if (s.glow > 0.05) {
+      ctx.shadowColor = rgba(s.primary, 0.8);
+      ctx.shadowBlur = 12 * s.glow;
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // meridians: the spokes running from the pole to the rim
+  for (let si = 0; si < spokes; si += 3) {
+    ctx.beginPath();
+    for (let ri = 0; ri < rings; ri++) {
+      const p = point(ri, si);
+      if (ri === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = rgba(s.secondary, 0.18);
+    ctx.lineWidth = Math.max(0.6, Math.min(w, h) * 0.0013);
+    ctx.stroke();
+  }
+
+  // the core glow inside the bell
+  softGlow(ctx, 0, cy - bell * 0.12, bell * 1.15, rgba(s.accent, 0.3 + s.bands.low * 0.3), rgba(s.primary, 0.16), 1);
+
+  // tendrils hanging off the rim, waving with the top of the spectrum
+  const high = s.bands.high;
+  for (let t = 0; t < 5; t++) {
+    const si = Math.round((t / 5) * spokes);
+    const rim = point(rings - 1, si);
+    const len = bell * (0.75 + high * 1.4 + hash01(t * 13 + 1) * 0.4);
+    ctx.beginPath();
+    ctx.moveTo(rim.x, rim.y);
+    for (let k = 1; k <= 9; k++) {
+      const f = k / 9;
+      const sway =
+        Math.sin(s.elapsed * 2.6 - f * 4.6 + t * 1.3) * bell * 0.3 * (0.5 + high * 1.6) * f;
+      ctx.lineTo(rim.x + sway, rim.y + len * f);
+    }
+    ctx.strokeStyle = rgba(s.accent, 0.45 - t * 0.03);
+    ctx.lineWidth = Math.max(0.6, Math.min(w, h) * 0.0014 * (1 - t * 0.06));
+    if (s.glow > 0.05 && high > 0.25) {
+      ctx.shadowColor = rgba(s.accent, 0.7);
+      ctx.shadowBlur = 10 * s.glow * high;
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+/* ---------------- 7. RING OF FIRE ---------------- */
+/** A pulsing core, a ring of spectrum spikes and a shockwave on every beat. */
+function drawRingOfFire(s: SceneCtx) {
+  const { ctx, w, h } = s;
+  const values = s.bands.values;
+  const spokes = Math.max(48, Math.min(160, values.length * 3));
+  const inner = Math.min(w, h) * (0.14 + s.bands.low * 0.05 + s.beat * 0.02);
+  const maxLen = Math.min(w, h) * 0.26 * Math.max(0.6, Math.min(1.6, s.reactive));
+  const spin = s.elapsed * 0.35;
+  const energy = Math.max(0, Math.min(1.4, s.bands.energy));
+
+  // core: white-hot heart with a coloured corona
+  softGlow(ctx, 0, 0, inner * 3.4, rgba(s.accent, 0.55 + s.bands.low * 0.35), rgba(s.primary, 0.3), 0.85);
+  const core = ctx.createRadialGradient(0, 0, inner * 0.15, 0, 0, inner);
+  core.addColorStop(0, "#ffffff");
+  core.addColorStop(0.35, rgba(s.accent, 0.95));
+  core.addColorStop(0.8, rgba(s.primary, 0.55));
+  core.addColorStop(1, rgba(s.secondary, 0));
+  ctx.fillStyle = core;
+  ctx.beginPath();
+  ctx.arc(0, 0, inner, 0, Math.PI * 2);
+  ctx.fill();
+
+  // spikes: each one reads a band, tips go white hot
+  ctx.save();
+  ctx.lineCap = "round";
+  for (let i = 0; i < spokes; i++) {
+    const t = i / spokes;
+    const band = values[Math.floor(t * values.length) % values.length] || 0;
+    const prev = values[(Math.floor(t * values.length) - 1 + values.length) % values.length] || 0;
+    const v = Math.max(0, band * 0.7 + prev * 0.3);
+    const a = t * Math.PI * 2 + spin;
+    const len = inner * 0.35 + v * maxLen;
+    const x0 = Math.cos(a) * inner * 1.02;
+    const y0 = Math.sin(a) * inner * 1.02;
+    const x1 = Math.cos(a) * (inner * 1.02 + len);
+    const y1 = Math.sin(a) * (inner * 1.02 + len);
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, rgba(s.primary, 0.85));
+    g.addColorStop(0.6, rgba(s.secondary, 0.9));
+    g.addColorStop(1, rgba(s.accent, 0.95));
+    ctx.strokeStyle = g;
+    ctx.lineWidth = Math.max(1.2, (Math.PI * 2 * inner) / spokes * 0.42);
+    if (s.glow > 0.05) {
+      ctx.shadowColor = rgba(s.secondary, 0.9);
+      ctx.shadowBlur = (10 + v * 26 + s.beat * 16) * s.glow;
+    }
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+
+  // beat shockwave
+  if (s.beat > 0.2) {
+    const t = (s.elapsed * 0.8) % 1;
+    const r = inner + t * inner * 3.2;
+    ctx.save();
+    ctx.strokeStyle = rgba(s.accent, 0.55 * s.beat * (1 - t));
+    ctx.lineWidth = Math.max(1, inner * 0.06 * (1 - t));
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // faint outer halo ties the ring into the picture
+  softGlow(ctx, 0, 0, inner * 3.2 + maxLen * 0.6, rgba(s.secondary, 0.12 + energy * 0.1), rgba(s.primary, 0.08), 1);
+}
+
+/** Dispatches one immersive scene at the frame's own size. */
+function drawImmersiveScene(style: ImmersiveStyle, s: SceneCtx) {
+  switch (style) {
+    case "terrain_grid":
+      return drawTerrain(s);
+    case "warp_starfield":
+      return drawStarfield(s);
+    case "glow_pills":
+      return drawGlowPills(s);
+    case "particle_swarm":
+      return drawParticleSwarm(s);
+    case "lava_blobs":
+      return drawLavaBlobs(s);
+    case "jellyfish_mesh":
+      return drawJellyfishMesh(s);
+    case "ring_of_fire":
+      return drawRingOfFire(s);
+    default:
+      return;
+  }
+}
+
 export interface VisualizerOptions {
   ctx: CanvasRenderingContext2D;
   item: TimelineInsert;
@@ -445,6 +1220,16 @@ export interface VisualizerOptions {
   frame?: AudioFrame | null;
   /** catalogue thumbnails render smaller and skip the heaviest passes */
   compact?: boolean;
+  /**
+   * The user's own logo, drawn in the middle of the centre visualisers (the
+   * audio orb and the orbit disc) when they ask for it. It is loaded by the
+   * preview / render and passed in already decoded — the visualiser never
+   * fetches anything, so a render can't stall on a network request.
+   *
+   * Nothing is drawn when this is absent: no third-party logo is ever baked
+   * into these styles.
+   */
+  logo?: CanvasImageSource | null;
 }
 
 export function renderAudioVisualizer(opts: VisualizerOptions) {
@@ -453,11 +1238,17 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
   const compact = Boolean(opts.compact);
 
   const source: ReactionSource = (item.audioSource as ReactionSource) || "voice";
+  /** the user's own logo (never a third-party one) for the centre visualisers */
+  const logo = opts.logo || null;
   const bus = pickBus(frame, source);
   const size = item.size || 1;
   const opts3d = item.visualOptions || {};
-  const primary = opts3d.primaryColor || (opts3d.colorPreset === "crt_green" ? "#10b981" : "#38bdf8");
-  const secondary = opts3d.secondaryColor || "#f43f5e";
+  // A colour theme (Neon, Synthwave, Fire…) supplies all three colours at once;
+  // without one the insert keeps its own pickers, so old projects look unchanged.
+  const palette = resolveVisualizerPalette(opts3d);
+  const primary = palette.primary;
+  const secondary = palette.secondary;
+  const accent = palette.accent;
   const has3D = opts3d.has3DLook !== false;
   const glow = Math.max(0, Math.min(1, opts3d.glowIntensity ?? 0.85));
   const reactivity = Math.max(0.2, Math.min(2.4, opts3d.reactivity ?? 1));
@@ -466,6 +1257,40 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
   const body = visualizerBodyHeight(item, canvasHeight);
   const beat = beatPulse(elapsed, source);
   const key = `${item.id || item.type}:${item.type}`;
+
+  // How many frequency bands the analyser splits the sound into. 64 is the
+  // reference default (16 = chunky, 128 = very detailed).
+  const bandCount = Math.max(8, Math.min(256, Math.round(opts3d.bandCount ?? 64)));
+
+  /* ------------------------------------------------------------------
+   * Immersive scenes (terrain, starfield, plasma…) are the picture, not an
+   * overlay on it: they fill the frame, so they are drawn here and the rack
+   * geometry below is skipped entirely.
+   * ------------------------------------------------------------------ */
+  if (IMMERSIVE_TYPES.has(item.type)) {
+    const bars = getBars(key, bandCount, elapsed, bus, source, reactivity);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.rect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight);
+    ctx.clip();
+    drawImmersiveScene(item.type as ImmersiveStyle, {
+      ctx,
+      w: canvasWidth,
+      h: canvasHeight,
+      elapsed,
+      primary,
+      secondary,
+      accent,
+      glow,
+      reactive: reactivity,
+      bands: bars,
+      beat: Math.max(beat, bars.beat * 0.85),
+      compact,
+    });
+    ctx.restore();
+    return;
+  }
 
   // Nothing may be cut off by the frame: racks that mirror around the baseline
   // are centred on the anchor, and every visualiser is clamped to stay inside
@@ -629,7 +1454,9 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       const width = fullWidth ? canvasWidth : Math.max(240, 560 * size);
       const bar = thickness * frameScale(canvasHeight);
       const maxH = body * 0.8;
-      const count = Math.max(18, Math.min(96, Math.round(width / (bar + bar * 0.6))));
+      const count = opts3d.bandCount
+        ? bandCount
+        : Math.max(18, Math.min(96, Math.round(width / (bar + bar * 0.6))));
       const bars = getBars(key, count, elapsed, bus, source, reactivity);
       ctx.save();
       ctx.translate(0, -maxH * 0.55);
@@ -671,7 +1498,9 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       const width = fullWidth ? canvasWidth : Math.max(240, 560 * size);
       const bar = thickness * frameScale(canvasHeight);
       const maxH = body * 0.84;
-      const count = Math.max(18, Math.min(112, Math.round(width / (bar + bar * 0.5))));
+      const count = opts3d.bandCount
+        ? bandCount
+        : Math.max(18, Math.min(112, Math.round(width / (bar + bar * 0.5))));
       const bars = getBars(key, count, elapsed, bus, source, reactivity);
       const rainbow = item.type === "spectrum";
       if (!compact && has3D) {
@@ -700,7 +1529,9 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       const width = fullWidth ? canvasWidth : Math.max(240, 560 * size);
       const bar = thickness * frameScale(canvasHeight);
       const maxH = body * 0.82;
-      const count = Math.max(14, Math.min(72, Math.round(width / (bar * 1.7))));
+      const count = opts3d.bandCount
+        ? bandCount
+        : Math.max(14, Math.min(72, Math.round(width / (bar * 1.7))));
       const bars = getBars(key, count, elapsed, bus, source, reactivity);
       const segments = compact ? 10 : 18;
       if (!compact) {
@@ -730,7 +1561,9 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       const rows = compact ? 9 : 14;
       const bar = thickness * frameScale(canvasHeight);
       const maxH = body * 0.82;
-      const count = Math.max(14, Math.min(80, Math.round(width / (bar * 1.6))));
+      const count = opts3d.bandCount
+        ? bandCount
+        : Math.max(14, Math.min(80, Math.round(width / (bar * 1.6))));
       const bars = getBars(key, count, elapsed, bus, source, reactivity);
       if (!compact) {
         drawGlassPlate(ctx, width, plateTopFor(bars.values, bars.peaks, maxH, body), primary, { glow, radius: 10 });
@@ -808,6 +1641,204 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       ctx.strokeStyle = rgba(primary, 0.5);
       ctx.lineWidth = 2;
       ctx.stroke();
+      break;
+    }
+
+    /* ---------------- AUDIO ORB (centre stage, logo in the middle) ---------------- */
+    // The reference-style centre visualiser: a ring of spectrum spikes around a
+    // glowing hub that can hold the user's own logo. Nothing is drawn in the
+    // hub unless the project has a logo — no third-party mark is ever used.
+    case "audio_orb": {
+      const scale = frameScale(canvasHeight);
+      const stage = Math.max(0.4, Math.min(1.7, size));
+      const ringR = Math.max(14, 74 * scale * stage);
+      const maxLen = Math.max(10, 92 * scale * stage) * Math.min(1.9, Math.max(0.5, reactivity));
+      const spokes = Math.max(48, Math.min(160, bandCount));
+      const orbBars = getBars(key, spokes, elapsed, bus, source, reactivity);
+      const spin = elapsed * 0.28;
+      const coreR = ringR * (0.78 + orbBars.low * 0.12);
+
+      // ambience behind the whole orb
+      softGlow(ctx, 0, 0, ringR * 3.4, rgba(accent, 0.12 + orbBars.low * 0.16), rgba(primary, 0.08), 1);
+
+      // spectrum: every spoke reads one band, mirrored so the orb is symmetric
+      for (let i = 0; i < spokes; i++) {
+        const band = orbBars.values[i % orbBars.values.length] || 0;
+        const mirror = Math.floor(i / 2);
+        const v = i % 2 === 0 ? band : orbBars.values[(spokes - mirror - 1 + spokes) % spokes] || band;
+        const angle = (i / spokes) * Math.PI * 2 - Math.PI / 2 + spin;
+        const len = ringR * 0.12 + Math.pow(v, 0.86) * maxLen;
+        const x0 = Math.cos(angle) * ringR;
+        const y0 = Math.sin(angle) * ringR;
+        const x1 = Math.cos(angle) * (ringR + len);
+        const y1 = Math.sin(angle) * (ringR + len);
+
+        const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+        grad.addColorStop(0, rgba(primary, 0.9));
+        grad.addColorStop(0.55, rgba(secondary, 0.92));
+        grad.addColorStop(1, rgba(accent, 0.95));
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = Math.max(1.4, (Math.PI * 2 * ringR) / spokes * 0.55);
+        if (glow > 0.05) {
+          ctx.shadowColor = rgba(secondary, 0.85);
+          ctx.shadowBlur = (8 + v * 22 + beat * 14) * glow;
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // hot tip on the loud bands
+        if (v > 0.55) {
+          ctx.fillStyle = rgba(accent, Math.min(1, (v - 0.55) * 2));
+          ctx.beginPath();
+          ctx.arc(x1, y1, Math.max(1.1, 2.4 * scale * stage), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // the ring the spikes sit on, plus three sweeping arcs
+      ctx.beginPath();
+      ctx.arc(0, 0, ringR, 0, Math.PI * 2);
+      ctx.strokeStyle = rgba(mixColors(primary, "#ffffff", 0.3), 0.75);
+      ctx.lineWidth = Math.max(1.2, 3 * scale * stage);
+      if (glow > 0.05) {
+        ctx.shadowColor = primary;
+        ctx.shadowBlur = 16 * glow;
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      for (let a = 0; a < 3; a++) {
+        ctx.beginPath();
+        ctx.arc(0, 0, ringR * 1.16, spin * 2 + (a * Math.PI * 2) / 3, spin * 2 + (a * Math.PI * 2) / 3 + 0.5);
+        ctx.strokeStyle = rgba(accent, 0.45 - a * 0.08);
+        ctx.lineWidth = Math.max(1, 2.2 * scale * stage);
+        ctx.stroke();
+      }
+
+      // beat shockwave
+      if (beat > 0.18) {
+        const t = (elapsed * 0.75) % 1;
+        ctx.beginPath();
+        ctx.arc(0, 0, ringR + t * ringR * 2.2, 0, Math.PI * 2);
+        ctx.strokeStyle = rgba(accent, 0.5 * beat * (1 - t));
+        ctx.lineWidth = Math.max(1, ringR * 0.05 * (1 - t));
+        ctx.stroke();
+      }
+
+      drawCentreCore(ctx, coreR, { primary, secondary, accent }, {
+        logo: wantsCentreLogo(item) ? opts.logo : null,
+        beat,
+        low: orbBars.low,
+        glow,
+      });
+      break;
+    }
+
+    /* ---------------- ORBIT DISC (centre stage, spinning label) ---------------- */
+    // A record-like disc seen at a slight tilt: grooves, a light sweep, spikes
+    // firing off the rim and the user's logo on the label.
+    case "orbit_disc": {
+      const scale = frameScale(canvasHeight);
+      const stage = Math.max(0.4, Math.min(1.7, size));
+      const discR = Math.max(16, 88 * scale * stage);
+      const tilt = 0.66;                                  // vertical squash = looking at it from above
+      const spikes = Math.max(48, Math.min(144, bandCount));
+      const discBars = getBars(key, spikes, elapsed, bus, source, reactivity);
+      const spin = elapsed * 0.5;
+      const maxSpike = Math.max(10, 74 * scale * stage) * Math.min(1.9, Math.max(0.5, reactivity));
+
+      softGlow(ctx, 0, 0, discR * 2.6, rgba(primary, 0.14 + discBars.low * 0.14), rgba(secondary, 0.08), 1);
+
+      // the disc body
+      ctx.save();
+      ctx.scale(1, tilt);
+      const body = ctx.createRadialGradient(-discR * 0.3, -discR * 0.35, discR * 0.1, 0, 0, discR);
+      body.addColorStop(0, rgba(mixColors(primary, "#ffffff", 0.12), 0.95));
+      body.addColorStop(0.6, "rgba(10, 13, 22, 0.94)");
+      body.addColorStop(1, "rgba(6, 8, 16, 0.98)");
+      ctx.fillStyle = body;
+      ctx.beginPath();
+      ctx.arc(0, 0, discR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // grooves: thin rings that shimmer with the top end
+      const high = discBars.high;
+      for (let g = 1; g <= 7; g++) {
+        const gr = (discR * g) / 8;
+        ctx.beginPath();
+        ctx.arc(0, 0, gr, spin, spin + Math.PI * 1.97);
+        ctx.strokeStyle = rgba(mixColors(secondary, accent, g / 8), 0.14 + high * 0.22);
+        ctx.lineWidth = Math.max(0.8, discR * 0.018);
+        ctx.stroke();
+      }
+
+      // rim
+      ctx.beginPath();
+      ctx.arc(0, 0, discR, 0, Math.PI * 2);
+      ctx.strokeStyle = rgba(mixColors(primary, "#ffffff", 0.35), 0.8);
+      ctx.lineWidth = Math.max(1.4, discR * 0.045);
+      if (glow > 0.05) {
+        ctx.shadowColor = primary;
+        ctx.shadowBlur = 20 * glow * (0.7 + beat * 0.8);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // light sweep across the surface
+      const sweep = ctx.createLinearGradient(-discR, -discR, discR, discR);
+      const phase = (spin * 0.6) % 1;
+      sweep.addColorStop(Math.max(0, phase - 0.18), "rgba(255,255,255,0)");
+      sweep.addColorStop(Math.min(1, phase), "rgba(255,255,255,0.16)");
+      sweep.addColorStop(Math.min(1, phase + 0.18), "rgba(255,255,255,0)");
+      ctx.fillStyle = sweep;
+      ctx.beginPath();
+      ctx.arc(0, 0, discR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // spectrum spikes firing outward from the rim
+      for (let i = 0; i < spikes; i++) {
+        const v = discBars.values[i % discBars.values.length] || 0;
+        const angle = (i / spikes) * Math.PI * 2 - Math.PI / 2 + spin * 0.35;
+        const c = Math.cos(angle);
+        const sn = Math.sin(angle) * tilt;
+        const len = discR * 0.06 + Math.pow(v, 0.85) * maxSpike;
+        ctx.beginPath();
+        ctx.moveTo(c * discR * 1.02, sn * discR * 1.02);
+        ctx.lineTo(c * (discR * 1.02 + len), sn * (discR * 1.02 + len));
+        ctx.strokeStyle = rgba(mixColors(primary, accent, Math.min(1, v)), 0.35 + v * 0.6);
+        ctx.lineWidth = Math.max(1, discR * 0.02);
+        if (glow > 0.05) {
+          ctx.shadowColor = rgba(secondary, 0.8);
+          ctx.shadowBlur = (6 + v * 16) * glow;
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+
+      // the label: the user's logo, or a plain pulsing core
+      drawCentreCore(ctx, discR * 0.47, { primary, secondary, accent }, {
+        logo: wantsCentreLogo(item) ? opts.logo : null,
+        beat,
+        low: discBars.low,
+        glow,
+      });
+
+      // beat ring rippling out across the disc
+      if (beat > 0.2) {
+        const t = (elapsed * 0.7) % 1;
+        ctx.save();
+        ctx.scale(1, tilt);
+        ctx.beginPath();
+        ctx.arc(0, 0, discR * (0.3 + t * 1.1), 0, Math.PI * 2);
+        ctx.strokeStyle = rgba(accent, 0.4 * beat * (1 - t));
+        ctx.lineWidth = Math.max(1, discR * 0.04 * (1 - t));
+        ctx.stroke();
+        ctx.restore();
+      }
       break;
     }
 

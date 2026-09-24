@@ -125,6 +125,8 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
     subcategories: [
       { id: "all", name: "All Visualisers", icon: "📊" },
       { id: "waves", name: "Audio Waves & Bars", icon: "〰️" },
+      { id: "centre", name: "Centre Stage", icon: "🎯" },
+      { id: "immersive", name: "Immersive Scenes", icon: "🌌" },
       { id: "speech", name: "Speech Reactive", icon: "🎙️" },
     ],
   },
@@ -402,6 +404,38 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
   ],
 
   audio_visualizers: [
+    // Subcategory: centre — the round centrepiece styles, with room for your own logo
+    {
+      type: "audio_orb",
+      category: "audio_visualizers",
+      subCategory: "centre",
+      name: "Centre Audio Orb",
+      icon: "🎯",
+      description:
+        "The centrepiece visualiser: a ring of spectrum bars around a glowing hub that holds your own logo. Bass swells the orb, the beat fires a shockwave and the loud bands burn white hot",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: { fullWidth: false, centreLogo: true, colorTheme: "neon", glowIntensity: 0.95, has3DLook: true, reactivity: 1.2, bandCount: 64, barThickness: 8 },
+    },
+    {
+      type: "orbit_disc",
+      category: "audio_visualizers",
+      subCategory: "centre",
+      name: "Orbit Disc",
+      icon: "💿",
+      description:
+        "A record-shaped centrepiece seen from above: grooves shimmer with the highs, spikes fire off the rim on every band and your logo spins on the label in the middle",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: { fullWidth: false, centreLogo: true, colorTheme: "vaporwave", glowIntensity: 0.9, has3DLook: true, reactivity: 1.2, bandCount: 64, barThickness: 8 },
+    },
+
     // Subcategory: waves — every linear rack stretches edge to edge by default
     {
       type: "spectrum",
@@ -529,6 +563,113 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       spansFullVideo: true,
       defaultVisualOptions: { fullWidth: false, glowIntensity: 0.9, has3DLook: true, primaryColor: "#38bdf8", secondaryColor: "#f43f5e", floatShadow: true },
     },
+    {
+      type: "terrain_grid",
+      category: "audio_visualizers",
+      subCategory: "immersive",
+      name: "Terrain Overdrive",
+      icon: "🏔️",
+      description:
+        "A wireframe landscape flies toward the viewer and the whole mesh is sculpted by the music — every ridge is a frequency band, so the horizon rolls with the bass",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: { fullWidth: true, colorTheme: "synthwave", glowIntensity: 0.9, has3DLook: true, reactivity: 1.2, bandCount: 48 },
+    },
+
+    {
+      type: "warp_starfield",
+      category: "audio_visualizers",
+      subCategory: "immersive",
+      name: "Warp Starfield",
+      icon: "🌠",
+      description:
+        "Hundreds of glowing stars rush past the camera — the bass drives the warp speed, the beat fires a shockwave and the treble sparkles in the streaks",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: { fullWidth: true, colorTheme: "neon", glowIntensity: 0.95, has3DLook: true, reactivity: 1.25, bandCount: 64 },
+    },
+    {
+      type: "glow_pills",
+      category: "audio_visualizers",
+      subCategory: "immersive",
+      name: "Glow Pills",
+      icon: "💊",
+      description:
+        "Fat glowing capsules on a lit stage: each one listens to its own frequency band, floats a peak cap above itself and reflects in the floor",
+      defaultDuration: 8.0,
+      defaultPosition: "bottom",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: { fullWidth: true, colorTheme: "vaporwave", barThickness: 18, glowIntensity: 0.9, has3DLook: true, reactivity: 1.2, bandCount: 32 },
+    },
+    {
+      type: "particle_swarm",
+      category: "audio_visualizers",
+      subCategory: "immersive",
+      name: "Particle Swarm",
+      icon: "✨",
+      description:
+        "A rotating sphere of glowing particles linked by constellation lines — the bass swells the sphere, the beat bursts it outward and the top end lights the nearest particles",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: { fullWidth: true, colorTheme: "aurora", glowIntensity: 0.9, has3DLook: true, reactivity: 1.2, bandCount: 64 },
+    },
+    {
+      type: "lava_blobs",
+      category: "audio_visualizers",
+      subCategory: "immersive",
+      name: "Lava Lamp",
+      icon: "🫧",
+      description:
+        "Molten metaballs that drift, merge and split — the low end swells them as they collide and the highs make the surface shimmer like liquid light",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: { fullWidth: true, colorTheme: "fire", glowIntensity: 0.95, has3DLook: true, reactivity: 1.3, bandCount: 32 },
+    },
+    {
+      type: "jellyfish_mesh",
+      category: "audio_visualizers",
+      subCategory: "immersive",
+      name: "Jellyfish Mesh",
+      icon: "🎐",
+      description:
+        "A 3D wireframe bell that breathes with the bass while glowing tendrils trail the highs and wave through the frame — organic and unmistakably audio-driven",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: { fullWidth: true, colorTheme: "ocean", glowIntensity: 0.9, has3DLook: true, reactivity: 1.2, bandCount: 64 },
+    },
+    {
+      type: "ring_of_fire",
+      category: "audio_visualizers",
+      subCategory: "immersive",
+      name: "Ring of Fire",
+      icon: "🔆",
+      description:
+        "A white-hot core inside a ring of spectrum spikes that fire outward on every band, wrapped in a glow that flares with the bass and a shockwave on the beat",
+      defaultDuration: 8.0,
+      defaultPosition: "bottom",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: { fullWidth: true, colorTheme: "blood_moon", glowIntensity: 0.95, has3DLook: true, reactivity: 1.25, bandCount: 96 },
+    },
+
     // Subcategory: speech
     {
       type: "speech_spectrum",
@@ -656,13 +797,15 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
   // look configured in the Video Studio "Filters" tab (see FiltersStudio.tsx).
   filters: [],
 
-  // Standalone Sound Effects
-  sound_effects: SOUND_LIBRARY.map((s) => ({
+  // Standalone Sound Effects. Every sound names its own group, and music tracks
+  // are filtered out here: a music file must never reach this list, which is how
+  // a classical track once ended up filed under Foley.
+  sound_effects: SOUND_LIBRARY.filter((s) => s.category !== "music").map((s) => ({
     type: `sfx_${s.id}`,
     category: "sound_effects" as InsertCategory,
-    subCategory: s.category === "bell" ? "ui" : s.category === "cinematic" ? "impact" : "foley",
+    subCategory: s.section || (s.category === "bell" ? "ui" : "impact"),
     name: s.name,
-    icon: s.category === "bell" ? "🔔" : s.category === "cinematic" ? "💥" : s.category === "ui" ? "✨" : "🔊",
+    icon: s.section === "foley" ? "👏" : s.section === "impact" ? "💥" : "🔔",
     description: `${s.category.toUpperCase()} • ${s.duration}s duration • Crisp royalty-free studio sound effect`,
     defaultDuration: s.duration,
     defaultPosition: "bottom" as const,

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { AspectRatioType, TimelineInsert } from "../types";
-import { getCtaPreviewCrop, getPresetCoords, renderCallToAction } from "../lib/render-effects";
+import {
+  getCtaPreviewCrop,
+  getPresetCoords,
+  paintCtaWithFloatShadow,
+  renderCallToAction,
+} from "../lib/render-effects";
 
 /**
  * Compact WYSIWYG preview of a call-to-action badge.
@@ -9,7 +14,9 @@ import { getCtaPreviewCrop, getPresetCoords, renderCallToAction } from "../lib/r
  * only as big as the button (plus the room its shadow needs). Painting uses the
  * same renderCallToAction() as the final video render at the project's real
  * resolution, so the badge — wording, brand colours, mark, bevel, shadow,
- * rotation, size — is pixel-for-pixel what lands in the video.
+ * rotation, size — is pixel-for-pixel what lands in the video. The badge is
+ * drawn settled (at rest, straight), which is how it reads in the finished
+ * video once the short entrance animation has played.
  */
 
 const ASPECT_DIMS: Record<AspectRatioType, { w: number; h: number }> = {
@@ -19,9 +26,9 @@ const ASPECT_DIMS: Record<AspectRatioType, { w: number; h: number }> = {
   "4:3": { w: 960, h: 720 },
 };
 
-/** Largest the preview box may be on screen (CSS px) — keeps it small above the tabs */
-const MAX_DISPLAY_WIDTH = 440;
-const MAX_DISPLAY_HEIGHT = 132;
+/** Largest the preview box may be on screen (CSS px) — big enough to read the badge */
+const MAX_DISPLAY_WIDTH = 480;
+const MAX_DISPLAY_HEIGHT = 160;
 const DPR = 2;
 
 type Backdrop = "video" | "dark" | "light";
@@ -136,8 +143,15 @@ export default function CtaBadgePreview({ item, aspectRatio = "16:9", background
     // ---------- The badge itself, drawn by the video renderer ----------
     ctx.save();
     ctx.globalAlpha = item.opacity ?? 1;
-    // elapsed 0 puts the breathing pulse at exactly 1.0 => a true-size snapshot
-    renderCallToAction(ctx, item, cx, cy, size, 0);
+    ctx.translate(cx, cy);
+    ctx.scale(size, size);
+    // Settled draw: full size, dead straight, no entrance pop — so the badge is
+    // always visible here and every settings change shows up immediately. The
+    // shared painter adds the same soft shadow the video puts underneath it.
+        const painted = paintCtaWithFloatShadow(ctx, item, { settled: true });
+    if (!painted) {
+      renderCallToAction(ctx, item, 0, 0, 1, 0, { settled: true });
+    }
     ctx.restore();
 
     setOversize(widerThanFrame);

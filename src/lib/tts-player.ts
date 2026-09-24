@@ -1,4 +1,11 @@
 // Audio Player & TTS Service for Scenering Studio
+import {
+  VoiceEchoConfig,
+  ElementEchoRoute,
+  routeElementThroughEcho,
+  voiceEchoIsActive,
+  getEchoAudioContext,
+} from "./voice-echo";
 // Provides high-fidelity MP3/WAV playback via /api/tts and full support for over 300+ Web Speech API voices with gender-aware matching
 
 export interface BrowserVoiceInfo {
@@ -123,12 +130,43 @@ class TTSAudioPlayer {
   private audioCache = new Map<string, string>(); // key -> blobUrl
   private currentPlayingId: string | number | null = null;
   private onEndCallbacks = new Set<() => void>();
+  /** Echo/ambience the voice is played through (set from the Voiceover step) */
+  private voiceEcho: VoiceEchoConfig | null = null;
+  private activeEchoRoute: ElementEchoRoute | null = null;
+
+  /**
+   * Every voice the player is asked to speak is heard through this echo, so the
+   * "Test voice" buttons sound exactly like the finished video. Sound-effect
+   * previews never go through this player, so they stay dry.
+   */
+  public setVoiceEcho(config: VoiceEchoConfig | null) {
+    this.voiceEcho = config;
+    try {
+      this.activeEchoRoute?.update(config || ({} as VoiceEchoConfig));
+    } catch {}
+  }
+
+  /** Routes one freshly created audio element through the echo chain. */
+  private attachEcho(audio: HTMLAudioElement) {
+    this.disposeEchoRoute();
+    if (!this.voiceEcho || !voiceEchoIsActive(this.voiceEcho)) return;
+    const route = routeElementThroughEcho(audio, this.voiceEcho, getEchoAudioContext);
+    if (route) this.activeEchoRoute = route;
+  }
+
+  private disposeEchoRoute() {
+    try {
+      this.activeEchoRoute?.dispose();
+    } catch {}
+    this.activeEchoRoute = null;
+  }
 
   public getCurrentPlayingId(): string | number | null {
     return this.currentPlayingId;
   }
 
   public stop() {
+    this.disposeEchoRoute();
     if (this.activeAudio) {
       try {
         this.activeAudio.pause();
@@ -236,6 +274,8 @@ class TTSAudioPlayer {
       this.activeAudio = audio;
       audio.playbackRate = Math.max(0.5, Math.min(2.0, speed));
       audio.volume = Math.max(0, Math.min(1.0, volume));
+      // The voice is heard through the echo chain, exactly like the video
+      this.attachEcho(audio);
 
       audio.onended = () => {
         if (this.currentPlayingId === playingId) {
@@ -268,6 +308,8 @@ class TTSAudioPlayer {
       this.activeAudio = audio;
       audio.playbackRate = Math.max(0.5, Math.min(2.0, speed));
       audio.volume = Math.max(0, Math.min(1.0, volume));
+      // Imported / prepared voice tracks get the same treatment as the voices
+      this.attachEcho(audio);
 
       audio.onended = () => {
         if (this.currentPlayingId === playingId) {

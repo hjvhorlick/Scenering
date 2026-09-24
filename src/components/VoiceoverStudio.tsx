@@ -4,6 +4,15 @@ import type { Scene } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
 import { setCachedSceneAudio, getSharedAudioContext } from "../lib/tts-cache";
 import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
+import {
+  VoiceEchoConfig,
+  VOICE_ECHO_PRESETS,
+  DEFAULT_VOICE_ECHO,
+  resolveVoiceEcho,
+  voiceEchoPresetConfig,
+  describeVoiceEcho,
+  getVoiceEchoPreset,
+} from "../lib/voice-echo";
 
 interface VoiceoverStudioProps {
   scenes: Scene[];
@@ -12,6 +21,9 @@ interface VoiceoverStudioProps {
   onNavigateToStep?: (step: any) => void;
   selectedVoice?: string;
   onSelectVoice?: (voiceId: string) => void;
+  /** Echo / ambience applied to the narration in the preview and the render */
+  voiceEcho?: VoiceEchoConfig;
+  onUpdateVoiceEcho?: (config: VoiceEchoConfig) => void;
 }
 
 export interface VoicePreset {
@@ -128,6 +140,8 @@ export default function VoiceoverStudio({
   onNavigateToStep,
   selectedVoice: propSelectedVoice,
   onSelectVoice,
+  voiceEcho: propVoiceEcho,
+  onUpdateVoiceEcho,
 }: VoiceoverStudioProps) {
   const [internalSelectedVoice, setInternalSelectedVoice] = useState("guy");
   const selectedVoice = propSelectedVoice || internalSelectedVoice;
@@ -140,6 +154,9 @@ export default function VoiceoverStudio({
   };
 
   const [globalSpeed, setGlobalSpeed] = useState(1.0);
+  const [echoConfig, setEchoConfig] = useState<VoiceEchoConfig>(
+    resolveVoiceEcho(propVoiceEcho || DEFAULT_VOICE_ECHO)
+  );
   const [playingId, setPlayingId] = useState<string | number | null>(null);
   const [loadingId, setLoadingId] = useState<string | number | null>(null);
   const [activeTab, setActiveTab] = useState<"natural_voices" | "import_tts">("natural_voices");
@@ -163,6 +180,23 @@ export default function VoiceoverStudio({
       ttsPlayer.stop();
     };
   }, []);
+
+  // Follow the project setting when it changes elsewhere (opening a project,
+  // another screen editing it) and hand every voice preview the live echo.
+  useEffect(() => {
+    if (!propVoiceEcho) return;
+    setEchoConfig(resolveVoiceEcho(propVoiceEcho));
+  }, [propVoiceEcho]);
+
+  useEffect(() => {
+    ttsPlayer.setVoiceEcho(echoConfig);
+  }, [echoConfig]);
+
+  const updateEcho = (next: VoiceEchoConfig) => {
+    const resolved = resolveVoiceEcho(next);
+    setEchoConfig(resolved);
+    onUpdateVoiceEcho?.(resolved);
+  };
 
   // Filter 10 voices by gender
   const filteredVoices = useMemo(() => {
@@ -644,6 +678,130 @@ export default function VoiceoverStudio({
           <span>📁</span>
           <span>Import Prepared TTS File</span>
         </button>
+      </div>
+
+      {/* VOICE ECHO & AMBIENCE — one setting for the whole narration, heard in
+          the preview and baked into the rendered video */}
+      <div className="bg-gray-900/90 border border-indigo-900/60 rounded-2xl p-5 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <span>🔊</span> Voice Echo &amp; Ambience
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-700/60 bg-indigo-950/60 text-indigo-300">
+                {echoConfig.enabled ? "ON" : "OFF"}
+              </span>
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Put the narrator in a space — a tight studio slap, a warm room, a concert hall or a
+              canyon. You hear it in every voice preview and it is written into the rendered video.
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wider block">Current sound</span>
+            <span className="text-[11px] font-mono text-indigo-300 font-semibold">
+              {describeVoiceEcho(echoConfig)}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {VOICE_ECHO_PRESETS.map((preset) => {
+            const active = (echoConfig.enabled ? echoConfig.preset : "off") === preset.id;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => updateEcho(voiceEchoPresetConfig(preset.id, echoConfig))}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  active
+                    ? "bg-indigo-950/80 border-indigo-500 ring-1 ring-indigo-400"
+                    : "bg-gray-800/50 border-gray-700 hover:bg-gray-800"
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">{preset.icon}</span>
+                  <span className="text-[11px] font-semibold text-white">{preset.name}</span>
+                </div>
+                <p className="text-[9px] text-gray-400 leading-tight mt-0.5">{preset.blurb}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        {echoConfig.enabled && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-800/40 border border-gray-700/60 rounded-xl p-3">
+            <div>
+              <div className="flex justify-between text-[11px] text-gray-300 mb-1">
+                <span className="font-medium text-white">Echo strength</span>
+                <span className="font-mono text-indigo-400">{Math.round(echoConfig.amount * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.02}
+                value={echoConfig.amount}
+                onChange={(e) => updateEcho({ ...echoConfig, amount: parseFloat(e.target.value) })}
+                className="w-full accent-indigo-500 cursor-pointer"
+              />
+            </div>
+            <div>
+              <div className="flex justify-between text-[11px] text-gray-300 mb-1">
+                <span className="font-medium text-white">Delay (space size)</span>
+                <span className="font-mono text-indigo-400">{Math.round(echoConfig.delay)}ms</span>
+              </div>
+              <input
+                type="range"
+                min={20}
+                max={700}
+                step={5}
+                value={echoConfig.delay}
+                onChange={(e) => updateEcho({ ...echoConfig, delay: parseFloat(e.target.value) })}
+                className="w-full accent-indigo-500 cursor-pointer"
+              />
+            </div>
+            <div>
+              <div className="flex justify-between text-[11px] text-gray-300 mb-1">
+                <span className="font-medium text-white">Tail length</span>
+                <span className="font-mono text-indigo-400">{Math.round(echoConfig.feedback * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={0.85}
+                step={0.01}
+                value={echoConfig.feedback}
+                onChange={(e) => updateEcho({ ...echoConfig, feedback: parseFloat(e.target.value) })}
+                className="w-full accent-indigo-500 cursor-pointer"
+              />
+            </div>
+            <div className="sm:col-span-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-gray-700/60">
+              <span className="text-[11px] text-gray-400">
+                Tip: big spaces (Hall, Cathedral, Canyon) suit trailers and storytelling; Studio Slap
+                keeps explainers crisp.
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  handlePlayVoicePreview(
+                    "This is how the narration will sound in your video.",
+                    "test-echo",
+                    selectedVoice,
+                    globalSpeed
+                  )
+                }
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border flex items-center gap-1.5 transition-all ${
+                  playingId === "test-echo"
+                    ? "bg-rose-600 border-rose-400 text-white"
+                    : "bg-indigo-600 hover:bg-indigo-500 border-indigo-400 text-white"
+                }`}
+              >
+                <span>{playingId === "test-echo" ? "⏹️" : "▶️"}</span>
+                <span>{playingId === "test-echo" ? "Stop" : "Listen with echo"}</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* TAB 1: 10 NATURAL SPEAKING VOICES (5 MALE AND 5 FEMALE) */}
