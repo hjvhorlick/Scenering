@@ -164,4 +164,51 @@ h.eq(
 const tiny = fitFrameInBox("16:9", 1, 1);
 h.ok(tiny.w >= 1 && tiny.h >= 1, "fitFrameInBox survives a 1x1 box");
 
+/* ------------------------------------------------------------------ *
+ * Background framing: "Transparent" is the default choice, and it must
+ * paint NOTHING behind a photo that does not reach the frame edge. The
+ * other styles must still paint what they promise.
+ * ------------------------------------------------------------------ */
+
+h.eq(resolveFraming({}).backdrop, "transparent", "a new scene defaults to clear bars");
+h.eq(resolveFraming(null).backdrop, "transparent", "an empty scene defaults to clear bars");
+h.eq(
+  resolveFraming({ image_backdrop: "blur" }).backdrop,
+  "blur",
+  "an explicitly stored style still wins"
+);
+
+/** Draws a tall photo into a wide frame and reports what the context was asked to do. */
+function paintTallPhoto(backdrop: "transparent" | "blur" | "black" | "colour", fit: "contain" | "blur_fill" | "cover") {
+  const { ctx, ops } = createStubContext(1920, 1080);
+  const scene: Partial<Scene> = { image_fit: fit, image_backdrop: backdrop, image_backdrop_color: "#123456" };
+  drawSceneImage(ctx, stubImage(600, 1600) as never, scene, 1920, 1080);
+  return ops;
+}
+
+for (const fit of ["contain", "blur_fill"] as const) {
+  const clear = paintTallPhoto("transparent", fit);
+  h.ok(
+    !clear.includes("fillRect"),
+    `${fit} + transparent paints no bars (ops: ${clear.join(",")})`
+  );
+
+  const black = paintTallPhoto("black", fit);
+  h.ok(black.includes("fillRect"), `${fit} + black fills the bars`);
+
+  const colour = paintTallPhoto("colour", fit);
+  h.ok(colour.includes("fillRect"), `${fit} + colour fills the bars`);
+
+  const blurred = paintTallPhoto("blur", fit);
+  const draws = blurred.filter((op) => op === "drawImage").length;
+  h.ok(draws >= 2, `${fit} + blur paints the photo and its blurred wallpaper (draws: ${draws})`);
+}
+
+// A photo that already fills the frame has no bars, so nothing is painted behind it.
+{
+  const { ctx, ops } = createStubContext(1920, 1080);
+  drawSceneImage(ctx, stubImage(1920, 1080) as never, { image_fit: "cover", image_backdrop: "transparent" }, 1920, 1080);
+  h.ok(!ops.includes("fillRect"), "a full-frame photo paints no backdrop");
+}
+
 h.done("framing");

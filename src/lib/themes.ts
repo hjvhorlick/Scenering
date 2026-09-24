@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
  * `initTheme()` in main.tsx, so there is no flash of the wrong theme.
  */
 
-export type ThemeId = "classic" | "apple" | "windows" | "playful" | "glass";
+export type ThemeId = "classic" | "apple" | "windows" | "playful" | "glass" | "porcelain";
 
 export interface ThemeDef {
   id: ThemeId;
@@ -62,6 +62,13 @@ export const THEMES: ThemeDef[] = [
     tagline: "Frosted glass, pastel light, elegant serif warmth",
     icon: "🔮",
     swatches: ["#e8defa", "#ffffff", "#9b7ede"],
+  },
+  {
+    id: "porcelain",
+    name: "Porcelain",
+    tagline: "Second light theme — warm china white, cobalt ink, glazed panels",
+    icon: "🏺",
+    swatches: ["#f7f4ef", "#fffdfa", "#2f6fb5"],
   },
 ];
 

@@ -19,6 +19,23 @@ import { paintVideoFilter } from "../lib/video-filter-render";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 import { renderSection } from "../lib/render-section";
 import type { SectionConfig } from "../data/intro-outro";
+import {
+  MAX_VAULT_RENDERS,
+  type VaultRender,
+  saveBlobToDisk,
+  saveRenderToVault,
+  deleteVaultRender,
+  listVaultRenders,
+  subscribeVault,
+  formatVaultSize,
+  formatVaultTime,
+} from "../lib/render-vault";
+import {
+  getRenderStatus,
+  setRenderStatus,
+  subscribeRenderStatus,
+  type RenderJobStatus,
+} from "../lib/render-status";
 
 export interface RenderSettings {
   format: "mp4" | "webm";
@@ -176,6 +193,65 @@ export default function RenderView({
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(propRenderedBlob || null);
   const [renderedUrl, setRenderedUrl] = useState<string | null>(propRenderedUrl || null);
   const [renderError, setRenderError] = useState<string | null>(null);
+
+  // ---- The Vault: finished renders waiting to be downloaded -----------
+  const [vaultRenders, setVaultRenders] = useState<VaultRender[]>([]);
+  const [vaultMessage, setVaultMessage] = useState<string>("");
+  const [vaultPreviewId, setVaultPreviewId] = useState<string | null>(null);
+  const [vaultPreviewUrl, setVaultPreviewUrl] = useState<string | null>(null);
+  const [vaultBusyId, setVaultBusyId] = useState<string | null>(null);
+  /** Live job status, shared with the header so a background render stays visible. */
+  const [job, setJob] = useState<RenderJobStatus>(() => getRenderStatus());
+
+  const refreshVault = useCallback(async () => {
+    try {
+      setVaultRenders(await listVaultRenders());
+    } catch {
+      /* vault is best-effort */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshVault();
+    const offVault = subscribeVault(() => {
+      void refreshVault();
+    });
+    const offJob = subscribeRenderStatus((status) => setJob(status));
+    return () => {
+      offVault();
+      offJob();
+    };
+  }, [refreshVault]);
+
+  /** Object URL for the row being previewed (one at a time, always revoked). */
+  useEffect(() => {
+    if (!vaultPreviewId) {
+      setVaultPreviewUrl(null);
+      return;
+    }
+    const row = vaultRenders.find((r) => r.id === vaultPreviewId);
+    if (!row) {
+      setVaultPreviewId(null);
+      return;
+    }
+    const url = URL.createObjectURL(row.blob);
+    setVaultPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [vaultPreviewId, vaultRenders]);
+
+  /**
+   * Progress/stage updates: the local render screen AND the app-wide job
+   * status. The second half is what keeps the header pill alive when the
+   * user walks away from this page mid-render.
+   */
+  const reportProgress = useCallback((p: number, stage?: string) => {
+    setRenderProgress(p);
+    setRenderStatus({ progress: p, ...(stage ? { stage } : {}) });
+  }, []);
+  const reportStage = useCallback((stage: string) => {
+    setRenderStage(stage);
+    setRenderStatus({ stage });
+  }, []);
 
   // Sync with prop when returning to render tab
   useEffect(() => {
@@ -385,9 +461,21 @@ export default function RenderView({
     if (scenesWithImages.length === 0 || isRendering) return;
 
     setIsRendering(true);
-    setRenderProgress(0);
+    reportProgress(0);
     setRenderError(null);
     abortControllerRef.current = false;
+    // Publish the job so the header can follow it even if the user leaves
+    // this screen — the render itself keeps running either way.
+    setRenderStatus({
+      active: true,
+      progress: 0,
+      stage: "1/4: Preparing narration, visuals and audio…",
+      title: project?.title || "Untitled render",
+      startedAt: Date.now(),
+      finishedAt: null,
+      error: null,
+      lastVaultId: null,
+    });
 
     const { width, height } = getDimensions(settings.resolution);
     const canvas = canvasRef.current;
@@ -417,8 +505,8 @@ export default function RenderView({
 
     try {
       // 1. Synthesizing audio & sound effects
-      setRenderStage("1/4: Synthesizing narration voices & sound effects...");
-      setRenderProgress(0.08);
+      reportStage("1/4: Synthesizing narration voices & sound effects...");
+      reportProgress(0.08);
 
       const audioCtx = new AudioContext();
       if (audioCtx.state === "suspended") {
@@ -458,12 +546,12 @@ export default function RenderView({
           audioBuffers.set(s.id, { buffer: fallbackBuf, duration: fallbackDur });
         }
 
-        setRenderProgress(0.08 + (i / scenesWithImages.length) * 0.18);
+        reportProgress(0.08 + (i / scenesWithImages.length) * 0.18);
       }
 
       // 2. Loading High-Resolution Visual Assets & Watermark
-      setRenderStage("2/4: Loading high-resolution visuals & watermark...");
-      setRenderProgress(0.28);
+      reportStage("2/4: Loading high-resolution visuals & watermark...");
+      reportProgress(0.28);
 
       const images = await Promise.all(
         scenesWithImages.map((s) => loadImage(s.image_url || ""))
@@ -637,8 +725,8 @@ export default function RenderView({
       };
 
       // 3. Render frames & play audio in real time
-      setRenderStage(`3/4: Rendering Scene 1 of ${scenesWithImages.length}...`);
-      setRenderProgress(0.35);
+      reportStage(`3/4: Rendering Scene 1 of ${scenesWithImages.length}...`);
+      reportProgress(0.35);
 
       const videoPromise = new Promise<Blob>((resolve) => {
         let isResolved = false;
@@ -746,7 +834,7 @@ export default function RenderView({
           const loaded = await insertMixer.load(insertPlans);
           if (loaded > 0) {
             insertMixer.startFrom(0);
-            setRenderStage(`3/4: Audio ready (${loaded} track(s)) — rendering...`);
+            reportStage(`3/4: Audio ready (${loaded} track(s)) — rendering...`);
           }
         }
       } catch (err) {
@@ -869,8 +957,8 @@ export default function RenderView({
               if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
                 lastProgressUiUpdate = now;
                 lastProgressVal = clampedProgress;
-                setRenderProgress(clampedProgress);
-                setRenderStage(
+                reportProgress(clampedProgress);
+                reportStage(
                   `3/4: Rendering Intro Scene (${Math.round(elapsedInIntro)}s / ${Math.round(introDuration)}s)`
                 );
               }
@@ -923,8 +1011,8 @@ export default function RenderView({
               if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
                 lastProgressUiUpdate = now;
                 lastProgressVal = clampedProgress;
-                setRenderProgress(clampedProgress);
-                setRenderStage(
+                reportProgress(clampedProgress);
+                reportStage(
                   `3/4: Rendering Outro Scene (${Math.round(elapsedInOutro)}s / ${Math.round(outroDuration)}s)`
                 );
               }
@@ -1000,8 +1088,8 @@ export default function RenderView({
             if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
               lastProgressUiUpdate = now;
               lastProgressVal = clampedProgress;
-              setRenderProgress(clampedProgress);
-              setRenderStage(
+              reportProgress(clampedProgress);
+              reportStage(
                 `3/4: Rendering Scene ${currentSceneIdx + 1} of ${scenesWithImages.length} (${Math.round(currentGlobalTime)}s / ${Math.round(estimatedTotalDuration)}s)`
               );
             }
@@ -1252,8 +1340,8 @@ export default function RenderView({
       });
 
       // 4. Encoding stream & packaging
-      setRenderStage("4/4: Finalizing video stream & container...");
-      setRenderProgress(0.95);
+      reportStage("4/4: Finalizing video stream & container...");
+      reportProgress(0.95);
 
       const finalBlob = await videoPromise;
       stopScheduledAudio();
@@ -1261,12 +1349,47 @@ export default function RenderView({
       const url = URL.createObjectURL(finalBlob);
       setRenderedBlob(finalBlob);
       setRenderedUrl(url);
-      setRenderProgress(1);
-      setRenderStage("Render Complete! 🎉");
+      reportProgress(1);
+      reportStage("Render Complete! 🎉");
       onRenderSuccess?.(finalBlob, url);
+
+      // Park the finished video in the vault before anything else can go
+      // wrong: it survives leaving this screen, switching phase or reloading.
+      try {
+        const entry = await saveRenderToVault({
+          blob: finalBlob,
+          title: project?.title || "Untitled render",
+          mimeType: finalBlob.type || mimeType || "video/webm",
+          durationSec: estimatedTotalDuration,
+          width,
+          height,
+          label: `${settings.resolution} · ${settings.fps}fps · ${settings.format.toUpperCase()}`,
+        });
+        setVaultMessage(
+          `Render finished — ${vaultRenders.length >= MAX_VAULT_RENDERS ? "oldest vault slot cleared, " : ""}waiting in the vault to download.`
+        );
+        setRenderStatus({
+          active: false,
+          progress: 1,
+          stage: "Render finished — waiting in the vault",
+          finishedAt: Date.now(),
+          lastVaultId: entry.id,
+        });
+        void refreshVault();
+      } catch (vaultErr) {
+        console.warn("Vault save notice:", vaultErr);
+        setRenderStatus({
+          active: false,
+          progress: 1,
+          stage: "Render finished",
+          finishedAt: Date.now(),
+        });
+      }
     } catch (err: any) {
       console.error("Render failed:", err);
-      setRenderError(err.message || "Failed to render video");
+      const message = err?.message || "Failed to render video";
+      setRenderError(message);
+      setRenderStatus({ active: false, error: message, stage: "Render failed" });
     } finally {
       setIsRendering(false);
       // Release every clip decoder used during the export.
@@ -1278,16 +1401,61 @@ export default function RenderView({
   };
 
   // ------ DOWNLOAD HANDLERS ------
-  const downloadVideo = () => {
-    if (!renderedBlob || !renderedUrl) return;
-    const a = document.createElement("a");
-    a.href = renderedUrl;
-    const safeTitle = (project?.title || "scenering_video").replace(/[^a-zA-Z0-9]/g, "_");
+  const renderFileName = (title: string, ext: string) => {
+    const safeTitle = (title || "scenering_video").replace(/[^a-zA-Z0-9]/g, "_");
+    return `${safeTitle}_${settings.resolution}.${ext}`;
+  };
+
+  /**
+   * Saves a finished video to the user's computer.
+   *
+   * The File System Access API is tried first (a real "Save as…" dialog — the
+   * only path that cannot be silently swallowed when the app runs inside an
+   * iframe), then the classic download. On success the vault slot is freed,
+   * which is exactly how the vault is meant to work: it only holds what has
+   * not been downloaded yet.
+   */
+  const saveRenderBlob = async (blob: Blob, filename: string, vaultId: string | null) => {
+    if (vaultId) setVaultBusyId(vaultId);
+    setVaultMessage("Opening the save dialog…");
+    const outcome = await saveBlobToDisk(blob, filename);
+    if (vaultId) setVaultBusyId(null);
+
+    if (outcome === "cancelled") {
+      setVaultMessage("Save cancelled — the video is still safe in the vault.");
+      return;
+    }
+    if (outcome === "failed") {
+      setVaultMessage("The browser refused the download. Try the Download button again, or right-click the preview and pick Save video as…");
+      return;
+    }
+    setVaultMessage(`Saved ${filename} — vault slot cleared.`);
+    if (vaultId) await deleteVaultRender(vaultId);
+    if (job.lastVaultId && job.lastVaultId === vaultId) setRenderStatus({ lastVaultId: null });
+    void refreshVault();
+  };
+
+  const downloadVideo = async () => {
+    const blob = renderedBlob;
+    if (!blob) {
+      setVaultMessage("Nothing rendered yet — press Start Video Render first.");
+      return;
+    }
     const ext = settings.format === "mp4" ? "mp4" : "webm";
-    a.download = `${safeTitle}_${settings.resolution}.${ext}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    await saveRenderBlob(blob, renderFileName(project?.title || "", ext), job.lastVaultId);
+  };
+
+  /** Download a row that is waiting in the vault (frees the slot on success). */
+  const downloadVaultRender = async (row: VaultRender) => {
+    const ext = row.mimeType.includes("mp4") ? "mp4" : "webm";
+    await saveRenderBlob(row.blob, renderFileName(row.title, ext), row.id);
+  };
+
+  const removeVaultRender = async (row: VaultRender) => {
+    if (vaultPreviewId === row.id) setVaultPreviewId(null);
+    await deleteVaultRender(row.id);
+    setVaultMessage(`Removed “${row.title}” from the vault.`);
+    void refreshVault();
   };
 
   const downloadSrtSubtitles = () => {
@@ -1401,7 +1569,8 @@ export default function RenderView({
   const cancelRender = () => {
     abortControllerRef.current = true;
     setIsRendering(false);
-    setRenderStage("Render cancelled");
+    reportStage("Render cancelled");
+    setRenderStatus({ active: false, progress: 0, stage: "Render cancelled" });
   };
 
   const { width: renderW, height: renderH, label: resLabel, aspectClass } = getDimensions(settings.resolution);
@@ -1591,6 +1760,103 @@ export default function RenderView({
         </div>
 
         <div className="order-1 lg:order-2 lg:col-span-8 space-y-4">
+
+          {/* ---------- THE VAULT -------------------------------------------
+              Finished renders wait here until they are downloaded. The slot
+              frees itself the moment a download lands, and only the newest
+              few renders are kept, so this can never grow without bound. */}
+          <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 shadow-lg">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="p-1.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-lg text-sm shrink-0">
+                  🗄️
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    The Vault
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-900 border border-gray-700 text-gray-300">
+                      {vaultRenders.length}/{MAX_VAULT_RENDERS} slots
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    {vaultRenders.length === 0
+                      ? `Finished videos wait here so nothing is lost. Download one and its slot clears itself (up to ${MAX_VAULT_RENDERS}).`
+                      : "Download a video and it leaves the vault automatically. The oldest is dropped when all slots are full."}
+                  </p>
+                </div>
+              </div>
+              {job.active && (
+                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-950/90 text-indigo-200 border border-indigo-600/60">
+                  ⏳ Rendering {Math.round(job.progress * 100)}%
+                </span>
+              )}
+            </div>
+
+            {job.active && !isRendering && (
+              <p className="mt-2 text-[11px] text-indigo-300 leading-relaxed">
+                A render is running in the background ({Math.round(job.progress * 100)}% · {job.stage}).
+                Keep working — it will drop into the vault the moment it finishes.
+              </p>
+            )}
+            {job.error && (
+              <p className="mt-2 text-[11px] text-rose-300 leading-relaxed">Last render failed: {job.error}</p>
+            )}
+            {vaultMessage && (
+              <p className="mt-2 text-[11px] text-emerald-300 leading-relaxed">{vaultMessage}</p>
+            )}
+
+            {vaultRenders.length > 0 ? (
+              <ul className="mt-3 space-y-2">
+                {vaultRenders.map((row) => (
+                  <li key={row.id} className="bg-gray-900/70 border border-gray-700/70 rounded-lg p-2.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-semibold text-white truncate">{row.title}</p>
+                        <p className="text-[10px] text-gray-400">
+                          {row.label} · {formatVaultTime(row.durationSec)} · {formatVaultSize(row.sizeBytes)} ·{" "}
+                          {new Date(row.createdAt).toLocaleTimeString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => setVaultPreviewId(vaultPreviewId === row.id ? null : row.id)}
+                          className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 transition-colors"
+                        >
+                          {vaultPreviewId === row.id ? "▾ Hide" : "▶ Preview"}
+                        </button>
+                        <button
+                          onClick={() => void downloadVaultRender(row)}
+                          disabled={vaultBusyId === row.id}
+                          className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 text-white transition-colors"
+                        >
+                          {vaultBusyId === row.id ? "Saving…" : "⬇ Download"}
+                        </button>
+                        <button
+                          onClick={() => void removeVaultRender(row)}
+                          title="Remove from the vault"
+                          className="px-2 py-1.5 rounded-lg text-[10px] font-semibold bg-gray-800 hover:bg-rose-900/60 text-gray-400 hover:text-rose-200 border border-gray-700 transition-colors"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    {vaultPreviewId === row.id && vaultPreviewUrl && (
+                      <video
+                        src={vaultPreviewUrl}
+                        controls
+                        playsInline
+                        className="mt-2 w-full rounded-lg bg-black max-h-[320px]"
+                      />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-[11px] text-gray-500">
+                Empty for now. Every finished render lands here automatically.
+              </p>
+            )}
+          </div>
           <div className="bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden shadow-2xl">
             {/* Viewport: Live Render Canvas OR Finished HTML5 Video Player */}
             <div className={`relative ${aspectClass || "aspect-video"} bg-black flex items-center justify-center overflow-hidden mx-auto`}>

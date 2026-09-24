@@ -7,6 +7,8 @@ import ApiKeysModal from "./components/ApiKeysModal";
 import Timeline from "./components/Timeline";
 import VideoStudio from "./components/VideoStudio";
 import RenderView from "./components/RenderView";
+import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
+import { listVaultRenders, subscribeVault } from "./lib/render-vault";
 import VoiceoverStudio, { STUDIO_VOICE_PRESETS } from "./components/VoiceoverStudio";
 import CaptionsStudio from "./components/CaptionsStudio";
 import SetupStudio from "./components/SetupStudio";
@@ -187,6 +189,31 @@ export default function App() {
   }, [saveCurrentProjectSettings]);
 
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(null);
+  /** Live render job + vault count, so the header can follow a render
+      even while the user is working in another phase. */
+  const [renderJob, setRenderJob] = useState<RenderJobStatus>(() => getRenderStatus());
+  const [vaultReady, setVaultReady] = useState(0);
+
+  useEffect(() => {
+    const offJob = subscribeRenderStatus((status) => setRenderJob(status));
+    const refresh = () => {
+      listVaultRenders()
+        .then((rows) => setVaultReady(rows.length))
+        .catch(() => setVaultReady(0));
+    };
+    refresh();
+    const offVault = subscribeVault(refresh);
+    return () => {
+      offJob();
+      offVault();
+    };
+  }, []);
+
+  /** True while a render is in flight — the render screen stays mounted (hidden)
+      so the canvas keeps painting and the video keeps encoding. */
+  const renderInFlight = renderJob.active;
+  /** The render screen is being looked at right now. */
+  const showRenderPage = view === "editor" && editorStep === "render";
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
 
   const handleUpdateAspectRatio = useCallback((ratio: AspectRatioType) => {
@@ -1069,7 +1096,7 @@ export default function App() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="t-app-hdr min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
+        <div className="t-app-hdr relative z-40 min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
           {/* Logo */}
           <button
             onClick={() => setView("create")}
@@ -1152,6 +1179,34 @@ export default function App() {
                 reach one screen and cost space in the top bar on small
                 displays. */}
 
+            {/* Render status: follows a render that is running while the user
+                works somewhere else. Click it to jump back to the render page. */}
+            {(renderJob.active || renderJob.error || (vaultReady > 0 && view === "editor")) && (
+              <button
+                onClick={() => {
+                  setView("editor");
+                  setEditorStep("render");
+                }}
+                title="Open the render page"
+                className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                  renderJob.active
+                    ? "bg-indigo-950/90 text-indigo-200 border-indigo-600/70 hover:bg-indigo-900"
+                    : renderJob.error
+                      ? "bg-rose-950/80 text-rose-200 border-rose-700/70 hover:bg-rose-900"
+                      : "bg-emerald-950/80 text-emerald-200 border-emerald-700/70 hover:bg-emerald-900"
+                }`}
+              >
+                <span className="t-ico">{renderJob.active ? "⏳" : renderJob.error ? "⚠️" : "🗄️"}</span>
+                <span className="hidden sm:inline">
+                  {renderJob.active
+                    ? `Rendering ${Math.round(renderJob.progress * 100)}%`
+                    : renderJob.error
+                      ? "Render failed"
+                      : `Vault: ${vaultReady}`}
+                </span>
+              </button>
+            )}
+
             {/* Theme picker — top right corner */}
             <ThemeSwitcher />
 
@@ -1173,7 +1228,7 @@ export default function App() {
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto">
-          {view === "create" ? (
+          {view === "create" && (
             <div className="p-4 sm:p-6">
               {navNotice && (
                 <div className="max-w-4xl mx-auto mb-4 p-3.5 bg-amber-950/80 border border-amber-700/80 rounded-xl text-amber-200 text-xs flex items-center justify-between shadow-lg">
@@ -1215,9 +1270,22 @@ export default function App() {
                 }}
               />
             </div>
-          ) : editorStep === "render" ? (
-            /* Step 5: Final Render & Export View */
-            <div className="p-2 sm:p-4 lg:p-6 max-w-6xl 2xl:max-w-[1600px] mx-auto">
+          )}
+
+          {/* Step 6: Final Render & Export — plus the Vault.
+              While a render is running this screen stays MOUNTED even after the
+              user walks away (moved off-screen instead of unmounted), so the
+              canvas keeps painting and the video keeps encoding in the
+              background. Come back and the same job is still there. */}
+          {(showRenderPage || renderInFlight) && (
+            <div
+              aria-hidden={!showRenderPage}
+              className={
+                showRenderPage
+                  ? "p-2 sm:p-4 lg:p-6 max-w-6xl 2xl:max-w-[1600px] mx-auto"
+                  : "fixed top-0 left-[-300vw] w-[1280px] h-[720px] overflow-hidden opacity-0 pointer-events-none"
+              }
+            >
               <RenderView
                 project={currentProject}
                 scenes={scenes}
@@ -1247,7 +1315,9 @@ export default function App() {
                 onNavigatePhase={(phase) => navigateToPhase(phase)}
               />
             </div>
-          ) : (
+          )}
+
+          {view !== "create" && editorStep !== "render" && (
             <div className="p-2 sm:p-4 lg:p-6 space-y-3 sm:space-y-6">
               {/* Steps Workspace */}
               {editorStep === "scenes" ? (

@@ -22,8 +22,8 @@ import type { Scene, SceneMotionType } from "../types";
 
 export type SceneFitMode = "cover" | "contain" | "blur_fill";
 
-/** Fill style used behind a "contain" photo. */
-export type SceneBackdropStyle = "blur" | "black" | "colour";
+/** Fill style used behind a photo that does not reach the frame edge. */
+export type SceneBackdropStyle = "transparent" | "blur" | "black" | "colour";
 
 export interface SceneCropRect {
   /** normalised 0..1 source rectangle */
@@ -57,6 +57,7 @@ export const FIT_MODES: { id: SceneFitMode; name: string; icon: string; blurb: s
 ];
 
 export const BACKDROP_STYLES: { id: SceneBackdropStyle; name: string; icon: string }[] = [
+  { id: "transparent", name: "Transparent", icon: "◻️" },
   { id: "blur", name: "Blurred photo", icon: "🌫️" },
   { id: "black", name: "Solid black", icon: "⬛" },
   { id: "colour", name: "Chosen colour", icon: "🎨" },
@@ -88,7 +89,7 @@ export const DEFAULT_FRAMING: ResolvedFraming = {
   rotate: 0,
   flipH: false,
   flipV: false,
-  backdrop: "blur",
+  backdrop: "transparent",
   backdropBlur: 42,
   backdropZoom: 1.25,
   backdropDim: 0.25,
@@ -133,9 +134,12 @@ export function resolveFraming(scene: Partial<Scene> | null | undefined): Resolv
     flipH: Boolean(s.image_flip_h),
     flipV: Boolean(s.image_flip_v),
     backdrop:
-      s.image_backdrop === "black" || s.image_backdrop === "colour" || s.image_backdrop === "blur"
+      s.image_backdrop === "black" ||
+      s.image_backdrop === "colour" ||
+      s.image_backdrop === "blur" ||
+      s.image_backdrop === "transparent"
         ? (s.image_backdrop as SceneBackdropStyle)
-        : "blur",
+        : "transparent",
     backdropBlur: clamp(Number(s.image_backdrop_blur ?? 42), 0, 120),
     backdropZoom: clamp(Number(s.image_backdrop_zoom ?? 1.25), 1, 2.5),
     backdropDim: clamp(Number(s.image_backdrop_dim ?? 0.25), 0, 0.9),
@@ -302,15 +306,16 @@ export function drawSceneImage(
   const gap = leavesGap(fg, frameW, frameH);
 
   // ---------------------------------------------------------------- backdrop
-  if (gap) {
-    if (f.backdrop === "black" || f.fit === "contain") {
-      ctx.save();
-      ctx.fillStyle = f.backdrop === "colour" ? f.backdropColor : "#000000";
-      ctx.fillRect(0, 0, frameW, frameH);
-      ctx.restore();
-    }
-
-    if (f.fit === "blur_fill" && f.backdrop === "blur") {
+  // What sits behind a photo that does not reach the frame edge is decided by
+  // exactly one control: the chosen backdrop style. (The old code also let the
+  // fit mode override it, so "Show Full" always went black whatever was picked.)
+  //   transparent → paint nothing at all: the frame is left untouched, so an
+  //                 underlying layer or the video's own background shows through
+  //   blur        → a blurred, zoomed copy of the same photo
+  //   black       → solid black
+  //   colour      → the colour the user picked
+  if (gap && f.backdrop !== "transparent") {
+    if (f.backdrop === "blur") {
       // A cover-placed copy of the same photo, pushed out past the frame so the
       // soft blurred edge never shows a transparent seam, then blurred.
       const bg = placeImage(img, frameW, frameH, f, {
@@ -337,7 +342,7 @@ export function drawSceneImage(
         ctx.fillRect(0, 0, frameW, frameH);
       }
       ctx.restore();
-    } else if (f.fit === "blur_fill" || f.backdrop === "colour") {
+    } else {
       ctx.save();
       ctx.fillStyle = f.backdrop === "colour" ? f.backdropColor : "#000000";
       ctx.fillRect(0, 0, frameW, frameH);

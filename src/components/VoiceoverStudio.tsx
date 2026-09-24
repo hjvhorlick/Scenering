@@ -3,12 +3,7 @@ import StepNav from "./StepNav";
 import type { Scene } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
 import { setCachedSceneAudio, getSharedAudioContext } from "../lib/tts-cache";
-import {
-  downloadSceneVoiceover,
-  downloadAllVoiceovers,
-  downloadVoiceSample,
-  type BulkDownloadProgress,
-} from "../lib/voice-download";
+import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
 
 interface VoiceoverStudioProps {
   scenes: Scene[];
@@ -206,7 +201,6 @@ export default function VoiceoverStudio({
 
   // --- Voice download state ---
   const [downloadingId, setDownloadingId] = useState<string | number | null>(null);
-  const [bulkDownload, setBulkDownload] = useState<BulkDownloadProgress | null>(null);
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
   /** Set when the server reports the audio is a silent placeholder. */
   const [ttsDegraded, setTtsDegraded] = useState(false);
@@ -225,27 +219,6 @@ export default function VoiceoverStudio({
       announce(err?.message || "Could not download that narration.");
     } finally {
       setDownloadingId(null);
-    }
-  };
-
-  const handleDownloadAll = async () => {
-    if (bulkDownload) return;
-    setBulkDownload({ current: 0, total: scenes.length, label: "Starting" });
-    try {
-      const { saved, failed, silent } = await downloadAllVoiceovers(
-        scenes,
-        selectedVoice,
-        "scenering_project",
-        (p) => setBulkDownload(p)
-      );
-      let msg = `Downloaded ${saved} narration track${saved === 1 ? "" : "s"} as a ZIP.`;
-      if (failed) msg += ` ${failed} failed.`;
-      if (silent) msg += ` ${silent} are silent placeholders — the speech service was unreachable.`;
-      announce(msg);
-    } catch (err: any) {
-      announce(err?.message || "Could not build the voiceover ZIP.");
-    } finally {
-      setBulkDownload(null);
     }
   };
 
@@ -544,29 +517,6 @@ export default function VoiceoverStudio({
                 <>
                   <span>🎙️</span>
                   <span>Generate & Save Voiceover for All Scenes</span>
-                </>
-              )}
-            </button>
-
-            {/* Download every generated narration track as a ZIP */}
-            <button
-              type="button"
-              disabled={Boolean(bulkDownload) || scenes.length === 0}
-              onClick={handleDownloadAll}
-              title="Download every scene's narration as audio files in a ZIP"
-              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"
-            >
-              {bulkDownload ? (
-                <>
-                  <span className="animate-spin text-sm">⏳</span>
-                  <span>
-                    Packaging ({bulkDownload.current}/{bulkDownload.total})...
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span>⬇️</span>
-                  <span>Download All Voices (ZIP)</span>
                 </>
               )}
             </button>

@@ -64,7 +64,7 @@ export default function ThemeSwitcher() {
         <div
           role="listbox"
           aria-label="Choose a theme"
-          className="t-theme-menu absolute right-0 top-full mt-2 w-72 max-w-[85vw] z-50 bg-gray-900/95 border border-gray-700 rounded-2xl shadow-2xl p-1.5 backdrop-blur-md animate-fade-in"
+          className="t-theme-menu absolute right-0 top-full mt-2 w-72 max-w-[85vw] z-[80] bg-gray-900/95 border border-gray-700 rounded-2xl shadow-2xl p-1.5 backdrop-blur-md animate-fade-in"
         >
           <div className="px-2.5 pt-1.5 pb-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
             <span className="t-ico">🖌️</span>

@@ -809,7 +809,13 @@ export default function SceneEditor({
                             key={m.id}
                             type="button"
                             title={m.blurb}
-                            onClick={() => onUpdate(scene.id, { image_fit: m.id })}
+                            onClick={() =>
+                              onUpdate(scene.id, {
+                                image_fit: m.id,
+                                // "Blurred Fill" promises blurred bars, so it carries its own backdrop
+                                ...(m.id === "blur_fill" ? { image_backdrop: "blur" as const } : {}),
+                              })
+                            }
                             className={`px-2 py-1.5 rounded-lg border text-[11px] font-medium transition-colors flex flex-col items-center gap-0.5 ${
                               fitMode === m.id
                                 ? "bg-amber-950 border-amber-600 text-amber-300"
@@ -845,6 +851,11 @@ export default function SceneEditor({
                               {b.icon} {b.name}
                             </button>
                           ))}
+                          {backdrop === "transparent" && (
+                            <span className="text-[10px] text-gray-500 basis-full leading-snug">
+                              The bars stay clear — whatever sits behind the photo shows through instead of a fill.
+                            </span>
+                          )}
                           {backdrop === "colour" && (
                             <input
                               type="color"

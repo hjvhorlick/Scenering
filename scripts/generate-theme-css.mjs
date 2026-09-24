@@ -248,23 +248,54 @@ const THEME_SPECS = {
     semantic: lightSemanticFactory({ washK: 0.66, tintK: 0.58, pastelBg: 0.22, pastelText: 0.16, pastelBorder: 0.22 }),
     neutral: {
       bg: {
-        black: [255, 255, 255], 950: [250, 247, 255, 0.85], 900: [255, 255, 255, 0.62], 800: [255, 255, 255, 0.55],
-        750: [255, 255, 255, 0.65], 700: [255, 255, 255, 0.78], 600: [238, 231, 250, 0.9], 500: [164, 148, 194],
-        white: [255, 255, 255, 0.92],
+        // Deliberately much more opaque than the first pass: the panels read as
+        // real windows with a whisper of frost, not as see-through film.
+        black: [255, 255, 255], 950: [250, 248, 253, 0.96], 900: [255, 255, 255, 0.94], 800: [255, 255, 255, 0.93],
+        750: [252, 250, 255, 0.94], 700: [255, 255, 255, 0.96], 600: [238, 233, 246, 0.97], 500: [164, 148, 194],
+        white: [255, 255, 255, 0.98],
       },
       border: {
-        900: [255, 255, 255, 0.55], 800: [186, 168, 214, 0.4], 700: [158, 138, 194, 0.45],
-        600: [143, 123, 183, 0.5], 500: [128, 108, 170], white: [255, 255, 255, 0.8], black: [122, 101, 160, 0.35],
+        900: [214, 208, 226, 0.75], 800: [186, 168, 214, 0.62], 700: [158, 138, 194, 0.66],
+        600: [143, 123, 183, 0.7], 500: [128, 108, 170], white: [255, 255, 255, 0.92], black: [122, 101, 160, 0.5],
       },
       text: {
-        white: [61, 51, 82], 200: [74, 63, 99], 300: [88, 76, 115], 400: [113, 99, 143],
-        500: [136, 122, 165], 600: [164, 148, 194], 700: [95, 82, 122], black: [61, 51, 82],
+        // Dark, mostly-grey ink with only a hint of violet left in it — the
+        // previous ramp was a pale lilac that washed out on the frosted panels.
+        white: [38, 36, 46], 200: [48, 46, 56], 300: [58, 56, 67], 400: [79, 77, 88],
+        500: [101, 99, 110], 600: [124, 122, 132], 700: [66, 64, 74], black: [28, 26, 34],
       },
     },
     accent: {
       bg: { 950: [183, 158, 230, 0.2], 900: [183, 158, 230, 0.3], 800: "#9376cf", 700: "#a88ce2", 600: "#b9a3ea", 500: "#c9b8f0", 400: "#d9ccf7" },
       border: { 800: "#9376d4", 700: "#a488dd", 600: "#b79ee6", 500: "#b79ee6", 400: "#cbbcf2" },
       text: { 200: "#6f53b8", 300: "#7a5fc0", 400: "#856ccb", 500: "#a488dd" },
+    },
+  },
+
+  /* Porcelain — the second light theme. Warm china whites, hairline biscuit
+     borders and a single cobalt ink accent; designed to read like glazed
+     ceramic instead of glass or paper. */
+  porcelain: {
+    semantic: lightSemanticFactory({ washK: 0.58, tintK: 0.5 }),
+    neutral: {
+      bg: {
+        black: "#ffffff", 950: "#f7f4ef", 900: "#fffdfa", 800: "#fffdfa",
+        750: "#f3efe8", 700: "#eae4da", 600: "#ded6c8", 500: "#c3b8a6",
+        white: "#ffffff",
+      },
+      border: {
+        900: "#ece6dc", 800: "#e4dccf", 700: "#d8cec0", 600: "#cdc2b2",
+        500: "#b9ac99", white: "#d8cec0", black: "#d8cec0",
+      },
+      text: {
+        white: "#33302c", 200: "#43403a", 300: "#524d45", 400: "#6d675d",
+        500: "#867f74", 600: "#9a9287", 700: "#5a544b", black: "#2a2724",
+      },
+    },
+    accent: {
+      bg: { 950: "#e7eefb", 900: "#cddff7", 800: "#9dbdea", 700: "#2f6fb5", 600: "#2f6fb5", 500: "#3b7cc4", 400: "#6ba1d8" },
+      border: { 800: "#2a63a4", 700: "#2f6fb5", 600: "#3b7cc4", 500: "#5b93cf", 400: "#a9c8e8" },
+      text: { 200: "#245a99", 300: "#2f6fb5", 400: "#3b7cc4", 500: "#2f6fb5" },
     },
   },
 };
@@ -439,7 +470,7 @@ function main() {
   out.push(`/* ------------------------------------------------------------------`);
   out.push(`   GENERATED FILE — do not edit by hand.`);
   out.push(`   Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)`);
-  out.push(`   Colour matrix for the four non-classic themes. ${parsed.length} utility`);
+  out.push(`   Colour matrix for every non-classic theme. ${parsed.length} utility`);
   out.push(`   tokens were discovered in src/ + index.html and remapped per theme.`);
   out.push(`------------------------------------------------------------------ */\n`);
 
@@ -459,7 +490,8 @@ function main() {
     out.push("");
   }
 
-  const css = out.join("\n") + "\n";
+  // trim the blank lines the per-theme sections leave behind
+  const css = out.join("\n").replace(/\n+$/, "") + "\n";
   writeFileSync(join(root, "src", "themes.generated.css"), css);
   console.log(`themes.generated.css: ${parsed.length} tokens → ${ruleCount} rules (${(css.length / 1024).toFixed(1)} kB)`);
 }

@@ -20,7 +20,7 @@
       (function () {
         try {
           var t = localStorage.getItem("scenering_theme");
-          if (!t || ["classic", "apple", "windows", "playful", "glass"].indexOf(t) === -1) t = "classic";
+          if (!t || ["classic", "apple", "windows", "playful", "glass", "porcelain"].indexOf(t) === -1) t = "classic";
           document.documentElement.setAttribute("data-theme", t);
         } catch (e) {
           document.documentElement.setAttribute("data-theme", "classic");

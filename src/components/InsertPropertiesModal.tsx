@@ -85,7 +85,7 @@ const INTRO_PRESETS = [
     name: "3D Golden Lens Flare Shockwave",
     videoUrl: "/videos/intros/intro_cinematic_gold.mp4",
     tensionStyle: "flare" as const,
-    soundUrl: "/sounds/cinematic_boom.wav",
+    soundUrl: "/sounds/stingers/cinematic_boom.wav",
     icon: "👑",
     desc: "Epic golden burst with expanding shockwave ring and particle drift",
   },

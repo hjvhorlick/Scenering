@@ -67,7 +67,9 @@ export interface Scene {
   image_flip_h?: boolean;
   image_flip_v?: boolean;
   /** what fills the frame where the photo does not reach */
-  image_backdrop?: "blur" | "black" | "colour";
+  /** What fills the bars when the photo does not reach the frame edge.
+      "transparent" paints nothing, so whatever is behind shows through. */
+  image_backdrop?: "transparent" | "blur" | "black" | "colour";
   image_backdrop_blur?: number;  // px at a 1080-wide frame, 0..120
   image_backdrop_zoom?: number;  // 1..2.5
   image_backdrop_dim?: number;   // 0..0.9
