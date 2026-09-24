@@ -29,6 +29,14 @@ export type SceneMotionType =
   | "pulse"
   | "floating";
 
+export type SceneTransitionType =
+  | "none"
+  | "fade"
+  | "slide"
+  | "crossfade"
+  | "fade_black"
+  | "zoom";
+
 export interface DialogueLine {
   id: string;
   speaker: string;
@@ -50,7 +58,7 @@ export interface Scene {
   speaker_name?: string;
   dialogue?: DialogueLine[];
   motion_effect?: SceneMotionType;
-  transition?: "none" | "crossfade" | "fade_black" | "zoom" | "slide";
+  transition?: SceneTransitionType;
   narration_speed?: number;
   burn_caption?: boolean;
   // Image framing and positioning — see src/lib/scene-framing.ts.

@@ -319,6 +319,8 @@ export default function VoiceoverStudio({
           duration: decoded.duration,
           voiceId: voiceToUse,
           text,
+          rawBuffer: arrayBuf.slice(0),
+          blob,
         });
       } catch {}
 

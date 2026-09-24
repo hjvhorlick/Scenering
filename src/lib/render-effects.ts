@@ -173,12 +173,12 @@ export function getMotionTransform(
     case "ken_burns":
     default: {
       // The classic: a steady push combined with a clearly visible diagonal
-      // drift. Starts at 1.08 rather than 1.0 so there is headroom to move
-      // into from the very first frame.
-      const s = 1.08 + e * 0.16;
+      // drift. Starts at 1.10 so there is plenty of headroom to move smoothly
+      // from the first frame with pure continuous easing and zero clamp jumps.
+      const s = 1.10 + e * 0.16;
       const base = centre(s);
-      const driftX = centred * w * 0.09;
-      const driftY = centred * h * 0.05;
+      const driftX = centred * w * 0.08;
+      const driftY = centred * h * 0.045;
       return {
         ...base,
         dx: base.dx + safeDrift(driftX, w, s),

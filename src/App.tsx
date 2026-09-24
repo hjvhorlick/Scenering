@@ -26,7 +26,8 @@ import {
   sceneDurationForText,
   splitScriptIntoScenes,
 } from "./lib/duration-utils";
-import type { Project, Scene, TimelineInsert, SceneMotionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
+import { TRANSITION_OPTIONS } from "./lib/scene-transition";
+import type { Project, Scene, TimelineInsert, SceneMotionType, SceneTransitionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
 import type { VideoFilterConfig } from "./data/video-filters";
 import type { SectionConfig } from "./data/intro-outro";
 import { VoiceEchoConfig, DEFAULT_VOICE_ECHO, resolveVoiceEcho } from "./lib/voice-echo";
@@ -49,6 +50,8 @@ export interface ProjectSettings {
   outro_section: SectionConfig | null;
   /** echo / ambience on the narration — heard in the preview and rendered in */
   voice_echo: VoiceEchoConfig;
+  /** transition effect applied between scenes across the entire video */
+  transition: SceneTransitionType;
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -58,6 +61,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   scene_duration: 20,
   motion_style: "dynamic",
   selected_voice: "guy",
+  transition: "crossfade",
   customer_logo: {
     enabled: false,
     url: "",
@@ -156,6 +160,7 @@ export default function App() {
   const [introSection, setIntroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.intro_section);
   const [outroSection, setOutroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.outro_section);
   const [voiceEcho, setVoiceEcho] = useState<VoiceEchoConfig>(DEFAULT_PROJECT_SETTINGS.voice_echo);
+  const [videoTransition, setVideoTransition] = useState<SceneTransitionType>(DEFAULT_PROJECT_SETTINGS.transition);
 
   // Helper to save per-project settings so each project maintains isolated configuration
   const saveCurrentProjectSettings = useCallback((partial: Partial<ProjectSettings>) => {
@@ -574,10 +579,11 @@ export default function App() {
       setPacingMode(freshSettings.pacing_mode);
       setSceneDuration(chosenDuration);
       setMotionStyle(freshSettings.motion_style);
+      setVideoTransition(freshSettings.transition);
 
       setNavNotice(null);
       setCurrentProject(project);
-      setScenes(scenesData as Scene[]);
+      setScenes((scenesData as Scene[]).map((sc) => ({ ...sc, transition: freshSettings.transition })));
       setInserts([]);
       setCurrentPlayheadTime(0);
       setEditorStep("scenes");
@@ -638,6 +644,7 @@ export default function App() {
     setVideoFilter(DEFAULT_PROJECT_SETTINGS.video_filter);
     setIntroSection(DEFAULT_PROJECT_SETTINGS.intro_section);
     setOutroSection(DEFAULT_PROJECT_SETTINGS.outro_section);
+    setVideoTransition(DEFAULT_PROJECT_SETTINGS.transition);
     setView("create");
   };
 
@@ -671,6 +678,8 @@ export default function App() {
       setVideoFilter(projectSettings.video_filter ?? null);
       setIntroSection(projectSettings.intro_section ?? null);
       setOutroSection(projectSettings.outro_section ?? null);
+      const projTransition = (projectSettings.transition as SceneTransitionType) || "crossfade";
+      setVideoTransition(projTransition);
 
       const { data, error } = await supabase
         .from("scenes")
@@ -692,6 +701,7 @@ export default function App() {
         const finalDur = (merged.duration && merged.duration !== 4) ? merged.duration : projectSettings.scene_duration;
         return {
           ...merged,
+          transition: (merged.transition as SceneTransitionType) || projTransition,
           duration: finalDur,
         };
       });
@@ -782,6 +792,7 @@ export default function App() {
       setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
       setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
       setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
+      setVideoTransition(DEFAULT_PROJECT_SETTINGS.transition);
       setView("create");
     }
 
@@ -833,6 +844,23 @@ export default function App() {
     } catch {}
   };
 
+  /** Sets transition effect across the entire video (all scenes + project settings) */
+  const handleUpdateVideoTransition = (transition: SceneTransitionType) => {
+    setVideoTransition(transition);
+    saveCurrentProjectSettings({ transition });
+    setScenes((prev) => prev.map((s) => ({ ...s, transition })));
+    try {
+      for (const s of scenes) {
+        const existing = localStorage.getItem(`scenering_scene_meta_${s.id}`);
+        const parsed = existing ? JSON.parse(existing) : {};
+        localStorage.setItem(
+          `scenering_scene_meta_${s.id}`,
+          JSON.stringify({ ...parsed, transition })
+        );
+      }
+    } catch {}
+  };
+
   const handleUpdateScene = async (sceneId: number, updates: Partial<Scene>) => {
     // 1. Immediately update local state
     setScenes((prev) =>
@@ -846,6 +874,7 @@ export default function App() {
       const newMeta = {
         ...parsed,
         motion_effect: updates.motion_effect !== undefined ? updates.motion_effect : parsed.motion_effect,
+        transition: updates.transition !== undefined ? updates.transition : parsed.transition,
         voice_id: updates.voice_id !== undefined ? updates.voice_id : parsed.voice_id,
         speaker_name: updates.speaker_name !== undefined ? updates.speaker_name : parsed.speaker_name,
         dialogue: updates.dialogue !== undefined ? updates.dialogue : parsed.dialogue,
@@ -961,6 +990,7 @@ export default function App() {
       text: initialText,
       image_query: "cinematic background",
       duration: initialDuration,
+      transition: videoTransition,
     };
 
     let created: Scene | null = null;
@@ -985,6 +1015,7 @@ export default function App() {
         image_query: "cinematic background",
         image_url: null,
         duration: initialDuration,
+        transition: videoTransition,
         created_at: new Date().toISOString(),
       };
     }
@@ -1387,6 +1418,48 @@ export default function App() {
                       <span>🎨 Video Look & Filters</span>
                       <span className="text-[10px] font-normal opacity-80">in Video Studio</span>
                     </button>
+                  </div>
+
+                  {/* Global Video Transition Selector: applies to the complete video */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900/80 p-3 sm:px-4 sm:py-3 rounded-xl border border-gray-800 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-950/80 border border-indigo-700/60 flex items-center justify-center text-sm shadow-inner">
+                        🔀
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-gray-200">Video Transitions</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800/60 font-medium">
+                            Applies to entire video
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-400">
+                          Choose the transition effect between scenes across your entire video
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {TRANSITION_OPTIONS.map((opt) => {
+                        const isSelected = videoTransition === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => handleUpdateVideoTransition(opt.id)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                              isSelected
+                                ? "bg-indigo-600 border-indigo-400 text-white shadow-md font-semibold ring-1 ring-indigo-400/50"
+                                : "bg-gray-800/90 hover:bg-gray-700/90 border-gray-700 text-gray-300"
+                            }`}
+                            title={opt.description}
+                          >
+                            <span>{opt.icon}</span>
+                            <span>{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {/* Scene List */}

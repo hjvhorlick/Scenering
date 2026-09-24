@@ -130,12 +130,38 @@ export function renderCanvasCaptions(
     });
   }
 
-  // Compute active word index for speech progress
+  // Natural speech rhythm weighting:
+  // Short connector words (a, to, in, of) pass quickly; longer polysyllabic words
+  // (extraordinary, international) receive their proportional speaking duration;
+  // trailing punctuation adds a subtle natural pause. This keeps word highlights
+  // 100% in sync with the human voiceover rather than lagging behind.
   const totalWords = words.length;
-  const activeWordGlobalIndex = Math.min(
-    totalWords - 1,
-    Math.floor(sceneProgress * totalWords)
-  );
+  const wordWeights = words.map((w) => {
+    const letters = w.replace(/[^a-zA-Z0-9]/g, "").length;
+    let weight = Math.max(2, letters);
+    if (/[,\-;:]$/.test(w)) weight += 1.5;
+    if (/[.!?]$/.test(w)) weight += 2.5;
+    return weight;
+  });
+  const totalWeight = Math.max(1, wordWeights.reduce((a, b) => a + b, 0));
+
+  let activeWordGlobalIndex = 0;
+  const safeProgress = Math.max(0, Math.min(1, Number.isFinite(sceneProgress) ? sceneProgress : 0));
+  if (safeProgress >= 1) {
+    activeWordGlobalIndex = totalWords - 1;
+  } else if (safeProgress <= 0) {
+    activeWordGlobalIndex = 0;
+  } else {
+    const targetWeight = safeProgress * totalWeight;
+    let accum = 0;
+    for (let i = 0; i < words.length; i++) {
+      accum += wordWeights[i];
+      if (targetWeight <= accum || i === words.length - 1) {
+        activeWordGlobalIndex = i;
+        break;
+      }
+    }
+  }
 
   // Find active line being read by voiceover
   let activeLineIdx = 0;
@@ -240,8 +266,8 @@ export function renderCanvasCaptions(
 
       lineObj.words.forEach((wrd, wInLineIdx) => {
         const globalWrdIdx = lineObj.startIndex + wInLineIdx;
-        const isCurrentActive = globalWrdIdx === activeWordGlobalIndex;
-        const isAlreadySung = globalWrdIdx < activeWordGlobalIndex;
+        const isCurrentActive = safeProgress < 1 && globalWrdIdx === activeWordGlobalIndex;
+        const isAlreadySung = safeProgress >= 1 || globalWrdIdx < activeWordGlobalIndex;
 
         // Soft shadow below every word, so the whole line floats in the frame
         strokeWord(wrd, currentX, lineY, "left");

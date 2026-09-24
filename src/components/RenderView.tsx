@@ -4,6 +4,7 @@ import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { createProjectZip } from "../lib/zip-download";
 import { drawSceneImage } from "../lib/scene-framing";
+import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import {
   getMotionTransform,
@@ -459,10 +460,13 @@ export default function RenderView({
     }
   };
 
-  // Helper to ensure scene duration matches speech narration with zero dead silence
+  // Helper to ensure scene duration matches speech narration with clean breathing space
   const getEffectiveSceneDuration = (scene: Scene, audioBufDuration?: number): number => {
     if (audioBufDuration && audioBufDuration > 0.3) {
-      return Math.round((audioBufDuration + 0.1) * 10) / 10;
+      return Math.round((audioBufDuration + 0.25) * 10) / 10;
+    }
+    if (scene.duration && scene.duration > 0) {
+      return scene.duration;
     }
     return calculateDynamicDuration(scene.text, scene.audio_duration);
   };
@@ -735,9 +739,39 @@ export default function RenderView({
         console.error("MediaRecorder runtime error:", e);
       };
 
-      // 3. Render frames & play audio in real time
-      reportStage(`3/4: Rendering Scene 1 of ${scenesWithImages.length}...`);
+      // 3. Render frames & play audio in real time with exact timeline synchronization
+      reportStage(`3/4: Preparing video & audio timeline...`);
       reportProgress(0.35);
+
+      const introSec = introSection?.enabled ? introSection : null;
+      const outroSec = outroSection?.enabled ? outroSection : null;
+      const introDuration = introSec ? Math.max(0.5, introSec.duration) : 0;
+      const outroDuration = outroSec ? Math.max(0.5, outroSec.duration) : 0;
+
+      let timelineOffset = introDuration;
+      const sceneSchedule = scenesWithImages.map((s, idx) => {
+        const item = audioBuffers.get(s.id);
+        const speechDur =
+          item && item.duration > 0.3
+            ? item.duration
+            : calculateDynamicDuration(s.text, s.audio_duration);
+        // Clean 0.25s breathing space after spoken voice narration before scene cut / transition
+        const sceneDur = Math.max(1.5, Math.round((speechDur + 0.25) * 10) / 10);
+        const entry = {
+          scene: s,
+          index: idx,
+          startTime: timelineOffset,
+          duration: sceneDur,
+          endTime: timelineOffset + sceneDur,
+          speechDuration: speechDur,
+        };
+        timelineOffset += sceneDur;
+        return entry;
+      });
+
+      const scriptTotalDuration = timelineOffset - introDuration;
+      const outroStartTime = timelineOffset;
+      const estimatedTotalDuration = Math.max(1, timelineOffset + outroDuration);
 
       const videoPromise = new Promise<Blob>((resolve) => {
         let isResolved = false;
@@ -763,25 +797,8 @@ export default function RenderView({
             console.warn("Video render safety timer completed");
             finalizeBlob();
           }
-        }, Math.max(15, totalDuration + 15) * 1000);
+        }, Math.max(15, estimatedTotalDuration + 15) * 1000);
       });
-
-      try {
-        recorder.start(100);
-      } catch (recStartErr) {
-        console.warn("MediaRecorder start with timeslice failed, trying start():", recStartErr);
-        try {
-          recorder.start();
-        } catch (recFatal) {
-          console.error("MediaRecorder start error:", recFatal);
-        }
-      }
-
-      let currentSceneIdx = 0;
-      // Filled with the audio-timeline clock once rendering starts.
-      let sceneStartTime = 0;
-      let lastProgressUiUpdate = 0;
-      let lastProgressVal = 0.35;
 
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 512;
@@ -790,20 +807,14 @@ export default function RenderView({
       analyser.maxDecibels = -12;
       analyser.connect(dest);
 
-      // Music bus: the background track / SFX are analysed separately from the
-      // voiceover so "moves with the music" visualisers are genuinely driven by
-      // the soundtrack in the rendered file, exactly like in the preview.
+      // Music bus: background track / SFX analysed separately
       const musicAnalyser = audioCtx.createAnalyser();
       musicAnalyser.fftSize = 512;
       musicAnalyser.smoothingTimeConstant = 0.72;
       musicAnalyser.minDecibels = -92;
       musicAnalyser.maxDecibels = -12;
       musicAnalyser.connect(dest);
-      // NOTE: Quiet rendering - deliberately DO NOT connect analysers to audioCtx.destination!
 
-      // Route the ambient BGM through the MUSIC analyser (instead of straight
-      // to the recorder) so "moves with the music" waves actually respond to
-      // the background track in the rendered file. Re-route, don't double-feed:
       if (ambientGainNode) {
         try {
           ambientGainNode.disconnect();
@@ -811,64 +822,6 @@ export default function RenderView({
         ambientGainNode.connect(musicAnalyser);
       }
 
-      const scheduledSources: AudioBufferSourceNode[] = [];
-      /** Hard-stops every pre-scheduled narration buffer (cancel / finish). */
-      const stopScheduledAudio = () => {
-        for (const src of scheduledSources) {
-          try {
-            src.stop();
-          } catch {}
-        }
-      };
-
-      const introSec = introSection?.enabled ? introSection : null;
-      const outroSec = outroSection?.enabled ? outroSection : null;
-      const introDuration = introSec ? Math.max(0.5, introSec.duration) : 0;
-      const outroDuration = outroSec ? Math.max(0.5, outroSec.duration) : 0;
-
-      const scriptTotalDuration = Math.max(1, scenesWithImages.reduce((sum, s) => {
-        const aud = audioBuffers.get(s.id);
-        return sum + Math.max(1, getEffectiveSceneDuration(s, aud?.duration));
-      }, 0));
-
-      const estimatedTotalDuration = Math.max(1, introDuration + scriptTotalDuration + outroDuration);
-
-      // Mix timeline insert audio (BGM, SFX, CTA jingles, intro/outro sounds) into the render
-      let insertMixer: InsertAudioMixer | null = null;
-      try {
-        const insertPlans = [
-          ...buildInsertAudioPlan(inserts, estimatedTotalDuration),
-          ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
-        ];
-        if (insertPlans.length > 0) {
-          insertMixer = new InsertAudioMixer(audioCtx, musicAnalyser);
-          const loaded = await insertMixer.load(insertPlans);
-          if (loaded > 0) {
-            insertMixer.startFrom(0);
-            reportStage(`3/4: Audio ready (${loaded} track(s)) — rendering...`);
-          }
-        }
-      } catch (err) {
-        console.warn("Insert audio render setup warning:", err);
-      }
-      const renderStartTime = performance.now();
-
-      // --- Timeline clock -------------------------------------------------
-      // The audio MediaRecorder captures follows the AudioContext DEVICE
-      // clock — never the (janky) wall clock. Driving all visual timing from
-      // the same clock keeps voice, captions, waves and video in sync even on
-      // slow machines where frame painting stutters. `timelineNow()` returns
-      // the audio clock in the same units/scale as performance.now(), so the
-      // frame math below is unchanged.
-      const renderAudioT0 = audioCtx.currentTime + 0.15;
-      const timelineNow = () =>
-        renderStartTime + Math.max(0, audioCtx.currentTime - renderAudioT0) * 1000;
-      let lastResumeAttempt = 0;
-
-      // Echo / ambience for the narration (Voiceover step). The chain sits
-      // between every narration buffer and the voice bus, so what is recorded
-      // into the video is the voice *with* its echo — and the visualisers still
-      // react to the processed voice, exactly as they do in the preview.
       const echoCfg = resolveVoiceEcho(voiceEcho);
       let voiceEchoGraph: VoiceEchoGraph | null = null;
       if (voiceEchoIsActive(echoCfg)) {
@@ -881,34 +834,87 @@ export default function RenderView({
         }
       }
 
-      // Pre-schedule EVERY scene's narration at its exact planned offset.
-      // Web Audio plays these sample-accurately on the audio thread, so the
-      // voice can never gap out or cut off because the main thread was busy
-      // painting frames — this is what keeps the voice smooth and in sync
-      // with the captions on slower computers.
-      let narrationOffset = introDuration;
-      scenesWithImages.forEach((sc) => {
-        const item = audioBuffers.get(sc.id);
-        const dur = Math.max(1, getEffectiveSceneDuration(sc, item?.duration));
+      // Mix timeline insert audio (BGM, SFX, CTA jingles, intro/outro sounds)
+      let insertMixer: InsertAudioMixer | null = null;
+      try {
+        const insertPlans = [
+          ...buildInsertAudioPlan(inserts, estimatedTotalDuration),
+          ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
+        ];
+        if (insertPlans.length > 0) {
+          insertMixer = new InsertAudioMixer(audioCtx, musicAnalyser);
+          const loaded = await insertMixer.load(insertPlans);
+          if (loaded > 0) {
+            reportStage(`3/4: Audio ready (${loaded} track(s)) — rendering video...`);
+          }
+        }
+      } catch (err) {
+        console.warn("Insert audio render setup warning:", err);
+      }
+
+      // Pre-schedule EVERY scene's narration at its exact planned offset from renderAudioT0.
+      const renderAudioT0 = audioCtx.currentTime + 0.12;
+      const scheduledSources: AudioBufferSourceNode[] = [];
+      const stopScheduledAudio = () => {
+        for (const src of scheduledSources) {
+          try {
+            src.stop();
+          } catch {}
+        }
+      };
+
+      sceneSchedule.forEach((entry) => {
+        const item = audioBuffers.get(entry.scene.id);
         if (item) {
           try {
             const source = audioCtx.createBufferSource();
             source.buffer = item.buffer;
-            // Voice feeds the voice analyser → speech-reactive waves respond
-            // (through the echo chain when one is set, so the tail is heard too)
             source.connect(voiceEchoGraph ? voiceEchoGraph.input : analyser);
-            source.start(renderAudioT0 + narrationOffset);
+            source.start(renderAudioT0 + entry.startTime);
             scheduledSources.push(source);
           } catch (audioErr) {
             console.warn("Error scheduling scene audio:", audioErr);
           }
         }
-        narrationOffset += dur;
       });
 
-      let renderPhase: "intro" | "scenes" | "outro" = introSec ? "intro" : "scenes";
-      let phaseStartTime = timelineNow();
-      sceneStartTime = timelineNow();
+      if (insertMixer) {
+        try {
+          insertMixer.startFrom(0);
+        } catch {}
+      }
+
+      // Synchronize exact start: wait until audioCtx reaches renderAudioT0
+      await new Promise<void>((resolveWait) => {
+        const waitLoop = () => {
+          if (audioCtx.currentTime >= renderAudioT0 || abortControllerRef.current) {
+            resolveWait();
+          } else {
+            requestAnimationFrame(waitLoop);
+          }
+        };
+        waitLoop();
+      });
+
+      // Start recording at the exact moment audio playback begins
+      try {
+        recorder.start(100);
+      } catch (recStartErr) {
+        console.warn("MediaRecorder start with timeslice failed, trying start():", recStartErr);
+        try {
+          recorder.start();
+        } catch (recFatal) {
+          console.error("MediaRecorder start error:", recFatal);
+        }
+      }
+
+      const renderStartTime = performance.now();
+      const videoTrack = videoStream.getVideoTracks()[0];
+      const hasRequestFrame = typeof (videoTrack as any)?.requestFrame === "function";
+
+      let lastProgressUiUpdate = 0;
+      let lastProgressVal = 0.35;
+      let lastResumeAttempt = 0;
 
       // Frame drawing loop with robust error boundaries and background tab resilience
       await new Promise<void>((resolveLoop) => {
@@ -943,7 +949,7 @@ export default function RenderView({
           backgroundTimerId = setTimeout(() => {
             cancelAnimationFrame(animId);
             renderFrame();
-          }, 80);
+          }, 40);
         };
 
         const renderFrame = () => {
@@ -959,53 +965,55 @@ export default function RenderView({
           }
 
           try {
-            // Audio clock, not the wall clock (see timelineNow above).
-            const now = timelineNow();
+            const now = performance.now();
+            let currentGlobalTime = Math.max(0, (now - renderStartTime) / 1000);
+            const audioElapsed = audioCtx.currentTime - renderAudioT0;
+            // Phase-lock the visual clock to Web Audio hardware device clock if drift exceeds 40ms
+            if (audioCtx.state === "running" && Math.abs(currentGlobalTime - audioElapsed) > 0.04) {
+              currentGlobalTime = Math.max(0, audioElapsed);
+            }
 
-            // If a browser re-suspends the context mid-render, nudge it back —
-            // otherwise the whole timeline clock (and the recording) freezes.
             if (audioCtx.state !== "running" && now - renderStartTime - lastResumeAttempt > 2000) {
               lastResumeAttempt = now - renderStartTime;
               audioCtx.resume().catch(() => {});
             }
 
-            // Drive insert audio (BGM / SFX / CTA / intro-outro sounds)
             try {
-              insertMixer?.tick(Math.max(0, (now - renderStartTime) / 1000));
+              insertMixer?.tick(currentGlobalTime);
             } catch {}
 
+            // Check if render reached end
+            if (currentGlobalTime >= estimatedTotalDuration) {
+              cleanupAndFinish();
+              return;
+            }
+
+            const rawProgress = 0.35 + (currentGlobalTime / estimatedTotalDuration) * 0.55;
+            const clampedProgress = Math.min(0.92, Math.max(0.35, isNaN(rawProgress) ? 0.35 : rawProgress));
+
+            if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
+              lastProgressUiUpdate = now;
+              lastProgressVal = clampedProgress;
+              reportProgress(clampedProgress);
+              reportStage(
+                `3/4: Rendering Video (${Math.round(currentGlobalTime)}s / ${Math.round(estimatedTotalDuration)}s)`
+              );
+            }
+
             // ==========================================
-            // PHASE 1: INTRO SEGMENT (Full screen insert, NO captions, NO speech voice)
+            // PHASE 1: INTRO SEGMENT
             // ==========================================
-            if (renderPhase === "intro" && introSec) {
-              const elapsedInIntro = Math.max(0, (now - phaseStartTime) / 1000);
-              const currentGlobalTime = elapsedInIntro;
-              const progressInIntro = Math.min(1, elapsedInIntro / Math.max(0.1, introDuration));
-
-              const rawProgress = 0.35 + (currentGlobalTime / estimatedTotalDuration) * 0.55;
-              const clampedProgress = Math.min(0.92, Math.max(0.35, isNaN(rawProgress) ? 0.35 : rawProgress));
-
-              if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
-                lastProgressUiUpdate = now;
-                lastProgressVal = clampedProgress;
-                reportProgress(clampedProgress);
-                reportStage(
-                  `3/4: Rendering Intro Scene (${Math.round(elapsedInIntro)}s / ${Math.round(introDuration)}s)`
-                );
-              }
-
-              // Draw canvas background
+            if (introSec && currentGlobalTime < introDuration) {
+              const progressInIntro = Math.min(1, currentGlobalTime / Math.max(0.1, introDuration));
               ctx.fillStyle = "#000";
               ctx.fillRect(0, 0, width, height);
 
-              // Render the intro section built in the Intro & Outro studio
               try {
                 renderSection(ctx, introSec, width, height, currentGlobalTime, progressInIntro);
               } catch (e) {
                 console.warn("Intro section render notice:", e);
               }
 
-              // Render active overlay inserts in intro (excluding intro/outro cards)
               if (inserts && inserts.length > 0) {
                 inserts
                   .filter((i) => i.category !== "intro" && i.category !== "outro")
@@ -1016,12 +1024,10 @@ export default function RenderView({
                   });
               }
 
-              // Strictly NO captions or speech voiceover in this section per user mandate
-
-              if (progressInIntro >= 1) {
-                renderPhase = "scenes";
-                currentSceneIdx = 0;
-                sceneStartTime = timelineNow();
+              if (hasRequestFrame) {
+                try {
+                  (videoTrack as any).requestFrame();
+                } catch {}
               }
 
               scheduleNextFrame();
@@ -1029,37 +1035,20 @@ export default function RenderView({
             }
 
             // ==========================================
-            // PHASE 3: OUTRO SEGMENT (Full screen insert, NO captions, NO speech voice)
+            // PHASE 3: OUTRO SEGMENT
             // ==========================================
-            if (renderPhase === "outro" && outroSec) {
-              const elapsedInOutro = Math.max(0, (now - phaseStartTime) / 1000);
-              const currentGlobalTime = introDuration + scriptTotalDuration + elapsedInOutro;
+            if (outroSec && currentGlobalTime >= outroStartTime) {
+              const elapsedInOutro = currentGlobalTime - outroStartTime;
               const progressInOutro = Math.min(1, elapsedInOutro / Math.max(0.1, outroDuration));
-
-              const rawProgress = 0.35 + (currentGlobalTime / estimatedTotalDuration) * 0.55;
-              const clampedProgress = Math.min(0.92, Math.max(0.35, isNaN(rawProgress) ? 0.35 : rawProgress));
-
-              if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
-                lastProgressUiUpdate = now;
-                lastProgressVal = clampedProgress;
-                reportProgress(clampedProgress);
-                reportStage(
-                  `3/4: Rendering Outro Scene (${Math.round(elapsedInOutro)}s / ${Math.round(outroDuration)}s)`
-                );
-              }
-
-              // Draw canvas background
               ctx.fillStyle = "#000";
               ctx.fillRect(0, 0, width, height);
 
-              // Render the outro section built in the Intro & Outro studio
               try {
                 renderSection(ctx, outroSec, width, height, elapsedInOutro, progressInOutro);
               } catch (e) {
                 console.warn("Outro section render notice:", e);
               }
 
-              // Render active overlay inserts in outro (excluding intro/outro cards)
               if (inserts && inserts.length > 0) {
                 inserts
                   .filter((i) => i.category !== "intro" && i.category !== "outro")
@@ -1070,7 +1059,11 @@ export default function RenderView({
                   });
               }
 
-              // Strictly NO captions or speech voiceover in this section per user mandate
+              if (hasRequestFrame) {
+                try {
+                  (videoTrack as any).requestFrame();
+                } catch {}
+              }
 
               if (progressInOutro >= 1) {
                 cleanupAndFinish();
@@ -1082,83 +1075,113 @@ export default function RenderView({
             }
 
             // ==========================================
-            // PHASE 2: SCRIPT SCENES
+            // PHASE 2: SCRIPT SCENES (Exact Schedule Match)
             // ==========================================
-            const elapsedInScene = Math.max(0, (now - sceneStartTime) / 1000);
-            const currentScene = scenesWithImages[currentSceneIdx];
-
-            if (!currentScene) {
-              if (outroSec) {
-                renderPhase = "outro";
-                phaseStartTime = timelineNow();
-                scheduleNextFrame();
-                return;
+            let activeEntry = sceneSchedule[sceneSchedule.length - 1];
+            for (let i = 0; i < sceneSchedule.length; i++) {
+              const entry = sceneSchedule[i];
+              if (currentGlobalTime >= entry.startTime && currentGlobalTime < entry.endTime) {
+                activeEntry = entry;
+                break;
               }
-              cleanupAndFinish();
-              return;
+              if (i === 0 && currentGlobalTime < entry.startTime) {
+                activeEntry = entry;
+                break;
+              }
             }
 
-            const sceneAudio = audioBuffers.get(currentScene.id);
-            const sceneDuration = Math.max(1, getEffectiveSceneDuration(currentScene, sceneAudio?.duration));
-
-            const progressInScene = Math.min(1, elapsedInScene / sceneDuration);
-
-            // Calculate overall progress based on voiceover speech pacing + intro duration
-            const completedScenesDuration = scenesWithImages
-              .slice(0, currentSceneIdx)
-              .reduce((sum, s) => {
-                const aud = audioBuffers.get(s.id);
-                return sum + Math.max(1, getEffectiveSceneDuration(s, aud?.duration));
-              }, 0);
-            const currentGlobalTime = introDuration + completedScenesDuration + elapsedInScene;
-
-            const rawProgress = 0.35 + (currentGlobalTime / estimatedTotalDuration) * 0.55;
-            const clampedProgress = Math.min(0.92, Math.max(0.35, isNaN(rawProgress) ? 0.35 : rawProgress));
-
-            // Throttle React UI updates to 4 times per second to prevent thread starvation
-            if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
-              lastProgressUiUpdate = now;
-              lastProgressVal = clampedProgress;
-              reportProgress(clampedProgress);
-              reportStage(
-                `3/4: Rendering Scene ${currentSceneIdx + 1} of ${scenesWithImages.length} (${Math.round(currentGlobalTime)}s / ${Math.round(estimatedTotalDuration)}s)`
-              );
-            }
+            const currentScene = activeEntry.scene;
+            const currentSceneIdx = activeEntry.index;
+            const elapsedInScene = Math.max(0, currentGlobalTime - activeEntry.startTime);
+            const progressInScene = Math.min(1, elapsedInScene / Math.max(0.1, activeEntry.duration));
+            // speechProgress reaches 1.0 at the exact moment spoken narration completes
+            const speechProgress = Math.min(
+              1,
+              Math.max(0, elapsedInScene / Math.max(0.1, activeEntry.speechDuration))
+            );
 
             // --- Draw background ---
             ctx.fillStyle = "#000";
             ctx.fillRect(0, 0, width, height);
 
-            // --- Draw image (or the scene's short video clip) with Camera Motion ---
+            // --- Draw image (or video clip) ---
             let img: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
               images[currentSceneIdx] as any;
             if (sceneHasClip(currentScene)) {
-              // Park the clip on the exact frame this moment of the scene needs,
-              // then draw it through the same framing engine as a still.
               const el = clipPool.get(currentScene);
               if (el) {
-                clipPool.seekToProgress(currentScene, progressInScene, sceneDuration);
+                clipPool.seekToProgress(currentScene, progressInScene, activeEntry.duration);
                 if (el.readyState >= 2 && el.videoWidth > 0) {
                   img = asDrawableClip(el) as any;
                 }
               }
             }
-            if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
-              const { scale, dx, dy } = getMotionTransform(
-                currentScene.motion_effect,
-                progressInScene,
-                width,
-                height
-              );
-              const safeScale = isNaN(scale) ? 1 : scale;
-              const safeDx = isNaN(dx) ? 0 : dx;
-              const safeDy = isNaN(dy) ? 0 : dy;
 
-              // Framing goes through the shared engine (src/lib/scene-framing.ts)
-              // so the exported video matches the preview exactly and the photo
-              // keeps its own aspect ratio. Previously this drew the image at
-              // the canvas width and height, which squashed every photo that
-              // was not already the output shape.
+            const prevEntry = currentSceneIdx > 0 ? sceneSchedule[currentSceneIdx - 1] : null;
+            const prevScene = prevEntry ? prevEntry.scene : null;
+            let prevImg: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
+              currentSceneIdx > 0 ? (images[currentSceneIdx - 1] as any) : null;
+            if (prevScene && sceneHasClip(prevScene)) {
+              const el = clipPool.get(prevScene);
+              if (el && el.readyState >= 2 && el.videoWidth > 0) {
+                prevImg = asDrawableClip(el) as any;
+              }
+            }
+
+            const { scale, dx, dy } = getMotionTransform(
+              currentScene.motion_effect,
+              progressInScene,
+              width,
+              height
+            );
+            const safeScale = isNaN(scale) ? 1 : scale;
+            const safeDx = isNaN(dx) ? 0 : dx;
+            const safeDy = isNaN(dy) ? 0 : dy;
+
+            let handledTransition = false;
+            if (
+              currentScene.transition &&
+              currentScene.transition !== "none"
+            ) {
+              const transDur = getTransitionDuration(activeEntry.duration);
+              if (elapsedInScene < transDur) {
+                const { scale: prevScale, dx: prevDx, dy: prevDy } = getMotionTransform(
+                  prevScene?.motion_effect,
+                  1,
+                  width,
+                  height
+                );
+                const safePrevScale = isNaN(prevScale) ? 1 : prevScale;
+                const safePrevDx = isNaN(prevDx) ? 0 : prevDx;
+                const safePrevDy = isNaN(prevDy) ? 0 : prevDy;
+
+                handledTransition = drawSceneTransition(
+                  ctx,
+                  currentScene,
+                  img && img.naturalWidth > 0 ? img : null,
+                  prevScene || null,
+                  prevImg && prevImg.naturalWidth > 0 ? prevImg : null,
+                  elapsedInScene,
+                  activeEntry.duration,
+                  width,
+                  height,
+                  {
+                    motionScale: safeScale,
+                    motionDx: safeDx + (width * safeScale - width) / 2,
+                    motionDy: safeDy + (height * safeScale - height) / 2,
+                    filter: getFilterCanvas(videoFilter, width),
+                  },
+                  prevScene ? {
+                    motionScale: safePrevScale,
+                    motionDx: safePrevDx + (width * safePrevScale - width) / 2,
+                    motionDy: safePrevDy + (height * safePrevScale - height) / 2,
+                    filter: getFilterCanvas(videoFilter, width),
+                  } : undefined
+                );
+              }
+            }
+
+            if (!handledTransition && img && img.naturalWidth > 0 && img.naturalHeight > 0) {
               try {
                 drawSceneImage(ctx, img, currentScene, width, height, {
                   motionScale: safeScale,
@@ -1175,16 +1198,14 @@ export default function RenderView({
               } catch {}
             }
 
-            // --- Animated atmosphere of the project-wide filter (grain, mist,
-            //     dust, sun flare, VHS artefacts). Uses the GLOBAL timeline
-            //     clock so the motion flows continuously across scene cuts. ---
+            // --- Animated atmosphere of the project-wide filter ---
             try {
               paintVideoFilter(ctx, videoFilter, width, height, currentGlobalTime);
             } catch (filterErr) {
               console.warn("Video filter notice:", filterErr);
             }
 
-            // --- Crisp Logo Watermark in Top-Left Corner (Permanent & Stands Out) ---
+            // --- Crisp Logo Watermark in Top-Left Corner ---
             if (
               settings.includeWatermark &&
               watermarkImgRef.current &&
@@ -1255,13 +1276,11 @@ export default function RenderView({
               const cScale = Math.max(0.2, Math.min(3.0, customerLogo.scale ?? 1.0));
               const cMarginX = (customerLogo.margin ?? 20) * scaleRatio;
               const cMarginY = (customerLogo.margin ?? 20) * (height / 720);
-              // Base width 200 matches VideoPreview.tsx and CustomerLogoSection with 1:1 parity
               const cWidth = Math.max(20, Math.round(200 * cScale * scaleRatio));
               const cHeight = Math.max(10, Math.round((cWidth * customerLogoImgRef.current.naturalHeight) / Math.max(1, customerLogoImgRef.current.naturalWidth)));
               const cX = Math.max(0, width - cWidth - cMarginX);
               const cY = Math.max(0, cMarginY);
 
-              // Transparent customer logo with soft drop shadow - NO bounding box or border
               ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
               ctx.shadowBlur = 8 * scaleRatio;
               ctx.shadowOffsetX = 0;
@@ -1275,7 +1294,7 @@ export default function RenderView({
               ctx.restore();
             }
 
-            // --- Subtitle & Caption Rendering ---
+            // --- Subtitle & Caption Rendering (Speech Synchronized) ---
             if (settings.includeSubtitles && currentScene.text) {
               try {
                 const activeCaptionsConfig: CaptionsConfig = captionsConfig || {
@@ -1294,7 +1313,7 @@ export default function RenderView({
                 renderCanvasCaptions(
                   ctx,
                   currentScene.text,
-                  progressInScene,
+                  speechProgress,
                   activeCaptionsConfig,
                   width,
                   height
@@ -1325,8 +1344,6 @@ export default function RenderView({
                   const musicBus = readBus(musicAnalyser);
                   audioFrame = { voice: voiceBus, music: musicBus };
                   const loudest = voiceBus.level >= musicBus.level ? voiceBus : musicBus;
-                  // Speech/music averages sit low (broad frequency spectrum),
-                  // so scale the level up — otherwise reactive overlays look dead.
                   audioLevel = Math.min(1, 0.15 + loudest.level * 2.6);
                   freqData = (loudest.freq as Uint8Array) || null;
                 }
@@ -1334,7 +1351,6 @@ export default function RenderView({
                 inserts.forEach((insert) => {
                   try {
                     renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData, audioFrame, {
-                      // the project's own logo for the centre visualisers
                       logo: customerLogo?.enabled ? customerLogoImgRef.current : null,
                     });
                   } catch (insErr) {
@@ -1346,26 +1362,15 @@ export default function RenderView({
               }
             }
 
-            // Check if current scene is finished
-            if (progressInScene >= 1) {
-              currentSceneIdx++;
-              if (currentSceneIdx >= scenesWithImages.length) {
-                if (outroSec) {
-                  renderPhase = "outro";
-                  phaseStartTime = timelineNow();
-                } else {
-                  cleanupAndFinish();
-                  return;
-                }
-              } else {
-                sceneStartTime = timelineNow();
-              }
+            if (hasRequestFrame) {
+              try {
+                (videoTrack as any).requestFrame();
+              } catch {}
             }
 
             scheduleNextFrame();
           } catch (frameErr) {
             console.error("Frame render recoverable error:", frameErr);
-            // Recover and keep loop alive so render never freezes at 35%
             scheduleNextFrame();
           }
         };

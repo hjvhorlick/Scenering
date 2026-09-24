@@ -8,6 +8,7 @@ import {
   renderTimelineInsert,
 } from "../lib/render-effects";
 import { drawSceneImage } from "../lib/scene-framing";
+import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
@@ -434,7 +435,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       absoluteTime: number = 0,
       audioLevel: number = 0.4,
       freqData?: Uint8Array | null,
-      audioFrame?: AudioFrame | null
+      audioFrame?: AudioFrame | null,
+      prevScene?: Scene | null,
+      prevImg?: HTMLImageElement | null,
+      elapsedInScene?: number
     ) => {
       const canvas = ctx.canvas;
       const w = canvas.width;
@@ -465,7 +469,68 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         }
       }
 
-      if (source && (source.complete ?? true) && source.naturalWidth > 0) {
+      let handledTransition = false;
+      if (
+        scene.transition &&
+        scene.transition !== "none" &&
+        elapsedInScene !== undefined
+      ) {
+        const transDur = getTransitionDuration(scene.duration || 20);
+        if (elapsedInScene < transDur) {
+          const { scale: motionScale, dx: motionDx, dy: motionDy } = getMotionTransform(
+            scene.motion_effect,
+            sceneProgress,
+            w,
+            h
+          );
+          let prevSource: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
+            prevImg as any;
+          if (prevScene && sceneHasClip(prevScene)) {
+            const el = clipPoolRef.current.get(prevScene);
+            if (el && el.readyState >= 2 && el.videoWidth > 0) {
+              prevSource = asDrawableClip(el) as any;
+            }
+          }
+          const { scale: prevScale, dx: prevDx, dy: prevDy } = getMotionTransform(
+            prevScene?.motion_effect,
+            1,
+            w,
+            h
+          );
+          const safeScale = isNaN(motionScale) ? 1 : motionScale;
+          const safeDx = isNaN(motionDx) ? 0 : motionDx;
+          const safeDy = isNaN(motionDy) ? 0 : motionDy;
+          const safePrevScale = isNaN(prevScale) ? 1 : prevScale;
+          const safePrevDx = isNaN(prevDx) ? 0 : prevDx;
+          const safePrevDy = isNaN(prevDy) ? 0 : prevDy;
+
+          handledTransition = drawSceneTransition(
+            ctx,
+            scene,
+            source && (!("complete" in source) || (source as any).complete) && source.naturalWidth > 0 ? source : null,
+            prevScene || null,
+            prevSource && (!("complete" in prevSource) || (prevSource as any).complete) && prevSource.naturalWidth > 0 ? prevSource : null,
+            elapsedInScene,
+            scene.duration || 20,
+            w,
+            h,
+            {
+              motionScale: safeScale,
+              motionDx: safeDx + (w * safeScale - w) / 2,
+              motionDy: safeDy + (h * safeScale - h) / 2,
+              filter: getFilterCanvas(videoFilterRef.current, w),
+            },
+            prevScene ? {
+              motionScale: safePrevScale,
+              motionDx: safePrevDx + (w * safePrevScale - w) / 2,
+              motionDy: safePrevDy + (h * safePrevScale - h) / 2,
+              filter: getFilterCanvas(videoFilterRef.current, w),
+            } : undefined
+          );
+        }
+      }
+
+      if (!handledTransition && source && (source.complete ?? true) && source.naturalWidth > 0) {
         const img = source;
         const { scale: motionScale, dx: motionDx, dy: motionDy } = getMotionTransform(
           scene.motion_effect,
@@ -505,7 +570,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       // Render Subtitles / Captions (Strictly disabled for Intro and Outro segments per user instruction)
       if (!isIntroOrOutro && captionsConfig?.enabled !== false && scene.text) {
         const activeCaptions = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
-        renderCanvasCaptions(ctx, scene.text, sceneProgress, activeCaptions, w, h);
+        const sa = audioBuffersRef.current.get(scene.id);
+        const speechDur = sa?.buffer.duration && sa.buffer.duration > 0.3 ? sa.buffer.duration : (scene.duration || 4);
+        const speechProgress = elapsedInScene !== undefined ? Math.min(1, Math.max(0, elapsedInScene / Math.max(0.1, speechDur))) : sceneProgress;
+        renderCanvasCaptions(ctx, scene.text, speechProgress, activeCaptions, w, h);
       }
 
       // Crisp Scenering Logo Watermark in Top-Left Corner (Transparent background, no borders)
@@ -668,6 +736,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     let targetScene = scenesWithImages[0];
     let targetIdx = 0;
     let sceneProgress = 0;
+    let sceneOffset = 0;
 
     if (introSec && scrubTime < introDur) {
       const p = scrubTime / Math.max(0.1, introDur);
@@ -687,21 +756,32 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         if (scriptTime >= acc && scriptTime < acc + sDur) {
           targetScene = s;
           targetIdx = i;
-          sceneProgress = (scriptTime - acc) / Math.max(0.1, sDur);
+          sceneOffset = scriptTime - acc;
+          sceneProgress = sceneOffset / Math.max(0.1, sDur);
           break;
         }
         acc += sDur;
         if (i === scenesWithImages.length - 1) {
           targetScene = s;
           targetIdx = i;
+          sceneOffset = Math.max(0, scriptTime - acc);
           sceneProgress = 1;
         }
       }
     }
 
+    const prevScene = targetIdx > 0 ? scenesWithImages[targetIdx - 1] : null;
     loadImage(targetScene.image_url || "", targetIdx).then((img) => {
       if (!playingRef.current) {
-        drawScene(ctx, targetScene, sceneProgress, img, scrubTime, 0.4);
+        if (prevScene) {
+          loadImage(prevScene.image_url || "", targetIdx - 1).then((prevImg) => {
+            if (!playingRef.current) {
+              drawScene(ctx, targetScene, sceneProgress, img, scrubTime, 0.4, null, null, prevScene, prevImg, sceneOffset);
+            }
+          });
+        } else {
+          drawScene(ctx, targetScene, sceneProgress, img, scrubTime, 0.4, null, null, null, null, sceneOffset);
+        }
       }
     });
   }, [
@@ -1164,7 +1244,21 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
       const activeScene = scenesWithImages[activeIdx];
       const sceneProgress = Math.min(1, activeOffset / Math.max(0.1, activeSceneDur));
-      drawScene(ctx, activeScene, sceneProgress, images[activeIdx], totalElapsed, audioLevel, freqData, audioFrame);
+      const prevScene = activeIdx > 0 ? scenesWithImages[activeIdx - 1] : null;
+      const prevImg = activeIdx > 0 ? images[activeIdx - 1] : null;
+      drawScene(
+        ctx,
+        activeScene,
+        sceneProgress,
+        images[activeIdx],
+        totalElapsed,
+        audioLevel,
+        freqData,
+        audioFrame,
+        prevScene,
+        prevImg,
+        activeOffset
+      );
       setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
       onSeek?.(totalElapsed);
 
