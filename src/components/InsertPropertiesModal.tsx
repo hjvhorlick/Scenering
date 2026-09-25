@@ -24,7 +24,7 @@ import {
 import { resolveArtStyle } from "../lib/render-text-template";
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { VISUALIZER_PALETTES } from "../lib/visualizer-palettes";
-import { isRoundVisualizer, wantsCentreLogo } from "../lib/render-visualizers";
+import { isRoundVisualizer, supportsCentreLogo, wantsCentreLogo } from "../lib/render-visualizers";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
   SOUND_LIBRARY,
@@ -1369,12 +1369,7 @@ function InsertPropertiesContent({
                   </div>
 
                   {/* Centre logo — the user's own brand mark in the middle */}
-                  {(data.type === "audio_orb" ||
-                    data.type === "orbit_disc" ||
-                    data.type === "circular_wave" ||
-                    data.type === "voice_pulse" ||
-                    data.type === "energy_ring" ||
-                    data.type === "pulse_circle") && (
+                  {supportsCentreLogo(data.type) && (
                     <div className="pt-3 border-t border-gray-750 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <div>
@@ -1382,8 +1377,8 @@ function InsertPropertiesContent({
                             Show My Logo in the Middle
                           </span>
                           <span className="text-[11px] text-gray-400">
-                            Uses the logo from Setup → Customer Logo. With no logo, the centre stays a
-                            glowing core
+                            Uses the logo you upload in Studio → 🏷️ Logo. With no logo, the middle
+                            stays a glowing core
                           </span>
                         </div>
                         <input

@@ -4,6 +4,7 @@ import { CTA_PLATFORMS, CTA_GROUPS } from "../data/cta-library";
 import { STICKER_LIBRARY, STICKER_GROUPS } from "./sticker-3d";
 import { TEXT_TEMPLATES } from "../data/text-templates";
 import { VIDEO_FILTERS, FILTER_GROUPS } from "../data/video-filters";
+import { PIXABAY_FAMILIES } from "./pixabay-styles";
 
 export interface CatalogItem {
   type: string;
@@ -48,6 +49,54 @@ export interface CatalogItem {
     version?: string;
   };
 }
+
+/* ------------------------------------------------------------------
+ * PIXABAY-INSPIRED VISUALISERS (5 families x 6 looks = 30)
+ * ------------------------------------------------------------------
+ * Pixabay's free video library sorted by likes/downloads keeps throwing up the
+ * same five looks: a loudspeaker with EQ bars, spectrum bars with peak caps,
+ * flowing ribbons, 3D grids and circular analysers. Six of each are built in
+ * src/lib/pixabay-styles.ts — transparent, audio-reactive, code-drawn — and the
+ * catalogue cards are generated straight from that table, so the studio grid and
+ * the painters can never drift apart. One sub-category per family keeps the
+ * 30 cards from flooding the "All" grid.
+ */
+export const PIXABAY_SUBCATEGORIES: { id: string; name: string; icon: string }[] =
+  PIXABAY_FAMILIES.map((family) => ({
+    id: family.id,
+    name: family.name,
+    icon: family.icon,
+  }));
+
+export const PIXABAY_CATALOG_ITEMS: CatalogItem[] = PIXABAY_FAMILIES.flatMap((family) =>
+  family.styles.map((style) => ({
+    type: style.id,
+    category: "audio_visualizers" as InsertCategory,
+    subCategory: family.id,
+    name: style.name,
+    icon: style.icon,
+    description: `${style.description} — transparent overlay, drawn live from the sound (modelled on a Pixabay clip with ${style.likes.toLocaleString("en-ZA")} likes: ${style.source})`,
+    defaultDuration: 8.0,
+    defaultPosition: style.position,
+    defaultSize: style.size,
+    defaultAudioSource: "music" as AudioSourceType,
+    spansFullVideo: true,
+    defaultVisualOptions: {
+      // wide bars/ribbons stretch across the frame; objects and discs are placed
+      fullWidth: family.shape === "wide" || family.shape === "frame",
+      primaryColor: style.colors.primary,
+      secondaryColor: style.colors.secondary,
+      accentColor: style.colors.accent,
+      glowIntensity: style.glow,
+      has3DLook: true,
+      reactivity: style.reactivity,
+      bandCount: style.bandCount,
+      barThickness: style.thickness,
+      floatShadow: true,
+      ...(style.options || {}),
+    },
+  }))
+);
 
 // ---------------- 10 MAIN STUDIO CATEGORIES IN EXACT REQUIRED ORDER ----------------
 // 1. Logo, 2. Intro, 3. Outro, 4. Call to Action, 5. Stickers, 6. Text Templates, 7. Audio Visualisers, 8. Background Music, 9. Filters, 10. Sound Effects
@@ -127,6 +176,8 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
       { id: "waves", name: "Audio Waves & Bars", icon: "〰️" },
       { id: "centre", name: "Centre Stage", icon: "🎯" },
       { id: "immersive", name: "Immersive Scenes", icon: "🌌" },
+      // five families from the Pixabay popularity research, six looks each
+      ...PIXABAY_SUBCATEGORIES,
       { id: "speech", name: "Speech Reactive", icon: "🎙️" },
     ],
   },
@@ -415,7 +466,9 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
         "The centrepiece visualiser: a ring of spectrum bars around a glowing hub that holds your own logo. Bass swells the orb, the beat fires a shockwave and the loud bands burn white hot",
       defaultDuration: 8.0,
       defaultPosition: "center",
-      defaultSize: 1.0,
+      // the centrepiece has to read as the centrepiece: both centre styles land
+      // noticeably larger than the small round badges
+      defaultSize: 1.25,
       defaultAudioSource: "music",
       spansFullVideo: true,
       defaultVisualOptions: { fullWidth: false, centreLogo: true, colorTheme: "neon", glowIntensity: 0.95, has3DLook: true, reactivity: 1.2, bandCount: 64, barThickness: 8 },
@@ -430,7 +483,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
         "A record-shaped centrepiece seen from above: grooves shimmer with the highs, spikes fire off the rim on every band and your logo spins on the label in the middle",
       defaultDuration: 8.0,
       defaultPosition: "center",
-      defaultSize: 1.0,
+      defaultSize: 1.4,
       defaultAudioSource: "music",
       spansFullVideo: true,
       defaultVisualOptions: { fullWidth: false, centreLogo: true, colorTheme: "vaporwave", glowIntensity: 0.9, has3DLook: true, reactivity: 1.2, bandCount: 64, barThickness: 8 },
@@ -727,6 +780,9 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       spansFullVideo: true,
       defaultVisualOptions: { fullWidth: false, glowIntensity: 0.7, has3DLook: true, floatShadow: true },
     },
+
+    // Subcategories: the five Pixabay families — six transparent looks each
+    ...PIXABAY_CATALOG_ITEMS,
   ],
 
   // Text templates are generated from the template library so the catalog,

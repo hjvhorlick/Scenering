@@ -20,6 +20,13 @@ import {
   pickBus,
 } from "./audio-reactive";
 import { resolveVisualizerPalette } from "./visualizer-palettes";
+import {
+  PIXABAY_STYLE_IDS,
+  PixabayScene,
+  PixabayShape,
+  drawPixabayStyle,
+  pixabayFamilyOf,
+} from "./pixabay-styles";
 
 /* ------------------------------------------------------------------ *
  * Geometry helpers shared with hit-testing / dragging
@@ -42,6 +49,26 @@ export const IMMERSIVE_VISUALIZER_TYPES = [
 ] as const;
 
 const IMMERSIVE_TYPES = new Set<string>(IMMERSIVE_VISUALIZER_TYPES);
+
+/**
+ * The 30 Pixabay-inspired looks (5 families x 6 styles) — Bass & Speakers,
+ * Spectrum Bars, Flowing Waves, 3D Grids and Circular. They are pure overlays:
+ * nothing in src/lib/pixabay-styles.ts paints a background, so the user's
+ * footage stays visible behind every one of them and they can be dragged
+ * anywhere in the frame.
+ */
+export const PIXABAY_VISUALIZER_TYPES: readonly string[] = PIXABAY_STYLE_IDS;
+
+const PIXABAY_TYPES = new Set<string>(PIXABAY_STYLE_IDS);
+
+export function isPixabayVisualizer(type: string): boolean {
+  return PIXABAY_TYPES.has(type);
+}
+
+/** The shape family a Pixabay look belongs to (object / wide / frame / round). */
+export function pixabayVisualizerShape(type: string): PixabayShape {
+  return pixabayFamilyOf(type)?.shape || "object";
+}
 
 /** Compact visualisers: circular/radial shapes and the small talking-dot cluster.
  *  They are never stretched across the frame and can be dragged anywhere. */
@@ -67,10 +94,22 @@ const CENTRE_LOGO_TYPES = new Set<string>([
   "voice_pulse",
   "energy_ring",
   "pulse_circle",
+  // the Pixabay circular family (six radial analysers) can be branded too
+  "px_ring_neon",
+  "px_ring_sunburst",
+  "px_ring_bars",
+  "px_ring_halo",
+  "px_ring_dots",
+  "px_ring_vortex",
 ]);
 
 /** The two styles that are *built* around a centre: the logo is on by default */
 const CENTRE_STAGE_TYPES = new Set<string>(["audio_orb", "orbit_disc"]);
+
+/** Can this style carry the user's logo in its hub at all? */
+export function supportsCentreLogo(type: string): boolean {
+  return CENTRE_LOGO_TYPES.has(type);
+}
 
 /** Does this insert want the user's logo in its middle? */
 export function wantsCentreLogo(item: TimelineInsert): boolean {
@@ -107,12 +146,73 @@ export function isLinearVisualizer(type: string): boolean {
 export function isVisualizerFullWidth(item: TimelineInsert): boolean {
   // Scenes always fill the frame: they are the picture, not an overlay on it.
   if (IMMERSIVE_TYPES.has(item.type)) return true;
+  // Pixabay shapes: a 3D grid scene fills the frame, a bar/ribbon band spans it
+  // edge to edge (unless switched off), an object or a disc never stretches.
+  if (PIXABAY_TYPES.has(item.type)) {
+    const shape = pixabayVisualizerShape(item.type);
+    if (shape === "frame") return true;
+    if (shape !== "wide") return false;
+    return item.visualOptions?.fullWidth !== false;
+  }
   if (isRoundVisualizer(item.type)) return false;
   if (!isLinearVisualizer(item.type)) return false;
   return item.visualOptions?.fullWidth !== false;
 }
 
 /** Height of the visualiser body in px (used for the glass plate + floor glow) */
+/**
+ * The box one Pixabay look draws into, in px. Shape-aware: an object style is a
+ * compact square the speaker sits in, a wide style is a band across the frame, a
+ * frame style is the whole picture and a round style a disc.
+ */
+export interface PixabayBox {
+  shape: PixabayShape;
+  /** `w` / `h` handed to the painter */
+  w: number;
+  h: number;
+  /** width of a band style (the painter's `width`); equals `w` elsewhere */
+  span: number;
+  /** the whole drawn footprint (used for hit-testing / dragging) */
+  footW: number;
+  footH: number;
+}
+
+export function pixabayBoxOf(
+  item: TimelineInsert,
+  canvasWidth: number,
+  canvasHeight: number
+): PixabayBox {
+  const shape = pixabayVisualizerShape(item.type);
+  const size = Math.max(0.35, Math.min(1.8, item.size || 1));
+  const min = Math.min(canvasWidth, canvasHeight);
+  if (shape === "frame") {
+    return {
+      shape,
+      w: canvasWidth,
+      h: canvasHeight,
+      span: canvasWidth,
+      footW: canvasWidth,
+      footH: canvasHeight * 0.8 * size,
+    };
+  }
+  if (shape === "wide") {
+    // a band tall enough to carry the shot: the Pixabay bar/wave clips fill a
+    // good third of the frame, so the analyser gets real headroom to move in
+    const h = canvasHeight * 0.5 * size;
+    const span = isVisualizerFullWidth(item)
+      ? canvasWidth
+      : Math.min(canvasWidth, h * 3.6);
+    return { shape, w: span, h, span, footW: span, footH: h * 1.45 };
+  }
+  if (shape === "round") {
+    const span = min * 0.55 * size;
+    return { shape, w: span, h: span, span, footW: span, footH: span };
+  }
+  const h = canvasHeight * 0.72 * size;
+  const w = Math.min(canvasWidth, h);
+  return { shape, w, h, span: w, footW: w, footH: h };
+}
+
 export function visualizerBodyHeight(item: TimelineInsert, canvasHeight: number): number {
   const size = item.size || 1;
   const type = item.type;
@@ -120,6 +220,14 @@ export function visualizerBodyHeight(item: TimelineInsert, canvasHeight: number)
   // in a 720p render and in a small studio thumbnail (just smaller).
   const ofFrame = (ratio: number) =>
     Math.max(canvasHeight * ratio * Math.max(0.32, size), canvasHeight * 0.055);
+  if (PIXABAY_TYPES.has(type)) {
+    // Pixabay looks size themselves from the frame and their own shape
+    const shape = pixabayVisualizerShape(type);
+    if (shape === "frame") return ofFrame(0.72);
+    if (shape === "wide") return ofFrame(0.5);
+    if (shape === "round") return ofFrame(0.55);
+    return ofFrame(0.72); // a speaker / object style
+  }
   if (CENTRE_STAGE_TYPES.has(type)) {
     // the orb and the disc are bigger than the small round badges: they are the
     // centrepiece of the shot
@@ -147,6 +255,10 @@ export function getVisualizerFootprint(
   canvasHeight: number
 ): { w: number; h: number } {
   const body = visualizerBodyHeight(item, canvasHeight);
+  if (PIXABAY_TYPES.has(item.type)) {
+    const box = pixabayBoxOf(item, canvasWidth, canvasHeight);
+    return { w: box.footW, h: box.footH };
+  }
   if (isRoundVisualizer(item.type)) {
     const size = item.size || 1;
     // the talking-dot cluster is far smaller than the circular analysers, and
@@ -1288,6 +1400,69 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       beat: Math.max(beat, bars.beat * 0.85),
       compact,
     });
+    ctx.restore();
+    return;
+  }
+
+  /* ------------------------------------------------------------------
+   * Pixabay-inspired looks: 5 families x 6 styles, all transparent. They are
+   * drawn here and the rack geometry below is skipped. Nothing paints a
+   * background, so the footage shows through and the look can be dragged
+   * anywhere — and every one of them still reads the real audio bus, so the
+   * preview, the studio cards and the final render move together.
+   * ------------------------------------------------------------------ */
+  if (PIXABAY_TYPES.has(item.type)) {
+    const box = pixabayBoxOf(item, canvasWidth, canvasHeight);
+    const bars = getBars(key, bandCount, elapsed, bus, source, reactivity);
+    const scene: PixabayScene = {
+      ctx,
+      w: box.w,
+      h: box.h,
+      width: box.shape === "wide" ? box.span : box.w,
+      elapsed,
+      primary,
+      secondary,
+      accent,
+      glow,
+      reactive: reactivity,
+      bars,
+      beat: Math.max(beat, bars.beat * 0.85),
+      compact,
+    };
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    if (box.shape === "frame") {
+      // a 3D grid scene is the picture, not an overlay: anchored in the frame
+      ctx.translate(x, y);
+      ctx.beginPath();
+      ctx.rect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight);
+      ctx.clip();
+    } else if (box.shape === "wide") {
+      // bands stay inside the picture: the anchor is clamped by the band height
+      const margin = Math.max(6, canvasHeight * 0.02);
+      const anchorY = Math.max(
+        box.h + margin * 0.5,
+        Math.min(canvasHeight - box.h - margin * 0.5, y)
+      );
+      ctx.translate(fullWidth ? canvasWidth / 2 : x, anchorY);
+    } else {
+      // objects and discs are clamped so their light stays in frame
+      const half = box.shape === "round" ? box.span * 0.5 : box.w * 0.5;
+      const cx = half * 2 >= canvasWidth ? canvasWidth / 2 : Math.max(half, Math.min(canvasWidth - half, x));
+      const cy = half * 2 >= canvasHeight ? canvasHeight / 2 : Math.max(half, Math.min(canvasHeight - half, y));
+      ctx.translate(cx, cy);
+    }
+    drawPixabayStyle(item.type, scene);
+    // the circular family can be branded: the user's own logo in the hub
+    if (box.shape === "round" && wantsCentreLogo(item)) {
+      drawCentreCore(ctx, box.span * 0.21, { primary, secondary, accent }, {
+        logo,
+        beat: scene.beat,
+        low: bars.low,
+        glow,
+      });
+    }
     ctx.restore();
     return;
   }

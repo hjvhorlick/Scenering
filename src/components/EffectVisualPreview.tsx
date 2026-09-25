@@ -10,11 +10,67 @@ import {
 import type { TimelineInsert } from "../types";
 import StickerPreviewCanvas from "./StickerPreviewCanvas";
 import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
+import { wantsCentreLogo } from "../lib/render-visualizers";
 import { MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { startPreviewLoop } from "../lib/preview-loop";
 
 interface EffectVisualPreviewProps {
   item: CatalogItem;
+}
+
+/**
+ * Does this catalogue card belong to a style that puts the user's logo in the
+ * middle of itself? Those cards centre the artwork (instead of sitting it low)
+ * and show an empty logo slot, so it is obvious where a brand mark lands.
+ */
+export function centreStyleAsksForLogo(item: CatalogItem): boolean {
+  return wantsCentreLogo({
+    type: item.type,
+    visualOptions: item.defaultVisualOptions,
+  } as unknown as TimelineInsert);
+}
+
+/**
+ * The empty brand slot the centre cards draw: the user's own logo lives there in
+ * the video, and until they upload one the card shows the slot rather than a
+ * black hole. Drawn once and cached — it is the same picture on every card.
+ */
+let centreLogoPlaceholder: HTMLCanvasElement | null = null;
+function getCentreLogoPlaceholder(width = 256, height = 256): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  if (centreLogoPlaceholder) return centreLogoPlaceholder;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  // dashed rounded frame
+  ctx.strokeStyle = "rgba(226, 232, 240, 0.85)";
+  ctx.lineWidth = 6;
+  ctx.setLineDash([16, 12]);
+  const r = 26;
+  ctx.beginPath();
+  ctx.moveTo(r, 3);
+  ctx.lineTo(width - r, 3);
+  ctx.quadraticCurveTo(width - 3, 3, width - 3, r);
+  ctx.lineTo(width - 3, height - r);
+  ctx.quadraticCurveTo(width - 3, height - 3, width - r, height - 3);
+  ctx.lineTo(r, height - 3);
+  ctx.quadraticCurveTo(3, height - 3, 3, height - r);
+  ctx.lineTo(3, r);
+  ctx.quadraticCurveTo(3, 3, r, 3);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // the words
+  ctx.fillStyle = "rgba(241, 245, 249, 0.95)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 40px system-ui, -apple-system, Segoe UI, sans-serif";
+  ctx.fillText("YOUR", width / 2, height / 2 - 24);
+  ctx.fillText("LOGO", width / 2, height / 2 + 24);
+  centreLogoPlaceholder = canvas;
+  return canvas;
 }
 
 export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) {
@@ -35,7 +91,12 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     // Catalogue cards sit the visualiser a little higher than its timeline
     // preset so the bars, their shadow and the floor glow are all visible.
     const preset = item.defaultPosition || "center";
-    const cardY = 0.62;
+    // Centre-stage styles are built around the middle of the frame (and carry the
+    // logo slot), so the card centres them; every other visualiser sits a little
+    // higher than its timeline preset so the bars, their shadow and the floor
+    // glow are all visible.
+    const centreCard = centreStyleAsksForLogo(item);
+    const cardY = centreCard ? 0.5 : 0.62;
     const previewInsert = {
       id: `preview-${item.type}`,
       category: item.category,
@@ -78,7 +139,19 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
 
       // No analyser data here: the rhythm engine drives it, exactly like it does
       // whenever a project has no audio loaded yet.
-      renderTimelineInsert(ctx, previewInsert, 0.4 + (elapsed % 12), w, h, 0, null, null);
+      renderTimelineInsert(
+        ctx,
+        previewInsert,
+        0.4 + (elapsed % 12),
+        w,
+        h,
+        0,
+        null,
+        null,
+        // the card shows *where* the user's logo goes; the real logo is passed in
+        // by the preview and the render, never fetched here
+        { logo: centreCard ? getCentreLogoPlaceholder() : null }
+      );
     };
 
     // ~30fps is plenty for a thumbnail, and skip painting entirely while the
