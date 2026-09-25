@@ -17,7 +17,18 @@ import {
   countScenesFromScript,
   splitScriptIntoScenes,
   countWords,
+  formatDuration,
 } from "../lib/duration-utils";
+
+/**
+ * How much of a project title fits on the video banner.
+ *
+ * Derived from the title templates: at the banner's type size three wrapped
+ * lines hold roughly 60 characters before the text starts running past the
+ * safe area. Capping here keeps the title inside the frame, and the input
+ * stops accepting characters once the block is full.
+ */
+export const TITLE_MAX_CHARS = 60;
 
 interface SetupStudioProps {
   project: Project | null;
@@ -190,8 +201,14 @@ export default function SetupStudio({
   };
 
   const handleTitleChange = (newTitle: string) => {
-    setTitle(newTitle);
-    onUpdateTitle(newTitle);
+    // Hard cap: a title longer than the banner can hold wraps onto a third
+    // line and runs past the frame edge, so the input stops accepting
+    // characters past the limit rather than letting the user type a title
+    // that cannot be rendered. Truncating here as well as with `maxLength`
+    // covers paste, which maxLength alone does not always block.
+    const capped = newTitle.slice(0, TITLE_MAX_CHARS);
+    setTitle(capped);
+    onUpdateTitle(capped);
   };
 
   /**
@@ -216,7 +233,7 @@ export default function SetupStudio({
     showNotice(
       `Formatted into ${parts.length} even scene${parts.length === 1 ? "" : "s"} of ${
         lo === hi ? `${lo}` : `${lo}–${hi}`
-      } words (~${activeDuration}s each).`
+      } words (~${formatDuration(activeDuration)} each).`
     );
   };
 
@@ -239,7 +256,7 @@ export default function SetupStudio({
     }
 
     const words = getTargetWordCount(seconds);
-    showNotice(`Scene duration set to ${seconds}s (~${words} target words/scene).`);
+    showNotice(`Scene duration set to ${formatDuration(seconds)} (~${words} target words/scene).`);
   };
 
   /**
@@ -501,12 +518,21 @@ export default function SetupStudio({
           step={2}
           title="Project title"
           subtitle="Used for the video banner, exported filenames and attribution documents."
-          badge={<span className="text-[11px] text-gray-500 shrink-0">{title.length} chars</span>}
+          badge={
+            <span
+              className={`text-[11px] shrink-0 ${title.length >= TITLE_MAX_CHARS ? "text-amber-400 font-semibold" : "text-gray-500"}`}
+            >
+              {title.length >= TITLE_MAX_CHARS
+                ? "Block is full"
+                : `${title.length} / ${TITLE_MAX_CHARS} chars`}
+            </span>
+          }
         />
         <input
           id="project-title"
           type="text"
           value={title}
+          maxLength={TITLE_MAX_CHARS}
           onChange={(e) => handleTitleChange(e.target.value)}
           placeholder="e.g. Wonders of the Deep Ocean"
           className="w-full px-4 py-3 bg-gray-800/90 border border-hairline rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-inner"
@@ -525,7 +551,7 @@ export default function SetupStudio({
               <span className="text-gray-500">•</span>
               <span className="text-gray-300">{wordsCount} Words</span>
               <span className="text-gray-500">•</span>
-              <span className="text-amber-300 font-medium">~{estimatedReadingSec}s</span>
+              <span className="text-amber-300 font-medium">~{formatDuration(estimatedReadingSec)}</span>
             </div>
           }
         />

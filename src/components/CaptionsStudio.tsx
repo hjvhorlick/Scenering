@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import StepNav from "./StepNav";
 import type { Scene, CaptionsConfig } from "../types";
 import { generateSrtSubtitles } from "./RenderView";
+import { formatDuration } from "../lib/duration-utils";
 import { renderCanvasCaptions } from "../lib/render-captions";
 import {
   CAPTION_FONTS,
@@ -35,7 +36,7 @@ export default function CaptionsStudio({
 }: CaptionsStudioProps) {
   const [mode, setMode] = useState<"karaoke" | "normal">(captionsConfig?.mode || "karaoke");
   const [backgroundStyle, setBackgroundStyle] = useState<"transparent" | "blocked">(
-    captionsConfig?.backgroundStyle || "blocked"
+    captionsConfig?.backgroundStyle || "transparent"
   );
   const [selectedPreset, setSelectedPreset] = useState<CaptionPresetType>(
     resolveCaptionStyleId(captionsConfig?.preset)
@@ -426,7 +427,14 @@ export default function CaptionsStudio({
           </div>
         </div>
 
-        <div className="relative w-full aspect-video max-h-[260px] bg-black rounded-xl overflow-hidden border border-hairline shadow-inner">
+        {/* The stage is centred and holds a true 16:9 at every width.
+            It previously combined `w-full aspect-video` with `max-h-[260px]`:
+            once the max-height clamped, the element kept its full width and
+            the ratio was lost, so the 1280x720 canvas was squashed into a
+            ~3.5:1 box and every letter in the preview looked stretched. Capping
+            the WIDTH instead of the height keeps the shape exact — 460px wide
+            is 259px tall at 16:9 — and mx-auto centres it. */}
+        <div className="mx-auto w-full max-w-[460px] aspect-video relative bg-black rounded-xl overflow-hidden border border-hairline shadow-inner">
           <canvas
             ref={captionPreviewRef}
             width={1280}
@@ -773,7 +781,7 @@ export default function CaptionsStudio({
                     "{scene.text}"
                   </p>
                   <span className="text-[10px] text-gray-400">
-                    Duration: {scene.duration}s • {scene.text.split(/\s+/).filter(Boolean).length} words
+                    Duration: {formatDuration(scene.duration)} • {scene.text.split(/\s+/).filter(Boolean).length} words
                   </span>
                 </div>
               </div>

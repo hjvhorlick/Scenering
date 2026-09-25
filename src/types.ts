@@ -87,6 +87,23 @@ export interface Scene {
   audio_name?: string | null;
   audio_duration?: number;
 
+  // --- Plain colour backdrop ------------------------------------------
+  /**
+   * A flat colour used as this scene's visual instead of a photo or clip.
+   *
+   * Some narration wants nothing behind it — a title card, a breather between
+   * dense scenes, or a scene the user will caption over later. Set this and
+   * the renderer paints the frame with it.
+   *
+   * Deliberately a separate field from `image_backdrop_color`, which colours
+   * the *area around* a photo that does not fill the frame. This one means
+   * "there is no photo"; setting it clears image_url and video_url.
+   *
+   * Stored as a hex string (`#101828`) so it survives a JSON round-trip
+   * through local storage and Supabase unchanged.
+   */
+  blank_color?: string | null;
+
   // --- Short video clip attached to this scene -------------------------
   /** Object URL or remote URL of a short clip used instead of a still image. */
   video_url?: string | null;

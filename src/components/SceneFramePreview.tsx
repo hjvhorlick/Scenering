@@ -5,6 +5,7 @@ import {
   resolveFraming,
   frameSizeFor,
   placeImage,
+  sceneIsBlankColor,
 } from "../lib/scene-framing";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 
@@ -89,6 +90,14 @@ export default function SceneFramePreview({
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "#05070C";
     ctx.fillRect(0, 0, w, h);
+
+    // A plain-colour scene has no photo to load, so paint its colour instead
+    // of leaving the dark placeholder. Without this the scene looked empty in
+    // every preview even though the colour was set and would render.
+    if (sceneIsBlankColor(scene) && scene.blank_color) {
+      ctx.fillStyle = scene.blank_color;
+      ctx.fillRect(0, 0, w, h);
+    }
 
     const img = imgRef.current;
     if (img && img.naturalWidth > 0) {

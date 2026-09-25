@@ -492,3 +492,38 @@ export function drawMediaCover(
   ctx.drawImage(el, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
   ctx.restore();
 }
+
+/**
+ * Does this scene have anything to put on screen?
+ *
+ * Three things can fill a frame: a still image, a video clip, or a flat
+ * colour. A scene with none of them is genuinely empty, and the renderer
+ * skips it.
+ *
+ * This exists because that question was previously answered by writing
+ * `s.image_url || s.video_url` inline at seven different call sites. Adding
+ * the colour backdrop meant finding every one of them — and missing one would
+ * silently drop those scenes out of the exported video, which is exactly the
+ * bug this function prevents from recurring.
+ */
+export function sceneHasVisual(scene: {
+  image_url?: string | null;
+  video_url?: string | null;
+  blank_color?: string | null;
+}): boolean {
+  return Boolean(scene.image_url || scene.video_url || scene.blank_color);
+}
+
+/**
+ * Is this scene a plain colour with no photo or clip?
+ *
+ * The renderer branches on this to paint a fill instead of loading and
+ * drawing an image.
+ */
+export function sceneIsBlankColor(scene: {
+  image_url?: string | null;
+  video_url?: string | null;
+  blank_color?: string | null;
+}): boolean {
+  return Boolean(scene.blank_color && !scene.image_url && !scene.video_url);
+}
