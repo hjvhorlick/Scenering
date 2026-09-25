@@ -12,6 +12,7 @@ import {
 } from "../lib/render-effects";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
+import { resolveSceneAudioBuffer, setCachedSceneAudio } from "../lib/tts-cache";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument, getBackgroundMusicTrack, AMBIENT_STYLE_TO_TRACK } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
@@ -534,26 +535,46 @@ export default function RenderView({
         const s = scenesWithImages[i];
         const sceneVoice = s.voice_id || selectedVoice;
 
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 6000);
-          const res = await fetch(`${EDGE_FUNCTION_BASE}/tts`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: s.text, voice: sceneVoice }),
-            signal: controller.signal,
-          });
-          clearTimeout(timeoutId);
+        // 1. Resolve directly from the saved voiceover section (memory, IndexedDB, or audio_url)
+        let resolved = await resolveSceneAudioBuffer(s, audioCtx);
 
-          if (res.ok) {
-            const arrayBuf = await res.arrayBuffer();
-            const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
-            audioBuffers.set(s.id, { buffer: audioBuffer, duration: audioBuffer.duration });
-          } else {
-            throw new Error(`TTS status ${res.status}`);
+        // 2. Only if the scene was never generated, synthesize via /api/tts
+        if (!resolved) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 12000);
+            const res = await fetch("/api/tts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: s.text, voice: sceneVoice }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+
+            if (res.ok) {
+              const arrayBuf = await res.arrayBuffer();
+              const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+              const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+              const blobUrl = URL.createObjectURL(blob);
+              setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
+                audioBuffer,
+                blobUrl,
+                duration: audioBuffer.duration,
+                voiceId: sceneVoice,
+                text: (s.text || "").trim(),
+                rawBuffer: arrayBuf,
+                blob,
+              });
+              resolved = { buffer: audioBuffer, duration: audioBuffer.duration, url: blobUrl };
+            }
+          } catch (e) {
+            console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
           }
-        } catch (e) {
-          console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
+        }
+
+        if (resolved) {
+          audioBuffers.set(s.id, { buffer: resolved.buffer, duration: resolved.duration });
+        } else {
           const sampleRate = audioCtx.sampleRate || 44100;
           const fallbackDur = getEffectiveSceneDuration(s);
           const numSamples = Math.max(1, Math.floor(sampleRate * fallbackDur));
@@ -909,9 +930,8 @@ export default function RenderView({
       }
 
       const renderStartTime = performance.now();
-      const videoTrack = videoStream.getVideoTracks()[0];
-      const hasRequestFrame = typeof (videoTrack as any)?.requestFrame === "function";
-
+      let smoothedGlobalTime = 0;
+      let lastFrameWallTime = renderStartTime;
       let lastProgressUiUpdate = 0;
       let lastProgressVal = 0.35;
       let lastResumeAttempt = 0;
@@ -966,12 +986,20 @@ export default function RenderView({
 
           try {
             const now = performance.now();
-            let currentGlobalTime = Math.max(0, (now - renderStartTime) / 1000);
-            const audioElapsed = audioCtx.currentTime - renderAudioT0;
-            // Phase-lock the visual clock to Web Audio hardware device clock if drift exceeds 40ms
-            if (audioCtx.state === "running" && Math.abs(currentGlobalTime - audioElapsed) > 0.04) {
-              currentGlobalTime = Math.max(0, audioElapsed);
+            const dt = Math.max(0, Math.min(0.1, (now - lastFrameWallTime) / 1000));
+            lastFrameWallTime = now;
+
+            // Direct phase-lock to Web Audio hardware clock with continuous monotonic easing (zero jagged jumps!)
+            const targetAudioTime = audioCtx.state === "running"
+              ? Math.max(0, audioCtx.currentTime - renderAudioT0)
+              : smoothedGlobalTime + dt;
+
+            smoothedGlobalTime += dt;
+            if (audioCtx.state === "running") {
+              // Smoothly converge to audio time without abrupt jumps
+              smoothedGlobalTime += (targetAudioTime - smoothedGlobalTime) * 0.18;
             }
+            const currentGlobalTime = smoothedGlobalTime;
 
             if (audioCtx.state !== "running" && now - renderStartTime - lastResumeAttempt > 2000) {
               lastResumeAttempt = now - renderStartTime;
@@ -1024,12 +1052,6 @@ export default function RenderView({
                   });
               }
 
-              if (hasRequestFrame) {
-                try {
-                  (videoTrack as any).requestFrame();
-                } catch {}
-              }
-
               scheduleNextFrame();
               return;
             }
@@ -1057,12 +1079,6 @@ export default function RenderView({
                       renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, 0.4, null);
                     } catch {}
                   });
-              }
-
-              if (hasRequestFrame) {
-                try {
-                  (videoTrack as any).requestFrame();
-                } catch {}
               }
 
               if (progressInOutro >= 1) {
@@ -1094,10 +1110,13 @@ export default function RenderView({
             const currentSceneIdx = activeEntry.index;
             const elapsedInScene = Math.max(0, currentGlobalTime - activeEntry.startTime);
             const progressInScene = Math.min(1, elapsedInScene / Math.max(0.1, activeEntry.duration));
-            // speechProgress reaches 1.0 at the exact moment spoken narration completes
+            // speechProgress reaches 1.0 at the exact moment spoken narration completes.
+            // TTS voice recordings include trailing breath/room tone after the last word (~0.28s).
+            // Calibrating against activeSpokenDuration keeps captions 100% in sync with the spoken voice syllables!
+            const activeSpokenDuration = Math.max(0.4, activeEntry.speechDuration - 0.28);
             const speechProgress = Math.min(
               1,
-              Math.max(0, elapsedInScene / Math.max(0.1, activeEntry.speechDuration))
+              Math.max(0, elapsedInScene / Math.max(0.2, activeSpokenDuration))
             );
 
             // --- Draw background ---
@@ -1360,12 +1379,6 @@ export default function RenderView({
               } catch (insertsErr) {
                 console.warn("Timeline inserts notice:", insertsErr);
               }
-            }
-
-            if (hasRequestFrame) {
-              try {
-                (videoTrack as any).requestFrame();
-              } catch {}
             }
 
             scheduleNextFrame();

@@ -26,7 +26,7 @@ import {
   voiceEchoIsActive,
   resolveVoiceEcho,
 } from "../lib/voice-echo";
-import { getCachedSceneAudio } from "../lib/tts-cache";
+import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio } from "../lib/tts-cache";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
 interface VideoPreviewProps {
@@ -300,44 +300,62 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     });
   }, [scenes, propSelectedVoice, selectedVoice]);
 
+  // Eagerly hydrate existing saved voiceovers into memory so play starts immediately with zero delay
+  useEffect(() => {
+    let cancelled = false;
+    const hydrateAudio = async () => {
+      let audioCtx = audioCtxRef.current;
+      if (!audioCtx) {
+        audioCtx = new AudioContext();
+        audioCtxRef.current = audioCtx;
+      }
+      const activeVoice = propSelectedVoice || selectedVoice;
+      for (const scene of scenes) {
+        if (cancelled) break;
+        if (!audioBuffersRef.current.has(scene.id)) {
+          const resolved = await resolveSceneAudioBuffer(scene, audioCtx);
+          if (resolved && !cancelled) {
+            audioBuffersRef.current.set(scene.id, {
+              buffer: resolved.buffer,
+              url: resolved.url,
+              voiceKey: scene.audio_url
+                ? `imported_${scene.audio_url}`
+                : `${scene.voice_id || activeVoice}_${(scene.text || "").trim()}`,
+            });
+          }
+        }
+      }
+    };
+    hydrateAudio();
+    return () => {
+      cancelled = true;
+    };
+  }, [scenes, propSelectedVoice, selectedVoice]);
+
   // Synthesize audio for a single scene with per-scene voice support
   const synthesizeScene = useCallback(
     async (scene: Scene, audioCtx: AudioContext): Promise<SceneAudio> => {
       const activeVoice = propSelectedVoice || selectedVoice;
       const voiceToUse = scene.voice_id || activeVoice;
       const text = (scene.text || "").trim();
+      const voiceKey = scene.audio_url ? `imported_${scene.audio_url}` : `${voiceToUse}_${text}`;
 
-      // 0. Check pre-generated/saved audio from Voiceover Studio cache
-      const cached = getCachedSceneAudio(scene.id, voiceToUse, text);
-      if (cached) {
+      // 0. Check pre-generated/saved audio from Voiceover Studio cache, memory or IndexedDB
+      const resolved = await resolveSceneAudioBuffer(scene, audioCtx);
+      if (resolved) {
         return {
-          buffer: cached.audioBuffer,
-          url: cached.blobUrl,
-          voiceKey: scene.audio_url ? `imported_${scene.audio_url}` : `${voiceToUse}_${text}`,
+          buffer: resolved.buffer,
+          url: resolved.url,
+          voiceKey,
         };
       }
 
-      // 1. If scene has an imported real voice audio track, use it directly!
-      if (scene.audio_url) {
-        const voiceKey = `imported_${scene.audio_url}`;
-        try {
-          const res = await fetch(scene.audio_url);
-          if (res.ok) {
-            const arrayBuf = await res.arrayBuffer();
-            const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-            return { buffer: audioBuffer, url: scene.audio_url, voiceKey };
-          }
-        } catch (err) {
-          console.warn("Failed to load imported audio for scene:", scene.id, err);
-        }
-      }
-
-      const voiceKey = `${voiceToUse}_${text}`;
+      // 1. Synthesize only if audio was never generated before
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
       try {
-        const res = await fetch(`${EDGE_FUNCTION_BASE}/tts`, {
+        const res = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: scene.text, voice: voiceToUse }),
@@ -350,6 +368,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
           const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
           const url = URL.createObjectURL(blob);
+          setCachedSceneAudio(scene.id, voiceToUse, text, {
+            audioBuffer,
+            blobUrl: url,
+            duration: audioBuffer.duration,
+            voiceId: voiceToUse,
+            text,
+            rawBuffer: arrayBuf,
+            blob,
+          });
           return { buffer: audioBuffer, url, voiceKey };
         }
       } catch (err) {
@@ -952,10 +979,16 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     );
 
     let audioCtx = audioCtxRef.current;
+    if (!audioCtx) {
+      audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
+    }
     let buffers = audioBuffersRef.current;
 
     const activeVoice = propSelectedVoice || selectedVoice;
-    const needsRegen = scenesWithImages.some((s) => {
+
+    // Check if any scene is missing from in-memory buffers
+    const missingScenes = scenesWithImages.filter((s) => {
       const existing = buffers.get(s.id);
       const expectedKey = s.audio_url
         ? `imported_${s.audio_url}`
@@ -963,12 +996,32 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       return !existing || existing.voiceKey !== expectedKey;
     });
 
-    if (needsRegen || buffers.size === 0) {
-      setAudioStatus("Syncing voice dialogue...");
-      const result = await generateAllAudio();
-      if (result) {
-        audioCtx = result.audioCtx;
-        buffers = result.buffers;
+    if (missingScenes.length > 0) {
+      // First attempt instantaneous local resolution from the voiceover section
+      let allResolvedLocally = true;
+      for (const s of missingScenes) {
+        const resolved = await resolveSceneAudioBuffer(s, audioCtx);
+        if (resolved) {
+          buffers.set(s.id, {
+            buffer: resolved.buffer,
+            url: resolved.url,
+            voiceKey: s.audio_url
+              ? `imported_${s.audio_url}`
+              : `${s.voice_id || activeVoice}_${(s.text || "").trim()}`,
+          });
+        } else {
+          allResolvedLocally = false;
+        }
+      }
+
+      // Only synthesize over the network if voiceover was never generated at all
+      if (!allResolvedLocally) {
+        setAudioStatus("Syncing voice dialogue...");
+        const result = await generateAllAudio();
+        if (result) {
+          audioCtx = result.audioCtx;
+          buffers = result.buffers;
+        }
       }
     }
 
