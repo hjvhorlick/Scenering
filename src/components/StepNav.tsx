@@ -108,14 +108,14 @@ export default function StepNav({
   const busy = Boolean(busyLabel);
 
   return (
-    <div className="bg-gray-900/80 border border-gray-800 rounded-2xl px-3 py-2.5 sm:px-4 shadow-sm flex flex-col sm:flex-row sm:items-center gap-2.5">
+    <div className="bg-gray-900/80 border border-hairline rounded-2xl px-3 py-2.5 sm:px-4 shadow-sm flex flex-col sm:flex-row sm:items-center gap-2.5">
       {/* Previous phase */}
       <div className="flex-shrink-0">
         {prevPhase ? (
           <button
             type="button"
             onClick={() => onNavigate(prevPhase.id)}
-            className="t-btn-hero-ghost w-full sm:w-auto px-3.5 py-2 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-xl text-xs font-semibold text-gray-200 hover:text-white transition-colors flex items-center justify-center gap-1.5"
+            className="t-btn-hero-ghost opt-btn w-full sm:w-auto"
             title={`Go back to ${prevPhase.phase}`}
           >
             <span className="t-ico">←</span>

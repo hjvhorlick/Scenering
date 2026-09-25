@@ -40,7 +40,7 @@ export default function ThemeSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="t-theme-btn px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-gray-700 bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
+        className="t-theme-btn px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-hairline bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
         title={`Theme: ${active.name} — click to change`}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -52,7 +52,7 @@ export default function ThemeSwitcher() {
           {active.swatches.map((c) => (
             <span
               key={c}
-              className="w-2.5 h-2.5 rounded-full border border-gray-900"
+              className="w-2.5 h-2.5 rounded-full border border-hairline"
               style={{ backgroundColor: c }}
             />
           ))}
@@ -64,7 +64,7 @@ export default function ThemeSwitcher() {
         <div
           role="listbox"
           aria-label="Choose a theme"
-          className="t-theme-menu absolute right-0 top-full mt-2 w-72 max-w-[85vw] z-[80] bg-gray-900/95 border border-gray-700 rounded-2xl shadow-2xl p-1.5 backdrop-blur-md animate-fade-in"
+          className="t-theme-menu absolute right-0 top-full mt-2 w-72 max-w-[85vw] z-[80] bg-gray-900/95 border border-hairline rounded-2xl shadow-2xl p-1.5 backdrop-blur-md animate-fade-in"
         >
           <div className="px-2.5 pt-1.5 pb-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
             <span className="t-ico">🖌️</span>
@@ -104,7 +104,7 @@ export default function ThemeSwitcher() {
                   {t.swatches.map((c) => (
                     <span
                       key={c}
-                      className="w-3.5 h-3.5 rounded-full border border-gray-900 shadow"
+                      className="w-3.5 h-3.5 rounded-full border border-hairline shadow"
                       style={{ backgroundColor: c }}
                     />
                   ))}

@@ -328,10 +328,19 @@ export default function VoiceImportModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-      <div className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm animate-fade-in">
+      <div
+        className="min-h-full flex items-start justify-center p-0 sm:p-6"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            ttsPlayer.stop();
+            onClose();
+          }
+        }}
+      >
+      <div className="bg-gray-900 border border-hairline rounded-t-2xl sm:rounded-2xl w-full max-w-3xl overflow-hidden shadow-xl sm:my-4">
         {/* Modal Header */}
-        <div className="p-4 sm:p-5 border-b border-gray-800 bg-gray-950 flex items-center justify-between">
+        <div className="p-4 sm:p-5 border-b border-hairline bg-gray-950 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xl">🎙️</span>
@@ -358,24 +367,16 @@ export default function VoiceImportModal({
         </div>
 
         {/* Modal Navigation Tabs */}
-        <div className="flex border-b border-gray-800 bg-gray-900/90 px-4 pt-2 gap-2 overflow-x-auto">
+        <div className="flex flex-wrap border-b border-hairline bg-gray-900/90 px-4 py-2 gap-2 overflow-x-auto no-scrollbar" role="tablist" aria-label="Voice import sections">
           <button
             onClick={() => setActiveTab("library")}
-            className={`px-3.5 py-2 text-xs font-semibold rounded-t-lg transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === "library"
-                ? "bg-gray-800 text-indigo-300 border-t-2 border-indigo-500"
-                : "text-gray-400 hover:text-white"
-            }`}
+            className={`opt-btn ${activeTab === "library" ? "opt-btn-on" : ""}`}
           >
             <span>🎭</span> Studio Real Voices
           </button>
           <button
             onClick={() => setActiveTab("all_directory")}
-            className={`px-3.5 py-2 text-xs font-semibold rounded-t-lg transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === "all_directory"
-                ? "bg-gray-800 text-indigo-300 border-t-2 border-indigo-500"
-                : "text-gray-400 hover:text-white"
-            }`}
+            className={`opt-btn ${activeTab === "all_directory" ? "opt-btn-on" : ""}`}
           >
             <span>🌐</span> 300+ Free Real Voices
             {allVoicesList.length > 0 && (
@@ -386,33 +387,25 @@ export default function VoiceImportModal({
           </button>
           <button
             onClick={() => setActiveTab("upload")}
-            className={`px-3.5 py-2 text-xs font-semibold rounded-t-lg transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === "upload"
-                ? "bg-gray-800 text-indigo-300 border-t-2 border-indigo-500"
-                : "text-gray-400 hover:text-white"
-            }`}
+            className={`opt-btn ${activeTab === "upload" ? "opt-btn-on" : ""}`}
           >
             <span>📁</span> Import Audio File
           </button>
           <button
             onClick={() => setActiveTab("record")}
-            className={`px-3.5 py-2 text-xs font-semibold rounded-t-lg transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === "record"
-                ? "bg-gray-800 text-indigo-300 border-t-2 border-indigo-500"
-                : "text-gray-400 hover:text-white"
-            }`}
+            className={`opt-btn ${activeTab === "record" ? "opt-btn-on" : ""}`}
           >
             <span>🔴</span> Record Live Voice
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
+        <div className="p-4 sm:p-5 space-y-4">
           {/* TAB 1: STUDIO REAL VOICES */}
           {activeTab === "library" && (
             <div className="space-y-4">
               {/* Gender Filter Toggle (Preserves user's requested clear separation) */}
-              <div className="flex items-center justify-between gap-3 bg-gray-950/60 p-2.5 rounded-xl border border-gray-800">
+              <div className="flex items-center justify-between gap-3 bg-gray-950/60 p-2.5 rounded-xl border border-hairline">
                 <span className="text-xs text-gray-300 font-medium flex items-center gap-1.5">
                   <span>🚻</span> Voice Category:
                 </span>
@@ -464,7 +457,7 @@ export default function VoiceImportModal({
                           ? v.gender === "male"
                             ? "bg-blue-950/40 border-blue-500 ring-1 ring-blue-500"
                             : "bg-pink-950/40 border-pink-500 ring-1 ring-pink-500"
-                          : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+                          : "bg-gray-800/40 hover:bg-gray-800/80 border-hairline text-gray-300"
                       }`}
                     >
                       <div>
@@ -486,7 +479,7 @@ export default function VoiceImportModal({
                         <p className="text-xs text-gray-300 leading-relaxed mb-2">{v.desc}</p>
                       </div>
 
-                      <div className="pt-2 border-t border-gray-700/60 flex items-center justify-between">
+                      <div className="pt-2 border-t border-hairline flex items-center justify-between">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -514,7 +507,7 @@ export default function VoiceImportModal({
 
               {/* Scene Script preview if attached to a scene */}
               {scene && (
-                <div className="bg-gray-950/80 p-3 rounded-xl border border-gray-800 text-xs">
+                <div className="bg-gray-950/80 p-3 rounded-xl border border-hairline text-xs">
                   <span className="text-gray-400 font-medium block mb-1">
                     Script Text for Scene {targetSceneIndex + 1}:
                   </span>
@@ -528,7 +521,7 @@ export default function VoiceImportModal({
           {activeTab === "all_directory" && (
             <div className="space-y-4">
               {/* Filter and Search Bar */}
-              <div className="flex flex-col sm:flex-row gap-3 bg-gray-950/60 p-3 rounded-xl border border-gray-800">
+              <div className="flex flex-col sm:flex-row gap-3 bg-gray-950/60 p-3 rounded-xl border border-hairline">
                 {/* Search */}
                 <div className="flex-1">
                   <input
@@ -536,7 +529,7 @@ export default function VoiceImportModal({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search 300+ voices by name, accent or country code (e.g. Guy, Christopher, Jenny, Ryan, US, UK, AU)..."
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
 
@@ -581,7 +574,7 @@ export default function VoiceImportModal({
                   <span>Loading full library of 300+ free natural voices...</span>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[50vh] overflow-y-auto pr-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {allVoicesList
                     .filter((v) => {
                       if (genderFilter !== "all" && v.gender !== genderFilter) return false;
@@ -607,7 +600,7 @@ export default function VoiceImportModal({
                               ? v.gender === "male"
                                 ? "bg-blue-950/40 border-blue-500 ring-1 ring-blue-500"
                                 : "bg-pink-950/40 border-pink-500 ring-1 ring-pink-500"
-                              : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+                              : "bg-gray-800/40 hover:bg-gray-800/80 border-hairline text-gray-300"
                           }`}
                         >
                           <div>
@@ -629,7 +622,7 @@ export default function VoiceImportModal({
                             <p className="text-[11px] text-gray-400 font-mono truncate">{v.id}</p>
                           </div>
 
-                          <div className="pt-2 mt-2 border-t border-gray-700/60 flex items-center justify-between">
+                          <div className="pt-2 mt-2 border-t border-hairline flex items-center justify-between">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -666,7 +659,7 @@ export default function VoiceImportModal({
             <div className="space-y-4">
               <div
                 onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-700 hover:border-indigo-500 rounded-2xl p-8 text-center cursor-pointer transition-colors bg-gray-950/40 hover:bg-gray-950/80 flex flex-col items-center justify-center gap-3"
+                className="border border-dashed border-hairline hover:border-indigo-500 rounded-2xl p-8 text-center cursor-pointer transition-colors bg-gray-950/40 hover:bg-gray-950/80 flex flex-col items-center justify-center gap-3"
               >
                 <input
                   type="file"
@@ -714,7 +707,7 @@ export default function VoiceImportModal({
                     <button
                       type="button"
                       onClick={() => handlePlayVoiceSample("uploaded", "url:" + uploadedAudio.url)}
-                      className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg border border-gray-700"
+                      className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg border border-hairline"
                     >
                       {previewPlayingId === "uploaded" ? "⏹️ Stop" : "▶ Play"}
                     </button>
@@ -734,7 +727,7 @@ export default function VoiceImportModal({
           {/* TAB 3: RECORD LIVE VOICE */}
           {activeTab === "record" && (
             <div className="space-y-4 text-center py-4">
-              <div className="max-w-md mx-auto bg-gray-950/70 border border-gray-800 rounded-2xl p-6 space-y-4">
+              <div className="max-w-md mx-auto bg-gray-950/70 border border-hairline rounded-2xl p-6 space-y-4">
                 <span className="text-4xl block">🎙️</span>
                 <div>
                   <h3 className="text-base font-bold text-white">Record Real Voice in Studio</h3>
@@ -781,7 +774,7 @@ export default function VoiceImportModal({
                         onClick={() =>
                           handlePlayVoiceSample("recorded", "url:" + recordedAudio.url)
                         }
-                        className="px-3.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg border border-gray-700"
+                        className="px-3.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg border border-hairline"
                       >
                         {previewPlayingId === "recorded" ? "⏹️ Stop" : "▶ Play Recording"}
                       </button>
@@ -801,7 +794,7 @@ export default function VoiceImportModal({
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 border-t border-gray-800 bg-gray-950 flex flex-wrap items-center justify-between gap-3">
+        <div className="p-4 border-t border-hairline bg-gray-950 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
@@ -848,6 +841,7 @@ export default function VoiceImportModal({
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

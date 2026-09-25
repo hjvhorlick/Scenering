@@ -523,7 +523,7 @@ export default function Timeline({
      gap, then a small inset so it never covers the arrow button. */
   const laneChip = (top: number, label: string, icon: string) => (
     <div
-      className="absolute z-30 pointer-events-none flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-950/85 border border-gray-700/80 text-[9px] font-bold uppercase tracking-wider text-gray-300 shadow"
+      className="absolute z-30 pointer-events-none flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-950/85 border border-hairline text-[9px] font-bold uppercase tracking-wider text-gray-300 shadow"
       style={{ top, left: 42 }}
     >
       <span className="t-ico">{icon}</span>
@@ -544,7 +544,7 @@ export default function Timeline({
   const playheadX = timeToPx(Math.max(0, Math.min(safeTotalDuration, currentTime)));
 
   return (
-    <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-3.5 space-y-3 shadow-lg select-none">
+    <div className="bg-gray-900/90 border border-hairline rounded-xl p-3.5 space-y-3 shadow-lg select-none">
       {/* ============ Header: transport + zoom + expand ============ */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -589,7 +589,7 @@ export default function Timeline({
 
         <div className="flex items-center gap-2">
           {/* Zoom: stretch / shrink the timeline for more or less detail */}
-          <div className="flex items-center gap-1.5 bg-gray-800/70 border border-gray-700 rounded-lg px-2 py-1" title="Timeline zoom — more or less detail (Ctrl+scroll works too)">
+          <div className="flex items-center gap-1.5 bg-gray-800/70 border border-hairline rounded-lg px-2 py-1" title="Timeline zoom — more or less detail (Ctrl+scroll works too)">
             <button
               type="button"
               onClick={() => zoomStep(-1)}
@@ -641,7 +641,7 @@ export default function Timeline({
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="t-btn-hero-ghost px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+            className="t-btn-hero-ghost px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
             title={expanded ? "Contract to a single compact view" : "Expand to show the Visual FX and Sound layers"}
           >
             <span className={`inline-block transition-transform duration-200 ${expanded ? "" : "rotate-180"}`}>▲</span>
@@ -657,23 +657,23 @@ export default function Timeline({
           <button
             type="button"
             onClick={() => seekAndShow(currentTime - sideStep)}
-            className="t-btn-hero-ghost w-8 rounded-lg bg-gray-800/80 hover:bg-gray-700 border border-gray-700 text-gray-200 text-sm font-bold flex items-center justify-center transition-colors flex-shrink-0"
+            className="t-btn-hero-ghost w-8 rounded-lg bg-gray-800/80 hover:bg-gray-700 border border-hairline text-gray-200 text-sm font-bold flex items-center justify-center transition-colors flex-shrink-0"
             title={`Back ${sideStep.toFixed(1)}s in the video`}
           >
             ‹
           </button>
 
           {/* scrolling track viewport */}
-          <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden rounded-lg border border-gray-800 bg-gray-950 no-scrollbar">
+          <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden rounded-lg border border-hairline bg-gray-950 no-scrollbar">
             <div ref={innerRef} className="relative" style={{ width: innerWidthPx, height: tracksHeight }}>
               {/* ---- time ruler ---- */}
               <div
-                className="absolute inset-x-0 border-b border-gray-800 cursor-ew-resize"
+                className="absolute inset-x-0 border-b border-hairline cursor-ew-resize"
                 style={{ top: rulerTop, height: RULER_H }}
                 onPointerDown={startScrub}
               >
                 {ticks.map((t) => (
-                  <div key={t} className="absolute top-0 bottom-0 border-l border-gray-800/80" style={{ left: timeToPx(t) }}>
+                  <div key={t} className="absolute top-0 bottom-0 border-l border-hairline" style={{ left: timeToPx(t) }}>
                     <span className="absolute left-1 top-0.5 text-[8px] font-mono text-gray-500 whitespace-nowrap">
                       {formatTick(t)}
                     </span>
@@ -683,7 +683,7 @@ export default function Timeline({
 
               {/* ---- scenes lane ---- */}
               <div
-                className="absolute inset-x-0 border-b border-gray-800/70"
+                className="absolute inset-x-0 border-b border-hairline"
                 style={{ top: scenesTop, height: scenesHeight }}
                 onPointerDown={startScrub}
               >
@@ -733,7 +733,7 @@ export default function Timeline({
                             : "bg-rose-950/30 hover:bg-rose-950/50 border-rose-700/60"
                           : isCurrent
                           ? "bg-indigo-950/60 border-indigo-500/80 z-10"
-                          : "bg-gray-900/50 hover:bg-gray-900/80 border-gray-800 hover:border-indigo-500/50"
+                          : "bg-gray-900/50 hover:bg-gray-900/80 border-hairline hover:border-indigo-500/50"
                       } ${block.scene && onEditScene ? "cursor-pointer" : "cursor-pointer"}`}
                       title={
                         isIntro
@@ -806,7 +806,7 @@ export default function Timeline({
               {/* ---- expanded: Visual FX layer ---- */}
               {expanded && (
                 <div
-                  className="absolute inset-x-0 border-b border-gray-800/60 bg-gray-900/20"
+                  className="absolute inset-x-0 border-b border-hairline bg-gray-900/20"
                   style={{ top: visualTop, height: LANE_H }}
                   onPointerDown={startScrub}
                 >
@@ -840,7 +840,7 @@ export default function Timeline({
                 style={{ left: playheadX }}
                 className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none shadow-[0_0_8px_rgba(239,68,68,0.8)]"
               >
-                <div className="absolute -top-1 -left-1.5 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-white shadow" />
+                <div className="absolute -top-1 -left-1.5 w-3.5 h-3.5 bg-red-500 rounded-full border border-white shadow" />
               </div>
             </div>
           </div>
@@ -849,7 +849,7 @@ export default function Timeline({
           <button
             type="button"
             onClick={() => seekAndShow(currentTime + sideStep)}
-            className="t-btn-hero-ghost w-8 rounded-lg bg-gray-800/80 hover:bg-gray-700 border border-gray-700 text-gray-200 text-sm font-bold flex items-center justify-center transition-colors flex-shrink-0"
+            className="t-btn-hero-ghost w-8 rounded-lg bg-gray-800/80 hover:bg-gray-700 border border-hairline text-gray-200 text-sm font-bold flex items-center justify-center transition-colors flex-shrink-0"
             title={`Forward ${sideStep.toFixed(1)}s in the video`}
           >
             ›
@@ -878,7 +878,7 @@ export default function Timeline({
                 <button
                   type="button"
                   onClick={() => onEditInsertDetails(selectedInsert)}
-                  className="t-card-cta-ghost px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-yellow-300 text-[10px] font-medium border border-gray-700 ml-1"
+                  className="t-card-cta-ghost px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-yellow-300 text-[10px] font-medium border border-hairline ml-1"
                 >
                   ✏️ Edit
                 </button>

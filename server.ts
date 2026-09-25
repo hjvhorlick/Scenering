@@ -5,6 +5,7 @@ import WebSocket from "ws";
 import { spawn } from "child_process";
 import { GoogleGenAI } from "@google/genai";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+import { NATURE_FALLBACKS } from "./src/data/nature-fallbacks";
 
 let geminiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI | null {
@@ -735,7 +736,9 @@ async function startServer() {
   const handleImageSearch = async (req: express.Request, res: express.Response) => {
     try {
       const query = (req.query.q as string) || "";
-      const count = Math.min(parseInt((req.query.count as string) || "10", 10), 30);
+      // Up to 100 candidates so the client can pick randomly instead of
+      // always receiving (and showing) the identical first-ranked image.
+      const count = Math.min(parseInt((req.query.count as string) || "10", 10), 100);
       const customPexelsKey =
         (req.headers["x-pexels-key"] as string) || (req.query.pexels_key as string) || undefined;
       const customPixabayKey =
@@ -758,16 +761,18 @@ async function startServer() {
         results = await searchWikimedia(query, count);
       }
 
-      // If still nothing, provide clean Unsplash source image
+      // If still nothing, fall back to a random member of the bundled
+      // nature library — previously this always returned the same one
+      // hardcoded photo, which made failures look like "images never change".
       if (results.length === 0) {
-        const fallbackUrl = `https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1280&auto=format&fit=crop&q=80`;
+        const pick = NATURE_FALLBACKS[Math.floor(Math.random() * NATURE_FALLBACKS.length)];
         results = [
           {
-            url: fallbackUrl,
-            thumbnail: fallbackUrl,
-            source: "unsplash",
-            width: 1280,
-            height: 720,
+            url: pick.url,
+            thumbnail: pick.thumb,
+            source: "nature-library",
+            width: 1920,
+            height: 1080,
           },
         ];
       }

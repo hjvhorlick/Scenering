@@ -183,9 +183,9 @@ export default function VideoStudio({
   });
 
   return (
-    <div className="flex flex-col h-full bg-gray-950 text-white rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
+    <div className="flex flex-col bg-gray-950 text-white rounded-2xl border border-hairline overflow-hidden shadow-lg">
       {/* Studio Header Bar */}
-      <div className="px-5 py-3.5 bg-gray-900/90 border-b border-gray-800 flex flex-wrap items-center justify-between gap-3">
+      <div className="px-5 py-3.5 bg-gray-900/90 border-b border-hairline flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-white flex items-center gap-2">
             <span>🎬</span>
@@ -204,7 +204,7 @@ export default function VideoStudio({
 
         <div className="flex items-center gap-3">
           {/* Studio Audio Master Volume Control */}
-          <div className="flex items-center gap-2 bg-gray-850 border border-gray-750 px-3 py-1.5 rounded-xl">
+          <div className="flex items-center gap-2 bg-gray-850 border border-hairline px-3 py-1.5 rounded-xl">
             <span className="text-xs text-gray-300 flex items-center gap-1.5 flex-shrink-0">
               <span>🔊</span>
               <span className="hidden sm:inline text-[11px] font-medium text-gray-300">Audio Vol:</span>
@@ -249,7 +249,7 @@ export default function VideoStudio({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search elements..."
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+                className="w-full bg-gray-800 border border-hairline rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
               />
               {searchQuery && (
                 <button
@@ -266,7 +266,7 @@ export default function VideoStudio({
       </div>
 
       {/* 5 Ordered Main Tabs: 1. Logo, 2. Call to action, 3. Stickers, 4. Text Content, 5. Audio visualisers */}
-      <div className="t-studio-tabbar bg-gray-900/60 border-b border-gray-800 px-4 pt-2.5 flex gap-1.5 overflow-x-auto no-scrollbar">
+      <div className="t-studio-tabbar bg-gray-900/60 border-b border-hairline px-4 pt-2.5 flex gap-1.5 overflow-x-auto no-scrollbar" role="tablist" aria-label="Video Studio sections">
         {STUDIO_CATEGORIES.map((cat, idx) => {
           const isSelected = selectedCategory === cat.id;
           return (
@@ -277,10 +277,10 @@ export default function VideoStudio({
                 setSelectedCategory(cat.id);
                 setSelectedSubcategory("all");
               }}
-              className={`t-stab px-4 py-2.5 rounded-t-lg font-semibold text-sm whitespace-nowrap transition-all flex items-center gap-2 border-t border-x ${
+              className={`t-stab opt-btn px-4 py-2.5 rounded-t-lg font-semibold text-sm whitespace-nowrap transition-all flex items-center gap-2 ${cat.id === "intro" ? "opt-btn-amber" : cat.id === "outro" ? "opt-btn-rose" : ""} ${
                 isSelected
-                  ? "t-stab-active bg-gray-950 text-white border-gray-700 border-b-2 border-b-transparent shadow-sm"
-                  : "bg-gray-900/30 text-gray-400 border-transparent hover:text-gray-200 hover:bg-gray-800/40"
+                  ? "t-stab-active opt-btn-on bg-gray-950 text-white shadow-sm"
+                  : "bg-gray-900/30 text-gray-400 hover:text-gray-200 hover:bg-gray-800/40"
               }`}
             >
               <span className="t-ico text-base">{cat.icon}</span>
@@ -290,11 +290,15 @@ export default function VideoStudio({
             </button>
           );
         })}
+        <span className="opt-hint ml-auto shrink-0 hidden sm:inline-flex">
+          <span>👆</span>
+          <span>pick a section — all its options are listed below</span>
+        </span>
       </div>
 
       {/* Subcategory Filter Pills (if category has subcategories) */}
       {!isCustomTab && currentCategoryDef?.subcategories && (
-        <div className="t-studio-subbar bg-gray-950/70 px-5 py-2 border-b border-gray-800/80 flex items-center gap-2 overflow-x-auto">
+        <div className="t-studio-subbar bg-gray-950/70 px-5 py-2 border-b border-hairline flex items-center gap-2 overflow-x-auto no-scrollbar">
           <span className="text-[11px] text-gray-400 font-medium mr-1">Section:</span>
           {currentCategoryDef.subcategories.map((sub) => {
             const isSubSelected = selectedSubcategory === sub.id;
@@ -303,11 +307,7 @@ export default function VideoStudio({
                 key={sub.id}
                 type="button"
                 onClick={() => setSelectedSubcategory(sub.id)}
-                className={`t-spill px-3 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                  isSubSelected
-                    ? "t-spill-active bg-indigo-600 text-white shadow-md"
-                    : "bg-gray-800/70 text-gray-300 hover:bg-gray-700/80 hover:text-white"
-                }`}
+                className={`t-spill opt-btn ${isSubSelected ? "t-spill-active opt-btn-on bg-indigo-600 text-white shadow-md" : "bg-gray-800/70 text-gray-300 hover:bg-gray-700/80 hover:text-white"}`}
               >
                 <span className="t-ico">{sub.icon}</span>
                 <span>{sub.name}</span>
@@ -318,7 +318,7 @@ export default function VideoStudio({
       )}
 
       {/* Main Studio Body */}
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="p-5">
         {/* 1. LOGO SECTION */}
         {selectedCategory === "logo" && (
           <div className="max-w-3xl 2xl:max-w-5xl mx-auto space-y-3 sm:space-y-4">
@@ -423,7 +423,7 @@ export default function VideoStudio({
                   return (
                     <div
                       key={item.type}
-                      className="group bg-gray-900/70 hover:bg-gray-900 border border-gray-800 hover:border-indigo-500/50 rounded-xl p-4 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-indigo-950/20"
+                      className="group bg-gray-900/70 hover:bg-gray-900 border border-hairline hover:border-indigo-500/50 rounded-xl p-4 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-indigo-950/20"
                     >
                       <div>
                         {/* Visual representation of the effect they will see in the video
@@ -453,7 +453,7 @@ export default function VideoStudio({
                                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border flex items-center gap-1.5 transition-all shadow-sm ${
                                   isPlaying
                                     ? "bg-rose-600 hover:bg-rose-500 border-rose-400 text-white ring-2 ring-rose-400/60 animate-pulse"
-                                    : "bg-gray-800 hover:bg-indigo-950 border-gray-700 hover:border-indigo-500 text-emerald-400 hover:text-emerald-300"
+                                    : "bg-gray-800 hover:bg-indigo-950 border-hairline hover:border-indigo-500 text-emerald-400 hover:text-emerald-300"
                                 }`}
                               >
                                 <span>{isPlaying ? "⏹️" : "▶️"}</span>
@@ -481,7 +481,7 @@ export default function VideoStudio({
 
                         {/* Sound Volume Slider for items with audio */}
                         {hasSound && soundUrl && (
-                          <div className="mb-2 px-2.5 py-1.5 bg-gray-950/90 rounded-lg border border-gray-800 flex items-center justify-between gap-2 shadow-inner">
+                          <div className="mb-2 px-2.5 py-1.5 bg-gray-950/90 rounded-lg border border-hairline flex items-center justify-between gap-2 shadow-inner">
                             <span className="text-[10px] text-gray-400 flex items-center gap-1">
                               <span>🔉</span>
                               <span className="text-[10px] font-medium text-gray-300">Volume:</span>
@@ -520,7 +520,7 @@ export default function VideoStudio({
                       </div>
 
                       {/* Action Buttons */}
-                      <div className="mt-4 pt-3 border-t border-gray-800 flex items-center gap-2">
+                      <div className="mt-4 pt-3 border-t border-hairline flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => handleAdd(item)}
@@ -543,7 +543,7 @@ export default function VideoStudio({
                         <button
                           type="button"
                           onClick={() => handleConfigure(item)}
-                          className="t-card-cta-ghost px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-gray-700 rounded-lg text-xs transition-colors"
+                          className="t-card-cta-ghost px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-hairline rounded-lg text-xs transition-colors"
                           title="Customise before placing"
                         >
                           ⚙️ Edit

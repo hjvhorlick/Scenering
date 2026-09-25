@@ -82,7 +82,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               <span className="text-[10px] bg-fuchsia-950 border border-fuchsia-600/50 text-fuchsia-200 px-2 py-0.5 rounded-full font-mono font-semibold">
                 Runs across the whole video
               </span>
-              <span className="text-[10px] bg-gray-900 border border-gray-700 text-gray-300 px-2 py-0.5 rounded-full font-mono">
+              <span className="text-[10px] bg-gray-900 border border-hairline text-gray-300 px-2 py-0.5 rounded-full font-mono">
                 {VIDEO_FILTERS.length} looks
               </span>
             </div>
@@ -103,7 +103,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               onMouseLeave={() => setCompare(false)}
               onTouchStart={() => setCompare(true)}
               onTouchEnd={() => setCompare(false)}
-              className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-200 rounded-lg text-xs font-medium select-none"
+              className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-hairline text-gray-200 rounded-lg text-xs font-medium select-none"
               title="Hold to see the video without the filter"
             >
               {compare ? "👁 Showing Original" : "👁 Hold: Original"}
@@ -121,7 +121,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
 
       {/* ---------------- Active filter + live settings ---------------- */}
       {value && activePreset && activeSettings && (
-        <div className="bg-gray-900/80 border border-gray-700 rounded-2xl overflow-hidden shadow-lg">
+        <div className="bg-gray-900/80 border border-hairline rounded-2xl overflow-hidden shadow-lg">
           <div className="flex flex-col xl:flex-row">
             {/* big live preview */}
             <div className="xl:w-[420px] flex-shrink-0 bg-black relative">
@@ -168,14 +168,14 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                   <button
                     type="button"
                     onClick={resetSettings}
-                    className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded-lg text-[11px]"
+                    className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 rounded-lg text-[11px]"
                   >
                     ↺ Reset
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowSettings((v) => !v)}
-                    className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded-lg text-[11px]"
+                    className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 rounded-lg text-[11px]"
                   >
                     {showSettings ? "▲ Hide" : "▼ Settings"}
                   </button>
@@ -188,7 +188,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                     const meta = CONTROL_META[key];
                     const v = activeSettings[key];
                     return (
-                      <div key={key} className="bg-gray-950/60 border border-gray-800 rounded-lg px-2.5 py-1.5">
+                      <div key={key} className="bg-gray-950/60 border border-hairline rounded-lg px-2.5 py-1.5">
                         <div className="flex items-center justify-between text-[11px] mb-1">
                           <span className="text-gray-300 flex items-center gap-1.5" title={meta.hint}>
                             <span>{meta.icon}</span>
@@ -227,7 +227,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
           className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
             group === "all"
               ? "bg-fuchsia-600 border-fuchsia-400 text-white shadow"
-              : "bg-gray-900 border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800"
+              : "bg-gray-900 border-hairline text-gray-300 hover:text-white hover:bg-gray-800"
           }`}
         >
           <span>🎞️</span>
@@ -245,7 +245,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
                 selected
                   ? "bg-fuchsia-600 border-fuchsia-400 text-white shadow"
-                  : "bg-gray-900 border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800"
+                  : "bg-gray-900 border-hairline text-gray-300 hover:text-white hover:bg-gray-800"
               }`}
             >
               <span>{g.icon}</span>
@@ -262,7 +262,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search looks..."
-            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-fuchsia-500"
+            className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-fuchsia-500"
           />
           {query && (
             <button
@@ -292,10 +292,10 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               key={f.id}
               type="button"
               onClick={() => apply(f.id)}
-              className={`group text-left rounded-xl overflow-hidden border-2 transition-all duration-200 bg-gray-900/70 hover:bg-gray-900 shadow-sm ${
+              className={`group text-left rounded-xl overflow-hidden border transition-all duration-200 bg-gray-900/70 hover:bg-gray-900 shadow-sm ${
                 isActive
                   ? "border-fuchsia-500 ring-2 ring-fuchsia-500/40 shadow-fuchsia-900/30"
-                  : "border-gray-800 hover:border-gray-600"
+                  : "border-hairline hover:border-hairline"
               }`}
               title={`${f.name} — ${f.tagline}`}
             >
@@ -343,13 +343,13 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                   {f.controls.slice(0, 4).map((c) => (
                     <span
                       key={c}
-                      className="text-[9px] px-1.5 py-0.5 rounded bg-gray-950/80 border border-gray-800 text-gray-400"
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-gray-950/80 border border-hairline text-gray-400"
                     >
                       {CONTROL_META[c].icon} {CONTROL_META[c].label}
                     </span>
                   ))}
                   {f.controls.length > 4 && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-950/80 border border-gray-800 text-gray-500">
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-950/80 border border-hairline text-gray-500">
                       +{f.controls.length - 4}
                     </span>
                   )}

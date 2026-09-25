@@ -261,7 +261,7 @@ export default function CaptionsStudio({
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleDownloadSrt}
-              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-gray-700 flex items-center gap-2 transition-colors shadow"
+              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-hairline flex items-center gap-2 transition-colors shadow"
             >
               <span>📄</span>
               <span>Export .SRT File</span>
@@ -278,7 +278,7 @@ export default function CaptionsStudio({
         </div>
 
         {/* Global Master Burn-In Switch */}
-        <div className="mt-4 pt-4 border-t border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-900/60 p-3 rounded-xl border border-gray-700/50">
+        <div className="mt-4 pt-4 border-t border-hairline flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-900/60 p-3 rounded-xl border border-hairline">
           <div className="flex items-center gap-3">
             <input
               type="checkbox"
@@ -288,7 +288,7 @@ export default function CaptionsStudio({
                 setBurnCaptionsGlobal(e.target.checked);
                 emitConfigUpdate({ enabled: e.target.checked });
               }}
-              className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-gray-800 border-gray-700 cursor-pointer"
+              className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-gray-800 border-hairline cursor-pointer"
             />
             <label htmlFor="masterBurnToggle" className="cursor-pointer">
               <span className="text-xs font-bold text-white block">
@@ -312,7 +312,7 @@ export default function CaptionsStudio({
       {/* CORE CAPTION CONTROLS: Mode (Karaoke vs Normal) & Background (Transparent vs Blocked) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Caption Style Mode */}
-        <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div className="bg-gray-900/90 border border-hairline rounded-2xl p-4 shadow-xl space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <span>🎤</span> Caption Playback Style
@@ -328,7 +328,7 @@ export default function CaptionsStudio({
               className={`p-3 rounded-xl border text-left transition-all ${
                 mode === "karaoke"
                   ? "bg-purple-950/70 border-purple-500 text-white shadow-md shadow-purple-600/20 ring-1 ring-purple-500"
-                  : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+                  : "bg-gray-800/40 hover:bg-gray-800/80 border-hairline text-gray-300"
               }`}
             >
               <div className="flex items-center gap-2 font-bold text-xs">
@@ -346,7 +346,7 @@ export default function CaptionsStudio({
               className={`p-3 rounded-xl border text-left transition-all ${
                 mode === "normal"
                   ? "bg-purple-950/70 border-purple-500 text-white shadow-md shadow-purple-600/20 ring-1 ring-purple-500"
-                  : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+                  : "bg-gray-800/40 hover:bg-gray-800/80 border-hairline text-gray-300"
               }`}
             >
               <div className="flex items-center gap-2 font-bold text-xs">
@@ -361,7 +361,7 @@ export default function CaptionsStudio({
         </div>
 
         {/* Caption Background: Transparent vs Blocked */}
-        <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div className="bg-gray-900/90 border border-hairline rounded-2xl p-4 shadow-xl space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <span>🖼️</span> Background Framing
@@ -377,7 +377,7 @@ export default function CaptionsStudio({
               className={`p-3 rounded-xl border text-left transition-all ${
                 backgroundStyle === "transparent"
                   ? "bg-indigo-950/70 border-indigo-500 text-white shadow-md shadow-indigo-600/20 ring-1 ring-indigo-500"
-                  : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+                  : "bg-gray-800/40 hover:bg-gray-800/80 border-hairline text-gray-300"
               }`}
             >
               <div className="flex items-center gap-2 font-bold text-xs">
@@ -395,7 +395,7 @@ export default function CaptionsStudio({
               className={`p-3 rounded-xl border text-left transition-all ${
                 backgroundStyle === "blocked"
                   ? "bg-indigo-950/70 border-indigo-500 text-white shadow-md shadow-indigo-600/20 ring-1 ring-indigo-500"
-                  : "bg-gray-800/40 hover:bg-gray-800/80 border-gray-700/80 text-gray-300"
+                  : "bg-gray-800/40 hover:bg-gray-800/80 border-hairline text-gray-300"
               }`}
             >
               <div className="flex items-center gap-2 font-bold text-xs">
@@ -411,22 +411,22 @@ export default function CaptionsStudio({
       </div>
 
       {/* Real-time Interactive Preview Stage */}
-      <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-3">
+      <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-xl space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <span>👁️</span> Live Caption Preview
           </h3>
           <div className="flex items-center gap-2 text-[10px]">
-            <span className="px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-gray-700">
+            <span className="px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-hairline">
               Style: {mode === "karaoke" ? "Karaoke" : "Normal"}
             </span>
-            <span className="px-2 py-0.5 rounded bg-gray-800 text-purple-300 border border-gray-700">
+            <span className="px-2 py-0.5 rounded bg-gray-800 text-purple-300 border border-hairline">
               Backdrop: {backgroundStyle}
             </span>
           </div>
         </div>
 
-        <div className="relative w-full aspect-video max-h-[260px] bg-black rounded-xl overflow-hidden border border-gray-700 shadow-inner">
+        <div className="relative w-full aspect-video max-h-[260px] bg-black rounded-xl overflow-hidden border border-hairline shadow-inner">
           <canvas
             ref={captionPreviewRef}
             width={1280}
@@ -443,8 +443,8 @@ export default function CaptionsStudio({
       </div>
 
       {/* Caption Style Presets Grid */}
-      <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-5 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+      <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between border-b border-hairline pb-3">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <span>🎨</span> Subtitle Visual Style Presets
           </h3>
@@ -462,12 +462,12 @@ export default function CaptionsStudio({
                 className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
                   isSelected
                     ? "bg-purple-950/60 border-purple-500 shadow-md shadow-purple-600/20 ring-1 ring-purple-500"
-                    : "bg-gray-800/50 hover:bg-gray-800 border-gray-700/80 text-gray-300"
+                    : "bg-gray-800/50 hover:bg-gray-800 border-hairline text-gray-300"
                 }`}
               >
                 <div>
                   <div className="flex items-center justify-between mb-1.5 gap-2">
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-900 text-purple-300 border border-gray-700 shrink-0">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-900 text-purple-300 border border-hairline shrink-0">
                       {style.category}
                     </span>
                     <span
@@ -488,15 +488,15 @@ export default function CaptionsStudio({
                   <p className="text-xs text-gray-400 mb-2 leading-relaxed">{style.description}</p>
                 </div>
 
-                <div className="pt-2 border-t border-gray-700/50 flex items-center justify-between text-xs">
+                <div className="pt-2 border-t border-hairline flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5">
                     <span
-                      className="w-3.5 h-3.5 rounded-full border border-gray-600"
+                      className="w-3.5 h-3.5 rounded-full border border-hairline"
                       style={{ backgroundColor: style.textColor }}
                       title="Text colour"
                     />
                     <span
-                      className="w-3.5 h-3.5 rounded-full border border-gray-600"
+                      className="w-3.5 h-3.5 rounded-full border border-hairline"
                       style={{ backgroundColor: style.highlightColor }}
                       title="Active word colour"
                     />
@@ -512,9 +512,9 @@ export default function CaptionsStudio({
         </div>
 
         {/* Custom Styling Adjustments */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-gray-800 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-hairline text-xs">
           {/* Position */}
-          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-hairline space-y-1.5">
             <span className="text-gray-400 block font-medium">Placement:</span>
             <div className="grid grid-cols-2 xs:grid-cols-3 gap-1">
               {(["top", "center", "bottom"] as const).map((pos) => (
@@ -538,7 +538,7 @@ export default function CaptionsStudio({
           </div>
 
           {/* Size */}
-          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-hairline space-y-1.5">
             <span className="text-gray-400 block font-medium">Text Scale:</span>
             <div className="grid grid-cols-2 xs:grid-cols-3 gap-1">
               {(["small", "medium", "large"] as const).map((s) => (
@@ -562,7 +562,7 @@ export default function CaptionsStudio({
           </div>
 
           {/* Text Casing */}
-          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-hairline space-y-1.5">
             <span className="text-gray-400 block font-medium">Letter Case:</span>
             <div className="grid grid-cols-2 gap-1">
               <button
@@ -597,7 +597,7 @@ export default function CaptionsStudio({
           </div>
 
           {/* Colors */}
-          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-hairline space-y-1.5">
             <span className="text-gray-400 block font-medium">Palette:</span>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5">
@@ -631,9 +631,9 @@ export default function CaptionsStudio({
         </div>
 
         {/* Typeface, border and floating shadow */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-gray-800 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-hairline text-xs">
           {/* Font */}
-          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-hairline space-y-1.5">
             <span className="text-gray-400 block font-medium">Typeface:</span>
             <select
               value={fontId || activeStyle.fontId}
@@ -641,7 +641,7 @@ export default function CaptionsStudio({
                 setFontId(e.target.value);
                 emitConfigUpdate({ fontId: e.target.value });
               }}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-purple-500"
+              className="w-full bg-gray-900 border border-hairline rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-purple-500"
               style={{ fontFamily: captionFontStack(fontId || activeStyle.fontId) }}
             >
               {CAPTION_FONTS.map((f) => (
@@ -654,7 +654,7 @@ export default function CaptionsStudio({
           </div>
 
           {/* Border width — hairline by default, thicken as needed */}
-          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-hairline space-y-1.5">
             <div className="flex justify-between items-center">
               <span className="text-gray-400 font-medium">Border:</span>
               <span className="font-mono text-purple-300">{borderWidth.toFixed(1)} px</span>
@@ -688,7 +688,7 @@ export default function CaptionsStudio({
           </div>
 
           {/* Floating shadow below the captions */}
-          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-hairline space-y-1.5">
             <div className="flex justify-between items-center">
               <span className="text-gray-400 font-medium">Float Shadow:</span>
               <button
@@ -699,7 +699,7 @@ export default function CaptionsStudio({
                   emitConfigUpdate({ shadow: next });
                 }}
                 className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
-                  shadowOn ? "bg-purple-600 text-white" : "bg-gray-900 text-gray-400 border border-gray-700"
+                  shadowOn ? "bg-purple-600 text-white" : "bg-gray-900 text-gray-400 border border-hairline"
                 }`}
               >
                 {shadowOn ? "ON" : "OFF"}
@@ -722,7 +722,7 @@ export default function CaptionsStudio({
           </div>
 
           {/* Letter spacing */}
-          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-gray-700/70 space-y-1.5">
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-hairline space-y-1.5">
             <div className="flex justify-between items-center">
               <span className="text-gray-400 font-medium">Letter Spacing:</span>
               <span className="font-mono text-purple-300">{letterSpacing.toFixed(2)} em</span>
@@ -746,8 +746,8 @@ export default function CaptionsStudio({
       </div>
 
       {/* Scene Captions Breakdown */}
-      <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-5 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+      <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between border-b border-hairline pb-3">
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <span>📜</span> Scene Subtitles & On/Off Toggles
@@ -762,7 +762,7 @@ export default function CaptionsStudio({
           {scenes.map((scene, index) => (
             <div
               key={scene.id}
-              className="p-3.5 bg-gray-800/40 hover:bg-gray-800/70 border border-gray-700/80 rounded-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+              className="p-3.5 bg-gray-800/40 hover:bg-gray-800/70 border border-hairline rounded-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
             >
               <div className="flex items-start sm:items-center gap-3 flex-1">
                 <span className="w-5 h-5 rounded-full bg-purple-600/30 border border-purple-500/40 text-purple-300 font-bold flex items-center justify-center shrink-0">
@@ -785,7 +785,7 @@ export default function CaptionsStudio({
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
                     scene.burn_caption ?? true
                       ? "bg-purple-600 border-purple-500 text-white"
-                      : "bg-gray-800 border-gray-700 text-gray-400 hover:text-white"
+                      : "bg-gray-800 border-hairline text-gray-400 hover:text-white"
                   }`}
                 >
                   <span>{(scene.burn_caption ?? true) ? "✓ Caption Active" : "✕ Disabled"}</span>

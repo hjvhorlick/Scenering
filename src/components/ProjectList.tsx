@@ -34,7 +34,7 @@ export default function ProjectList({
           className={`p-3 rounded-lg cursor-pointer transition-all border ${
             selectedId === project.id
               ? "bg-indigo-900/40 border-indigo-500/50"
-              : "bg-gray-800/30 border-gray-700/50 hover:bg-gray-800/60"
+              : "bg-gray-800/30 border-hairline hover:bg-gray-800/60"
           }`}
         >
           <div className="flex items-start justify-between gap-2">
