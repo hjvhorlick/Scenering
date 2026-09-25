@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 483 utility
+   Colour matrix for every non-classic theme. 469 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -257,6 +257,9 @@ html[data-theme="apple"] .bg-gray-950\/85 {
 }
 html[data-theme="apple"] .bg-gray-950\/90 {
   background-color: rgb(245 245 247 / 0.9);
+}
+html[data-theme="apple"] .bg-gray-950\/95 {
+  background-color: rgb(245 245 247 / 0.95);
 }
 html[data-theme="apple"] .bg-green-900\/50 {
   background-color: rgb(217 251 229 / 0.5);
@@ -578,51 +581,6 @@ html[data-theme="apple"] .border-fuchsia-500\/40 {
 }
 html[data-theme="apple"] .border-fuchsia-600\/50 {
   border-color: rgb(192 38 211 / 0.5);
-}
-html[data-theme="apple"] .border-gray-500 {
-  border-color: rgb(174 174 178 / 1);
-}
-html[data-theme="apple"] .border-gray-600 {
-  border-color: rgb(199 199 204 / 1);
-}
-html[data-theme="apple"] .border-gray-600\/60 {
-  border-color: rgb(199 199 204 / 0.6);
-}
-html[data-theme="apple"] .border-gray-700 {
-  border-color: rgb(210 210 215 / 1);
-}
-html[data-theme="apple"] .border-gray-700\/50 {
-  border-color: rgb(210 210 215 / 0.5);
-}
-html[data-theme="apple"] .border-gray-700\/60 {
-  border-color: rgb(210 210 215 / 0.6);
-}
-html[data-theme="apple"] .border-gray-700\/70 {
-  border-color: rgb(210 210 215 / 0.7);
-}
-html[data-theme="apple"] .border-gray-700\/80 {
-  border-color: rgb(210 210 215 / 0.8);
-}
-html[data-theme="apple"] .border-gray-800 {
-  border-color: rgb(227 227 232 / 1);
-}
-html[data-theme="apple"] .border-gray-800\/50 {
-  border-color: rgb(227 227 232 / 0.5);
-}
-html[data-theme="apple"] .border-gray-800\/60 {
-  border-color: rgb(227 227 232 / 0.6);
-}
-html[data-theme="apple"] .border-gray-800\/70 {
-  border-color: rgb(227 227 232 / 0.7);
-}
-html[data-theme="apple"] .border-gray-800\/80 {
-  border-color: rgb(227 227 232 / 0.8);
-}
-html[data-theme="apple"] .border-gray-800\/90 {
-  border-color: rgb(227 227 232 / 0.9);
-}
-html[data-theme="apple"] .border-gray-900 {
-  border-color: rgb(232 232 237 / 1);
 }
 html[data-theme="apple"] .border-green-800\/80 {
   border-color: rgb(22 101 52 / 0.8);
@@ -981,6 +939,9 @@ html[data-theme="apple"] .hover\:bg-gray-700\/60:hover {
 html[data-theme="apple"] .hover\:bg-gray-700\/80:hover {
   background-color: rgb(232 232 237 / 0.8);
 }
+html[data-theme="apple"] .hover\:bg-gray-700\/90:hover {
+  background-color: rgb(232 232 237 / 0.9);
+}
 html[data-theme="apple"] .hover\:bg-gray-800:hover {
   background-color: rgb(255 255 255 / 1);
 }
@@ -1086,18 +1047,6 @@ html[data-theme="apple"] .hover\:border-emerald-500:hover {
 html[data-theme="apple"] .hover\:border-emerald-700:hover {
   border-color: rgb(4 120 87 / 1);
 }
-html[data-theme="apple"] .hover\:border-gray-400:hover {
-  border-color: rgb(174 174 178 / 1);
-}
-html[data-theme="apple"] .hover\:border-gray-500:hover {
-  border-color: rgb(174 174 178 / 1);
-}
-html[data-theme="apple"] .hover\:border-gray-600:hover {
-  border-color: rgb(199 199 204 / 1);
-}
-html[data-theme="apple"] .hover\:border-gray-700:hover {
-  border-color: rgb(210 210 215 / 1);
-}
 html[data-theme="apple"] .hover\:border-indigo-500:hover {
   border-color: rgb(10 132 255 / 1);
 }
@@ -1137,6 +1086,9 @@ html[data-theme="apple"] .hover\:text-emerald-300:hover {
 }
 html[data-theme="apple"] .hover\:text-gray-200:hover {
   color: rgb(58 58 60 / 1);
+}
+html[data-theme="apple"] .hover\:text-indigo-200:hover {
+  color: rgb(0 94 196 / 1);
 }
 html[data-theme="apple"] .hover\:text-indigo-300:hover {
   color: rgb(0 122 255 / 1);
@@ -1191,6 +1143,9 @@ html[data-theme="apple"] .ring-fuchsia-500\/40 {
 }
 html[data-theme="apple"] .ring-indigo-400 {
   --tw-ring-color: rgb(142 194 255 / 1);
+}
+html[data-theme="apple"] .ring-indigo-400\/50 {
+  --tw-ring-color: rgb(142 194 255 / 0.5);
 }
 html[data-theme="apple"] .ring-indigo-500 {
   --tw-ring-color: rgb(10 132 255 / 1);
@@ -1341,6 +1296,9 @@ html[data-theme="apple"] .text-indigo-200 {
 }
 html[data-theme="apple"] .text-indigo-300 {
   color: rgb(0 122 255 / 1);
+}
+html[data-theme="apple"] .text-indigo-300\/80 {
+  color: rgb(0 122 255 / 0.8);
 }
 html[data-theme="apple"] .text-indigo-300\/90 {
   color: rgb(0 122 255 / 0.9);
@@ -1748,6 +1706,9 @@ html[data-theme="windows"] .bg-gray-950\/85 {
 html[data-theme="windows"] .bg-gray-950\/90 {
   background-color: rgb(17 23 34 / 0.738);
 }
+html[data-theme="windows"] .bg-gray-950\/95 {
+  background-color: rgb(17 23 34 / 0.779);
+}
 html[data-theme="windows"] .bg-green-900\/50 {
   background-color: rgb(24 79 46 / 0.5);
 }
@@ -2068,51 +2029,6 @@ html[data-theme="windows"] .border-fuchsia-500\/40 {
 }
 html[data-theme="windows"] .border-fuchsia-600\/50 {
   border-color: rgb(184 48 201 / 0.5);
-}
-html[data-theme="windows"] .border-gray-500 {
-  border-color: rgb(126 143 170 / 1);
-}
-html[data-theme="windows"] .border-gray-600 {
-  border-color: rgb(96 114 143 / 0.6);
-}
-html[data-theme="windows"] .border-gray-600\/60 {
-  border-color: rgb(96 114 143 / 0.36);
-}
-html[data-theme="windows"] .border-gray-700 {
-  border-color: rgb(79 96 124 / 0.55);
-}
-html[data-theme="windows"] .border-gray-700\/50 {
-  border-color: rgb(79 96 124 / 0.275);
-}
-html[data-theme="windows"] .border-gray-700\/60 {
-  border-color: rgb(79 96 124 / 0.33);
-}
-html[data-theme="windows"] .border-gray-700\/70 {
-  border-color: rgb(79 96 124 / 0.385);
-}
-html[data-theme="windows"] .border-gray-700\/80 {
-  border-color: rgb(79 96 124 / 0.44);
-}
-html[data-theme="windows"] .border-gray-800 {
-  border-color: rgb(58 72 96 / 0.65);
-}
-html[data-theme="windows"] .border-gray-800\/50 {
-  border-color: rgb(58 72 96 / 0.325);
-}
-html[data-theme="windows"] .border-gray-800\/60 {
-  border-color: rgb(58 72 96 / 0.39);
-}
-html[data-theme="windows"] .border-gray-800\/70 {
-  border-color: rgb(58 72 96 / 0.455);
-}
-html[data-theme="windows"] .border-gray-800\/80 {
-  border-color: rgb(58 72 96 / 0.52);
-}
-html[data-theme="windows"] .border-gray-800\/90 {
-  border-color: rgb(58 72 96 / 0.585);
-}
-html[data-theme="windows"] .border-gray-900 {
-  border-color: rgb(50 63 84 / 0.6);
 }
 html[data-theme="windows"] .border-green-800\/80 {
   border-color: rgb(27 96 53 / 0.8);
@@ -2471,6 +2387,9 @@ html[data-theme="windows"] .hover\:bg-gray-700\/60:hover {
 html[data-theme="windows"] .hover\:bg-gray-700\/80:hover {
   background-color: rgb(45 58 79 / 0.68);
 }
+html[data-theme="windows"] .hover\:bg-gray-700\/90:hover {
+  background-color: rgb(45 58 79 / 0.765);
+}
 html[data-theme="windows"] .hover\:bg-gray-800:hover {
   background-color: rgb(32 43 60 / 0.78);
 }
@@ -2576,18 +2495,6 @@ html[data-theme="windows"] .hover\:border-emerald-500:hover {
 html[data-theme="windows"] .hover\:border-emerald-700:hover {
   border-color: rgb(11 113 84 / 1);
 }
-html[data-theme="windows"] .hover\:border-gray-400:hover {
-  border-color: rgb(126 143 170 / 1);
-}
-html[data-theme="windows"] .hover\:border-gray-500:hover {
-  border-color: rgb(126 143 170 / 1);
-}
-html[data-theme="windows"] .hover\:border-gray-600:hover {
-  border-color: rgb(96 114 143 / 0.6);
-}
-html[data-theme="windows"] .hover\:border-gray-700:hover {
-  border-color: rgb(79 96 124 / 0.55);
-}
 html[data-theme="windows"] .hover\:border-indigo-500:hover {
   border-color: rgb(76 194 255 / 1);
 }
@@ -2627,6 +2534,9 @@ html[data-theme="windows"] .hover\:text-emerald-300:hover {
 }
 html[data-theme="windows"] .hover\:text-gray-200:hover {
   color: rgb(226 233 244 / 1);
+}
+html[data-theme="windows"] .hover\:text-indigo-200:hover {
+  color: rgb(196 231 255 / 1);
 }
 html[data-theme="windows"] .hover\:text-indigo-300:hover {
   color: rgb(150 217 255 / 1);
@@ -2681,6 +2591,9 @@ html[data-theme="windows"] .ring-fuchsia-500\/40 {
 }
 html[data-theme="windows"] .ring-indigo-400 {
   --tw-ring-color: rgb(111 211 255 / 1);
+}
+html[data-theme="windows"] .ring-indigo-400\/50 {
+  --tw-ring-color: rgb(111 211 255 / 0.5);
 }
 html[data-theme="windows"] .ring-indigo-500 {
   --tw-ring-color: rgb(76 194 255 / 1);
@@ -2831,6 +2744,9 @@ html[data-theme="windows"] .text-indigo-200 {
 }
 html[data-theme="windows"] .text-indigo-300 {
   color: rgb(150 217 255 / 1);
+}
+html[data-theme="windows"] .text-indigo-300\/80 {
+  color: rgb(150 217 255 / 0.8);
 }
 html[data-theme="windows"] .text-indigo-300\/90 {
   color: rgb(150 217 255 / 0.9);
@@ -3238,6 +3154,9 @@ html[data-theme="playful"] .bg-gray-950\/85 {
 html[data-theme="playful"] .bg-gray-950\/90 {
   background-color: rgb(22 17 36 / 0.9);
 }
+html[data-theme="playful"] .bg-gray-950\/95 {
+  background-color: rgb(22 17 36 / 0.95);
+}
 html[data-theme="playful"] .bg-green-900\/50 {
   background-color: rgb(10 95 44 / 0.5);
 }
@@ -3558,51 +3477,6 @@ html[data-theme="playful"] .border-fuchsia-500\/40 {
 }
 html[data-theme="playful"] .border-fuchsia-600\/50 {
   border-color: rgb(218 11 243 / 0.5);
-}
-html[data-theme="playful"] .border-gray-500 {
-  border-color: rgb(147 127 196 / 1);
-}
-html[data-theme="playful"] .border-gray-600 {
-  border-color: rgb(119 99 168 / 1);
-}
-html[data-theme="playful"] .border-gray-600\/60 {
-  border-color: rgb(119 99 168 / 0.6);
-}
-html[data-theme="playful"] .border-gray-700 {
-  border-color: rgb(96 78 142 / 1);
-}
-html[data-theme="playful"] .border-gray-700\/50 {
-  border-color: rgb(96 78 142 / 0.5);
-}
-html[data-theme="playful"] .border-gray-700\/60 {
-  border-color: rgb(96 78 142 / 0.6);
-}
-html[data-theme="playful"] .border-gray-700\/70 {
-  border-color: rgb(96 78 142 / 0.7);
-}
-html[data-theme="playful"] .border-gray-700\/80 {
-  border-color: rgb(96 78 142 / 0.8);
-}
-html[data-theme="playful"] .border-gray-800 {
-  border-color: rgb(64 51 99 / 1);
-}
-html[data-theme="playful"] .border-gray-800\/50 {
-  border-color: rgb(64 51 99 / 0.5);
-}
-html[data-theme="playful"] .border-gray-800\/60 {
-  border-color: rgb(64 51 99 / 0.6);
-}
-html[data-theme="playful"] .border-gray-800\/70 {
-  border-color: rgb(64 51 99 / 0.7);
-}
-html[data-theme="playful"] .border-gray-800\/80 {
-  border-color: rgb(64 51 99 / 0.8);
-}
-html[data-theme="playful"] .border-gray-800\/90 {
-  border-color: rgb(64 51 99 / 0.9);
-}
-html[data-theme="playful"] .border-gray-900 {
-  border-color: rgb(63 51 97 / 1);
 }
 html[data-theme="playful"] .border-green-800\/80 {
   border-color: rgb(10 116 50 / 0.8);
@@ -3961,6 +3835,9 @@ html[data-theme="playful"] .hover\:bg-gray-700\/60:hover {
 html[data-theme="playful"] .hover\:bg-gray-700\/80:hover {
   background-color: rgb(56 44 88 / 0.8);
 }
+html[data-theme="playful"] .hover\:bg-gray-700\/90:hover {
+  background-color: rgb(56 44 88 / 0.9);
+}
 html[data-theme="playful"] .hover\:bg-gray-800:hover {
   background-color: rgb(39 30 63 / 1);
 }
@@ -4066,18 +3943,6 @@ html[data-theme="playful"] .hover\:border-emerald-500:hover {
 html[data-theme="playful"] .hover\:border-emerald-700:hover {
   border-color: rgb(0 126 90 / 1);
 }
-html[data-theme="playful"] .hover\:border-gray-400:hover {
-  border-color: rgb(147 127 196 / 1);
-}
-html[data-theme="playful"] .hover\:border-gray-500:hover {
-  border-color: rgb(147 127 196 / 1);
-}
-html[data-theme="playful"] .hover\:border-gray-600:hover {
-  border-color: rgb(119 99 168 / 1);
-}
-html[data-theme="playful"] .hover\:border-gray-700:hover {
-  border-color: rgb(96 78 142 / 1);
-}
 html[data-theme="playful"] .hover\:border-indigo-500:hover {
   border-color: rgb(255 111 177 / 1);
 }
@@ -4117,6 +3982,9 @@ html[data-theme="playful"] .hover\:text-emerald-300:hover {
 }
 html[data-theme="playful"] .hover\:text-gray-200:hover {
   color: rgb(245 240 255 / 1);
+}
+html[data-theme="playful"] .hover\:text-indigo-200:hover {
+  color: rgb(255 211 230 / 1);
 }
 html[data-theme="playful"] .hover\:text-indigo-300:hover {
   color: rgb(255 173 210 / 1);
@@ -4171,6 +4039,9 @@ html[data-theme="playful"] .ring-fuchsia-500\/40 {
 }
 html[data-theme="playful"] .ring-indigo-400 {
   --tw-ring-color: rgb(255 159 201 / 1);
+}
+html[data-theme="playful"] .ring-indigo-400\/50 {
+  --tw-ring-color: rgb(255 159 201 / 0.5);
 }
 html[data-theme="playful"] .ring-indigo-500 {
   --tw-ring-color: rgb(255 111 177 / 1);
@@ -4321,6 +4192,9 @@ html[data-theme="playful"] .text-indigo-200 {
 }
 html[data-theme="playful"] .text-indigo-300 {
   color: rgb(255 173 210 / 1);
+}
+html[data-theme="playful"] .text-indigo-300\/80 {
+  color: rgb(255 173 210 / 0.8);
 }
 html[data-theme="playful"] .text-indigo-300\/90 {
   color: rgb(255 173 210 / 0.9);
@@ -4728,6 +4602,9 @@ html[data-theme="glass"] .bg-gray-950\/85 {
 html[data-theme="glass"] .bg-gray-950\/90 {
   background-color: rgb(250 248 253 / 0.864);
 }
+html[data-theme="glass"] .bg-gray-950\/95 {
+  background-color: rgb(250 248 253 / 0.912);
+}
 html[data-theme="glass"] .bg-green-900\/50 {
   background-color: rgb(228 252 236 / 0.5);
 }
@@ -5048,51 +4925,6 @@ html[data-theme="glass"] .border-fuchsia-500\/40 {
 }
 html[data-theme="glass"] .border-fuchsia-600\/50 {
   border-color: rgb(173 49 196 / 0.5);
-}
-html[data-theme="glass"] .border-gray-500 {
-  border-color: rgb(128 108 170 / 1);
-}
-html[data-theme="glass"] .border-gray-600 {
-  border-color: rgb(143 123 183 / 0.7);
-}
-html[data-theme="glass"] .border-gray-600\/60 {
-  border-color: rgb(143 123 183 / 0.42);
-}
-html[data-theme="glass"] .border-gray-700 {
-  border-color: rgb(158 138 194 / 0.66);
-}
-html[data-theme="glass"] .border-gray-700\/50 {
-  border-color: rgb(158 138 194 / 0.33);
-}
-html[data-theme="glass"] .border-gray-700\/60 {
-  border-color: rgb(158 138 194 / 0.396);
-}
-html[data-theme="glass"] .border-gray-700\/70 {
-  border-color: rgb(158 138 194 / 0.462);
-}
-html[data-theme="glass"] .border-gray-700\/80 {
-  border-color: rgb(158 138 194 / 0.528);
-}
-html[data-theme="glass"] .border-gray-800 {
-  border-color: rgb(186 168 214 / 0.62);
-}
-html[data-theme="glass"] .border-gray-800\/50 {
-  border-color: rgb(186 168 214 / 0.31);
-}
-html[data-theme="glass"] .border-gray-800\/60 {
-  border-color: rgb(186 168 214 / 0.372);
-}
-html[data-theme="glass"] .border-gray-800\/70 {
-  border-color: rgb(186 168 214 / 0.434);
-}
-html[data-theme="glass"] .border-gray-800\/80 {
-  border-color: rgb(186 168 214 / 0.496);
-}
-html[data-theme="glass"] .border-gray-800\/90 {
-  border-color: rgb(186 168 214 / 0.558);
-}
-html[data-theme="glass"] .border-gray-900 {
-  border-color: rgb(214 208 226 / 0.75);
 }
 html[data-theme="glass"] .border-green-800\/80 {
   border-color: rgb(41 99 72 / 0.8);
@@ -5451,6 +5283,9 @@ html[data-theme="glass"] .hover\:bg-gray-700\/60:hover {
 html[data-theme="glass"] .hover\:bg-gray-700\/80:hover {
   background-color: rgb(255 255 255 / 0.768);
 }
+html[data-theme="glass"] .hover\:bg-gray-700\/90:hover {
+  background-color: rgb(255 255 255 / 0.864);
+}
 html[data-theme="glass"] .hover\:bg-gray-800:hover {
   background-color: rgb(255 255 255 / 0.93);
 }
@@ -5556,18 +5391,6 @@ html[data-theme="glass"] .hover\:border-emerald-500:hover {
 html[data-theme="glass"] .hover\:border-emerald-700:hover {
   border-color: rgb(27 113 99 / 1);
 }
-html[data-theme="glass"] .hover\:border-gray-400:hover {
-  border-color: rgb(128 108 170 / 1);
-}
-html[data-theme="glass"] .hover\:border-gray-500:hover {
-  border-color: rgb(128 108 170 / 1);
-}
-html[data-theme="glass"] .hover\:border-gray-600:hover {
-  border-color: rgb(143 123 183 / 0.7);
-}
-html[data-theme="glass"] .hover\:border-gray-700:hover {
-  border-color: rgb(158 138 194 / 0.66);
-}
 html[data-theme="glass"] .hover\:border-indigo-500:hover {
   border-color: rgb(183 158 230 / 1);
 }
@@ -5607,6 +5430,9 @@ html[data-theme="glass"] .hover\:text-emerald-300:hover {
 }
 html[data-theme="glass"] .hover\:text-gray-200:hover {
   color: rgb(48 46 56 / 1);
+}
+html[data-theme="glass"] .hover\:text-indigo-200:hover {
+  color: rgb(111 83 184 / 1);
 }
 html[data-theme="glass"] .hover\:text-indigo-300:hover {
   color: rgb(122 95 192 / 1);
@@ -5661,6 +5487,9 @@ html[data-theme="glass"] .ring-fuchsia-500\/40 {
 }
 html[data-theme="glass"] .ring-indigo-400 {
   --tw-ring-color: rgb(203 188 242 / 1);
+}
+html[data-theme="glass"] .ring-indigo-400\/50 {
+  --tw-ring-color: rgb(203 188 242 / 0.5);
 }
 html[data-theme="glass"] .ring-indigo-500 {
   --tw-ring-color: rgb(183 158 230 / 1);
@@ -5811,6 +5640,9 @@ html[data-theme="glass"] .text-indigo-200 {
 }
 html[data-theme="glass"] .text-indigo-300 {
   color: rgb(122 95 192 / 1);
+}
+html[data-theme="glass"] .text-indigo-300\/80 {
+  color: rgb(122 95 192 / 0.8);
 }
 html[data-theme="glass"] .text-indigo-300\/90 {
   color: rgb(122 95 192 / 0.9);
@@ -6218,6 +6050,9 @@ html[data-theme="porcelain"] .bg-gray-950\/85 {
 html[data-theme="porcelain"] .bg-gray-950\/90 {
   background-color: rgb(247 244 239 / 0.9);
 }
+html[data-theme="porcelain"] .bg-gray-950\/95 {
+  background-color: rgb(247 244 239 / 0.95);
+}
 html[data-theme="porcelain"] .bg-green-900\/50 {
   background-color: rgb(214 250 227 / 0.5);
 }
@@ -6538,51 +6373,6 @@ html[data-theme="porcelain"] .border-fuchsia-500\/40 {
 }
 html[data-theme="porcelain"] .border-fuchsia-600\/50 {
   border-color: rgb(192 38 211 / 0.5);
-}
-html[data-theme="porcelain"] .border-gray-500 {
-  border-color: rgb(185 172 153 / 1);
-}
-html[data-theme="porcelain"] .border-gray-600 {
-  border-color: rgb(205 194 178 / 1);
-}
-html[data-theme="porcelain"] .border-gray-600\/60 {
-  border-color: rgb(205 194 178 / 0.6);
-}
-html[data-theme="porcelain"] .border-gray-700 {
-  border-color: rgb(216 206 192 / 1);
-}
-html[data-theme="porcelain"] .border-gray-700\/50 {
-  border-color: rgb(216 206 192 / 0.5);
-}
-html[data-theme="porcelain"] .border-gray-700\/60 {
-  border-color: rgb(216 206 192 / 0.6);
-}
-html[data-theme="porcelain"] .border-gray-700\/70 {
-  border-color: rgb(216 206 192 / 0.7);
-}
-html[data-theme="porcelain"] .border-gray-700\/80 {
-  border-color: rgb(216 206 192 / 0.8);
-}
-html[data-theme="porcelain"] .border-gray-800 {
-  border-color: rgb(228 220 207 / 1);
-}
-html[data-theme="porcelain"] .border-gray-800\/50 {
-  border-color: rgb(228 220 207 / 0.5);
-}
-html[data-theme="porcelain"] .border-gray-800\/60 {
-  border-color: rgb(228 220 207 / 0.6);
-}
-html[data-theme="porcelain"] .border-gray-800\/70 {
-  border-color: rgb(228 220 207 / 0.7);
-}
-html[data-theme="porcelain"] .border-gray-800\/80 {
-  border-color: rgb(228 220 207 / 0.8);
-}
-html[data-theme="porcelain"] .border-gray-800\/90 {
-  border-color: rgb(228 220 207 / 0.9);
-}
-html[data-theme="porcelain"] .border-gray-900 {
-  border-color: rgb(236 230 220 / 1);
 }
 html[data-theme="porcelain"] .border-green-800\/80 {
   border-color: rgb(22 101 52 / 0.8);
@@ -6941,6 +6731,9 @@ html[data-theme="porcelain"] .hover\:bg-gray-700\/60:hover {
 html[data-theme="porcelain"] .hover\:bg-gray-700\/80:hover {
   background-color: rgb(234 228 218 / 0.8);
 }
+html[data-theme="porcelain"] .hover\:bg-gray-700\/90:hover {
+  background-color: rgb(234 228 218 / 0.9);
+}
 html[data-theme="porcelain"] .hover\:bg-gray-800:hover {
   background-color: rgb(255 253 250 / 1);
 }
@@ -7046,18 +6839,6 @@ html[data-theme="porcelain"] .hover\:border-emerald-500:hover {
 html[data-theme="porcelain"] .hover\:border-emerald-700:hover {
   border-color: rgb(4 120 87 / 1);
 }
-html[data-theme="porcelain"] .hover\:border-gray-400:hover {
-  border-color: rgb(185 172 153 / 1);
-}
-html[data-theme="porcelain"] .hover\:border-gray-500:hover {
-  border-color: rgb(185 172 153 / 1);
-}
-html[data-theme="porcelain"] .hover\:border-gray-600:hover {
-  border-color: rgb(205 194 178 / 1);
-}
-html[data-theme="porcelain"] .hover\:border-gray-700:hover {
-  border-color: rgb(216 206 192 / 1);
-}
 html[data-theme="porcelain"] .hover\:border-indigo-500:hover {
   border-color: rgb(91 147 207 / 1);
 }
@@ -7097,6 +6878,9 @@ html[data-theme="porcelain"] .hover\:text-emerald-300:hover {
 }
 html[data-theme="porcelain"] .hover\:text-gray-200:hover {
   color: rgb(67 64 58 / 1);
+}
+html[data-theme="porcelain"] .hover\:text-indigo-200:hover {
+  color: rgb(36 90 153 / 1);
 }
 html[data-theme="porcelain"] .hover\:text-indigo-300:hover {
   color: rgb(47 111 181 / 1);
@@ -7151,6 +6935,9 @@ html[data-theme="porcelain"] .ring-fuchsia-500\/40 {
 }
 html[data-theme="porcelain"] .ring-indigo-400 {
   --tw-ring-color: rgb(169 200 232 / 1);
+}
+html[data-theme="porcelain"] .ring-indigo-400\/50 {
+  --tw-ring-color: rgb(169 200 232 / 0.5);
 }
 html[data-theme="porcelain"] .ring-indigo-500 {
   --tw-ring-color: rgb(91 147 207 / 1);
@@ -7301,6 +7088,9 @@ html[data-theme="porcelain"] .text-indigo-200 {
 }
 html[data-theme="porcelain"] .text-indigo-300 {
   color: rgb(47 111 181 / 1);
+}
+html[data-theme="porcelain"] .text-indigo-300\/80 {
+  color: rgb(47 111 181 / 0.8);
 }
 html[data-theme="porcelain"] .text-indigo-300\/90 {
   color: rgb(47 111 181 / 0.9);

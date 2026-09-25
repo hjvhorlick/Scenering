@@ -375,7 +375,7 @@ export default function SetupStudio({
   return (
     <div className="w-full max-w-4xl 2xl:max-w-6xl mx-auto space-y-3 sm:space-y-5 lg:space-y-6 pb-12 animate-fade-in px-1 sm:px-0">
       {/* ---------------- Frame header ---------------- */}
-      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <div className="min-w-0">
             <div className="flex items-center gap-2.5 mb-1.5">
               <span className="p-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-xl text-lg">
@@ -449,7 +449,7 @@ export default function SetupStudio({
       )}
 
       {/* ---------------- 1. Project ---------------- */}
-      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
           step={1}
           title="Choose or create a project"
@@ -485,7 +485,7 @@ export default function SetupStudio({
           </div>
         )}
 
-        <div className="max-h-72 overflow-y-auto pr-1">
+        <div>
           <ProjectList
             projects={projects}
             onSelect={onSelectProject}
@@ -496,7 +496,7 @@ export default function SetupStudio({
       </div>
 
       {/* ---------------- 2. Title ---------------- */}
-      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
           step={2}
           title="Project title"
@@ -509,18 +509,18 @@ export default function SetupStudio({
           value={title}
           onChange={(e) => handleTitleChange(e.target.value)}
           placeholder="e.g. Wonders of the Deep Ocean"
-          className="w-full px-4 py-3 bg-gray-800/90 border border-gray-700 rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-inner"
+          className="w-full px-4 py-3 bg-gray-800/90 border border-hairline rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-inner"
         />
       </div>
 
       {/* ---------------- 3. Script ---------------- */}
-      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg space-y-4">
+      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg space-y-4">
         <SectionHeading
           step={3}
           title="Screenplay script & narration"
           subtitle="Paste the full script. Each paragraph becomes a scene. There is no limit on the number of scenes."
           badge={
-            <div className="hidden sm:flex items-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-gray-700 text-[11px] shrink-0">
+            <div className="hidden sm:flex items-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-hairline text-[11px] shrink-0">
               <span className="text-indigo-300 font-semibold">{detectedScenesCount} Scenes</span>
               <span className="text-gray-500">•</span>
               <span className="text-gray-300">{wordsCount} Words</span>
@@ -531,7 +531,7 @@ export default function SetupStudio({
         />
 
         {/* Live stats on very small screens */}
-        <div className="sm:hidden flex items-center justify-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-gray-700 text-[11px]">
+        <div className="sm:hidden flex items-center justify-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-hairline text-[11px]">
           <span className="text-indigo-300 font-semibold">{detectedScenesCount} Scenes</span>
           <span className="text-gray-500">•</span>
           <span className="text-gray-300">{wordsCount} Words</span>
@@ -560,7 +560,7 @@ export default function SetupStudio({
           onChange={(e) => setScript(e.target.value)}
           rows={11}
           placeholder={`Scene 1: Type ~${targetWordsPerScene} words to last ${activeDuration} seconds when read aloud...\n\nScene 2: Type another ~${targetWordsPerScene} words for the second scene...\n\nScene 3: Each paragraph becomes a separate scene.`}
-          className="w-full px-4 py-3.5 bg-gray-800/90 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-xs leading-relaxed shadow-inner"
+          className="w-full px-4 py-3.5 bg-gray-800/90 border border-hairline rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-xs leading-relaxed shadow-inner"
         />
 
         {isExistingProject && (
@@ -573,7 +573,7 @@ export default function SetupStudio({
               <button
                 type="button"
                 onClick={() => handleApplyScript(false)}
-                className="px-3.5 py-2 bg-gray-800 hover:bg-gray-750 text-gray-200 hover:text-white rounded-xl text-xs font-semibold border border-gray-700 transition-colors shadow"
+                className="px-3.5 py-2 bg-gray-800 hover:bg-gray-750 text-gray-200 hover:text-white rounded-xl text-xs font-semibold border border-hairline transition-colors shadow"
               >
                 Save Script Text
               </button>
@@ -591,7 +591,7 @@ export default function SetupStudio({
       </div>
 
       {/* ---------------- 4. Scene duration ---------------- */}
-      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
           step={4}
           title="Scene duration"
@@ -613,7 +613,7 @@ export default function SetupStudio({
                 className={`p-3.5 rounded-xl border text-left transition-all flex items-start justify-between gap-3 ${
                   isSelected
                     ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
-                    : "bg-gray-800/80 border-gray-700/80 text-gray-300 hover:bg-gray-750 hover:text-white"
+                    : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
                 }`}
               >
                 <div className="min-w-0">
@@ -630,8 +630,8 @@ export default function SetupStudio({
                   <p className="text-[11px] text-gray-400 mt-0.5">{opt.description}</p>
                 </div>
                 <div
-                  className={`w-4 h-4 mt-0.5 rounded-full border-2 shrink-0 flex items-center justify-center ${
-                    isSelected ? "border-indigo-400 bg-indigo-600" : "border-gray-600"
+                  className={`w-4 h-4 mt-0.5 rounded-full border shrink-0 flex items-center justify-center ${
+                    isSelected ? "border-indigo-400 bg-indigo-600" : "border-hairline"
                   }`}
                 >
                   {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
@@ -643,7 +643,7 @@ export default function SetupStudio({
       </div>
 
       {/* ---------------- 5. Aspect ratio ---------------- */}
-      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
           step={5}
           title="Aspect ratio"
@@ -663,13 +663,13 @@ export default function SetupStudio({
                 className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between min-h-[82px] ${
                   isActive
                     ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
-                    : "bg-gray-800/80 border-gray-700/80 text-gray-300 hover:bg-gray-750 hover:text-white"
+                    : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div
-                    className={`rounded border-2 ${
-                      isActive ? "border-indigo-400 bg-indigo-600/30" : "border-gray-500 bg-gray-700/40"
+                    className={`rounded border ${
+                      isActive ? "border-indigo-400 bg-indigo-600/30" : "border-hairline bg-gray-700/40"
                     } ${r.boxClass}`}
                   />
                   {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />}
@@ -685,13 +685,13 @@ export default function SetupStudio({
       </div>
 
       {/* ---------------- 6. Resolution ---------------- */}
-      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
           step={6}
           title="Video resolution"
           subtitle="Output pixel density for the finished video."
           badge={
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-gray-700 shrink-0">
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-hairline shrink-0">
               {getResolutionDimensions(aspectRatio, resolution)}
             </span>
           }
@@ -711,7 +711,7 @@ export default function SetupStudio({
                 className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
                   isActive
                     ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
-                    : "bg-gray-800/80 border-gray-700/80 text-gray-300 hover:bg-gray-750 hover:text-white"
+                    : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
                 }`}
               >
                 <div className="flex items-center justify-between mb-1.5">
@@ -733,7 +733,7 @@ export default function SetupStudio({
       </div>
 
       {/* ---------------- 7. Camera motion ---------------- */}
-      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
           step={7}
           title="Camera motion (Ken Burns)"
@@ -757,7 +757,7 @@ export default function SetupStudio({
                 className={`w-full p-2 rounded-xl border text-left transition-all ${
                   isSelected
                     ? "bg-indigo-950/80 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-400"
-                    : "bg-gray-800/60 border-gray-700/60 text-gray-300 hover:bg-gray-750 hover:text-white"
+                    : "bg-gray-800/60 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
                 }`}
               >
                 <div className="relative overflow-hidden rounded-lg mb-2">
@@ -796,7 +796,7 @@ export default function SetupStudio({
               onUpdateMotionStyle(motionStyle);
               showNotice(`Applied "${motionStyle}" motion to all ${scenes.length} scene(s)!`);
             }}
-            className="w-full mt-3 py-2 px-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-xs font-semibold text-gray-200 hover:text-white transition-all flex items-center justify-center gap-1.5"
+            className="w-full mt-3 py-2 px-3 bg-gray-800 hover:bg-gray-700 border border-hairline rounded-xl text-xs font-semibold text-gray-200 hover:text-white transition-all flex items-center justify-center gap-1.5"
           >
             <span>🔄</span> Apply Motion Style to All Scenes
           </button>
@@ -805,7 +805,7 @@ export default function SetupStudio({
 
       {/* ---------------- Pricing plans ---------------- */}
       {/* Pricing Plans Filler Section (Non-functional as requested, clean and visually polished) */}
-      <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-6 shadow-xl space-y-6">
+      <div className="bg-gray-900/90 border border-hairline rounded-2xl p-6 shadow-xl space-y-6">
         <div className="text-center max-w-xl mx-auto space-y-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-950/80 border border-indigo-700/60 text-indigo-300">
             <span>💎</span> Pricing & Studio Plans
@@ -821,7 +821,7 @@ export default function SetupStudio({
         {/* 3-Tier Pricing Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-5 pt-2">
           {/* Tier 1: Free Starter */}
-          <div className="bg-gray-800/60 border border-gray-700/80 rounded-2xl p-5 flex flex-col justify-between hover:border-gray-600 transition-all shadow-md">
+          <div className="bg-gray-800/60 border border-hairline rounded-2xl p-5 flex flex-col justify-between hover:border-hairline transition-all shadow-md">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Free Starter</span>
@@ -835,7 +835,7 @@ export default function SetupStudio({
                 <div className="text-[11px] text-gray-400">Free forever • No credit card</div>
               </div>
 
-              <ul className="space-y-2 text-xs text-gray-300 pt-2 border-t border-gray-700/60">
+              <ul className="space-y-2 text-xs text-gray-300 pt-2 border-t border-hairline">
                 <li className="flex items-center gap-2">
                   <span className="text-emerald-400 font-bold">✓</span> Unlimited scenes & scripts
                 </li>
@@ -858,7 +858,7 @@ export default function SetupStudio({
               <button
                 type="button"
                 disabled
-                className="w-full py-2.5 px-4 rounded-xl bg-gray-700/60 text-gray-300 text-xs font-semibold cursor-default text-center border border-gray-600/60"
+                className="w-full py-2.5 px-4 rounded-xl bg-gray-700/60 text-gray-300 text-xs font-semibold cursor-default text-center border border-hairline"
               >
                 Active Workspace
               </button>
@@ -866,7 +866,7 @@ export default function SetupStudio({
           </div>
 
           {/* Tier 2: Creator Studio (Featured) */}
-          <div className="bg-gradient-to-b from-indigo-950/60 to-purple-950/40 border-2 border-indigo-500 rounded-2xl p-5 flex flex-col justify-between relative shadow-xl transform md:-translate-y-1 transition-all">
+          <div className="bg-gradient-to-b from-indigo-950/60 to-purple-950/40 border border-indigo-500 rounded-2xl p-5 flex flex-col justify-between relative shadow-xl transform md:-translate-y-1 transition-all">
             <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-[10px] rounded-full shadow tracking-wide uppercase">
               Most Popular
             </div>
@@ -917,7 +917,7 @@ export default function SetupStudio({
           </div>
 
           {/* Tier 3: Pro Agency */}
-          <div className="bg-gray-800/60 border border-gray-700/80 rounded-2xl p-5 flex flex-col justify-between hover:border-gray-600 transition-all shadow-md">
+          <div className="bg-gray-800/60 border border-hairline rounded-2xl p-5 flex flex-col justify-between hover:border-hairline transition-all shadow-md">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Pro Agency</span>
@@ -934,7 +934,7 @@ export default function SetupStudio({
                 <div className="text-[11px] text-gray-400">For agencies & high-volume production</div>
               </div>
 
-              <ul className="space-y-2 text-xs text-gray-300 pt-2 border-t border-gray-700/60">
+              <ul className="space-y-2 text-xs text-gray-300 pt-2 border-t border-hairline">
                 <li className="flex items-center gap-2">
                   <span className="text-emerald-400 font-bold">✓</span> 4K Ultra-HD 60 FPS exporting
                 </li>
@@ -956,7 +956,7 @@ export default function SetupStudio({
             <div className="pt-6">
               <button
                 type="button"
-                className="w-full py-2.5 px-4 rounded-xl bg-gray-800 hover:bg-gray-750 text-white text-xs font-bold transition-all border border-gray-700 shadow text-center"
+                className="w-full py-2.5 px-4 rounded-xl bg-gray-800 hover:bg-gray-750 text-white text-xs font-bold transition-all border border-hairline shadow text-center"
               >
                 Upgrade to Pro (Preview)
               </button>
@@ -970,7 +970,7 @@ export default function SetupStudio({
       </div>
 
       {/* Footer status (navigation lives in the top StepNav only) */}
-      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <p className="text-xs text-gray-400">
           <span className="text-white font-semibold text-sm block mb-0.5">
             {isExistingProject ? "Setup ready" : canStart ? "Ready to build your video" : "Waiting for a script"}

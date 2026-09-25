@@ -103,15 +103,20 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
-      onClick={onClose}
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm animate-fade-in"
     >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-slide-in"
+        className="min-h-full flex items-start justify-center p-0 sm:p-6"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+      <div
+        className="bg-gray-900 border border-hairline rounded-t-2xl sm:rounded-2xl w-full max-w-xl sm:my-4 shadow-xl animate-slide-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="p-5 border-b border-gray-800 flex items-center justify-between">
+        <div className="p-5 border-b border-hairline flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center font-bold">
               🔑
@@ -134,7 +139,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
         </div>
 
         {/* Modal Body */}
-        <form onSubmit={handleTestAndSave} className="p-6 space-y-5 overflow-y-auto max-h-[75vh]">
+        <form onSubmit={handleTestAndSave} className="p-6 space-y-5">
           {/* Success Banner */}
           {saveSuccess && (
             <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
@@ -178,7 +183,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
                 value={pexelsKey}
                 onChange={(e) => setPexelsKey(e.target.value)}
                 placeholder="Paste your Pexels API key..."
-                className="w-full pl-3 pr-10 py-2.5 bg-gray-800/80 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono"
+                className="w-full pl-3 pr-10 py-2.5 bg-gray-800/80 border border-hairline rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono"
               />
               <button
                 type="button"
@@ -204,7 +209,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
           </div>
 
           {/* Pixabay Section */}
-          <div className="space-y-2 pt-2 border-t border-gray-800">
+          <div className="space-y-2 pt-2 border-t border-hairline">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-gray-200 uppercase tracking-wider flex items-center gap-2">
                 <span>Pixabay API Key</span>
@@ -236,7 +241,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
                 value={pixabayKey}
                 onChange={(e) => setPixabayKey(e.target.value)}
                 placeholder="Paste your Pixabay API key..."
-                className="w-full pl-3 pr-10 py-2.5 bg-gray-800/80 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono"
+                className="w-full pl-3 pr-10 py-2.5 bg-gray-800/80 border border-hairline rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono"
               />
               <button
                 type="button"
@@ -262,7 +267,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
           </div>
 
           {/* Wikimedia fallback reminder */}
-          <div className="p-3 bg-gray-800/60 rounded-xl border border-gray-700/60 text-xs text-gray-400 space-y-1">
+          <div className="p-3 bg-gray-800/60 rounded-xl border border-hairline text-xs text-gray-400 space-y-1">
             <div className="font-semibold text-gray-300 flex items-center gap-1.5">
               <span>ℹ️</span> Free Keyless Fallback
             </div>
@@ -310,6 +315,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
             </div>
           </div>
         </form>
+      </div>
       </div>
     </div>
   );

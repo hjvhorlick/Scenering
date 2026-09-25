@@ -56,7 +56,7 @@ export default function CustomerLogoSection({
   return (
     <div className="bg-gray-900/90 border border-indigo-900/50 rounded-2xl p-5 shadow-xl space-y-5">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
         <div>
           <div className="flex items-center gap-2">
             <span className="p-1.5 rounded-lg bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-lg">
@@ -69,7 +69,7 @@ export default function CustomerLogoSection({
               className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                 config.enabled && config.url
                   ? "bg-emerald-950 text-emerald-300 border border-emerald-700/60"
-                  : "bg-gray-800 text-gray-400 border border-gray-700"
+                  : "bg-gray-800 text-gray-400 border border-hairline"
               }`}
             >
               {config.enabled && config.url ? "Active on Video" : "Inactive / No Logo"}
@@ -113,10 +113,10 @@ export default function CustomerLogoSection({
             onDragLeave={() => setDragActive(false)}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
+            className={`border border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
               dragActive
                 ? "border-indigo-500 bg-indigo-950/40"
-                : "border-gray-700 hover:border-indigo-500/70 bg-gray-800/40 hover:bg-gray-800/70"
+                : "border-hairline hover:border-indigo-500/70 bg-gray-800/40 hover:bg-gray-800/70"
             }`}
           >
             <input
@@ -169,13 +169,13 @@ export default function CustomerLogoSection({
           </div>
 
           {showUrlModal && (
-            <div className="p-3 bg-gray-800/80 rounded-xl border border-gray-700 flex gap-2 animate-fade-in">
+            <div className="p-3 bg-gray-800/80 rounded-xl border border-hairline flex gap-2 animate-fade-in">
               <input
                 type="url"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
                 placeholder="https://example.com/my-company-logo.png"
-                className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="flex-1 bg-gray-900 border border-hairline rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
               <button
                 type="button"
@@ -188,7 +188,7 @@ export default function CustomerLogoSection({
           )}
 
           {/* Info Card */}
-          <div className="p-3 bg-gray-800/40 rounded-xl border border-gray-800 text-xs text-gray-400 space-y-1">
+          <div className="p-3 bg-gray-800/40 rounded-xl border border-hairline text-xs text-gray-400 space-y-1">
             <p className="font-semibold text-gray-300 flex items-center gap-1.5">
               <span>💡</span>
               <span>Placement & Transparency Tip:</span>
@@ -202,7 +202,7 @@ export default function CustomerLogoSection({
         {/* Right Column: Live Placement Preview & Big Size Controls (6 cols) */}
         <div className="lg:col-span-6 space-y-4">
           {/* Exact 1:1 Video Frame Sample Display */}
-          <div className="bg-gray-950 rounded-xl p-3.5 border border-gray-800 relative overflow-hidden shadow-xl">
+          <div className="bg-gray-950 rounded-xl p-3.5 border border-hairline relative overflow-hidden shadow-xl">
             <div className="text-[11px] font-medium text-gray-400 mb-2 flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-gray-200">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -222,7 +222,7 @@ export default function CustomerLogoSection({
                   : aspectRatio === "1:1"
                   ? "aspect-square max-h-64 mx-auto"
                   : "aspect-video"
-              } bg-black rounded-lg relative border border-gray-800/90 overflow-hidden select-none shadow-2xl flex items-start justify-end`}
+              } bg-black rounded-lg relative border border-hairline overflow-hidden select-none shadow-2xl flex items-start justify-end`}
             >
               {/* Scene background or cinematic backdrop */}
               {sampleBackgroundImage ? (
@@ -280,7 +280,7 @@ export default function CustomerLogoSection({
                     right: `${((config.margin ?? 20) / 1280) * 100}%`,
                     top: `${((config.margin ?? 20) / 720) * 100}%`,
                   }}
-                  className="absolute px-2.5 py-1 rounded border border-dashed border-gray-600 bg-black/70 text-gray-400 text-[10px] backdrop-blur-sm pointer-events-none z-10"
+                  className="absolute px-2.5 py-1 rounded border border-dashed border-hairline bg-black/70 text-gray-400 text-[10px] backdrop-blur-sm pointer-events-none z-10"
                 >
                   No custom logo selected
                 </div>
@@ -299,7 +299,7 @@ export default function CustomerLogoSection({
           </div>
 
           {/* Sizing & Appearance Sliders with Higher Range */}
-          <div className="bg-gray-800/40 border border-gray-800 rounded-xl p-4 space-y-4 text-xs">
+          <div className="bg-gray-800/40 border border-hairline rounded-xl p-4 space-y-4 text-xs">
             {/* Logo Scale / Size: 50% to 300% */}
             <div>
               <div className="flex justify-between items-center text-gray-300 mb-1.5">
@@ -337,7 +337,7 @@ export default function CustomerLogoSection({
                     className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
                       Math.abs(config.scale - p.val) < 0.04
                         ? "bg-indigo-600 text-white border-indigo-400 shadow-sm"
-                        : "bg-gray-800 text-gray-300 border-gray-700 hover:bg-gray-700 hover:text-white"
+                        : "bg-gray-800 text-gray-300 border-hairline hover:bg-gray-700 hover:text-white"
                     }`}
                   >
                     {p.label}

@@ -53,7 +53,7 @@ function Slider({
   onChange: (v: number) => void;
 }) {
   return (
-    <div className="bg-gray-950/60 border border-gray-800 rounded-lg px-2.5 py-1.5">
+    <div className="bg-gray-950/60 border border-hairline rounded-lg px-2.5 py-1.5">
       <div className="flex items-center justify-between text-[11px] mb-1">
         <span className="text-gray-300 flex items-center gap-1.5">
           {icon && <span>{icon}</span>}
@@ -204,7 +204,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
             <button
               type="button"
               onClick={disable}
-              className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-300 rounded-lg text-xs font-semibold"
+              className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-hairline text-gray-300 rounded-lg text-xs font-semibold"
             >
               ✕ Remove {isIntro ? "Intro" : "Outro"}
             </button>
@@ -222,10 +222,10 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
 
       {!enabled ? (
         /* -------------------------- empty state -------------------------- */
-        <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-6">
+        <div className="bg-gray-900/60 border border-hairline rounded-2xl p-6">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
             {MOTION_BACKGROUNDS.slice(0, 4).map((b) => (
-              <div key={b.id} className="rounded-lg overflow-hidden border border-gray-800 bg-black">
+              <div key={b.id} className="rounded-lg overflow-hidden border border-hairline bg-black">
                 <SectionPreviewCanvas
                   config={{ ...cfg, enabled: true, motionId: b.id, backgroundKind: "motion", title: "", subtitle: "", badge: "", logoEnabled: false }}
                   width={240}
@@ -256,7 +256,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
         <div className="flex flex-col xl:flex-row gap-4">
           {/* ------------------------- live preview ------------------------- */}
           <div className="xl:w-[440px] flex-shrink-0 space-y-2.5">
-            <div className="bg-black rounded-xl overflow-hidden border border-gray-700 relative shadow-lg">
+            <div className="bg-black rounded-xl overflow-hidden border border-hairline relative shadow-lg">
               <SectionPreviewCanvas
                 config={cfg}
                 width={previewAspect.w}
@@ -274,7 +274,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
               <button
                 type="button"
                 onClick={() => setRestartKey((k) => k + 1)}
-                className="flex-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 rounded-lg text-xs font-semibold"
+                className="flex-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-200 rounded-lg text-xs font-semibold"
               >
                 ↻ Replay
               </button>
@@ -285,7 +285,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                   className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
                     playingSound === "active"
                       ? "bg-rose-600 border-rose-400 text-white animate-pulse"
-                      : "bg-gray-800 hover:bg-gray-700 border-gray-700 text-emerald-300"
+                      : "bg-gray-800 hover:bg-gray-700 border-hairline text-emerald-300"
                   }`}
                 >
                   {playingSound === "active" ? "⏹ Stop" : "▶ Hear Sound"}
@@ -306,18 +306,14 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
           </div>
 
           {/* --------------------------- editor ---------------------------- */}
-          <div className="flex-1 bg-gray-900/70 border border-gray-800 rounded-xl overflow-hidden">
-            <div className="flex border-b border-gray-800 bg-gray-950/60">
+          <div className="flex-1 bg-gray-900/70 border border-hairline rounded-xl overflow-hidden">
+            <div className="flex flex-wrap gap-1.5 border-b border-hairline bg-gray-950/60 px-2 py-2 overflow-x-auto no-scrollbar" role="tablist" aria-label="Section editor options">
               {TABS.map((tb) => (
                 <button
                   key={tb.id}
                   type="button"
                   onClick={() => setTab(tb.id)}
-                  className={`flex-1 px-3 py-2.5 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${
-                    tab === tb.id
-                      ? `text-white bg-gray-900 border-b-2 ${isIntro ? "border-amber-500" : "border-rose-500"}`
-                      : "text-gray-400 hover:text-gray-200"
-                  }`}
+                  className={`opt-btn flex-1 ${isIntro ? "opt-btn-amber" : "opt-btn-rose"} ${tab === tb.id ? "opt-btn-on" : ""}`}
                 >
                   <span>{tb.icon}</span>
                   <span>{tb.name}</span>
@@ -363,7 +359,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[340px] overflow-y-auto pr-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                     {MOTION_BACKGROUNDS.map((b) => {
                       const active = cfg.backgroundKind === "motion" && cfg.motionId === b.id;
                       return (
@@ -380,12 +376,12 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                             setRestartKey((k) => k + 1);
                           }}
                           title={b.blurb}
-                          className={`rounded-lg overflow-hidden border-2 text-left transition-all ${
+                          className={`rounded-lg overflow-hidden border text-left transition-all ${
                             active
                               ? isIntro
                                 ? "border-amber-500 ring-2 ring-amber-500/30"
                                 : "border-rose-500 ring-2 ring-rose-500/30"
-                              : "border-gray-800 hover:border-gray-600"
+                              : "border-hairline hover:border-hairline"
                           }`}
                         >
                           <div className="bg-black relative">
@@ -429,14 +425,14 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                   </div>
 
                   {cfg.backgroundKind === "motion" && (
-                    <div className="flex items-center gap-3 pt-1 border-t border-gray-800">
+                    <div className="flex items-center gap-3 pt-1 border-t border-hairline">
                       <span className="text-[11px] text-gray-400">Recolour:</span>
                       <label className="flex items-center gap-1.5 text-[11px] text-gray-300">
                         <input
                           type="color"
                           value={cfg.colorA || MOTION_BACKGROUNDS_BY_ID[cfg.motionId]?.colors[0] || "#f5b820"}
                           onChange={(e) => update({ colorA: e.target.value })}
-                          className="w-7 h-7 rounded cursor-pointer bg-transparent border border-gray-700"
+                          className="w-7 h-7 rounded cursor-pointer bg-transparent border border-hairline"
                         />
                         Main
                       </label>
@@ -445,7 +441,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                           type="color"
                           value={cfg.colorB || MOTION_BACKGROUNDS_BY_ID[cfg.motionId]?.colors[1] || "#ff7a18"}
                           onChange={(e) => update({ colorB: e.target.value })}
-                          className="w-7 h-7 rounded cursor-pointer bg-transparent border border-gray-700"
+                          className="w-7 h-7 rounded cursor-pointer bg-transparent border border-hairline"
                         />
                         Accent
                       </label>
@@ -473,7 +469,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                       value={cfg.title}
                       onChange={(e) => update({ title: e.target.value })}
                       placeholder={isIntro ? "YOUR TITLE HERE" : "THANKS FOR WATCHING"}
-                      className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-bold placeholder-gray-600 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-gray-950 border border-hairline rounded-lg px-3 py-2 text-sm text-white font-bold placeholder-gray-600 focus:outline-none focus:border-amber-500"
                     />
                   </div>
                   <div>
@@ -483,7 +479,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                       value={cfg.subtitle}
                       onChange={(e) => update({ subtitle: e.target.value })}
                       placeholder="One supporting line"
-                      className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-gray-950 border border-hairline rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500"
                     />
                   </div>
                   <div>
@@ -495,7 +491,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                       value={cfg.badge}
                       onChange={(e) => update({ badge: e.target.value })}
                       placeholder="e.g. NEW EPISODE"
-                      className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-gray-950 border border-hairline rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
@@ -516,7 +512,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                               ? isIntro
                                 ? "bg-amber-600 border-amber-400 text-white"
                                 : "bg-rose-600 border-rose-400 text-white"
-                              : "bg-gray-950 border-gray-800 text-gray-300 hover:border-gray-600"
+                              : "bg-gray-950 border-hairline text-gray-300 hover:border-hairline"
                           }`}
                         >
                           <span className="mr-1">{a.icon}</span>
@@ -555,7 +551,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                         type="color"
                         value={cfg.textColor}
                         onChange={(e) => update({ textColor: e.target.value })}
-                        className="w-7 h-7 rounded cursor-pointer bg-transparent border border-gray-700"
+                        className="w-7 h-7 rounded cursor-pointer bg-transparent border border-hairline"
                       />
                       Text colour
                     </label>
@@ -564,7 +560,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                         type="color"
                         value={cfg.accentColor}
                         onChange={(e) => update({ accentColor: e.target.value })}
-                        className="w-7 h-7 rounded cursor-pointer bg-transparent border border-gray-700"
+                        className="w-7 h-7 rounded cursor-pointer bg-transparent border border-hairline"
                       />
                       Accent colour
                     </label>
@@ -605,7 +601,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                     <button
                       type="button"
                       onClick={() => update({ logoEnabled: true, logoUrl: brandLogoUrl })}
-                      className="w-full px-3 py-2 rounded-lg bg-gray-950 border border-gray-700 hover:border-indigo-500 text-[11px] text-gray-300 flex items-center gap-2"
+                      className="w-full px-3 py-2 rounded-lg bg-gray-950 border border-hairline hover:border-indigo-500 text-[11px] text-gray-300 flex items-center gap-2"
                     >
                       <img src={brandLogoUrl} alt="" className="h-6 w-auto object-contain" />
                       <span>Use my brand logo from the Logo tab</span>
@@ -613,7 +609,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                   )}
 
                   {cfg.logoUrl ? (
-                    <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-gray-950 border border-gray-800">
+                    <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-gray-950 border border-hairline">
                       <img src={cfg.logoUrl} alt="" className="h-8 w-auto object-contain" />
                       <span className="text-[11px] text-gray-400 flex-1">Logo loaded</span>
                       <button
@@ -663,7 +659,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                     />
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gray-800">
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-hairline">
                     <span className="text-[11px] text-gray-400 mr-1">Quick place:</span>
                     {[
                       { n: "Top", x: 0.5, y: 0.16 },
@@ -676,7 +672,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                         key={q.n}
                         type="button"
                         onClick={() => update({ logoX: q.x, logoY: q.y })}
-                        className="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-[10px]"
+                        className="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 text-[10px]"
                       >
                         {q.n}
                       </button>
@@ -741,7 +737,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                               ? isIntro
                                 ? "bg-amber-950/40 border-amber-600/70"
                                 : "bg-rose-950/40 border-rose-600/70"
-                              : "bg-gray-950 border-gray-800 hover:border-gray-700"
+                              : "bg-gray-950 border-hairline hover:border-hairline"
                           }`}
                         >
                           <button
@@ -765,7 +761,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                               className={`px-2 py-1 rounded text-[10px] font-bold border flex-shrink-0 ${
                                 playingSound === s.id
                                   ? "bg-rose-600 border-rose-400 text-white animate-pulse"
-                                  : "bg-gray-900 border-gray-700 text-emerald-400 hover:text-emerald-300"
+                                  : "bg-gray-900 border-hairline text-emerald-400 hover:text-emerald-300"
                               }`}
                             >
                               {playingSound === s.id ? "⏹" : "▶"}

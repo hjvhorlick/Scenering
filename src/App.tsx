@@ -6,6 +6,7 @@ import ProjectList from "./components/ProjectList";
 import ApiKeysModal from "./components/ApiKeysModal";
 import Timeline from "./components/Timeline";
 import VideoStudio from "./components/VideoStudio";
+import { pickRandomImageUrl, rawImageUrl, IMAGE_SEARCH_COUNT } from "./lib/image-picker";
 import RenderView from "./components/RenderView";
 import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
 import { listVaultRenders, subscribeVault } from "./lib/render-vault";
@@ -104,19 +105,39 @@ function parseScript(script: string, targetDuration: number = 20): { text: strin
   });
 }
 
-// Quick image search via edge function — returns first match only (uses customer's API keys if provided)
-async function quickImageSearch(query: string): Promise<string | null> {
+/**
+ * Image search via edge function.
+ *
+ * Asks for the top ~100 ranked candidates and picks ONE at random (see
+ * lib/image-picker), so every search/re-search produces a different photo
+ * instead of always serving the identical first-ranked hit. URLs already
+ * used by other scenes are excluded via fetchAll images runs so a whole
+ * project never ends up with duplicate photos.
+ *
+ * Returns the proxied url plus the raw upstream url (for dedup tracking).
+ */
+async function quickImageSearch(
+  query: string,
+  usedUrls?: ReadonlySet<string>
+): Promise<{ proxyUrl: string; rawUrl: string } | null> {
   try {
     const headers = getApiKeysHeaders();
     const queryParams = getApiKeysQueryParams();
     const res = await fetch(
-      `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(query)}&count=1${queryParams}`,
+      `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(query)}&count=${IMAGE_SEARCH_COUNT}${queryParams}`,
       { headers }
     );
     if (!res.ok) return null;
     const data = await res.json();
-    if (!data.images || data.images.length === 0) return null;
-    return `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(data.images[0].url)}`;
+    const pool: string[] = Array.isArray(data.images)
+      ? data.images.map((img: { url?: string }) => img?.url || "").filter(Boolean)
+      : [];
+    const chosen = pickRandomImageUrl(pool, usedUrls);
+    if (!chosen) return null;
+    return {
+      proxyUrl: `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(chosen)}`,
+      rawUrl: chosen,
+    };
   } catch {
     return null;
   }
@@ -912,19 +933,31 @@ export default function App() {
 
   const handleImageSearch = async (
     sceneId: number,
-    query: string
+    query: string,
+    /** URLs already handed out to other scenes — never re-picked. */
+    usedUrls?: Set<string>
   ): Promise<{ imageUrl: string; allImages?: string[] } | undefined> => {
     try {
       if (!currentProject) return undefined;
-      const proxyUrl = await quickImageSearch(query);
-      if (!proxyUrl) return undefined;
+
+      // Never offer the photo this scene (or a sibling scene) already has.
+      const excluded = usedUrls ?? new Set<string>();
+      for (const scene of scenes) {
+        if (scene.id !== sceneId && scene.image_url) {
+          excluded.add(rawImageUrl(scene.image_url));
+        }
+      }
+
+      const hit = await quickImageSearch(query, excluded);
+      if (!hit) return undefined;
+      usedUrls?.add(hit.rawUrl);
 
       await handleUpdateScene(sceneId, {
-        image_url: proxyUrl,
+        image_url: hit.proxyUrl,
         image_query: query,
       });
 
-      return { imageUrl: proxyUrl };
+      return { imageUrl: hit.proxyUrl };
     } catch (err) {
       console.error("Image search failed:", err);
       return undefined;
@@ -934,11 +967,19 @@ export default function App() {
   const handleFetchAllImages = async () => {
     setFetchingImages(true);
     try {
+      // Seed the dedup set with every photo already placed on a scene so a
+      // batch run can't hand out an image the project is already showing.
+      const used = new Set(
+        scenes.filter((s) => s.image_url).map((s) => rawImageUrl(s.image_url as string))
+      );
       // Scenes already carrying a video clip do not need a stock photo.
       const scenesWithoutImages = scenes.filter((s) => !s.image_url && !s.video_url);
-      for (const scene of scenesWithoutImages) {
-        await handleImageSearch(scene.id, scene.image_query);
-      }
+      // Searches ran strictly one after another before, which made a full
+      // project wait on a chain of round-trips. They are independent — run
+      // them in parallel and the batch is as fast as the slowest search.
+      await Promise.all(
+        scenesWithoutImages.map((scene) => handleImageSearch(scene.id, scene.image_query, used))
+      );
     } finally {
       setFetchingImages(false);
     }
@@ -1138,11 +1179,11 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-950 text-white overflow-hidden font-sans">
+    <div className="flex min-h-screen bg-gray-950 text-white font-sans">
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col">
         {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="t-app-hdr relative z-40 min-h-14 border-b border-gray-800 flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
+        <div className="t-app-hdr relative z-40 min-h-14 border-b border-hairline flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
           {/* Logo */}
           <button
             onClick={() => setView("create")}
@@ -1163,7 +1204,7 @@ export default function App() {
           </h2>
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
-          <div className="t-tabbar flex items-center bg-gray-800/80 border border-gray-700/80 rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto scrollbar-thin order-last w-full sm:order-none sm:w-auto">
+          <div className="t-tabbar opt-group flex items-center bg-gray-800/80 border border-hairline rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto no-scrollbar order-last w-full sm:order-none sm:w-auto" role="tablist" aria-label="Project phases">
             {(() => {
               const activeIdx = PROJECT_PHASES.findIndex((phase) =>
                 phase.id === "setup" ? view === "create" : view === "editor" && editorStep === phase.editorStep
@@ -1171,31 +1212,32 @@ export default function App() {
               return PROJECT_PHASES.map((phase, i) => {
                 const isActive = i === activeIdx;
                 const isNext = activeIdx >= 0 && i === activeIdx + 1;
+                const isLocked = phase.id !== "setup" && !currentProject;
                 return (
                   <button
                     key={phase.id}
                     onClick={() => navigateToPhase(phase.id)}
                     title={
-                      phase.id !== "setup" && !currentProject
+                      isLocked
                         ? "Create a project on the Setup screen first"
                         : phase.purpose
                     }
-                    className={`t-tab px-3 sm:px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1 whitespace-nowrap ${
-                      isActive
-                        ? `t-tab-active ${
+                    className={`t-tab opt-btn ${isActive
+                        ? `t-tab-active opt-btn-on ${
                             phase.id === "render"
                               ? "bg-gradient-to-r from-purple-600 to-indigo-600"
                               : "bg-indigo-600"
                           } text-white shadow font-bold`
-                        : isNext && !(phase.id !== "setup" && !currentProject)
+                        : isNext && !isLocked
                         ? "t-tab-next text-gray-200"
-                        : phase.id !== "setup" && !currentProject
-                        ? "text-gray-600 cursor-not-allowed"
-                        : "text-gray-400 hover:text-white"
+                        : isLocked
+                        ? "opacity-40 cursor-not-allowed"
+                        : ""
                     }`}
                   >
                     <span className="flex items-center gap-1 whitespace-nowrap">
-                      <span className="text-gray-500 sm:text-inherit">{i + 1}.</span>
+                      {isLocked && <span className="text-[9px] opacity-90">🔒</span>}
+                      <span className={isActive ? "" : "text-indigo-300/80"}>{i + 1}.</span>
                       <span className="t-ico">{phase.icon}</span>
                       {/* The word is dropped on phones; the number and icon still
                           identify the step and the row stops overflowing. */}
@@ -1206,6 +1248,14 @@ export default function App() {
                 );
               });
             })()}
+            {/* Locked-tab explanation: steps 2–6 edit a project's content, so
+                they only light up once a project exists on this screen. */}
+            {!currentProject && (
+              <span className="opt-hint ml-auto shrink-0 hidden lg:inline-flex pr-1" title="Steps 2–6 edit a project's scenes, voices and video — they unlock as soon as you create or select a project in Setup">
+                <span>🔓</span>
+                <span>create or select a project to unlock steps 2–6</span>
+              </span>
+            )}
           </div>
 
           <div className="ml-auto flex items-center gap-2 shrink-0">
@@ -1258,7 +1308,7 @@ export default function App() {
 
             <button
               onClick={() => setApiKeysModalOpen(true)}
-              className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-gray-700 bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
+              className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-hairline bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
               title="Image search API keys (Pexels & Pixabay)"
             >
               <span className="t-ico">🔑</span>
@@ -1273,7 +1323,7 @@ export default function App() {
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1">
           {view === "create" && (
             <div className="p-4 sm:p-6">
               {navNotice && (
@@ -1377,7 +1427,7 @@ export default function App() {
                   />
 
                   {/* Top Controls & Presets Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900/60 p-3 rounded-xl border border-gray-800">
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900/60 p-3 rounded-xl border border-hairline">
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleFetchAllImages}
@@ -1421,7 +1471,7 @@ export default function App() {
                   </div>
 
                   {/* Global Video Transition Selector: applies to the complete video */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900/80 p-3 sm:px-4 sm:py-3 rounded-xl border border-gray-800 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900/80 p-3 sm:px-4 sm:py-3 rounded-xl border border-hairline shadow-sm">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-indigo-950/80 border border-indigo-700/60 flex items-center justify-center text-sm shadow-inner">
                         🔀
@@ -1450,7 +1500,7 @@ export default function App() {
                             className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
                               isSelected
                                 ? "bg-indigo-600 border-indigo-400 text-white shadow-md font-semibold ring-1 ring-indigo-400/50"
-                                : "bg-gray-800/90 hover:bg-gray-700/90 border-gray-700 text-gray-300"
+                                : "bg-gray-800/90 hover:bg-gray-700/90 border-hairline text-gray-300"
                             }`}
                             title={opt.description}
                           >
@@ -1520,11 +1570,11 @@ export default function App() {
                     </div>
 
                     {/* Bottom Action Bar */}
-                    <div className="pt-4 flex items-center justify-between border-t border-gray-800">
+                    <div className="pt-4 flex items-center justify-between border-t border-hairline">
                       <button
                         type="button"
                         onClick={() => handleAddScene(scenes.length)}
-                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-semibold text-xs rounded-xl shadow transition-all flex items-center gap-2"
+                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-hairline font-semibold text-xs rounded-xl shadow transition-all flex items-center gap-2"
                       >
                         <span>➕ Add Another Scene</span>
                       </button>

@@ -98,6 +98,24 @@ single source of truth for their job:
 - **`text-art.ts`** / **`render-text-template.ts`** — title lettering and the
   29 text templates.
 
+## UI conventions
+
+Three rules keep the interface clean as it grows, and `tests/ui-chrome.test.ts`
+enforces all of them by scanning the source:
+
+- **One scroll, no panes.** The page — and each modal — is one long
+  document. Never add an inner `overflow-y-auto` pane; the modal overlay is
+  the only element allowed to scroll vertically.
+- **Hairline borders only.** All dividers are the 1px translucent
+  `border-hairline` token (theme color in `tailwind.config.js`, colour
+  defined via `--hairline` in `src/index.css`). No `border-2` or solid-gray
+  borders.
+- **Options look like options.** Tab bars, section pickers and filter pills
+  use the `.opt-btn` / `.opt-group` component classes from `src/index.css`;
+  the selected one gets `.opt-btn-on`. Editor modals stack every section
+  and their “tabs” are jump buttons (`jumpToSection`) that scroll the page
+  to the matching heading instead of hiding the other sections.
+
 ## Tests
 
 ```bash

@@ -56,6 +56,92 @@ interface InsertPropertiesModalProps {
   backgroundImage?: string;
 }
 
+/**
+ * Section heading used by the stacked editor. Every settings block gets one;
+ * the jump buttons at the top scroll to these anchors.
+ */
+function BlockTitle({ id, icon, title, hint }: { id: string; icon: string; title: string; hint?: string }) {
+  return (
+    <h4 id={id} className="scroll-mt-6 border-b border-hairline pb-2 flex items-baseline gap-2">
+      <span aria-hidden="true">{icon}</span>
+      <span className="text-sm font-bold text-white">{title}</span>
+      {hint && <span className="text-[10px] font-normal text-gray-400">{hint}</span>}
+    </h4>
+  );
+}
+
+/**
+ * Floating mini replica of the call-to-action badge preview.
+ *
+ * The editor is one long scrolling page now, so the moment the full-size
+ * preview at the top scrolls out of view, this compact copy docks in the
+ * corner and follows the user down — the badge stays visible while any of
+ * the stacked sections below are being edited. It hides again when the
+ * full preview is back in view, and never covers the footer actions
+ * (it docks above them on short pages).
+ */
+function CtaFloatingPreview({
+  item,
+  aspectRatio,
+  backgroundImage,
+}: {
+  item: import("../types").TimelineInsert;
+  aspectRatio?: import("../types").AspectRatioType;
+  backgroundImage?: string;
+}) {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const anchor = document.getElementById("ipm-cta-preview");
+    if (!anchor) return;
+    const observer = new IntersectionObserver(([entry]) => setShow(!entry.isIntersecting), {
+      threshold: 0,
+    });
+    observer.observe(anchor);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      aria-hidden={!show}
+      className={`fixed bottom-4 right-4 z-30 w-[280px] transition-all duration-200 ${
+        show ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0"
+      }`}
+    >
+      <div className="rounded-xl border border-indigo-500/50 bg-gray-950/95 p-2 shadow-2xl">
+        <div className="pb-1.5 flex items-center justify-between text-[9px]">
+          <span className="font-bold text-indigo-300">👁️ Live preview</span>
+          <button
+            type="button"
+            onClick={() =>
+              document
+                .getElementById("ipm-cta-preview")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
+            className="text-indigo-400/90 underline decoration-dotted underline-offset-2 hover:text-indigo-200 transition-colors"
+            title="Scroll back to the full-size preview at the top"
+          >
+            full view ↑
+          </button>
+        </div>
+        <CtaBadgePreview item={item} aspectRatio={aspectRatio} backgroundImage={backgroundImage} compact />
+      </div>
+    </div>
+  );
+}
+
+/** A section jump button: every section is already rendered below, so the
+ *  header row scrolls the chosen one into view instead of hiding the rest. */
+interface SectionTab {
+  tab: string;
+  id: string;
+  icon: string;
+  name: string;
+  tone?: string;
+  show: boolean;
+}
+
 export default function InsertPropertiesModal({
   insert,
   isOpen = true,
@@ -258,6 +344,33 @@ function InsertPropertiesContent({
   if (originalRef.current === null) originalRef.current = insert;
 
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
+
+  /** Jump-row buttons: every section is already visible below, so clicking
+   *  one simply scrolls it into view and marks it current. */
+  const jumpToSection = (tab: string, sectionId: string) => {
+    setActiveTab(tab);
+    document
+      .getElementById(sectionId)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const SECTION_TABS: SectionTab[] = [
+    { tab: "intro_fx", id: "ipm-intro-fx", icon: "🎬", name: "Tension FX & Video", tone: "opt-btn-amber", show: isIntroOutro },
+    { tab: "brand", id: "ipm-brand", icon: "🏷️", name: "Brand Logo", tone: "opt-btn-amber", show: isIntroOutro },
+    { tab: "visuals", id: "ipm-visuals", icon: "📐", name: "Position & Size", show: !isSoundEffect && !isIntroOutro && !isCallToAction },
+    { tab: "design", id: "ipm-design", icon: "🎨", name: "Design", show: !isIntroOutro && isContentCard },
+    { tab: "reactivity", id: "ipm-reactivity", icon: "🎙️", name: "Audio Reactivity", show: isAudioVisualizer },
+    { tab: "cta_platform", id: "ipm-cta-platform", icon: "🌐", name: "Platform", show: isCallToAction },
+    { tab: "cta_text", id: "ipm-cta-text", icon: "✏️", name: "Text & Icon", show: isCallToAction },
+    { tab: "cta_style", id: "ipm-cta-style", icon: "🎨", name: "Colours", show: isCallToAction },
+    { tab: "cta_layout", id: "ipm-cta-layout", icon: "📐", name: "Size & Position", show: isCallToAction },
+    { tab: "audio", id: "ipm-audio", icon: "🔊", name: "Sound & Volume", show: isSoundEffect },
+    { tab: "attached_audio", id: "ipm-attached-audio", icon: "🔔", name: "Sound FX", tone: isIntroOutro ? "opt-btn-amber" : undefined, show: isIntroOutro || isSticker },
+    { tab: "content", id: "ipm-content", icon: isCallToAction ? "🎯" : "📝", name: isIntroOutro ? "Text & Titles" : isCallToAction ? "Templates" : "Text Content", tone: isIntroOutro ? "opt-btn-amber" : undefined, show: isIntroOutro || isCallToAction || isContentCard },
+    { tab: "timing", id: "ipm-timing", icon: "⏱️", name: "Timing", show: true },
+  ];
+  const visibleSectionTabs = SECTION_TABS.filter((t) => t.show);
+
   const [ctaGroup, setCtaGroup] = useState<string>("all");
   const [ctaSearch, setCtaSearch] = useState("");
 
@@ -550,16 +663,22 @@ function InsertPropertiesContent({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm animate-fade-in">
       <div
-        className={`bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden ${
+        className="min-h-full flex items-start justify-center p-0 sm:p-6"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+      <div
+        className={`bg-gray-900 border border-hairline rounded-t-2xl sm:rounded-2xl w-full sm:my-4 shadow-xl overflow-hidden ${
           isCallToAction && !isIntroOutro ? "max-w-3xl" : "max-w-xl"
         }`}
       >
         {/* Modal Header */}
-        <div className="shrink-0 px-6 py-4 border-b border-gray-800 flex items-center justify-between bg-gray-950/60">
+        <div className="px-6 py-4 border-b border-hairline flex items-center justify-between bg-gray-950/60">
           <div className="flex items-center gap-3">
-            <span className="text-2xl p-2 bg-gray-800 rounded-xl border border-gray-700">
+            <span className="text-2xl p-2 bg-gray-800 rounded-xl border border-hairline">
               {insert.category === "intro"
                 ? "🎬"
                 : insert.category === "outro"
@@ -611,210 +730,44 @@ function InsertPropertiesContent({
           </button>
         </div>
 
-        {/* Dynamic Contextual Navigation Tabs */}
-        <div className="shrink-0 min-h-[46px] px-6 border-b border-gray-800 flex items-center gap-2 bg-gray-950/40 overflow-x-auto">
-          {/* INTRO / OUTRO TABS */}
-          {isIntroOutro && (
-            <>
-              <button
-                type="button"
-                onClick={() => setActiveTab("intro_fx")}
-                className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                  activeTab === "intro_fx"
-                    ? "border-amber-500 text-amber-400"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <span>🎬</span>
-                <span>Tension FX & Video</span>
-              </button>
+        {/* Live call-to-action preview — part of the flow at the top; a
+            floating mini copy keeps the badge visible anywhere on this
+            long page once this strip scrolls out of view */}
+        {isCallToAction && !isIntroOutro && (
+          <>
+            <div id="ipm-cta-preview" className="px-6 pt-4">
+              <CtaBadgePreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
+            </div>
+            <CtaFloatingPreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
+          </>
+        )}
 
-              <button
-                type="button"
-                onClick={() => setActiveTab("content")}
-                className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                  activeTab === "content"
-                    ? "border-amber-500 text-amber-400"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <span>📝</span>
-                <span>Text & Titles</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("brand")}
-                className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                  activeTab === "brand"
-                    ? "border-amber-500 text-amber-400"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <span>🏷️</span>
-                <span>Brand Logo</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("attached_audio")}
-                className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                  activeTab === "attached_audio"
-                    ? "border-amber-500 text-amber-400"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <span>🔔</span>
-                <span>Sound FX</span>
-              </button>
-            </>
-          )}
-
-          {/* CALL TO ACTION TABS: Platform, Text, Colours, Size & Position */}
-          {isCallToAction && !isIntroOutro && (
-            <>
-              {[
-                { id: "cta_platform", icon: "🌐", label: "Platform" },
-                { id: "cta_text", icon: "✏️", label: "Text & Icon" },
-                { id: "cta_style", icon: "🎨", label: "Colours" },
-                { id: "cta_layout", icon: "📐", label: "Size & Position" },
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setActiveTab(t.id)}
-                  className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-                    activeTab === t.id
-                      ? "border-indigo-500 text-indigo-400"
-                      : "border-transparent text-gray-400 hover:text-gray-200"
-                  }`}
-                >
-                  <span>{t.icon}</span>
-                  <span>{t.label}</span>
-                </button>
-              ))}
-            </>
-          )}
-
-          {/* Visual Placement & Sizing (for all visual elements including waves, non-intro/outro) */}
-          {!isSoundEffect && !isIntroOutro && !isCallToAction && (
+        {/* Section jump row — every section is stacked below; the buttons
+            scroll you to it rather than hiding everything else. */}
+        <div
+          className="px-6 py-3 border-b border-hairline flex flex-wrap items-center gap-2 bg-gray-950/40"
+          role="tablist"
+          aria-label="Editor sections"
+        >
+          {visibleSectionTabs.map((s) => (
             <button
+              key={`${s.tab}-${s.id}`}
               type="button"
-              onClick={() => setActiveTab("visuals")}
-              className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                activeTab === "visuals"
-                  ? "border-indigo-500 text-indigo-400"
-                  : "border-transparent text-gray-400 hover:text-gray-200"
-              }`}
+              onClick={() => jumpToSection(s.tab, s.id)}
+              className={`opt-btn ${s.tone ?? ""} ${activeTab === s.tab ? "opt-btn-on" : ""}`}
             >
-              <span>📐</span>
-              <span>Position & Size</span>
+              <span className="text-sm">{s.icon}</span>
+              <span>{s.name}</span>
             </button>
-          )}
-
-          {/* Audio Reactivity (Strictly for Wave & Visualizer Effects) */}
-          {isAudioVisualizer && (
-            <button
-              type="button"
-              onClick={() => setActiveTab("reactivity")}
-              className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                activeTab === "reactivity"
-                  ? "border-indigo-500 text-indigo-400"
-                  : "border-transparent text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              <span>🎙️</span>
-              <span>Audio Reactivity</span>
-            </button>
-          )}
-
-          {/* Sound Settings (Strictly for Sound FX) */}
-          {isSoundEffect && (
-            <button
-              type="button"
-              onClick={() => setActiveTab("audio")}
-              className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                activeTab === "audio"
-                  ? "border-indigo-500 text-indigo-400"
-                  : "border-transparent text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              <span>🔊</span>
-              <span>Sound & Volume</span>
-            </button>
-          )}
-
-          {/* Content Card Text (for Content / CTA cards, non-intro/outro) */}
-          {!isIntroOutro && isContentCard && (
-            <button
-              type="button"
-              onClick={() => setActiveTab("content")}
-              className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                activeTab === "content"
-                  ? "border-indigo-500 text-indigo-400"
-                  : "border-transparent text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              <span>📝</span>
-              <span>Text Content</span>
-            </button>
-          )}
-
-          {/* Design tab: plate, border, fonts, colours, transparency, motion */}
-          {!isIntroOutro && isContentCard && (
-            <button
-              type="button"
-              onClick={() => setActiveTab("design")}
-              className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                activeTab === "design"
-                  ? "border-indigo-500 text-indigo-400"
-                  : "border-transparent text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              <span>🎨</span>
-              <span>Design</span>
-            </button>
-          )}
-
-          {/* Optional Attached Sound (for Stickers & CTAs, non-intro/outro) */}
-          {!isIntroOutro && isSticker && (
-            <button
-              type="button"
-              onClick={() => setActiveTab("attached_audio")}
-              className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                activeTab === "attached_audio"
-                  ? "border-indigo-500 text-indigo-400"
-                  : "border-transparent text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              <span>🔔</span>
-              <span>Sound FX</span>
-            </button>
-          )}
-
-          {/* Timing & Timeline Window */}
-          <button
-            type="button"
-            onClick={() => setActiveTab("timing")}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-              activeTab === "timing"
-                ? "border-indigo-500 text-indigo-400"
-                : "border-transparent text-gray-400 hover:text-gray-200"
-            }`}
-          >
-            <span>⏱️</span>
-            <span>Timing</span>
-          </button>
+          ))}
+          <span className="opt-hint ml-auto">
+            <span>↓</span>
+            <span>every section is listed below — just scroll</span>
+          </span>
         </div>
 
-        {/* Modal Scrollable Body */}
-        <div className="p-6 flex-1 min-h-0 overflow-y-auto space-y-5 text-sm">
-          {/* Live call-to-action preview — scrolls with the settings below it, so
-              it never pins itself over the choices the user is working through. */}
-          {isCallToAction && !isIntroOutro && (
-            <CtaBadgePreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
-          )}
-
+        {/* Modal Body — one long page; every section stacked below the last */}
+        <div className="p-6 space-y-8 text-sm">
           {/* Quick Intro / Outro Alignment Banner */}
           {isIntroOutro && (
             <div
@@ -828,7 +781,7 @@ function InsertPropertiesContent({
                 <span className="font-bold text-white text-sm">
                   {insert.category === "intro" ? "🎬 Intro Placement:" : "🏁 Outro Placement:"}
                 </span>
-                <span className="font-mono text-white bg-black/60 px-2 py-0.5 rounded border border-gray-700">
+                <span className="font-mono text-white bg-black/60 px-2 py-0.5 rounded border border-hairline">
                   {data.startTime.toFixed(1)}s (duration {data.duration}s)
                 </span>
                 {insert.category === "intro" && data.startTime === 0 && (
@@ -872,10 +825,11 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: INTRO / OUTRO TENSION FX & VIDEO */}
-          {isIntroOutro && activeTab === "intro_fx" && (
+          {isIntroOutro && (
             <div className="space-y-4">
+              <BlockTitle id="ipm-intro-fx" icon="🎬" title="Tension FX & Video" />
               {/* Tension Getter Selector */}
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <label className="text-xs font-semibold text-white block">
                   ⚡ Tension Getter Motion Style:
                 </label>
@@ -905,7 +859,7 @@ function InsertPropertiesContent({
                         className={`p-2.5 rounded-xl border text-left transition-all ${
                           isSelected
                             ? "bg-amber-950/80 border-amber-500 text-white ring-1 ring-amber-500/50"
-                            : "bg-gray-900/70 border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-200"
+                            : "bg-gray-900/70 border-hairline text-gray-400 hover:border-hairline hover:text-gray-200"
                         }`}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-xs text-white">
@@ -920,7 +874,7 @@ function InsertPropertiesContent({
               </div>
 
               {/* Video Background Presets */}
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-white">
                     🎬 HD Video Background (
@@ -956,7 +910,7 @@ function InsertPropertiesContent({
                         className={`p-3 rounded-xl border text-left transition-all ${
                           isSelected
                             ? "bg-amber-950/80 border-amber-500 text-white ring-2 ring-amber-500/40"
-                            : "bg-gray-900/80 border-gray-750 text-gray-300 hover:border-gray-600"
+                            : "bg-gray-900/80 border-hairline text-gray-300 hover:border-hairline"
                         }`}
                       >
                         <div className="flex items-center justify-between">
@@ -977,7 +931,7 @@ function InsertPropertiesContent({
                 </div>
 
                 {/* Custom Video or Image URL Input */}
-                <div className="pt-3 border-t border-gray-700 space-y-3">
+                <div className="pt-3 border-t border-hairline space-y-3">
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-[11px] font-semibold text-gray-200">
@@ -1002,7 +956,7 @@ function InsertPropertiesContent({
                         }));
                       }}
                       placeholder="https://...mp4 or https://...png or custom asset"
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-mono"
+                      className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-mono"
                     />
                     <p className="text-[10px] text-gray-400 mt-1">
                       Supports direct full-screen video clips or full-screen static branding graphics.
@@ -1070,11 +1024,12 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: INTRO / OUTRO BRAND LOGO */}
-          {isIntroOutro && activeTab === "brand" && (
+          {isIntroOutro && (
             <div className="space-y-4">
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-4">
+              <BlockTitle id="ipm-brand" icon="🏷️" title="Brand Logo" />
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-4">
                 {/* Show Logo Toggle */}
-                <div className="flex items-center justify-between pb-3 border-b border-gray-700">
+                <div className="flex items-center justify-between pb-3 border-b border-hairline">
                   <div>
                     <span className="text-xs font-semibold text-white block">
                       Show Brand Logo Image
@@ -1108,7 +1063,7 @@ function InsertPropertiesContent({
                         updateContent("showLogo", true);
                       }}
                       placeholder="Image URL or upload a file..."
-                      className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-mono"
+                      className="flex-1 bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-mono"
                     />
                     <button
                       type="button"
@@ -1145,7 +1100,7 @@ function InsertPropertiesContent({
                           className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-all ${
                             (data.content?.logoPosition || "center") === pos.id
                               ? "bg-amber-950 border-amber-500 text-white"
-                              : "bg-gray-900 border-gray-700 text-gray-400 hover:text-white"
+                              : "bg-gray-900 border-hairline text-gray-400 hover:text-white"
                           }`}
                         >
                           {pos.label}
@@ -1176,7 +1131,7 @@ function InsertPropertiesContent({
 
                 {/* Logo Preview Box */}
                 {data.content?.logoUrl && (
-                  <div className="p-3 bg-black/60 border border-gray-800 rounded-xl flex items-center justify-center gap-4">
+                  <div className="p-3 bg-black/60 border border-hairline rounded-xl flex items-center justify-center gap-4">
                     <img
                       src={data.content.logoUrl}
                       alt="Brand Logo Preview"
@@ -1194,8 +1149,9 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: VISUAL POSITION & SIZE */}
-          {activeTab === "visuals" && !isSoundEffect && !isIntroOutro && (
+          {!isSoundEffect && !isIntroOutro && (
             <div className="space-y-4">
+              <BlockTitle id="ipm-visuals" icon="📐" title="Position &amp; Size" />
               {/* Note for wave effects */}
               {isAudioVisualizer && (
                 <div className="bg-indigo-950/50 border border-indigo-800/60 rounded-xl p-3 text-xs text-indigo-200 flex items-start gap-2.5">
@@ -1210,7 +1166,7 @@ function InsertPropertiesContent({
               )}
 
               {/* Size / Scale Slider */}
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-2">
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-2">
                 <div className="flex justify-between text-xs text-gray-300">
                   <span className="font-medium text-white flex items-center gap-1.5">
                     <span>🔍</span>
@@ -1238,9 +1194,9 @@ function InsertPropertiesContent({
 
               {/* Visualizer Dimensions, Full-Width & Thickness */}
               {isAudioVisualizer && (
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   {/* Headline choice, kept on the tab users land on: what drives the motion */}
-                  <div className="space-y-2 pb-3 border-b border-gray-750">
+                  <div className="space-y-2 pb-3 border-b border-hairline">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium text-white">Moves With:</span>
                       <span className="text-[11px] text-gray-400">
@@ -1254,7 +1210,7 @@ function InsertPropertiesContent({
                         className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all flex items-center justify-center gap-1.5 ${
                           data.audioSource !== "music"
                             ? "bg-indigo-600 border-indigo-500 text-white shadow-sm"
-                            : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750"
+                            : "bg-gray-800 border-hairline text-gray-300 hover:bg-gray-750"
                         }`}
                       >
                         <span>🎙️</span>
@@ -1266,7 +1222,7 @@ function InsertPropertiesContent({
                         className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all flex items-center justify-center gap-1.5 ${
                           data.audioSource === "music"
                             ? "bg-indigo-600 border-indigo-500 text-white shadow-sm"
-                            : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750"
+                            : "bg-gray-800 border-hairline text-gray-300 hover:bg-gray-750"
                         }`}
                       >
                         <span>🎵</span>
@@ -1276,7 +1232,7 @@ function InsertPropertiesContent({
                   </div>
 
                   {/* Colour theme — the "look" of the visualiser, in one tap */}
-                  <div className="space-y-2 pt-3 border-t border-gray-750">
+                  <div className="space-y-2 pt-3 border-t border-hairline">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium text-white">Colour Theme:</span>
                       <span className="text-[11px] text-gray-400">
@@ -1305,7 +1261,7 @@ function InsertPropertiesContent({
                             className={`h-7 pl-1 pr-2 rounded-full border flex items-center gap-1.5 transition-all ${
                               active
                                 ? "border-indigo-400 ring-1 ring-indigo-400 bg-gray-800"
-                                : "border-gray-700 hover:border-gray-500 bg-gray-900"
+                                : "border-hairline hover:border-hairline bg-gray-900"
                             }`}
                           >
                             <span
@@ -1324,7 +1280,7 @@ function InsertPropertiesContent({
                         className={`h-7 px-2 rounded-full border text-[10px] transition-all ${
                           !data.visualOptions?.colorTheme || data.visualOptions?.colorTheme === "custom"
                             ? "border-indigo-400 ring-1 ring-indigo-400 bg-gray-800 text-white"
-                            : "border-gray-700 hover:border-gray-500 bg-gray-900 text-gray-300"
+                            : "border-hairline hover:border-hairline bg-gray-900 text-gray-300"
                         }`}
                       >
                         Custom
@@ -1340,7 +1296,7 @@ function InsertPropertiesContent({
                           onChange={(e) =>
                             updateVisual({ primaryColor: e.target.value, colorTheme: "custom" })
                           }
-                          className="w-full h-7 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                          className="w-full h-7 rounded-lg bg-gray-900 border border-hairline cursor-pointer"
                         />
                       </div>
                       <div>
@@ -1351,7 +1307,7 @@ function InsertPropertiesContent({
                           onChange={(e) =>
                             updateVisual({ secondaryColor: e.target.value, colorTheme: "custom" })
                           }
-                          className="w-full h-7 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                          className="w-full h-7 rounded-lg bg-gray-900 border border-hairline cursor-pointer"
                         />
                       </div>
                       <div>
@@ -1362,7 +1318,7 @@ function InsertPropertiesContent({
                           onChange={(e) =>
                             updateVisual({ accentColor: e.target.value, colorTheme: "custom" })
                           }
-                          className="w-full h-7 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                          className="w-full h-7 rounded-lg bg-gray-900 border border-hairline cursor-pointer"
                         />
                       </div>
                     </div>
@@ -1370,7 +1326,7 @@ function InsertPropertiesContent({
 
                   {/* Centre logo — the user's own brand mark in the middle */}
                   {supportsCentreLogo(data.type) && (
-                    <div className="pt-3 border-t border-gray-750 space-y-1.5">
+                    <div className="pt-3 border-t border-hairline space-y-1.5">
                       <div className="flex items-center justify-between">
                         <div>
                           <span className="text-xs font-medium text-white block">
@@ -1392,7 +1348,7 @@ function InsertPropertiesContent({
                   )}
 
                   {/* Sound detail — how many frequency bands the analyser splits */}
-                  <div className="space-y-1.5 pt-3 border-t border-gray-750">
+                  <div className="space-y-1.5 pt-3 border-t border-hairline">
                     <div className="flex justify-between text-xs text-gray-300">
                       <span className="text-xs font-medium text-white">Sound Detail (Bands):</span>
                       <span className="font-mono text-indigo-400 font-semibold">
@@ -1422,7 +1378,7 @@ function InsertPropertiesContent({
 
                   {/* Full scene width toggle for linear visualizers */}
                   {!isRoundVisualizer(data.type) && (
-                      <div className="flex items-center justify-between pb-3 border-b border-gray-750">
+                      <div className="flex items-center justify-between pb-3 border-b border-hairline">
                         <div>
                           <span className="text-xs font-medium text-white block">
                             Stretch Across Entire Scene (Full Width)
@@ -1460,7 +1416,7 @@ function InsertPropertiesContent({
                   </div>
 
                   {/* Reaction Strength */}
-                  <div className="space-y-1.5 pt-2 border-t border-gray-750">
+                  <div className="space-y-1.5 pt-2 border-t border-hairline">
                     <div className="flex justify-between text-xs text-gray-300">
                       <span className="text-xs font-medium text-white">Reaction Strength:</span>
                       <span className="font-mono text-indigo-400 font-semibold">
@@ -1483,7 +1439,7 @@ function InsertPropertiesContent({
                   </div>
 
                   {/* Whole-video span */}
-                  <div className="flex items-center justify-between pt-2 border-t border-gray-750">
+                  <div className="flex items-center justify-between pt-2 border-t border-hairline">
                     <div>
                       <span className="text-xs font-medium text-white block">
                         Run Through the Entire Video
@@ -1513,7 +1469,7 @@ function InsertPropertiesContent({
                   </div>
 
                   {/* Glow & Bloom Intensity */}
-                  <div className="space-y-1.5 pt-2 border-t border-gray-750">
+                  <div className="space-y-1.5 pt-2 border-t border-hairline">
                     <div className="flex justify-between text-xs text-gray-300">
                       <span className="text-xs font-medium text-white">Glow & Bloom Intensity:</span>
                       <span className="font-mono text-indigo-400 font-semibold">
@@ -1532,7 +1488,7 @@ function InsertPropertiesContent({
                   </div>
 
                   {/* 3D Extruded Depth Toggle */}
-                  <div className="flex items-center justify-between pt-2 border-t border-gray-750">
+                  <div className="flex items-center justify-between pt-2 border-t border-hairline">
                     <div>
                       <span className="text-xs font-medium text-white block">
                         3D Extruded Depth & Highlights
@@ -1552,7 +1508,7 @@ function InsertPropertiesContent({
               )}
 
               {/* Position Presets */}
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-2.5">
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-2.5">
                 <label className="text-xs font-medium text-white block">
                   Screen Position Placement:
                 </label>
@@ -1575,7 +1531,7 @@ function InsertPropertiesContent({
                       className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                         data.presetPosition === pos.id
                           ? "bg-indigo-600 border-indigo-500 text-white shadow-sm"
-                          : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750 hover:text-white"
+                          : "bg-gray-800 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
                       }`}
                     >
                       {pos.label}
@@ -1587,7 +1543,7 @@ function InsertPropertiesContent({
               {/* Motion — shared by stickers and CTA badges. This is what puts
                   movement in the video and pulls the viewer's eye. */}
               {(isSticker || isCallToAction) && (
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-4">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-4">
                   <div>
                     <span className="text-xs font-semibold text-white block">🎞️ Motion</span>
                     <span className="text-[11px] text-gray-400">
@@ -1597,7 +1553,7 @@ function InsertPropertiesContent({
 
                   {/* Live preview of the current settings (stickers only) */}
                   {isSticker && (
-                    <div className="flex items-center gap-4 bg-gray-950/60 border border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center gap-4 bg-gray-950/60 border border-hairline rounded-lg p-3">
                       <StickerPreviewCanvas
                         stickerId={data.visualOptions?.stickerId || insert.type}
                         motionPreset={data.visualOptions?.motionPreset}
@@ -1632,7 +1588,7 @@ function InsertPropertiesContent({
                           className={`px-1.5 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer ${
                             active
                               ? "bg-indigo-600 border-indigo-400 text-white"
-                              : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                              : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                           }`}
                         >
                           <span className="text-base leading-none">{m.icon}</span>
@@ -1698,7 +1654,7 @@ function InsertPropertiesContent({
 
               {/* 3D look controls specific to stickers */}
               {isSticker && (
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   <div>
                     <span className="text-xs font-semibold text-white block">✨ 3D Look</span>
                     <span className="text-[11px] text-gray-400">
@@ -1742,7 +1698,7 @@ function InsertPropertiesContent({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-gray-750">
+                  <div className="flex items-center justify-between pt-2 border-t border-hairline">
                     <div>
                       <span className="text-xs text-gray-300 block">Recolour</span>
                       <span className="text-[10px] text-gray-500">Off = the sticker's own materials</span>
@@ -1752,14 +1708,14 @@ function InsertPropertiesContent({
                         type="color"
                         value={data.visualOptions?.stickerTint || "#FFC400"}
                         onChange={(e) => updateVisualOptions("stickerTint", e.target.value)}
-                        className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        className="w-7 h-7 rounded cursor-pointer border border-hairline bg-transparent"
                       />
                       <button
                         type="button"
                         onClick={() => updateVisualOptions("stickerTint", null)}
                         className={`px-2 py-1 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
                           data.visualOptions?.stickerTint
-                            ? "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                            ? "bg-gray-900 border-hairline text-gray-300 hover:border-hairline"
                             : "bg-indigo-600 border-indigo-400 text-white"
                         }`}
                       >
@@ -1769,9 +1725,9 @@ function InsertPropertiesContent({
                   </div>
 
                   {/* Swap the sticker without deleting and re-adding it */}
-                  <div className="pt-2 border-t border-gray-750 space-y-2">
+                  <div className="pt-2 border-t border-hairline space-y-2">
                     <span className="text-xs text-gray-300 block">Swap sticker:</span>
-                    <div className="grid grid-cols-6 xs:grid-cols-8 gap-1 max-h-32 overflow-y-auto pr-1">
+                    <div className="grid grid-cols-6 xs:grid-cols-8 gap-1">
                       {STICKER_LIBRARY.map((st) => {
                         const active = (data.visualOptions?.stickerId || insert.type) === st.id;
                         return (
@@ -1783,7 +1739,7 @@ function InsertPropertiesContent({
                             className={`aspect-square rounded-md border flex items-center justify-center text-base transition-colors cursor-pointer ${
                               active
                                 ? "bg-indigo-600 border-indigo-400"
-                                : "bg-gray-900/70 border-gray-700 hover:border-gray-500"
+                                : "bg-gray-900/70 border-hairline hover:border-hairline"
                             }`}
                           >
                             {st.icon}
@@ -1797,7 +1753,7 @@ function InsertPropertiesContent({
 
               {/* Visual 3D Styling (for stickers & CTAs) */}
               {(isSticker || isCallToAction) && (
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
                       <span className="text-xs font-medium text-white block">3D Extruded Depth & Highlights</span>
@@ -1811,7 +1767,7 @@ function InsertPropertiesContent({
                     />
                   </div>
 
-                  <div className="pt-2 border-t border-gray-750 flex items-center justify-between">
+                  <div className="pt-2 border-t border-hairline flex items-center justify-between">
                     <span className="text-xs text-gray-300">Opacity:</span>
                     <div className="flex items-center gap-2">
                       <input
@@ -1833,7 +1789,7 @@ function InsertPropertiesContent({
 
               {/* Color Customization for Audio Visualizers */}
               {isAudioVisualizer && (
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   <label className="text-xs font-semibold text-white block">
                     🎨 Visualizer Colors & 3D Lighting:
                   </label>
@@ -1847,7 +1803,7 @@ function InsertPropertiesContent({
                           type="color"
                           value={data.visualOptions?.primaryColor || "#38bdf8"}
                           onChange={(e) => updateVisualOptions("primaryColor", e.target.value)}
-                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                          className="w-6 h-6 rounded cursor-pointer border border-hairline bg-transparent"
                         />
                         <span className="font-mono text-[11px] text-gray-400">
                           {data.visualOptions?.primaryColor || "#38bdf8"}
@@ -1870,7 +1826,7 @@ function InsertPropertiesContent({
                           type="button"
                           title={name}
                           onClick={() => updateVisualOptions("primaryColor", color)}
-                          className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                          className={`w-7 h-7 rounded-full border transition-transform ${
                             (data.visualOptions?.primaryColor || "#38bdf8").toLowerCase() === color.toLowerCase()
                               ? "scale-110 border-white shadow-lg ring-2 ring-indigo-400"
                               : "border-transparent hover:scale-105"
@@ -1882,7 +1838,7 @@ function InsertPropertiesContent({
                   </div>
 
                   {/* Secondary Gradient Color */}
-                  <div className="space-y-2 pt-2 border-t border-gray-750">
+                  <div className="space-y-2 pt-2 border-t border-hairline">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-gray-300 font-medium">Secondary / Crest Color:</span>
                       <div className="flex items-center gap-2">
@@ -1890,7 +1846,7 @@ function InsertPropertiesContent({
                           type="color"
                           value={data.visualOptions?.secondaryColor || "#f43f5e"}
                           onChange={(e) => updateVisualOptions("secondaryColor", e.target.value)}
-                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                          className="w-6 h-6 rounded cursor-pointer border border-hairline bg-transparent"
                         />
                         <span className="font-mono text-[11px] text-gray-400">
                           {data.visualOptions?.secondaryColor || "#f43f5e"}
@@ -1912,7 +1868,7 @@ function InsertPropertiesContent({
                           type="button"
                           title={name}
                           onClick={() => updateVisualOptions("secondaryColor", color)}
-                          className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                          className={`w-7 h-7 rounded-full border transition-transform ${
                             (data.visualOptions?.secondaryColor || "#f43f5e").toLowerCase() === color.toLowerCase()
                               ? "scale-110 border-white shadow-lg ring-2 ring-indigo-400"
                               : "border-transparent hover:scale-105"
@@ -1924,7 +1880,7 @@ function InsertPropertiesContent({
                   </div>
 
                   {/* Quick 3D Theme Presets */}
-                  <div className="space-y-1.5 pt-2 border-t border-gray-750">
+                  <div className="space-y-1.5 pt-2 border-t border-hairline">
                     <span className="text-[11px] text-gray-400 font-medium block">Quick 3D Color Themes:</span>
                     <div className="grid grid-cols-3 gap-2">
                       {[
@@ -1942,7 +1898,7 @@ function InsertPropertiesContent({
                             updateVisualOptions("primaryColor", th.c1);
                             updateVisualOptions("secondaryColor", th.c2);
                           }}
-                          className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold text-white border border-gray-700 hover:border-gray-500 transition-all flex items-center justify-between"
+                          className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold text-white border border-hairline hover:border-hairline transition-all flex items-center justify-between"
                           style={{ background: `linear-gradient(90deg, ${th.c1}33, ${th.c2}33)` }}
                         >
                           <span>{th.name}</span>
@@ -1960,9 +1916,10 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: AUDIO REACTIVITY (WAVE EFFECTS) */}
-          {activeTab === "reactivity" && isAudioVisualizer && (
+          {isAudioVisualizer && (
             <div className="space-y-4">
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <BlockTitle id="ipm-reactivity" icon="🎙️" title="Audio Reactivity" />
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <label className="text-xs font-semibold text-white block">
                   🎧 What should it move with?
                 </label>
@@ -1978,7 +1935,7 @@ function InsertPropertiesContent({
                     className={`p-3 rounded-xl border text-left transition-all ${
                       data.audioSource === "voice"
                         ? "bg-indigo-950/80 border-indigo-500 shadow-sm"
-                        : "bg-gray-800/60 border-gray-700 hover:bg-gray-800 text-gray-300"
+                        : "bg-gray-800/60 border-hairline hover:bg-gray-800 text-gray-300"
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
@@ -1997,7 +1954,7 @@ function InsertPropertiesContent({
                     className={`p-3 rounded-xl border text-left transition-all ${
                       data.audioSource === "music"
                         ? "bg-indigo-950/80 border-indigo-500 shadow-sm"
-                        : "bg-gray-800/60 border-gray-700 hover:bg-gray-800 text-gray-300"
+                        : "bg-gray-800/60 border-hairline hover:bg-gray-800 text-gray-300"
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
@@ -2012,7 +1969,7 @@ function InsertPropertiesContent({
                 </div>
               </div>
 
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-2">
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-2">
                 <div className="flex justify-between text-xs text-gray-300">
                   <span className="font-medium text-white">Reactivity Sensitivity:</span>
                   <span className="font-mono text-indigo-400">
@@ -2033,9 +1990,10 @@ function InsertPropertiesContent({
           )}
 
           {/* ================= TAB: CTA PLATFORM ================= */}
-          {activeTab === "cta_platform" && isCallToAction && (
+          {isCallToAction && (
             <div className="space-y-4">
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <BlockTitle id="ipm-cta-platform" icon="🌐" title="Platform Style" />
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <span className="text-xs font-semibold text-white block">
@@ -2063,7 +2021,7 @@ function InsertPropertiesContent({
                     className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
                       ctaGroup === "all"
                         ? "bg-indigo-600 border-indigo-500 text-white"
-                        : "bg-gray-900 border-gray-700 text-gray-300 hover:bg-gray-800"
+                        : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
                     }`}
                   >
                     All ({CTA_PLATFORMS.length})
@@ -2076,7 +2034,7 @@ function InsertPropertiesContent({
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
                         ctaGroup === g.id
                           ? "bg-indigo-600 border-indigo-500 text-white"
-                          : "bg-gray-900 border-gray-700 text-gray-300 hover:bg-gray-800"
+                          : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
                       }`}
                     >
                       {g.icon} {g.name}
@@ -2089,11 +2047,11 @@ function InsertPropertiesContent({
                   value={ctaSearch}
                   onChange={(e) => setCtaSearch(e.target.value)}
                   placeholder="Search platforms (instagram, spotify, shop...)"
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                 />
 
                 {/* Platform grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto pr-1">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {CTA_PLATFORMS.filter(
                     (pf) =>
                       (ctaGroup === "all" || pf.group === ctaGroup) &&
@@ -2111,7 +2069,7 @@ function InsertPropertiesContent({
                         className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2 ${
                           isActive
                             ? "bg-indigo-950/80 border-indigo-500 ring-1 ring-indigo-400"
-                            : "bg-gray-900 border-gray-700 hover:bg-gray-800 hover:border-indigo-500/50"
+                            : "bg-gray-900 border-hairline hover:bg-gray-800 hover:border-indigo-500/50"
                         }`}
                       >
                         <span
@@ -2138,9 +2096,10 @@ function InsertPropertiesContent({
           )}
 
           {/* ================= TAB: CTA TEXT & ICON ================= */}
-          {activeTab === "cta_text" && isCallToAction && (
+          {isCallToAction && (
             <div className="space-y-4">
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <BlockTitle id="ipm-cta-text" icon="✏️" title="Button Text &amp; Icon" />
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <span className="text-xs font-semibold text-white block">✏️ Button Wording:</span>
 
                 <div>
@@ -2150,7 +2109,7 @@ function InsertPropertiesContent({
                     value={data.content?.primaryText || ""}
                     onChange={(e) => updateContent("primaryText", e.target.value)}
                     placeholder="SUBSCRIBE NOW"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs font-semibold focus:outline-none focus:border-indigo-500"
                   />
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     {["SUBSCRIBE", "FOLLOW US", "LIKE & SHARE", "WATCH NOW", "SHOP NOW", "LEARN MORE", "JOIN FREE"].map(
@@ -2159,7 +2118,7 @@ function InsertPropertiesContent({
                           key={preset}
                           type="button"
                           onClick={() => updateContent("primaryText", preset)}
-                          className="px-2 py-0.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 rounded-md text-[10px] text-gray-300"
+                          className="px-2 py-0.5 bg-gray-900 hover:bg-gray-800 border border-hairline rounded-md text-[10px] text-gray-300"
                         >
                           {preset}
                         </button>
@@ -2175,12 +2134,12 @@ function InsertPropertiesContent({
                     value={data.content?.secondaryText || ""}
                     onChange={(e) => updateContent("secondaryText", e.target.value)}
                     placeholder="Link in bio · New videos every week"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                   />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <div className="bg-gray-900/70 border border-gray-700 rounded-xl p-3 space-y-2">
+                  <div className="bg-gray-900/70 border border-hairline rounded-xl p-3 space-y-2">
                     <div className="flex justify-between text-[11px] text-gray-300">
                       <span className="font-medium text-white">Text size</span>
                       <span className="font-mono text-indigo-400">{Math.round((data.visualOptions?.textScale ?? 1) * 100)}%</span>
@@ -2195,7 +2154,7 @@ function InsertPropertiesContent({
                       className="w-full accent-indigo-500 cursor-pointer"
                     />
                   </div>
-                  <div className="bg-gray-900/70 border border-gray-700 rounded-xl p-3 space-y-2">
+                  <div className="bg-gray-900/70 border border-hairline rounded-xl p-3 space-y-2">
                     <div className="flex justify-between text-[11px] text-gray-300">
                       <span className="font-medium text-white">Brand mark size</span>
                       <span className="font-mono text-indigo-400">{Math.round((data.visualOptions?.iconScale ?? 1) * 100)}%</span>
@@ -2220,7 +2179,7 @@ function InsertPropertiesContent({
                       onClick={() => updateVisual({ customMark: undefined })}
                       className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
                         data.visualOptions?.customMark
-                          ? "bg-gray-900 border-gray-700 text-gray-300 hover:bg-gray-800"
+                          ? "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
                           : "bg-indigo-600 border-indigo-400 text-white"
                       }`}
                     >
@@ -2242,7 +2201,7 @@ function InsertPropertiesContent({
                           className={`w-8 h-8 rounded-lg text-sm flex items-center justify-center border transition-all ${
                             data.visualOptions?.customMark === ico
                               ? "bg-indigo-600 border-indigo-400 scale-110 shadow"
-                              : "bg-gray-900 border-gray-700 hover:bg-gray-800"
+                              : "bg-gray-900 border-hairline hover:bg-gray-800"
                           }`}
                         >
                           {ico}
@@ -2261,9 +2220,10 @@ function InsertPropertiesContent({
           )}
 
           {/* ================= TAB: CTA COLOURS & STYLE ================= */}
-          {activeTab === "cta_style" && isCallToAction && (
+          {isCallToAction && (
             <div className="space-y-4">
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <BlockTitle id="ipm-cta-style" icon="🎨" title="Colours, Shape &amp; Gradient" />
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <span className="text-xs font-semibold text-white block">🎨 Badge Shape:</span>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {CTA_SHAPES.map((sh) => {
@@ -2276,7 +2236,7 @@ function InsertPropertiesContent({
                         className={`p-2.5 rounded-xl border text-left transition-all ${
                           isActive
                             ? "bg-indigo-950/80 border-indigo-500 ring-1 ring-indigo-400"
-                            : "bg-gray-900 border-gray-700 hover:bg-gray-800"
+                            : "bg-gray-900 border-hairline hover:bg-gray-800"
                         }`}
                       >
                         <CtaOptionThumb item={data} patch={{ ctaShape: sh.id }} width={128} height={52} />
@@ -2290,7 +2250,7 @@ function InsertPropertiesContent({
                   })}
                 </div>
 
-                <span className="text-xs font-semibold text-white block pt-2 border-t border-gray-700/80">
+                <span className="text-xs font-semibold text-white block pt-2 border-t border-hairline">
                   Badge Finish:
                 </span>
                 <div className="grid grid-cols-2 gap-2">
@@ -2304,7 +2264,7 @@ function InsertPropertiesContent({
                         className={`p-2.5 rounded-xl border text-left transition-all ${
                           isActive
                             ? "bg-indigo-950/80 border-indigo-500 ring-1 ring-indigo-400"
-                            : "bg-gray-900 border-gray-700 hover:bg-gray-800"
+                            : "bg-gray-900 border-hairline hover:bg-gray-800"
                         }`}
                       >
                         <CtaOptionThumb item={data} patch={{ ctaStyle: st.id }} width={148} height={54} />
@@ -2316,7 +2276,7 @@ function InsertPropertiesContent({
                 </div>
               </div>
 
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <span className="text-xs font-semibold text-white block">🎨 Brand Colour Themes:</span>
                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                   {COLOR_PRESETS.map((cp) => {
@@ -2328,7 +2288,7 @@ function InsertPropertiesContent({
                         type="button"
                         onClick={() => updateVisual({ primaryColor: cp.c1, secondaryColor: cp.c2 })}
                         className={`p-2 rounded-xl border transition-all ${
-                          isActive ? "border-indigo-400 ring-1 ring-indigo-400" : "border-gray-700 hover:border-gray-500"
+                          isActive ? "border-indigo-400 ring-1 ring-indigo-400" : "border-hairline hover:border-hairline"
                         }`}
                         title={cp.name}
                       >
@@ -2344,14 +2304,14 @@ function InsertPropertiesContent({
                   })}
                 </div>
 
-                <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 xs:gap-3 pt-2 border-t border-gray-700/80">
+                <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 xs:gap-3 pt-2 border-t border-hairline">
                   <div>
                     <span className="text-[10px] text-gray-400 block mb-1">Top colour</span>
                     <input
                       type="color"
                       value={data.visualOptions?.primaryColor || "#6366F1"}
                       onChange={(e) => updateVisual({ primaryColor: e.target.value })}
-                      className="w-full h-8 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                      className="w-full h-8 rounded-lg bg-gray-900 border border-hairline cursor-pointer"
                     />
                   </div>
                   <div>
@@ -2360,7 +2320,7 @@ function InsertPropertiesContent({
                       type="color"
                       value={data.visualOptions?.secondaryColor || "#4F46E5"}
                       onChange={(e) => updateVisual({ secondaryColor: e.target.value })}
-                      className="w-full h-8 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                      className="w-full h-8 rounded-lg bg-gray-900 border border-hairline cursor-pointer"
                     />
                   </div>
                   <div>
@@ -2369,13 +2329,13 @@ function InsertPropertiesContent({
                       type="color"
                       value={data.visualOptions?.textColor || "#FFFFFF"}
                       onChange={(e) => updateVisual({ textColor: e.target.value })}
-                      className="w-full h-8 rounded-lg bg-gray-900 border border-gray-700 cursor-pointer"
+                      className="w-full h-8 rounded-lg bg-gray-900 border border-hairline cursor-pointer"
                     />
                   </div>
                 </div>
               </div>
 
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-4">
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-4">
                 <span className="text-xs font-semibold text-white block">🪄 Raised 2D Badge Look:</span>
 
                 <div>
@@ -2418,7 +2378,7 @@ function InsertPropertiesContent({
                   />
                 </div>
 
-                <label className="flex items-center justify-between gap-3 pt-2 border-t border-gray-700/80 cursor-pointer">
+                <label className="flex items-center justify-between gap-3 pt-2 border-t border-hairline cursor-pointer">
                   <span className="text-[11px] text-gray-300">
                     <span className="block font-semibold text-white">Glow behind the badge</span>
                     <span className="block text-[10px] text-gray-500">
@@ -2437,9 +2397,10 @@ function InsertPropertiesContent({
           )}
 
           {/* ================= TAB: CTA SIZE & POSITION ================= */}
-          {activeTab === "cta_layout" && isCallToAction && (
+          {isCallToAction && (
             <div className="space-y-4">
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-4">
+              <BlockTitle id="ipm-cta-layout" icon="📐" title="Size, Position &amp; Rotation" />
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-4">
                 <div>
                   <div className="flex justify-between text-[11px] text-gray-300 mb-1.5">
                     <span className="font-semibold text-white">Badge Size</span>
@@ -2512,7 +2473,7 @@ function InsertPropertiesContent({
                 </div>
               </div>
 
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <span className="text-xs font-semibold text-white block">📍 Screen Position:</span>
                 <div className="grid grid-cols-3 gap-2 max-w-xs">
                   {CTA_POSITIONS.map((pp) => {
@@ -2542,7 +2503,7 @@ function InsertPropertiesContent({
                         className={`h-9 rounded-lg border text-[10px] font-semibold transition-all ${
                           isActive
                             ? "bg-indigo-600 border-indigo-400 text-white"
-                            : "bg-gray-900 border-gray-700 text-gray-300 hover:bg-gray-800"
+                            : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
                         }`}
                         title={pp.label}
                       >
@@ -2613,9 +2574,10 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: SOUND CONTROLS (MUSIC & SOUND FX) */}
-          {activeTab === "audio" && isSoundEffect && (
+          {isSoundEffect && (
             <div className="space-y-4">
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <BlockTitle id="ipm-audio" icon="🔊" title="Sound &amp; Volume" />
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <span className="text-xs font-semibold text-white block">
@@ -2646,7 +2608,7 @@ function InsertPropertiesContent({
                     className={`rounded-xl border p-3 transition-colors ${
                       data.audioSettings?.loop
                         ? "bg-indigo-950/50 border-indigo-500/70"
-                        : "bg-gray-900/60 border-gray-700"
+                        : "bg-gray-900/60 border-hairline"
                     }`}
                   >
                     <label className="flex items-start gap-3 cursor-pointer">
@@ -2677,7 +2639,7 @@ function InsertPropertiesContent({
                       </div>
                     </label>
 
-                    <p className="mt-2 pt-2 border-t border-gray-700/70 text-[11px] font-mono text-indigo-300">
+                    <p className="mt-2 pt-2 border-t border-hairline text-[11px] font-mono text-indigo-300">
                       {data.audioSettings?.loop
                         ? `▶ plays ${formatTime(data.startTime)} → end of video (${formatTime(totalDuration)}) on repeat`
                         : `▶ plays once at ${formatTime(data.startTime)} for ${Math.round(data.duration)}s`}
@@ -2685,7 +2647,7 @@ function InsertPropertiesContent({
                   </div>
                 )}
 
-                <div className="flex items-center justify-between pt-2 border-t border-gray-750">
+                <div className="flex items-center justify-between pt-2 border-t border-hairline">
                   {!isBackgroundMusic && (
                     <label className="text-xs text-gray-300 flex items-center gap-2 cursor-pointer">
                       <input
@@ -2731,9 +2693,10 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: ATTACHED SOUND FX (FOR INTROS, OUTROS, STICKERS, CTAs & OVERLAYS) */}
-          {activeTab === "attached_audio" && (
+          {(isIntroOutro || isSticker) && (
             <div className="space-y-4">
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <BlockTitle id="ipm-attached-audio" icon="🔔" title="Attached Sound FX" />
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <label className="text-xs font-semibold text-white block">
@@ -2769,7 +2732,7 @@ function InsertPropertiesContent({
                     className={`px-3 py-2 rounded-lg text-xs font-medium border text-left ${
                       !data.audioSettings?.soundUrl
                         ? "bg-indigo-600 text-white border-indigo-500"
-                        : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750"
+                        : "bg-gray-800 border-hairline text-gray-300 hover:bg-gray-750"
                     }`}
                   >
                     🚫 None (Silent)
@@ -2787,7 +2750,7 @@ function InsertPropertiesContent({
                       className={`px-3 py-2 rounded-lg text-xs font-medium border text-left flex items-center justify-between ${
                         data.audioSettings?.soundUrl === sound.url
                           ? "bg-indigo-600 text-white border-indigo-500"
-                          : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750"
+                          : "bg-gray-800 border-hairline text-gray-300 hover:bg-gray-750"
                       }`}
                     >
                       <span className="truncate">{sound.name}</span>
@@ -2799,7 +2762,7 @@ function InsertPropertiesContent({
                 </div>
 
                 {data.audioSettings?.soundUrl && (
-                  <div className="pt-3 border-t border-gray-750 flex flex-wrap items-center justify-between gap-3">
+                  <div className="pt-3 border-t border-hairline flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-gray-300">Sound Volume:</span>
                       <input
@@ -2822,7 +2785,7 @@ function InsertPropertiesContent({
                       className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
                         isPlayingTestSound
                           ? "bg-rose-600 text-white ring-2 ring-rose-400"
-                          : "bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+                          : "bg-gray-700 hover:bg-gray-600 text-white border border-hairline"
                       }`}
                     >
                       <span>{isPlayingTestSound ? "⏹️" : "▶️"}</span>
@@ -2835,10 +2798,11 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: INTRO / OUTRO TEXT CONTENT */}
-          {activeTab === "content" && isIntroOutro && (
+          {isIntroOutro && (
             <div className="space-y-4">
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between pb-2 border-b border-gray-700">
+              <BlockTitle id="ipm-content" icon="📝" title="Text &amp; Titles" />
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-hairline">
                   <div className="flex items-center gap-2">
                     <span className="text-base text-amber-400">
                       {insert.category === "intro" ? "🎬" : "🏁"}
@@ -2884,7 +2848,7 @@ function InsertPropertiesContent({
                           updateContent("secondaryText", preset.sub);
                           updateContent("label", preset.label);
                         }}
-                        className="p-2 bg-gray-900/80 hover:bg-gray-800 border border-gray-700/80 hover:border-amber-500/60 rounded-xl text-left transition-all group"
+                        className="p-2 bg-gray-900/80 hover:bg-gray-800 border border-hairline hover:border-amber-500/60 rounded-xl text-left transition-all group"
                       >
                         <span className="text-[9px] font-mono text-amber-400 block uppercase font-bold">
                           {preset.label}
@@ -2912,7 +2876,7 @@ function InsertPropertiesContent({
                         ? "e.g. THE FUTURE OF INTELLIGENCE"
                         : "e.g. THANKS FOR WATCHING"
                     }
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-bold tracking-wide"
+                    className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-bold tracking-wide"
                   />
                 </div>
 
@@ -2926,7 +2890,7 @@ function InsertPropertiesContent({
                     value={data.content?.secondaryText || ""}
                     onChange={(e) => updateContent("secondaryText", e.target.value)}
                     placeholder="e.g. EPISODE 01 • Like & Subscribe for more"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500"
+                    className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500"
                   />
                 </div>
 
@@ -2941,7 +2905,7 @@ function InsertPropertiesContent({
                       value={data.content?.label || ""}
                       onChange={(e) => updateContent("label", e.target.value)}
                       placeholder="e.g. PREMIERE, THE END..."
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-mono text-[11px]"
+                      className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 font-mono text-[11px]"
                     />
                   </div>
 
@@ -2954,7 +2918,7 @@ function InsertPropertiesContent({
                       value={data.content?.author || ""}
                       onChange={(e) => updateContent("author", e.target.value)}
                       placeholder="e.g. Produced by Studio"
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500"
+                      className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500"
                     />
                   </div>
                 </div>
@@ -2963,8 +2927,8 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: TEXT CONTENT & COMPLETED CTA TEMPLATES */}
-          {/* ============ DESIGN TAB: the full adjustable look ============ */}
-          {activeTab === "design" && !isIntroOutro && isContentCard && (() => {
+          {/* ============ DESIGN: the full adjustable look ============ */}
+          {!isIntroOutro && isContentCard && (() => {
             const tplId = resolveTemplateId(
               (data.visualOptions?.templateId as string) || insert.type
             );
@@ -2981,8 +2945,9 @@ function InsertPropertiesContent({
 
             return (
               <div className="space-y-5">
+                <BlockTitle id="ipm-design" icon="🎨" title="Look &amp; Design" hint="applies to this template" />
                 {/* Live preview of exactly what will be drawn */}
-                <div className="bg-gray-950/70 border border-gray-800 rounded-xl p-3 flex flex-col items-center gap-2">
+                <div className="bg-gray-950/70 border border-hairline rounded-xl p-3 flex flex-col items-center gap-2">
                   <TemplatePreviewCanvas
                     templateId={tplId}
                     content={data.content as Record<string, string>}
@@ -2995,13 +2960,13 @@ function InsertPropertiesContent({
                 </div>
 
                 {/* Swap to another template in the same section */}
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-2.5">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-white">Template</span>
                     <button
                       type="button"
                       onClick={resetTemplateStyle}
-                      className="text-[10px] px-2 py-1 rounded border border-gray-600 text-gray-300 hover:border-gray-400 transition-colors cursor-pointer"
+                      className="text-[10px] px-2 py-1 rounded border border-hairline text-gray-300 hover:border-hairline transition-colors cursor-pointer"
                     >
                       Reset design
                     </button>
@@ -3018,7 +2983,7 @@ function InsertPropertiesContent({
                           className={`px-2 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
                             active
                               ? "bg-indigo-600 border-indigo-400 text-white"
-                              : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                              : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                           }`}
                         >
                           <span className="text-sm">{t.icon}</span>
@@ -3030,7 +2995,7 @@ function InsertPropertiesContent({
                 </div>
 
                 {/* ---- Background ---- */}
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   <span className="text-xs font-semibold text-white block">🎨 Background</span>
 
                   <div className="flex items-center justify-between">
@@ -3040,13 +3005,13 @@ function InsertPropertiesContent({
                         type="color"
                         value={st.bgColor}
                         onChange={(e) => updateTemplateStyle("bgColor", e.target.value)}
-                        className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        className="w-7 h-7 rounded cursor-pointer border border-hairline bg-transparent"
                       />
                       <input
                         type="color"
                         value={st.bgColor2 || st.bgColor}
                         onChange={(e) => updateTemplateStyle("bgColor2", e.target.value)}
-                        className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                        className="w-7 h-7 rounded cursor-pointer border border-hairline bg-transparent"
                         title="Second colour (gradient)"
                       />
                       <button
@@ -3055,7 +3020,7 @@ function InsertPropertiesContent({
                         className={`px-2 py-1 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
                           st.bgColor2
                             ? "bg-indigo-600 border-indigo-400 text-white"
-                            : "bg-gray-900 border-gray-600 text-gray-300"
+                            : "bg-gray-900 border-hairline text-gray-300"
                         }`}
                       >
                         Gradient
@@ -3094,7 +3059,7 @@ function InsertPropertiesContent({
                           className={`px-2 py-1 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
                             st.plateShape === sh.id
                               ? "bg-indigo-600 border-indigo-400 text-white"
-                              : "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                              : "bg-gray-900 border-hairline text-gray-300 hover:border-hairline"
                           }`}
                         >
                           {sh.name}
@@ -3109,7 +3074,7 @@ function InsertPropertiesContent({
                     className={`w-full py-2 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
                       st.bgOpacity <= 0.02
                         ? "bg-indigo-600 border-indigo-400 text-white"
-                        : "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                        : "bg-gray-900 border-hairline text-gray-300 hover:border-hairline"
                     }`}
                   >
                     {st.bgOpacity <= 0.02 ? "✓ No background (text floats on video)" : "Remove background entirely"}
@@ -3117,7 +3082,7 @@ function InsertPropertiesContent({
                 </div>
 
                 {/* ---- Border ---- */}
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   <span className="text-xs font-semibold text-white block">▢ Border</span>
 
                   <div className="grid grid-cols-3 gap-1.5">
@@ -3129,7 +3094,7 @@ function InsertPropertiesContent({
                         className={`px-2 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
                           st.borderMode === b.id
                             ? "bg-indigo-600 border-indigo-400 text-white"
-                            : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                            : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                         }`}
                       >
                         <span className="font-mono">{b.icon}</span>
@@ -3146,7 +3111,7 @@ function InsertPropertiesContent({
                           type="color"
                           value={st.borderColor}
                           onChange={(e) => updateTemplateStyle("borderColor", e.target.value)}
-                          className="w-7 h-7 rounded cursor-pointer border border-gray-600 bg-transparent"
+                          className="w-7 h-7 rounded cursor-pointer border border-hairline bg-transparent"
                         />
                       </div>
                       {STYLE_CONTROLS.filter((c) => c.group === "border").map((c) => (
@@ -3173,12 +3138,12 @@ function InsertPropertiesContent({
                 </div>
 
                 {/* ---- Text & font ---- */}
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   <span className="text-xs font-semibold text-white block">🔤 Text & Font</span>
 
                   <div className="space-y-1.5">
                     <span className="text-xs text-gray-300">Font:</span>
-                    <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                    <div className="grid grid-cols-2 gap-1.5">
                       {CAPTION_FONTS.map((f) => (
                         <button
                           key={f.id}
@@ -3188,7 +3153,7 @@ function InsertPropertiesContent({
                           className={`px-2 py-2 rounded-lg border text-xs transition-colors text-left cursor-pointer ${
                             st.fontId === f.id
                               ? "bg-indigo-600 border-indigo-400 text-white"
-                              : "bg-gray-900/70 border-gray-700 text-gray-200 hover:border-gray-500"
+                              : "bg-gray-900/70 border-hairline text-gray-200 hover:border-hairline"
                           }`}
                         >
                           {f.family}
@@ -3206,7 +3171,7 @@ function InsertPropertiesContent({
                           type="color"
                           value={st.titleColor}
                           onChange={(e) => updateTemplateStyle("titleColor", e.target.value)}
-                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                          className="w-6 h-6 rounded cursor-pointer border border-hairline bg-transparent"
                         />
                       </label>
                       <label className="flex items-center gap-1 text-[10px] text-gray-400">
@@ -3215,7 +3180,7 @@ function InsertPropertiesContent({
                           type="color"
                           value={st.bodyColor}
                           onChange={(e) => updateTemplateStyle("bodyColor", e.target.value)}
-                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                          className="w-6 h-6 rounded cursor-pointer border border-hairline bg-transparent"
                         />
                       </label>
                       <label className="flex items-center gap-1 text-[10px] text-gray-400">
@@ -3224,7 +3189,7 @@ function InsertPropertiesContent({
                           type="color"
                           value={st.accentColor}
                           onChange={(e) => updateTemplateStyle("accentColor", e.target.value)}
-                          className="w-6 h-6 rounded cursor-pointer border border-gray-600 bg-transparent"
+                          className="w-6 h-6 rounded cursor-pointer border border-hairline bg-transparent"
                         />
                       </label>
                     </div>
@@ -3261,7 +3226,7 @@ function InsertPropertiesContent({
                           className={`px-2.5 py-1 rounded text-[10px] font-semibold border capitalize transition-colors cursor-pointer ${
                             st.textAlign === a
                               ? "bg-indigo-600 border-indigo-400 text-white"
-                              : "bg-gray-900 border-gray-600 text-gray-300 hover:border-gray-400"
+                              : "bg-gray-900 border-hairline text-gray-300 hover:border-hairline"
                           }`}
                         >
                           {a}
@@ -3332,7 +3297,7 @@ function InsertPropertiesContent({
                               type="button"
                               title={p.blurb}
                               onClick={() => applyArtPreset(p.style)}
-                              className="px-1.5 py-2 rounded-lg border border-gray-700 bg-gray-900/70 text-gray-300 hover:border-amber-400 text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer"
+                              className="px-1.5 py-2 rounded-lg border border-hairline bg-gray-900/70 text-gray-300 hover:border-amber-400 text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer"
                             >
                               <span className="text-base leading-none">{p.icon}</span>
                               <span className="leading-tight text-center">{p.name}</span>
@@ -3354,7 +3319,7 @@ function InsertPropertiesContent({
                               className={`px-1 py-1.5 rounded-lg border text-[9px] font-semibold transition-colors flex flex-col items-center gap-1 cursor-pointer ${
                                 art.material === m.id
                                   ? "bg-amber-600 border-amber-300 text-white"
-                                  : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                                  : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                               }`}
                             >
                               <span
@@ -3380,7 +3345,7 @@ function InsertPropertiesContent({
                               className={`px-1.5 py-1.5 rounded-lg border text-[10px] font-semibold transition-colors cursor-pointer ${
                                 art.letterStyle === l.id
                                   ? "bg-amber-600 border-amber-300 text-white"
-                                  : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                                  : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                               }`}
                             >
                               {l.name}
@@ -3402,7 +3367,7 @@ function InsertPropertiesContent({
                               className={`px-2 py-1.5 rounded-lg border text-[11px] transition-colors cursor-pointer ${
                                 art.fontId === f.id
                                   ? "bg-amber-600 border-amber-300 text-white"
-                                  : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                                  : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                               }`}
                             >
                               {f.family}
@@ -3419,7 +3384,7 @@ function InsertPropertiesContent({
                             type="color"
                             value={art.color1}
                             onChange={(e) => updateArtStyle("color1", e.target.value)}
-                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                            className="w-10 h-7 rounded border border-hairline bg-transparent cursor-pointer"
                           />
                         </label>
                         <label className="flex items-center justify-between gap-2">
@@ -3428,7 +3393,7 @@ function InsertPropertiesContent({
                             type="color"
                             value={art.color2}
                             onChange={(e) => updateArtStyle("color2", e.target.value)}
-                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                            className="w-10 h-7 rounded border border-hairline bg-transparent cursor-pointer"
                           />
                         </label>
                         <label className="flex items-center justify-between gap-2">
@@ -3437,7 +3402,7 @@ function InsertPropertiesContent({
                             type="color"
                             value={art.outlineColor}
                             onChange={(e) => updateArtStyle("outlineColor", e.target.value)}
-                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                            className="w-10 h-7 rounded border border-hairline bg-transparent cursor-pointer"
                           />
                         </label>
                         <label className="flex items-center justify-between gap-2">
@@ -3446,7 +3411,7 @@ function InsertPropertiesContent({
                             type="color"
                             value={art.outline2Color}
                             onChange={(e) => updateArtStyle("outline2Color", e.target.value)}
-                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                            className="w-10 h-7 rounded border border-hairline bg-transparent cursor-pointer"
                           />
                         </label>
                         <label className="flex items-center justify-between gap-2">
@@ -3455,7 +3420,7 @@ function InsertPropertiesContent({
                             type="color"
                             value={art.depthColor}
                             onChange={(e) => updateArtStyle("depthColor", e.target.value)}
-                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                            className="w-10 h-7 rounded border border-hairline bg-transparent cursor-pointer"
                           />
                         </label>
                         <label className="flex items-center justify-between gap-2">
@@ -3464,7 +3429,7 @@ function InsertPropertiesContent({
                             type="color"
                             value={art.glowColor}
                             onChange={(e) => updateArtStyle("glowColor", e.target.value)}
-                            className="w-10 h-7 rounded border border-gray-600 bg-transparent cursor-pointer"
+                            className="w-10 h-7 rounded border border-hairline bg-transparent cursor-pointer"
                           />
                         </label>
                       </div>
@@ -3480,15 +3445,15 @@ function InsertPropertiesContent({
                       </label>
 
                       <div className="space-y-2">{artGroup("letters")}</div>
-                      <div className="space-y-2 pt-1 border-t border-gray-700/60">{artGroup("outline")}</div>
-                      <div className="space-y-2 pt-1 border-t border-gray-700/60">{artGroup("depth")}</div>
-                      <div className="space-y-2 pt-1 border-t border-gray-700/60">{artGroup("finish")}</div>
+                      <div className="space-y-2 pt-1 border-t border-hairline">{artGroup("outline")}</div>
+                      <div className="space-y-2 pt-1 border-t border-hairline">{artGroup("depth")}</div>
+                      <div className="space-y-2 pt-1 border-t border-hairline">{artGroup("finish")}</div>
                     </div>
                   );
                 })() : null}
 
                 {/* ---- Motion & depth ---- */}
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   <span className="text-xs font-semibold text-white block">🎞️ Entrance & Depth</span>
 
                   <div className="grid grid-cols-3 gap-1.5">
@@ -3501,7 +3466,7 @@ function InsertPropertiesContent({
                         className={`px-1.5 py-2 rounded-lg border text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer ${
                           st.motion === m.id
                             ? "bg-indigo-600 border-indigo-400 text-white"
-                            : "bg-gray-900/70 border-gray-700 text-gray-300 hover:border-gray-500"
+                            : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                         }`}
                       >
                         <span className="text-base leading-none">{m.icon}</span>
@@ -3534,12 +3499,17 @@ function InsertPropertiesContent({
             );
           })()}
 
-          {activeTab === "content" && !isIntroOutro && (isContentCard || isCallToAction) && (
+          {!isIntroOutro && (isContentCard || isCallToAction) && (
             <div className="space-y-4">
+              <BlockTitle
+                id="ipm-content"
+                icon={isCallToAction ? "🎯" : "📝"}
+                title={isCallToAction ? "CTA Templates" : "Text Content"}
+              />
               {isCallToAction ? (
                 <>
                   {/* Completed CTA Templates Selector */}
-                  <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-semibold text-white block">
                         🎯 Choose Completed CTA Template:
@@ -3584,7 +3554,7 @@ function InsertPropertiesContent({
                               },
                             });
                           }}
-                          className="px-2.5 py-2 bg-gray-850 hover:bg-gray-750 border border-gray-700 hover:border-indigo-500/60 rounded-xl text-left transition-all flex items-center gap-2 group"
+                          className="px-2.5 py-2 bg-gray-850 hover:bg-gray-750 border border-hairline hover:border-indigo-500/60 rounded-xl text-left transition-all flex items-center gap-2 group"
                         >
                           <span className="text-base group-hover:scale-110 transition-transform">{tmpl.icon}</span>
                           <div className="truncate">
@@ -3597,7 +3567,7 @@ function InsertPropertiesContent({
                   </div>
 
                   {/* Customizable Options */}
-                  <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                  <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                     <label className="text-xs font-semibold text-white block">
                       ✏️ Edit Call to Action Options:
                     </label>
@@ -3609,7 +3579,7 @@ function InsertPropertiesContent({
                         value={data.content?.primaryText || ""}
                         onChange={(e) => updateContent("primaryText", e.target.value)}
                         placeholder="e.g. SUBSCRIBE NOW, GET 20% OFF..."
-                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 font-semibold"
+                        className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 font-semibold"
                       />
                     </div>
 
@@ -3620,7 +3590,7 @@ function InsertPropertiesContent({
                         value={data.content?.secondaryText || ""}
                         onChange={(e) => updateContent("secondaryText", e.target.value)}
                         placeholder="e.g. Hit the bell for notifications, Link in bio..."
-                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                        className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                       />
                     </div>
 
@@ -3636,7 +3606,7 @@ function InsertPropertiesContent({
                             className={`w-8 h-8 rounded-lg text-sm flex items-center justify-center border transition-all ${
                               (data.content?.label || "🔔") === ico
                                 ? "bg-indigo-600 border-indigo-400 scale-110 shadow"
-                                : "bg-gray-900 border-gray-700 hover:bg-gray-800"
+                                : "bg-gray-900 border-hairline hover:bg-gray-800"
                             }`}
                           >
                             {ico}
@@ -3684,8 +3654,8 @@ function InsertPropertiesContent({
                 </>
               ) : isScriptureTemplate ? (
                 /* Dedicated Scripture Verse Fields */
-                <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center gap-2 pb-2 border-b border-gray-700">
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2 pb-2 border-b border-hairline">
                     <span className="text-base text-amber-400">📖</span>
                     <div>
                       <span className="text-xs font-bold text-white block">Holy Scripture Verse Settings</span>
@@ -3702,7 +3672,7 @@ function InsertPropertiesContent({
                         value={data.content?.book || "John"}
                         onChange={(e) => updateContent("book", e.target.value)}
                         placeholder="e.g. John, Psalms"
-                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 font-semibold"
+                        className="w-full bg-gray-900 border border-hairline rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 font-semibold"
                       />
                     </div>
                     <div>
@@ -3712,7 +3682,7 @@ function InsertPropertiesContent({
                         value={data.content?.chapter || "3"}
                         onChange={(e) => updateContent("chapter", e.target.value)}
                         placeholder="e.g. 3, 23"
-                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 font-semibold"
+                        className="w-full bg-gray-900 border border-hairline rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 font-semibold"
                       />
                     </div>
                     <div>
@@ -3722,7 +3692,7 @@ function InsertPropertiesContent({
                         value={data.content?.verse || "16"}
                         onChange={(e) => updateContent("verse", e.target.value)}
                         placeholder="e.g. 16, 1-4"
-                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 font-semibold"
+                        className="w-full bg-gray-900 border border-hairline rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 font-semibold"
                       />
                     </div>
                   </div>
@@ -3736,7 +3706,7 @@ function InsertPropertiesContent({
                         value={data.content?.secondaryText || "King James Version (KJV)"}
                         onChange={(e) => updateContent("secondaryText", e.target.value)}
                         placeholder="e.g. King James Version (KJV)"
-                        className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
+                        className="flex-1 bg-gray-900 border border-hairline rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
                       />
                     </div>
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
@@ -3745,7 +3715,7 @@ function InsertPropertiesContent({
                           key={ver}
                           type="button"
                           onClick={() => updateContent("secondaryText", `${ver} Translation`)}
-                          className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-[10px] text-gray-300 rounded border border-gray-700 font-mono"
+                          className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-[10px] text-gray-300 rounded border border-hairline font-mono"
                         >
                           {ver}
                         </button>
@@ -3761,7 +3731,7 @@ function InsertPropertiesContent({
                       value={data.content?.primaryText || ""}
                       onChange={(e) => updateContent("primaryText", e.target.value)}
                       placeholder="Paste or type scripture verse passage here..."
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 leading-relaxed font-serif"
+                      className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500 leading-relaxed font-serif"
                     />
                   </div>
 
@@ -3773,7 +3743,7 @@ function InsertPropertiesContent({
                       value={data.content?.label || "HOLY SCRIPTURE"}
                       onChange={(e) => updateContent("label", e.target.value)}
                       placeholder="e.g. HOLY SCRIPTURE, DAILY VERSE, SCRIPTURE OF HOPE"
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 uppercase font-mono text-[11px]"
+                      className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 uppercase font-mono text-[11px]"
                     />
                   </div>
                 </div>
@@ -3811,7 +3781,7 @@ function InsertPropertiesContent({
                   const restKeys = keys.filter((k) => !SHORT_ROW.includes(k));
 
                   return (
-                    <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+                    <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                       {rowKeys.length > 0 && (
                         <div className="grid grid-cols-3 gap-2">
                           {rowKeys.map((k) => (
@@ -3823,7 +3793,7 @@ function InsertPropertiesContent({
                                 type="text"
                                 value={(data.content as Record<string, string>)?.[k] || ""}
                                 onChange={(e) => updateContent(k, e.target.value)}
-                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                                className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                               />
                             </div>
                           ))}
@@ -3840,14 +3810,14 @@ function InsertPropertiesContent({
                               rows={3}
                               value={(data.content as Record<string, string>)?.[k] || ""}
                               onChange={(e) => updateContent(k, e.target.value)}
-                              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                              className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                             />
                           ) : (
                             <input
                               type="text"
                               value={(data.content as Record<string, string>)?.[k] || ""}
                               onChange={(e) => updateContent(k, e.target.value)}
-                              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                              className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                             />
                           )}
                         </div>
@@ -3865,9 +3835,10 @@ function InsertPropertiesContent({
           )}
 
           {/* TAB: TIMING & TIME WINDOW */}
-          {activeTab === "timing" && (
+          {(
             <div className="space-y-4">
-              <div className="bg-gray-800/50 border border-gray-700/80 rounded-xl p-4 space-y-3">
+              <BlockTitle id="ipm-timing" icon="⏱️" title="Timing on the Timeline" />
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-medium text-white block mb-1">
@@ -3880,7 +3851,7 @@ function InsertPropertiesContent({
                       max={totalDuration}
                       value={data.startTime}
                       onChange={(e) => setData({ ...data, startTime: Math.max(0, parseFloat(e.target.value) || 0) })}
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                     />
                   </div>
 
@@ -3895,7 +3866,7 @@ function InsertPropertiesContent({
                       max={60}
                       value={data.duration}
                       onChange={(e) => setData({ ...data, duration: Math.max(0.5, parseFloat(e.target.value) || 1) })}
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                 </div>
@@ -3915,7 +3886,7 @@ function InsertPropertiesContent({
                 </div>
 
                 {isIntroOutro && (
-                  <div className="pt-2 border-t border-gray-700/80">
+                  <div className="pt-2 border-t border-hairline">
                     {insert.category === "intro" ? (
                       <button
                         type="button"
@@ -3948,8 +3919,8 @@ function InsertPropertiesContent({
           )}
         </div>
 
-        {/* Modal Footer */}
-        <div className="shrink-0 px-6 py-4 border-t border-gray-800 flex items-center justify-between bg-gray-950/70">
+        {/* Modal Footer — end of the stacked page */}
+        <div className="px-6 py-4 border-t border-hairline flex items-center justify-between bg-gray-950/70">
           <button
             type="button"
             onClick={() => {
@@ -3985,6 +3956,7 @@ function InsertPropertiesContent({
             </button>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
