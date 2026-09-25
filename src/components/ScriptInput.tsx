@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { countWords, countScenesFromScript } from "../lib/duration-utils";
+import { countWords, countScenesFromScript, formatDuration } from "../lib/duration-utils";
 
 interface ScriptInputProps {
   onSubmit: (title: string, script: string) => void;
@@ -80,7 +80,7 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
               </span>
             </label>
             <span className="text-xs font-mono text-gray-400">
-              {wordsCount} words • ~{estimatedReadSec}s total read
+              {wordsCount} words • ~{formatDuration(estimatedReadSec)} total read
             </span>
           </div>
           <textarea

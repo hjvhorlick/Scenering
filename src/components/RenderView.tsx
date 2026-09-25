@@ -3,7 +3,7 @@ import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { createProjectZip } from "../lib/zip-download";
-import { drawSceneImage } from "../lib/scene-framing";
+import { drawSceneImage, sceneHasVisual, sceneIsBlankColor } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import {
@@ -13,6 +13,7 @@ import {
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { resolveSceneAudioBuffer, setCachedSceneAudio } from "../lib/tts-cache";
+import { formatDuration } from "../lib/duration-utils";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument, getBackgroundMusicTrack, AMBIENT_STYLE_TO_TRACK } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
@@ -130,7 +131,7 @@ export function generateSrtSubtitles(scenes: Scene[]): string {
 
   let acc = 0;
   return scenes
-    .filter((s) => s.image_url || s.video_url)
+    .filter(sceneHasVisual)
     .map((s, i) => {
       const start = acc;
       const end = acc + s.duration;
@@ -167,7 +168,7 @@ export default function RenderView({
   onNavigatePhase,
 }: RenderViewProps) {
   // Scenes with a short video clip are renderable even without a still image.
-  const scenesWithImages = scenes.filter((s) => s.image_url || s.video_url);
+  const scenesWithImages = scenes.filter(sceneHasVisual);
   const activeLook = getPreset(videoFilter?.id);
   const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
   const totalDuration = scenesWithImages.reduce((sum, s) => sum + getSceneDuration(s), 0);
@@ -1024,7 +1025,7 @@ export default function RenderView({
               lastProgressVal = clampedProgress;
               reportProgress(clampedProgress);
               reportStage(
-                `3/4: Rendering Video (${Math.round(currentGlobalTime)}s / ${Math.round(estimatedTotalDuration)}s)`
+                `3/4: Rendering Video (${formatDuration(currentGlobalTime)} / ${formatDuration(estimatedTotalDuration)})`
               );
             }
 
@@ -1156,6 +1157,22 @@ export default function RenderView({
             const safeScale = isNaN(scale) ? 1 : scale;
             const safeDx = isNaN(dx) ? 0 : dx;
             const safeDy = isNaN(dy) ? 0 : dy;
+
+            /**
+             * A scene using a plain colour has no image to draw, so fill the
+             * frame first. Painting it here — before the transition and before
+             * the project filter — means a fade still darkens into the colour
+             * and the filter still tints it, exactly as it would a photo.
+             */
+            if (sceneIsBlankColor(currentScene) && currentScene.blank_color) {
+              ctx.save();
+              try {
+                ctx.filter = "none";
+              } catch {}
+              ctx.fillStyle = currentScene.blank_color;
+              ctx.fillRect(0, 0, width, height);
+              ctx.restore();
+            }
 
             let handledTransition = false;
             if (
@@ -1683,7 +1700,7 @@ export default function RenderView({
               </h2>
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Project: <span className="text-white font-medium">{project?.title || "Untitled Video"}</span> · {scenesWithImages.length} scenes · ~{totalDuration}s duration
+              Project: <span className="text-white font-medium">{project?.title || "Untitled Video"}</span> · {scenesWithImages.length} scenes · ~{formatDuration(totalDuration)} duration
             </p>
           </div>
 
@@ -1727,8 +1744,8 @@ export default function RenderView({
               <SummaryRow
                 icon="🎞️"
                 label="Story"
-                value={`${scenesWithImages.length} scene${scenesWithImages.length === 1 ? "" : "s"} · ~${Math.round(totalDuration)}s`}
-                hint={`${sceneDuration}s target per scene`}
+                value={`${scenesWithImages.length} scene${scenesWithImages.length === 1 ? "" : "s"} · ~${formatDuration(totalDuration)}`}
+                hint={`${formatDuration(sceneDuration)} target per scene`}
               />
               <SummaryRow
                 icon="📐"

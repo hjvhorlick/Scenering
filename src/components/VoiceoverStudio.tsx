@@ -153,6 +153,27 @@ export default function VoiceoverStudio({
     }
   };
 
+  /**
+   * Two-voice rotation.
+   *
+   * When enabled, narration alternates between the primary voice and a second
+   * one, scene by scene: scene 1 uses A, scene 2 uses B, scene 3 uses A and so
+   * on. Alternating by scene (rather than by paragraph inside a scene) keeps
+   * each scene's audio a single continuous take, which is what the renderer
+   * expects — one clipped buffer per scene, no mid-scene voice switch.
+   */
+  const [rotateVoices, setRotateVoices] = useState(false);
+  const [secondVoice, setSecondVoice] = useState("jenny");
+
+  /**
+   * Which voice a given scene should be narrated in.
+   * Falls back to the primary voice whenever rotation is off.
+   */
+  const voiceForSceneIndex = (index: number): string => {
+    if (!rotateVoices || !secondVoice) return selectedVoice;
+    return index % 2 === 0 ? selectedVoice : secondVoice;
+  };
+
   const [globalSpeed, setGlobalSpeed] = useState(1.0);
   const [echoConfig, setEchoConfig] = useState<VoiceEchoConfig>(
     resolveVoiceEcho(propVoiceEcho || DEFAULT_VOICE_ECHO)
@@ -357,7 +378,11 @@ export default function VoiceoverStudio({
     for (let i = 0; i < scenes.length; i++) {
       const scene = scenes[i];
       setGenerationProgress({ current: i + 1, total, sceneIndex: i });
-      await generateVoiceoverForScene(scene, voiceToUse);
+      // With rotation on, each scene is spoken by its own half of the pair.
+      // Passing `voiceToUse` here instead would collapse the whole run back to
+      // a single voice, which is exactly the behaviour rotation is meant to
+      // avoid.
+      await generateVoiceoverForScene(scene, voiceForSceneIndex(i));
     }
 
     setIsGeneratingAll(false);
@@ -843,6 +868,79 @@ export default function VoiceoverStudio({
                   <span>👩</span> 5 Female
                 </button>
               </div>
+            </div>
+
+            {/* Two-voice rotation */}
+            <div className="bg-gray-800/40 p-3 rounded-xl border border-hairline space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <span className="text-xs text-gray-300 font-medium flex items-center gap-2">
+                  <span>🔀</span> Rotate between two voices
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={rotateVoices}
+                  onClick={() => setRotateVoices((v) => !v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors shrink-0 ${
+                    rotateVoices
+                      ? "bg-indigo-600 border-indigo-500 text-white"
+                      : "bg-gray-900 border-hairline text-gray-300 hover:text-white"
+                  }`}
+                >
+                  {rotateVoices ? "On — alternating" : "Off — one voice"}
+                </button>
+              </div>
+
+              {rotateVoices && (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] text-gray-400">
+                        Voice A · scenes 1, 3, 5…
+                      </span>
+                      <select
+                        value={selectedVoice}
+                        onChange={(e) => handleSelectVoice(e.target.value)}
+                        className="px-2.5 py-2 bg-gray-900 border border-hairline rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        {STUDIO_VOICE_PRESETS.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.gender === "male" ? "👨 " : "👩 "}
+                            {v.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] text-gray-400">
+                        Voice B · scenes 2, 4, 6…
+                      </span>
+                      <select
+                        value={secondVoice}
+                        onChange={(e) => setSecondVoice(e.target.value)}
+                        className="px-2.5 py-2 bg-gray-900 border border-hairline rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        {STUDIO_VOICE_PRESETS.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.gender === "male" ? "👨 " : "👩 "}
+                            {v.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  {selectedVoice === secondVoice && (
+                    <p className="text-[11px] text-amber-300">
+                      Both sides are the same voice — rotation will sound like a single
+                      narrator. Pick a different voice for B.
+                    </p>
+                  )}
+                  <p className="text-[11px] text-gray-500">
+                    Alternating happens per scene, so each scene stays a single
+                    continuous take. Voice A also drives the cards below.
+                  </p>
+                </>
+              )}
             </div>
 
             {/* Pacing / Speed Slider */}

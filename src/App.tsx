@@ -7,6 +7,7 @@ import ApiKeysModal from "./components/ApiKeysModal";
 import Timeline from "./components/Timeline";
 import VideoStudio from "./components/VideoStudio";
 import { pickRandomImageUrl, rawImageUrl, IMAGE_SEARCH_COUNT } from "./lib/image-picker";
+import { sceneHasVisual } from "./lib/scene-framing";
 import RenderView from "./components/RenderView";
 import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
 import { listVaultRenders, subscribeVault } from "./lib/render-vault";
@@ -73,7 +74,9 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   captions_config: {
     enabled: true,
     mode: "karaoke",
-    backgroundStyle: "blocked",
+    /** Transparent unless the user asks for a solid box — matches
+     *  DEFAULT_CAPTIONS_CONFIG in lib/render-captions. */
+    backgroundStyle: "transparent",
     preset: "word_pop",
     fontSize: "medium",
     position: "bottom",
@@ -835,6 +838,11 @@ export default function App() {
     "image_backdrop_zoom",
     "image_backdrop_dim",
     "image_backdrop_color",
+    // A plain colour replacing the photo entirely. Belongs with the framing
+    // keys because it describes how the frame is filled, and because this
+    // list is what gets persisted — a field missing from it updates the live
+    // scene but is silently dropped on reload.
+    "blank_color",
   ] as const;
 
   /** Short-video-clip fields, persisted with the scene like the framing keys. */
@@ -973,7 +981,7 @@ export default function App() {
         scenes.filter((s) => s.image_url).map((s) => rawImageUrl(s.image_url as string))
       );
       // Scenes already carrying a video clip do not need a stock photo.
-      const scenesWithoutImages = scenes.filter((s) => !s.image_url && !s.video_url);
+      const scenesWithoutImages = scenes.filter((s) => !sceneHasVisual(s));
       // Searches ran strictly one after another before, which made a full
       // project wait on a chain of round-trips. They are independent — run
       // them in parallel and the batch is as fast as the slowest search.
@@ -1152,6 +1160,19 @@ export default function App() {
     setInserts((prev) => stretchFullVideoVisualisers(prev, estimatedTotalDuration));
   }, [estimatedTotalDuration]);
 
+  /**
+   * Start every phase at the top of the page.
+   *
+   * The scroll position used to carry over between tabs, so clicking
+   * "Voiceover" while scrolled down a long Scenes list dropped you into the
+   * middle of the new screen with its heading off the top of the window.
+   * `behavior: "auto"` overrides the app-wide `scroll-behavior: smooth` —
+   * a tab switch should be instant, not a slow animated glide.
+   */
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [view, editorStep]);
+
   const handleUpdateInsert = (updated: TimelineInsert) => {
     setInserts((prev) => prev.map((ins) => (ins.id === updated.id ? updated : ins)));
     if (selectedInsert?.id === updated.id) setSelectedInsert(updated);
@@ -1181,9 +1202,12 @@ export default function App() {
   return (
     <div className="flex min-h-screen bg-gray-950 text-white font-sans">
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      {/* min-w-0 is load-bearing: without it this flex child keeps its
+          content's intrinsic width and drags the whole app wider than the
+          window whenever a row inside is too wide to fit. */}
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="t-app-hdr relative z-40 min-h-14 border-b border-hairline flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
+        <div className="t-app-hdr relative z-40 min-h-14 min-w-0 border-b border-hairline flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
           {/* Logo */}
           <button
             onClick={() => setView("create")}
@@ -1204,7 +1228,13 @@ export default function App() {
           </h2>
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
-          <div className="t-tabbar opt-group flex items-center bg-gray-800/80 border border-hairline rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto no-scrollbar order-last w-full sm:order-none sm:w-auto" role="tablist" aria-label="Project phases">
+          {/* Scrolls sideways like the Video Studio tab row rather than
+              wrapping. min-w-0 is what makes that safe: it drops this row's
+              automatic minimum size to zero, so the row shrinks to the space
+              available and the tabs scroll inside it. Without min-w-0 the row
+              kept its full content width and dragged the whole app past the
+              edge of the window. */}
+          <div className="t-tabbar opt-group flex items-center min-w-0 bg-gray-800/80 border border-hairline rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto no-scrollbar order-last w-full sm:order-none sm:w-auto" role="tablist" aria-label="Project phases">
             {(() => {
               const activeIdx = PROJECT_PHASES.findIndex((phase) =>
                 phase.id === "setup" ? view === "create" : view === "editor" && editorStep === phase.editorStep

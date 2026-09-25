@@ -7,7 +7,7 @@ import {
   getPresetCoords,
   renderTimelineInsert,
 } from "../lib/render-effects";
-import { drawSceneImage } from "../lib/scene-framing";
+import { drawSceneImage, sceneHasVisual, sceneIsBlankColor } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
@@ -257,7 +257,7 @@ export default function VideoPreview({
   }, [customerLogo?.url]);
 
   // A scene counts as renderable if it has a still OR a short video clip.
-  const scenesWithImages = scenes.filter((s) => s.image_url || s.video_url);
+  const scenesWithImages = scenes.filter(sceneHasVisual);
 
 function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: number): SceneAudio {
   const sampleRate = audioCtx.sampleRate || 44100;
@@ -494,6 +494,18 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
             source = asDrawableClip(el) as any;
           }
         }
+      }
+
+      // Plain-colour scene: fill the frame before anything else draws, so the
+      // live preview shows the same flat colour the export will.
+      if (sceneIsBlankColor(scene) && scene.blank_color) {
+        ctx.save();
+        try {
+          ctx.filter = "none";
+        } catch {}
+        ctx.fillStyle = scene.blank_color;
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
       }
 
       let handledTransition = false;

@@ -438,3 +438,52 @@ function generatePlaceholderForDuration(seconds: number): string {
   // Default 20s (~50 words, takes exactly 20 seconds to read aloud)
   return "Golden morning light breaks across the boundless mountain range, casting warm cinematic reflections through the valley mist below. A gentle breeze sweeps through ancient pines as the entire landscape awakens. Every detail reveals nature's timeless grandeur, creating a peaceful and inspiring atmosphere for our journey.";
 }
+
+/**
+ * Human-readable duration.
+ *
+ * The UI used to print raw seconds everywhere — "320s", "1200s" — which
+ * forces the reader to do the division themselves. Anything a whole minute or
+ * longer is shown as minutes and seconds; anything shorter stays in seconds
+ * because "0m 14s" reads worse than "14s" for a single scene.
+ *
+ *   14    -> "14s"
+ *   14.8  -> "15s"      (rounded: sub-second precision is noise in the UI)
+ *   45    -> "45s"
+ *   60    -> "1m"
+ *   260   -> "4m 20s"
+ *   320   -> "5m 20s"
+ *   3900  -> "1h 5m"
+ */
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
+
+  const total = Math.round(seconds);
+  if (total < 60) return `${total}s`;
+
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+
+  if (hours > 0) {
+    // Build from the parts that are actually non-zero: 3600 is "1h", not
+    // "1h 0m", and 3600 + 5s is "1h 5s".
+    const parts = [`${hours}h`];
+    if (minutes > 0) parts.push(`${minutes}m`);
+    if (secs > 0) parts.push(`${secs}s`);
+    return parts.join(" ");
+  }
+  return secs > 0 ? `${minutes}m ${secs}s` : `${minutes}m`;
+}
+
+/**
+ * Same as formatDuration but keeps one decimal place below a minute, for
+ * timings that genuinely move in tenths — a playhead, a clip length.
+ */
+export function formatDurationPrecise(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
+  if (seconds < 60) {
+    return Number.isInteger(seconds) ? `${seconds}s` : `${seconds.toFixed(1)}s`;
+  }
+  return formatDuration(seconds);
+}

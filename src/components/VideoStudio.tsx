@@ -170,6 +170,17 @@ export default function VideoStudio({
   const CUSTOM_TABS = ["logo", "filters", "intro", "outro"];
   const isCustomTab = CUSTOM_TABS.includes(selectedCategory);
 
+  /**
+   * Bring the newly selected section to the top of the page.
+   *
+   * The studio's section tabs sit on a long scrolling page, so switching
+   * section used to leave the viewport where it was and the new section
+   * opened part-way down, below its own heading.
+   */
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [selectedCategory]);
+
   // Filter catalog items
   const itemsForCategory = CATALOG_ITEMS[selectedCategory] || [];
   const filteredItems = itemsForCategory.filter((item) => {

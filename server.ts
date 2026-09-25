@@ -7,6 +7,19 @@ import { GoogleGenAI } from "@google/genai";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { NATURE_FALLBACKS } from "./src/data/nature-fallbacks";
 
+/**
+ * Fisher–Yates shuffle on a copy. Used so the bundled nature library comes
+ * back in a different order on every search instead of in catalogue order.
+ */
+function shuffleCopy<T>(items: readonly T[]): T[] {
+  const arr = items.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 let geminiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI | null {
   if (!geminiClient && process.env.GEMINI_API_KEY) {
@@ -761,20 +774,22 @@ async function startServer() {
         results = await searchWikimedia(query, count);
       }
 
-      // If still nothing, fall back to a random member of the bundled
-      // nature library — previously this always returned the same one
-      // hardcoded photo, which made failures look like "images never change".
+      // If still nothing, fall back to the bundled nature library.
+      //
+      // This used to return a single random photo. One image per search meant
+      // "replace" had nothing else to hand out and the grid showed the same
+      // picture every time — it read as if the library only contained that
+      // one mountain. Returning the whole deck in a fresh shuffled order lets
+      // the client fill its grid and rotate properly, and the shuffle means
+      // no two searches lead with the same photo.
       if (results.length === 0) {
-        const pick = NATURE_FALLBACKS[Math.floor(Math.random() * NATURE_FALLBACKS.length)];
-        results = [
-          {
-            url: pick.url,
-            thumbnail: pick.thumb,
-            source: "nature-library",
-            width: 1920,
-            height: 1080,
-          },
-        ];
+        results = shuffleCopy(NATURE_FALLBACKS).map((bg) => ({
+          url: bg.url,
+          thumbnail: bg.thumb,
+          source: "nature-library",
+          width: 1920,
+          height: 1080,
+        }));
       }
 
       return res.json({

@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import type { Scene } from "../types";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
+import { sceneHasVisual } from "../lib/scene-framing";
 
 interface ZipOptions {
   title: string;
@@ -16,7 +17,7 @@ export async function createProjectZip(options: ZipOptions): Promise<Blob> {
   const zip = new JSZip();
   const safeName = title.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
 
-  const scenesWithImages = scenes.filter((s) => s.image_url || s.video_url);
+  const scenesWithImages = scenes.filter(sceneHasVisual);
 
   const imagesFolder = zip.folder("images")!;
   const audioFolder = zip.folder("audio")!;

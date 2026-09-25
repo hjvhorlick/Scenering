@@ -9,7 +9,11 @@ import {
 export const DEFAULT_CAPTIONS_CONFIG: CaptionsConfig = {
   enabled: true,
   mode: "karaoke",
-  backgroundStyle: "blocked",
+  /**
+   * Transparent by default: the caption sits on the footage with no box
+   * behind it. A solid backdrop has to be opted into, never inherited.
+   */
+  backgroundStyle: "transparent",
   preset: "newsroom_clean",
   fontSize: "medium",
   position: "bottom",
