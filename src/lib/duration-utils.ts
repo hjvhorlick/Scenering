@@ -311,6 +311,31 @@ export function calculateDynamicDuration(
   return spoken > 0 ? Math.round(spoken * 10) / 10 : targetDuration || 20;
 }
 
+/**
+ * How long a scene occupies on the video timeline.
+ *
+ * The live preview and the final export MUST agree on this number: it decides
+ * when a scene cuts, when its audio starts and when the caption card flips.
+ * They used to carry two private copies of the formula (one added a 0.35s
+ * breathing tail, the other 0.25s), so the preview cut later than the render
+ * and the captions flipped at different moments in each. Both now call this.
+ *
+ * The decoded narration is the authority; the configured `scene.duration`
+ * and the word-count estimate are only fallbacks for scenes with no audio.
+ */
+export function sceneTimelineDuration(
+  scene: { text?: string; duration?: number; audio_duration?: number },
+  audioDuration?: number
+): number {
+  if (audioDuration && audioDuration > 0.3) {
+    return Math.max(1.5, Math.round((audioDuration + 0.35) * 10) / 10);
+  }
+  if (scene.duration && scene.duration > 0) {
+    return scene.duration;
+  }
+  return calculateDynamicDuration(scene.text, scene.audio_duration, 20);
+}
+
 // Topic-aware sentence expansions to turn 1-line text into a coherent 20s narration
 function getContextualContinuations(
   text: string,

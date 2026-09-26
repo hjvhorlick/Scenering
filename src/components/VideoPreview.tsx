@@ -14,7 +14,8 @@ import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-cap
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
 import { loadCaptionFonts } from "../data/caption-styles";
-import { calculateDynamicDuration } from "../lib/duration-utils";
+import { sceneTimelineDuration } from "../lib/duration-utils";
+import type { WordTiming } from "../lib/word-sync";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
 import { renderSection } from "../lib/render-section";
@@ -26,7 +27,7 @@ import {
   voiceEchoIsActive,
   resolveVoiceEcho,
 } from "../lib/voice-echo";
-import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio } from "../lib/tts-cache";
+import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
 interface VideoPreviewProps {
@@ -55,25 +56,24 @@ interface VideoPreviewProps {
   voiceEcho?: VoiceEchoConfig;
 }
 
-// Playback timing helper: respects scene.duration while ensuring audio is never cut short
+// Playback timing helper: respects scene.duration while ensuring audio is never cut short.
+// The formula itself lives in duration-utils and is shared with the render
+// pipeline, so the preview and the export agree on every scene boundary.
 function getSceneSpeechDuration(scene: Scene, audioBuf?: AudioBuffer): number {
   // The decoded narration is the authority on how long the scene runs, so the
   // video never sits on a still frame in silence. Previously a longer
   // configured `scene.duration` won, which is exactly what produced the quiet
   // stretches at the end of scenes.
-  if (audioBuf && audioBuf.duration > 0.3) {
-    return Math.round((audioBuf.duration + 0.35) * 10) / 10;
-  }
-  if (scene.duration && scene.duration > 0) {
-    return scene.duration;
-  }
-  return calculateDynamicDuration(scene.text, scene.audio_duration, 20);
+  return sceneTimelineDuration(scene, audioBuf?.duration);
 }
 
 interface SceneAudio {
   buffer: AudioBuffer;
   url: string;
   voiceKey?: string;
+  /** Per-word spoken timings — the preview captions lock onto these exactly
+   *  like the exported video does, so what you preview is what you render. */
+  words?: WordTiming[];
 }
 
 function loadImage(
@@ -347,10 +347,35 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           buffer: resolved.buffer,
           url: resolved.url,
           voiceKey,
+          words: resolved.words,
         };
       }
 
-      // 1. Synthesize only if audio was never generated before
+      // 1. Synthesize only if audio was never generated before. The timeline
+      //    variant carries per-word spoken timings so the preview captions
+      //    track the voice exactly like the exported video.
+      try {
+        const withTimeline = await fetchSceneAudioWithTimeline(scene.text || "", voiceToUse, { timeoutMs: 15000 });
+        if (withTimeline) {
+          const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
+          const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
+          const url = URL.createObjectURL(blob);
+          setCachedSceneAudio(scene.id, voiceToUse, text, {
+            audioBuffer,
+            blobUrl: url,
+            duration: audioBuffer.duration,
+            voiceId: voiceToUse,
+            text,
+            rawBuffer: withTimeline.rawBuffer,
+            blob,
+            words: withTimeline.words,
+          });
+          return { buffer: audioBuffer, url, voiceKey, words: withTimeline.words };
+        }
+      } catch (err) {
+        console.warn("TTS timeline synthesis fallback for scene:", scene.id, err);
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
@@ -616,7 +641,12 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         const sa = audioBuffersRef.current.get(scene.id);
         const speechDur = sa?.buffer.duration && sa.buffer.duration > 0.3 ? sa.buffer.duration : (scene.duration || 4);
         const speechProgress = elapsedInScene !== undefined ? Math.min(1, Math.max(0, elapsedInScene / Math.max(0.1, speechDur))) : sceneProgress;
-        renderCanvasCaptions(ctx, scene.text, speechProgress, activeCaptions, w, h);
+        renderCanvasCaptions(ctx, scene.text, speechProgress, activeCaptions, w, h, {
+          // Same real word timings the export uses — the preview highlights
+          // each word at the moment the voice actually says it.
+          wordTimings: sa?.words,
+          audioTimeSec: elapsedInScene,
+        });
       }
 
       // Crisp Scenering Logo Watermark in Top-Left Corner (Transparent background, no borders)

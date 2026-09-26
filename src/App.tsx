@@ -6,7 +6,8 @@ import ProjectList from "./components/ProjectList";
 import ApiKeysModal from "./components/ApiKeysModal";
 import Timeline from "./components/Timeline";
 import VideoStudio from "./components/VideoStudio";
-import { pickRandomImageUrl, rawImageUrl, IMAGE_SEARCH_COUNT } from "./lib/image-picker";
+import { pickRandomImageUrl, rawImageUrl } from "./lib/image-picker";
+import { searchImagePool } from "./lib/image-search";
 import { sceneHasVisual } from "./lib/scene-framing";
 import RenderView from "./components/RenderView";
 import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
@@ -111,11 +112,12 @@ function parseScript(script: string, targetDuration: number = 20): { text: strin
 /**
  * Image search via edge function.
  *
- * Asks for the top ~100 ranked candidates and picks ONE at random (see
- * lib/image-picker), so every search/re-search produces a different photo
- * instead of always serving the identical first-ranked hit. URLs already
- * used by other scenes are excluded via fetchAll images runs so a whole
- * project never ends up with duplicate photos.
+ * Asks for the top ~100 ranked candidates, keeps only the ones that verify as
+ * real photographs (the server has already enforced 16:9 and ≥1920×1080),
+ * and picks ONE at random (see lib/image-picker), so every search/re-search
+ * produces a different photo instead of always serving the identical
+ * first-ranked hit. URLs already used by other scenes are excluded via
+ * fetchAll images runs so a whole project never ends up with duplicate photos.
  *
  * Returns the proxied url plus the raw upstream url (for dedup tracking).
  */
@@ -126,16 +128,8 @@ async function quickImageSearch(
   try {
     const headers = getApiKeysHeaders();
     const queryParams = getApiKeysQueryParams();
-    const res = await fetch(
-      `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(query)}&count=${IMAGE_SEARCH_COUNT}${queryParams}`,
-      { headers }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    const pool: string[] = Array.isArray(data.images)
-      ? data.images.map((img: { url?: string }) => img?.url || "").filter(Boolean)
-      : [];
-    const chosen = pickRandomImageUrl(pool, usedUrls);
+    const pool = await searchImagePool(query, { headers, queryParams });
+    const chosen = pickRandomImageUrl(pool.map((c) => c.url), usedUrls);
     if (!chosen) return null;
     return {
       proxyUrl: `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(chosen)}`,

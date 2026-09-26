@@ -300,8 +300,8 @@ export default function PhoneticDictionaryTab({
       </div>
 
       {/* SECTION 1: Interactive Live Normalizer & Audio Tester */}
-      <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-5 shadow-lg space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-800 pb-3">
+      <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-lg space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-hairline pb-3">
           <div>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <span>🧪</span> Live Script Normalization Tester
@@ -322,7 +322,7 @@ export default function PhoneticDictionaryTab({
                     setTestInput(scenes[idx].text);
                   }
                 }}
-                className="bg-gray-800 text-xs text-white border border-gray-700 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
+                className="bg-gray-800 text-xs text-white border border-hairline rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
                 defaultValue=""
               >
                 <option value="" disabled>
@@ -348,7 +348,7 @@ export default function PhoneticDictionaryTab({
               key={idx}
               type="button"
               onClick={() => setTestInput(sample.text)}
-              className="text-xs px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-gray-700/60 transition-colors"
+              className="text-xs px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-hairline transition-colors"
             >
               {sample.label}
             </button>
@@ -367,7 +367,7 @@ export default function PhoneticDictionaryTab({
               onChange={(e) => setTestInput(e.target.value)}
               rows={4}
               placeholder="Paste or type script text to preview spoken pronunciation..."
-              className="w-full bg-gray-950 border border-gray-700 rounded-xl p-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-sans"
+              className="w-full bg-gray-950 border border-hairline rounded-xl p-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-sans"
             />
           </div>
 
@@ -398,7 +398,7 @@ export default function PhoneticDictionaryTab({
 
         {/* Step-by-step Transformation Diagnostics */}
         {testResult && testResult.steps.length > 0 && (
-          <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-3.5 space-y-2">
+          <div className="bg-gray-950/60 border border-hairline rounded-xl p-3.5 space-y-2">
             <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
               Applied Pipeline Normalization Rules:
             </span>
@@ -409,7 +409,7 @@ export default function PhoneticDictionaryTab({
                   className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between ${
                     st.changed
                       ? "bg-indigo-950/50 border-indigo-600/60 text-indigo-200"
-                      : "bg-gray-900/40 border-gray-800 text-gray-500"
+                      : "bg-gray-900/40 border-hairline text-gray-500"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1 mb-1">
@@ -431,8 +431,8 @@ export default function PhoneticDictionaryTab({
       </div>
 
       {/* SECTION 2: Phonetic Pronunciation Lexicon & Custom Words */}
-      <div className="bg-gray-900/90 border border-gray-800 rounded-2xl p-5 shadow-lg space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
+      <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-lg space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
           <div>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <span>📖</span> Phonetic Pronunciation Lexicon
@@ -461,13 +461,13 @@ export default function PhoneticDictionaryTab({
               type="button"
               onClick={handleExportJSON}
               disabled={customEntries.length === 0}
-              className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 transition-colors disabled:opacity-50"
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 border border-hairline transition-colors disabled:opacity-50"
               title="Export custom phonetic dictionary"
             >
               Export JSON
             </button>
 
-            <label className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 transition-colors cursor-pointer">
+            <label className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 border border-hairline transition-colors cursor-pointer">
               Import JSON
               <input
                 type="file"
@@ -515,7 +515,7 @@ export default function PhoneticDictionaryTab({
                   value={newWord}
                   onChange={(e) => setNewWord(e.target.value)}
                   placeholder="e.g. Scenering, Melchizedek, C.S. Lewis"
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
                   autoFocus
                 />
               </div>
@@ -529,7 +529,7 @@ export default function PhoneticDictionaryTab({
                   value={newSpokenAs}
                   onChange={(e) => setNewSpokenAs(e.target.value)}
                   placeholder="e.g. Scene-ring, Mel-kiz-eh-dek, Cee Ess Lewis"
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono"
+                  className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono"
                 />
               </div>
             </div>
@@ -543,7 +543,7 @@ export default function PhoneticDictionaryTab({
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
                 placeholder="e.g. Brand title, character name in scene 3"
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
               />
             </div>
 
@@ -576,7 +576,7 @@ export default function PhoneticDictionaryTab({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search words or pronunciations..."
-              className="w-full bg-gray-950 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-gray-950 border border-hairline rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
             />
             <span className="absolute left-2.5 top-2 text-xs text-gray-500">🔍</span>
           </div>
@@ -597,7 +597,7 @@ export default function PhoneticDictionaryTab({
                 className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${
                   selectedCategory === cat.id
                     ? "bg-indigo-600 border-indigo-500 text-white font-semibold"
-                    : "bg-gray-800/80 border-gray-700 text-gray-300 hover:bg-gray-750"
+                    : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750"
                 }`}
               >
                 {cat.label}
@@ -607,10 +607,10 @@ export default function PhoneticDictionaryTab({
         </div>
 
         {/* Entries Table / List */}
-        <div className="border border-gray-800 rounded-xl overflow-hidden">
-          <div className="overflow-x-auto max-h-[460px] overflow-y-auto">
+        <div className="border border-hairline rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-gray-950 text-gray-400 font-semibold sticky top-0 z-10 border-b border-gray-800">
+              <thead className="bg-gray-950 text-gray-400 font-semibold border-b border-hairline">
                 <tr>
                   <th className="py-2.5 px-3">Script Word / Citation</th>
                   <th className="py-2.5 px-3">Spoken Phonetic Pronunciation</th>
@@ -619,7 +619,7 @@ export default function PhoneticDictionaryTab({
                   <th className="py-2.5 px-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-800/60 bg-gray-900/40">
+              <tbody className="divide-y divide-hairline bg-gray-900/40">
                 {filteredEntries.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-8 text-center text-gray-500">
@@ -644,7 +644,7 @@ export default function PhoneticDictionaryTab({
                             className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
                               isCustom
                                 ? "bg-purple-950 text-purple-300 border border-purple-800"
-                                : "bg-gray-800 text-gray-400 border border-gray-700"
+                                : "bg-gray-800 text-gray-400 border border-hairline"
                             }`}
                           >
                             {entry.category.replace("_", " ")}

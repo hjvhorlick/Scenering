@@ -1,16 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "../lib/api-keys";
-import { IMAGE_SEARCH_COUNT, pickRandomSample } from "../lib/image-picker";
+import { pickRandomSample } from "../lib/image-picker";
+import { searchImagePool, type ImageCandidate } from "../lib/image-search";
 import ApiKeysModal from "./ApiKeysModal";
-
-interface ImageResult {
-  url: string;
-  thumbnail: string;
-  source: string;
-  width: number;
-  height: number;
-}
 
 interface ImageSearchModalProps {
   initialQuery: string;
@@ -24,7 +17,7 @@ export default function ImageSearchModal({
   onSelect,
 }: ImageSearchModalProps) {
   const [query, setQuery] = useState(initialQuery);
-  const [images, setImages] = useState<ImageResult[]>([]);
+  const [images, setImages] = useState<ImageCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [source, setSource] = useState("");
@@ -43,22 +36,14 @@ export default function ImageSearchModal({
     try {
       const headers = getApiKeysHeaders();
       const queryParams = getApiKeysQueryParams();
-      const res = await fetch(
-        `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(q)}&count=${IMAGE_SEARCH_COUNT}${queryParams}`,
-        { headers }
-      );
-      if (!res.ok) {
-        throw new Error(`Search failed (${res.status})`);
-      }
-      const data = await res.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      // Show a random dozen out of the ~100 ranked candidates: repeating the
+      // The shared search keeps only photo-like images (the server has
+      // already enforced 16:9 and ≥1920×1080) before anything is shown.
+      const pool = await searchImagePool(q, { headers, queryParams });
+      // Show a random dozen out of the verified candidates: repeating the
       // same search must not serve the identical grid every time.
-      setImages(pickRandomSample((data.images || []) as ImageResult[], 12));
-      setSource(data.source || "");
-      if (!data.images || data.images.length === 0) {
+      setImages(pickRandomSample(pool, 12));
+      setSource(pool[0]?.source || "");
+      if (pool.length === 0) {
         setError("No images found. Try a different search term or add your Pexels/Pixabay API key.");
       }
     } catch (err) {

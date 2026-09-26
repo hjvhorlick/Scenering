@@ -12,8 +12,10 @@ import {
 } from "../lib/render-effects";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
-import { resolveSceneAudioBuffer, setCachedSceneAudio } from "../lib/tts-cache";
-import { formatDuration } from "../lib/duration-utils";
+import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
+import type { WordTiming } from "../lib/word-sync";
+import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
+import { formatDuration, sceneTimelineDuration } from "../lib/duration-utils";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument, getBackgroundMusicTrack, AMBIENT_STYLE_TO_TRACK } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
@@ -288,6 +290,8 @@ export default function RenderView({
   const watermarkImgRef = useRef<HTMLImageElement | null>(null);
   const customerLogoImgRef = useRef<HTMLImageElement | null>(null);
   const abortControllerRef = useRef<boolean>(false);
+  /** Frame pacing for the export — vsync-locked, worker-driven when hidden. */
+  const frameTickerRef = useRef<FrameTicker | null>(null);
 
   // Pre-load watermark logo image
   useEffect(() => {
@@ -530,7 +534,7 @@ export default function RenderView({
         await audioCtx.resume();
       }
 
-      const audioBuffers = new Map<number, { buffer: AudioBuffer; duration: number }>();
+      const audioBuffers = new Map<number, { buffer: AudioBuffer; duration: number; words?: WordTiming[] }>();
       for (let i = 0; i < scenesWithImages.length; i++) {
         if (abortControllerRef.current) throw new Error("Render cancelled");
         const s = scenesWithImages[i];
@@ -539,23 +543,15 @@ export default function RenderView({
         // 1. Resolve directly from the saved voiceover section (memory, IndexedDB, or audio_url)
         let resolved = await resolveSceneAudioBuffer(s, audioCtx);
 
-        // 2. Only if the scene was never generated, synthesize via /api/tts
+        // 2. Only if the scene was never generated, synthesize via /api/tts.
+        //    The timeline variant carries the per-word spoken timings, which is
+        //    what locks the karaoke captions to the voice word-for-word.
         if (!resolved) {
           try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 12000);
-            const res = await fetch("/api/tts", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: s.text, voice: sceneVoice }),
-              signal: controller.signal,
-            });
-            clearTimeout(timeoutId);
-
-            if (res.ok) {
-              const arrayBuf = await res.arrayBuffer();
-              const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-              const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+            const withTimeline = await fetchSceneAudioWithTimeline(s.text || "", sceneVoice, { timeoutMs: 20000 });
+            if (withTimeline) {
+              const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
+              const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
               const blobUrl = URL.createObjectURL(blob);
               setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
                 audioBuffer,
@@ -563,18 +559,60 @@ export default function RenderView({
                 duration: audioBuffer.duration,
                 voiceId: sceneVoice,
                 text: (s.text || "").trim(),
-                rawBuffer: arrayBuf,
+                rawBuffer: withTimeline.rawBuffer,
                 blob,
+                words: withTimeline.words,
               });
-              resolved = { buffer: audioBuffer, duration: audioBuffer.duration, url: blobUrl };
+              resolved = {
+                buffer: audioBuffer,
+                duration: audioBuffer.duration,
+                url: blobUrl,
+                words: withTimeline.words,
+              };
             }
           } catch (e) {
             console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
           }
+          if (!resolved) {
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 12000);
+              const res = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: s.text, voice: sceneVoice }),
+                signal: controller.signal,
+              });
+              clearTimeout(timeoutId);
+
+              if (res.ok) {
+                const arrayBuf = await res.arrayBuffer();
+                const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+                const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+                const blobUrl = URL.createObjectURL(blob);
+                setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
+                  audioBuffer,
+                  blobUrl,
+                  duration: audioBuffer.duration,
+                  voiceId: sceneVoice,
+                  text: (s.text || "").trim(),
+                  rawBuffer: arrayBuf,
+                  blob,
+                });
+                resolved = { buffer: audioBuffer, duration: audioBuffer.duration, url: blobUrl };
+              }
+            } catch (e) {
+              console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
+            }
+          }
         }
 
         if (resolved) {
-          audioBuffers.set(s.id, { buffer: resolved.buffer, duration: resolved.duration });
+          audioBuffers.set(s.id, {
+            buffer: resolved.buffer,
+            duration: resolved.duration,
+            words: resolved.words && resolved.words.length > 0 ? resolved.words : undefined,
+          });
         } else {
           const sampleRate = audioCtx.sampleRate || 44100;
           const fallbackDur = getEffectiveSceneDuration(s);
@@ -777,8 +815,11 @@ export default function RenderView({
           item && item.duration > 0.3
             ? item.duration
             : calculateDynamicDuration(s.text, s.audio_duration);
-        // Clean 0.25s breathing space after spoken voice narration before scene cut / transition
-        const sceneDur = Math.max(1.5, Math.round((speechDur + 0.25) * 10) / 10);
+        // The exact same scene-length formula the live preview uses
+        // (src/lib/duration-utils.ts → sceneTimelineDuration): one number for
+        // both, so the cut, the audio start and the caption flip all land on
+        // the same moment in the preview and in the exported file.
+        const sceneDur = sceneTimelineDuration(s, item ? item.duration : undefined);
         const entry = {
           scene: s,
           index: idx,
@@ -937,15 +978,25 @@ export default function RenderView({
       let lastProgressVal = 0.35;
       let lastResumeAttempt = 0;
 
-      // Frame drawing loop with robust error boundaries and background tab resilience
+      // Frame drawing loop with robust error boundaries and background tab resilience.
+      //
+      // Pacing comes from the shared frame ticker: requestAnimationFrame while
+      // the tab is visible (true vsync cadence — the exported motion glides),
+      // a Web Worker timer while it is hidden (page timers would be throttled
+      // to ~1Hz and the video would judder), and a watchdog if both stall.
+      // The previous loop raced a 16ms setTimeout against every rAF, and the
+      // resulting jitter was captured straight into the file: the Ken Burns
+      // read as choppy, jumping frames instead of a camera move.
       await new Promise<void>((resolveLoop) => {
         let isLoopFinished = false;
-        let backgroundTimerId: any = null;
+        const ticker = createFrameTicker(() => renderFrame());
+        frameTickerRef.current = ticker;
 
         const cleanupAndFinish = () => {
           if (isLoopFinished) return;
           isLoopFinished = true;
-          if (backgroundTimerId) clearTimeout(backgroundTimerId);
+          ticker.stop();
+          if (frameTickerRef.current === ticker) frameTickerRef.current = null;
           try {
             insertMixer?.stop();
           } catch {}
@@ -962,24 +1013,8 @@ export default function RenderView({
           resolveLoop();
         };
 
-        const scheduleNextFrame = () => {
-          if (isLoopFinished) return;
-          const animId = requestAnimationFrame(renderFrame);
-          // Backup timer so if user switches tabs and requestAnimationFrame throttles, the render never freezes
-          if (backgroundTimerId) clearTimeout(backgroundTimerId);
-          const frameInterval = Math.max(12, Math.floor(1000 / (settings.fps || 60)));
-          backgroundTimerId = setTimeout(() => {
-            cancelAnimationFrame(animId);
-            renderFrame();
-          }, frameInterval);
-        };
-
         const renderFrame = () => {
           if (isLoopFinished) return;
-          if (backgroundTimerId) {
-            clearTimeout(backgroundTimerId);
-            backgroundTimerId = null;
-          }
 
           if (abortControllerRef.current) {
             cleanupAndFinish();
@@ -1054,7 +1089,6 @@ export default function RenderView({
                   });
               }
 
-              scheduleNextFrame();
               return;
             }
 
@@ -1088,7 +1122,6 @@ export default function RenderView({
                 return;
               }
 
-              scheduleNextFrame();
               return;
             }
 
@@ -1325,7 +1358,13 @@ export default function RenderView({
                   speechProgress,
                   activeCaptionsConfig,
                   width,
-                  height
+                  height,
+                  {
+                    // Real per-word spoken timings: the highlight follows the
+                    // voice itself, not an estimate of it.
+                    wordTimings: audioBuffers.get(currentScene.id)?.words,
+                    audioTimeSec: elapsedInScene,
+                  }
                 );
               } catch (capErr) {
                 console.warn("Captions render notice:", capErr);
@@ -1370,15 +1409,12 @@ export default function RenderView({
                 console.warn("Timeline inserts notice:", insertsErr);
               }
             }
-
-            scheduleNextFrame();
           } catch (frameErr) {
             console.error("Frame render recoverable error:", frameErr);
-            scheduleNextFrame();
           }
         };
 
-        scheduleNextFrame();
+        ticker.start(settings.fps);
       });
 
       // 4. Encoding stream & packaging
@@ -1434,6 +1470,12 @@ export default function RenderView({
       setRenderStatus({ active: false, error: message, stage: "Render failed" });
     } finally {
       setIsRendering(false);
+      // Belt and braces: the loop stops its own ticker on cleanup, but an
+      // exception between start and cleanup must not leave it ticking.
+      try {
+        frameTickerRef.current?.stop();
+        frameTickerRef.current = null;
+      } catch {}
       // Release every clip decoder used during the export.
       try {
         clipPoolRef.current?.dispose();
@@ -1623,11 +1665,17 @@ export default function RenderView({
   // ---- Read-only summary values (the results of the setup choices) ----
   const MOTION_LABELS: Record<string, string> = {
     dynamic: "Dynamic Variety",
-    ken_burns: "Gentle Ken Burns",
+    ken_burns: "Documentary Ken Burns",
+    slow_zoom: "Slow Cinematic Zoom",
     zoom_in: "Cinematic Zoom In",
     zoom_out: "Dramatic Zoom Out",
+    pan_left: "Smooth Camera Pan (left)",
+    pan_right: "Smooth Camera Pan (right)",
     pan: "Smooth Camera Pan",
+    subtle_camera: "Subtle Camera Drift",
     shake: "Handheld Shake",
+    pulse: "Heartbeat Pulse",
+    floating: "Weightless Float",
     none: "Static (no motion)",
   };
   const voiceDisplayName =
