@@ -1217,7 +1217,7 @@ export default function App() {
             <img
               src={sceneringLogo}
               alt="Scenering"
-              className="h-8 w-auto max-w-[120px] sm:max-w-[150px] object-contain filter drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]"
+              className="h-9 w-auto max-w-[130px] sm:max-w-[160px] object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)] select-none"
             />
           </button>
 

@@ -1,11 +1,10 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import WebSocket from "ws";
-import { spawn } from "child_process";
 import { GoogleGenAI } from "@google/genai";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
-import { NATURE_FALLBACKS } from "./src/data/nature-fallbacks";
+import { NATURE_FALLBACKS } from "./src/data/nature-fallbacks.ts";
+import { sanitizeTextForSpeech } from "./src/lib/speech-sanitizer.ts";
 
 /**
  * Fisher–Yates shuffle on a copy. Used so the bundled nature library comes
@@ -542,8 +541,9 @@ const ttsAudioCache = new Map<string, Buffer>();
 
 // Synthesizes high-fidelity authentic human speech using Microsoft Edge Neural voices (300+ free studio voices)
 async function synthesizeTTS(text: string, voice: string): Promise<Buffer> {
+  const cleanText = sanitizeTextForSpeech(text);
   const shortName = resolveVoiceShortName(voice);
-  const cacheKey = `${shortName}_${text.trim()}`;
+  const cacheKey = `${shortName}_${cleanText.trim()}`;
   const cached = ttsAudioCache.get(cacheKey);
   if (cached) {
     return cached;
@@ -551,7 +551,7 @@ async function synthesizeTTS(text: string, voice: string): Promise<Buffer> {
 
   // 1. High priority: Authentic Neural studio voices (genuine male or female recording, 96kbps MP3)
   try {
-    const realAudioBuf = await synthesizeRealEdgeTTS(text, voice);
+    const realAudioBuf = await synthesizeRealEdgeTTS(cleanText, voice);
     ttsAudioCache.set(cacheKey, realAudioBuf);
     return realAudioBuf;
   } catch (err: any) {
@@ -560,17 +560,15 @@ async function synthesizeTTS(text: string, voice: string): Promise<Buffer> {
 
   // 2. High reliability clean regional Google speech with studio mastering
   try {
-    const googleBuf = await synthesizeGoogleTTSFallback(text, voice);
+    const googleBuf = await synthesizeGoogleTTSFallback(cleanText, voice);
     ttsAudioCache.set(cacheKey, googleBuf);
     return googleBuf;
   } catch (googleErr: any) {
     console.warn("Google TTS notice:", googleErr?.message);
   }
 
-  // 3. Guaranteed buffer so the client never hangs. The scene keeps its
-  //    correct length, but the caller is told this is NOT real speech via the
-  //    X-TTS-Source header so the UI can warn instead of shipping silence.
-  const approxDuration = Math.max(2, text.split(/\s+/).filter(Boolean).length / 2.5);
+  // 3. Guaranteed buffer so the client never hangs.
+  const approxDuration = Math.max(2, cleanText.split(/\s+/).filter(Boolean).length / 2.5);
   return generateFallbackToneBuffer(approxDuration);
 }
 
@@ -583,15 +581,17 @@ type TtsSource = "edge" | "google" | "silent";
  */
 async function synthesizeTTSWithSource(
   text: string,
-  voice: string
+  voice: string,
+  customEntries?: any[]
 ): Promise<{ buffer: Buffer; source: TtsSource }> {
+  const cleanText = sanitizeTextForSpeech(text, customEntries);
   const shortName = resolveVoiceShortName(voice);
-  const cacheKey = `${shortName}_${text.trim()}`;
+  const cacheKey = `${shortName}_${cleanText.trim()}`;
   const cached = ttsAudioCache.get(cacheKey);
   if (cached) return { buffer: cached, source: "edge" };
 
   try {
-    const buf = await synthesizeRealEdgeTTS(text, voice);
+    const buf = await synthesizeRealEdgeTTS(cleanText, voice);
     ttsAudioCache.set(cacheKey, buf);
     return { buffer: buf, source: "edge" };
   } catch (err: any) {
@@ -599,14 +599,14 @@ async function synthesizeTTSWithSource(
   }
 
   try {
-    const buf = await synthesizeGoogleTTSFallback(text, voice);
+    const buf = await synthesizeGoogleTTSFallback(cleanText, voice);
     ttsAudioCache.set(cacheKey, buf);
     return { buffer: buf, source: "google" };
   } catch (googleErr: any) {
     console.warn("Google TTS notice:", googleErr?.message);
   }
 
-  const approxDuration = Math.max(2, text.split(/\s+/).filter(Boolean).length / 2.5);
+  const approxDuration = Math.max(2, cleanText.split(/\s+/).filter(Boolean).length / 2.5);
   return { buffer: generateFallbackToneBuffer(approxDuration), source: "silent" };
 }
 
@@ -942,13 +942,13 @@ async function startServer() {
 
   const handleTTSPost = async (req: express.Request, res: express.Response) => {
     try {
-      const { text, voice = "alloy" } = req.body;
+      const { text, voice = "alloy", customDictionary } = req.body;
       if (!text || typeof text !== "string") {
         return res.status(400).json({ error: "Text is required" });
       }
 
       const trimmedText = text.slice(0, 2000);
-      const { buffer: audioBuffer, source } = await synthesizeTTSWithSource(trimmedText, voice);
+      const { buffer: audioBuffer, source } = await synthesizeTTSWithSource(trimmedText, voice, customDictionary);
 
       const isWav = audioBuffer.length > 4 && audioBuffer.subarray(0, 4).toString() === "RIFF";
       res.setHeader("Content-Type", isWav ? "audio/wav" : "audio/mpeg");

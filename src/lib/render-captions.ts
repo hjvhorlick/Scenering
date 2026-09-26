@@ -27,21 +27,52 @@ export const DEFAULT_CAPTIONS_CONFIG: CaptionsConfig = {
   shadowStrength: 0.5,
 };
 
-/** Helper: apply letter spacing where the canvas supports it (Chrome/Edge/Safari) */
-function applyLetterSpacing(ctx: CanvasRenderingContext2D, em: number) {
-  const anyCtx = ctx as unknown as { letterSpacing?: string };
-  if ("letterSpacing" in anyCtx && typeof anyCtx.letterSpacing === "string") {
-    anyCtx.letterSpacing = `${(em || 0).toFixed(3)}em`;
-  }
+/**
+ * Normalizes raw script text for subtitle display:
+ * 1. Strips leading speaker labels (e.g. "NARRATOR:", "SPEAKER 1:", "HOST (V.O.):")
+ * 2. Strips bracketed stage directions (e.g. "[sighs]", "(pause)", "[chuckles]")
+ * 3. Strips markdown asterisks and formatting symbols
+ * 4. Removes emojis so no weird squares or missing glyphs appear in the video
+ */
+export function cleanCaptionText(raw: string): string {
+  if (!raw || typeof raw !== "string") return "";
+  let text = raw;
+
+  // 1. Remove leading speaker cues
+  text = text.replace(
+    /(?:^|\n)\s*(?:NARRATOR|VOICEOVER|HOST|SPEAKER\s*\d+|CHARACTER|WOMAN|MAN|VOICE|INTERVIEWER)(?:\s*\([^)]*\))?\s*:\s*/gi,
+    ""
+  );
+
+  // 2. Remove bracketed/parenthesized stage cues
+  text = text.replace(/\[[^\]]*\]/g, "");
+  text = text.replace(/\([^)]*(?:pause|beat|sigh|laugh|softly|whisper)[^)]*\)/gi, "");
+
+  // 3. Remove markdown bold/italic asterisks & formatting
+  text = text.replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1");
+  text = text.replace(/\*/g, "");
+  text = text.replace(/_{1,3}([^_]+)_{1,3}/g, "$1");
+  text = text.replace(/_/g, " ");
+  text = text.replace(/`([^`]+)`/g, "$1");
+  text = text.replace(/`/g, "");
+  text = text.replace(/~{1,2}([^~]+)~{1,2}/g, "$1");
+  text = text.replace(/~/g, "");
+
+  // 4. Strip emojis & unicode dingbats that may render as missing glyphs in video fonts
+  text = text.replace(
+    /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu,
+    ""
+  );
+
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /**
  * Shared canvas caption rendering engine.
  * Used by both live VideoPreview and final offline RenderView.
  *
- * Every style draws a soft shadow *below* the text (and below the backdrop pill)
- * so the captions read as floating a little above the footage, which gives the
- * frame depth. The border is a hairline by default and thickens with borderWidth.
+ * Ensures 100% letter-by-letter rendering accuracy with rock-solid spacing,
+ * stable multi-line paging, and natural syllable-weighted timing.
  */
 export function renderCanvasCaptions(
   ctx: CanvasRenderingContext2D,
@@ -52,18 +83,17 @@ export function renderCanvasCaptions(
   h: number
 ) {
   if (!config.enabled || !rawText) return;
-  const trimmed = rawText.trim();
-  if (!trimmed) return;
+  const cleaned = cleanCaptionText(rawText);
+  if (!cleaned) return;
 
   // ---------- Style + typography ----------
   const style = getCaptionStyle(resolveCaptionStyleId(config.preset));
   const fontDef = getCaptionFont(config.fontId || style.fontId);
   const fontFamily = captionFontStack(config.fontId || style.fontId);
   const fontWeight = config.fontWeight ?? fontDef.weight;
-  const letterSpacing = config.letterSpacing ?? style.letterSpacing;
   const uppercase = config.uppercase ?? style.uppercase;
 
-  const textToRender = uppercase ? trimmed.toUpperCase() : trimmed;
+  const textToRender = uppercase ? cleaned.toUpperCase() : cleaned;
   const words = textToRender.split(/\s+/).filter(Boolean);
   if (words.length === 0) return;
 
@@ -100,7 +130,8 @@ export function renderCanvasCaptions(
   ctx.save();
   ctx.font = `${fontWeight} ${fontPx}px ${fontFamily}`;
   ctx.textBaseline = "middle";
-  applyLetterSpacing(ctx, letterSpacing);
+
+  const spaceWidth = ctx.measureText(" ").width;
 
   // Wrap words into lines based on safe canvas width (ensuring text fits inside video borders)
   const maxLineWidth = Math.round(w * 0.78);
@@ -136,15 +167,25 @@ export function renderCanvasCaptions(
 
   // Natural speech rhythm weighting:
   // Short connector words (a, to, in, of) pass quickly; longer polysyllabic words
-  // (extraordinary, international) receive their proportional speaking duration;
-  // trailing punctuation adds a subtle natural pause. This keeps word highlights
-  // 100% in sync with the human voiceover rather than lagging behind.
+  // receive their proportional speaking duration; citations with numbers (3:16-18)
+  // receive adequate time so the highlight never rushes ahead of spoken verses.
   const totalWords = words.length;
   const wordWeights = words.map((w) => {
-    const letters = w.replace(/[^a-zA-Z0-9]/g, "").length;
-    let weight = Math.max(2, letters);
-    if (/[,\-;:]$/.test(w)) weight += 1.5;
-    if (/[.!?]$/.test(w)) weight += 2.5;
+    // Numbers & citations (e.g. "3:16-18", "8:28", "$100", "2025")
+    if (/\d/.test(w)) {
+      const digits = w.replace(/\D/g, "").length;
+      return Math.max(3.8, digits * 1.8);
+    }
+    const cleanWord = w.replace(/[^a-zA-Z]/g, "").toLowerCase();
+    const len = cleanWord.length;
+    if (len <= 2) return 1.6;
+    if (len <= 4) return 2.4;
+    // Estimate syllables from vowel clusters
+    const vowelMatches = cleanWord.match(/[aeiouy]{1,2}/g);
+    const estSyllables = vowelMatches ? Math.max(1, vowelMatches.length) : Math.ceil(len / 3);
+    let weight = estSyllables * 2.2 + len * 0.35;
+    if (/[,\-;:]$/.test(w)) weight += 1.8;
+    if (/[.!?]$/.test(w)) weight += 3.2;
     return weight;
   });
   const totalWeight = Math.max(1, wordWeights.reduce((a, b) => a + b, 0));
@@ -181,22 +222,16 @@ export function renderCanvasCaptions(
     }
   }
 
-  // DISPLAY MAX 2 LINES: the next line shows underneath as the first is finished.
-  let firstVisibleIdx = 0;
-  if (lines.length <= 2) {
-    firstVisibleIdx = 0;
-  } else if (activeLineIdx >= lines.length - 1) {
-    firstVisibleIdx = lines.length - 2;
-  } else {
-    firstVisibleIdx = activeLineIdx;
-  }
+  // STABLE PAGE-BASED CARDS: group into 2-line cards so the text stays rock solid
+  // while being read and NEVER abruptly jerks or jumps up on every single line!
+  const pageIdx = Math.floor(activeLineIdx / 2);
+  const firstVisibleIdx = pageIdx * 2;
 
   const visibleLines = lines.slice(firstVisibleIdx, firstVisibleIdx + 2);
-  const displayLineCount = visibleLines.length;
 
   // Calculate vertical position with generous safety margin from canvas borders
   let startY: number;
-  const totalBlockHeight = displayLineCount * lineSpacingPx;
+  const totalBlockHeight = 2 * lineSpacingPx;
   switch (config.position) {
     case "top":
       startY = Math.max(32, Math.round(h * 0.12)) + lineSpacingPx / 2;
@@ -206,8 +241,8 @@ export function renderCanvasCaptions(
       break;
     case "bottom":
     default:
-      // Keep comfortably elevated above bottom edge and timeline progress bar
-      startY = h - Math.max(42, Math.round(h * 0.10)) - (displayLineCount - 1) * lineSpacingPx;
+      // Fixed bottom-anchored baseline so 1-line and 2-line cards align consistently
+      startY = h - Math.max(42, Math.round(h * 0.10)) - lineSpacingPx;
       break;
   }
 
@@ -234,15 +269,19 @@ export function renderCanvasCaptions(
   // Render the max 2 visible lines
   visibleLines.forEach((lineObj, displayIdx) => {
     const lineY = startY + displayIdx * lineSpacingPx;
-    const lineWidth = ctx.measureText(lineObj.text).width;
-    const lineStartX = (w - lineWidth) / 2;
+
+    // Pre-measure word widths to compute exact line layout with ZERO skipped letters
+    const wordWidths = lineObj.words.map((wrd) => ctx.measureText(wrd).width);
+    const totalWordsWidth = wordWidths.reduce((a, b) => a + b, 0);
+    const totalLineWidth = totalWordsWidth + Math.max(0, lineObj.words.length - 1) * spaceWidth;
+    const lineStartX = (w - totalLineWidth) / 2;
 
     // 1. Background backdrop (if blocked) — floating on its own shadow
     if (config.backgroundStyle === "blocked") {
       const padX = Math.round(fontPx * 0.65);
       const padY = Math.round(fontPx * 0.35);
       const maxBgW = Math.round(w * 0.88);
-      const bgW = Math.min(lineWidth + padX * 2, maxBgW);
+      const bgW = Math.min(totalLineWidth + padX * 2, maxBgW);
       const bgH = lineSpacingPx + padY;
       const bgX = (w - bgW) / 2;
       const bgY = lineY - bgH / 2;
@@ -265,15 +304,16 @@ export function renderCanvasCaptions(
 
     // 2. Text Drawing
     if (config.mode === "karaoke") {
-      // In Karaoke mode, draw word by word, highlighting active and sung words
+      // In Karaoke mode, draw word by word with rock-solid spacing and highlight active words
       let currentX = lineStartX;
 
       lineObj.words.forEach((wrd, wInLineIdx) => {
         const globalWrdIdx = lineObj.startIndex + wInLineIdx;
         const isCurrentActive = safeProgress < 1 && globalWrdIdx === activeWordGlobalIndex;
         const isAlreadySung = safeProgress >= 1 || globalWrdIdx < activeWordGlobalIndex;
+        const curWordWidth = wordWidths[wInLineIdx];
 
-        // Soft shadow below every word, so the whole line floats in the frame
+        // Soft shadow below every word
         strokeWord(wrd, currentX, lineY, "left");
 
         ctx.save();
@@ -281,30 +321,23 @@ export function renderCanvasCaptions(
 
         if (isCurrentActive) {
           ctx.fillStyle = config.highlightColor || style.highlightColor;
-          if (style.category === "Artsy" || style.shadowStrength > 0.65) {
-            // glow styles keep a coloured halo on the active word
-            ctx.shadowColor = ctx.fillStyle as string;
-            ctx.shadowBlur = Math.max(6, shadowBlur * 0.9);
-            ctx.shadowOffsetY = Math.max(1, shadowOffsetY * 0.4);
-          } else {
-            ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.9, shadowStrength)})`;
-            ctx.shadowBlur = shadowBlur;
-            ctx.shadowOffsetY = shadowOffsetY;
-          }
+          ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+          ctx.shadowBlur = shadowBlur;
+          ctx.shadowOffsetY = shadowOffsetY;
         } else if (isAlreadySung) {
           ctx.fillStyle = config.textColor || style.textColor;
         } else {
-          // Upcoming words in a soft tone for clean anticipation
-          ctx.fillStyle = "rgba(255, 255, 255, 0.72)";
+          // Upcoming words in soft clean tone for anticipation
+          ctx.fillStyle = "rgba(255, 255, 255, 0.70)";
         }
 
         ctx.fillText(wrd, currentX, lineY);
         ctx.restore();
 
-        currentX += ctx.measureText(wrd + " ").width;
+        currentX += curWordWidth + spaceWidth;
       });
     } else {
-      // In Normal mode, draw the full uniform phrase
+      // In Normal mode, draw the full uniform phrase centered
       strokeWord(lineObj.text, w / 2, lineY, "center");
 
       ctx.save();
@@ -315,6 +348,5 @@ export function renderCanvasCaptions(
     }
   });
 
-  applyLetterSpacing(ctx, 0);
   ctx.restore();
 }

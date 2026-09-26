@@ -67,8 +67,8 @@ export function drawSceneTransition(
   currentOpts?: TransitionFrameOptions,
   prevOpts?: TransitionFrameOptions
 ): boolean {
-  const transitionType = currentScene.transition;
-  if (!transitionType || transitionType === "none") {
+  const transitionType = currentScene.transition || "crossfade";
+  if (transitionType === "none") {
     return false;
   }
 
@@ -77,7 +77,9 @@ export function drawSceneTransition(
     return false;
   }
 
-  const t = Math.max(0, Math.min(1, elapsedInScene / transDuration));
+  const rawT = Math.max(0, Math.min(1, elapsedInScene / transDuration));
+  // Smooth hermite ease for organic cinematic dissolve without linear midpoint dip
+  const t = rawT * rawT * (3 - 2 * rawT);
 
   if (transitionType === "fade" || transitionType === "fade_black") {
     if (prevScene && prevImg && prevImg.naturalWidth > 0) {

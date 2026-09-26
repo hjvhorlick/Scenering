@@ -177,7 +177,7 @@ export default function RenderView({
   const [settings, setSettings] = useState<RenderSettings>({
     format: "mp4",
     resolution: propResolution || "1080p",
-    fps: 30,
+    fps: 60,
     quality: "high",
     includeWatermark: true,
     watermarkOpacity: 1.0,
@@ -967,10 +967,11 @@ export default function RenderView({
           const animId = requestAnimationFrame(renderFrame);
           // Backup timer so if user switches tabs and requestAnimationFrame throttles, the render never freezes
           if (backgroundTimerId) clearTimeout(backgroundTimerId);
+          const frameInterval = Math.max(12, Math.floor(1000 / (settings.fps || 60)));
           backgroundTimerId = setTimeout(() => {
             cancelAnimationFrame(animId);
             renderFrame();
-          }, 40);
+          }, frameInterval);
         };
 
         const renderFrame = () => {
@@ -990,15 +991,15 @@ export default function RenderView({
             const dt = Math.max(0, Math.min(0.1, (now - lastFrameWallTime) / 1000));
             lastFrameWallTime = now;
 
-            // Direct phase-lock to Web Audio hardware clock with continuous monotonic easing (zero jagged jumps!)
+            // Direct phase-lock to Web Audio hardware clock: zero lag, zero drift
             const targetAudioTime = audioCtx.state === "running"
               ? Math.max(0, audioCtx.currentTime - renderAudioT0)
               : smoothedGlobalTime + dt;
 
-            smoothedGlobalTime += dt;
             if (audioCtx.state === "running") {
-              // Smoothly converge to audio time without abrupt jumps
-              smoothedGlobalTime += (targetAudioTime - smoothedGlobalTime) * 0.18;
+              smoothedGlobalTime = targetAudioTime;
+            } else {
+              smoothedGlobalTime += dt;
             }
             const currentGlobalTime = smoothedGlobalTime;
 
@@ -1111,13 +1112,11 @@ export default function RenderView({
             const currentSceneIdx = activeEntry.index;
             const elapsedInScene = Math.max(0, currentGlobalTime - activeEntry.startTime);
             const progressInScene = Math.min(1, elapsedInScene / Math.max(0.1, activeEntry.duration));
-            // speechProgress reaches 1.0 at the exact moment spoken narration completes.
-            // TTS voice recordings include trailing breath/room tone after the last word (~0.28s).
-            // Calibrating against activeSpokenDuration keeps captions 100% in sync with the spoken voice syllables!
-            const activeSpokenDuration = Math.max(0.4, activeEntry.speechDuration - 0.28);
+            // speechProgress reaches 1.0 at the exact moment spoken narration completes
+            const activeSpokenDuration = Math.max(0.4, activeEntry.speechDuration);
             const speechProgress = Math.min(
               1,
-              Math.max(0, elapsedInScene / Math.max(0.2, activeSpokenDuration))
+              Math.max(0, elapsedInScene / Math.max(0.1, activeSpokenDuration))
             );
 
             // --- Draw background ---
@@ -1152,7 +1151,8 @@ export default function RenderView({
               currentScene.motion_effect,
               progressInScene,
               width,
-              height
+              height,
+              currentSceneIdx
             );
             const safeScale = isNaN(scale) ? 1 : scale;
             const safeDx = isNaN(dx) ? 0 : dx;
@@ -1185,7 +1185,8 @@ export default function RenderView({
                   prevScene?.motion_effect,
                   1,
                   width,
-                  height
+                  height,
+                  Math.max(0, currentSceneIdx - 1)
                 );
                 const safePrevScale = isNaN(prevScale) ? 1 : prevScale;
                 const safePrevDx = isNaN(prevDx) ? 0 : prevDx;
@@ -1257,35 +1258,18 @@ export default function RenderView({
               const wmOpacity = Math.max(0.1, Math.min(1.0, settings.watermarkOpacity ?? 1.0));
               ctx.globalAlpha = wmOpacity;
 
-              const wmWidth = Math.max(20, Math.round(200 * wmScale * scaleRatio));
+              const wmWidth = Math.max(20, Math.round(180 * wmScale * scaleRatio));
               const wmHeight = Math.max(10, Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth)));
               const posX = Math.round(24 * scaleRatio);
-              const posY = Math.round(20 * scaleRatio);
-              const padX = Math.round(10 * scaleRatio);
-              const padY = Math.round(6 * scaleRatio);
-              const rad = Math.round(10 * scaleRatio);
+              const posY = Math.round(20 * (height / 720));
 
-              // Protective high-contrast backing pill
-              ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-              ctx.shadowBlur = 10 * scaleRatio;
+              // Subtle soft shadow so transparent logo stands out cleanly on any video scene (matches preview 1:1)
+              ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+              ctx.shadowBlur = 8 * scaleRatio;
               ctx.shadowOffsetX = 0;
               ctx.shadowOffsetY = 2 * scaleRatio;
-              ctx.fillStyle = "rgba(10, 12, 22, 0.78)";
-              ctx.beginPath();
-              if (typeof ctx.roundRect === "function") {
-                ctx.roundRect(posX - padX, posY - padY, wmWidth + padX * 2, wmHeight + padY * 2, rad);
-              } else {
-                ctx.rect(posX - padX, posY - padY, wmWidth + padX * 2, wmHeight + padY * 2);
-              }
-              ctx.fill();
 
-              ctx.shadowColor = "transparent";
-              ctx.shadowBlur = 0;
-              ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-              ctx.lineWidth = Math.max(1, 1 * scaleRatio);
-              ctx.stroke();
-
-              // Draw crisp watermark logo
+              // Draw crisp transparent watermark logo
               try {
                 ctx.drawImage(watermarkImgRef.current, posX, posY, wmWidth, wmHeight);
               } catch (wmDrawErr) {
@@ -1333,18 +1317,7 @@ export default function RenderView({
             // --- Subtitle & Caption Rendering (Speech Synchronized) ---
             if (settings.includeSubtitles && currentScene.text) {
               try {
-                const activeCaptionsConfig: CaptionsConfig = captionsConfig || {
-                  enabled: true,
-                  mode: settings.subtitleStyle === "normal" ? "normal" : "karaoke",
-                  backgroundStyle: "blocked",
-                  preset: "word_pop",
-                  fontSize: "medium",
-                  position: "bottom",
-                  uppercase: true,
-                  textColor: "#ffffff",
-                  highlightColor: "#facc15",
-                  bgColor: "rgba(0, 0, 0, 0.75)",
-                };
+                const activeCaptionsConfig: CaptionsConfig = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
 
                 renderCanvasCaptions(
                   ctx,
@@ -1759,6 +1732,37 @@ export default function RenderView({
                 value={resLabel}
                 hint={`${settings.format.toUpperCase()} · ${settings.fps} fps · ${settings.quality} quality`}
               />
+              <div className="pt-1.5 pb-1 border-t border-hairline flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-gray-300 flex items-center gap-1.5">
+                    <span>⚡</span> Video Fluency &amp; Frame Rate
+                  </span>
+                  <div className="flex items-center gap-1 bg-gray-950 p-0.5 rounded-lg border border-hairline">
+                    <button
+                      type="button"
+                      onClick={() => setSettings((s) => ({ ...s, fps: 60 }))}
+                      className={`px-2 py-1 text-[10px] rounded-md font-bold transition-all ${
+                        settings.fps === 60
+                          ? "bg-indigo-600 text-white shadow"
+                          : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      60 FPS (Ultra Smooth)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSettings((s) => ({ ...s, fps: 30 }))}
+                      className={`px-2 py-1 text-[10px] rounded-md font-bold transition-all ${
+                        settings.fps === 30
+                          ? "bg-indigo-600 text-white shadow"
+                          : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      30 FPS
+                    </button>
+                  </div>
+                </div>
+              </div>
               <SummaryRow
                 icon="🎥"
                 label="Camera motion"

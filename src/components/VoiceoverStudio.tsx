@@ -4,6 +4,7 @@ import type { Scene } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
 import { setCachedSceneAudio, getSharedAudioContext } from "../lib/tts-cache";
 import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
+import PhoneticDictionaryTab from "./PhoneticDictionaryTab";
 import {
   VoiceEchoConfig,
   VOICE_ECHO_PRESETS,
@@ -180,7 +181,7 @@ export default function VoiceoverStudio({
   );
   const [playingId, setPlayingId] = useState<string | number | null>(null);
   const [loadingId, setLoadingId] = useState<string | number | null>(null);
-  const [activeTab, setActiveTab] = useState<"natural_voices" | "import_tts">("natural_voices");
+  const [activeTab, setActiveTab] = useState<"natural_voices" | "import_tts" | "phonetic_dictionary">("natural_voices");
   const [genderFilter, setGenderFilter] = useState<"all" | "male" | "female">("all");
   const [generationSuccess, setGenerationSuccess] = useState(false);
   const [showSceneReview, setShowSceneReview] = useState(false);
@@ -696,6 +697,14 @@ export default function VoiceoverStudio({
         >
           <span>📁</span>
           <span>Import Prepared TTS File</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("phonetic_dictionary")}
+          className={`opt-btn ${activeTab === "phonetic_dictionary" ? "opt-btn-on" : ""}`}
+        >
+          <span>🗣️</span>
+          <span>Phonetic Dictionary &amp; Normalization</span>
         </button>
       </div>
 
@@ -1371,6 +1380,14 @@ export default function VoiceoverStudio({
             </p>
           </div>
         </div>
+      )}
+
+      {/* Tab 3: Phonetic Dictionary & Script Normalization */}
+      {activeTab === "phonetic_dictionary" && (
+        <PhoneticDictionaryTab
+          scenes={scenes}
+          selectedVoice={selectedVoice}
+        />
       )}
 
     </div>

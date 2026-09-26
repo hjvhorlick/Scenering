@@ -1,5 +1,6 @@
 import { EDGE_FUNCTION_BASE } from "./supabase";
 import type { Scene } from "../types";
+import { sanitizeTextForSpeech } from "./speech-sanitizer";
 
 export interface CachedAudioItem {
   audioBuffer: AudioBuffer;
@@ -261,12 +262,13 @@ export async function pregenerateAllScenesAudio(
       }
 
       // 2. Synthesize via /api/tts
+      const cleanText = sanitizeTextForSpeech(text);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 12000);
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice: voiceId }),
+        body: JSON.stringify({ text: cleanText, voice: voiceId }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);

@@ -53,8 +53,9 @@ export function getPresetCoords(preset?: TimelineInsert["presetPosition"]): { x:
  */
 
 /** Smooth start and end so moves feel like a camera, not a slide projector. */
-function easeInOutSine(p: number): number {
-  return -(Math.cos(Math.PI * p) - 1) / 2;
+function smoothstep(p: number): number {
+  const c = Math.max(0, Math.min(1, p));
+  return c * c * (3 - 2 * c);
 }
 
 /**
@@ -62,13 +63,20 @@ function easeInOutSine(p: number): number {
  * A small safety margin absorbs rounding in the framing engine.
  */
 function driftHeadroom(size: number, scale: number): number {
-  return Math.max(0, (size * (scale - 1)) / 2 - 1);
+  return Math.max(0, (size * (scale - 1)) / 2 - 2);
 }
 
-/** Clamp a desired drift to what the current zoom can cover. */
+/** Soft-clamp a desired drift to what the current zoom can cover without hard stops. */
 function safeDrift(desired: number, size: number, scale: number): number {
   const limit = driftHeadroom(size, scale);
-  return Math.max(-limit, Math.min(limit, desired));
+  if (limit <= 0.001) return 0;
+  // If comfortably within headroom, return directly
+  if (Math.abs(desired) <= limit * 0.95) return desired;
+  // Soft saturation towards limit to avoid hard clipping jerks
+  const sign = desired < 0 ? -1 : 1;
+  const ratio = Math.min(1.5, Math.abs(desired) / limit);
+  const smoothed = Math.tanh(ratio) * limit * 0.98;
+  return sign * smoothed;
 }
 
 // Compute transform for scene movement
@@ -76,13 +84,14 @@ export function getMotionTransform(
   motion: SceneMotionType | undefined,
   progress: number,
   w: number,
-  h: number
+  h: number,
+  sceneIndex: number = 0
 ): { scale: number; dx: number; dy: number } {
   // A non-finite progress (a zero-length scene divides by zero upstream) would
   // otherwise propagate NaN into the canvas transform and blank the frame.
   const safeProgress = Number.isFinite(progress) ? progress : 0;
   const p = Math.max(0, Math.min(1, safeProgress));
-  const e = easeInOutSine(p);
+  const e = smoothstep(p);
   // Signed -1..+1 ramp, for moves that travel through centre.
   const centred = e - 0.5;
 
@@ -94,40 +103,38 @@ export function getMotionTransform(
 
   switch (motion) {
     case "slow_zoom": {
-      // Gentle but perceptible push: 12% over the scene.
-      const s = 1 + e * 0.12;
+      // Clear, perceptible cinematic push: 22% scale over the scene.
+      const s = 1.08 + e * 0.22;
       return centre(s);
     }
     case "zoom_in": {
-      // Decisive cinematic push.
-      const s = 1 + e * 0.32;
+      // Decisive cinematic push with ample edge headroom.
+      const s = 1.08 + e * 0.36;
       return centre(s);
     }
     case "zoom_out": {
-      // Wide reveal, pulling back from a tight framing.
-      const s = 1.34 - e * 0.30;
+      // Dynamic reveal, pulling back gracefully across the scene.
+      const s = 1.44 - e * 0.36;
       return centre(s);
     }
     case "pan_left": {
-      // Travel 60% of the available headroom so the move is obvious while
-      // the frame stays covered from first frame to last.
-      const s = 1.24;
-      const travel = driftHeadroom(w, s) * 1.2;
+      const s = 1.28;
+      const travel = w * 0.12;
       const base = centre(s);
       return { ...base, dx: base.dx + safeDrift(-centred * travel, w, s) };
     }
     case "pan_right": {
-      const s = 1.24;
-      const travel = driftHeadroom(w, s) * 1.2;
+      const s = 1.28;
+      const travel = w * 0.12;
       const base = centre(s);
       return { ...base, dx: base.dx + safeDrift(centred * travel, w, s) };
     }
     case "subtle_camera": {
-      // Slow breathing drift — restrained, but no longer invisible.
-      const s = 1.12;
+      // Smooth breathing drift — dynamic, smooth and cinematic.
+      const s = 1.20;
       const base = centre(s);
-      const driftX = Math.sin(p * Math.PI * 2) * w * 0.022;
-      const driftY = Math.cos(p * Math.PI * 1.5) * h * 0.018;
+      const driftX = Math.sin(p * Math.PI * 2) * w * 0.055;
+      const driftY = Math.cos(p * Math.PI * 1.5) * h * 0.042;
       return {
         ...base,
         dx: base.dx + safeDrift(driftX, w, s),
@@ -136,10 +143,10 @@ export function getMotionTransform(
     }
     case "shake": {
       // Handheld tremor that settles as the scene goes on.
-      const s = 1.14;
+      const s = 1.18;
       const base = centre(s);
       const decay = 1 - p * 0.55;
-      const amp = w * 0.011 * decay;
+      const amp = w * 0.022 * decay;
       const sx = (Math.sin(p * 190) + Math.cos(p * 143) * 0.6) * amp;
       const sy = (Math.cos(p * 167) + Math.sin(p * 121) * 0.6) * amp * 0.8;
       return {
@@ -149,19 +156,16 @@ export function getMotionTransform(
       };
     }
     case "pulse": {
-      // Rhythmic beat, roughly four pulses per scene. The phase is offset so
-      // the very first frames are already moving — sampling exactly on a zero
-      // crossing made the effect look dead at the start of a scene.
       const beat = Math.sin(p * Math.PI * 8 + Math.PI * 0.25);
-      const s = 1.06 + (beat * 0.5 + 0.5) * 0.10;
+      const s = 1.10 + (beat * 0.5 + 0.5) * 0.14;
       return centre(s);
     }
     case "floating": {
-      // Slow weightless drift in a shallow figure of eight.
-      const s = 1.16;
+      // Weightless drift in a graceful figure of eight.
+      const s = 1.22;
       const base = centre(s);
-      const floatX = Math.cos(p * Math.PI * 2) * w * 0.028;
-      const floatY = Math.sin(p * Math.PI * 4) * h * 0.022;
+      const floatX = Math.cos(p * Math.PI * 2) * w * 0.062;
+      const floatY = Math.sin(p * Math.PI * 4) * h * 0.048;
       return {
         ...base,
         dx: base.dx + safeDrift(floatX, w, s),
@@ -172,13 +176,38 @@ export function getMotionTransform(
       return { scale: 1, dx: 0, dy: 0 };
     case "ken_burns":
     default: {
-      // The classic: a steady push combined with a clearly visible diagonal
-      // drift. Starts at 1.10 so there is plenty of headroom to move smoothly
-      // from the first frame with pure continuous easing and zero clamp jumps.
-      const s = 1.10 + e * 0.16;
+      // Distinctly noticeable documentary Ken Burns: alternating angles and vectors across scenes
+      // with sweeping cinematic pan and zoom that viewers immediately feel and appreciate.
+      const pattern = Math.abs(sceneIndex || 0) % 4;
+      let s: number;
+      let dirX: number;
+      let dirY: number;
+
+      if (pattern === 0) {
+        // Dynamic push-in drifting right & down
+        s = 1.10 + e * 0.28;
+        dirX = 1;
+        dirY = 0.7;
+      } else if (pattern === 1) {
+        // Dynamic pull-out drifting left & up
+        s = 1.38 - e * 0.28;
+        dirX = -1;
+        dirY = -0.7;
+      } else if (pattern === 2) {
+        // Dynamic push-in drifting left & down
+        s = 1.10 + e * 0.28;
+        dirX = -1;
+        dirY = 0.7;
+      } else {
+        // Dynamic pull-out drifting right & up
+        s = 1.38 - e * 0.28;
+        dirX = 1;
+        dirY = -0.7;
+      }
+
       const base = centre(s);
-      const driftX = centred * w * 0.08;
-      const driftY = centred * h * 0.045;
+      const driftX = centred * w * 0.105 * dirX;
+      const driftY = centred * h * 0.075 * dirY;
       return {
         ...base,
         dx: base.dx + safeDrift(driftX, w, s),

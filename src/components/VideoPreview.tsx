@@ -509,6 +509,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       }
 
       let handledTransition = false;
+      const sceneIdx = Math.max(0, scenesWithImages.findIndex((s) => s.id === scene.id));
       if (
         scene.transition &&
         scene.transition !== "none" &&
@@ -520,7 +521,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
             scene.motion_effect,
             sceneProgress,
             w,
-            h
+            h,
+            sceneIdx
           );
           let prevSource: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
             prevImg as any;
@@ -534,7 +536,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
             prevScene?.motion_effect,
             1,
             w,
-            h
+            h,
+            Math.max(0, sceneIdx - 1)
           );
           const safeScale = isNaN(motionScale) ? 1 : motionScale;
           const safeDx = isNaN(motionDx) ? 0 : motionDx;
@@ -575,7 +578,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           scene.motion_effect,
           sceneProgress,
           w,
-          h
+          h,
+          sceneIdx
         );
         // getMotionTransform returns an offset that recentres a canvas-sized
         // draw; the framing engine centres the photo itself, so only the
@@ -621,16 +625,17 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
 
-        const wmWidth = 180;
-        const wmHeight = (wmWidth * watermarkImgRef.current.naturalHeight) / watermarkImgRef.current.naturalWidth;
-        const wmX = 24;
-        const wmY = 20;
+        const scaleRatio = w / 1280;
+        const wmWidth = Math.max(20, Math.round(180 * scaleRatio));
+        const wmHeight = Math.max(10, Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / watermarkImgRef.current.naturalWidth));
+        const wmX = Math.round(24 * scaleRatio);
+        const wmY = Math.round(20 * (h / 720));
 
         // Subtle soft shadow so transparent logo stands out cleanly on any video scene
         ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = 8 * scaleRatio;
         ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 2;
+        ctx.shadowOffsetY = 2 * scaleRatio;
 
         ctx.drawImage(watermarkImgRef.current, wmX, wmY, wmWidth, wmHeight);
         ctx.restore();
@@ -1404,7 +1409,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     // what creates the recording destination node.
     await playPreview(0);
 
-    const videoStream = canvas.captureStream(30);
+    const videoStream = canvas.captureStream(60);
     const tracks = [...videoStream.getVideoTracks()];
     const audioTracks = recordDestRef.current?.stream.getAudioTracks() ?? [];
     tracks.push(...audioTracks);
@@ -1471,7 +1476,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     stopPreview();
   }, [stopPreview]);
 
-  const togglePlay = useCallback(() => {
+  const togglePlayRef = useRef<() => void>(() => {});
+  togglePlayRef.current = () => {
     if (playingRef.current) {
       // stopping mid-capture still yields a usable file
       if (isRecording) finishRecordingEarly();
@@ -1479,11 +1485,18 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     } else {
       playPreview();
     }
-  }, [stopPreview, playPreview, isRecording, finishRecordingEarly]);
+  };
+
+  const togglePlay = useCallback(() => {
+    togglePlayRef.current();
+  }, []);
+
+  const onPlayStateChangeRef = useRef(onPlayStateChange);
+  onPlayStateChangeRef.current = onPlayStateChange;
 
   useEffect(() => {
-    onPlayStateChange?.(isPlaying, togglePlay);
-  }, [isPlaying, togglePlay, onPlayStateChange]);
+    onPlayStateChangeRef.current?.(isPlaying, togglePlay);
+  }, [isPlaying, togglePlay]);
 
   useEffect(() => {
     return () => {

@@ -6,6 +6,7 @@ import {
   voiceEchoIsActive,
   getEchoAudioContext,
 } from "./voice-echo";
+import { sanitizeTextForSpeech } from "./speech-sanitizer";
 // Provides high-fidelity MP3/WAV playback via /api/tts and full support for over 300+ Web Speech API voices with gender-aware matching
 
 export interface BrowserVoiceInfo {
@@ -213,7 +214,7 @@ class TTSAudioPlayer {
       this.onEndCallbacks.add(onEnded);
     }
 
-    const cleanText = text.trim();
+    const cleanText = sanitizeTextForSpeech(text).trim();
     if (!cleanText) {
       this.stop();
       return;
