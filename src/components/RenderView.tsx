@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, EditorStep, ResolutionType, PacingModeType } from "../types";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
-import { createProjectZip } from "../lib/zip-download";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
@@ -209,6 +208,12 @@ export default function RenderView({
   const [renderStage, setRenderStage] = useState("");
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(propRenderedBlob || null);
   const [renderedUrl, setRenderedUrl] = useState<string | null>(propRenderedUrl || null);
+  /** The container the finished render was ACTUALLY recorded in. The download
+   *  extension always matches this — a mislabelled file is what made the
+   *  download "not work" before. */
+  const [renderedContainer, setRenderedContainer] = useState<"mp4" | "webm">("webm");
+  /** Format button currently being re-rendered, if any. */
+  const [convertingFormat, setConvertingFormat] = useState<"mp4" | "webm" | "mov" | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   /** How many scene photos had to be replaced by placeholder cards in the
    *  last render — surfaced so a dead image URL is never silent again. */
@@ -408,11 +413,6 @@ export default function RenderView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRendering, renderedUrl, scenesWithImages, videoFilter, settings.resolution, settings.includeSubtitles, captionsConfig, aspectRatio, propResolution]);
 
-  // ZIP export state
-  const [isZipping, setIsZipping] = useState(false);
-  const [zipProgress, setZipProgress] = useState(0);
-  const [zipStatus, setZipStatus] = useState("");
-
   // Attribution state - default collapsed ("do not open it yet")
   const [copiedAttribution, setCopiedAttribution] = useState(false);
   const [showAttributionPreview, setShowAttributionPreview] = useState(false);
@@ -427,6 +427,8 @@ export default function RenderView({
   const frameTickerRef = useRef<FrameTicker | null>(null);
   /** Image behind the idle render-canvas painter. */
   const idleImgRef = useRef<HTMLImageElement | null>(null);
+  /** Format ("mp4" | "webm" | "mov") a button asked to re-render and save. */
+  const pendingDownloadRef = useRef<"mp4" | "webm" | "mov" | null>(null);
 
   // Pre-load watermark logo image
   useEffect(() => {
@@ -568,7 +570,10 @@ export default function RenderView({
   };
 
   // ------ RENDER VIDEO HANDLER ------
-  const handleStartRender = async () => {
+  // targetFormat records into that container: "mp4" (H.264 + AAC — the social
+  // standard), "webm" (VP9/VP8 + Opus), or "mov" (the same H.264/AAC stream
+  // saved with the QuickTime .mov extension). Omitted → the configured format.
+  const handleStartRender = async (targetFormat?: "mp4" | "webm" | "mov") => {
     if (scenesWithImages.length === 0 || isRendering) return;
 
     setIsRendering(true);
@@ -846,19 +851,45 @@ export default function RenderView({
         combinedStream = videoStream;
       }
 
-      // Select reliable recording MIME type: WebM VP9/VP8 with Opus audio is 100% stable
-      // across all browsers with WebAudio streams, whereas native MP4 recorder in Chromium fails with Opus
+      // Recording container. The requested format is honoured when the browser
+      // can record it, and the fallback is always HONEST: the download
+      // extension matches whatever was actually recorded. (Before, the
+      // recorder always produced WebM while the file was named .mp4 — the
+      // mislabelled file is why the download "did not work" in players.)
+      const MP4_MIMES = [
+        "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+        "video/mp4;codecs=avc1,mp4a.40.2",
+        "video/mp4",
+      ];
+      const WEBM_MIMES = [
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+        "video/webm",
+      ];
+      const wantedContainer: "mp4" | "webm" =
+        targetFormat === "webm"
+          ? "webm"
+          : targetFormat === "mp4" || targetFormat === "mov"
+          ? "mp4"
+          : settings.format === "webm"
+          ? "webm"
+          : "mp4";
       let mimeType = "";
-      if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")) {
-        mimeType = "video/webm;codecs=vp9,opus";
-      } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")) {
-        mimeType = "video/webm;codecs=vp8,opus";
-      } else if (MediaRecorder.isTypeSupported("video/webm")) {
-        mimeType = "video/webm";
-      } else if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1,mp4a.40.2")) {
-        mimeType = "video/mp4;codecs=avc1,mp4a.40.2";
-      } else if (MediaRecorder.isTypeSupported("video/mp4")) {
-        mimeType = "video/mp4";
+      for (const candidate of wantedContainer === "mp4" ? MP4_MIMES : WEBM_MIMES) {
+        if (MediaRecorder.isTypeSupported(candidate)) {
+          mimeType = candidate;
+          break;
+        }
+      }
+      if (!mimeType) {
+        // Browser cannot record the wanted container → use the other one and
+        // say so through the file extension (never a mislabelled file).
+        for (const candidate of wantedContainer === "mp4" ? WEBM_MIMES : MP4_MIMES) {
+          if (MediaRecorder.isTypeSupported(candidate)) {
+            mimeType = candidate;
+            break;
+          }
+        }
       }
 
       const bitrateMap = {
@@ -882,6 +913,10 @@ export default function RenderView({
           recorder = new MediaRecorder(videoStream);
         }
       }
+
+      const recordedContainer: "mp4" | "webm" = (recorder.mimeType || mimeType || "video/webm").includes("mp4")
+        ? "mp4"
+        : "webm";
 
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
@@ -1520,6 +1555,8 @@ export default function RenderView({
       const url = URL.createObjectURL(finalBlob);
       setRenderedBlob(finalBlob);
       setRenderedUrl(url);
+      setRenderedContainer(recordedContainer);
+      setSettings((s) => ({ ...s, format: recordedContainer }));
       reportProgress(1);
       reportStage("Render Complete! 🎉");
       onRenderSuccess?.(finalBlob, url);
@@ -1534,7 +1571,7 @@ export default function RenderView({
           durationSec: estimatedTotalDuration,
           width,
           height,
-          label: `${settings.resolution} · ${settings.fps}fps · ${settings.format.toUpperCase()}`,
+          label: `${settings.resolution} · ${settings.fps}fps · ${recordedContainer.toUpperCase()}`,
         });
         setVaultMessage(
           `Render finished — ${vaultRenders.length >= MAX_VAULT_RENDERS ? "oldest vault slot cleared, " : ""}waiting in the vault to download.`
@@ -1556,6 +1593,24 @@ export default function RenderView({
           finishedAt: Date.now(),
         });
       }
+
+      // A format button asked for this render: save it straight to disk in
+      // that format (MOV saves the H.264/AAC stream with the QuickTime
+      // extension — Apple platforms play it natively).
+      const pending = pendingDownloadRef.current;
+      pendingDownloadRef.current = null;
+      setConvertingFormat(null);
+      if (pending) {
+        const wanted = pending === "mov" ? "mp4" : pending;
+        if (recordedContainer === wanted) {
+          const ext = pending === "mov" ? "mov" : recordedContainer;
+          await saveRenderBlob(finalBlob, renderFileName(project?.title || "", ext), job.lastVaultId);
+        } else {
+          setVaultMessage(
+            `This browser cannot record ${pending.toUpperCase()} — the render was saved as ${recordedContainer.toUpperCase()} instead.`
+          );
+        }
+      }
     } catch (err: any) {
       console.error("Render failed:", err);
       const message = err?.message || "Failed to render video";
@@ -1563,6 +1618,8 @@ export default function RenderView({
       setRenderStatus({ active: false, error: message, stage: "Render failed" });
     } finally {
       setIsRendering(false);
+      pendingDownloadRef.current = null;
+      setConvertingFormat(null);
       // Belt and braces: the loop stops its own ticker on cleanup, but an
       // exception between start and cleanup must not leave it ticking.
       try {
@@ -1618,8 +1675,55 @@ export default function RenderView({
       setVaultMessage("Nothing rendered yet — press Start Video Render first.");
       return;
     }
-    const ext = settings.format === "mp4" ? "mp4" : "webm";
+    // The extension ALWAYS matches the container that was really recorded —
+    // the old code named every file by the configured format, so a WebM
+    // recording downloaded as .mp4 and players rejected it.
+    const ext = renderedContainer === "mp4" ? "mp4" : "webm";
     await saveRenderBlob(blob, renderFileName(project?.title || "", ext), job.lastVaultId);
+  };
+
+  /** True when this browser can record the H.264/AAC MP4 container. */
+  const canRecordMp4 = useMemo(() => {
+    if (typeof MediaRecorder === "undefined") return false;
+    return [
+      "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+      "video/mp4;codecs=avc1,mp4a.40.2",
+      "video/mp4",
+    ].some((t) => {
+      try {
+        return MediaRecorder.isTypeSupported(t);
+      } catch {
+        return false;
+      }
+    });
+  }, []);
+
+  /**
+   * Download in one of the three formats social platforms use most.
+   *
+   *   MP4  — H.264 + AAC, the standard on TikTok, Instagram, YouTube, Facebook
+   *   WebM — VP9/VP8 + Opus, smallest file; WhatsApp, X, Discord
+   *   MOV  — the same H.264/AAC stream with the QuickTime extension, which
+   *          Apple devices and pro editors take natively
+   *
+   * If the finished render is already in that container it saves instantly;
+   * otherwise the video is re-rendered into it and saved automatically.
+   */
+  const handleFormatDownload = async (format: "mp4" | "webm" | "mov") => {
+    if (isRendering) return;
+    const wantedContainer = format === "mov" ? "mp4" : format;
+    if (renderedBlob && renderedContainer === wantedContainer) {
+      const ext = format === "mov" ? "mov" : renderedContainer;
+      await saveRenderBlob(renderedBlob, renderFileName(project?.title || "", ext), job.lastVaultId);
+      return;
+    }
+    if (!renderedBlob) {
+      setVaultMessage("Nothing rendered yet — press Start Video Render first.");
+      return;
+    }
+    pendingDownloadRef.current = format;
+    setConvertingFormat(format);
+    await handleStartRender(format);
   };
 
   /** Download a row that is waiting in the vault (frees the slot on success). */
@@ -1633,20 +1737,6 @@ export default function RenderView({
     await deleteVaultRender(row.id);
     setVaultMessage(`Removed “${row.title}” from the vault.`);
     void refreshVault();
-  };
-
-  const downloadSrtSubtitles = () => {
-    const srtText = generateSrtSubtitles(scenes);
-    const blob = new Blob([srtText], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const safeTitle = (project?.title || "scenering").replace(/[^a-zA-Z0-9]/g, "_");
-    a.download = `${safeTitle}_subtitles.srt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
   const getAttributionText = () => {
@@ -1714,33 +1804,6 @@ export default function RenderView({
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-  };
-
-  const downloadFullPackageZip = async () => {
-    if (isZipping || !project) return;
-    setIsZipping(true);
-    setZipProgress(0);
-    setZipStatus("Preparing project package...");
-
-    try {
-      await createProjectZip({
-        title: project.title || "Scenering Project",
-        scenes,
-        voice: selectedVoice,
-        includeVideo: Boolean(renderedBlob),
-        videoBlob: renderedBlob,
-        onProgress: (status, pct) => {
-          setZipStatus(status);
-          setZipProgress(pct);
-        },
-      });
-      setZipStatus("Package downloaded successfully!");
-    } catch (err) {
-      console.error("ZIP package export failed:", err);
-      setZipStatus("Failed to create ZIP package");
-    } finally {
-      setIsZipping(false);
-    }
   };
 
   const cancelRender = () => {
@@ -1871,7 +1934,7 @@ export default function RenderView({
                 icon="📺"
                 label="Output"
                 value={resLabel}
-                hint={`${settings.format.toUpperCase()} · ${settings.fps} fps · ${settings.quality} quality`}
+                hint={`${renderedContainer.toUpperCase()} · ${settings.fps} fps · ${settings.quality} quality`}
               />
               <div className="pt-1.5 pb-1 border-t border-hairline flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
@@ -2182,7 +2245,7 @@ export default function RenderView({
               {/* Primary Action Button: Render or Re-Render */}
               {!renderedUrl ? (
                 <button
-                  onClick={handleStartRender}
+                  onClick={() => void handleStartRender()}
                   disabled={isRendering || scenesWithImages.length === 0}
                   className="t-btn-hero w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 text-sm"
                 >
@@ -2196,69 +2259,78 @@ export default function RenderView({
                 <div className="space-y-3">
                   <div className="p-3 bg-green-950/50 border border-green-800/80 rounded-xl text-green-300 text-xs flex items-center justify-between">
                     <span className="flex items-center gap-2 font-medium">
-                      <span>✅</span> Video rendered successfully! Format: {settings.format.toUpperCase()} · {resLabel}
+                      <span>✅</span> Video rendered successfully! Format: {renderedContainer.toUpperCase()} · {resLabel}
                     </span>
                     <button
-                      onClick={handleStartRender}
+                      onClick={() => void handleStartRender()}
                       className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs border border-hairline transition-colors"
                     >
                       🔄 Re-render
                     </button>
                   </div>
 
-                  {/* Complete Download Suite */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {/* Download Video */}
-                    <button
-                      onClick={downloadVideo}
-                      className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all shadow flex items-center justify-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Download Video ({settings.format.toUpperCase()})
-                    </button>
+                  {/* Download — the three formats social platforms use most */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-[11px] font-semibold text-gray-300 flex items-center gap-1.5">
+                        <span>⬇️</span> Download for social platforms
+                      </span>
+                      <span className="text-[10px] text-gray-500">
+                        Current render: {renderedContainer.toUpperCase()}
+                        {renderedContainer !== "mp4" && canRecordMp4 ? " — press MP4 for the social standard" : ""}
+                      </span>
+                    </div>
 
-                    {/* Download Full Project ZIP */}
-                    <button
-                      onClick={downloadFullPackageZip}
-                      disabled={isZipping}
-                      className="px-4 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 text-white text-xs font-bold rounded-xl transition-all shadow flex items-center justify-center gap-2"
-                    >
-                      {isZipping ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                          <span>{zipStatus || "Zipping..."}</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                          </svg>
-                          <span>Full Project ZIP Package</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      {/* MP4 */}
+                      <button
+                        onClick={() => void handleFormatDownload("mp4")}
+                        disabled={isRendering || !canRecordMp4}
+                        title={canRecordMp4 ? "H.264 + AAC — accepted everywhere" : "This browser cannot record MP4"}
+                        className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all shadow flex flex-col items-center justify-center gap-1"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>🎬</span>
+                          <span>{isRendering && convertingFormat === "mp4" ? "Rendering MP4…" : "MP4"}</span>
+                        </span>
+                        <span className="block text-[9px] font-medium opacity-80">TikTok · Instagram · YouTube · Facebook</span>
+                      </button>
 
-                  {/* Secondary Downloads */}
-                  <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
-                    <button
-                      onClick={downloadSrtSubtitles}
-                      className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-hairline transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <span>📄</span> Download Subtitles (.srt)
-                    </button>
+                      {/* WebM */}
+                      <button
+                        onClick={() => void handleFormatDownload("webm")}
+                        disabled={isRendering}
+                        title="VP9 + Opus — smallest file for the same quality"
+                        className="px-4 py-3 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all border border-hairline flex flex-col items-center justify-center gap-1"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>🌐</span>
+                          <span>{isRendering && convertingFormat === "webm" ? "Rendering WebM…" : "WebM"}</span>
+                        </span>
+                        <span className="block text-[9px] font-medium opacity-80">WhatsApp · X · Discord · web embeds</span>
+                      </button>
 
-                    <button
-                      onClick={downloadFullPackageZip}
-                      className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-hairline transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <span>📦</span> Download Assets & Scripts
-                    </button>
+                      {/* MOV */}
+                      <button
+                        onClick={() => void handleFormatDownload("mov")}
+                        disabled={isRendering || !canRecordMp4}
+                        title={canRecordMp4 ? "H.264 + AAC in the QuickTime container — Apple devices and editors" : "This browser cannot record MOV"}
+                        className="px-4 py-3 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all border border-hairline flex flex-col items-center justify-center gap-1"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>🍎</span>
+                          <span>{isRendering && convertingFormat === "mov" ? "Rendering MOV…" : "MOV"}</span>
+                        </span>
+                        <span className="block text-[9px] font-medium opacity-80">QuickTime · iMovie · Apple devices</span>
+                      </button>
+                    </div>
+
+                    {!canRecordMp4 && (
+                      <p className="text-[10px] text-gray-500 leading-relaxed">
+                        This browser cannot record MP4/MOV (Firefox is the usual case) — the WebM download works
+                        everywhere and converts in any editor.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
