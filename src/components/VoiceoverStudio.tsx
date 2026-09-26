@@ -37,7 +37,8 @@ export interface VoicePreset {
   sampleText: string;
 }
 
-// Exactly 10 High-Quality Natural Speaking Voices (5 Male and 5 Female)
+// 20 High-Quality Natural Speaking Voices (10 Male and 10 Female) —
+// 10 studio voices plus 10 style-inspired narrator personas.
 export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
   // 5 Male Natural Voices (Authentic Human Tone)
   {
@@ -131,6 +132,102 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     tone: "Peaceful, Balanced & Melodic",
     recommendedFor: "Wellness, Relaxation, Ambient Guides & Reflection",
     sampleText: "Hello. I am Ava, offering a gentle, peaceful voice designed to bring balance and clarity.",
+  },
+
+  // 5 Male Persona Narrator Presets (style-inspired — real neural voices
+  // tuned to evoke each narrator's delivery; not the named actors)
+  {
+    id: "freeman",
+    name: "Morgan Freeman Style",
+    gender: "male",
+    accent: "American (US)",
+    tone: "Deep, Warm Storyteller",
+    recommendedFor: "Documentaries, Storytelling & Brand Films",
+    sampleText: "Some stories begin quietly, and slowly, they change everything. Let me tell you one.",
+  },
+  {
+    id: "attenborough",
+    name: "David Attenborough Style",
+    gender: "male",
+    accent: "British (UK)",
+    tone: "Calm Documentary Narrator",
+    recommendedFor: "Nature, Science & Documentary Films",
+    sampleText: "Here, in the remote corners of our planet, extraordinary things are waiting to be discovered.",
+  },
+  {
+    id: "jones",
+    name: "James Earl Jones Style",
+    gender: "male",
+    accent: "American (US)",
+    tone: "Deep, Powerful Narrator",
+    recommendedFor: "Cinematic Openers, Epics & Authority",
+    sampleText: "In the beginning, there was a voice. And that voice carried the weight of kingdoms.",
+  },
+  {
+    id: "neeson",
+    name: "Liam Neeson Style",
+    gender: "male",
+    accent: "British (UK)",
+    tone: "Strong, Authoritative",
+    recommendedFor: "Thrillers, Motivation & Dramatic Reads",
+    sampleText: "Listen carefully. What you are about to hear will not soon be forgotten.",
+  },
+  {
+    id: "jackson",
+    name: "Samuel L. Jackson Style",
+    gender: "male",
+    accent: "American (US)",
+    tone: "Energetic, Distinctive",
+    recommendedFor: "High-Energy Promos, Reactions & Entertainment",
+    sampleText: "Hold on to your seats, because this story does not slow down for anybody.",
+  },
+
+  // 5 Female Persona Narrator Presets (style-inspired — real neural voices
+  // tuned to evoke each narrator's delivery; not the named actors)
+  {
+    id: "thompson",
+    name: "Emma Thompson Style",
+    gender: "female",
+    accent: "British (UK)",
+    tone: "Warm, Intelligent",
+    recommendedFor: "Intelligent Explainers, Drama & Audiobooks",
+    sampleText: "Intelligence and warmth are not opposites — allow me to demonstrate, one story at a time.",
+  },
+  {
+    id: "mirren",
+    name: "Helen Mirren Style",
+    gender: "female",
+    accent: "British (UK)",
+    tone: "Elegant, Authoritative",
+    recommendedFor: "Luxury Brands, History & Prestige",
+    sampleText: "Elegance is not about what you say. It is about how you say it.",
+  },
+  {
+    id: "blanchett",
+    name: "Cate Blanchett Style",
+    gender: "female",
+    accent: "Australian (AU)",
+    tone: "Sophisticated Narrator",
+    recommendedFor: "Art, Culture & Sophisticated Narration",
+    sampleText: "Every frame, every silence, every glance carries meaning. Let us begin.",
+  },
+  {
+    id: "weaver",
+    name: "Sigourney Weaver Style",
+    gender: "female",
+    accent: "American (US)",
+    tone: "Strong Documentary Style",
+    recommendedFor: "Documentaries, Science & Investigative",
+    sampleText: "What we are about to witness is real, and it is extraordinary. Observe closely.",
+  },
+  {
+    id: "roberts",
+    name: "Julia Roberts Style",
+    gender: "female",
+    accent: "American (US)",
+    tone: "Warm, Conversational",
+    recommendedFor: "Conversational Vlogs, Lifestyle & Interviews",
+    sampleText: "Hey, come on in — grab a coffee and let me tell you a little story.",
   },
 ];
 
@@ -688,7 +785,7 @@ export default function VoiceoverStudio({
           className={`opt-btn ${activeTab === "natural_voices" ? "opt-btn-on" : ""}`}
         >
           <span>🎭</span>
-          <span>10 Natural Voices (5 Male • 5 Female)</span>
+          <span>20 Natural Voices (10 Male • 10 Female)</span>
         </button>
 
         <button
@@ -832,7 +929,7 @@ export default function VoiceoverStudio({
         )}
       </div>
 
-      {/* TAB 1: 10 NATURAL SPEAKING VOICES (5 MALE AND 5 FEMALE) */}
+      {/* TAB 1: 20 NATURAL SPEAKING VOICES (10 MALE AND 10 FEMALE) */}
       {activeTab === "natural_voices" && (
         <div className="space-y-4">
           <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-xl space-y-4">
@@ -840,10 +937,10 @@ export default function VoiceoverStudio({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <span>🎭</span> 10 Natural Speaking Voices
+                  <span>🎭</span> 20 Natural Speaking Voices
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  5 Male and 5 Female natural speaking imported free voices with realistic human intonation.
+                  10 male and 10 female natural speaking voices with realistic human intonation — 10 studio voices plus 10 style-inspired narrator personas.
                 </p>
               </div>
 
@@ -856,7 +953,7 @@ export default function VoiceoverStudio({
                     genderFilter === "all" ? "bg-indigo-600 text-white shadow" : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  All (10)
+                  All ({STUDIO_VOICE_PRESETS.length})
                 </button>
                 <button
                   type="button"
@@ -865,7 +962,7 @@ export default function VoiceoverStudio({
                     genderFilter === "male" ? "bg-blue-600 text-white shadow" : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  <span>👨</span> 5 Male
+                  <span>👨</span> {STUDIO_VOICE_PRESETS.filter((v) => v.gender === "male").length} Male
                 </button>
                 <button
                   type="button"
@@ -874,7 +971,7 @@ export default function VoiceoverStudio({
                     genderFilter === "female" ? "bg-pink-600 text-white shadow" : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  <span>👩</span> 5 Female
+                  <span>👩</span> {STUDIO_VOICE_PRESETS.filter((v) => v.gender === "female").length} Female
                 </button>
               </div>
             </div>

@@ -15,6 +15,9 @@ import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeli
 import type { WordTiming } from "../lib/word-sync";
 import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
 import { loadSceneImage } from "../lib/scene-image-loader";
+import { resolveLegacyLocalImage } from "../lib/nature-library-compat";
+import { STICKER_LIBRARY } from "../lib/sticker-3d";
+import { isMaleVoiceIdentifier } from "../lib/tts-player";
 import { formatDuration, sceneTimelineDuration, NARRATION_LEAD_IN_SECONDS } from "../lib/duration-utils";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument, getBackgroundMusicTrack, AMBIENT_STYLE_TO_TRACK } from "../data/media-library";
@@ -1767,17 +1770,36 @@ export default function RenderView({
     const currentVoice = availableVoices?.find((v) => v.id === selectedVoice);
     const voiceDisplay = currentVoice ? currentVoice.name : (selectedVoice || "Studio AI Voice");
     const isBrowserVoice = selectedVoice?.startsWith("browser:");
-    const isMale =
-      (selectedVoice || "").toLowerCase().includes("guy") ||
-      (selectedVoice || "").toLowerCase().includes("christopher") ||
-      (selectedVoice || "").toLowerCase().includes("ryan") ||
-      (selectedVoice || "").toLowerCase().includes("william") ||
-      (selectedVoice || "").toLowerCase().includes("brian") ||
-      (selectedVoice || "").toLowerCase().includes("david") ||
-      (selectedVoice || "").toLowerCase().includes("mark") ||
-      (selectedVoice || "").toLowerCase().includes("male");
+    const isMale = isMaleVoiceIdentifier(selectedVoice || "");
 
     const isCustomImport = selectedVoice?.startsWith("custom:") || selectedVoice?.startsWith("import:");
+
+    // Persona presets are named after the narrator whose delivery they evoke.
+    // The credits must say so honestly: an AI neural voice in that style —
+    // never the named actor.
+    const isPersonaStyle = / style/i.test(voiceDisplay);
+
+    // Only the image sources this project's scenes actually use are credited;
+    // anything unused stays out of the document.
+    const usedImageSources = new Set<string>();
+    for (const s of scenes) {
+      const url = resolveLegacyLocalImage((s.image_url || "").trim());
+      if (!url) continue;
+      if (/^data:|^blob:/i.test(url)) usedImageSources.add("Creator's own uploaded imagery");
+      else if (url.includes("images.unsplash.com")) usedImageSources.add("Unsplash (Unsplash License)");
+      else if (url.includes("pexels.com")) usedImageSources.add("Pexels (CC0 / Free License)");
+      else if (url.includes("pixabay")) usedImageSources.add("Pixabay (Content License)");
+      else if (url.includes("wikimedia.org")) usedImageSources.add("Wikimedia Commons (Creative Commons)");
+      else if (/^https?:/i.test(url)) usedImageSources.add("Third-party image URL (credited to its source)");
+    }
+
+    // Only the 3D stickers actually placed on the timeline are credited.
+    const usedGraphics = new Set<string>();
+    for (const ins of inserts) {
+      if (ins.category !== "stickers") continue;
+      const stickerId = ins.visualOptions?.stickerId || ins.type;
+      usedGraphics.add(STICKER_LIBRARY.find((st) => st.id === stickerId)?.name || ins.title);
+    }
 
     return generateAttributionDocument({
       projectTitle: project?.title || "My Video Project",
@@ -1785,18 +1807,23 @@ export default function RenderView({
       includeBackgroundMusic: settings.backgroundMusic !== "none",
       // report the REAL track used for the chosen style in the credits doc
       musicType: AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic] || settings.backgroundMusic,
-      imageSources: ["Pexels (CC0 / Free License)", "Pixabay (Content License)"],
+      imageSources: [...usedImageSources],
+      graphicsUsed: [...usedGraphics],
       voiceName: voiceDisplay,
       voiceGender: isCustomImport ? "User Prepared Voice" : isMale ? "Male Narrator" : "Female Narrator",
       voiceAccent: isCustomImport
         ? "Custom Imported TTS Audio File"
         : isBrowserVoice
         ? "Browser / Web Speech Voice"
+        : isPersonaStyle
+        ? "Style-Inspired AI Narration Profile"
         : "Natural Neural Voice Profile",
       voiceEngine: isCustomImport
         ? "User-Prepared Custom TTS Audio File (Imported Track)"
         : isBrowserVoice
         ? "W3C Web Speech API Standards"
+        : isPersonaStyle
+        ? "AI Neural Speech Synthesis — narrator style preset (not the named actor)"
         : "Natural Human Neural Speech Engine (Free Attribution Cleared License)",
     });
   };

@@ -46,7 +46,15 @@ export function isMaleVoiceIdentifier(voiceId: string): boolean {
     v.includes("wavenet-b") ||
     v.includes("wavenet-d") ||
     v.includes("onyx") ||
-    v.includes("echo")
+    v.includes("echo") ||
+    v.includes("steffan") ||
+    v.includes("brian") ||
+    // persona narrator presets (male)
+    v.includes("freeman") ||
+    v.includes("attenborough") ||
+    v.includes("jones") ||
+    v.includes("neeson") ||
+    v.includes("jackson")
   );
 }
 

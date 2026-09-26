@@ -212,6 +212,102 @@ export const VOICES = [
     preview: "Soft, peaceful, and balanced American female tone.",
     mood: "Meditation, Relaxation & Storytelling",
   },
+
+  // 5 Male Persona Narrator Presets (style-inspired — real neural voices
+  // tuned to evoke each narrator's delivery; not the named actors)
+  {
+    id: "freeman",
+    name: "Morgan Freeman Style (Deep Warm Storyteller)",
+    gender: "male",
+    lang: "en-US",
+    neural: "en-US-AndrewMultilingualNeural",
+    preview: "Deep, warm, unhurried storytelling voice.",
+    mood: "Documentaries, Storytelling & Brand Films",
+  },
+  {
+    id: "attenborough",
+    name: "David Attenborough Style (Calm Documentary Narrator)",
+    gender: "male",
+    lang: "en-GB",
+    neural: "en-GB-ThomasNeural",
+    preview: "Calm, measured British documentary narration.",
+    mood: "Nature, Science & Documentary Films",
+  },
+  {
+    id: "jones",
+    name: "James Earl Jones Style (Deep Powerful Narrator)",
+    gender: "male",
+    lang: "en-US",
+    neural: "en-US-ChristopherNeural",
+    preview: "Very deep, commanding and powerful narration.",
+    mood: "Cinematic Openers, Epics & Authority",
+  },
+  {
+    id: "neeson",
+    name: "Liam Neeson Style (Strong Authoritative)",
+    gender: "male",
+    lang: "en-GB",
+    neural: "en-GB-GeorgeNeural",
+    preview: "Strong, gravitas-heavy authoritative British voice.",
+    mood: "Thrillers, Motivation & Dramatic Reads",
+  },
+  {
+    id: "jackson",
+    name: "Samuel L. Jackson Style (Energetic Distinctive)",
+    gender: "male",
+    lang: "en-US",
+    neural: "en-US-EricNeural",
+    preview: "Energetic, bright and distinctive delivery.",
+    mood: "High-Energy Promos, Reactions & Entertainment",
+  },
+
+  // 5 Female Persona Narrator Presets (style-inspired — real neural voices
+  // tuned to evoke each narrator's delivery; not the named actors)
+  {
+    id: "thompson",
+    name: "Emma Thompson Style (Warm Intelligent)",
+    gender: "female",
+    lang: "en-GB",
+    neural: "en-GB-LibbyNeural",
+    preview: "Warm, intelligent British narration.",
+    mood: "Intelligent Explainers, Drama & Audiobooks",
+  },
+  {
+    id: "mirren",
+    name: "Helen Mirren Style (Elegant Authoritative)",
+    gender: "female",
+    lang: "en-GB",
+    neural: "en-GB-SoniaNeural",
+    preview: "Elegant, polished and authoritative British voice.",
+    mood: "Luxury Brands, History & Prestige",
+  },
+  {
+    id: "blanchett",
+    name: "Cate Blanchett Style (Sophisticated Narrator)",
+    gender: "female",
+    lang: "en-AU",
+    neural: "en-AU-NatashaMultilingualNeural",
+    preview: "Sophisticated, resonant Australian narration.",
+    mood: "Art, Culture & Sophisticated Narration",
+  },
+  {
+    id: "weaver",
+    name: "Sigourney Weaver Style (Strong Documentary)",
+    gender: "female",
+    lang: "en-US",
+    neural: "en-US-MichelleNeural",
+    preview: "Strong, steady documentary-style narration.",
+    mood: "Documentaries, Science & Investigative",
+  },
+  {
+    id: "roberts",
+    name: "Julia Roberts Style (Warm Conversational)",
+    gender: "female",
+    lang: "en-US",
+    neural: "en-US-EmmaMultilingualNeural",
+    preview: "Warm, friendly and conversational tone.",
+    mood: "Conversational Vlogs, Lifestyle & Interviews",
+  },
 ];
 
 export interface RealVoiceProfile {
@@ -261,6 +357,20 @@ function resolveVoiceShortName(voiceId: string): string {
 
   // Strip prefix like "browser:" or "web:"
   const clean = lower.replace(/^(browser:|web:)/, "");
+
+  // --- PERSONA NARRATOR PRESETS (style-inspired actor voices) ---
+  // Each maps to the neural voice whose depth, accent and delivery evokes
+  // that narrator's style. These are stock neural voices, not the actors.
+  if (clean === "freeman") return "en-US-AndrewMultilingualNeural";
+  if (clean === "attenborough") return "en-GB-ThomasNeural";
+  if (clean === "jones") return "en-US-ChristopherNeural";
+  if (clean === "neeson") return "en-GB-GeorgeNeural";
+  if (clean === "jackson") return "en-US-EricNeural";
+  if (clean === "thompson") return "en-GB-LibbyNeural";
+  if (clean === "mirren") return "en-GB-SoniaNeural";
+  if (clean === "blanchett") return "en-AU-NatashaMultilingualNeural";
+  if (clean === "weaver") return "en-US-MichelleNeural";
+  if (clean === "roberts") return "en-US-EmmaMultilingualNeural";
 
   // --- MALE VOICES (100% Genuine Male Human Recordings) ---
   if (
