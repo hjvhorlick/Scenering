@@ -28,6 +28,7 @@ import {
   resolveVoiceEcho,
 } from "../lib/voice-echo";
 import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
+import { loadSceneImage } from "../lib/scene-image-loader";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 
 interface VideoPreviewProps {
@@ -76,35 +77,14 @@ interface SceneAudio {
   words?: WordTiming[];
 }
 
+// Scene images load through the ONE shared loader (src/lib/scene-image-loader.ts)
+// so the preview and the exported video can never disagree about what a scene
+// looks like: same proxy routing, same retry, same gradient fallback card.
 function loadImage(
   src: string,
   fallbackIndex: number
 ): Promise<HTMLImageElement> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => {
-      const c = document.createElement("canvas");
-      c.width = 1280;
-      c.height = 720;
-      const ctx = c.getContext("2d")!;
-      const hue = (fallbackIndex * 60) % 360;
-      const g = ctx.createLinearGradient(0, 0, 1280, 720);
-      g.addColorStop(0, `hsl(${hue},50%,25%)`);
-      g.addColorStop(1, `hsl(${(hue + 60) % 360},50%,15%)`);
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, 1280, 720);
-      ctx.fillStyle = "rgba(255,255,255,0.15)";
-      ctx.font = "bold 48px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(`Scene ${fallbackIndex + 1}`, 640, 360);
-      const p = new Image();
-      p.onload = () => resolve(p);
-      p.src = c.toDataURL();
-    };
-    img.src = src;
-  });
+  return loadSceneImage(src, fallbackIndex).then((r) => r?.img ?? new Image());
 }
 
 export default function VideoPreview({

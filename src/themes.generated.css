@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 494 utility
+   Colour matrix for every non-classic theme. 496 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -56,6 +56,9 @@ html[data-theme="apple"] .bg-amber-950\/40 {
 }
 html[data-theme="apple"] .bg-amber-950\/50 {
   background-color: rgb(254 246 211 / 0.5);
+}
+html[data-theme="apple"] .bg-amber-950\/60 {
+  background-color: rgb(254 246 211 / 0.6);
 }
 html[data-theme="apple"] .bg-amber-950\/70 {
   background-color: rgb(254 246 211 / 0.7);
@@ -512,6 +515,9 @@ html[data-theme="apple"] .border-amber-800\/50 {
 }
 html[data-theme="apple"] .border-amber-800\/60 {
   border-color: rgb(146 64 14 / 0.6);
+}
+html[data-theme="apple"] .border-amber-800\/80 {
+  border-color: rgb(146 64 14 / 0.8);
 }
 html[data-theme="apple"] .border-black\/40 {
   border-color: rgb(210 210 215 / 0.4);
@@ -1583,6 +1589,9 @@ html[data-theme="windows"] .bg-amber-950\/40 {
 html[data-theme="windows"] .bg-amber-950\/50 {
   background-color: rgb(65 27 7 / 0.5);
 }
+html[data-theme="windows"] .bg-amber-950\/60 {
+  background-color: rgb(65 27 7 / 0.6);
+}
 html[data-theme="windows"] .bg-amber-950\/70 {
   background-color: rgb(65 27 7 / 0.7);
 }
@@ -2038,6 +2047,9 @@ html[data-theme="windows"] .border-amber-800\/50 {
 }
 html[data-theme="windows"] .border-amber-800\/60 {
   border-color: rgb(138 66 22 / 0.6);
+}
+html[data-theme="windows"] .border-amber-800\/80 {
+  border-color: rgb(138 66 22 / 0.8);
 }
 html[data-theme="windows"] .border-black\/40 {
   border-color: rgb(0 0 0 / 0.2);
@@ -3109,6 +3121,9 @@ html[data-theme="playful"] .bg-amber-950\/40 {
 html[data-theme="playful"] .bg-amber-950\/50 {
   background-color: rgb(73 26 0 / 0.5);
 }
+html[data-theme="playful"] .bg-amber-950\/60 {
+  background-color: rgb(73 26 0 / 0.6);
+}
 html[data-theme="playful"] .bg-amber-950\/70 {
   background-color: rgb(73 26 0 / 0.7);
 }
@@ -3564,6 +3579,9 @@ html[data-theme="playful"] .border-amber-800\/50 {
 }
 html[data-theme="playful"] .border-amber-800\/60 {
   border-color: rgb(163 62 0 / 0.6);
+}
+html[data-theme="playful"] .border-amber-800\/80 {
+  border-color: rgb(163 62 0 / 0.8);
 }
 html[data-theme="playful"] .border-black\/40 {
   border-color: rgb(10 7 18 / 0.4);
@@ -4635,6 +4653,9 @@ html[data-theme="glass"] .bg-amber-950\/40 {
 html[data-theme="glass"] .bg-amber-950\/50 {
   background-color: rgb(254 249 224 / 0.5);
 }
+html[data-theme="glass"] .bg-amber-950\/60 {
+  background-color: rgb(254 249 224 / 0.6);
+}
 html[data-theme="glass"] .bg-amber-950\/70 {
   background-color: rgb(254 249 224 / 0.7);
 }
@@ -5090,6 +5111,9 @@ html[data-theme="glass"] .border-amber-800\/50 {
 }
 html[data-theme="glass"] .border-amber-800\/60 {
   border-color: rgb(137 70 42 / 0.6);
+}
+html[data-theme="glass"] .border-amber-800\/80 {
+  border-color: rgb(137 70 42 / 0.8);
 }
 html[data-theme="glass"] .border-black\/40 {
   border-color: rgb(122 101 160 / 0.2);
@@ -6161,6 +6185,9 @@ html[data-theme="porcelain"] .bg-amber-950\/40 {
 html[data-theme="porcelain"] .bg-amber-950\/50 {
   background-color: rgb(254 245 206 / 0.5);
 }
+html[data-theme="porcelain"] .bg-amber-950\/60 {
+  background-color: rgb(254 245 206 / 0.6);
+}
 html[data-theme="porcelain"] .bg-amber-950\/70 {
   background-color: rgb(254 245 206 / 0.7);
 }
@@ -6616,6 +6643,9 @@ html[data-theme="porcelain"] .border-amber-800\/50 {
 }
 html[data-theme="porcelain"] .border-amber-800\/60 {
   border-color: rgb(146 64 14 / 0.6);
+}
+html[data-theme="porcelain"] .border-amber-800\/80 {
+  border-color: rgb(146 64 14 / 0.8);
 }
 html[data-theme="porcelain"] .border-black\/40 {
   border-color: rgb(216 206 192 / 0.4);

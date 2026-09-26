@@ -15,6 +15,7 @@ import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import type { WordTiming } from "../lib/word-sync";
 import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
+import { loadSceneImage } from "../lib/scene-image-loader";
 import { formatDuration, sceneTimelineDuration } from "../lib/duration-utils";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument, getBackgroundMusicTrack, AMBIENT_STYLE_TO_TRACK } from "../data/media-library";
@@ -209,6 +210,9 @@ export default function RenderView({
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(propRenderedBlob || null);
   const [renderedUrl, setRenderedUrl] = useState<string | null>(propRenderedUrl || null);
   const [renderError, setRenderError] = useState<string | null>(null);
+  /** How many scene photos had to be replaced by placeholder cards in the
+   *  last render — surfaced so a dead image URL is never silent again. */
+  const [imageFallbackCount, setImageFallbackCount] = useState(0);
 
   // ---- The Vault: finished renders waiting to be downloaded -----------
   const [vaultRenders, setVaultRenders] = useState<VaultRender[]>([]);
@@ -275,6 +279,135 @@ export default function RenderView({
     if (propRenderedUrl) setRenderedUrl(propRenderedUrl);
   }, [propRenderedBlob, propRenderedUrl]);
 
+  /**
+   * Idle canvas painter — the render screen shows the project's own imagery.
+   *
+   * The canvas used to stay black until "Start Video Render" was pressed,
+   * which read as "no images in the render". It now plays the first scene
+   * with the same framing, motion, filter and caption engine the export uses
+   * (all the shared modules), looping gently like the live preview. It stops
+   * the moment a real render starts — the render loop owns the canvas then.
+   */
+  useEffect(() => {
+    if (isRendering || renderedUrl) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const { width, height } = getDimensions(settings.resolution);
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const first = scenesWithImages[0];
+    if (!first) {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, width, height);
+      return;
+    }
+
+    let cancelled = false;
+    let rafId = 0;
+    let startedAt = 0;
+    const LOOP_SECONDS = 14;
+
+    const paint = (progress: number) => {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, width, height);
+
+      if (sceneIsBlankColor(first) && first.blank_color) {
+        ctx.save();
+        try { ctx.filter = "none"; } catch {}
+        ctx.fillStyle = first.blank_color;
+        ctx.fillRect(0, 0, width, height);
+        ctx.restore();
+      } else if (idleImgRef.current && idleImgRef.current.naturalWidth > 0) {
+        const { scale, dx, dy } = getMotionTransform(
+          first.motion_effect,
+          progress,
+          width,
+          height,
+          0
+        );
+        const safeScale = isNaN(scale) ? 1 : scale;
+        const safeDx = isNaN(dx) ? 0 : dx;
+        const safeDy = isNaN(dy) ? 0 : dy;
+        try {
+          drawSceneImage(ctx, idleImgRef.current, first, width, height, {
+            motionScale: safeScale,
+            motionDx: safeDx + (width * safeScale - width) / 2,
+            motionDy: safeDy + (height * safeScale - height) / 2,
+            filter: getFilterCanvas(videoFilter, width),
+          });
+        } catch {}
+        try { ctx.filter = "none"; } catch {}
+      }
+
+      try {
+        paintVideoFilter(ctx, videoFilter, width, height, progress * LOOP_SECONDS);
+      } catch {}
+
+      // Watermark + brand logo, same placement as the export
+      if (watermarkImgRef.current && watermarkImgRef.current.naturalWidth > 0) {
+        ctx.save();
+        const scaleRatio = width / 1280;
+        const wmWidth = Math.max(20, Math.round(180 * scaleRatio));
+        const wmHeight = Math.max(
+          10,
+          Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth))
+        );
+        ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+        ctx.shadowBlur = 8 * scaleRatio;
+        ctx.shadowOffsetY = 2 * scaleRatio;
+        ctx.drawImage(watermarkImgRef.current, Math.round(24 * scaleRatio), Math.round(20 * (height / 720)), wmWidth, wmHeight);
+        ctx.restore();
+      }
+
+      if (settings.includeSubtitles && first.text) {
+        try {
+          renderCanvasCaptions(
+            ctx,
+            first.text,
+            progress,
+            captionsConfig || DEFAULT_CAPTIONS_CONFIG,
+            width,
+            height
+          );
+        } catch {}
+      }
+    };
+
+    const tick = (now: number) => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+      if (!startedAt) startedAt = now;
+      const progress = ((now - startedAt) / 1000 / LOOP_SECONDS) % 1;
+      paint(progress);
+      rafId = requestAnimationFrame(tick);
+    };
+
+    void loadCaptionFonts().then(() => {
+      if (cancelled) return;
+      // Load through the shared loader: a failed photo shows the gradient
+      // card exactly like the preview, never a black canvas.
+      loadSceneImage(first.image_url || "", 0).then((res) => {
+        if (cancelled) return;
+        idleImgRef.current = res ? res.img : null;
+        paint(0.35);
+        rafId = requestAnimationFrame(tick);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (rafId && typeof cancelAnimationFrame === "function") cancelAnimationFrame(rafId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRendering, renderedUrl, scenesWithImages, videoFilter, settings.resolution, settings.includeSubtitles, captionsConfig, aspectRatio, propResolution]);
+
   // ZIP export state
   const [isZipping, setIsZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
@@ -292,6 +425,8 @@ export default function RenderView({
   const abortControllerRef = useRef<boolean>(false);
   /** Frame pacing for the export — vsync-locked, worker-driven when hidden. */
   const frameTickerRef = useRef<FrameTicker | null>(null);
+  /** Image behind the idle render-canvas painter. */
+  const idleImgRef = useRef<HTMLImageElement | null>(null);
 
   // Pre-load watermark logo image
   useEffect(() => {
@@ -306,7 +441,7 @@ export default function RenderView({
   useEffect(() => {
     const logoUrl = customerLogo?.url;
     if (logoUrl) {
-      loadImage(logoUrl, 6000).then((img) => {
+      loadImage(logoUrl).then((img) => {
         customerLogoImgRef.current = img;
       });
     } else {
@@ -347,61 +482,16 @@ export default function RenderView({
     return { width: 1920, height: 1080, label: "1920 × 1080 (1080p Full HD)", aspectClass: "aspect-video" };
   };
 
-  // Safe image URL resolver - routes external images through server proxy to ensure clean CORS & prevent canvas tainting
-  const getSafeImageUrl = (url: string): string => {
-    if (!url) return "";
-    if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("/")) {
-      return url;
-    }
-    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
-  };
-
-  // Image preloader helper with timeout and proxy fallback
-  const loadImage = (url: string, timeoutMs: number = 8000): Promise<HTMLImageElement | null> => {
-    return new Promise((resolve) => {
-      if (!url) return resolve(null);
-      const safeUrl = getSafeImageUrl(url);
-      const img = new Image();
-      if (!safeUrl.startsWith("data:") && !safeUrl.startsWith("blob:")) {
-        img.crossOrigin = "anonymous";
-      }
-      let settled = false;
-
-      const timer = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          resolve(null);
-        }
-      }, timeoutMs);
-
-      img.onload = () => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          resolve(img);
-        }
-      };
-
-      img.onerror = () => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          // If safeUrl wasn't proxied yet, try proxy once
-          if (!safeUrl.startsWith("/api/proxy-image") && !safeUrl.startsWith("data:") && !safeUrl.startsWith("blob:")) {
-            const proxyImg = new Image();
-            proxyImg.crossOrigin = "anonymous";
-            proxyImg.onload = () => resolve(proxyImg);
-            proxyImg.onerror = () => resolve(null);
-            proxyImg.src = `/api/proxy-image?url=${encodeURIComponent(url)}`;
-          } else {
-            resolve(null);
-          }
-        }
-      };
-
-      img.src = safeUrl;
-    });
-  };
+  /**
+   * Scene images and logos load through the ONE shared loader
+   * (src/lib/scene-image-loader.ts) — the same loader the live preview uses.
+   * A scene photo that cannot be loaded resolves the preview's gradient
+   * "Scene N" card instead of null, so the exported video can never show a
+   * black frame where the preview showed a picture. Logos opt out of the
+   * fallback (a missing watermark should simply not be drawn).
+   */
+  const loadImage = (url: string): Promise<HTMLImageElement | null> =>
+    loadSceneImage(url, 0, { fallback: "none" }).then((r) => r?.img ?? null);
 
   // Synthesize ambient music loop using Web Audio API (fast 3-second seamless loop to avoid UI thread blocking)
   const createAmbientMusicNode = (
@@ -628,9 +718,12 @@ export default function RenderView({
       reportStage("2/4: Loading high-resolution visuals & watermark...");
       reportProgress(0.28);
 
-      const images = await Promise.all(
-        scenesWithImages.map((s) => loadImage(s.image_url || ""))
+      const loadedSceneImages = await Promise.all(
+        scenesWithImages.map((s, i) => loadSceneImage(s.image_url || "", i))
       );
+      const images = loadedSceneImages.map((r) => (r ? r.img : null));
+      const fallbackCount = loadedSceneImages.filter((r) => r?.usedFallback).length;
+      setImageFallbackCount(fallbackCount);
 
       // Prepare any short video clips so their frames are decodable while the
       // canvas is being captured.
@@ -2072,6 +2165,17 @@ export default function RenderView({
                 <div className="p-3 bg-red-950/60 border border-red-800/80 rounded-lg text-red-300 text-xs flex items-center gap-2">
                   <span>⚠️</span>
                   <span>{renderError}</span>
+                </div>
+              )}
+
+              {imageFallbackCount > 0 && (
+                <div className="p-3 bg-amber-950/60 border border-amber-800/80 rounded-lg text-amber-300 text-xs flex items-start gap-2">
+                  <span>🖼️</span>
+                  <span>
+                    {imageFallbackCount} scene image{imageFallbackCount === 1 ? "" : "s"} could not be loaded and rendered as
+                    placeholder card{imageFallbackCount === 1 ? "" : "s"}. Re-search those scenes in the Scenes step to get
+                    real photos into the export.
+                  </span>
                 </div>
               )}
 
