@@ -7,6 +7,7 @@ import {
   placeImage,
   sceneIsBlankColor,
 } from "../lib/scene-framing";
+import { normalizeSceneImageUrl } from "../lib/legacy-image-urls";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 
 interface Props {
@@ -49,7 +50,9 @@ export default function SceneFramePreview({
 
   const frame = frameSizeFor(aspectRatio);
   const height = Math.round((width * frame.h) / frame.w);
-  const url = scene.image_url || "";
+  // Healed through the legacy-URL migration so a fallback photo selected
+  // before the library was bundled still shows here — same as preview/render.
+  const url = normalizeSceneImageUrl(scene.image_url || "");
 
   useEffect(() => {
     setLoaded(false);

@@ -21,6 +21,7 @@
  */
 
 import { proxyImageUrl } from "./image-search";
+import { normalizeSceneImageUrl } from "./legacy-image-urls";
 
 export interface SceneImageResult {
   img: HTMLImageElement;
@@ -42,11 +43,15 @@ export interface LoadSceneImageOptions {
 const FALLBACK_W = 1280;
 const FALLBACK_H = 720;
 
-/** Same-origin / data / blob URLs pass through; everything else is proxied. */
+/** Same-origin / data / blob URLs pass through; everything else is proxied.
+ *  Legacy nature-library URLs are healed to their bundled local file first,
+ *  so a selection made before the library was bundled still renders as the
+ *  photo the user picked — in the preview AND in the export. */
 function safeSrc(url: string): string {
-  if (/^(data:|blob:)/.test(url)) return url;
-  if (url.startsWith("/") && !url.startsWith("//")) return url;
-  return proxyImageUrl(url);
+  const healed = normalizeSceneImageUrl(url);
+  if (/^(data:|blob:)/.test(healed)) return healed;
+  if (healed.startsWith("/") && !healed.startsWith("//")) return healed;
+  return proxyImageUrl(healed);
 }
 
 function isProxied(url: string): boolean {
@@ -111,6 +116,7 @@ export function loadSceneImage(
       return;
     }
 
+    const healed = normalizeSceneImageUrl(url);
     const attempt = (src: string, isRetry: boolean) => {
       const img = new Image();
       if (!/^(data:|blob:)/.test(src)) img.crossOrigin = "anonymous";
@@ -119,7 +125,7 @@ export function loadSceneImage(
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        if (!isRetry && !isProxied(src)) attempt(proxyImageUrl(url), true);
+        if (!isRetry && !isProxied(src)) attempt(proxyImageUrl(healed), true);
         else giveUp();
       }, timeoutMs);
 
@@ -133,7 +139,7 @@ export function loadSceneImage(
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (!isRetry && !isProxied(src)) attempt(proxyImageUrl(url), true);
+        if (!isRetry && !isProxied(src)) attempt(proxyImageUrl(healed), true);
         else giveUp();
       };
 
