@@ -323,6 +323,17 @@ export function calculateDynamicDuration(
  * The decoded narration is the authority; the configured `scene.duration`
  * and the word-count estimate are only fallbacks for scenes with no audio.
  */
+/**
+ * Seconds of the FIRST image shown before the first spoken words begin.
+ *
+ * Narration used to start ~0.1s after the video began — too soon to take in
+ * the opening. The first scene now holds its image for this long before the
+ * voice (and its captions) start. The camera motion keeps moving through the
+ * lead-in, so the opening is alive, not frozen. Only applied when the video
+ * begins directly with a scene — an enabled intro section is its own opening.
+ */
+export const NARRATION_LEAD_IN_SECONDS = 5;
+
 export function sceneTimelineDuration(
   scene: { text?: string; duration?: number; audio_duration?: number },
   audioDuration?: number

@@ -15,7 +15,7 @@ import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeli
 import type { WordTiming } from "../lib/word-sync";
 import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
 import { loadSceneImage } from "../lib/scene-image-loader";
-import { formatDuration, sceneTimelineDuration } from "../lib/duration-utils";
+import { formatDuration, sceneTimelineDuration, NARRATION_LEAD_IN_SECONDS } from "../lib/duration-utils";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument, getBackgroundMusicTrack, AMBIENT_STYLE_TO_TRACK } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
@@ -131,7 +131,9 @@ export function generateSrtSubtitles(scenes: Scene[]): string {
     return `${pad(hrs)}:${pad(mins)}:${pad(secs)},${pad(ms, 3)}`;
   };
 
-  let acc = 0;
+  // The video opens with the first image held for the narration lead-in
+  // before the first words are spoken, so the subtitle clock starts there.
+  let acc = NARRATION_LEAD_IN_SECONDS;
   return scenes
     .filter(sceneHasVisual)
     .map((s, i) => {
@@ -936,6 +938,13 @@ export default function RenderView({
       const introDuration = introSec ? Math.max(0.5, introSec.duration) : 0;
       const outroDuration = outroSec ? Math.max(0.5, outroSec.duration) : 0;
 
+      // When the video opens directly on a scene (no intro section), the
+      // first image holds for a short lead-in before the first words are
+      // spoken — the narration used to begin ~0.1s in, too soon to take in
+      // the opening. An enabled intro section is its own opening, so the
+      // lead-in only applies without one.
+      const narrationLeadIn = introSec ? 0 : NARRATION_LEAD_IN_SECONDS;
+
       let timelineOffset = introDuration;
       const sceneSchedule = scenesWithImages.map((s, idx) => {
         const item = audioBuffers.get(s.id);
@@ -948,15 +957,20 @@ export default function RenderView({
         // both, so the cut, the audio start and the caption flip all land on
         // the same moment in the preview and in the exported file.
         const sceneDur = sceneTimelineDuration(s, item ? item.duration : undefined);
+        // The first scene's window includes the lead-in; its narration (and
+        // captions) begin speechOffset seconds into that window.
+        const speechOffset = idx === 0 ? narrationLeadIn : 0;
+        const windowDur = sceneDur + speechOffset;
         const entry = {
           scene: s,
           index: idx,
           startTime: timelineOffset,
-          duration: sceneDur,
-          endTime: timelineOffset + sceneDur,
+          duration: windowDur,
+          endTime: timelineOffset + windowDur,
           speechDuration: speechDur,
+          speechOffset,
         };
-        timelineOffset += sceneDur;
+        timelineOffset += windowDur;
         return entry;
       });
 
@@ -1061,7 +1075,7 @@ export default function RenderView({
             const source = audioCtx.createBufferSource();
             source.buffer = item.buffer;
             source.connect(voiceEchoGraph ? voiceEchoGraph.input : analyser);
-            source.start(renderAudioT0 + entry.startTime);
+            source.start(renderAudioT0 + entry.startTime + entry.speechOffset);
             scheduledSources.push(source);
           } catch (audioErr) {
             console.warn("Error scheduling scene audio:", audioErr);
@@ -1273,11 +1287,15 @@ export default function RenderView({
             const currentSceneIdx = activeEntry.index;
             const elapsedInScene = Math.max(0, currentGlobalTime - activeEntry.startTime);
             const progressInScene = Math.min(1, elapsedInScene / Math.max(0.1, activeEntry.duration));
-            // speechProgress reaches 1.0 at the exact moment spoken narration completes
+            // speechProgress reaches 1.0 at the exact moment spoken narration
+            // completes. The first scene's speech begins speechOffset seconds
+            // in (the opening lead-in), so both the progress and the
+            // word-locked timing are measured from that moment.
             const activeSpokenDuration = Math.max(0.4, activeEntry.speechDuration);
+            const speechElapsed = Math.max(0, elapsedInScene - activeEntry.speechOffset);
             const speechProgress = Math.min(
               1,
-              Math.max(0, elapsedInScene / Math.max(0.1, activeSpokenDuration))
+              Math.max(0, speechElapsed / Math.max(0.1, activeSpokenDuration))
             );
 
             // --- Draw background ---
@@ -1476,7 +1494,9 @@ export default function RenderView({
             }
 
             // --- Subtitle & Caption Rendering (Speech Synchronized) ---
-            if (settings.includeSubtitles && currentScene.text) {
+            // Held back through the opening lead-in so the captions appear
+            // exactly when the voice starts speaking.
+            if (settings.includeSubtitles && currentScene.text && elapsedInScene >= activeEntry.speechOffset) {
               try {
                 const activeCaptionsConfig: CaptionsConfig = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
 
@@ -1491,7 +1511,7 @@ export default function RenderView({
                     // Real per-word spoken timings: the highlight follows the
                     // voice itself, not an estimate of it.
                     wordTimings: audioBuffers.get(currentScene.id)?.words,
-                    audioTimeSec: elapsedInScene,
+                    audioTimeSec: speechElapsed,
                   }
                 );
               } catch (capErr) {

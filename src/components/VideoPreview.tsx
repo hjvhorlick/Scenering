@@ -14,7 +14,7 @@ import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-cap
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
 import { loadCaptionFonts } from "../data/caption-styles";
-import { sceneTimelineDuration } from "../lib/duration-utils";
+import { sceneTimelineDuration, NARRATION_LEAD_IN_SECONDS } from "../lib/duration-utils";
 import type { WordTiming } from "../lib/word-sync";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
@@ -55,6 +55,23 @@ interface VideoPreviewProps {
   outroSection?: SectionConfig | null;
   /** echo / ambience on the narration (Voiceover step) — the preview plays the voice exactly as the render will */
   voiceEcho?: VoiceEchoConfig;
+}
+
+/** Seconds of held first image before the first words, when the video opens
+ *  directly on a scene (an intro section is its own opening). Must match the
+ *  export exactly — see NARRATION_LEAD_IN_SECONDS in duration-utils. */
+function sceneSpeechOffset(sceneIdx: number, hasIntro: boolean): number {
+  return sceneIdx === 0 && !hasIntro ? NARRATION_LEAD_IN_SECONDS : 0;
+}
+
+/** A scene's window on the timeline: its speech length plus any lead-in. */
+function sceneWindowDuration(
+  scene: Scene,
+  audioBuf: AudioBuffer | undefined,
+  sceneIdx: number,
+  hasIntro: boolean
+): number {
+  return getSceneSpeechDuration(scene, audioBuf) + sceneSpeechOffset(sceneIdx, hasIntro);
 }
 
 // Playback timing helper: respects scene.duration while ensuring audio is never cut short.
@@ -606,26 +623,33 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       const outroSec = sectionsRef.current.outro;
       const introDur = introSec ? Math.max(0.5, introSec.duration) : 0;
       const outroDur = outroSec ? Math.max(0.5, outroSec.duration) : 0;
-      const scriptDur = scenesWithImages.reduce((sum, s) => {
+      const scriptDur = scenesWithImages.reduce((sum, s, i) => {
         const sa = audioBuffersRef.current.get(s.id);
-        return sum + getSceneSpeechDuration(s, sa?.buffer);
+        return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
       }, 0);
 
       const isIntroSegment = Boolean(introSec && absoluteTime < introDur);
       const isOutroSegment = Boolean(outroSec && absoluteTime >= introDur + scriptDur);
       const isIntroOrOutro = isIntroSegment || isOutroSegment;
 
-      // Render Subtitles / Captions (Strictly disabled for Intro and Outro segments per user instruction)
-      if (!isIntroOrOutro && captionsConfig?.enabled !== false && scene.text) {
+      // Render Subtitles / Captions (Strictly disabled for Intro and Outro segments per user instruction).
+      // The first scene's speech begins speechOffset seconds into its window
+      // (the opening lead-in); captions are held back until then so they
+      // appear exactly when the voice starts speaking — same as the export.
+      const speechOffsetSec = sceneSpeechOffset(sceneIdx, Boolean(introSec));
+      const speechElapsed =
+        elapsedInScene !== undefined ? Math.max(0, elapsedInScene - speechOffsetSec) : undefined;
+      const speechStarted = elapsedInScene === undefined || elapsedInScene >= speechOffsetSec;
+      if (!isIntroOrOutro && captionsConfig?.enabled !== false && scene.text && speechStarted) {
         const activeCaptions = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
         const sa = audioBuffersRef.current.get(scene.id);
         const speechDur = sa?.buffer.duration && sa.buffer.duration > 0.3 ? sa.buffer.duration : (scene.duration || 4);
-        const speechProgress = elapsedInScene !== undefined ? Math.min(1, Math.max(0, elapsedInScene / Math.max(0.1, speechDur))) : sceneProgress;
+        const speechProgress = speechElapsed !== undefined ? Math.min(1, Math.max(0, speechElapsed / Math.max(0.1, speechDur))) : sceneProgress;
         renderCanvasCaptions(ctx, scene.text, speechProgress, activeCaptions, w, h, {
           // Same real word timings the export uses — the preview highlights
           // each word at the moment the voice actually says it.
           wordTimings: sa?.words,
-          audioTimeSec: elapsedInScene,
+          audioTimeSec: speechElapsed ?? 0,
         });
       }
 
@@ -782,9 +806,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     const outroSec = activeOutro;
     const introDur = introDuration;
     const outroDur = outroDuration;
-    const scriptDur = scenesWithImages.reduce((sum, s) => {
+    const scriptDur = scenesWithImages.reduce((sum, s, i) => {
       const sa = audioBuffersRef.current.get(s.id);
-      return sum + getSceneSpeechDuration(s, sa?.buffer);
+      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
     }, 0);
 
     let targetScene = scenesWithImages[0];
@@ -806,7 +830,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = audioBuffersRef.current.get(s.id);
-        const sDur = getSceneSpeechDuration(s, sa?.buffer);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
         if (scriptTime >= acc && scriptTime < acc + sDur) {
           targetScene = s;
           targetIdx = i;
@@ -1107,9 +1131,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     const introDur = introDuration;
     const outroDur = outroDuration;
 
-    const scriptDur = scenesWithImages.reduce((sum, s) => {
+    const scriptDur = scenesWithImages.reduce((sum, s, i) => {
       const sa = buffers.get(s.id);
-      return sum + getSceneSpeechDuration(s, sa?.buffer);
+      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
     }, 0);
 
     const totalDur = introDur + scriptDur + outroDur;
@@ -1181,6 +1205,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     let currentPlayingSceneIdx = -999;
     const playStartWallTime = performance.now();
 
+    // A scene whose speech has not started yet (the opening lead-in) waits
+    // for its offset before the narration begins.
+    let pendingAudioSceneIdx = -999;
+
     // If starting inside script scenes, begin playing scene audio immediately
     if (safeStartTime >= introDur && safeStartTime < introDur + scriptDur) {
       const initialScriptTime = safeStartTime - introDur;
@@ -1188,18 +1216,22 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = buffers.get(s.id);
-        const sDur = getSceneSpeechDuration(s, sa?.buffer);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
         if (initialScriptTime >= acc && initialScriptTime < acc + sDur) {
           currentPlayingSceneIdx = i;
           setCurrentSceneIndex(i);
-          playSceneAudio(i, initialScriptTime - acc);
+          const speechOffset = initialScriptTime - acc - sceneSpeechOffset(i, Boolean(introSec));
+          if (speechOffset >= 0) playSceneAudio(i, speechOffset);
+          else pendingAudioSceneIdx = i;
           break;
         }
         acc += sDur;
         if (i === scenesWithImages.length - 1) {
           currentPlayingSceneIdx = i;
           setCurrentSceneIndex(i);
-          playSceneAudio(i, Math.max(0, initialScriptTime - acc));
+          const speechOffset = Math.max(0, initialScriptTime - acc) - sceneSpeechOffset(i, Boolean(introSec));
+          if (speechOffset >= 0) playSceneAudio(i, speechOffset);
+          else pendingAudioSceneIdx = i;
         }
       }
     }
@@ -1292,7 +1324,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = buffers.get(s.id);
-        const sDur = getSceneSpeechDuration(s, sa?.buffer);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
         if (scriptTime >= accum && scriptTime < accum + sDur) {
           activeIdx = i;
           activeOffset = scriptTime - accum;
@@ -1310,7 +1342,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       if (activeIdx !== currentPlayingSceneIdx) {
         currentPlayingSceneIdx = activeIdx;
         setCurrentSceneIndex(activeIdx);
-        playSceneAudio(activeIdx, activeOffset);
+        // Narration starts at the scene's speech offset — during the opening
+        // lead-in it waits, then begins exactly when the export's would.
+        const speechOffset = activeOffset - sceneSpeechOffset(activeIdx, Boolean(introSec));
+        if (speechOffset >= 0) playSceneAudio(activeIdx, speechOffset);
+        else pendingAudioSceneIdx = activeIdx;
 
         // Hand over to the new scene's clip (if it has one) and silence the
         // one we just left, so two clips never overlap.
@@ -1319,6 +1355,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         const entering = scenesWithImages[activeIdx];
         if (entering && sceneHasClip(entering)) {
           void pool.play(entering, activeOffset / Math.max(0.1, activeSceneDur), activeSceneDur);
+        }
+      }
+
+      // The lead-in elapsed: start this scene's narration now.
+      if (pendingAudioSceneIdx === activeIdx && activeIdx === currentPlayingSceneIdx) {
+        const speechOffset = activeOffset - sceneSpeechOffset(activeIdx, Boolean(introSec));
+        if (speechOffset >= 0) {
+          playSceneAudio(activeIdx, speechOffset);
+          pendingAudioSceneIdx = -999;
         }
       }
 
