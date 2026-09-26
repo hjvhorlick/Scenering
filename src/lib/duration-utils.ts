@@ -332,7 +332,7 @@ export function calculateDynamicDuration(
  * lead-in, so the opening is alive, not frozen. Only applied when the video
  * begins directly with a scene — an enabled intro section is its own opening.
  */
-export const NARRATION_LEAD_IN_SECONDS = 5;
+export const NARRATION_LEAD_IN_SECONDS = 2;
 
 export function sceneTimelineDuration(
   scene: { text?: string; duration?: number; audio_duration?: number },
