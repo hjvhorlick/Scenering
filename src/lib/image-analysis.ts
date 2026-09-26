@@ -94,23 +94,31 @@ export async function analyzeImageUrl(
   opts: { proxy?: (url: string) => string; timeoutMs?: number } = {}
 ): Promise<boolean> {
   if (typeof document === "undefined") return false;
-  const proxied = opts.proxy ? opts.proxy(url) : url;
 
-  const img = await new Promise<HTMLImageElement | null>((resolve) => {
-    const el = new Image();
-    let settled = false;
-    const finish = (ok: boolean) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(ok ? el : null);
-    };
-    const timer = setTimeout(() => finish(false), opts.timeoutMs ?? 5000);
-    el.onload = () => finish(Boolean(el.naturalWidth));
-    el.onerror = () => finish(false);
-    if (!/^(data|blob):/.test(proxied)) el.crossOrigin = "anonymous";
-    el.src = proxied;
-  });
+  // Load directly first (the browser can usually reach the host even when
+  // the server cannot), then through the proxy as backup.
+  const loadOne = (src: string) =>
+    new Promise<HTMLImageElement | null>((resolve) => {
+      const el = new Image();
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(ok && el.naturalWidth > 0 ? el : null);
+      };
+      const timer = setTimeout(() => finish(false), opts.timeoutMs ?? 5000);
+      el.onload = () => finish(true);
+      el.onerror = () => finish(false);
+      if (!/^(data|blob):/.test(src)) el.crossOrigin = "anonymous";
+      el.src = src;
+    });
+
+  let img = await loadOne(url);
+  if (!img && opts.proxy) {
+    const proxied = opts.proxy(url);
+    if (proxied !== url) img = await loadOne(proxied);
+  }
   if (!img) return false;
 
   try {

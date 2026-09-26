@@ -23,7 +23,7 @@ import {
   proxyImageUrl,
   type ImageCandidate,
 } from "../lib/image-search";
-import { normalizeSceneImageUrl } from "../lib/legacy-image-urls";
+import { resolveLegacyLocalImage } from "../lib/nature-library-compat";
 import { getApiKeysHeaders, getApiKeysQueryParams } from "../lib/api-keys";
 import { buildSceneImageQuery, describeSceneTopic } from "../lib/topic-extract";
 import { useViewport } from "../lib/use-breakpoint";
@@ -261,7 +261,7 @@ export default function SceneEditor({
    */
   const cropToRatio = (ratio: number) => {
     const el = new Image();
-    el.src = normalizeSceneImageUrl(scene.image_url || "");
+    el.src = resolveLegacyLocalImage(scene.image_url || "");
     const apply = (nw: number, nh: number) => {
       const srcRatio = nw / nh;
       let w = 1;

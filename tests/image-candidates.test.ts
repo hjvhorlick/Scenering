@@ -219,36 +219,4 @@ h.eq(flat.uniqueColors, 1, "one quantised colour counted");
 h.ok(MAX_ANALYZED >= 12, "analysis cap still fills a grid");
 
 
-// ------------------------------------------- legacy nature-library URLs
-import { normalizeSceneImageUrl, migrateSceneImageUrls } from "../src/lib/legacy-image-urls";
-
-const OLD_RAW =
-  "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1920&q=80";
-const OLD_RAW_HD =
-  "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1920&h=1080&q=80";
-const OLD_PROXIED =
-  "/api/proxy-image?url=" +
-  encodeURIComponent("https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1920&q=80");
-
-h.eq(normalizeSceneImageUrl(OLD_RAW), "/nature-library/mtn_sunrise.jpg", "legacy raw URL healed to the bundled photo");
-h.eq(normalizeSceneImageUrl(OLD_RAW_HD), "/nature-library/mtn_sunrise.jpg", "query-string variants heal identically");
-h.eq(normalizeSceneImageUrl(OLD_PROXIED), "/nature-library/ocean.jpg", "legacy proxied URL healed to the bundled photo");
-h.eq(normalizeSceneImageUrl("/nature-library/stars.jpg"), "/nature-library/stars.jpg", "local URL passes through");
-h.eq(
-  normalizeSceneImageUrl("https://images.pexels.com/photos/417074/pexels-photo-417074.jpeg?w=100"),
-  "https://images.pexels.com/photos/417074/pexels-photo-417074.jpeg?w=100",
-  "non-library external URL untouched (left to the proxy)"
-);
-h.eq(normalizeSceneImageUrl(""), "", "empty URL stays empty");
-h.eq(normalizeSceneImageUrl(null as unknown as string), "", "null URL stays empty");
-
-const migrated = migrateSceneImageUrls([
-  { image_url: OLD_RAW },
-  { image_url: "/nature-library/lake.jpg" },
-  { image_url: null },
-]);
-h.eq(migrated[0].image_url, "/nature-library/mtn_sunrise.jpg", "scene list migrated");
-h.eq(migrated[1].image_url, "/nature-library/lake.jpg", "already-local scene untouched (same object semantics)");
-h.eq(migrated[2].image_url, null, "null image_url preserved");
-
 h.done("image candidates");

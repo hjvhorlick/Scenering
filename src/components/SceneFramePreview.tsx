@@ -7,7 +7,7 @@ import {
   placeImage,
   sceneIsBlankColor,
 } from "../lib/scene-framing";
-import { normalizeSceneImageUrl } from "../lib/legacy-image-urls";
+import { loadSceneImage } from "../lib/scene-image-loader";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 
 interface Props {
@@ -50,9 +50,7 @@ export default function SceneFramePreview({
 
   const frame = frameSizeFor(aspectRatio);
   const height = Math.round((width * frame.h) / frame.w);
-  // Healed through the legacy-URL migration so a fallback photo selected
-  // before the library was bundled still shows here — same as preview/render.
-  const url = normalizeSceneImageUrl(scene.image_url || "");
+  const url = scene.image_url || "";
 
   useEffect(() => {
     setLoaded(false);
@@ -60,20 +58,16 @@ export default function SceneFramePreview({
       imgRef.current = null;
       return;
     }
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      imgRef.current = img;
-      setLoaded(true);
-    };
-    img.onerror = () => {
-      imgRef.current = null;
-      setLoaded(false);
-    };
-    img.src = url;
+    let cancelled = false;
+    // Same shared loader as the preview and the render, so this thumbnail
+    // shows exactly the image those two will show.
+    loadSceneImage(url, 0, { fallback: "none" }).then((res) => {
+      if (cancelled) return;
+      imgRef.current = res?.img ?? null;
+      setLoaded(Boolean(res));
+    });
     return () => {
-      img.onload = null;
-      img.onerror = null;
+      cancelled = true;
     };
   }, [url]);
 

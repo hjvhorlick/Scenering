@@ -8,7 +8,6 @@ import Timeline from "./components/Timeline";
 import VideoStudio from "./components/VideoStudio";
 import { pickRandomImageUrl, rawImageUrl } from "./lib/image-picker";
 import { searchImagePool, proxyImageUrl } from "./lib/image-search";
-import { migrateSceneImageUrls } from "./lib/legacy-image-urls";
 import { sceneHasVisual } from "./lib/scene-framing";
 import RenderView from "./components/RenderView";
 import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
@@ -735,10 +734,7 @@ export default function App() {
       } catch {}
 
       setCurrentProject(project);
-      // Heal image URLs saved before the nature library was bundled locally:
-      // the user's selected fallback photos then load from /nature-library/
-      // in the editor, the preview AND the export — never a placeholder.
-      setScenes(migrateSceneImageUrls(loadedScenes));
+      setScenes(loadedScenes);
       setInserts(loadedInserts);
       setCurrentPlayheadTime(0);
       setEditorStep("scenes");
