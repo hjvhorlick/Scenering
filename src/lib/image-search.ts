@@ -44,8 +44,11 @@ export interface ResearchOptions {
   signal?: AbortSignal;
 }
 
-/** Build the proxied URL the rest of the app expects for an image. */
+/** Build the proxied URL the rest of the app expects for an image.
+ *  Same-origin paths (the bundled nature library) are returned untouched —
+ *  they are served straight from /public and never need the proxy. */
 export function proxyImageUrl(url: string): string {
+  if (url.startsWith("/")) return url;
   return `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(url)}`;
 }
 

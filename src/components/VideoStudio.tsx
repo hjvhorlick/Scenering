@@ -277,7 +277,7 @@ export default function VideoStudio({
       </div>
 
       {/* 5 Ordered Main Tabs: 1. Logo, 2. Call to action, 3. Stickers, 4. Text Content, 5. Audio visualisers */}
-      <div className="t-studio-tabbar bg-gray-900/60 border-b border-hairline px-4 pt-2.5 flex gap-1.5 overflow-x-auto no-scrollbar" role="tablist" aria-label="Video Studio sections">
+      <div className="t-studio-tabbar bg-gray-900/60 border-b border-hairline px-4 pt-2.5 flex gap-1.5 overflow-x-auto scrollbar-thin" role="tablist" aria-label="Video Studio sections">
         {STUDIO_CATEGORIES.map((cat, idx) => {
           const isSelected = selectedCategory === cat.id;
           return (

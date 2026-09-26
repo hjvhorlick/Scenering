@@ -7,7 +7,7 @@ import ApiKeysModal from "./components/ApiKeysModal";
 import Timeline from "./components/Timeline";
 import VideoStudio from "./components/VideoStudio";
 import { pickRandomImageUrl, rawImageUrl } from "./lib/image-picker";
-import { searchImagePool } from "./lib/image-search";
+import { searchImagePool, proxyImageUrl } from "./lib/image-search";
 import { sceneHasVisual } from "./lib/scene-framing";
 import RenderView from "./components/RenderView";
 import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
@@ -132,7 +132,7 @@ async function quickImageSearch(
     const chosen = pickRandomImageUrl(pool.map((c) => c.url), usedUrls);
     if (!chosen) return null;
     return {
-      proxyUrl: `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(chosen)}`,
+      proxyUrl: proxyImageUrl(chosen),
       rawUrl: chosen,
     };
   } catch {

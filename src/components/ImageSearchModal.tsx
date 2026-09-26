@@ -69,8 +69,9 @@ export default function ImageSearchModal({
     search(query);
   };
 
+  // Same-origin paths (bundled nature library) skip the proxy entirely.
   const proxyUrl = (url: string) =>
-    `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(url)}`;
+    url.startsWith("/") ? url : `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(url)}`;
 
   return (
     <div

@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import { existsSync } from "node:fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
@@ -905,6 +906,23 @@ async function startServer() {
       const targetUrl = req.query.url as string;
       if (!targetUrl) {
         return res.status(400).json({ error: "Missing url parameter" });
+      }
+
+      // Same-origin paths (the bundled nature library) are served straight
+      // from /public — no upstream fetch involved.
+      if (targetUrl.startsWith("/") && !targetUrl.startsWith("//")) {
+        const safe = path.normalize(targetUrl).replace(/^(\.\.[/\\])+/, "");
+        const localPath = path.join(process.cwd(), "public", safe);
+        if (localPath.startsWith(path.join(process.cwd(), "public")) && existsSync(localPath)) {
+          const ext = path.extname(localPath).toLowerCase();
+          const mime =
+            ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : "image/jpeg";
+          res.setHeader("Content-Type", mime);
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+          res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+          return res.sendFile(localPath);
+        }
       }
 
       const response = await fetch(targetUrl, {
