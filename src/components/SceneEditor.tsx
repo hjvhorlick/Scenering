@@ -407,7 +407,13 @@ export default function SceneEditor({
     setShowColorPicker(false);
     const probe = new Image();
     probe.onload = () => {
-      onUpdate(scene.id, { image_fit: suggestFit(probe, frame.w, frame.h) });
+      const fit = suggestFit(probe, frame.w, frame.h);
+      onUpdate(scene.id, {
+        image_fit: fit,
+        // blur_fill promises blurred bars — store the matching backdrop so
+        // the scene never falls back to black bars in preview or render
+        ...(fit === "blur_fill" ? { image_backdrop: "blur" as const } : {}),
+      });
     };
     probe.src = url;
   };

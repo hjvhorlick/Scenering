@@ -77,7 +77,10 @@ classes to components, regenerate the matrix with `npm run theme:css`.
 5. **Video Studio** — the look of the finished video: filters, text templates,
    3D stickers, lower thirds, titles, call-to-action badges, music and sound
    effects, intro and outro.
-6. **Render** — preview and export.
+6. **Render** — carries out the output choices made in Setup: a read-only
+   summary of the render profile, one render at a time, and the Vault where
+   finished videos wait until downloaded. Need another platform's cut? Go
+   back to Setup, pick that destination, render again.
 
 ## Project layout
 
@@ -96,6 +99,23 @@ tests/          the test suite
 Some `lib` modules are worth knowing about, because they are deliberately the
 single source of truth for their job:
 
+- **`render-profile.ts`** — the **Master Render Profile**: the one central
+  encoding configuration (resolution profiles, frame rate + CFR, H.264/AAC
+  MP4 defaults, the platform-aware bitrate ladder, quality presets, keyframe
+  interval, file naming, platform compatibility checks and human-readable
+  render-failure reports). Platform targets — YouTube, Shorts, TikTok,
+  Reels, Facebook, LinkedIn, Pinterest — inherit from it and only override
+  what the platform genuinely requires. All output decisions live in
+  **Project Setup**: pick a publish destination and Scenering sets the
+  canvas, resolution, frame rate and encoding automatically (advanced
+  overrides are tucked behind a collapsed panel). The default needs no
+  knowledge of encoding: press Render and you get High quality, 1080p,
+  30 FPS CFR, H.264 + AAC in a web-optimised MP4.
+- **`audio-mastering.ts`** — the optional final-mix stage (on by default):
+  a gentle bus compressor and safety limiter so the mix never clips, plus
+  voice-priority ducking that eases music down while the narrator speaks.
+  Switch it to Manual in Project Setup's advanced overrides and your mix passes through
+  untouched.
 - **`scene-framing.ts`** — every image placement in the app. The editor
   preview, the live preview and the exported video all call into it, which is
   what guarantees a photo is never stretched out of shape.

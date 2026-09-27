@@ -30,7 +30,8 @@ import {
   splitScriptIntoScenes,
 } from "./lib/duration-utils";
 import { TRANSITION_OPTIONS } from "./lib/scene-transition";
-import type { Project, Scene, TimelineInsert, SceneMotionType, SceneTransitionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
+import type { Project, Scene, TimelineInsert, SceneMotionType, SceneTransitionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType, RenderProfileSettings } from "./types";
+import { DEFAULT_RENDER_PROFILE_SETTINGS, resolveRenderProfileSettings } from "./lib/render-profile";
 import type { VideoFilterConfig } from "./data/video-filters";
 import type { SectionConfig } from "./data/intro-outro";
 import { VoiceEchoConfig, DEFAULT_VOICE_ECHO, resolveVoiceEcho } from "./lib/voice-echo";
@@ -55,6 +56,9 @@ export interface ProjectSettings {
   voice_echo: VoiceEchoConfig;
   /** transition effect applied between scenes across the entire video */
   transition: SceneTransitionType;
+  /** the render profile chosen in Project Setup (destination, quality, fps…)
+   *  — the render screen only displays these, it never edits them */
+  render_profile: RenderProfileSettings;
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -90,6 +94,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   intro_section: null,
   outro_section: null,
   voice_echo: DEFAULT_VOICE_ECHO,
+  render_profile: DEFAULT_RENDER_PROFILE_SETTINGS,
 };
 
 // Split script into scenes and generate image search queries.
@@ -179,6 +184,7 @@ export default function App() {
   const [outroSection, setOutroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.outro_section);
   const [voiceEcho, setVoiceEcho] = useState<VoiceEchoConfig>(DEFAULT_PROJECT_SETTINGS.voice_echo);
   const [videoTransition, setVideoTransition] = useState<SceneTransitionType>(DEFAULT_PROJECT_SETTINGS.transition);
+  const [renderProfile, setRenderProfile] = useState<RenderProfileSettings>(DEFAULT_PROJECT_SETTINGS.render_profile);
 
   // Helper to save per-project settings so each project maintains isolated configuration
   const saveCurrentProjectSettings = useCallback((partial: Partial<ProjectSettings>) => {
@@ -260,6 +266,14 @@ export default function App() {
     setResolution(res);
     saveCurrentProjectSettings({ resolution: res });
     setCurrentProject((prev) => (prev ? { ...prev, resolution: res } : null));
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateRenderProfile = useCallback((patch: Partial<RenderProfileSettings>) => {
+    setRenderProfile((prev) => {
+      const next = { ...prev, ...patch };
+      saveCurrentProjectSettings({ render_profile: next });
+      return next;
+    });
   }, [saveCurrentProjectSettings]);
 
   const handleUpdatePacingMode = useCallback((mode: PacingModeType) => {
@@ -598,6 +612,7 @@ export default function App() {
       setSceneDuration(chosenDuration);
       setMotionStyle(freshSettings.motion_style);
       setVideoTransition(freshSettings.transition);
+      setRenderProfile(resolveRenderProfileSettings(freshSettings.render_profile));
 
       setNavNotice(null);
       setCurrentProject(project);
@@ -663,6 +678,7 @@ export default function App() {
     setIntroSection(DEFAULT_PROJECT_SETTINGS.intro_section);
     setOutroSection(DEFAULT_PROJECT_SETTINGS.outro_section);
     setVideoTransition(DEFAULT_PROJECT_SETTINGS.transition);
+    setRenderProfile(DEFAULT_PROJECT_SETTINGS.render_profile);
     setView("create");
   };
 
@@ -698,6 +714,7 @@ export default function App() {
       setOutroSection(projectSettings.outro_section ?? null);
       const projTransition = (projectSettings.transition as SceneTransitionType) || "crossfade";
       setVideoTransition(projTransition);
+      setRenderProfile(resolveRenderProfileSettings(projectSettings.render_profile));
 
       const { data, error } = await supabase
         .from("scenes")
@@ -811,6 +828,7 @@ export default function App() {
       setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
       setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
       setVideoTransition(DEFAULT_PROJECT_SETTINGS.transition);
+      setRenderProfile(DEFAULT_PROJECT_SETTINGS.render_profile);
       setView("create");
     }
 
@@ -1379,6 +1397,8 @@ export default function App() {
                 onUpdateScript={handleUpdateScript}
                 onUpdateAspectRatio={handleUpdateAspectRatio}
                 onUpdateResolution={handleUpdateResolution}
+                renderProfile={renderProfile}
+                onUpdateRenderProfile={handleUpdateRenderProfile}
                 onUpdatePacingMode={handleUpdatePacingMode}
                 onUpdateSceneDuration={handleUpdateSceneDuration}
                 onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
@@ -1415,6 +1435,7 @@ export default function App() {
                 aspectRatio={aspectRatio}
                 resolution={resolution}
                 pacingMode={pacingMode}
+                renderProfile={renderProfile}
                 renderedBlob={renderedBlob}
                 renderedUrl={renderedUrl}
                 onRenderSuccess={(blob, url) => {

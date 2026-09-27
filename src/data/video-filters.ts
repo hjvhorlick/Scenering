@@ -84,6 +84,8 @@ export interface VideoFilterSettings {
   contrast: number; // 0.5 – 1.8
   /** soft out-of-focus blur (px @ 1280 wide) */
   softness: number; // 0 – 1
+  /** widescreen cinema bars top and bottom — 0 = full frame (default) */
+  letterbox: number; // 0 – 1
 }
 
 export type FilterControlKey = keyof VideoFilterSettings;
@@ -103,6 +105,7 @@ export const CONTROL_META: Record<
   saturation: { label: "Colour Pop", icon: "🎨", min: 0, max: 2, step: 0.05, hint: "Colour intensity of the grade" },
   contrast: { label: "Contrast", icon: "◐", min: 0.5, max: 1.8, step: 0.05, hint: "Punch between blacks and whites" },
   softness: { label: "Soft Focus", icon: "🫧", min: 0, max: 1, step: 0.05, hint: "Dreamy out-of-focus diffusion" },
+  letterbox: { label: "Cinema Bars", icon: "🎬", min: 0, max: 1, step: 0.05, hint: "Black widescreen bars top and bottom — keep at 0 so the video fills the whole frame on social platforms" },
 };
 
 export const BASE_SETTINGS: VideoFilterSettings = {
@@ -117,6 +120,10 @@ export const BASE_SETTINGS: VideoFilterSettings = {
   saturation: 1,
   contrast: 1,
   softness: 0,
+  // Cinema bars are strictly OPT-IN. They used to be painted unconditionally
+  // by the anamorphic preset, which read as a rendering bug — black bars top
+  // and bottom of every studio preview and export, whatever the aspect.
+  letterbox: 0,
 };
 
 /* ------------------------------ grade ------------------------------------ */
@@ -281,18 +288,20 @@ export const VIDEO_FILTERS: VideoFilterPreset[] = [
     name: "Anamorphic Widescreen",
     group: "film",
     icon: "\ud83c\udfa5",
-    tagline: "Letterbox bars with a blue horizontal lens streak across the frame",
+    tagline: "Blue horizontal lens streak across the frame, with optional cinema bars",
     accent: "#38bdf8",
     grade: { saturate: 1.32, contrast: 1.34, brightness: 0.98, hueRotate: -8 },
     layers: [
       { kind: "wash", colors: ["rgba(0,60,120,0.34)", "rgba(240,130,50,0.26)"], dir: "diag", alpha: 1, blend: "overlay" },
       { kind: "sunflare", x: 0.28, y: 0.3, alpha: 0.75, rays: 0, color: "rgba(120,190,255,1)" },
+      // The bars only appear when the Cinema Bars slider is raised — they
+      // are never forced, because social formats need the full frame.
       { kind: "letterbox", alpha: 1, ratio: 0.1 },
       { kind: "vignette", alpha: 0.55 },
       { kind: "grain", alpha: 0.35 },
     ],
-    controls: ["strength", "glow", "contrast", "saturation", "vignette", "grain", "speed"],
-    defaults: S({ strength: 1.2, glow: 0.6, vignette: 0.45, grain: 0.3 }),
+    controls: ["strength", "glow", "contrast", "saturation", "vignette", "grain", "letterbox", "speed"],
+    defaults: S({ strength: 1.2, glow: 0.6, vignette: 0.45, grain: 0.3, letterbox: 0 }),
   },
 
   /* ============================== VINTAGE ================================= */

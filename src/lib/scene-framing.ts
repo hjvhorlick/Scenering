@@ -139,6 +139,13 @@ export function resolveFraming(scene: Partial<Scene> | null | undefined): Resolv
       s.image_backdrop === "blur" ||
       s.image_backdrop === "transparent"
         ? (s.image_backdrop as SceneBackdropStyle)
+        : // "Blurred Fill" PROMISES blurred bars — a scene whose fit was
+          // auto-suggested as blur_fill (photo picked, no backdrop stored)
+          // must default to the blur backdrop, not transparent. Transparent
+          // left the raw canvas showing through, which is why 9:16 videos
+          // with landscape photos rendered black bars top and bottom.
+          fit === "blur_fill"
+        ? "blur"
         : "transparent",
     backdropBlur: clamp(Number(s.image_backdrop_blur ?? 42), 0, 120),
     backdropZoom: clamp(Number(s.image_backdrop_zoom ?? 1.25), 1, 2.5),
