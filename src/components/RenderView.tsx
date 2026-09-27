@@ -271,8 +271,6 @@ export default function RenderView({
    *  extension always matches this — a mislabelled file is what made the
    *  download "not work" before. */
   const [renderedContainer, setRenderedContainer] = useState<"mp4" | "webm">("webm");
-  /** Format button currently being re-rendered, if any. */
-  const [convertingFormat, setConvertingFormat] = useState<"mp4" | "webm" | "mov" | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   /** How many scene photos had to be replaced by placeholder cards in the
    *  last render — surfaced so a dead image URL is never silent again. */
@@ -515,8 +513,9 @@ export default function RenderView({
   const frameTickerRef = useRef<FrameTicker | null>(null);
   /** Image behind the idle render-canvas painter. */
   const idleImgRef = useRef<HTMLImageElement | null>(null);
-  /** Format ("mp4" | "webm" | "mov") a button asked to re-render and save. */
-  const pendingDownloadRef = useRef<"mp4" | "webm" | "mov" | null>(null);
+  /** Why the last render failed — read synchronously by the platform queue
+   *  so a failed row can say what went wrong (state updates are async). */
+  const lastRenderErrorRef = useRef<string>("");
 
   // Pre-load watermark logo image
   useEffect(() => {
@@ -700,9 +699,12 @@ export default function RenderView({
       : computeVideoBitrateKbps(width, height, fpsUsed, settings.quality);
     const audioKbps = plan ? plan.audioBitrateKbps : computeAudioBitrateKbps(settings.quality);
 
+    lastRenderErrorRef.current = "";
     const canvas = canvasRef.current;
     if (!canvas) {
+      lastRenderErrorRef.current = "The render canvas is not on screen (try staying on this page while rendering)";
       setRenderError("Canvas element not available");
+      setRenderStatus({ active: false, error: "Canvas element not available", stage: "Render failed" });
       setIsRendering(false);
       return null;
     }
@@ -711,7 +713,9 @@ export default function RenderView({
     canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
+      lastRenderErrorRef.current = "The browser refused a 2D drawing context";
       setRenderError("2D Context unavailable");
+      setRenderStatus({ active: false, error: "2D Context unavailable", stage: "Render failed" });
       setIsRendering(false);
       return null;
     }
@@ -720,7 +724,9 @@ export default function RenderView({
     await loadCaptionFonts();
 
     if (typeof MediaRecorder === "undefined") {
+      lastRenderErrorRef.current = "This browser does not support in-browser video recording";
       setRenderError("Your browser does not support in-browser video recording.");
+      setRenderStatus({ active: false, error: "Recording unsupported", stage: "Render failed" });
       setIsRendering(false);
       return null;
     }
@@ -1736,23 +1742,6 @@ export default function RenderView({
         });
       }
 
-      // A format button asked for this render: save it straight to disk in
-      // that format (MOV saves the H.264/AAC stream with the QuickTime
-      // extension — Apple platforms play it natively).
-      const pending = pendingDownloadRef.current;
-      pendingDownloadRef.current = null;
-      setConvertingFormat(null);
-      if (pending) {
-        const wanted = pending === "mov" ? "mp4" : pending;
-        if (recordedContainer === wanted) {
-          const ext = pending === "mov" ? "mov" : recordedContainer;
-          await saveRenderBlob(finalBlob, renderFileName(project?.title || "", ext), job.lastVaultId);
-        } else {
-          setVaultMessage(
-            `This browser cannot record ${pending.toUpperCase()} — the render was saved as ${recordedContainer.toUpperCase()} instead.`
-          );
-        }
-      }
       return { blob: finalBlob, container: recordedContainer };
     } catch (err: any) {
       console.error("Render failed:", err);
@@ -1761,14 +1750,13 @@ export default function RenderView({
       // human explanation, keep the raw log under Advanced Details, and
       // offer an automatic retry with a compatible profile.
       const report = describeRenderFailure(String(err?.stack || message));
+      lastRenderErrorRef.current = report.title;
       setFailureReport(report);
       setRenderError(message);
       setRenderStatus({ active: false, error: message, stage: "Render failed" });
       return null;
     } finally {
       setIsRendering(false);
-      pendingDownloadRef.current = null;
-      setConvertingFormat(null);
       // Belt and braces: the loop stops its own ticker on cleanup, but an
       // exception between start and cleanup must not leave it ticking.
       try {
@@ -1832,50 +1820,6 @@ export default function RenderView({
     // recording downloaded as .mp4 and players rejected it.
     const ext = renderedContainer === "mp4" ? "mp4" : "webm";
     await saveRenderBlob(blob, renderFileName(project?.title || "", ext), job.lastVaultId);
-  };
-
-  /** True when this browser can record the H.264/AAC MP4 container. */
-  const canRecordMp4 = useMemo(() => {
-    if (typeof MediaRecorder === "undefined") return false;
-    return [
-      "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
-      "video/mp4;codecs=avc1,mp4a.40.2",
-      "video/mp4",
-    ].some((t) => {
-      try {
-        return MediaRecorder.isTypeSupported(t);
-      } catch {
-        return false;
-      }
-    });
-  }, []);
-
-  /**
-   * Download in one of the three formats social platforms use most.
-   *
-   *   MP4  — H.264 + AAC, the standard on TikTok, Instagram, YouTube, Facebook
-   *   WebM — VP9/VP8 + Opus, smallest file; WhatsApp, X, Discord
-   *   MOV  — the same H.264/AAC stream with the QuickTime extension, which
-   *          Apple devices and pro editors take natively
-   *
-   * If the finished render is already in that container it saves instantly;
-   * otherwise the video is re-rendered into it and saved automatically.
-   */
-  const handleFormatDownload = async (format: "mp4" | "webm" | "mov") => {
-    if (isRendering) return;
-    const wantedContainer = format === "mov" ? "mp4" : format;
-    if (renderedBlob && renderedContainer === wantedContainer) {
-      const ext = format === "mov" ? "mov" : renderedContainer;
-      await saveRenderBlob(renderedBlob, renderFileName(project?.title || "", ext), job.lastVaultId);
-      return;
-    }
-    if (!renderedBlob) {
-      setVaultMessage("Nothing rendered yet — press Start Video Render first.");
-      return;
-    }
-    pendingDownloadRef.current = format;
-    setConvertingFormat(format);
-    await handleStartRender(format);
   };
 
   /** Download a row that is waiting in the vault (frees the slot on success). */
@@ -2103,8 +2047,11 @@ export default function RenderView({
         activeQueueRowRef.current = null;
 
         if (!result) {
-          patchQueueRow(`g${gi}`, { status: "failed" });
-          g.platforms.forEach((_, pi) => patchQueueRow(`g${gi}p${pi}`, { status: "failed" }));
+          const why = lastRenderErrorRef.current || "Render failed";
+          patchQueueRow(`g${gi}`, { status: "failed", sublabel: why });
+          g.platforms.forEach((_, pi) =>
+            patchQueueRow(`g${gi}p${pi}`, { status: "failed", sublabel: `Master failed — ${why}` })
+          );
           continue; // the other masters still get their chance
         }
 
@@ -2812,38 +2759,40 @@ export default function RenderView({
             )}
           </div>
           <div className="bg-gray-800/50 border border-hairline rounded-xl overflow-hidden shadow-2xl">
-            {/* Viewport: Live Render Canvas OR Finished HTML5 Video Player */}
+            {/* Viewport: Live Render Canvas, with the finished player overlaid.
+                The canvas STAYS MOUNTED even while a finished video is being
+                previewed — the multi-platform queue renders several masters
+                back-to-back, and unmounting the canvas between them is what
+                made every master after the first fail with "canvas not
+                available". */}
             <div className={`relative ${aspectClass || "aspect-video"} bg-black flex items-center justify-center overflow-hidden mx-auto`}>
-              {renderedUrl && !isRendering ? (
+              <canvas
+                ref={canvasRef}
+                className={`w-full h-full object-contain bg-black ${
+                  isRendering ? "opacity-100" : "opacity-40"
+                } ${renderedUrl && !isRendering ? "invisible" : ""}`}
+              />
+              {renderedUrl && !isRendering && (
                 <video
                   src={renderedUrl}
                   controls
                   autoPlay={false}
                   preload="metadata"
-                  className="w-full h-full object-contain"
+                  className="absolute inset-0 w-full h-full object-contain bg-black"
                 />
-              ) : (
-                <>
-                  <canvas
-                    ref={canvasRef}
-                    className={`w-full h-full object-contain bg-black ${
-                      isRendering ? "opacity-100" : "opacity-40"
-                    }`}
-                  />
-                  {!isRendering && !renderedUrl && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/50 backdrop-blur-[2px]">
-                      <div className="w-16 h-16 rounded-full bg-indigo-600/90 text-white flex items-center justify-center text-3xl shadow-lg mb-3">
-                        ⚡
-                      </div>
-                      <h4 className="text-lg font-bold text-white mb-1">
-                        Ready to Render
-                      </h4>
-                      <p className="text-xs text-gray-300 max-w-sm">
-                        Click "Start Video Render" to compile audio narration, camera motion, cinematic filters, overlays, and crisp watermark into a polished video file.
-                      </p>
-                    </div>
-                  )}
-                </>
+              )}
+              {!isRendering && !renderedUrl && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/50 backdrop-blur-[2px]">
+                  <div className="w-16 h-16 rounded-full bg-indigo-600/90 text-white flex items-center justify-center text-3xl shadow-lg mb-3">
+                    ⚡
+                  </div>
+                  <h4 className="text-lg font-bold text-white mb-1">
+                    Ready to Render
+                  </h4>
+                  <p className="text-xs text-gray-300 max-w-sm">
+                    Click "Start Video Render" to compile audio narration, camera motion, cinematic filters, overlays, and crisp watermark into a polished video file.
+                  </p>
+                </div>
               )}
 
               {/* Rendering Overlay */}
@@ -2989,81 +2938,43 @@ export default function RenderView({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <div className="p-3 bg-green-950/50 border border-green-800/80 rounded-xl text-green-300 text-xs flex items-center justify-between">
+                  <div className="p-3 bg-green-950/50 border border-green-800/80 rounded-xl text-green-300 text-xs flex items-center justify-between gap-2 flex-wrap">
                     <span className="flex items-center gap-2 font-medium">
                       <span>✅</span> Video rendered successfully! Format: {renderedContainer.toUpperCase()} · {resLabel}
                     </span>
                     <button
                       onClick={() => void handleStartRender()}
-                      className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs border border-hairline transition-colors"
+                      disabled={isRendering || queueRunning}
+                      className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-xs border border-hairline transition-colors"
                     >
                       🔄 Re-render
                     </button>
                   </div>
 
-                  {/* Download — the three formats social platforms use most */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <span className="text-[11px] font-semibold text-gray-300 flex items-center gap-1.5">
-                        <span>⬇️</span> Download for social platforms
-                      </span>
-                      <span className="text-[10px] text-gray-500">
-                        Current render: {renderedContainer.toUpperCase()}
-                        {renderedContainer !== "mp4" && canRecordMp4 ? " — press MP4 for the social standard" : ""}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                      {/* MP4 */}
-                      <button
-                        onClick={() => void handleFormatDownload("mp4")}
-                        disabled={isRendering || !canRecordMp4}
-                        title={canRecordMp4 ? "H.264 + AAC — accepted everywhere" : "This browser cannot record MP4"}
-                        className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all shadow flex flex-col items-center justify-center gap-1"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span>🎬</span>
-                          <span>{isRendering && convertingFormat === "mp4" ? "Rendering MP4…" : "MP4"}</span>
-                        </span>
-                        <span className="block text-[9px] font-medium opacity-80">TikTok · Instagram · YouTube · Facebook</span>
-                      </button>
-
-                      {/* WebM */}
-                      <button
-                        onClick={() => void handleFormatDownload("webm")}
-                        disabled={isRendering}
-                        title="VP9 + Opus — smallest file for the same quality"
-                        className="px-4 py-3 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all border border-hairline flex flex-col items-center justify-center gap-1"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span>🌐</span>
-                          <span>{isRendering && convertingFormat === "webm" ? "Rendering WebM…" : "WebM"}</span>
-                        </span>
-                        <span className="block text-[9px] font-medium opacity-80">WhatsApp · X · Discord · web embeds</span>
-                      </button>
-
-                      {/* MOV */}
-                      <button
-                        onClick={() => void handleFormatDownload("mov")}
-                        disabled={isRendering || !canRecordMp4}
-                        title={canRecordMp4 ? "H.264 + AAC in the QuickTime container — Apple devices and editors" : "This browser cannot record MOV"}
-                        className="px-4 py-3 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all border border-hairline flex flex-col items-center justify-center gap-1"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span>🍎</span>
-                          <span>{isRendering && convertingFormat === "mov" ? "Rendering MOV…" : "MOV"}</span>
-                        </span>
-                        <span className="block text-[9px] font-medium opacity-80">QuickTime · iMovie · Apple devices</span>
-                      </button>
-                    </div>
-
-                    {!canRecordMp4 && (
-                      <p className="text-[10px] text-gray-500 leading-relaxed">
-                        This browser cannot record MP4/MOV (Firefox is the usual case) — the WebM download works
-                        everywhere and converts in any editor.
-                      </p>
-                    )}
+                  {/* One honest download of this render; every finished
+                      render ALSO waits in the Vault above, where multiple
+                      videos can be downloaded or deleted individually. */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <button
+                      onClick={() => void downloadVideo()}
+                      disabled={isRendering || queueRunning}
+                      className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all shadow flex items-center gap-2"
+                    >
+                      <span>⬇️</span>
+                      <span>Download video (.{renderedContainer})</span>
+                    </button>
+                    <p className="text-[10px] text-gray-400 leading-relaxed flex-1 min-w-[200px]">
+                      🗄️ This render is also parked in <span className="font-semibold text-gray-300">The Vault</span> above —
+                      when you render for several platforms, each finished video waits there so you can
+                      download or delete them individually.
+                    </p>
                   </div>
+                  {renderedContainer !== "mp4" && (
+                    <p className="text-[10px] text-gray-500 leading-relaxed">
+                      This browser records WebM instead of MP4 (Firefox is the usual case) — the file plays
+                      everywhere and every platform and editor accepts or converts it.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

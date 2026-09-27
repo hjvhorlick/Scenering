@@ -266,4 +266,28 @@ for (let level = 0; level <= 0.4; level += 0.01) {
 }
 t.ok(duckTimeConstant(1, 0.4) < duckTimeConstant(0.4, 1), "duck attack is faster than release");
 
+/* ---------------- render screen regression guards ----------------
+ * The multi-platform queue renders several masters back-to-back. The first
+ * shipped version swapped the <canvas> out of the DOM for the finished
+ * <video> player, so every master after the first failed with "canvas not
+ * available". These static guards keep the canvas permanently mounted. */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+const renderViewSrc = readFileSync(
+  fileURLToPath(new URL("../src/components/RenderView.tsx", import.meta.url)),
+  "utf8"
+);
+t.ok(
+  !/renderedUrl && !isRendering \? \(/.test(renderViewSrc),
+  "the render canvas is never conditionally replaced by the player (queue renders need it mounted)"
+);
+t.ok(
+  /ref=\{canvasRef\}/.test(renderViewSrc),
+  "the render canvas element exists"
+);
+t.ok(
+  /lastRenderErrorRef\.current \|\| "Render failed"/.test(renderViewSrc),
+  "a failed queue row reports WHY the master failed"
+);
+
 t.done("render-profile");
