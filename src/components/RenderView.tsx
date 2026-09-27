@@ -79,6 +79,7 @@ import {
 } from "../lib/render-profile";
 import type { RenderProfileSettings } from "../types";
 import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
+import { OfflineExporter, supported as offlineExportSupported } from "../lib/offline-export";
 
 /**
  * The render screen's live settings. Every one of them is DECIDED in
@@ -553,7 +554,7 @@ export default function RenderView({
 
   // Synthesize ambient music loop using Web Audio API (fast 3-second seamless loop to avoid UI thread blocking)
   const createAmbientMusicNode = (
-    ctx: AudioContext,
+    ctx: BaseAudioContext,
     style: RenderSettings["backgroundMusic"],
     _duration: number,
     volume: number
@@ -703,14 +704,6 @@ export default function RenderView({
     // Make sure the caption faces are ready before the first frame is captured
     await loadCaptionFonts();
 
-    if (typeof MediaRecorder === "undefined") {
-      lastRenderErrorRef.current = "This browser does not support in-browser video recording";
-      setRenderError("Your browser does not support in-browser video recording.");
-      setRenderStatus({ active: false, error: "Recording unsupported", stage: "Render failed" });
-      setIsRendering(false);
-      return null;
-    }
-
     try {
       // 1. Synthesizing audio & sound effects
       reportStage("1/4: Synthesizing narration voices & sound effects...");
@@ -811,6 +804,90 @@ export default function RenderView({
         reportProgress(0.08 + (i / scenesWithImages.length) * 0.18);
       }
 
+      // Build the immutable timeline before constructing either audio graph. Both
+      // the offline and real-time paths consume this exact schedule.
+      const introSec = introSection?.enabled ? introSection : null;
+      const outroSec = outroSection?.enabled ? outroSection : null;
+      const introDuration = introSec ? Math.max(0.5, introSec.duration) : 0;
+      const outroDuration = outroSec ? Math.max(0.5, outroSec.duration) : 0;
+
+      // When the video opens directly on a scene (no intro section), the
+      // first image holds for a short lead-in before the first words are
+      // spoken — the narration used to begin ~0.1s in, too soon to take in
+      // the opening. An enabled intro section is its own opening, so the
+      // lead-in only applies without one.
+      const narrationLeadIn = introSec ? 0 : NARRATION_LEAD_IN_SECONDS;
+
+      let timelineOffset = introDuration;
+      const sceneSchedule = scenesWithImages.map((s, idx) => {
+        const item = audioBuffers.get(s.id);
+        const speechDur =
+          item && item.duration > 0.3
+            ? item.duration
+            : calculateDynamicDuration(s.text, s.audio_duration);
+        // The exact same scene-length formula the live preview uses
+        // (src/lib/duration-utils.ts → sceneTimelineDuration): one number for
+        // both, so the cut, the audio start and the caption flip all land on
+        // the same moment in the preview and in the exported file.
+        const sceneDur = sceneTimelineDuration(s, item ? item.duration : undefined);
+        // The first scene's window includes the lead-in; its narration (and
+        // captions) begin speechOffset seconds into that window.
+        const speechOffset = idx === 0 ? narrationLeadIn : 0;
+        const windowDur = sceneDur + speechOffset;
+        const entry = {
+          scene: s,
+          index: idx,
+          startTime: timelineOffset,
+          duration: windowDur,
+          endTime: timelineOffset + windowDur,
+          speechDuration: speechDur,
+          speechOffset,
+        };
+        timelineOffset += windowDur;
+        return entry;
+      });
+
+      const scriptTotalDuration = timelineOffset - introDuration;
+      const outroStartTime = timelineOffset;
+      const estimatedTotalDuration = Math.max(1, timelineOffset + outroDuration);
+
+      const finishSuccessfulExport = async (
+        finalBlob: Blob,
+        recordedContainer: "mp4" | "webm",
+        fallbackMime: string
+      ): Promise<{ blob: Blob; container: "mp4" | "webm" }> => {
+        const url = URL.createObjectURL(finalBlob);
+        setRenderedBlob(finalBlob);
+        setRenderedUrl(url);
+        setRenderedContainer(recordedContainer);
+        setSettings((current) => ({ ...current, format: recordedContainer }));
+        reportProgress(1);
+        reportStage("Render Complete! 🎉");
+        onRenderSuccess?.(finalBlob, url);
+        try {
+          const entry = await saveRenderToVault({
+            blob: finalBlob,
+            title: plan?.label
+              ? `${project?.title || "Untitled render"} — ${plan.label}`
+              : project?.title || "Untitled render",
+            mimeType: finalBlob.type || fallbackMime,
+            durationSec: estimatedTotalDuration,
+            width,
+            height,
+            label: `${resolutionToken(width, height)} · ${fpsUsed}fps CFR · ${recordedContainer.toUpperCase()} · ${getQualityLevel(settings.quality).name}`,
+          });
+          setVaultMessage(
+            `Render finished — ${vaultRenders.length >= MAX_VAULT_RENDERS ? "oldest vault slot cleared, " : ""}waiting in the vault to download.`
+          );
+          setRenderStatus({ active: false, progress: 1, stage: "Render finished — waiting in the vault", finishedAt: Date.now(), lastVaultId: entry.id });
+          void refreshVault();
+        } catch (vaultErr) {
+          console.warn("Vault save notice:", vaultErr);
+          setRenderStatus({ active: false, progress: 1, stage: "Render finished", finishedAt: Date.now() });
+        }
+        return { blob: finalBlob, container: recordedContainer };
+      };
+
       // 2. Loading High-Resolution Visual Assets & Watermark
       reportStage("2/4: Loading high-resolution visuals & watermark...");
       reportProgress(0.28);
@@ -872,6 +949,517 @@ export default function RenderView({
         } catch (logoErr) {
           console.warn("Notice: Customer logo preload issue:", logoErr);
         }
+      }
+
+      // Pure canvas pass: timeline time and analyser telemetry are explicit
+      // inputs, so this produces the same pixels in real time or frame-by-frame.
+      const drawFrameAt = (currentGlobalTime: number, audioFrame: AudioFrame | null): void => {
+        try {
+          const frameTelemetry = audioFrame || EMPTY_FRAME;
+          const loudestFrameBus = frameTelemetry.voice.level >= frameTelemetry.music.level
+            ? frameTelemetry.voice
+            : frameTelemetry.music;
+          const frameAudioLevel = audioFrame ? Math.min(1, 0.15 + loudestFrameBus.level * 2.6) : 0.4;
+          const frameFreqData = audioFrame ? (loudestFrameBus.freq as Uint8Array) || null : null;
+        // ==========================================
+        // PHASE 1: INTRO SEGMENT
+        // ==========================================
+        if (introSec && currentGlobalTime < introDuration) {
+          const progressInIntro = Math.min(1, currentGlobalTime / Math.max(0.1, introDuration));
+          ctx.fillStyle = "#000";
+          ctx.fillRect(0, 0, width, height);
+
+          try {
+            renderSection(ctx, introSec, width, height, currentGlobalTime, progressInIntro);
+          } catch (e) {
+            console.warn("Intro section render notice:", e);
+          }
+
+          if (inserts && inserts.length > 0) {
+            inserts
+              .filter((i) => i.category !== "intro" && i.category !== "outro")
+              .forEach((ins) => {
+                try {
+                  renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, frameAudioLevel, frameFreqData, frameTelemetry);
+                } catch {}
+              });
+          }
+
+          return;
+        }
+
+        // ==========================================
+        // PHASE 3: OUTRO SEGMENT
+        // ==========================================
+        if (outroSec && currentGlobalTime >= outroStartTime) {
+          const elapsedInOutro = currentGlobalTime - outroStartTime;
+          const progressInOutro = Math.min(1, elapsedInOutro / Math.max(0.1, outroDuration));
+          ctx.fillStyle = "#000";
+          ctx.fillRect(0, 0, width, height);
+
+          try {
+            renderSection(ctx, outroSec, width, height, elapsedInOutro, progressInOutro);
+          } catch (e) {
+            console.warn("Outro section render notice:", e);
+          }
+
+          if (inserts && inserts.length > 0) {
+            inserts
+              .filter((i) => i.category !== "intro" && i.category !== "outro")
+              .forEach((ins) => {
+                try {
+                  renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, frameAudioLevel, frameFreqData, frameTelemetry);
+                } catch {}
+              });
+          }
+
+          return;
+        }
+
+        // ==========================================
+        // PHASE 2: SCRIPT SCENES (Exact Schedule Match)
+        // ==========================================
+        let activeEntry = sceneSchedule[sceneSchedule.length - 1];
+        for (let i = 0; i < sceneSchedule.length; i++) {
+          const entry = sceneSchedule[i];
+          if (currentGlobalTime >= entry.startTime && currentGlobalTime < entry.endTime) {
+            activeEntry = entry;
+            break;
+          }
+          if (i === 0 && currentGlobalTime < entry.startTime) {
+            activeEntry = entry;
+            break;
+          }
+        }
+
+        const currentScene = activeEntry.scene;
+        const currentSceneIdx = activeEntry.index;
+        const elapsedInScene = Math.max(0, currentGlobalTime - activeEntry.startTime);
+        const progressInScene = Math.min(1, elapsedInScene / Math.max(0.1, activeEntry.duration));
+        // speechProgress reaches 1.0 at the exact moment spoken narration
+        // completes. The first scene's speech begins speechOffset seconds
+        // in (the opening lead-in), so both the progress and the
+        // word-locked timing are measured from that moment.
+        const activeSpokenDuration = Math.max(0.4, activeEntry.speechDuration);
+        const speechElapsed = Math.max(0, elapsedInScene - activeEntry.speechOffset);
+        const speechProgress = Math.min(
+          1,
+          Math.max(0, speechElapsed / Math.max(0.1, activeSpokenDuration))
+        );
+
+        // --- Draw background ---
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, width, height);
+
+        // --- Draw image (or video clip) ---
+        let img: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
+          images[currentSceneIdx] as any;
+        if (sceneHasClip(currentScene)) {
+          const el = clipPool.get(currentScene);
+          if (el) {
+            clipPool.seekToProgress(currentScene, progressInScene, activeEntry.duration);
+            if (el.readyState >= 2 && el.videoWidth > 0) {
+              img = asDrawableClip(el) as any;
+            }
+          }
+        }
+
+        const prevEntry = currentSceneIdx > 0 ? sceneSchedule[currentSceneIdx - 1] : null;
+        const prevScene = prevEntry ? prevEntry.scene : null;
+        let prevImg: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
+          currentSceneIdx > 0 ? (images[currentSceneIdx - 1] as any) : null;
+        if (prevScene && sceneHasClip(prevScene)) {
+          const el = clipPool.get(prevScene);
+          if (el && el.readyState >= 2 && el.videoWidth > 0) {
+            prevImg = asDrawableClip(el) as any;
+          }
+        }
+
+        const { scale, dx, dy } = getMotionTransform(
+          currentScene.motion_effect,
+          progressInScene,
+          width,
+          height,
+          currentSceneIdx
+        );
+        const safeScale = isNaN(scale) ? 1 : scale;
+        const safeDx = isNaN(dx) ? 0 : dx;
+        const safeDy = isNaN(dy) ? 0 : dy;
+
+        /**
+         * A scene using a plain colour has no image to draw, so fill the
+         * frame first. Painting it here — before the transition and before
+         * the project filter — means a fade still darkens into the colour
+         * and the filter still tints it, exactly as it would a photo.
+         */
+        if (sceneIsBlankColor(currentScene) && currentScene.blank_color) {
+          ctx.save();
+          try {
+            ctx.filter = "none";
+          } catch {}
+          ctx.fillStyle = currentScene.blank_color;
+          ctx.fillRect(0, 0, width, height);
+          ctx.restore();
+        }
+
+        let handledTransition = false;
+        if (
+          currentScene.transition &&
+          currentScene.transition !== "none"
+        ) {
+          const transDur = getTransitionDuration(activeEntry.duration);
+          if (elapsedInScene < transDur) {
+            const { scale: prevScale, dx: prevDx, dy: prevDy } = getMotionTransform(
+              prevScene?.motion_effect,
+              1,
+              width,
+              height,
+              Math.max(0, currentSceneIdx - 1)
+            );
+            const safePrevScale = isNaN(prevScale) ? 1 : prevScale;
+            const safePrevDx = isNaN(prevDx) ? 0 : prevDx;
+            const safePrevDy = isNaN(prevDy) ? 0 : prevDy;
+
+            handledTransition = drawSceneTransition(
+              ctx,
+              currentScene,
+              img && img.naturalWidth > 0 ? img : null,
+              prevScene || null,
+              prevImg && prevImg.naturalWidth > 0 ? prevImg : null,
+              elapsedInScene,
+              activeEntry.duration,
+              width,
+              height,
+              {
+                motionScale: safeScale,
+                motionDx: safeDx + (width * safeScale - width) / 2,
+                motionDy: safeDy + (height * safeScale - height) / 2,
+                filter: getFilterCanvas(videoFilter, width),
+              },
+              prevScene ? {
+                motionScale: safePrevScale,
+                motionDx: safePrevDx + (width * safePrevScale - width) / 2,
+                motionDy: safePrevDy + (height * safePrevScale - height) / 2,
+                filter: getFilterCanvas(videoFilter, width),
+              } : undefined
+            );
+          }
+        }
+
+        if (!handledTransition && img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+          try {
+            drawSceneImage(ctx, img, currentScene, width, height, {
+              motionScale: safeScale,
+              motionDx: safeDx + (width * safeScale - width) / 2,
+              motionDy: safeDy + (height * safeScale - height) / 2,
+              filter: getFilterCanvas(videoFilter, width),
+            });
+          } catch (drawErr) {
+            console.warn("Scene draw notice:", drawErr);
+          }
+
+          try {
+            ctx.filter = "none";
+          } catch {}
+        }
+
+        // --- Animated atmosphere of the project-wide filter ---
+        try {
+          paintVideoFilter(ctx, videoFilter, width, height, currentGlobalTime);
+        } catch (filterErr) {
+          console.warn("Video filter notice:", filterErr);
+        }
+
+        // --- Crisp Logo Watermark in Top-Left Corner ---
+        if (
+          settings.includeWatermark &&
+          watermarkImgRef.current &&
+          watermarkImgRef.current.naturalWidth > 0 &&
+          watermarkImgRef.current.naturalHeight > 0
+        ) {
+          ctx.save();
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+
+          const scaleRatio = width / 1280;
+          const wmScale = Math.max(0.4, Math.min(2.0, settings.watermarkScale ?? 1.0));
+          const wmOpacity = Math.max(0.1, Math.min(1.0, settings.watermarkOpacity ?? 1.0));
+          ctx.globalAlpha = wmOpacity;
+
+          const wmWidth = Math.max(20, Math.round(180 * wmScale * scaleRatio));
+          const wmHeight = Math.max(10, Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth)));
+          const posX = Math.round(24 * scaleRatio);
+          const posY = Math.round(20 * (height / 720));
+
+          // Subtle soft shadow so transparent logo stands out cleanly on any video scene (matches preview 1:1)
+          ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+          ctx.shadowBlur = 8 * scaleRatio;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 2 * scaleRatio;
+
+          // Draw crisp transparent watermark logo
+          try {
+            ctx.drawImage(watermarkImgRef.current, posX, posY, wmWidth, wmHeight);
+          } catch (wmDrawErr) {
+            console.warn("Watermark draw notice:", wmDrawErr);
+          }
+          ctx.restore();
+        }
+
+        // --- Customer Brand Logo in Top-Right Corner (if enabled) ---
+        if (
+          customerLogo?.enabled &&
+          customerLogo.url &&
+          customerLogoImgRef.current &&
+          customerLogoImgRef.current.naturalWidth > 0 &&
+          customerLogoImgRef.current.naturalHeight > 0
+        ) {
+          ctx.save();
+          const logoOpacity = Math.max(0.1, Math.min(1.0, customerLogo.opacity ?? 1.0));
+          ctx.globalAlpha = logoOpacity;
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+
+          const scaleRatio = width / 1280;
+          const cScale = Math.max(0.2, Math.min(3.0, customerLogo.scale ?? 1.0));
+          const cMarginX = (customerLogo.margin ?? 20) * scaleRatio;
+          const cMarginY = (customerLogo.margin ?? 20) * (height / 720);
+          const cWidth = Math.max(20, Math.round(200 * cScale * scaleRatio));
+          const cHeight = Math.max(10, Math.round((cWidth * customerLogoImgRef.current.naturalHeight) / Math.max(1, customerLogoImgRef.current.naturalWidth)));
+          const cX = Math.max(0, width - cWidth - cMarginX);
+          const cY = Math.max(0, cMarginY);
+
+          ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+          ctx.shadowBlur = 8 * scaleRatio;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 2 * scaleRatio;
+
+          try {
+            ctx.drawImage(customerLogoImgRef.current, cX, cY, cWidth, cHeight);
+          } catch (logoDrawErr) {
+            console.warn("Logo draw notice:", logoDrawErr);
+          }
+          ctx.restore();
+        }
+
+        // --- Subtitle & Caption Rendering (Speech Synchronized) ---
+        // Held back through the opening lead-in so the captions appear
+        // exactly when the voice starts speaking.
+        if (settings.includeSubtitles && currentScene.text && elapsedInScene >= activeEntry.speechOffset) {
+          try {
+            const activeCaptionsConfig: CaptionsConfig = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
+
+            renderCanvasCaptions(
+              ctx,
+              currentScene.text,
+              speechProgress,
+              activeCaptionsConfig,
+              width,
+              height,
+              {
+                // Real per-word spoken timings: the highlight follows the
+                // voice itself, not an estimate of it.
+                wordTimings: audioBuffers.get(currentScene.id)?.words,
+                audioTimeSec: speechElapsed,
+              }
+            );
+          } catch (capErr) {
+            console.warn("Captions render notice:", capErr);
+          }
+        }
+
+        // --- Timeline Inserts & Overlays ---
+        if (inserts && inserts.length > 0) {
+          try {
+            let audioLevel = 0.4;
+            let freqData: Uint8Array | null = null;
+            const insertAudioFrame = audioFrame || EMPTY_FRAME;
+            const loudest = insertAudioFrame.voice.level >= insertAudioFrame.music.level
+              ? insertAudioFrame.voice
+              : insertAudioFrame.music;
+            if (audioFrame) {
+              audioLevel = Math.min(1, 0.15 + loudest.level * 2.6);
+              freqData = (loudest.freq as Uint8Array) || null;
+            }
+
+            inserts.forEach((insert) => {
+              try {
+                renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData, insertAudioFrame, {
+                  logo: customerLogo?.enabled ? customerLogoImgRef.current : null,
+                });
+              } catch (insErr) {
+                console.warn("Insert notice:", insErr);
+              }
+            });
+          } catch (insertsErr) {
+            console.warn("Timeline inserts notice:", insertsErr);
+          }
+        }
+        } catch (frameErr) {
+          console.error("Frame render recoverable error:", frameErr);
+        }
+      };
+
+      // Prefer a deterministic two-pass export. Nothing here is paced by wall
+      // time: Web Audio renders the mix sample-exactly, then WebCodecs receives
+      // one canvas snapshot for every timestamp in the CFR timeline.
+      const requestedContainer: "mp4" | "webm" =
+        targetFormat === "webm" ? "webm" : targetFormat === "mp4" || targetFormat === "mov"
+          ? "mp4"
+          : (plan ? plan.container : settings.format) === "webm" ? "webm" : "mp4";
+      const offlineConfig = {
+        container: requestedContainer,
+        width,
+        height,
+        fps: fpsUsed,
+        videoKbps,
+        audioKbps,
+        sampleRate: 48_000,
+        channels: 2,
+      } as const;
+      const offlineProbe = await offlineExportSupported(offlineConfig);
+      if (offlineProbe.supported && typeof OfflineAudioContext !== "undefined") {
+        let offlineEncoder: OfflineExporter | null = null;
+        try {
+          reportStage("3/4: Rendering sample-exact audio mix…");
+          reportProgress(0.32);
+          const totalFrames = Math.ceil(estimatedTotalDuration * fpsUsed);
+          const offlineCtx = new OfflineAudioContext(2, Math.ceil(estimatedTotalDuration * 48_000), 48_000);
+          const offlineMastering = createMasteringChain(offlineCtx, settings.audioMastering);
+          offlineMastering.output.connect(offlineCtx.destination);
+
+          const voiceAnalyser = offlineCtx.createAnalyser();
+          voiceAnalyser.fftSize = 512;
+          voiceAnalyser.smoothingTimeConstant = 0.72;
+          voiceAnalyser.minDecibels = -92;
+          voiceAnalyser.maxDecibels = -12;
+          voiceAnalyser.connect(offlineMastering.voiceInput);
+          const offlineMusicAnalyser = offlineCtx.createAnalyser();
+          offlineMusicAnalyser.fftSize = 512;
+          offlineMusicAnalyser.smoothingTimeConstant = 0.72;
+          offlineMusicAnalyser.minDecibels = -92;
+          offlineMusicAnalyser.maxDecibels = -12;
+          offlineMusicAnalyser.connect(offlineMastering.musicInput);
+
+          let offlineEcho: VoiceEchoGraph | null = null;
+          const offlineEchoConfig = resolveVoiceEcho(voiceEcho);
+          if (voiceEchoIsActive(offlineEchoConfig)) {
+            offlineEcho = createVoiceEchoGraph(offlineCtx, offlineEchoConfig);
+            offlineEcho.output.connect(voiceAnalyser);
+          }
+          for (const entry of sceneSchedule) {
+            const item = audioBuffers.get(entry.scene.id);
+            if (!item) continue;
+            const source = offlineCtx.createBufferSource();
+            source.buffer = item.buffer;
+            source.connect(offlineEcho ? offlineEcho.input : voiceAnalyser);
+            source.start(entry.startTime + entry.speechOffset);
+          }
+
+          // Legacy render-page ambient bed (normally timeline inserts now).
+          if (settings.backgroundMusic !== "none" && settings.musicVolume > 0) {
+            let ambient: AudioNode | null = null;
+            const styleTrackId = AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic];
+            const track = styleTrackId ? getBackgroundMusicTrack(styleTrackId) : undefined;
+            if (track) {
+              try {
+                const response = await fetch(track.url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const source = offlineCtx.createBufferSource();
+                source.buffer = await offlineCtx.decodeAudioData(await response.arrayBuffer());
+                source.loop = true;
+                const gain = offlineCtx.createGain();
+                gain.gain.value = Math.max(0, Math.min(1, settings.musicVolume)) * 0.85;
+                source.connect(gain);
+                source.start(0);
+                ambient = gain;
+              } catch (error) {
+                console.warn("Offline ambient track decode failed; using synth bed:", error);
+              }
+            }
+            if (!ambient) ambient = createAmbientMusicNode(offlineCtx, settings.backgroundMusic, estimatedTotalDuration, settings.musicVolume);
+            ambient?.connect(offlineMusicAnalyser);
+          }
+
+          const insertPlans = [
+            ...buildInsertAudioPlan(inserts, estimatedTotalDuration),
+            ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
+          ];
+          const offlineInsertMixer = new InsertAudioMixer(offlineCtx, offlineMusicAnalyser);
+          await offlineInsertMixer.load(insertPlans);
+          offlineInsertMixer.startFrom(0);
+
+          const readOfflineBus = (node: AnalyserNode) => {
+            const freq = new Uint8Array(node.frequencyBinCount);
+            const wave = new Uint8Array(node.fftSize);
+            node.getByteFrequencyData(freq);
+            node.getByteTimeDomainData(wave);
+            let sum = 0;
+            for (let n = 0; n < freq.length; n++) sum += freq[n];
+            return makeBus(sum / (freq.length * 255), freq.slice(), wave.slice());
+          };
+          const telemetry: AudioFrame[] = new Array(totalFrames);
+          telemetry[0] = { voice: makeBus(0, null, null), music: makeBus(0, null, null) };
+          const suspensionTasks: Promise<void>[] = [];
+          for (let frame = 1; frame < totalFrames; frame++) {
+            const time = frame / fpsUsed;
+            suspensionTasks.push(offlineCtx.suspend(time).then(() => {
+              if (abortControllerRef.current) throw new Error("Render cancelled");
+              const snapshot = { voice: readOfflineBus(voiceAnalyser), music: readOfflineBus(offlineMusicAnalyser) };
+              telemetry[frame] = snapshot;
+              offlineMastering.updateVoiceLevel(snapshot.voice.level, offlineCtx.currentTime);
+              offlineInsertMixer.tick(time);
+              return offlineCtx.resume();
+            }));
+          }
+          const rendering = offlineCtx.startRendering();
+          const [mixedAudio] = await Promise.all([rendering, ...suspensionTasks]);
+          if (abortControllerRef.current) throw new Error("Render cancelled");
+
+          offlineEncoder = await OfflineExporter.create(offlineConfig);
+          for (let frame = 0; frame < totalFrames; frame++) {
+            if (abortControllerRef.current) throw new Error("Render cancelled");
+            const time = frame / fpsUsed;
+            let active = sceneSchedule[sceneSchedule.length - 1];
+            for (const entry of sceneSchedule) {
+              if (time >= entry.startTime && time < entry.endTime) { active = entry; break; }
+              if (time < entry.startTime) { active = entry; break; }
+            }
+            if (active && sceneHasClip(active.scene) && time >= active.startTime && time < active.endTime) {
+              const elapsed = Math.max(0, time - active.startTime);
+              await clipPool.seekExact(active.scene, Math.min(1, elapsed / Math.max(0.1, active.duration)), active.duration);
+            }
+            drawFrameAt(time, telemetry[frame] || null);
+            await offlineEncoder.encodeCanvas(canvas, frame);
+            if (frame % 4 === 0) {
+              const progress = 0.35 + ((frame + 1) / totalFrames) * 0.57;
+              reportProgress(Math.min(0.92, progress));
+              reportStage(`3/4: Encoding frame ${frame + 1} of ${totalFrames} (frame-exact)…`);
+              await new Promise<void>((resolve) => setTimeout(resolve, 0));
+            }
+          }
+          reportStage("4/4: Encoding sample-exact audio & finalizing container…");
+          reportProgress(0.94);
+          await offlineEncoder.encodeAudio(mixedAudio);
+          const offlineBlob = await offlineEncoder.finalize();
+          offlineMastering.dispose();
+          offlineEcho?.dispose();
+          offlineInsertMixer.dispose();
+          return await finishSuccessfulExport(offlineBlob, requestedContainer, offlineBlob.type);
+        } catch (offlineError) {
+          offlineEncoder?.close();
+          if (abortControllerRef.current) throw offlineError;
+          console.warn("Frame-exact offline export failed; falling back to MediaRecorder:", offlineError);
+          reportStage("Offline encoder unavailable — switching to real-time compatibility mode…");
+          reportProgress(0.34);
+        }
+      } else {
+        console.info("Frame-exact offline export unsupported; using MediaRecorder:", offlineProbe.reason);
+      }
+
+      // Automatic compatibility fallback: retain the proven real-time path.
+      if (typeof MediaRecorder === "undefined") {
+        throw new Error("This browser supports neither WebCodecs offline export nor MediaRecorder");
       }
 
       // Ensure AudioContext is active and running
@@ -1040,53 +1628,8 @@ export default function RenderView({
       };
 
       // 3. Render frames & play audio in real time with exact timeline synchronization
-      reportStage(`3/4: Preparing video & audio timeline...`);
+      reportStage(`3/4: Preparing real-time compatibility timeline...`);
       reportProgress(0.35);
-
-      const introSec = introSection?.enabled ? introSection : null;
-      const outroSec = outroSection?.enabled ? outroSection : null;
-      const introDuration = introSec ? Math.max(0.5, introSec.duration) : 0;
-      const outroDuration = outroSec ? Math.max(0.5, outroSec.duration) : 0;
-
-      // When the video opens directly on a scene (no intro section), the
-      // first image holds for a short lead-in before the first words are
-      // spoken — the narration used to begin ~0.1s in, too soon to take in
-      // the opening. An enabled intro section is its own opening, so the
-      // lead-in only applies without one.
-      const narrationLeadIn = introSec ? 0 : NARRATION_LEAD_IN_SECONDS;
-
-      let timelineOffset = introDuration;
-      const sceneSchedule = scenesWithImages.map((s, idx) => {
-        const item = audioBuffers.get(s.id);
-        const speechDur =
-          item && item.duration > 0.3
-            ? item.duration
-            : calculateDynamicDuration(s.text, s.audio_duration);
-        // The exact same scene-length formula the live preview uses
-        // (src/lib/duration-utils.ts → sceneTimelineDuration): one number for
-        // both, so the cut, the audio start and the caption flip all land on
-        // the same moment in the preview and in the exported file.
-        const sceneDur = sceneTimelineDuration(s, item ? item.duration : undefined);
-        // The first scene's window includes the lead-in; its narration (and
-        // captions) begin speechOffset seconds into that window.
-        const speechOffset = idx === 0 ? narrationLeadIn : 0;
-        const windowDur = sceneDur + speechOffset;
-        const entry = {
-          scene: s,
-          index: idx,
-          startTime: timelineOffset,
-          duration: windowDur,
-          endTime: timelineOffset + windowDur,
-          speechDuration: speechDur,
-          speechOffset,
-        };
-        timelineOffset += windowDur;
-        return entry;
-      });
-
-      const scriptTotalDuration = timelineOffset - introDuration;
-      const outroStartTime = timelineOffset;
-      const estimatedTotalDuration = Math.max(1, timelineOffset + outroDuration);
 
       const videoPromise = new Promise<Blob>((resolve) => {
         let isResolved = false;
@@ -1318,366 +1861,33 @@ export default function RenderView({
               lastProgressVal = clampedProgress;
               reportProgress(clampedProgress);
               reportStage(
-                `3/4: Rendering Video (${formatDuration(currentGlobalTime)} / ${formatDuration(estimatedTotalDuration)})`
+                `3/4: Compatibility render (${formatDuration(currentGlobalTime)} / ${formatDuration(estimatedTotalDuration)})`
               );
             }
 
-            // ==========================================
-            // PHASE 1: INTRO SEGMENT
-            // ==========================================
-            if (introSec && currentGlobalTime < introDuration) {
-              const progressInIntro = Math.min(1, currentGlobalTime / Math.max(0.1, introDuration));
-              ctx.fillStyle = "#000";
-              ctx.fillRect(0, 0, width, height);
-
-              try {
-                renderSection(ctx, introSec, width, height, currentGlobalTime, progressInIntro);
-              } catch (e) {
-                console.warn("Intro section render notice:", e);
-              }
-
-              if (inserts && inserts.length > 0) {
-                inserts
-                  .filter((i) => i.category !== "intro" && i.category !== "outro")
-                  .forEach((ins) => {
-                    try {
-                      renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, 0.4, null);
-                    } catch {}
-                  });
-              }
-
-              return;
+            const readBus = (node: AnalyserNode | null) => {
+              if (!node) return makeBus(0, null, null);
+              const freq = new Uint8Array(node.frequencyBinCount);
+              node.getByteFrequencyData(freq);
+              const wave = new Uint8Array(node.fftSize);
+              node.getByteTimeDomainData(wave);
+              let sum = 0;
+              for (let i = 0; i < freq.length; i++) sum += freq[i];
+              return makeBus(sum / (freq.length * 255), freq, wave);
+            };
+            const audioFrame: AudioFrame = { voice: readBus(analyser), music: readBus(musicAnalyser) };
+            try { mastering.updateVoiceLevel(audioFrame.voice.level, audioCtx.currentTime); } catch {}
+            // Seeking is clock/mixer work, not canvas work; keep drawFrameAt pure.
+            let clipEntry = sceneSchedule[sceneSchedule.length - 1];
+            for (const entry of sceneSchedule) {
+              if (currentGlobalTime >= entry.startTime && currentGlobalTime < entry.endTime) { clipEntry = entry; break; }
+              if (currentGlobalTime < entry.startTime) { clipEntry = entry; break; }
             }
-
-            // ==========================================
-            // PHASE 3: OUTRO SEGMENT
-            // ==========================================
-            if (outroSec && currentGlobalTime >= outroStartTime) {
-              const elapsedInOutro = currentGlobalTime - outroStartTime;
-              const progressInOutro = Math.min(1, elapsedInOutro / Math.max(0.1, outroDuration));
-              ctx.fillStyle = "#000";
-              ctx.fillRect(0, 0, width, height);
-
-              try {
-                renderSection(ctx, outroSec, width, height, elapsedInOutro, progressInOutro);
-              } catch (e) {
-                console.warn("Outro section render notice:", e);
-              }
-
-              if (inserts && inserts.length > 0) {
-                inserts
-                  .filter((i) => i.category !== "intro" && i.category !== "outro")
-                  .forEach((ins) => {
-                    try {
-                      renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, 0.4, null);
-                    } catch {}
-                  });
-              }
-
-              if (progressInOutro >= 1) {
-                cleanupAndFinish();
-                return;
-              }
-
-              return;
+            if (clipEntry && sceneHasClip(clipEntry.scene)) {
+              const elapsed = Math.max(0, currentGlobalTime - clipEntry.startTime);
+              clipPool.seekToProgress(clipEntry.scene, Math.min(1, elapsed / Math.max(0.1, clipEntry.duration)), clipEntry.duration);
             }
-
-            // ==========================================
-            // PHASE 2: SCRIPT SCENES (Exact Schedule Match)
-            // ==========================================
-            let activeEntry = sceneSchedule[sceneSchedule.length - 1];
-            for (let i = 0; i < sceneSchedule.length; i++) {
-              const entry = sceneSchedule[i];
-              if (currentGlobalTime >= entry.startTime && currentGlobalTime < entry.endTime) {
-                activeEntry = entry;
-                break;
-              }
-              if (i === 0 && currentGlobalTime < entry.startTime) {
-                activeEntry = entry;
-                break;
-              }
-            }
-
-            const currentScene = activeEntry.scene;
-            const currentSceneIdx = activeEntry.index;
-            const elapsedInScene = Math.max(0, currentGlobalTime - activeEntry.startTime);
-            const progressInScene = Math.min(1, elapsedInScene / Math.max(0.1, activeEntry.duration));
-            // speechProgress reaches 1.0 at the exact moment spoken narration
-            // completes. The first scene's speech begins speechOffset seconds
-            // in (the opening lead-in), so both the progress and the
-            // word-locked timing are measured from that moment.
-            const activeSpokenDuration = Math.max(0.4, activeEntry.speechDuration);
-            const speechElapsed = Math.max(0, elapsedInScene - activeEntry.speechOffset);
-            const speechProgress = Math.min(
-              1,
-              Math.max(0, speechElapsed / Math.max(0.1, activeSpokenDuration))
-            );
-
-            // --- Draw background ---
-            ctx.fillStyle = "#000";
-            ctx.fillRect(0, 0, width, height);
-
-            // --- Draw image (or video clip) ---
-            let img: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
-              images[currentSceneIdx] as any;
-            if (sceneHasClip(currentScene)) {
-              const el = clipPool.get(currentScene);
-              if (el) {
-                clipPool.seekToProgress(currentScene, progressInScene, activeEntry.duration);
-                if (el.readyState >= 2 && el.videoWidth > 0) {
-                  img = asDrawableClip(el) as any;
-                }
-              }
-            }
-
-            const prevEntry = currentSceneIdx > 0 ? sceneSchedule[currentSceneIdx - 1] : null;
-            const prevScene = prevEntry ? prevEntry.scene : null;
-            let prevImg: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
-              currentSceneIdx > 0 ? (images[currentSceneIdx - 1] as any) : null;
-            if (prevScene && sceneHasClip(prevScene)) {
-              const el = clipPool.get(prevScene);
-              if (el && el.readyState >= 2 && el.videoWidth > 0) {
-                prevImg = asDrawableClip(el) as any;
-              }
-            }
-
-            const { scale, dx, dy } = getMotionTransform(
-              currentScene.motion_effect,
-              progressInScene,
-              width,
-              height,
-              currentSceneIdx
-            );
-            const safeScale = isNaN(scale) ? 1 : scale;
-            const safeDx = isNaN(dx) ? 0 : dx;
-            const safeDy = isNaN(dy) ? 0 : dy;
-
-            /**
-             * A scene using a plain colour has no image to draw, so fill the
-             * frame first. Painting it here — before the transition and before
-             * the project filter — means a fade still darkens into the colour
-             * and the filter still tints it, exactly as it would a photo.
-             */
-            if (sceneIsBlankColor(currentScene) && currentScene.blank_color) {
-              ctx.save();
-              try {
-                ctx.filter = "none";
-              } catch {}
-              ctx.fillStyle = currentScene.blank_color;
-              ctx.fillRect(0, 0, width, height);
-              ctx.restore();
-            }
-
-            let handledTransition = false;
-            if (
-              currentScene.transition &&
-              currentScene.transition !== "none"
-            ) {
-              const transDur = getTransitionDuration(activeEntry.duration);
-              if (elapsedInScene < transDur) {
-                const { scale: prevScale, dx: prevDx, dy: prevDy } = getMotionTransform(
-                  prevScene?.motion_effect,
-                  1,
-                  width,
-                  height,
-                  Math.max(0, currentSceneIdx - 1)
-                );
-                const safePrevScale = isNaN(prevScale) ? 1 : prevScale;
-                const safePrevDx = isNaN(prevDx) ? 0 : prevDx;
-                const safePrevDy = isNaN(prevDy) ? 0 : prevDy;
-
-                handledTransition = drawSceneTransition(
-                  ctx,
-                  currentScene,
-                  img && img.naturalWidth > 0 ? img : null,
-                  prevScene || null,
-                  prevImg && prevImg.naturalWidth > 0 ? prevImg : null,
-                  elapsedInScene,
-                  activeEntry.duration,
-                  width,
-                  height,
-                  {
-                    motionScale: safeScale,
-                    motionDx: safeDx + (width * safeScale - width) / 2,
-                    motionDy: safeDy + (height * safeScale - height) / 2,
-                    filter: getFilterCanvas(videoFilter, width),
-                  },
-                  prevScene ? {
-                    motionScale: safePrevScale,
-                    motionDx: safePrevDx + (width * safePrevScale - width) / 2,
-                    motionDy: safePrevDy + (height * safePrevScale - height) / 2,
-                    filter: getFilterCanvas(videoFilter, width),
-                  } : undefined
-                );
-              }
-            }
-
-            if (!handledTransition && img && img.naturalWidth > 0 && img.naturalHeight > 0) {
-              try {
-                drawSceneImage(ctx, img, currentScene, width, height, {
-                  motionScale: safeScale,
-                  motionDx: safeDx + (width * safeScale - width) / 2,
-                  motionDy: safeDy + (height * safeScale - height) / 2,
-                  filter: getFilterCanvas(videoFilter, width),
-                });
-              } catch (drawErr) {
-                console.warn("Scene draw notice:", drawErr);
-              }
-
-              try {
-                ctx.filter = "none";
-              } catch {}
-            }
-
-            // --- Animated atmosphere of the project-wide filter ---
-            try {
-              paintVideoFilter(ctx, videoFilter, width, height, currentGlobalTime);
-            } catch (filterErr) {
-              console.warn("Video filter notice:", filterErr);
-            }
-
-            // --- Crisp Logo Watermark in Top-Left Corner ---
-            if (
-              settings.includeWatermark &&
-              watermarkImgRef.current &&
-              watermarkImgRef.current.naturalWidth > 0 &&
-              watermarkImgRef.current.naturalHeight > 0
-            ) {
-              ctx.save();
-              ctx.imageSmoothingEnabled = true;
-              ctx.imageSmoothingQuality = "high";
-
-              const scaleRatio = width / 1280;
-              const wmScale = Math.max(0.4, Math.min(2.0, settings.watermarkScale ?? 1.0));
-              const wmOpacity = Math.max(0.1, Math.min(1.0, settings.watermarkOpacity ?? 1.0));
-              ctx.globalAlpha = wmOpacity;
-
-              const wmWidth = Math.max(20, Math.round(180 * wmScale * scaleRatio));
-              const wmHeight = Math.max(10, Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth)));
-              const posX = Math.round(24 * scaleRatio);
-              const posY = Math.round(20 * (height / 720));
-
-              // Subtle soft shadow so transparent logo stands out cleanly on any video scene (matches preview 1:1)
-              ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-              ctx.shadowBlur = 8 * scaleRatio;
-              ctx.shadowOffsetX = 0;
-              ctx.shadowOffsetY = 2 * scaleRatio;
-
-              // Draw crisp transparent watermark logo
-              try {
-                ctx.drawImage(watermarkImgRef.current, posX, posY, wmWidth, wmHeight);
-              } catch (wmDrawErr) {
-                console.warn("Watermark draw notice:", wmDrawErr);
-              }
-              ctx.restore();
-            }
-
-            // --- Customer Brand Logo in Top-Right Corner (if enabled) ---
-            if (
-              customerLogo?.enabled &&
-              customerLogo.url &&
-              customerLogoImgRef.current &&
-              customerLogoImgRef.current.naturalWidth > 0 &&
-              customerLogoImgRef.current.naturalHeight > 0
-            ) {
-              ctx.save();
-              const logoOpacity = Math.max(0.1, Math.min(1.0, customerLogo.opacity ?? 1.0));
-              ctx.globalAlpha = logoOpacity;
-              ctx.imageSmoothingEnabled = true;
-              ctx.imageSmoothingQuality = "high";
-
-              const scaleRatio = width / 1280;
-              const cScale = Math.max(0.2, Math.min(3.0, customerLogo.scale ?? 1.0));
-              const cMarginX = (customerLogo.margin ?? 20) * scaleRatio;
-              const cMarginY = (customerLogo.margin ?? 20) * (height / 720);
-              const cWidth = Math.max(20, Math.round(200 * cScale * scaleRatio));
-              const cHeight = Math.max(10, Math.round((cWidth * customerLogoImgRef.current.naturalHeight) / Math.max(1, customerLogoImgRef.current.naturalWidth)));
-              const cX = Math.max(0, width - cWidth - cMarginX);
-              const cY = Math.max(0, cMarginY);
-
-              ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-              ctx.shadowBlur = 8 * scaleRatio;
-              ctx.shadowOffsetX = 0;
-              ctx.shadowOffsetY = 2 * scaleRatio;
-
-              try {
-                ctx.drawImage(customerLogoImgRef.current, cX, cY, cWidth, cHeight);
-              } catch (logoDrawErr) {
-                console.warn("Logo draw notice:", logoDrawErr);
-              }
-              ctx.restore();
-            }
-
-            // --- Subtitle & Caption Rendering (Speech Synchronized) ---
-            // Held back through the opening lead-in so the captions appear
-            // exactly when the voice starts speaking.
-            if (settings.includeSubtitles && currentScene.text && elapsedInScene >= activeEntry.speechOffset) {
-              try {
-                const activeCaptionsConfig: CaptionsConfig = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
-
-                renderCanvasCaptions(
-                  ctx,
-                  currentScene.text,
-                  speechProgress,
-                  activeCaptionsConfig,
-                  width,
-                  height,
-                  {
-                    // Real per-word spoken timings: the highlight follows the
-                    // voice itself, not an estimate of it.
-                    wordTimings: audioBuffers.get(currentScene.id)?.words,
-                    audioTimeSec: speechElapsed,
-                  }
-                );
-              } catch (capErr) {
-                console.warn("Captions render notice:", capErr);
-              }
-            }
-
-            // --- Timeline Inserts & Overlays ---
-            if (inserts && inserts.length > 0) {
-              try {
-                let audioLevel = 0.4;
-                let freqData: Uint8Array | null = null;
-                let audioFrame: AudioFrame = EMPTY_FRAME;
-                if (analyser) {
-                  const readBus = (node: AnalyserNode | null) => {
-                    if (!node) return makeBus(0, null, null);
-                    const freq = new Uint8Array(node.frequencyBinCount);
-                    node.getByteFrequencyData(freq);
-                    const wave = new Uint8Array(node.fftSize);
-                    node.getByteTimeDomainData(wave);
-                    let sum = 0;
-                    for (let i = 0; i < freq.length; i++) sum += freq[i];
-                    return makeBus(sum / (freq.length * 255), freq, wave);
-                  };
-                  const voiceBus = readBus(analyser);
-                  const musicBus = readBus(musicAnalyser);
-                  audioFrame = { voice: voiceBus, music: musicBus };
-                  // Voice-priority mix: while the narrator speaks, the
-                  // mastering stage eases the music bus down (and back up in
-                  // the pauses). No-op in Manual mastering mode.
-                  try {
-                    mastering.updateVoiceLevel(voiceBus.level, audioCtx.currentTime);
-                  } catch {}
-                  const loudest = voiceBus.level >= musicBus.level ? voiceBus : musicBus;
-                  audioLevel = Math.min(1, 0.15 + loudest.level * 2.6);
-                  freqData = (loudest.freq as Uint8Array) || null;
-                }
-
-                inserts.forEach((insert) => {
-                  try {
-                    renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData, audioFrame, {
-                      logo: customerLogo?.enabled ? customerLogoImgRef.current : null,
-                    });
-                  } catch (insErr) {
-                    console.warn("Insert notice:", insErr);
-                  }
-                });
-              } catch (insertsErr) {
-                console.warn("Timeline inserts notice:", insertsErr);
-              }
-            }
+            drawFrameAt(currentGlobalTime, audioFrame);
           } catch (frameErr) {
             console.error("Frame render recoverable error:", frameErr);
           }
@@ -1693,51 +1903,7 @@ export default function RenderView({
       const finalBlob = await videoPromise;
       stopScheduledAudio();
 
-      const url = URL.createObjectURL(finalBlob);
-      setRenderedBlob(finalBlob);
-      setRenderedUrl(url);
-      setRenderedContainer(recordedContainer);
-      setSettings((s) => ({ ...s, format: recordedContainer }));
-      reportProgress(1);
-      reportStage("Render Complete! 🎉");
-      onRenderSuccess?.(finalBlob, url);
-
-      // Park the finished video in the vault before anything else can go
-      // wrong: it survives leaving this screen, switching phase or reloading.
-      try {
-        const entry = await saveRenderToVault({
-          blob: finalBlob,
-          title: plan?.label
-            ? `${project?.title || "Untitled render"} — ${plan.label}`
-            : project?.title || "Untitled render",
-          mimeType: finalBlob.type || mimeType || "video/webm",
-          durationSec: estimatedTotalDuration,
-          width,
-          height,
-          label: `${resolutionToken(width, height)} · ${fpsUsed}fps CFR · ${recordedContainer.toUpperCase()} · ${getQualityLevel(settings.quality).name}`,
-        });
-        setVaultMessage(
-          `Render finished — ${vaultRenders.length >= MAX_VAULT_RENDERS ? "oldest vault slot cleared, " : ""}waiting in the vault to download.`
-        );
-        setRenderStatus({
-          active: false,
-          progress: 1,
-          stage: "Render finished — waiting in the vault",
-          finishedAt: Date.now(),
-          lastVaultId: entry.id,
-        });
-        void refreshVault();
-      } catch (vaultErr) {
-        console.warn("Vault save notice:", vaultErr);
-        setRenderStatus({
-          active: false,
-          progress: 1,
-          stage: "Render finished",
-          finishedAt: Date.now(),
-        });
-      }
-
-      return { blob: finalBlob, container: recordedContainer };
+      return await finishSuccessfulExport(finalBlob, recordedContainer, mimeType || "video/webm");
     } catch (err: any) {
       console.error("Render failed:", err);
       const message = err?.message || "Failed to render video";

@@ -77,10 +77,14 @@ classes to components, regenerate the matrix with `npm run theme:css`.
 5. **Video Studio** — the look of the finished video: filters, text templates,
    3D stickers, lower thirds, titles, call-to-action badges, music and sound
    effects, intro and outro.
-6. **Render** — carries out the output choices made in Setup: a read-only
-   summary of the render profile, one render at a time, and the Vault where
-   finished videos wait until downloaded. Need another platform's cut? Go
-   back to Setup, pick that destination, render again.
+6. **Render** — carries out the output choices made in Setup with a frame-exact,
+   offline WebCodecs renderer, then places the finished video in the Vault.
+   Every frame, narration sample and caption timestamp is generated from the
+   timeline rather than wall-clock speed. On a slow machine rendering may take
+   longer than the video's duration, but output smoothness and sync are
+   unaffected. Browsers without WebCodecs automatically use the compatible
+   real-time MediaRecorder renderer. Need another platform's cut? Go back to
+   Setup, pick that destination, render again.
 
 ## Project layout
 
@@ -122,9 +126,11 @@ single source of truth for their job:
 - **`render-effects.ts`** — `getMotionTransform()` drives all camera motion.
 - **`text-art.ts`** / **`render-text-template.ts`** — title lettering and the
   29 text templates.
-- **`frame-ticker.ts`** — the export's frame pacing. `requestAnimationFrame`
-  while the tab is visible (true vsync cadence), a Web Worker timer while it
-  is hidden (page timers get throttled to ~1Hz in background tabs), and a
+- **`offline-export.ts`** — the preferred frame-exact WebCodecs encoder and
+  MP4/WebM muxer. It renders independently of playback speed; `frame-ticker.ts`
+  provides pacing only for the automatic real-time MediaRecorder fallback.
+  In that fallback it uses `requestAnimationFrame` while the tab is visible,
+  a Web Worker timer while it is hidden, and a
   watchdog if both stall. This is why the Ken Burns glides instead of
   stuttering in the recorded file.
 - **`word-sync.ts`** — word-level caption timing. The TTS engine reports the
