@@ -217,47 +217,47 @@ export const VOICES = [
   // tuned to evoke each narrator's delivery; not the named actors)
   {
     id: "freeman",
-    name: "Morgan Freeman Style (Deep Warm Storyteller)",
+    name: "Morgan Freeman Style (Deep Resonant Storyteller)",
     gender: "male",
     lang: "en-US",
-    neural: "en-US-AndrewMultilingualNeural",
-    preview: "Deep, warm, unhurried storytelling voice.",
+    neural: "en-US-ChristopherNeural",
+    preview: "Deep, warm, unhurried gravelly baritone with wise cinematic resonance.",
     mood: "Documentaries, Storytelling & Brand Films",
   },
   {
     id: "attenborough",
-    name: "David Attenborough Style (Calm Documentary Narrator)",
+    name: "David Attenborough Style (Breathy Documentary Legend)",
     gender: "male",
     lang: "en-GB",
     neural: "en-GB-ThomasNeural",
-    preview: "Calm, measured British documentary narration.",
+    preview: "Breathy, measured, hushed-awe BBC nature documentary narration.",
     mood: "Nature, Science & Documentary Films",
   },
   {
     id: "jones",
-    name: "James Earl Jones Style (Deep Powerful Narrator)",
+    name: "James Earl Jones Style (Booming Deep Bass)",
     gender: "male",
     lang: "en-US",
     neural: "en-US-ChristopherNeural",
-    preview: "Very deep, commanding and powerful narration.",
+    preview: "Monumental, booming deep bass baritone with commanding theatrical presence.",
     mood: "Cinematic Openers, Epics & Authority",
   },
   {
     id: "neeson",
-    name: "Liam Neeson Style (Strong Authoritative)",
+    name: "Liam Neeson Style (Irish Authoritative Baritone)",
     gender: "male",
-    lang: "en-GB",
-    neural: "en-GB-GeorgeNeural",
-    preview: "Strong, gravitas-heavy authoritative British voice.",
+    lang: "en-IE",
+    neural: "en-IE-ConnorNeural",
+    preview: "Authoritative Irish male baritone with calm, commanding thriller gravitas.",
     mood: "Thrillers, Motivation & Dramatic Reads",
   },
   {
     id: "jackson",
-    name: "Samuel L. Jackson Style (Energetic Distinctive)",
+    name: "Samuel L. Jackson Style (Energetic Punchy Delivery)",
     gender: "male",
     lang: "en-US",
     neural: "en-US-EricNeural",
-    preview: "Energetic, bright and distinctive delivery.",
+    preview: "Punchy, dynamic, sharp cadence with assertive swagger and dramatic intensity.",
     mood: "High-Energy Promos, Reactions & Entertainment",
   },
 
@@ -265,20 +265,20 @@ export const VOICES = [
   // tuned to evoke each narrator's delivery; not the named actors)
   {
     id: "thompson",
-    name: "Emma Thompson Style (Warm Intelligent)",
+    name: "Emma Thompson Style (Witty & Warm Articulate)",
     gender: "female",
     lang: "en-GB",
     neural: "en-GB-LibbyNeural",
-    preview: "Warm, intelligent British narration.",
+    preview: "Warm, witty, articulate British RP narration with endearing intelligence.",
     mood: "Intelligent Explainers, Drama & Audiobooks",
   },
   {
     id: "mirren",
-    name: "Helen Mirren Style (Elegant Authoritative)",
+    name: "Helen Mirren Style (Stately & Regal Dame)",
     gender: "female",
     lang: "en-GB",
     neural: "en-GB-SoniaNeural",
-    preview: "Elegant, polished and authoritative British voice.",
+    preview: "Regal, polished, stately and commanding British dame narration.",
     mood: "Luxury Brands, History & Prestige",
   },
   {
@@ -286,26 +286,26 @@ export const VOICES = [
     name: "Cate Blanchett Style (Sophisticated Narrator)",
     gender: "female",
     lang: "en-AU",
-    neural: "en-AU-NatashaMultilingualNeural",
-    preview: "Sophisticated, resonant Australian narration.",
+    neural: "en-AU-NatashaNeural",
+    preview: "Sophisticated, velvety Australian female narration with ethereal depth.",
     mood: "Art, Culture & Sophisticated Narration",
   },
   {
     id: "weaver",
-    name: "Sigourney Weaver Style (Strong Documentary)",
+    name: "Sigourney Weaver Style (Smoky Documentary Authority)",
     gender: "female",
     lang: "en-US",
     neural: "en-US-MichelleNeural",
-    preview: "Strong, steady documentary-style narration.",
+    preview: "Deep, smoky, grounded and cool American documentary authority.",
     mood: "Documentaries, Science & Investigative",
   },
   {
     id: "roberts",
-    name: "Julia Roberts Style (Warm Conversational)",
+    name: "Julia Roberts Style (Radiant Smiling Warmth)",
     gender: "female",
     lang: "en-US",
     neural: "en-US-EmmaMultilingualNeural",
-    preview: "Warm, friendly and conversational tone.",
+    preview: "Warm, radiant, smiling conversational American tone with friendly charm.",
     mood: "Conversational Vlogs, Lifestyle & Interviews",
   },
 ];
@@ -359,18 +359,29 @@ function resolveVoiceShortName(voiceId: string): string {
   const clean = lower.replace(/^(browser:|web:)/, "");
 
   // --- PERSONA NARRATOR PRESETS (style-inspired actor voices) ---
-  // Each maps to the neural voice whose depth, accent and delivery evokes
-  // that narrator's style. These are stock neural voices, not the actors.
-  if (clean === "freeman") return "en-US-AndrewMultilingualNeural";
+  // Exact ID checks match the test suite contracts
+  if (clean === "freeman") return "en-US-ChristopherNeural";
   if (clean === "attenborough") return "en-GB-ThomasNeural";
   if (clean === "jones") return "en-US-ChristopherNeural";
-  if (clean === "neeson") return "en-GB-GeorgeNeural";
+  if (clean === "neeson") return "en-IE-ConnorNeural";
   if (clean === "jackson") return "en-US-EricNeural";
   if (clean === "thompson") return "en-GB-LibbyNeural";
   if (clean === "mirren") return "en-GB-SoniaNeural";
-  if (clean === "blanchett") return "en-AU-NatashaMultilingualNeural";
+  if (clean === "blanchett") return "en-AU-NatashaNeural";
   if (clean === "weaver") return "en-US-MichelleNeural";
   if (clean === "roberts") return "en-US-EmmaMultilingualNeural";
+
+  // Also support full names / style descriptions passed from UI
+  if (clean.includes("freeman")) return "en-US-ChristopherNeural";
+  if (clean.includes("attenborough")) return "en-GB-ThomasNeural";
+  if (clean.includes("james earl")) return "en-US-ChristopherNeural";
+  if (clean.includes("neeson") || clean.includes("liam neeson")) return "en-IE-ConnorNeural";
+  if (clean.includes("samuel l") || clean.includes("samuel jackson")) return "en-US-EricNeural";
+  if (clean.includes("emma thompson")) return "en-GB-LibbyNeural";
+  if (clean.includes("mirren") || clean.includes("helen mirren")) return "en-GB-SoniaNeural";
+  if (clean.includes("blanchett") || clean.includes("cate blanchett")) return "en-AU-NatashaNeural";
+  if (clean.includes("weaver") || clean.includes("sigourney")) return "en-US-MichelleNeural";
+  if (clean.includes("julia roberts")) return "en-US-EmmaMultilingualNeural";
 
   // --- MALE VOICES (100% Genuine Male Human Recordings) ---
   if (
@@ -490,14 +501,90 @@ function resolveVoiceShortName(voiceId: string): string {
  */
 const REALISTIC_VOICE_UPGRADES: Record<string, string> = {
   "en-US-GuyNeural": "en-US-AndrewMultilingualNeural",
-  "en-US-ChristopherNeural": "en-US-ChristopherMultilingualNeural",
   "en-US-BrianNeural": "en-US-BrianMultilingualNeural",
-  "en-GB-RyanNeural": "en-GB-RyanMultilingualNeural",
   "en-US-JennyNeural": "en-US-EmmaMultilingualNeural",
   "en-US-AriaNeural": "en-US-AvaMultilingualNeural",
   "en-US-AvaNeural": "en-US-AvaMultilingualNeural",
   "en-GB-SoniaNeural": "en-GB-SoniaNeural",
   "en-AU-NatashaNeural": "en-AU-NatashaNeural",
+};
+
+/**
+ * Calibrated prosody specifications for the 10 Persona Actor voices.
+ * Tuning pitch, speaking rate, and volume directly on Microsoft's high-fidelity
+ * neural voices allows them to authentically evoke each legendary actor's
+ * vocal signature — from Morgan Freeman's low gravelly rumble to Liam Neeson's
+ * authoritative Irish thriller cadence.
+ */
+export const ACTOR_PROSODY_CONFIG: Record<
+  string,
+  {
+    neural: string;
+    pitch: string;
+    rate: string;
+    volume: string;
+  }
+> = {
+  freeman: {
+    neural: "en-US-ChristopherNeural",
+    pitch: "-16Hz",
+    rate: "-12%",
+    volume: "+10%",
+  },
+  attenborough: {
+    neural: "en-GB-ThomasNeural",
+    pitch: "+3Hz",
+    rate: "-10%",
+    volume: "-2%",
+  },
+  jones: {
+    neural: "en-US-ChristopherNeural",
+    pitch: "-26Hz",
+    rate: "-10%",
+    volume: "+15%",
+  },
+  neeson: {
+    neural: "en-IE-ConnorNeural", // Authentic Irish male voice!
+    pitch: "-12Hz",
+    rate: "-8%",
+    volume: "+5%",
+  },
+  jackson: {
+    neural: "en-US-EricNeural",
+    pitch: "-3Hz",
+    rate: "+6%",
+    volume: "+15%",
+  },
+  thompson: {
+    neural: "en-GB-LibbyNeural",
+    pitch: "+2Hz",
+    rate: "-5%",
+    volume: "+2%",
+  },
+  mirren: {
+    neural: "en-GB-SoniaNeural",
+    pitch: "-4Hz",
+    rate: "-7%",
+    volume: "+5%",
+  },
+  blanchett: {
+    neural: "en-AU-NatashaNeural",
+    pitch: "-8Hz",
+    rate: "-6%",
+    volume: "+2%",
+  },
+  weaver: {
+    neural: "en-US-MichelleNeural",
+    pitch: "-10Hz",
+    rate: "-6%",
+    volume: "+5%",
+  },
+  roberts: {
+    neural: "en-US-EmmaMultilingualNeural",
+    pitch: "+4Hz",
+    rate: "+2%",
+    volume: "+2%",
+  },
 };
 
 /** Higher bitrate than before: 96kbps mono was audibly lossy on sibilants. */
@@ -509,9 +596,35 @@ interface SynthResult {
   words: WordTiming[];
 }
 
+function resolveActorConfig(voiceId: string) {
+  const clean = (voiceId || "").toLowerCase().replace(/^(browser:|web:)/, "").trim();
+  for (const [key, cfg] of Object.entries(ACTOR_PROSODY_CONFIG)) {
+    if (clean === key || clean.includes(key)) {
+      return cfg;
+    }
+  }
+  if (clean.includes("james earl")) return ACTOR_PROSODY_CONFIG.jones;
+  if (clean.includes("liam")) return ACTOR_PROSODY_CONFIG.neeson;
+  if (clean.includes("samuel")) return ACTOR_PROSODY_CONFIG.jackson;
+  if (clean.includes("sigourney")) return ACTOR_PROSODY_CONFIG.weaver;
+  if (clean.includes("julia")) return ACTOR_PROSODY_CONFIG.roberts;
+  if (clean.includes("helen")) return ACTOR_PROSODY_CONFIG.mirren;
+  if (clean.includes("cate")) return ACTOR_PROSODY_CONFIG.blanchett;
+  return null;
+}
+
 // Synthesizes speech using authentic Microsoft Edge Read Aloud Neural Voices.
 // Tries the most lifelike variant of the requested voice, then the exact one.
 async function synthesizeRealEdgeTTS(text: string, voiceId: string): Promise<SynthResult> {
+  const actorCfg = resolveActorConfig(voiceId);
+  const options = actorCfg
+    ? { pitch: actorCfg.pitch, rate: actorCfg.rate, volume: actorCfg.volume }
+    : undefined;
+
+  if (actorCfg) {
+    return await synthesizeWithEdgeVoice(text, actorCfg.neural, options);
+  }
+
   const shortName = resolveVoiceShortName(voiceId);
   const upgraded = REALISTIC_VOICE_UPGRADES[shortName];
   const candidates = upgraded && upgraded !== shortName ? [upgraded, shortName] : [shortName];
@@ -519,7 +632,7 @@ async function synthesizeRealEdgeTTS(text: string, voiceId: string): Promise<Syn
   let lastError: any = null;
   for (const candidate of candidates) {
     try {
-      return await synthesizeWithEdgeVoice(text, candidate);
+      return await synthesizeWithEdgeVoice(text, candidate, options);
     } catch (err) {
       lastError = err;
     }
@@ -527,7 +640,11 @@ async function synthesizeRealEdgeTTS(text: string, voiceId: string): Promise<Syn
   throw lastError || new Error("Edge TTS failed");
 }
 
-async function synthesizeWithEdgeVoice(text: string, shortName: string): Promise<SynthResult> {
+async function synthesizeWithEdgeVoice(
+  text: string,
+  shortName: string,
+  options?: { pitch?: string; rate?: string; volume?: string }
+): Promise<SynthResult> {
   const tts = new MsEdgeTTS();
   // Word boundaries are what make the karaoke captions follow the voice
   // word-for-word: the service reports the spoken offset and duration of
@@ -540,7 +657,7 @@ async function synthesizeWithEdgeVoice(text: string, shortName: string): Promise
       reject(new Error(`Edge TTS timed out for voice ${shortName}`));
     }, 15000);
 
-    const { audioStream, metadataStream } = tts.toStream(text);
+    const { audioStream, metadataStream } = tts.toStream(text, options);
     const chunks: Buffer[] = [];
     const metaFrames: string[] = [];
 
@@ -609,8 +726,31 @@ function splitTextIntoChunks(text: string, maxLen = 180): string[] {
 
 function getVoiceLanguage(voice: string): string {
   const v = (voice || "").toLowerCase();
-  if (v === "ryan" || v === "sonia" || v === "fable" || v.includes("en-gb") || v.includes("british")) return "en-gb";
-  if (v === "william" || v === "natasha" || v === "onyx" || v.includes("en-au") || v.includes("australian")) return "en-au";
+  if (
+    v === "ryan" ||
+    v === "sonia" ||
+    v === "fable" ||
+    v === "attenborough" ||
+    v === "thompson" ||
+    v === "mirren" ||
+    v.includes("en-gb") ||
+    v.includes("british")
+  ) {
+    return "en-gb";
+  }
+  if (
+    v === "william" ||
+    v === "natasha" ||
+    v === "onyx" ||
+    v === "blanchett" ||
+    v.includes("en-au") ||
+    v.includes("australian")
+  ) {
+    return "en-au";
+  }
+  if (v === "neeson" || v.includes("neeson") || v.includes("en-ie") || v.includes("irish")) {
+    return "en-ie";
+  }
   if (v.includes("en-ca") || v.includes("canadian")) return "en-ca";
   return "en";
 }
@@ -1211,7 +1351,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*all", (_req, res) => {
+    app.use((_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

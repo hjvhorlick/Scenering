@@ -54,7 +54,11 @@ export function isMaleVoiceIdentifier(voiceId: string): boolean {
     v.includes("attenborough") ||
     v.includes("jones") ||
     v.includes("neeson") ||
-    v.includes("jackson")
+    v.includes("jackson") ||
+    v.includes("connor") ||
+    v.includes("liam") ||
+    v.includes("morgan") ||
+    v.includes("samuel")
   );
 }
 
@@ -83,7 +87,12 @@ export function detectVoiceGenderFromName(name: string): "male" | "female" {
     lower.includes("veena") ||
     lower.includes("kore") ||
     lower.includes("zephyr") ||
-    lower.includes("aoede")
+    lower.includes("aoede") ||
+    lower.includes("thompson") ||
+    lower.includes("mirren") ||
+    lower.includes("blanchett") ||
+    lower.includes("weaver") ||
+    lower.includes("roberts")
   ) {
     return "female";
   }
@@ -110,7 +119,14 @@ export function detectVoiceGenderFromName(name: string): "male" | "female" {
     lower.includes("charon") ||
     lower.includes("fenrir") ||
     lower.includes("standard-b") ||
-    lower.includes("standard-d")
+    lower.includes("standard-d") ||
+    lower.includes("neeson") ||
+    lower.includes("connor") ||
+    lower.includes("attenborough") ||
+    lower.includes("freeman") ||
+    lower.includes("jackson") ||
+    lower.includes("brian") ||
+    lower.includes("liam")
   ) {
     return "male";
   }
@@ -404,15 +420,47 @@ class TTSAudioPlayer {
       utterance.volume = Math.max(0, Math.min(1.0, volume));
 
       const isMale = isMaleVoiceIdentifier(voiceId);
-      const isBritish = voiceId === "fable" || voiceId.toLowerCase().includes("gb") || voiceId.toLowerCase().includes("ryan");
-      const isAustralian = voiceId === "onyx" || voiceId.toLowerCase().includes("au") || voiceId.toLowerCase().includes("william");
+      const isIrish =
+        voiceId.toLowerCase().includes("neeson") ||
+        voiceId.toLowerCase().includes("connor") ||
+        voiceId.toLowerCase().includes("ie");
+      const isBritish =
+        voiceId === "fable" ||
+        voiceId.toLowerCase().includes("gb") ||
+        voiceId.toLowerCase().includes("ryan") ||
+        voiceId.toLowerCase().includes("attenborough") ||
+        voiceId.toLowerCase().includes("thompson") ||
+        voiceId.toLowerCase().includes("mirren");
+      const isAustralian =
+        voiceId === "onyx" ||
+        voiceId.toLowerCase().includes("au") ||
+        voiceId.toLowerCase().includes("william") ||
+        voiceId.toLowerCase().includes("blanchett") ||
+        voiceId.toLowerCase().includes("natasha");
 
-      // Set pitch according to desired vocal range
-      if (voiceId.toLowerCase().includes("christopher")) {
+      // Set pitch according to actor vocal ranges and personas
+      const lowerVoice = voiceId.toLowerCase();
+      if (lowerVoice.includes("jones")) {
+        utterance.pitch = 0.65; // Booming thunderous bass (James Earl Jones)
+      } else if (lowerVoice.includes("freeman")) {
+        utterance.pitch = 0.70; // Deep resonant gravelly rumble (Morgan Freeman)
+      } else if (lowerVoice.includes("neeson")) {
+        utterance.pitch = 0.78; // Deep authoritative Irish baritone (Liam Neeson)
+      } else if (lowerVoice.includes("christopher")) {
         utterance.pitch = 0.72; // Deep authoritative cinematic rumble
+      } else if (lowerVoice.includes("jackson")) {
+        utterance.pitch = 0.88; // Punchy energetic delivery
+      } else if (lowerVoice.includes("weaver")) {
+        utterance.pitch = 0.88; // Smoky grounded female documentary authority
+      } else if (lowerVoice.includes("blanchett")) {
+        utterance.pitch = 0.90; // Velvety sophisticated Australian tone
+      } else if (lowerVoice.includes("mirren")) {
+        utterance.pitch = 0.94; // Stately regal British dame
+      } else if (lowerVoice.includes("roberts")) {
+        utterance.pitch = 1.05; // Radiant smiling warmth
       } else if (isMale) {
         utterance.pitch = 0.84; // Natural masculine lower register
-      } else if (voiceId.toLowerCase().includes("aria")) {
+      } else if (lowerVoice.includes("aria")) {
         utterance.pitch = 1.08; // Energetic bright female
       } else {
         utterance.pitch = 1.0;
@@ -422,12 +470,16 @@ class TTSAudioPlayer {
       if (voices.length > 0) {
         // First filter by target accent/language
         let candidates = voices.filter((v) => {
+          if (isIrish) return v.lang.toLowerCase().includes("ie");
           if (isBritish) return v.lang.toLowerCase().includes("gb");
           if (isAustralian) return v.lang.toLowerCase().includes("au");
           return v.lang.toLowerCase().includes("en");
         });
 
-        if (candidates.length === 0) {
+        if (candidates.length === 0 && isIrish) {
+          // If no specific IE voice, prefer GB male or EN male with Irish pitch
+          candidates = voices.filter((v) => v.lang.toLowerCase().includes("gb") || v.lang.toLowerCase().startsWith("en"));
+        } else if (candidates.length === 0) {
           candidates = voices.filter((v) => v.lang.toLowerCase().startsWith("en"));
         }
         if (candidates.length === 0) {

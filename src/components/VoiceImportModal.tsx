@@ -110,9 +110,9 @@ export const REAL_STUDIO_VOICES = [
     id: "neeson",
     name: "Liam Neeson Style (Strong Authoritative)",
     gender: "male" as const,
-    accent: "British",
-    desc: "Strong gravitas-heavy delivery for thrillers and dramatic reads.",
-    sampleText: "Listen carefully. What you are about to hear will not soon be forgotten.",
+    accent: "Irish",
+    desc: "Authoritative Irish male baritone with calm, gritty cinematic gravitas.",
+    sampleText: "I have a particular set of skills. Listen carefully, because what you are about to hear will not soon be forgotten.",
   },
   {
     id: "jackson",

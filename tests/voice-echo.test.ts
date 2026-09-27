@@ -284,14 +284,14 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
   const server = read("server.ts");
 
   const PERSONAS: Array<[id: string, name: string, gender: "male" | "female", neural: string]> = [
-    ["freeman", "Morgan Freeman Style", "male", "en-US-AndrewMultilingualNeural"],
+    ["freeman", "Morgan Freeman Style", "male", "en-US-ChristopherNeural"],
     ["attenborough", "David Attenborough Style", "male", "en-GB-ThomasNeural"],
     ["jones", "James Earl Jones Style", "male", "en-US-ChristopherNeural"],
-    ["neeson", "Liam Neeson Style", "male", "en-GB-GeorgeNeural"],
+    ["neeson", "Liam Neeson Style", "male", "en-IE-ConnorNeural"],
     ["jackson", "Samuel L. Jackson Style", "male", "en-US-EricNeural"],
     ["thompson", "Emma Thompson Style", "female", "en-GB-LibbyNeural"],
     ["mirren", "Helen Mirren Style", "female", "en-GB-SoniaNeural"],
-    ["blanchett", "Cate Blanchett Style", "female", "en-AU-NatashaMultilingualNeural"],
+    ["blanchett", "Cate Blanchett Style", "female", "en-AU-NatashaNeural"],
     ["weaver", "Sigourney Weaver Style", "female", "en-US-MichelleNeural"],
     ["roberts", "Julia Roberts Style", "female", "en-US-EmmaMultilingualNeural"],
   ];
