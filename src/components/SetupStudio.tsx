@@ -1,6 +1,24 @@
 import { useState, useEffect, useRef } from "react";
 import MotionPreviewCanvas from "./MotionPreviewCanvas";
-import type { AspectRatioType, PacingModeType, Project, ResolutionType, Scene, SceneMotionType } from "../types";
+import type {
+  AspectRatioType,
+  PacingModeType,
+  Project,
+  ResolutionType,
+  Scene,
+  SceneMotionType,
+  RenderProfileSettings,
+  PublishDestinationType,
+} from "../types";
+import {
+  PLATFORM_PROFILES,
+  QUALITY_LEVELS,
+  FRAME_RATE_CHOICES,
+  DEFAULT_RENDER_PROFILE_SETTINGS,
+  destinationCanvas,
+  resolveFrameRate,
+  getQualityLevel,
+} from "../lib/render-profile";
 import ProjectList from "./ProjectList";
 import StepNav from "./StepNav";
 import {
@@ -52,6 +70,9 @@ interface SetupStudioProps {
   onUpdateScript: (script: string, regenerateScenes?: boolean, overrideDuration?: number) => void;
   onUpdateAspectRatio: (ratio: AspectRatioType) => void;
   onUpdateResolution: (resolution: ResolutionType) => void;
+  /** The render profile chosen here in setup — the render screen only reads it */
+  renderProfile?: RenderProfileSettings;
+  onUpdateRenderProfile?: (patch: Partial<RenderProfileSettings>) => void;
   onUpdatePacingMode?: (mode: PacingModeType) => void;
   onUpdateSceneDuration?: (duration: number) => void;
   onCalibrateScenesWordCount?: (targetSeconds: number) => void;
@@ -106,6 +127,8 @@ export default function SetupStudio({
   onUpdateScript,
   onUpdateAspectRatio,
   onUpdateResolution,
+  renderProfile = DEFAULT_RENDER_PROFILE_SETTINGS,
+  onUpdateRenderProfile,
   onUpdateSceneDuration,
   onCalibrateScenesWordCount,
   onUpdateMotionStyle,
@@ -123,6 +146,41 @@ export default function SetupStudio({
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  /** Advanced output overrides (aspect, resolution, FPS, format, mastering)
+   *  stay collapsed — the destination presets cover the normal user. */
+  const [showOutputAdvanced, setShowOutputAdvanced] = useState(false);
+
+  /**
+   * Pick where the video is going and Scenering makes the technical choices:
+   * canvas orientation, resolution, frame rate and container all follow the
+   * Master Render Profile for that platform. "Custom" hands the wheel to the
+   * Advanced overrides below.
+   */
+  const pickDestination = (id: PublishDestinationType) => {
+    onUpdateRenderProfile?.({ destination: id });
+    const canvas = destinationCanvas(id);
+    if (canvas) {
+      onUpdateAspectRatio(canvas.aspect);
+      onUpdateResolution(canvas.resolution);
+      const platform = PLATFORM_PROFILES.find((p) => p.id === id);
+      showNotice(
+        `${platform?.name || id} selected — ${getResolutionDimensions(canvas.aspect, canvas.resolution)} · 30 FPS · MP4, all set automatically`
+      );
+    } else {
+      setShowOutputAdvanced(true);
+      showNotice("Custom output — choose your own canvas and encoding below");
+    }
+  };
+
+  /** Manual aspect override: if it no longer matches the chosen platform's
+   *  orientation, the destination honestly becomes "Custom". */
+  const overrideAspect = (ratio: AspectRatioType) => {
+    onUpdateAspectRatio(ratio);
+    const canvas = destinationCanvas(renderProfile.destination);
+    if (canvas && canvas.aspect !== ratio) {
+      onUpdateRenderProfile?.({ destination: "custom" });
+    }
+  };
 
   useEffect(() => {
     if (sceneDuration && [10, 20, 30].includes(sceneDuration)) {
@@ -363,6 +421,23 @@ export default function SetupStudio({
     { id: "1080p", name: "1080p Full HD", badge: "Recommended", description: "Crisp YouTube & social standard" },
     { id: "2k", name: "2K QHD", badge: "Creator Pro", description: "Ultra-sharp for high-DPI screens" },
     { id: "4k", name: "4K Ultra HD", badge: "Cinema Master", description: "Maximum cinematic fidelity" },
+  ];
+
+  /** The destination presets — the 7 platform profiles plus "Custom".
+   *  Picking one is the ONLY output decision a normal user ever makes. */
+  const destinationOptions: {
+    id: PublishDestinationType;
+    icon: string;
+    name: string;
+    tag: string;
+  }[] = [
+    ...PLATFORM_PROFILES.map((p) => ({
+      id: p.id as PublishDestinationType,
+      icon: p.icon,
+      name: p.name,
+      tag: p.aspect === "9:16" ? "Vertical 9:16" : p.aspect === "1:1" ? "Square 1:1" : "Landscape 16:9",
+    })),
+    { id: "custom" as PublishDestinationType, icon: "⚙️", name: "Custom", tag: "Your own setup" },
   ];
 
   /**
@@ -668,100 +743,277 @@ export default function SetupStudio({
         </div>
       </div>
 
-      {/* ---------------- 5. Aspect ratio ---------------- */}
+      {/* ---------------- 5. Output & destination ----------------
+          ONE home for every output decision (they used to be split between
+          here and the render screen). The user picks WHERE the video is
+          going; Scenering chooses the canvas, resolution, frame rate and
+          encoding from the Master Render Profile. Advanced users can
+          override everything — collapsed so the section stays simple. */}
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
           step={5}
-          title="Aspect ratio"
-          subtitle="Target display format & canvas orientation for every preview and render."
-        />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
-          {aspectRatios.map((r) => {
-            const isActive = aspectRatio === r.id;
-            return (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => {
-                  onUpdateAspectRatio(r.id);
-                  showNotice(`Aspect ratio set to ${r.label}`);
-                }}
-                className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between min-h-[82px] ${
-                  isActive
-                    ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
-                    : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div
-                    className={`rounded border ${
-                      isActive ? "border-indigo-400 bg-indigo-600/30" : "border-hairline bg-gray-700/40"
-                    } ${r.boxClass}`}
-                  />
-                  {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />}
-                </div>
-                <div>
-                  <div className="text-xs font-bold leading-tight">{r.label}</div>
-                  <div className="text-[9px] text-indigo-400/90 truncate mt-0.5">{r.sublabel}</div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ---------------- 6. Resolution ---------------- */}
-      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
-        <SectionHeading
-          step={6}
-          title="Video resolution"
-          subtitle="Output pixel density for the finished video."
+          title="Where is this video going?"
+          subtitle="Pick a destination and Scenering sets the canvas, resolution and encoding for you. Rendering is one video at a time — come back here, pick another destination, and render the same script again. Finished videos wait in the Vault."
           badge={
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-hairline shrink-0">
               {getResolutionDimensions(aspectRatio, resolution)}
             </span>
           }
         />
-        <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
-          {resolutions.map((res) => {
-            const isActive = resolution === res.id;
-            const dimension = getResolutionDimensions(aspectRatio, res.id);
+
+        {/* A. Destination presets — the simple path */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
+          {destinationOptions.map((d) => {
+            const isActive = renderProfile.destination === d.id;
             return (
               <button
-                key={res.id}
+                key={d.id}
                 type="button"
-                onClick={() => {
-                  onUpdateResolution(res.id);
-                  showNotice(`Resolution set to ${res.name} (${dimension})`);
-                }}
-                className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                onClick={() => pickDestination(d.id)}
+                className={`p-3 rounded-xl border text-left transition-all min-h-[72px] ${
                   isActive
                     ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
                     : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
                 }`}
               >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-bold text-white">{res.name}</span>
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
-                      isActive ? "bg-indigo-500 text-white" : "bg-gray-700 text-gray-300"
-                    }`}
-                  >
-                    {res.badge}
-                  </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-base leading-none">{d.icon}</span>
+                  {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />}
                 </div>
-                <div className="text-[10px] font-mono text-indigo-300 mb-1">{dimension}</div>
-                <div className="text-[9px] text-gray-400 leading-tight">{res.description}</div>
+                <div className="text-xs font-bold leading-tight mt-1.5">{d.name}</div>
+                <div className="text-[9px] text-indigo-400/90 mt-0.5">{d.tag}</div>
               </button>
             );
           })}
         </div>
+
+        {/* What Scenering will deliver — plain words, no jargon needed */}
+        <div className="mt-3 p-3 bg-gray-800/60 border border-hairline rounded-xl text-[11px] leading-relaxed">
+          <span className="text-emerald-300 font-semibold">✓ Scenering will deliver: </span>
+          <span className="text-white font-medium">
+            {getResolutionDimensions(aspectRatio, resolution)} · {resolveFrameRate(renderProfile.fps)} FPS ·{" "}
+            {getQualityLevel(renderProfile.quality).name} quality ·{" "}
+            {renderProfile.format === "webm" ? "VP9 WebM" : "H.264 · AAC · MP4"}
+          </span>
+          <span className="text-gray-500"> — encoded for social platforms automatically.</span>
+        </div>
+
+        {/* B. Render quality — four presets, High recommended */}
+        <div className="mt-4">
+          <div className="text-xs font-semibold text-gray-300 mb-2">Render quality</div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+            {QUALITY_LEVELS.map((q) => {
+              const isActive = renderProfile.quality === q.id;
+              return (
+                <button
+                  key={q.id}
+                  type="button"
+                  onClick={() => {
+                    onUpdateRenderProfile?.({ quality: q.id });
+                    showNotice(`Render quality set to ${q.name}`);
+                  }}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    isActive
+                      ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
+                      : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-white">{q.name}</span>
+                    {q.id === "high" && (
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                          isActive ? "bg-indigo-500 text-white" : "bg-gray-700 text-gray-300"
+                        }`}
+                      >
+                        Recommended
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[9px] text-gray-400 leading-tight">{q.blurb}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* C. Advanced overrides — collapsed; the presets cover normal use */}
+        <div className="mt-4 border-t border-hairline pt-3">
+          <button
+            type="button"
+            onClick={() => setShowOutputAdvanced((v) => !v)}
+            className="w-full flex items-center justify-between text-xs font-semibold text-gray-300 hover:text-white transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <span>🔧</span> Advanced overrides
+              <span className="text-[10px] font-normal text-gray-500">— aspect ratio, resolution, FPS, format</span>
+            </span>
+            <span>{showOutputAdvanced ? "▾ Hide" : "▸ Show"}</span>
+          </button>
+
+          {showOutputAdvanced && (
+            <div className="mt-3 space-y-4">
+              <p className="text-[10px] text-gray-500 leading-relaxed">
+                The destination presets above already make the right technical choices. Override them only
+                if you need something specific — the render screen will warn you when a choice reduces
+                platform compatibility.
+              </p>
+
+              {/* Aspect ratio override */}
+              <div>
+                <div className="text-[11px] font-semibold text-gray-300 mb-2">Aspect ratio</div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+                  {aspectRatios.map((r) => {
+                    const isActive = aspectRatio === r.id;
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => {
+                          overrideAspect(r.id);
+                          showNotice(`Aspect ratio set to ${r.label}`);
+                        }}
+                        className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between min-h-[82px] ${
+                          isActive
+                            ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
+                            : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div
+                            className={`rounded border ${
+                              isActive ? "border-indigo-400 bg-indigo-600/30" : "border-hairline bg-gray-700/40"
+                            } ${r.boxClass}`}
+                          />
+                          {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />}
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold leading-tight">{r.label}</div>
+                          <div className="text-[9px] text-indigo-400/90 truncate mt-0.5">{r.sublabel}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Resolution override */}
+              <div>
+                <div className="text-[11px] font-semibold text-gray-300 mb-2 flex items-center justify-between gap-2">
+                  <span>Resolution</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-hairline">
+                    {getResolutionDimensions(aspectRatio, resolution)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+                  {resolutions.map((res) => {
+                    const isActive = resolution === res.id;
+                    const dimension = getResolutionDimensions(aspectRatio, res.id);
+                    return (
+                      <button
+                        key={res.id}
+                        type="button"
+                        onClick={() => {
+                          onUpdateResolution(res.id);
+                          showNotice(`Resolution set to ${res.name} (${dimension})`);
+                        }}
+                        className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                          isActive
+                            ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
+                            : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-bold text-white">{res.name}</span>
+                          <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                              isActive ? "bg-indigo-500 text-white" : "bg-gray-700 text-gray-300"
+                            }`}
+                          >
+                            {res.badge}
+                          </span>
+                        </div>
+                        <div className="text-[10px] font-mono text-indigo-300 mb-1">{dimension}</div>
+                        <div className="text-[9px] text-gray-400 leading-tight">{res.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Frame rate / format / mastering */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <div className="text-[11px] font-semibold text-gray-300 mb-1.5">Frame rate</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {FRAME_RATE_CHOICES.map((choice) => (
+                      <button
+                        key={String(choice)}
+                        type="button"
+                        onClick={() => onUpdateRenderProfile?.({ fps: choice })}
+                        className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${
+                          renderProfile.fps === choice
+                            ? "bg-indigo-600 border-indigo-500 text-white shadow"
+                            : "bg-gray-800 border-hairline text-gray-300 hover:text-white"
+                        }`}
+                      >
+                        {choice === "auto" ? "Auto" : `${choice} FPS`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-gray-500 mt-1.5 leading-relaxed">30 FPS is recommended for every social platform.</p>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold text-gray-300 mb-1.5">Format</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(["mp4", "webm"] as const).map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => onUpdateRenderProfile?.({ format: f })}
+                        className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${
+                          renderProfile.format === f
+                            ? "bg-indigo-600 border-indigo-500 text-white shadow"
+                            : "bg-gray-800 border-hairline text-gray-300 hover:text-white"
+                        }`}
+                      >
+                        {f === "mp4" ? "MP4 · H.264" : "WebM · VP9"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-gray-500 mt-1.5 leading-relaxed">MP4 is the standard every platform accepts.</p>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold text-gray-300 mb-1.5">Audio mastering</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(["automatic", "manual"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => onUpdateRenderProfile?.({ audio_mastering: m })}
+                        className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${
+                          renderProfile.audio_mastering === m
+                            ? "bg-indigo-600 border-indigo-500 text-white shadow"
+                            : "bg-gray-800 border-hairline text-gray-300 hover:text-white"
+                        }`}
+                      >
+                        {m === "automatic" ? "Automatic" : "Manual"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-gray-500 mt-1.5 leading-relaxed">Automatic keeps narration in front of the music and prevents clipping.</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ---------------- 7. Camera motion ---------------- */}
+
+      {/* ---------------- 6. Camera motion ---------------- */}
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
-          step={7}
+          step={6}
           title="Camera motion (Ken Burns)"
           subtitle="Applies to every scene in the whole video. Previews below are live."
         />

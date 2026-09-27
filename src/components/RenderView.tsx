@@ -54,41 +54,38 @@ import {
 } from "../lib/render-status";
 import {
   MASTER_RENDER_PROFILE,
-  FRAME_RATE_CHOICES,
-  QUALITY_LEVELS,
-  PLATFORM_PROFILES,
-  QUEUE_STATUS_LABEL,
+  DEFAULT_RENDER_PROFILE_SETTINGS,
   resolveFrameRate,
   resolveRenderDimensions,
   resolveRenderPlan,
-  planPlatformRenders,
   computeVideoBitrateKbps,
   computeAudioBitrateKbps,
   estimateFileSizeMB,
   getQualityLevel,
+  getPlatformProfile,
   buildRenderFilename,
   checkPlatformCompatibility,
   describeRenderFailure,
   buildCompatibilityFallback,
-  queueStatusForProgress,
   resolutionToken,
   totalFrameCount,
+  destinationLabel,
+  destinationFileToken,
   type FrameRateChoice,
   type EncodingQuality,
   type MasteringMode,
-  type PlatformId,
   type RenderPlan,
-  type RenderPlanGroup,
-  type RenderQueueStatus,
   type RenderFailureReport,
 } from "../lib/render-profile";
+import type { RenderProfileSettings } from "../types";
 import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
 
 /**
- * The render screen's live settings. The TECHNICAL values (bitrate ladder,
- * codec, pixel format, keyframe interval, audio spec…) are NOT stored here —
- * they come from the Master Render Profile (src/lib/render-profile.ts) so
- * they exist in exactly one place.
+ * The render screen's live settings. Every one of them is DECIDED in
+ * Project Setup (the render screen only displays and executes them), and
+ * the technical values behind them (bitrate ladder, codec, pixel format,
+ * keyframe interval, audio spec…) come from the Master Render Profile in
+ * src/lib/render-profile.ts — one source, no duplicated choices.
  */
 export interface RenderSettings {
   format: "mp4" | "webm";
@@ -105,19 +102,6 @@ export interface RenderSettings {
   /** "automatic" = the optional mastering stage (no clipping, voice-priority
    *  music ducking). "manual" = the user's mix passes through untouched. */
   audioMastering: MasteringMode;
-}
-
-/** One master encode a queued multi-platform render will produce. */
-interface QueueRow {
-  id: string;
-  kind: "master" | "platform";
-  groupIndex: number;
-  label: string;
-  sublabel: string;
-  filename?: string;
-  status: RenderQueueStatus;
-  progress: number;
-  signature: string;
 }
 
 interface RenderViewProps {
@@ -146,6 +130,9 @@ interface RenderViewProps {
   outroSection?: SectionConfig | null;
   /** echo / ambience on the narration, set in the Voiceover step */
   voiceEcho?: VoiceEchoConfig;
+  /** The render profile chosen in Project Setup — displayed and executed
+   *  here, never edited here. */
+  renderProfile?: RenderProfileSettings;
   onOpenSetup?: () => void;
   onNavigatePhase?: (phase: ProjectPhase) => void;
 }
@@ -223,6 +210,7 @@ export default function RenderView({
   introSection = null,
   outroSection = null,
   voiceEcho,
+  renderProfile = DEFAULT_RENDER_PROFILE_SETTINGS,
   onOpenSetup,
   onNavigatePhase,
 }: RenderViewProps) {
@@ -232,14 +220,14 @@ export default function RenderView({
   const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
   const totalDuration = scenesWithImages.reduce((sum, s) => sum + getSceneDuration(s), 0);
 
-  // Render settings state. The defaults ARE the Master Render Profile:
-  // High quality · 30 fps CFR · H.264/AAC MP4 · web optimised — a normal
-  // user clicks RENDER and never needs to understand encoding technology.
+  // Render settings state — every value here was CHOSEN in Project Setup
+  // (destination preset, quality, fps, format, mastering). This screen only
+  // mirrors those choices and runs the render; there are no controls here.
   const [settings, setSettings] = useState<RenderSettings>({
-    format: MASTER_RENDER_PROFILE.container,
+    format: renderProfile.format,
     resolution: propResolution || "1080p",
-    fps: MASTER_RENDER_PROFILE.frameRate,
-    quality: MASTER_RENDER_PROFILE.quality,
+    fps: renderProfile.fps,
+    quality: renderProfile.quality,
     includeWatermark: true,
     watermarkOpacity: 1.0,
     watermarkScale: 1.0,
@@ -248,7 +236,7 @@ export default function RenderView({
     // Music is added in Video Studio as timeline inserts, so this page stays free of settings
     backgroundMusic: "none",
     musicVolume: 0.3,
-    audioMastering: MASTER_RENDER_PROFILE.audioMastering,
+    audioMastering: renderProfile.audio_mastering,
   });
 
   // Keep the read-only summary and the render in sync with the setup choices
@@ -258,8 +246,20 @@ export default function RenderView({
       resolution: propResolution || prev.resolution,
       includeSubtitles: captionsConfig?.enabled ?? prev.includeSubtitles,
       subtitleStyle: captionsConfig?.mode ?? prev.subtitleStyle,
+      format: renderProfile.format,
+      fps: renderProfile.fps,
+      quality: renderProfile.quality,
+      audioMastering: renderProfile.audio_mastering,
     }));
-  }, [propResolution, captionsConfig?.enabled, captionsConfig?.mode]);
+  }, [
+    propResolution,
+    captionsConfig?.enabled,
+    captionsConfig?.mode,
+    renderProfile.format,
+    renderProfile.fps,
+    renderProfile.quality,
+    renderProfile.audio_mastering,
+  ]);
 
   // Render execution state
   const [isRendering, setIsRendering] = useState(false);
@@ -277,23 +277,13 @@ export default function RenderView({
   const [imageFallbackCount, setImageFallbackCount] = useState(0);
 
   // ---- Master Render Profile UI state ---------------------------------
-  /** Advanced Encoding panel (normal users never need to open it). */
+  /** Technical details panel (read-only — normal users never need it). */
   const [showAdvanced, setShowAdvanced] = useState(false);
   /** Human-readable failure report; the raw log stays under Advanced Details. */
   const [failureReport, setFailureReport] = useState<RenderFailureReport | null>(null);
   const [showFailureDetail, setShowFailureDetail] = useState(false);
   /** What the automatic-fallback retry changed — never silent. */
   const [fallbackNotes, setFallbackNotes] = useState<string[]>([]);
-
-  // ---- Multi-platform publishing --------------------------------------
-  const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformId[]>([]);
-  const [queue, setQueue] = useState<QueueRow[]>([]);
-  const [queueRunning, setQueueRunning] = useState(false);
-  /** id of the queue row the running render reports its progress into */
-  const activeQueueRowRef = useRef<string | null>(null);
-  /** finished master encodes, keyed by technical signature — this map is
-   *  what lets three compatible platforms share ONE render */
-  const groupBlobsRef = useRef<Map<string, { blob: Blob; container: "mp4" | "webm" }>>(new Map());
 
   // ---- The Vault: finished renders waiting to be downloaded -----------
   const [vaultRenders, setVaultRenders] = useState<VaultRender[]>([]);
@@ -345,20 +335,10 @@ export default function RenderView({
    * status. The second half is what keeps the header pill alive when the
    * user walks away from this page mid-render.
    */
-  const patchQueueRow = useCallback((id: string, patch: Partial<QueueRow>) => {
-    setQueue((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-  }, []);
-
   const reportProgress = useCallback((p: number, stage?: string) => {
     setRenderProgress(p);
     setRenderStatus({ progress: p, ...(stage ? { stage } : {}) });
-    // A queued multi-platform render mirrors its progress into its row so
-    // the queue shows Preparing → Rendering → Encoding → Finalizing live.
-    const rowId = activeQueueRowRef.current;
-    if (rowId) {
-      patchQueueRow(rowId, { progress: p, status: queueStatusForProgress(p) });
-    }
-  }, [patchQueueRow]);
+  }, []);
   const reportStage = useCallback((stage: string) => {
     setRenderStage(stage);
     setRenderStatus({ stage });
@@ -1773,11 +1753,13 @@ export default function RenderView({
 
   // ------ DOWNLOAD HANDLERS ------
   // Automatic useful filenames from the Master Render Profile:
-  // ProjectName_Master_1080p_30fps.mp4 (platform renders get the platform
-  // name instead of "Master"). No spaces or problem characters, ever.
-  const renderFileName = (title: string, ext: string, targetLabel = "Master") => {
+  // ProjectName_YouTube_1080p_30fps.mp4 — the middle token is the
+  // destination chosen in Project Setup ("Master" for custom output).
+  // No spaces or problem characters, ever.
+  const renderFileName = (title: string, ext: string, targetLabel?: string) => {
     const d = getDimensions(settings.resolution);
-    return buildRenderFilename(title || "Scenering_Video", targetLabel, d.width, d.height, effectiveFps, ext);
+    const token = targetLabel || destinationFileToken(renderProfile.destination);
+    return buildRenderFilename(title || "Scenering_Video", token, d.width, d.height, effectiveFps, ext);
   };
 
   /**
@@ -1969,118 +1951,18 @@ export default function RenderView({
   if (effectiveFps > 30) compatibilityWarnings.push(`${effectiveFps} fps doubles the encode work for footage that is mostly still imagery — 30 fps is the recommended setting.`);
   if (effectiveFps === 24 || effectiveFps === 25) compatibilityWarnings.push(`${effectiveFps} fps is a film/broadcast rate; social platforms accept it, but 30 fps is their native cadence.`);
 
-  const togglePlatform = (id: PlatformId) => {
-    setSelectedPlatforms((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
-  };
-
-  /** Pre-flight: how the selected platforms group into shared masters. */
-  const planGroups: RenderPlanGroup[] = useMemo(
-    () => planPlatformRenders(masterProfile, selectedPlatforms, ladderResolution),
-    [masterProfile, selectedPlatforms, ladderResolution]
-  );
-
-  /** Per-platform compatibility report for the PLATFORM CHECK panel. */
-  const platformChecks = useMemo(
-    () =>
-      selectedPlatforms
-        .map((id) => PLATFORM_PROFILES.find((p) => p.id === id))
-        .filter((p): p is (typeof PLATFORM_PROFILES)[number] => Boolean(p))
-        .map((p) => checkPlatformCompatibility(masterProfile, p, aspectRatio || "16:9", totalDuration, ladderResolution)),
-    [selectedPlatforms, masterProfile, aspectRatio, totalDuration, ladderResolution]
-  );
-
-  const queueFilename = (shortName: string, plan: RenderPlan) =>
-    buildRenderFilename(project?.title || "Scenering_Video", shortName, plan.width, plan.height, plan.fps, plan.container);
-
   /**
-   * Render every selected platform: ONE encode per unique technical
-   * signature, then every compatible platform reuses that master. YouTube +
-   * Facebook + LinkedIn share a landscape master; TikTok + Shorts + Reels
-   * share a vertical one. Nothing is encoded twice unnecessarily.
+   * The compatibility report for the ONE destination chosen in Project
+   * Setup ("custom" has no platform rules to check). Read-only — if the
+   * user wants a different destination they go back to Setup, pick it, and
+   * render again; the previous video stays in the Vault.
    */
-  const runPlatformQueue = async () => {
-    if (isRendering || queueRunning || planGroups.length === 0) return;
-
-    const rows: QueueRow[] = [];
-    planGroups.forEach((g, gi) => {
-      rows.push({
-        id: `g${gi}`,
-        kind: "master",
-        groupIndex: gi,
-        signature: g.signature,
-        label: g.masterLabel,
-        sublabel: `${g.plan.width} × ${g.plan.height} · ${g.plan.fps} FPS CFR · ${g.plan.videoCodec === "h264" ? "H.264" : "VP9"} · ${getQualityLevel(g.plan.quality).name} quality`,
-        status: "queued",
-        progress: 0,
-      });
-      g.platforms.forEach((p, pi) => {
-        rows.push({
-          id: `g${gi}p${pi}`,
-          kind: "platform",
-          groupIndex: gi,
-          signature: g.signature,
-          label: `${p.icon} ${p.name}`,
-          sublabel: queueFilename(p.shortName, g.plan),
-          filename: queueFilename(p.shortName, g.plan),
-          status: "queued",
-          progress: 0,
-        });
-      });
-    });
-
-    groupBlobsRef.current.clear();
-    setQueue(rows);
-    setQueueRunning(true);
-    setVaultMessage("");
-
-    try {
-      for (let gi = 0; gi < planGroups.length; gi++) {
-        const g = planGroups[gi];
-        if (abortControllerRef.current) {
-          patchQueueRow(`g${gi}`, { status: "failed", sublabel: "Cancelled before this master started" });
-          g.platforms.forEach((_, pi) => patchQueueRow(`g${gi}p${pi}`, { status: "failed" }));
-          continue;
-        }
-        activeQueueRowRef.current = `g${gi}`;
-        patchQueueRow(`g${gi}`, { status: "preparing" });
-        const result = await handleStartRender(undefined, { ...g.plan, label: g.masterLabel });
-        activeQueueRowRef.current = null;
-
-        if (!result) {
-          const why = lastRenderErrorRef.current || "Render failed";
-          patchQueueRow(`g${gi}`, { status: "failed", sublabel: why });
-          g.platforms.forEach((_, pi) =>
-            patchQueueRow(`g${gi}p${pi}`, { status: "failed", sublabel: `Master failed — ${why}` })
-          );
-          continue; // the other masters still get their chance
-        }
-
-        groupBlobsRef.current.set(g.signature, result);
-        patchQueueRow(`g${gi}`, { status: "ready", progress: 1 });
-        // Every platform in the group ships the SAME master — the first is
-        // "its" render, the rest reuse it instead of encoding again.
-        g.platforms.forEach((_, pi) =>
-          patchQueueRow(`g${gi}p${pi}`, { status: pi === 0 ? "ready" : "reused", progress: 1 })
-        );
-      }
-    } finally {
-      activeQueueRowRef.current = null;
-      setQueueRunning(false);
-    }
-  };
-
-  /** Save one platform's file from its (possibly shared) master render. */
-  const downloadQueueRow = async (row: QueueRow) => {
-    const finished = groupBlobsRef.current.get(row.signature);
-    if (!finished) {
-      setVaultMessage("That render is not ready yet.");
-      return;
-    }
-    // The extension always matches the container that was really recorded.
-    const base = row.filename || renderFileName(project?.title || "", finished.container, row.label);
-    const filename = base.replace(/\.(mp4|webm)$/i, `.${finished.container}`);
-    await saveRenderBlob(finished.blob, filename, null);
-  };
+  const destinationCheck = useMemo(() => {
+    if (renderProfile.destination === "custom") return null;
+    const platform = getPlatformProfile(renderProfile.destination);
+    if (!platform) return null;
+    return checkPlatformCompatibility(masterProfile, platform, aspectRatio || "16:9", totalDuration, ladderResolution);
+  }, [renderProfile.destination, masterProfile, aspectRatio, totalDuration, ladderResolution]);
 
   /**
    * §23 Automatic fallback: identify what to relax, retry with a compatible
@@ -2327,14 +2209,19 @@ export default function RenderView({
 
         <div className="order-1 lg:order-2 lg:col-span-8 space-y-4">
 
-          {/* ---------- RENDER SETTINGS (Master Render Profile) -------------
-              What a normal user sees: one quality choice and a plain-English
-              summary. Every technical value comes from the central profile in
-              src/lib/render-profile.ts — the user never meets a CRF. */}
+          {/* ---------- RENDER PROFILE (read-only) ---------------------------
+              Every choice below was made in Project Setup — this screen only
+              shows it and carries it out. No controls here on purpose: one
+              render at a time; to render another version (say vertical for
+              TikTok), go back to Setup, pick that destination, and render
+              again. Finished videos wait in the Vault. */}
           <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 shadow-lg space-y-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>🎛️</span> Render Settings
+                <span>🎛️</span> Render Profile
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-900 border border-hairline text-gray-400">
+                  Read-only — set in Project Setup
+                </span>
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950 border border-emerald-700/60 text-emerald-300">
                 ✓ Optimized for social platforms
@@ -2342,32 +2229,16 @@ export default function RenderView({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Quality preset */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-gray-300">Render Quality</label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {QUALITY_LEVELS.map((q) => (
-                    <button
-                      key={q.id}
-                      type="button"
-                      disabled={isRendering || queueRunning}
-                      onClick={() => setSettings((s) => ({ ...s, quality: q.id }))}
-                      title={q.blurb}
-                      className={`px-2 py-2 rounded-lg text-[11px] font-bold border transition-all text-left ${
-                        settings.quality === q.id
-                          ? "bg-indigo-600 border-indigo-500 text-white shadow"
-                          : "bg-gray-900 border-hairline text-gray-300 hover:text-white hover:bg-gray-750"
-                      }`}
-                    >
-                      {q.name}
-                      <span className="block text-[9px] font-normal opacity-75 leading-tight">{q.blurb}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Plain-English profile summary (§24) */}
+              {/* Plain-English summary of what will be rendered */}
               <div className="bg-gray-900/70 border border-hairline rounded-lg p-3 space-y-1.5 text-[11px]">
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Destination</span>
+                  <span className="text-white font-medium text-right">
+                    {renderProfile.destination === "custom"
+                      ? "Custom output"
+                      : `${getPlatformProfile(renderProfile.destination)?.icon || ""} ${destinationLabel(renderProfile.destination)}`}
+                  </span>
+                </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-gray-400">Video</span>
                   <span className="text-white font-medium text-right">
@@ -2375,8 +2246,14 @@ export default function RenderView({
                   </span>
                 </div>
                 <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Quality</span>
+                  <span className="text-white font-medium text-right">{getQualityLevel(settings.quality).name}</span>
+                </div>
+                <div className="flex justify-between gap-2">
                   <span className="text-gray-400">Audio</span>
-                  <span className="text-white font-medium text-right">AAC · 48 kHz · Stereo</span>
+                  <span className="text-white font-medium text-right">
+                    {settings.format === "webm" ? "Opus" : "AAC"} · 48 kHz · Stereo
+                  </span>
                 </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-gray-400">Format</span>
@@ -2385,282 +2262,103 @@ export default function RenderView({
                   </span>
                 </div>
                 <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Audio mastering</span>
+                  <span className="text-white font-medium text-right">
+                    {settings.audioMastering === "automatic" ? "Automatic" : "Manual"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
                   <span className="text-gray-400">Estimated size</span>
                   <span className="text-white font-medium text-right">
                     ~{estSizeMB < 1000 ? `${Math.max(1, Math.round(estSizeMB))} MB` : `${(estSizeMB / 1000).toFixed(1)} GB`}
                   </span>
                 </div>
-                {/* Audio mastering (§12): automatic by default, never aggressive */}
-                <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-hairline">
-                  <span className="text-gray-400" title="Automatic prevents clipping and keeps music behind the narration. Manual leaves your mix untouched.">
-                    Audio mastering
-                  </span>
-                  <div className="flex items-center gap-1 bg-gray-950 p-0.5 rounded-lg border border-hairline">
-                    {(["automatic", "manual"] as const).map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        disabled={isRendering || queueRunning}
-                        onClick={() => setSettings((s) => ({ ...s, audioMastering: m }))}
-                        className={`px-2 py-0.5 text-[10px] rounded-md font-bold transition-all ${
-                          settings.audioMastering === m ? "bg-indigo-600 text-white shadow" : "text-gray-400 hover:text-white"
-                        }`}
-                      >
-                        {m === "automatic" ? "Automatic" : "Manual"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              </div>
+
+              {/* Platform check for the chosen destination */}
+              <div className="bg-gray-900/70 border border-hairline rounded-lg p-3">
+                {destinationCheck ? (
+                  <>
+                    <p className="text-[11px] font-bold text-white mb-1.5">
+                      Platform check — {destinationCheck.platform.icon} {destinationCheck.platform.name}{" "}
+                      {destinationCheck.allOk ? (
+                        <span className="text-emerald-400 font-semibold">· ready</span>
+                      ) : (
+                        <span className="text-amber-400 font-semibold">· needs attention</span>
+                      )}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {destinationCheck.checks.map((c) => (
+                        <li
+                          key={c.id}
+                          className={`text-[10px] leading-snug ${c.ok ? "text-gray-400" : "text-amber-300"}`}
+                        >
+                          {c.ok ? "✓" : "⚠"} <span className="font-medium">{c.label}</span> — {c.detail}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    <span className="font-bold text-white">Custom output</span> — no platform rules to check.
+                    The video renders exactly as configured in Project Setup's Advanced overrides.
+                  </p>
+                )}
               </div>
             </div>
 
             {settings.quality === "draft" && (
               <p className="text-[10px] text-amber-300/90 leading-relaxed">
-                ⚡ Draft is a fast preview render at 720p — perfect while editing. Switch to High for the
-                final platform-quality export.
+                ⚡ Draft is a fast preview render at 720p — perfect while editing. Switch to High in Project
+                Setup for the final platform-quality export.
               </p>
             )}
-            {settings.audioMastering === "automatic" && (
-              <p className="text-[10px] text-gray-500 leading-relaxed">
-                🎚️ Automatic mastering keeps narration in front: music eases down while the voice speaks,
-                and a safety limiter prevents clipping. Your per-track volumes from Video Studio still apply.
-              </p>
+            {compatibilityWarnings.length > 0 && (
+              <div className="p-2.5 bg-amber-950/50 border border-amber-800/70 rounded-lg space-y-1">
+                {compatibilityWarnings.map((w, i) => (
+                  <p key={i} className="text-[10px] text-amber-300 leading-relaxed">⚠ {w}</p>
+                ))}
+              </div>
             )}
 
-            {/* ---------- ADVANCED RENDER SETTINGS (§25) ---------- */}
-            <div className="border-t border-hairline pt-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {onOpenSetup && (
+                <button
+                  type="button"
+                  onClick={onOpenSetup}
+                  className="px-3 py-2 bg-gray-900 hover:bg-gray-750 border border-hairline rounded-xl text-[11px] font-semibold text-gray-200 hover:text-white transition-all flex items-center gap-1.5"
+                >
+                  <span>⚙️</span> Change these in Project Setup
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowAdvanced((v) => !v)}
-                className="w-full flex items-center justify-between text-[11px] font-semibold text-gray-300 hover:text-white transition-colors"
+                className="px-3 py-2 bg-gray-900 hover:bg-gray-750 border border-hairline rounded-xl text-[11px] font-semibold text-gray-300 hover:text-white transition-all flex items-center gap-1.5"
               >
-                <span className="flex items-center gap-1.5">
-                  <span>🔧</span> Advanced Render Settings
-                </span>
-                <span>{showAdvanced ? "▾ Hide" : "▸ Show"}</span>
+                <span>🔧</span> {showAdvanced ? "Hide" : "Show"} technical details
               </button>
-
-              {showAdvanced && (
-                <div className="mt-3 space-y-3">
-                  {/* Frame Rate — a real render setting, tucked away here
-                      because a normal user should never need to understand FPS. */}
-                  <div className="space-y-1.5">
-                    <span className="text-[11px] font-semibold text-gray-300">Frame Rate</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {FRAME_RATE_CHOICES.map((choice) => (
-                        <button
-                          key={String(choice)}
-                          type="button"
-                          disabled={isRendering || queueRunning}
-                          onClick={() => setSettings((s) => ({ ...s, fps: choice }))}
-                          className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${
-                            settings.fps === choice
-                              ? "bg-indigo-600 border-indigo-500 text-white shadow"
-                              : "bg-gray-900 border-hairline text-gray-300 hover:text-white"
-                          }`}
-                        >
-                          {choice === "auto" ? "Auto" : `${choice} FPS`}
-                          {choice === 30 && <span className="ml-1 opacity-70 font-normal">· recommended</span>}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Read-only master values — one source of truth, shown honestly */}
-                  <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-[10px] bg-gray-900/60 border border-hairline rounded-lg p-3">
-                    <div><dt className="text-gray-500">Codec</dt><dd className="text-gray-200 font-medium">{settings.format === "webm" ? "VP9" : "H.264 / AVC"}</dd></div>
-                    <div><dt className="text-gray-500">Profile</dt><dd className="text-gray-200 font-medium">{settings.format === "webm" ? "—" : "High"}</dd></div>
-                    <div><dt className="text-gray-500">Pixel format</dt><dd className="text-gray-200 font-medium">yuv420p · SDR (BT.709)</dd></div>
-                    <div><dt className="text-gray-500">Frame rate mode</dt><dd className="text-gray-200 font-medium">Constant (CFR)</dd></div>
-                    <div><dt className="text-gray-500">Video bitrate</dt><dd className="text-gray-200 font-medium">{(currentVideoKbps / 1000).toFixed(1)} Mbps (auto)</dd></div>
-                    <div><dt className="text-gray-500">Quality target</dt><dd className="text-gray-200 font-medium">≈ CRF {getQualityLevel(settings.quality).crfEquivalent}</dd></div>
-                    <div><dt className="text-gray-500">Keyframe interval</dt><dd className="text-gray-200 font-medium">{MASTER_RENDER_PROFILE.keyframeIntervalSeconds} s</dd></div>
-                    <div><dt className="text-gray-500">Audio codec</dt><dd className="text-gray-200 font-medium">{settings.format === "webm" ? "Opus" : "AAC"} · 48 kHz · stereo</dd></div>
-                    <div><dt className="text-gray-500">Audio bitrate</dt><dd className="text-gray-200 font-medium">{currentAudioKbps} kbps</dd></div>
-                    <div><dt className="text-gray-500">Total frames</dt><dd className="text-gray-200 font-medium">{currentFrames.toLocaleString()} ({Math.round(totalDuration)}s × {effectiveFps})</dd></div>
-                    <div><dt className="text-gray-500">Container</dt><dd className="text-gray-200 font-medium">{settings.format.toUpperCase()}{settings.format === "mp4" ? " · fast-start" : ""}</dd></div>
-                    <div><dt className="text-gray-500">Mastering</dt><dd className="text-gray-200 font-medium">{settings.audioMastering === "automatic" ? "Automatic" : "Manual"}</dd></div>
-                  </dl>
-
-                  {compatibilityWarnings.length > 0 && (
-                    <div className="p-2.5 bg-amber-950/50 border border-amber-800/70 rounded-lg space-y-1">
-                      {compatibilityWarnings.map((w, i) => (
-                        <p key={i} className="text-[10px] text-amber-300 leading-relaxed">⚠ {w}</p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
+
+            {showAdvanced && (
+              /* Read-only master values — one source of truth, shown honestly */
+              <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-[10px] bg-gray-900/60 border border-hairline rounded-lg p-3">
+                <div><dt className="text-gray-500">Codec</dt><dd className="text-gray-200 font-medium">{settings.format === "webm" ? "VP9" : "H.264 / AVC"}</dd></div>
+                <div><dt className="text-gray-500">Profile</dt><dd className="text-gray-200 font-medium">{settings.format === "webm" ? "—" : "High"}</dd></div>
+                <div><dt className="text-gray-500">Pixel format</dt><dd className="text-gray-200 font-medium">yuv420p · SDR (BT.709)</dd></div>
+                <div><dt className="text-gray-500">Frame rate mode</dt><dd className="text-gray-200 font-medium">Constant (CFR)</dd></div>
+                <div><dt className="text-gray-500">Video bitrate</dt><dd className="text-gray-200 font-medium">{(currentVideoKbps / 1000).toFixed(1)} Mbps (auto)</dd></div>
+                <div><dt className="text-gray-500">Quality target</dt><dd className="text-gray-200 font-medium">≈ CRF {getQualityLevel(settings.quality).crfEquivalent}</dd></div>
+                <div><dt className="text-gray-500">Keyframe interval</dt><dd className="text-gray-200 font-medium">{MASTER_RENDER_PROFILE.keyframeIntervalSeconds} s</dd></div>
+                <div><dt className="text-gray-500">Audio codec</dt><dd className="text-gray-200 font-medium">{settings.format === "webm" ? "Opus" : "AAC"} · 48 kHz · stereo</dd></div>
+                <div><dt className="text-gray-500">Audio bitrate</dt><dd className="text-gray-200 font-medium">{currentAudioKbps} kbps</dd></div>
+                <div><dt className="text-gray-500">Total frames</dt><dd className="text-gray-200 font-medium">{currentFrames.toLocaleString()} ({Math.round(totalDuration)}s × {effectiveFps})</dd></div>
+                <div><dt className="text-gray-500">Container</dt><dd className="text-gray-200 font-medium">{settings.format.toUpperCase()}{settings.format === "mp4" ? " · fast-start" : ""}</dd></div>
+                <div><dt className="text-gray-500">Mastering</dt><dd className="text-gray-200 font-medium">{settings.audioMastering === "automatic" ? "Automatic" : "Manual"}</dd></div>
+              </dl>
+            )}
           </div>
 
-          {/* ---------- MULTI-PLATFORM PUBLISHING ----------------------------
-              The user picks WHERE the video is going; Scenering decides HOW
-              each destination is encoded. Compatible platforms share one
-              master render instead of being encoded again and again. */}
-          <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 shadow-lg space-y-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>🚀</span> Publish to Platforms
-              </h3>
-              {selectedPlatforms.length > 0 && (
-                <span className="text-[10px] text-gray-400">
-                  {planGroups.length} master encode{planGroups.length === 1 ? "" : "s"} for {selectedPlatforms.length} platform{selectedPlatforms.length === 1 ? "" : "s"}
-                </span>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-1.5">
-              {PLATFORM_PROFILES.map((p) => {
-                const active = selectedPlatforms.includes(p.id);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    disabled={queueRunning}
-                    onClick={() => togglePlatform(p.id)}
-                    title={p.note}
-                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-all ${
-                      active
-                        ? "bg-indigo-600 border-indigo-500 text-white shadow"
-                        : "bg-gray-900 border-hairline text-gray-300 hover:text-white"
-                    }`}
-                  >
-                    {p.icon} {p.name}
-                    <span className="ml-1 opacity-60 font-normal">{p.aspect}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {selectedPlatforms.length === 0 && (
-              <p className="text-[11px] text-gray-500 leading-relaxed">
-                Pick where this video is going and Scenering encodes it correctly for each destination —
-                landscape platforms share one 16:9 master, vertical platforms share one 9:16 master.
-              </p>
-            )}
-
-            {/* ---------- PLATFORM CHECK (§26) ---------- */}
-            {platformChecks.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-[11px] font-semibold text-gray-300">Platform check</span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {platformChecks.map((pc) => (
-                    <div key={pc.platform.id} className="bg-gray-900/70 border border-hairline rounded-lg p-2.5">
-                      <p className="text-[11px] font-bold text-white mb-1">
-                        {pc.platform.icon} {pc.platform.name}{" "}
-                        {pc.allOk ? (
-                          <span className="text-emerald-400 font-semibold">· ready</span>
-                        ) : (
-                          <span className="text-amber-400 font-semibold">· needs attention</span>
-                        )}
-                      </p>
-                      <ul className="space-y-0.5">
-                        {pc.checks.map((c) => (
-                          <li key={c.id} className={`text-[10px] leading-snug ${c.ok ? "text-gray-400" : "text-amber-300"}`}>
-                            {c.ok ? "✓" : "⚠"} <span className="font-medium">{c.label}</span> — {c.detail}
-                          </li>
-                        ))}
-                      </ul>
-                      {pc.needsOwnProfile && (
-                        <p className="mt-1 text-[10px] text-indigo-300 leading-snug">
-                          ⚠ {pc.platform.name} needs a different output profile than this project's canvas —
-                          Scenering will create a compatible {pc.platform.aspect} version automatically.
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Shared-master explanation (§19) */}
-            {planGroups.some((g) => g.platforms.length > 1) && (
-              <p className="text-[10px] text-emerald-300/90 leading-relaxed">
-                ♻️{" "}
-                {planGroups
-                  .filter((g) => g.platforms.length > 1)
-                  .map((g) => `${g.platforms.map((p) => p.name).join(" + ")} share one ${g.masterLabel.toLowerCase()} (${g.plan.width}×${g.plan.height})`)
-                  .join("; ")}{" "}
-                — rendered once, reused for each.
-              </p>
-            )}
-
-            {selectedPlatforms.length > 0 && (
-              <button
-                type="button"
-                onClick={() => void runPlatformQueue()}
-                disabled={isRendering || queueRunning || scenesWithImages.length === 0}
-                className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all text-sm flex items-center justify-center gap-2"
-              >
-                <span>🎬</span>
-                {queueRunning
-                  ? "Rendering platform masters…"
-                  : `Render for ${selectedPlatforms.length} platform${selectedPlatforms.length === 1 ? "" : "s"} (${planGroups.length} encode${planGroups.length === 1 ? "" : "s"})`}
-              </button>
-            )}
-
-            {/* ---------- RENDER QUEUE (§20/§21) ---------- */}
-            {queue.length > 0 && (
-              <div className="space-y-1.5 pt-2 border-t border-hairline">
-                <span className="text-[11px] font-semibold text-gray-300 flex items-center gap-1.5">
-                  <span>📋</span> Render queue
-                </span>
-                <ul className="space-y-1">
-                  {queue.map((row) => {
-                    const isActive = ["preparing", "rendering", "encoding", "finalizing"].includes(row.status);
-                    const statusColor =
-                      row.status === "ready"
-                        ? "text-emerald-400"
-                        : row.status === "reused"
-                        ? "text-emerald-300/80"
-                        : row.status === "failed"
-                        ? "text-rose-400"
-                        : isActive
-                        ? "text-indigo-300"
-                        : "text-gray-500";
-                    return (
-                      <li
-                        key={row.id}
-                        className={`rounded-lg border p-2 ${
-                          row.kind === "master" ? "bg-gray-900/80 border-hairline" : "bg-gray-900/40 border-transparent ml-4"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[11px] font-semibold text-white min-w-0 flex-1 truncate">
-                            {row.status === "ready" || row.status === "reused" ? "✓ " : row.status === "failed" ? "✕ " : isActive ? "⏳ " : "· "}
-                            {row.label}
-                          </span>
-                          <span className={`text-[10px] font-bold ${statusColor}`}>
-                            {QUEUE_STATUS_LABEL[row.status]}
-                            {isActive && row.kind === "master" ? ` ${Math.round(row.progress * 100)}%` : ""}
-                          </span>
-                          {row.kind === "platform" && (row.status === "ready" || row.status === "reused") && (
-                            <button
-                              type="button"
-                              onClick={() => void downloadQueueRow(row)}
-                              className="px-2 py-1 rounded-md text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
-                            >
-                              ⬇ Save
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-[9px] text-gray-500 font-mono truncate">{row.sublabel}</p>
-                        {isActive && row.kind === "master" && (
-                          <div className="mt-1 w-full bg-gray-800 rounded-full h-1 overflow-hidden">
-                            <div
-                              className="bg-indigo-500 h-full rounded-full transition-all duration-150"
-                              style={{ width: `${Math.round(row.progress * 100)}%` }}
-                            />
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
-          </div>
 
           {/* ---------- THE VAULT -------------------------------------------
               Finished renders wait here until they are downloaded. The slot
@@ -2919,7 +2617,7 @@ export default function RenderView({
                 <div className="space-y-1.5">
                   <button
                     onClick={() => void handleStartRender()}
-                    disabled={isRendering || queueRunning || scenesWithImages.length === 0}
+                    disabled={isRendering || scenesWithImages.length === 0}
                     className="t-btn-hero w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 text-sm"
                   >
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -2944,7 +2642,7 @@ export default function RenderView({
                     </span>
                     <button
                       onClick={() => void handleStartRender()}
-                      disabled={isRendering || queueRunning}
+                      disabled={isRendering}
                       className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-xs border border-hairline transition-colors"
                     >
                       🔄 Re-render
@@ -2957,7 +2655,7 @@ export default function RenderView({
                   <div className="flex items-center gap-3 flex-wrap">
                     <button
                       onClick={() => void downloadVideo()}
-                      disabled={isRendering || queueRunning}
+                      disabled={isRendering}
                       className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all shadow flex items-center gap-2"
                     >
                       <span>⬇️</span>
@@ -2965,9 +2663,26 @@ export default function RenderView({
                     </button>
                     <p className="text-[10px] text-gray-400 leading-relaxed flex-1 min-w-[200px]">
                       🗄️ This render is also parked in <span className="font-semibold text-gray-300">The Vault</span> above —
-                      when you render for several platforms, each finished video waits there so you can
-                      download or delete them individually.
+                      every finished video waits there until you download it, so nothing gets lost between renders.
                     </p>
+                  </div>
+
+                  {/* One render at a time, by design: another platform =
+                      back to Setup, pick that destination, render again. */}
+                  <div className="p-3 bg-indigo-950/40 border border-indigo-800/60 rounded-xl text-[11px] text-indigo-200 leading-relaxed">
+                    <span className="font-bold">Need this video for another platform?</span>{" "}
+                    Go back to <span className="font-semibold">Project Setup</span>, pick the new destination
+                    (say, TikTok for a vertical cut), and render again — this finished video stays safe in the
+                    Vault while the next one renders.
+                    {onOpenSetup && (
+                      <button
+                        type="button"
+                        onClick={onOpenSetup}
+                        className="ml-2 px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-semibold transition-colors"
+                      >
+                        Open Project Setup →
+                      </button>
+                    )}
                   </div>
                   {renderedContainer !== "mp4" && (
                     <p className="text-[10px] text-gray-500 leading-relaxed">

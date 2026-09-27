@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 502 utility
+   Colour matrix for every non-classic theme. 501 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -1319,9 +1319,6 @@ html[data-theme="apple"] .text-emerald-300 {
 }
 html[data-theme="apple"] .text-emerald-300\/80 {
   color: rgb(5 150 105 / 0.8);
-}
-html[data-theme="apple"] .text-emerald-300\/90 {
-  color: rgb(5 150 105 / 0.9);
 }
 html[data-theme="apple"] .text-emerald-400 {
   color: rgb(8 159 111 / 1);
@@ -2870,9 +2867,6 @@ html[data-theme="windows"] .text-emerald-300 {
 html[data-theme="windows"] .text-emerald-300\/80 {
   color: rgb(117 224 182 / 0.8);
 }
-html[data-theme="windows"] .text-emerald-300\/90 {
-  color: rgb(117 224 182 / 0.9);
-}
 html[data-theme="windows"] .text-emerald-400 {
   color: rgb(62 201 150 / 1);
 }
@@ -4419,9 +4413,6 @@ html[data-theme="playful"] .text-emerald-300 {
 }
 html[data-theme="playful"] .text-emerald-300\/80 {
   color: rgb(97 251 190 / 0.8);
-}
-html[data-theme="playful"] .text-emerald-300\/90 {
-  color: rgb(97 251 190 / 0.9);
 }
 html[data-theme="playful"] .text-emerald-400 {
   color: rgb(31 237 162 / 1);
@@ -5970,9 +5961,6 @@ html[data-theme="glass"] .text-emerald-300 {
 html[data-theme="glass"] .text-emerald-300\/80 {
   color: rgb(21 140 111 / 0.8);
 }
-html[data-theme="glass"] .text-emerald-300\/90 {
-  color: rgb(21 140 111 / 0.9);
-}
 html[data-theme="glass"] .text-emerald-400 {
   color: rgb(24 148 116 / 1);
 }
@@ -7519,9 +7507,6 @@ html[data-theme="porcelain"] .text-emerald-300 {
 }
 html[data-theme="porcelain"] .text-emerald-300\/80 {
   color: rgb(5 150 105 / 0.8);
-}
-html[data-theme="porcelain"] .text-emerald-300\/90 {
-  color: rgb(5 150 105 / 0.9);
 }
 html[data-theme="porcelain"] .text-emerald-400 {
   color: rgb(8 159 111 / 1);

@@ -2,6 +2,35 @@ export type AspectRatioType = "16:9" | "9:16" | "1:1" | "4:3";
 export type ResolutionType = "720p" | "1080p" | "2k" | "4k";
 export type PacingModeType = "fixed" | "auto_speech";
 
+/* ---------------- Render profile choices (made in Project Setup) --------
+ * The user picks these ONCE in the setup section — the render screen only
+ * displays them. Literal unions live here (not imported from lib) so the
+ * types module stays dependency-free; src/lib/render-profile.ts consumes
+ * them and owns all the technical meaning behind each value. */
+export type RenderQualityType = "draft" | "standard" | "high" | "maximum";
+export type RenderFpsType = "auto" | 24 | 25 | 30 | 50 | 60;
+export type RenderFormatType = "mp4" | "webm";
+export type AudioMasteringType = "automatic" | "manual";
+/** Where the finished video is going. Picking a platform preset sets the
+ *  canvas + encoding automatically; "custom" means the user overrode them. */
+export type PublishDestinationType =
+  | "youtube"
+  | "youtube_shorts"
+  | "tiktok"
+  | "instagram_reels"
+  | "facebook"
+  | "linkedin"
+  | "pinterest"
+  | "custom";
+
+export interface RenderProfileSettings {
+  destination: PublishDestinationType;
+  quality: RenderQualityType;
+  fps: RenderFpsType;
+  format: RenderFormatType;
+  audio_mastering: AudioMasteringType;
+}
+
 export interface Project {
   id: number;
   title: string;

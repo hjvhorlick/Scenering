@@ -39,7 +39,12 @@
  *   Scenering chooses how the video needs to be encoded.
  */
 
-import type { AspectRatioType, ResolutionType } from "../types";
+import type {
+  AspectRatioType,
+  ResolutionType,
+  RenderProfileSettings,
+  PublishDestinationType,
+} from "../types";
 
 /* ========================================================================== *
  * 1. TYPES
@@ -216,7 +221,7 @@ export function resolutionToken(width: number, height: number): string {
  * ========================================================================== */
 
 interface QualityLevel {
-  id: EncodingQuality;
+  id: Exclude<EncodingQuality, "custom">;
   name: string;
   blurb: string;
   /** kbps at 1920×1080 @ 30fps — every other size scales from this anchor. */
@@ -799,6 +804,51 @@ export function queueStatusForProgress(progress: number): RenderQueueStatus {
   if (progress < 0.96) return "encoding";
   if (progress < 1) return "finalizing";
   return "ready";
+}
+
+/* ========================================================================== *
+ * 10. PROJECT-LEVEL RENDER SETTINGS (chosen once, in Project Setup)
+ * ========================================================================== */
+
+/** What a brand-new project renders as, with zero choices made:
+ *  YouTube-ready 1080p · High · 30 FPS CFR · H.264/AAC MP4 · mastered. */
+export const DEFAULT_RENDER_PROFILE_SETTINGS: RenderProfileSettings = {
+  destination: "youtube",
+  quality: "high",
+  fps: 30,
+  format: "mp4",
+  audio_mastering: "automatic",
+};
+
+/** Old saved projects have no render settings — resolve them to defaults so
+ *  every consumer can rely on a complete object. */
+export function resolveRenderProfileSettings(
+  stored?: Partial<RenderProfileSettings> | null
+): RenderProfileSettings {
+  return { ...DEFAULT_RENDER_PROFILE_SETTINGS, ...(stored || {}) };
+}
+
+/** The canvas a destination preset implies. "custom" implies nothing — the
+ *  user drives aspect and resolution themselves in Advanced overrides. */
+export function destinationCanvas(
+  destination: PublishDestinationType
+): { aspect: AspectRatioType; resolution: ResolutionType } | null {
+  if (destination === "custom") return null;
+  const platform = getPlatformProfile(destination);
+  if (!platform) return null;
+  return { aspect: platform.aspect, resolution: "1080p" };
+}
+
+/** Human name for a destination ("Custom" for user-driven output). */
+export function destinationLabel(destination: PublishDestinationType): string {
+  if (destination === "custom") return "Custom";
+  return getPlatformProfile(destination)?.name || "Custom";
+}
+
+/** Short filename token for a destination ("Master" when custom). */
+export function destinationFileToken(destination: PublishDestinationType): string {
+  if (destination === "custom") return "Master";
+  return getPlatformProfile(destination)?.shortName || "Master";
 }
 
 /** Exact frame count of an export — duration × FPS, per the master timeline. */

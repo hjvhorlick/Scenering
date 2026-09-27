@@ -27,6 +27,9 @@ import {
   totalFrameCount,
   getPlatformProfile,
   masterLabelForAspect,
+  resolveRenderProfileSettings,
+  destinationCanvas,
+  destinationFileToken,
 } from "../src/lib/render-profile";
 import {
   duckTargetForVoiceLevel,
@@ -267,27 +270,60 @@ for (let level = 0; level <= 0.4; level += 0.01) {
 t.ok(duckTimeConstant(1, 0.4) < duckTimeConstant(0.4, 1), "duck attack is faster than release");
 
 /* ---------------- render screen regression guards ----------------
- * The multi-platform queue renders several masters back-to-back. The first
- * shipped version swapped the <canvas> out of the DOM for the finished
- * <video> player, so every master after the first failed with "canvas not
- * available". These static guards keep the canvas permanently mounted. */
+ * (1) An early version swapped the <canvas> out of the DOM for the finished
+ * <video> player, so every render after the first failed with "canvas not
+ * available" — the canvas must stay permanently mounted.
+ * (2) All output CHOICES live in Project Setup; the render screen is a
+ * read-only executor. These guards keep choice UI from creeping back in. */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 const renderViewSrc = readFileSync(
   fileURLToPath(new URL("../src/components/RenderView.tsx", import.meta.url)),
   "utf8"
 );
+const setupStudioSrc = readFileSync(
+  fileURLToPath(new URL("../src/components/SetupStudio.tsx", import.meta.url)),
+  "utf8"
+);
 t.ok(
   !/renderedUrl && !isRendering \? \(/.test(renderViewSrc),
-  "the render canvas is never conditionally replaced by the player (queue renders need it mounted)"
+  "the render canvas is never conditionally replaced by the player (re-renders need it mounted)"
 );
 t.ok(
   /ref=\{canvasRef\}/.test(renderViewSrc),
   "the render canvas element exists"
 );
+// One render at a time, chosen in Setup: no multi-platform queue and no
+// settings pickers on the render screen.
 t.ok(
-  /lastRenderErrorRef\.current \|\| "Render failed"/.test(renderViewSrc),
-  "a failed queue row reports WHY the master failed"
+  !/runPlatformQueue|togglePlatform|selectedPlatforms/.test(renderViewSrc),
+  "the render screen has no multi-platform queue"
 );
+t.ok(
+  !/onUpdateRenderProfile/.test(renderViewSrc),
+  "the render screen never edits the render profile (read-only summary)"
+);
+t.ok(
+  /destinationFileToken\(renderProfile\.destination\)/.test(renderViewSrc),
+  "filenames carry the destination chosen in Setup"
+);
+t.ok(
+  /pickDestination/.test(setupStudioSrc) && /QUALITY_LEVELS/.test(setupStudioSrc),
+  "destination and quality presets live in Project Setup"
+);
+
+// ---- Setup-owned render profile helpers --------------------------------
+const resolved = resolveRenderProfileSettings(undefined);
+t.eq(resolved.destination, "youtube", "legacy projects default to the YouTube destination");
+t.eq(resolved.quality, "high", "legacy projects default to High quality");
+const partial = resolveRenderProfileSettings({ destination: "tiktok" } as never);
+t.eq(partial.destination, "tiktok", "stored destination survives resolving");
+t.eq(partial.format, "mp4", "missing fields fall back to the master defaults");
+const tiktokCanvas = destinationCanvas("tiktok");
+t.eq(tiktokCanvas?.aspect, "9:16", "TikTok destination sets a vertical canvas");
+t.eq(tiktokCanvas?.resolution, "1080p", "platform destinations pin 1080p");
+t.eq(destinationCanvas("custom"), null, "custom destination leaves the canvas alone");
+t.eq(destinationFileToken("youtube_shorts"), "Shorts", "filename token uses the platform short name");
+t.eq(destinationFileToken("custom"), "Master", "custom output files are Master files");
 
 t.done("render-profile");
