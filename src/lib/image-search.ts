@@ -21,6 +21,7 @@ import {
   VISIBLE_CANDIDATES,
   type ImageCandidate,
 } from "./image-picker";
+import { filterPhotoLikeCandidates } from "./image-analysis";
 
 export {
   VISIBLE_CANDIDATES,
@@ -43,8 +44,11 @@ export interface ResearchOptions {
   signal?: AbortSignal;
 }
 
-/** Build the proxied URL the rest of the app expects for an image. */
+/** Build the proxied URL the rest of the app expects for an image.
+ *  Same-origin paths (the bundled nature library) are returned untouched —
+ *  they are served straight from /public and never need the proxy. */
 export function proxyImageUrl(url: string): string {
+  if (url.startsWith("/")) return url;
   return `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(url)}`;
 }
 
@@ -77,6 +81,24 @@ async function fetchPool(
 }
 
 /**
+ * Ask the server for the candidate pool behind a query, then keep only the
+ * images that are genuinely photographic.
+ *
+ * The server already enforces the hard rules (16:9, ≥1920×1080); this half
+ * adds the visual check — black-and-white shots, diagrams, scans and flat
+ * artwork are recognised from their thumbnails and dropped, so nothing but
+ * photo-like pictures can reach a scene.
+ */
+export async function searchImagePool(
+  query: string,
+  options: ResearchOptions = {}
+): Promise<ImageCandidate[]> {
+  const pool = await fetchPool(query, options);
+  if (pool.length === 0) return [];
+  return filterPhotoLikeCandidates(pool, { proxy: proxyImageUrl });
+}
+
+/**
  * Candidates for the inline research block: a dozen photos, biased hard
  * towards ones never shown before.
  *
@@ -87,7 +109,7 @@ export async function researchImages(
   query: string,
   options: ResearchOptions = {}
 ): Promise<ImageCandidate[]> {
-  const pool = await fetchPool(query, options);
+  const pool = await searchImagePool(query, options);
   if (pool.length === 0) return [];
 
   const chosen = selectFreshCandidates(pool, VISIBLE_CANDIDATES);
@@ -104,7 +126,7 @@ export async function replaceImage(
   query: string,
   options: ResearchOptions = {}
 ): Promise<ImageCandidate | null> {
-  const pool = await fetchPool(query, options);
+  const pool = await searchImagePool(query, options);
   if (pool.length === 0) return null;
 
   const pick = pickOneFreshCandidate(pool);

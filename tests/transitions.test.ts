@@ -1,4 +1,4 @@
-import { createHarness } from "./harness";
+import { createHarness, createStubContext } from "./harness";
 import {
   TRANSITION_OPTIONS,
   getTransitionDuration,
@@ -217,6 +217,52 @@ for (const transType of ["fade", "slide", "crossfade", "none"] as SceneTransitio
       `Global transition '${globalTrans}' applies across all scenes in the video`
     );
   }
+}
+
+// ---------------------------------------------------- first frame is never black
+// The opening scene has nothing to transition FROM. Running a transition
+// there faded the first image up from black — a black slide before the video
+// "started". It must draw the image immediately instead.
+{
+  const scene: Scene = {
+    id: 1,
+    project_id: 1,
+    order_index: 0,
+    text: "Opening",
+    image_query: "",
+    image_url: "https://example.com/a.jpg",
+    duration: 10,
+    transition: "fade",
+  };
+  const img = { naturalWidth: 1600, naturalHeight: 900 } as any;
+  for (const type of ["fade", "crossfade", "slide"] as SceneTransitionType[]) {
+    const handled = drawSceneTransition(
+      createStubContext().ctx as any,
+      { ...scene, transition: type },
+      img,
+      null, // no previous scene: this is the first scene of the video
+      null,
+      0.01, // right at the start of the scene
+      10,
+      1920,
+      1080
+    );
+    h.ok(!handled, `first scene with ${type} transition draws immediately (no black fade-in)`);
+  }
+  // With a previous scene the transition still runs as designed.
+  const prev: Scene = { ...scene, id: 0, image_url: "https://example.com/b.jpg" };
+  const handledWithPrev = drawSceneTransition(
+    createStubContext().ctx as any,
+    { ...scene, transition: "crossfade" },
+    img,
+    prev,
+    img,
+    0.1,
+    10,
+    1920,
+    1080
+  );
+  h.ok(handledWithPrev, "transition between two scenes still runs");
 }
 
 h.done("transitions");

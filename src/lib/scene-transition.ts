@@ -72,6 +72,14 @@ export function drawSceneTransition(
     return false;
   }
 
+  // The FIRST scene of the video has nothing to transition from. Running a
+  // transition there meant fading the opening image up from black — a black
+  // slide before the video "starts". The first image is shown immediately
+  // instead, at full strength.
+  if (!prevScene || !prevImg || prevImg.naturalWidth <= 0) {
+    return false;
+  }
+
   const transDuration = getTransitionDuration(sceneDuration);
   if (elapsedInScene >= transDuration) {
     return false;

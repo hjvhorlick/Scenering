@@ -634,6 +634,7 @@ export function generateAttributionDocument(options: {
   voiceGender?: string;
   voiceAccent?: string;
   voiceEngine?: string;
+  graphicsUsed?: string[];
 }): string {
   const {
     projectTitle = "My Video Project",
@@ -645,6 +646,7 @@ export function generateAttributionDocument(options: {
     voiceGender,
     voiceAccent,
     voiceEngine,
+    graphicsUsed = [],
   } = options;
 
   const dateStr = new Date().toISOString().split("T")[0];
@@ -698,7 +700,7 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
 
   // 2. Sound Effects Attribution
   const relevantSounds = SOUND_LIBRARY.filter(
-    (s) => soundsUsed.length === 0 || soundsUsed.includes(s.id) || soundsUsed.includes(s.url)
+    (s) => soundsUsed.includes(s.id) || soundsUsed.includes(s.url)
   );
 
   if (relevantSounds.length > 0) {
@@ -714,13 +716,15 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
     });
   }
 
-  // 3. 3D Graphics & Visual Overlays
-  doc += `🎨 3D GRAPHICS & VISUAL ELEMENTS:
+  // 3. 3D Graphics & Visual Overlays — only the assets actually used
+  if (graphicsUsed.length > 0) {
+    doc += `🎨 3D GRAPHICS & VISUAL ELEMENTS:
 • High-Definition 3D Vector Assets created with Scenering 3D Vector Engine
-  Included assets: 3D Golden Star, Ruby Heart, Volumetric Fire, Golden Bell, Diamond Sparkle, Trending Rocket
+  Included assets: ${graphicsUsed.join(", ")}
   License: Free for commercial and personal video production.
 
 `;
+  }
 
   // 4. Stock Photography & Footage
   if (imageSources && imageSources.length > 0) {

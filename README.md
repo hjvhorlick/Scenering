@@ -41,6 +41,11 @@ Narration falls back in that order automatically, so it never hard-fails — if
 every option is unavailable you get a silent track of the right length and the
 video still renders.
 
+Image search has a hard quality gate: only photo-like images are used (no
+black-and-white shots, diagrams or flat artwork — thumbnails are analysed
+pixel-by-pixel), and every image that reaches a scene is 16:9 and at least
+1920×1080, so a 1080p render never upscales its footage.
+
 ## Themes
 
 The app ships with five switchable looks — click the **🎨 Theme** button in
@@ -97,6 +102,23 @@ single source of truth for their job:
 - **`render-effects.ts`** — `getMotionTransform()` drives all camera motion.
 - **`text-art.ts`** / **`render-text-template.ts`** — title lettering and the
   29 text templates.
+- **`frame-ticker.ts`** — the export's frame pacing. `requestAnimationFrame`
+  while the tab is visible (true vsync cadence), a Web Worker timer while it
+  is hidden (page timers get throttled to ~1Hz in background tabs), and a
+  watchdog if both stall. This is why the Ken Burns glides instead of
+  stuttering in the recorded file.
+- **`word-sync.ts`** — word-level caption timing. The TTS engine reports the
+  spoken offset of every word; the karaoke highlight follows the voice itself
+  rather than an estimate of it.
+- **`duration-utils.ts`** — `sceneTimelineDuration()` is the one scene-length
+  formula, shared by the live preview and the export so scene cuts, audio
+  starts and caption flips land on the same moment in both.
+- **`image-candidates.ts`** — the image-search quality gate. Only
+  photographic sources pass, and every delivered image is 16:9 and at least
+  1920×1080 (Pexels is served as an exact 1920×1080 crop), so nothing is ever
+  upscaled into a 1080p render. `image-analysis.ts` adds the visual half:
+  black-and-white shots, diagrams and flat artwork are recognised from their
+  thumbnails and dropped.
 
 ## UI conventions
 

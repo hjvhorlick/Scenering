@@ -1,6 +1,7 @@
 import { EDGE_FUNCTION_BASE } from "./supabase";
 import type { Scene } from "../types";
 import { sanitizeTextForSpeech } from "./speech-sanitizer";
+import type { WordTiming } from "./word-sync";
 
 export interface CachedAudioItem {
   audioBuffer: AudioBuffer;
@@ -10,6 +11,13 @@ export interface CachedAudioItem {
   text: string;
   rawBuffer?: ArrayBuffer;
   blob?: Blob;
+  /**
+   * Per-word spoken timings from the TTS engine, when the narration was
+   * synthesised with word boundaries. This is what lets the karaoke captions
+   * highlight each word at the exact moment the voice says it — and it is why
+   * the timings travel with the audio through every cache layer.
+   */
+  words?: WordTiming[];
 }
 
 // In-memory global cache for synthesized speech audio
@@ -41,7 +49,15 @@ function openVoiceoverDB(): Promise<IDBDatabase | null> {
   });
 }
 
-async function persistAudioToIDB(key: string, sceneId: number, rawBuffer: ArrayBuffer, voiceId: string, text: string, duration: number) {
+async function persistAudioToIDB(
+  key: string,
+  sceneId: number,
+  rawBuffer: ArrayBuffer,
+  voiceId: string,
+  text: string,
+  duration: number,
+  words?: WordTiming[]
+) {
   try {
     const db = await openVoiceoverDB();
     if (!db) return;
@@ -54,12 +70,15 @@ async function persistAudioToIDB(key: string, sceneId: number, rawBuffer: ArrayB
       voiceId,
       text,
       duration,
+      words: words && words.length > 0 ? words : undefined,
       updatedAt: Date.now(),
     });
   } catch {}
 }
 
-async function loadAudioFromIDB(key: string): Promise<{ rawBuffer: ArrayBuffer; duration: number; voiceId: string; text: string } | null> {
+async function loadAudioFromIDB(
+  key: string
+): Promise<{ rawBuffer: ArrayBuffer; duration: number; voiceId: string; text: string; words?: WordTiming[] } | null> {
   try {
     const db = await openVoiceoverDB();
     if (!db) return null;
@@ -119,8 +138,8 @@ export function setCachedSceneAudio(sceneId: number, voiceId: string, text: stri
     urlAudioCache.set(item.blobUrl, item);
   }
   if (item.rawBuffer) {
-    persistAudioToIDB(key, sceneId, item.rawBuffer.slice(0), voiceId, text, item.duration);
-    persistAudioToIDB(`scene_${sceneId}`, sceneId, item.rawBuffer.slice(0), voiceId, text, item.duration);
+    persistAudioToIDB(key, sceneId, item.rawBuffer.slice(0), voiceId, text, item.duration, item.words);
+    persistAudioToIDB(`scene_${sceneId}`, sceneId, item.rawBuffer.slice(0), voiceId, text, item.duration, item.words);
   }
 }
 
@@ -131,7 +150,7 @@ export function setCachedSceneAudio(sceneId: number, voiceId: string, text: stri
 export async function resolveSceneAudioBuffer(
   scene: Scene,
   audioCtx: AudioContext
-): Promise<{ buffer: AudioBuffer; duration: number; url: string } | null> {
+): Promise<{ buffer: AudioBuffer; duration: number; url: string; words?: WordTiming[] } | null> {
   const text = (scene.text || "").trim();
   const voiceId = scene.voice_id || "guy";
   const key = getAudioCacheKey(scene.id, voiceId, text);
@@ -145,6 +164,7 @@ export async function resolveSceneAudioBuffer(
         buffer: cached.audioBuffer,
         duration: cached.duration || cached.audioBuffer.duration,
         url: cached.blobUrl,
+        words: cached.words,
       };
     }
     // If sample rates differ, decode the rawBuffer locally with zero network latency
@@ -155,6 +175,7 @@ export async function resolveSceneAudioBuffer(
           buffer: decoded,
           duration: decoded.duration,
           url: cached.blobUrl,
+          words: cached.words,
         };
       } catch {}
     }
@@ -175,9 +196,10 @@ export async function resolveSceneAudioBuffer(
         text: fromIdb.text || text,
         rawBuffer: fromIdb.rawBuffer,
         blob,
+        words: fromIdb.words,
       };
       setCachedSceneAudio(scene.id, voiceId, text, item);
-      return { buffer: decoded, duration: decoded.duration, url: blobUrl };
+      return { buffer: decoded, duration: decoded.duration, url: blobUrl, words: fromIdb.words };
     }
   } catch {}
 
@@ -205,6 +227,46 @@ export async function resolveSceneAudioBuffer(
   }
 
   return null;
+}
+
+/**
+ * Fetches narration with the per-word spoken timeline from the TTS API.
+ *
+ * Returns null when the request fails or comes back without usable audio —
+ * callers then fall back to the plain audio request or a silent buffer.
+ */
+export async function fetchSceneAudioWithTimeline(
+  text: string,
+  voice: string,
+  opts: { timeoutMs?: number; signal?: AbortSignal } = {}
+): Promise<{ rawBuffer: ArrayBuffer; mimeType: string; words: WordTiming[] } | null> {
+  const cleanText = (text || "").trim();
+  if (!cleanText) return null;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), opts.timeoutMs ?? 20000);
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: cleanText, voice, withTimeline: true }),
+      signal: opts.signal ?? controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) return null;
+    const data = await res.json();
+    if (!data?.audio) return null;
+    const rawBuffer = Uint8Array.from(atob(String(data.audio)), (c) => c.charCodeAt(0)).buffer;
+    const words = Array.isArray(data.words)
+      ? (data.words as WordTiming[]).filter(
+          (w) => w && typeof w.start === "number" && Number.isFinite(w.start) && typeof w.text === "string"
+        )
+      : [];
+    return { rawBuffer, mimeType: data.mimeType || "audio/mpeg", words };
+  } catch {
+    return null;
+  }
 }
 
 // Pre-generate and cache TTS audio for all scenes in memory
@@ -261,22 +323,11 @@ export async function pregenerateAllScenesAudio(
         }
       }
 
-      // 2. Synthesize via /api/tts
-      const cleanText = sanitizeTextForSpeech(text);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: cleanText, voice: voiceId }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const arrayBuf = await res.arrayBuffer();
-        const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-        const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+      // 2. Synthesize via /api/tts (with the word timeline for captions)
+      const withTimeline = await fetchSceneAudioWithTimeline(text, voiceId, { timeoutMs: 15000 });
+      if (withTimeline) {
+        const decoded = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
+        const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
         const blobUrl = URL.createObjectURL(blob);
 
         const item: CachedAudioItem = {
@@ -285,12 +336,44 @@ export async function pregenerateAllScenesAudio(
           duration: decoded.duration,
           voiceId,
           text,
-          rawBuffer: arrayBuf,
+          rawBuffer: withTimeline.rawBuffer,
           blob,
+          words: withTimeline.words,
         };
 
         setCachedSceneAudio(scene.id, voiceId, text, item);
         results.set(scene.id, item);
+      } else {
+        const cleanText = sanitizeTextForSpeech(text);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: cleanText, voice: voiceId }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const arrayBuf = await res.arrayBuffer();
+          const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+          const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+          const blobUrl = URL.createObjectURL(blob);
+
+          const item: CachedAudioItem = {
+            audioBuffer: decoded,
+            blobUrl,
+            duration: decoded.duration,
+            voiceId,
+            text,
+            rawBuffer: arrayBuf,
+            blob,
+          };
+
+          setCachedSceneAudio(scene.id, voiceId, text, item);
+          results.set(scene.id, item);
+        }
       }
     } catch (err) {
       console.warn(`Background audio cache failed for scene ${scene.id}:`, err);

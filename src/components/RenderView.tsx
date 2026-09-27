@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, EditorStep, ResolutionType, PacingModeType } from "../types";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
-import { createProjectZip } from "../lib/zip-download";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
@@ -12,8 +11,14 @@ import {
 } from "../lib/render-effects";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
-import { resolveSceneAudioBuffer, setCachedSceneAudio } from "../lib/tts-cache";
-import { formatDuration } from "../lib/duration-utils";
+import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
+import type { WordTiming } from "../lib/word-sync";
+import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
+import { loadSceneImage } from "../lib/scene-image-loader";
+import { resolveLegacyLocalImage } from "../lib/nature-library-compat";
+import { STICKER_LIBRARY } from "../lib/sticker-3d";
+import { isMaleVoiceIdentifier } from "../lib/tts-player";
+import { formatDuration, sceneTimelineDuration, NARRATION_LEAD_IN_SECONDS } from "../lib/duration-utils";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument, getBackgroundMusicTrack, AMBIENT_STYLE_TO_TRACK } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
@@ -129,7 +134,9 @@ export function generateSrtSubtitles(scenes: Scene[]): string {
     return `${pad(hrs)}:${pad(mins)}:${pad(secs)},${pad(ms, 3)}`;
   };
 
-  let acc = 0;
+  // The video opens with the first image held for the narration lead-in
+  // before the first words are spoken, so the subtitle clock starts there.
+  let acc = NARRATION_LEAD_IN_SECONDS;
   return scenes
     .filter(sceneHasVisual)
     .map((s, i) => {
@@ -206,7 +213,16 @@ export default function RenderView({
   const [renderStage, setRenderStage] = useState("");
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(propRenderedBlob || null);
   const [renderedUrl, setRenderedUrl] = useState<string | null>(propRenderedUrl || null);
+  /** The container the finished render was ACTUALLY recorded in. The download
+   *  extension always matches this — a mislabelled file is what made the
+   *  download "not work" before. */
+  const [renderedContainer, setRenderedContainer] = useState<"mp4" | "webm">("webm");
+  /** Format button currently being re-rendered, if any. */
+  const [convertingFormat, setConvertingFormat] = useState<"mp4" | "webm" | "mov" | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
+  /** How many scene photos had to be replaced by placeholder cards in the
+   *  last render — surfaced so a dead image URL is never silent again. */
+  const [imageFallbackCount, setImageFallbackCount] = useState(0);
 
   // ---- The Vault: finished renders waiting to be downloaded -----------
   const [vaultRenders, setVaultRenders] = useState<VaultRender[]>([]);
@@ -273,10 +289,134 @@ export default function RenderView({
     if (propRenderedUrl) setRenderedUrl(propRenderedUrl);
   }, [propRenderedBlob, propRenderedUrl]);
 
-  // ZIP export state
-  const [isZipping, setIsZipping] = useState(false);
-  const [zipProgress, setZipProgress] = useState(0);
-  const [zipStatus, setZipStatus] = useState("");
+  /**
+   * Idle canvas painter — the render screen shows the project's own imagery.
+   *
+   * The canvas used to stay black until "Start Video Render" was pressed,
+   * which read as "no images in the render". It now plays the first scene
+   * with the same framing, motion, filter and caption engine the export uses
+   * (all the shared modules), looping gently like the live preview. It stops
+   * the moment a real render starts — the render loop owns the canvas then.
+   */
+  useEffect(() => {
+    if (isRendering || renderedUrl) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const { width, height } = getDimensions(settings.resolution);
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const first = scenesWithImages[0];
+    if (!first) {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, width, height);
+      return;
+    }
+
+    let cancelled = false;
+    let rafId = 0;
+    let startedAt = 0;
+    const LOOP_SECONDS = 14;
+
+    const paint = (progress: number) => {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, width, height);
+
+      if (sceneIsBlankColor(first) && first.blank_color) {
+        ctx.save();
+        try { ctx.filter = "none"; } catch {}
+        ctx.fillStyle = first.blank_color;
+        ctx.fillRect(0, 0, width, height);
+        ctx.restore();
+      } else if (idleImgRef.current && idleImgRef.current.naturalWidth > 0) {
+        const { scale, dx, dy } = getMotionTransform(
+          first.motion_effect,
+          progress,
+          width,
+          height,
+          0
+        );
+        const safeScale = isNaN(scale) ? 1 : scale;
+        const safeDx = isNaN(dx) ? 0 : dx;
+        const safeDy = isNaN(dy) ? 0 : dy;
+        try {
+          drawSceneImage(ctx, idleImgRef.current, first, width, height, {
+            motionScale: safeScale,
+            motionDx: safeDx + (width * safeScale - width) / 2,
+            motionDy: safeDy + (height * safeScale - height) / 2,
+            filter: getFilterCanvas(videoFilter, width),
+          });
+        } catch {}
+        try { ctx.filter = "none"; } catch {}
+      }
+
+      try {
+        paintVideoFilter(ctx, videoFilter, width, height, progress * LOOP_SECONDS);
+      } catch {}
+
+      // Watermark + brand logo, same placement as the export
+      if (watermarkImgRef.current && watermarkImgRef.current.naturalWidth > 0) {
+        ctx.save();
+        const scaleRatio = width / 1280;
+        const wmWidth = Math.max(20, Math.round(180 * scaleRatio));
+        const wmHeight = Math.max(
+          10,
+          Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth))
+        );
+        ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+        ctx.shadowBlur = 8 * scaleRatio;
+        ctx.shadowOffsetY = 2 * scaleRatio;
+        ctx.drawImage(watermarkImgRef.current, Math.round(24 * scaleRatio), Math.round(20 * (height / 720)), wmWidth, wmHeight);
+        ctx.restore();
+      }
+
+      if (settings.includeSubtitles && first.text) {
+        try {
+          renderCanvasCaptions(
+            ctx,
+            first.text,
+            progress,
+            captionsConfig || DEFAULT_CAPTIONS_CONFIG,
+            width,
+            height
+          );
+        } catch {}
+      }
+    };
+
+    const tick = (now: number) => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+      if (!startedAt) startedAt = now;
+      const progress = ((now - startedAt) / 1000 / LOOP_SECONDS) % 1;
+      paint(progress);
+      rafId = requestAnimationFrame(tick);
+    };
+
+    void loadCaptionFonts().then(() => {
+      if (cancelled) return;
+      // Load through the shared loader: a failed photo shows the gradient
+      // card exactly like the preview, never a black canvas.
+      loadSceneImage(first.image_url || "", 0).then((res) => {
+        if (cancelled) return;
+        idleImgRef.current = res ? res.img : null;
+        paint(0.35);
+        rafId = requestAnimationFrame(tick);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (rafId && typeof cancelAnimationFrame === "function") cancelAnimationFrame(rafId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRendering, renderedUrl, scenesWithImages, videoFilter, settings.resolution, settings.includeSubtitles, captionsConfig, aspectRatio, propResolution]);
 
   // Attribution state - default collapsed ("do not open it yet")
   const [copiedAttribution, setCopiedAttribution] = useState(false);
@@ -288,6 +428,12 @@ export default function RenderView({
   const watermarkImgRef = useRef<HTMLImageElement | null>(null);
   const customerLogoImgRef = useRef<HTMLImageElement | null>(null);
   const abortControllerRef = useRef<boolean>(false);
+  /** Frame pacing for the export — vsync-locked, worker-driven when hidden. */
+  const frameTickerRef = useRef<FrameTicker | null>(null);
+  /** Image behind the idle render-canvas painter. */
+  const idleImgRef = useRef<HTMLImageElement | null>(null);
+  /** Format ("mp4" | "webm" | "mov") a button asked to re-render and save. */
+  const pendingDownloadRef = useRef<"mp4" | "webm" | "mov" | null>(null);
 
   // Pre-load watermark logo image
   useEffect(() => {
@@ -302,7 +448,7 @@ export default function RenderView({
   useEffect(() => {
     const logoUrl = customerLogo?.url;
     if (logoUrl) {
-      loadImage(logoUrl, 6000).then((img) => {
+      loadImage(logoUrl).then((img) => {
         customerLogoImgRef.current = img;
       });
     } else {
@@ -343,61 +489,16 @@ export default function RenderView({
     return { width: 1920, height: 1080, label: "1920 × 1080 (1080p Full HD)", aspectClass: "aspect-video" };
   };
 
-  // Safe image URL resolver - routes external images through server proxy to ensure clean CORS & prevent canvas tainting
-  const getSafeImageUrl = (url: string): string => {
-    if (!url) return "";
-    if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("/")) {
-      return url;
-    }
-    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
-  };
-
-  // Image preloader helper with timeout and proxy fallback
-  const loadImage = (url: string, timeoutMs: number = 8000): Promise<HTMLImageElement | null> => {
-    return new Promise((resolve) => {
-      if (!url) return resolve(null);
-      const safeUrl = getSafeImageUrl(url);
-      const img = new Image();
-      if (!safeUrl.startsWith("data:") && !safeUrl.startsWith("blob:")) {
-        img.crossOrigin = "anonymous";
-      }
-      let settled = false;
-
-      const timer = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          resolve(null);
-        }
-      }, timeoutMs);
-
-      img.onload = () => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          resolve(img);
-        }
-      };
-
-      img.onerror = () => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          // If safeUrl wasn't proxied yet, try proxy once
-          if (!safeUrl.startsWith("/api/proxy-image") && !safeUrl.startsWith("data:") && !safeUrl.startsWith("blob:")) {
-            const proxyImg = new Image();
-            proxyImg.crossOrigin = "anonymous";
-            proxyImg.onload = () => resolve(proxyImg);
-            proxyImg.onerror = () => resolve(null);
-            proxyImg.src = `/api/proxy-image?url=${encodeURIComponent(url)}`;
-          } else {
-            resolve(null);
-          }
-        }
-      };
-
-      img.src = safeUrl;
-    });
-  };
+  /**
+   * Scene images and logos load through the ONE shared loader
+   * (src/lib/scene-image-loader.ts) — the same loader the live preview uses.
+   * A scene photo that cannot be loaded resolves the preview's gradient
+   * "Scene N" card instead of null, so the exported video can never show a
+   * black frame where the preview showed a picture. Logos opt out of the
+   * fallback (a missing watermark should simply not be drawn).
+   */
+  const loadImage = (url: string): Promise<HTMLImageElement | null> =>
+    loadSceneImage(url, 0, { fallback: "none" }).then((r) => r?.img ?? null);
 
   // Synthesize ambient music loop using Web Audio API (fast 3-second seamless loop to avoid UI thread blocking)
   const createAmbientMusicNode = (
@@ -474,7 +575,10 @@ export default function RenderView({
   };
 
   // ------ RENDER VIDEO HANDLER ------
-  const handleStartRender = async () => {
+  // targetFormat records into that container: "mp4" (H.264 + AAC — the social
+  // standard), "webm" (VP9/VP8 + Opus), or "mov" (the same H.264/AAC stream
+  // saved with the QuickTime .mov extension). Omitted → the configured format.
+  const handleStartRender = async (targetFormat?: "mp4" | "webm" | "mov") => {
     if (scenesWithImages.length === 0 || isRendering) return;
 
     setIsRendering(true);
@@ -530,7 +634,7 @@ export default function RenderView({
         await audioCtx.resume();
       }
 
-      const audioBuffers = new Map<number, { buffer: AudioBuffer; duration: number }>();
+      const audioBuffers = new Map<number, { buffer: AudioBuffer; duration: number; words?: WordTiming[] }>();
       for (let i = 0; i < scenesWithImages.length; i++) {
         if (abortControllerRef.current) throw new Error("Render cancelled");
         const s = scenesWithImages[i];
@@ -539,23 +643,15 @@ export default function RenderView({
         // 1. Resolve directly from the saved voiceover section (memory, IndexedDB, or audio_url)
         let resolved = await resolveSceneAudioBuffer(s, audioCtx);
 
-        // 2. Only if the scene was never generated, synthesize via /api/tts
+        // 2. Only if the scene was never generated, synthesize via /api/tts.
+        //    The timeline variant carries the per-word spoken timings, which is
+        //    what locks the karaoke captions to the voice word-for-word.
         if (!resolved) {
           try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 12000);
-            const res = await fetch("/api/tts", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: s.text, voice: sceneVoice }),
-              signal: controller.signal,
-            });
-            clearTimeout(timeoutId);
-
-            if (res.ok) {
-              const arrayBuf = await res.arrayBuffer();
-              const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-              const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+            const withTimeline = await fetchSceneAudioWithTimeline(s.text || "", sceneVoice, { timeoutMs: 20000 });
+            if (withTimeline) {
+              const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
+              const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
               const blobUrl = URL.createObjectURL(blob);
               setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
                 audioBuffer,
@@ -563,18 +659,60 @@ export default function RenderView({
                 duration: audioBuffer.duration,
                 voiceId: sceneVoice,
                 text: (s.text || "").trim(),
-                rawBuffer: arrayBuf,
+                rawBuffer: withTimeline.rawBuffer,
                 blob,
+                words: withTimeline.words,
               });
-              resolved = { buffer: audioBuffer, duration: audioBuffer.duration, url: blobUrl };
+              resolved = {
+                buffer: audioBuffer,
+                duration: audioBuffer.duration,
+                url: blobUrl,
+                words: withTimeline.words,
+              };
             }
           } catch (e) {
             console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
           }
+          if (!resolved) {
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 12000);
+              const res = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: s.text, voice: sceneVoice }),
+                signal: controller.signal,
+              });
+              clearTimeout(timeoutId);
+
+              if (res.ok) {
+                const arrayBuf = await res.arrayBuffer();
+                const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+                const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+                const blobUrl = URL.createObjectURL(blob);
+                setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
+                  audioBuffer,
+                  blobUrl,
+                  duration: audioBuffer.duration,
+                  voiceId: sceneVoice,
+                  text: (s.text || "").trim(),
+                  rawBuffer: arrayBuf,
+                  blob,
+                });
+                resolved = { buffer: audioBuffer, duration: audioBuffer.duration, url: blobUrl };
+              }
+            } catch (e) {
+              console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
+            }
+          }
         }
 
         if (resolved) {
-          audioBuffers.set(s.id, { buffer: resolved.buffer, duration: resolved.duration });
+          audioBuffers.set(s.id, {
+            buffer: resolved.buffer,
+            duration: resolved.duration,
+            words: resolved.words && resolved.words.length > 0 ? resolved.words : undefined,
+          });
         } else {
           const sampleRate = audioCtx.sampleRate || 44100;
           const fallbackDur = getEffectiveSceneDuration(s);
@@ -590,9 +728,12 @@ export default function RenderView({
       reportStage("2/4: Loading high-resolution visuals & watermark...");
       reportProgress(0.28);
 
-      const images = await Promise.all(
-        scenesWithImages.map((s) => loadImage(s.image_url || ""))
+      const loadedSceneImages = await Promise.all(
+        scenesWithImages.map((s, i) => loadSceneImage(s.image_url || "", i))
       );
+      const images = loadedSceneImages.map((r) => (r ? r.img : null));
+      const fallbackCount = loadedSceneImages.filter((r) => r?.usedFallback).length;
+      setImageFallbackCount(fallbackCount);
 
       // Prepare any short video clips so their frames are decodable while the
       // canvas is being captured.
@@ -715,19 +856,45 @@ export default function RenderView({
         combinedStream = videoStream;
       }
 
-      // Select reliable recording MIME type: WebM VP9/VP8 with Opus audio is 100% stable
-      // across all browsers with WebAudio streams, whereas native MP4 recorder in Chromium fails with Opus
+      // Recording container. The requested format is honoured when the browser
+      // can record it, and the fallback is always HONEST: the download
+      // extension matches whatever was actually recorded. (Before, the
+      // recorder always produced WebM while the file was named .mp4 — the
+      // mislabelled file is why the download "did not work" in players.)
+      const MP4_MIMES = [
+        "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+        "video/mp4;codecs=avc1,mp4a.40.2",
+        "video/mp4",
+      ];
+      const WEBM_MIMES = [
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+        "video/webm",
+      ];
+      const wantedContainer: "mp4" | "webm" =
+        targetFormat === "webm"
+          ? "webm"
+          : targetFormat === "mp4" || targetFormat === "mov"
+          ? "mp4"
+          : settings.format === "webm"
+          ? "webm"
+          : "mp4";
       let mimeType = "";
-      if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")) {
-        mimeType = "video/webm;codecs=vp9,opus";
-      } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")) {
-        mimeType = "video/webm;codecs=vp8,opus";
-      } else if (MediaRecorder.isTypeSupported("video/webm")) {
-        mimeType = "video/webm";
-      } else if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1,mp4a.40.2")) {
-        mimeType = "video/mp4;codecs=avc1,mp4a.40.2";
-      } else if (MediaRecorder.isTypeSupported("video/mp4")) {
-        mimeType = "video/mp4";
+      for (const candidate of wantedContainer === "mp4" ? MP4_MIMES : WEBM_MIMES) {
+        if (MediaRecorder.isTypeSupported(candidate)) {
+          mimeType = candidate;
+          break;
+        }
+      }
+      if (!mimeType) {
+        // Browser cannot record the wanted container → use the other one and
+        // say so through the file extension (never a mislabelled file).
+        for (const candidate of wantedContainer === "mp4" ? WEBM_MIMES : MP4_MIMES) {
+          if (MediaRecorder.isTypeSupported(candidate)) {
+            mimeType = candidate;
+            break;
+          }
+        }
       }
 
       const bitrateMap = {
@@ -752,6 +919,10 @@ export default function RenderView({
         }
       }
 
+      const recordedContainer: "mp4" | "webm" = (recorder.mimeType || mimeType || "video/webm").includes("mp4")
+        ? "mp4"
+        : "webm";
+
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -770,6 +941,13 @@ export default function RenderView({
       const introDuration = introSec ? Math.max(0.5, introSec.duration) : 0;
       const outroDuration = outroSec ? Math.max(0.5, outroSec.duration) : 0;
 
+      // When the video opens directly on a scene (no intro section), the
+      // first image holds for a short lead-in before the first words are
+      // spoken — the narration used to begin ~0.1s in, too soon to take in
+      // the opening. An enabled intro section is its own opening, so the
+      // lead-in only applies without one.
+      const narrationLeadIn = introSec ? 0 : NARRATION_LEAD_IN_SECONDS;
+
       let timelineOffset = introDuration;
       const sceneSchedule = scenesWithImages.map((s, idx) => {
         const item = audioBuffers.get(s.id);
@@ -777,17 +955,25 @@ export default function RenderView({
           item && item.duration > 0.3
             ? item.duration
             : calculateDynamicDuration(s.text, s.audio_duration);
-        // Clean 0.25s breathing space after spoken voice narration before scene cut / transition
-        const sceneDur = Math.max(1.5, Math.round((speechDur + 0.25) * 10) / 10);
+        // The exact same scene-length formula the live preview uses
+        // (src/lib/duration-utils.ts → sceneTimelineDuration): one number for
+        // both, so the cut, the audio start and the caption flip all land on
+        // the same moment in the preview and in the exported file.
+        const sceneDur = sceneTimelineDuration(s, item ? item.duration : undefined);
+        // The first scene's window includes the lead-in; its narration (and
+        // captions) begin speechOffset seconds into that window.
+        const speechOffset = idx === 0 ? narrationLeadIn : 0;
+        const windowDur = sceneDur + speechOffset;
         const entry = {
           scene: s,
           index: idx,
           startTime: timelineOffset,
-          duration: sceneDur,
-          endTime: timelineOffset + sceneDur,
+          duration: windowDur,
+          endTime: timelineOffset + windowDur,
           speechDuration: speechDur,
+          speechOffset,
         };
-        timelineOffset += sceneDur;
+        timelineOffset += windowDur;
         return entry;
       });
 
@@ -892,7 +1078,7 @@ export default function RenderView({
             const source = audioCtx.createBufferSource();
             source.buffer = item.buffer;
             source.connect(voiceEchoGraph ? voiceEchoGraph.input : analyser);
-            source.start(renderAudioT0 + entry.startTime);
+            source.start(renderAudioT0 + entry.startTime + entry.speechOffset);
             scheduledSources.push(source);
           } catch (audioErr) {
             console.warn("Error scheduling scene audio:", audioErr);
@@ -937,15 +1123,25 @@ export default function RenderView({
       let lastProgressVal = 0.35;
       let lastResumeAttempt = 0;
 
-      // Frame drawing loop with robust error boundaries and background tab resilience
+      // Frame drawing loop with robust error boundaries and background tab resilience.
+      //
+      // Pacing comes from the shared frame ticker: requestAnimationFrame while
+      // the tab is visible (true vsync cadence — the exported motion glides),
+      // a Web Worker timer while it is hidden (page timers would be throttled
+      // to ~1Hz and the video would judder), and a watchdog if both stall.
+      // The previous loop raced a 16ms setTimeout against every rAF, and the
+      // resulting jitter was captured straight into the file: the Ken Burns
+      // read as choppy, jumping frames instead of a camera move.
       await new Promise<void>((resolveLoop) => {
         let isLoopFinished = false;
-        let backgroundTimerId: any = null;
+        const ticker = createFrameTicker(() => renderFrame());
+        frameTickerRef.current = ticker;
 
         const cleanupAndFinish = () => {
           if (isLoopFinished) return;
           isLoopFinished = true;
-          if (backgroundTimerId) clearTimeout(backgroundTimerId);
+          ticker.stop();
+          if (frameTickerRef.current === ticker) frameTickerRef.current = null;
           try {
             insertMixer?.stop();
           } catch {}
@@ -962,24 +1158,8 @@ export default function RenderView({
           resolveLoop();
         };
 
-        const scheduleNextFrame = () => {
-          if (isLoopFinished) return;
-          const animId = requestAnimationFrame(renderFrame);
-          // Backup timer so if user switches tabs and requestAnimationFrame throttles, the render never freezes
-          if (backgroundTimerId) clearTimeout(backgroundTimerId);
-          const frameInterval = Math.max(12, Math.floor(1000 / (settings.fps || 60)));
-          backgroundTimerId = setTimeout(() => {
-            cancelAnimationFrame(animId);
-            renderFrame();
-          }, frameInterval);
-        };
-
         const renderFrame = () => {
           if (isLoopFinished) return;
-          if (backgroundTimerId) {
-            clearTimeout(backgroundTimerId);
-            backgroundTimerId = null;
-          }
 
           if (abortControllerRef.current) {
             cleanupAndFinish();
@@ -1054,7 +1234,6 @@ export default function RenderView({
                   });
               }
 
-              scheduleNextFrame();
               return;
             }
 
@@ -1088,7 +1267,6 @@ export default function RenderView({
                 return;
               }
 
-              scheduleNextFrame();
               return;
             }
 
@@ -1112,11 +1290,15 @@ export default function RenderView({
             const currentSceneIdx = activeEntry.index;
             const elapsedInScene = Math.max(0, currentGlobalTime - activeEntry.startTime);
             const progressInScene = Math.min(1, elapsedInScene / Math.max(0.1, activeEntry.duration));
-            // speechProgress reaches 1.0 at the exact moment spoken narration completes
+            // speechProgress reaches 1.0 at the exact moment spoken narration
+            // completes. The first scene's speech begins speechOffset seconds
+            // in (the opening lead-in), so both the progress and the
+            // word-locked timing are measured from that moment.
             const activeSpokenDuration = Math.max(0.4, activeEntry.speechDuration);
+            const speechElapsed = Math.max(0, elapsedInScene - activeEntry.speechOffset);
             const speechProgress = Math.min(
               1,
-              Math.max(0, elapsedInScene / Math.max(0.1, activeSpokenDuration))
+              Math.max(0, speechElapsed / Math.max(0.1, activeSpokenDuration))
             );
 
             // --- Draw background ---
@@ -1315,7 +1497,9 @@ export default function RenderView({
             }
 
             // --- Subtitle & Caption Rendering (Speech Synchronized) ---
-            if (settings.includeSubtitles && currentScene.text) {
+            // Held back through the opening lead-in so the captions appear
+            // exactly when the voice starts speaking.
+            if (settings.includeSubtitles && currentScene.text && elapsedInScene >= activeEntry.speechOffset) {
               try {
                 const activeCaptionsConfig: CaptionsConfig = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
 
@@ -1325,7 +1509,13 @@ export default function RenderView({
                   speechProgress,
                   activeCaptionsConfig,
                   width,
-                  height
+                  height,
+                  {
+                    // Real per-word spoken timings: the highlight follows the
+                    // voice itself, not an estimate of it.
+                    wordTimings: audioBuffers.get(currentScene.id)?.words,
+                    audioTimeSec: speechElapsed,
+                  }
                 );
               } catch (capErr) {
                 console.warn("Captions render notice:", capErr);
@@ -1370,15 +1560,12 @@ export default function RenderView({
                 console.warn("Timeline inserts notice:", insertsErr);
               }
             }
-
-            scheduleNextFrame();
           } catch (frameErr) {
             console.error("Frame render recoverable error:", frameErr);
-            scheduleNextFrame();
           }
         };
 
-        scheduleNextFrame();
+        ticker.start(settings.fps);
       });
 
       // 4. Encoding stream & packaging
@@ -1391,6 +1578,8 @@ export default function RenderView({
       const url = URL.createObjectURL(finalBlob);
       setRenderedBlob(finalBlob);
       setRenderedUrl(url);
+      setRenderedContainer(recordedContainer);
+      setSettings((s) => ({ ...s, format: recordedContainer }));
       reportProgress(1);
       reportStage("Render Complete! 🎉");
       onRenderSuccess?.(finalBlob, url);
@@ -1405,7 +1594,7 @@ export default function RenderView({
           durationSec: estimatedTotalDuration,
           width,
           height,
-          label: `${settings.resolution} · ${settings.fps}fps · ${settings.format.toUpperCase()}`,
+          label: `${settings.resolution} · ${settings.fps}fps · ${recordedContainer.toUpperCase()}`,
         });
         setVaultMessage(
           `Render finished — ${vaultRenders.length >= MAX_VAULT_RENDERS ? "oldest vault slot cleared, " : ""}waiting in the vault to download.`
@@ -1427,6 +1616,24 @@ export default function RenderView({
           finishedAt: Date.now(),
         });
       }
+
+      // A format button asked for this render: save it straight to disk in
+      // that format (MOV saves the H.264/AAC stream with the QuickTime
+      // extension — Apple platforms play it natively).
+      const pending = pendingDownloadRef.current;
+      pendingDownloadRef.current = null;
+      setConvertingFormat(null);
+      if (pending) {
+        const wanted = pending === "mov" ? "mp4" : pending;
+        if (recordedContainer === wanted) {
+          const ext = pending === "mov" ? "mov" : recordedContainer;
+          await saveRenderBlob(finalBlob, renderFileName(project?.title || "", ext), job.lastVaultId);
+        } else {
+          setVaultMessage(
+            `This browser cannot record ${pending.toUpperCase()} — the render was saved as ${recordedContainer.toUpperCase()} instead.`
+          );
+        }
+      }
     } catch (err: any) {
       console.error("Render failed:", err);
       const message = err?.message || "Failed to render video";
@@ -1434,6 +1641,14 @@ export default function RenderView({
       setRenderStatus({ active: false, error: message, stage: "Render failed" });
     } finally {
       setIsRendering(false);
+      pendingDownloadRef.current = null;
+      setConvertingFormat(null);
+      // Belt and braces: the loop stops its own ticker on cleanup, but an
+      // exception between start and cleanup must not leave it ticking.
+      try {
+        frameTickerRef.current?.stop();
+        frameTickerRef.current = null;
+      } catch {}
       // Release every clip decoder used during the export.
       try {
         clipPoolRef.current?.dispose();
@@ -1483,8 +1698,55 @@ export default function RenderView({
       setVaultMessage("Nothing rendered yet — press Start Video Render first.");
       return;
     }
-    const ext = settings.format === "mp4" ? "mp4" : "webm";
+    // The extension ALWAYS matches the container that was really recorded —
+    // the old code named every file by the configured format, so a WebM
+    // recording downloaded as .mp4 and players rejected it.
+    const ext = renderedContainer === "mp4" ? "mp4" : "webm";
     await saveRenderBlob(blob, renderFileName(project?.title || "", ext), job.lastVaultId);
+  };
+
+  /** True when this browser can record the H.264/AAC MP4 container. */
+  const canRecordMp4 = useMemo(() => {
+    if (typeof MediaRecorder === "undefined") return false;
+    return [
+      "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+      "video/mp4;codecs=avc1,mp4a.40.2",
+      "video/mp4",
+    ].some((t) => {
+      try {
+        return MediaRecorder.isTypeSupported(t);
+      } catch {
+        return false;
+      }
+    });
+  }, []);
+
+  /**
+   * Download in one of the three formats social platforms use most.
+   *
+   *   MP4  — H.264 + AAC, the standard on TikTok, Instagram, YouTube, Facebook
+   *   WebM — VP9/VP8 + Opus, smallest file; WhatsApp, X, Discord
+   *   MOV  — the same H.264/AAC stream with the QuickTime extension, which
+   *          Apple devices and pro editors take natively
+   *
+   * If the finished render is already in that container it saves instantly;
+   * otherwise the video is re-rendered into it and saved automatically.
+   */
+  const handleFormatDownload = async (format: "mp4" | "webm" | "mov") => {
+    if (isRendering) return;
+    const wantedContainer = format === "mov" ? "mp4" : format;
+    if (renderedBlob && renderedContainer === wantedContainer) {
+      const ext = format === "mov" ? "mov" : renderedContainer;
+      await saveRenderBlob(renderedBlob, renderFileName(project?.title || "", ext), job.lastVaultId);
+      return;
+    }
+    if (!renderedBlob) {
+      setVaultMessage("Nothing rendered yet — press Start Video Render first.");
+      return;
+    }
+    pendingDownloadRef.current = format;
+    setConvertingFormat(format);
+    await handleStartRender(format);
   };
 
   /** Download a row that is waiting in the vault (frees the slot on success). */
@@ -1500,20 +1762,6 @@ export default function RenderView({
     void refreshVault();
   };
 
-  const downloadSrtSubtitles = () => {
-    const srtText = generateSrtSubtitles(scenes);
-    const blob = new Blob([srtText], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const safeTitle = (project?.title || "scenering").replace(/[^a-zA-Z0-9]/g, "_");
-    a.download = `${safeTitle}_subtitles.srt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  };
-
   const getAttributionText = () => {
     const soundUrlsUsed = inserts
       .map((ins) => ins.audioSettings?.soundUrl)
@@ -1522,17 +1770,36 @@ export default function RenderView({
     const currentVoice = availableVoices?.find((v) => v.id === selectedVoice);
     const voiceDisplay = currentVoice ? currentVoice.name : (selectedVoice || "Studio AI Voice");
     const isBrowserVoice = selectedVoice?.startsWith("browser:");
-    const isMale =
-      (selectedVoice || "").toLowerCase().includes("guy") ||
-      (selectedVoice || "").toLowerCase().includes("christopher") ||
-      (selectedVoice || "").toLowerCase().includes("ryan") ||
-      (selectedVoice || "").toLowerCase().includes("william") ||
-      (selectedVoice || "").toLowerCase().includes("brian") ||
-      (selectedVoice || "").toLowerCase().includes("david") ||
-      (selectedVoice || "").toLowerCase().includes("mark") ||
-      (selectedVoice || "").toLowerCase().includes("male");
+    const isMale = isMaleVoiceIdentifier(selectedVoice || "");
 
     const isCustomImport = selectedVoice?.startsWith("custom:") || selectedVoice?.startsWith("import:");
+
+    // Persona presets are named after the narrator whose delivery they evoke.
+    // The credits must say so honestly: an AI neural voice in that style —
+    // never the named actor.
+    const isPersonaStyle = / style/i.test(voiceDisplay);
+
+    // Only the image sources this project's scenes actually use are credited;
+    // anything unused stays out of the document.
+    const usedImageSources = new Set<string>();
+    for (const s of scenes) {
+      const url = resolveLegacyLocalImage((s.image_url || "").trim());
+      if (!url) continue;
+      if (/^data:|^blob:/i.test(url)) usedImageSources.add("Creator's own uploaded imagery");
+      else if (url.includes("images.unsplash.com")) usedImageSources.add("Unsplash (Unsplash License)");
+      else if (url.includes("pexels.com")) usedImageSources.add("Pexels (CC0 / Free License)");
+      else if (url.includes("pixabay")) usedImageSources.add("Pixabay (Content License)");
+      else if (url.includes("wikimedia.org")) usedImageSources.add("Wikimedia Commons (Creative Commons)");
+      else if (/^https?:/i.test(url)) usedImageSources.add("Third-party image URL (credited to its source)");
+    }
+
+    // Only the 3D stickers actually placed on the timeline are credited.
+    const usedGraphics = new Set<string>();
+    for (const ins of inserts) {
+      if (ins.category !== "stickers") continue;
+      const stickerId = ins.visualOptions?.stickerId || ins.type;
+      usedGraphics.add(STICKER_LIBRARY.find((st) => st.id === stickerId)?.name || ins.title);
+    }
 
     return generateAttributionDocument({
       projectTitle: project?.title || "My Video Project",
@@ -1540,18 +1807,23 @@ export default function RenderView({
       includeBackgroundMusic: settings.backgroundMusic !== "none",
       // report the REAL track used for the chosen style in the credits doc
       musicType: AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic] || settings.backgroundMusic,
-      imageSources: ["Pexels (CC0 / Free License)", "Pixabay (Content License)"],
+      imageSources: [...usedImageSources],
+      graphicsUsed: [...usedGraphics],
       voiceName: voiceDisplay,
       voiceGender: isCustomImport ? "User Prepared Voice" : isMale ? "Male Narrator" : "Female Narrator",
       voiceAccent: isCustomImport
         ? "Custom Imported TTS Audio File"
         : isBrowserVoice
         ? "Browser / Web Speech Voice"
+        : isPersonaStyle
+        ? "Style-Inspired AI Narration Profile"
         : "Natural Neural Voice Profile",
       voiceEngine: isCustomImport
         ? "User-Prepared Custom TTS Audio File (Imported Track)"
         : isBrowserVoice
         ? "W3C Web Speech API Standards"
+        : isPersonaStyle
+        ? "AI Neural Speech Synthesis — narrator style preset (not the named actor)"
         : "Natural Human Neural Speech Engine (Free Attribution Cleared License)",
     });
   };
@@ -1581,33 +1853,6 @@ export default function RenderView({
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
-  const downloadFullPackageZip = async () => {
-    if (isZipping || !project) return;
-    setIsZipping(true);
-    setZipProgress(0);
-    setZipStatus("Preparing project package...");
-
-    try {
-      await createProjectZip({
-        title: project.title || "Scenering Project",
-        scenes,
-        voice: selectedVoice,
-        includeVideo: Boolean(renderedBlob),
-        videoBlob: renderedBlob,
-        onProgress: (status, pct) => {
-          setZipStatus(status);
-          setZipProgress(pct);
-        },
-      });
-      setZipStatus("Package downloaded successfully!");
-    } catch (err) {
-      console.error("ZIP package export failed:", err);
-      setZipStatus("Failed to create ZIP package");
-    } finally {
-      setIsZipping(false);
-    }
-  };
-
   const cancelRender = () => {
     abortControllerRef.current = true;
     setIsRendering(false);
@@ -1623,11 +1868,17 @@ export default function RenderView({
   // ---- Read-only summary values (the results of the setup choices) ----
   const MOTION_LABELS: Record<string, string> = {
     dynamic: "Dynamic Variety",
-    ken_burns: "Gentle Ken Burns",
+    ken_burns: "Documentary Ken Burns",
+    slow_zoom: "Slow Cinematic Zoom",
     zoom_in: "Cinematic Zoom In",
     zoom_out: "Dramatic Zoom Out",
+    pan_left: "Smooth Camera Pan (left)",
+    pan_right: "Smooth Camera Pan (right)",
     pan: "Smooth Camera Pan",
+    subtle_camera: "Subtle Camera Drift",
     shake: "Handheld Shake",
+    pulse: "Heartbeat Pulse",
+    floating: "Weightless Float",
     none: "Static (no motion)",
   };
   const voiceDisplayName =
@@ -1730,7 +1981,7 @@ export default function RenderView({
                 icon="📺"
                 label="Output"
                 value={resLabel}
-                hint={`${settings.format.toUpperCase()} · ${settings.fps} fps · ${settings.quality} quality`}
+                hint={`${renderedContainer.toUpperCase()} · ${settings.fps} fps · ${settings.quality} quality`}
               />
               <div className="pt-1.5 pb-1 border-t border-hairline flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
@@ -2027,10 +2278,21 @@ export default function RenderView({
                 </div>
               )}
 
+              {imageFallbackCount > 0 && (
+                <div className="p-3 bg-amber-950/60 border border-amber-800/80 rounded-lg text-amber-300 text-xs flex items-start gap-2">
+                  <span>🖼️</span>
+                  <span>
+                    {imageFallbackCount} scene image{imageFallbackCount === 1 ? "" : "s"} could not be loaded and rendered as
+                    placeholder card{imageFallbackCount === 1 ? "" : "s"}. Re-search those scenes in the Scenes step to get
+                    real photos into the export.
+                  </span>
+                </div>
+              )}
+
               {/* Primary Action Button: Render or Re-Render */}
               {!renderedUrl ? (
                 <button
-                  onClick={handleStartRender}
+                  onClick={() => void handleStartRender()}
                   disabled={isRendering || scenesWithImages.length === 0}
                   className="t-btn-hero w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 text-sm"
                 >
@@ -2044,69 +2306,78 @@ export default function RenderView({
                 <div className="space-y-3">
                   <div className="p-3 bg-green-950/50 border border-green-800/80 rounded-xl text-green-300 text-xs flex items-center justify-between">
                     <span className="flex items-center gap-2 font-medium">
-                      <span>✅</span> Video rendered successfully! Format: {settings.format.toUpperCase()} · {resLabel}
+                      <span>✅</span> Video rendered successfully! Format: {renderedContainer.toUpperCase()} · {resLabel}
                     </span>
                     <button
-                      onClick={handleStartRender}
+                      onClick={() => void handleStartRender()}
                       className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs border border-hairline transition-colors"
                     >
                       🔄 Re-render
                     </button>
                   </div>
 
-                  {/* Complete Download Suite */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {/* Download Video */}
-                    <button
-                      onClick={downloadVideo}
-                      className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all shadow flex items-center justify-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Download Video ({settings.format.toUpperCase()})
-                    </button>
+                  {/* Download — the three formats social platforms use most */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-[11px] font-semibold text-gray-300 flex items-center gap-1.5">
+                        <span>⬇️</span> Download for social platforms
+                      </span>
+                      <span className="text-[10px] text-gray-500">
+                        Current render: {renderedContainer.toUpperCase()}
+                        {renderedContainer !== "mp4" && canRecordMp4 ? " — press MP4 for the social standard" : ""}
+                      </span>
+                    </div>
 
-                    {/* Download Full Project ZIP */}
-                    <button
-                      onClick={downloadFullPackageZip}
-                      disabled={isZipping}
-                      className="px-4 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 text-white text-xs font-bold rounded-xl transition-all shadow flex items-center justify-center gap-2"
-                    >
-                      {isZipping ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                          <span>{zipStatus || "Zipping..."}</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                          </svg>
-                          <span>Full Project ZIP Package</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      {/* MP4 */}
+                      <button
+                        onClick={() => void handleFormatDownload("mp4")}
+                        disabled={isRendering || !canRecordMp4}
+                        title={canRecordMp4 ? "H.264 + AAC — accepted everywhere" : "This browser cannot record MP4"}
+                        className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all shadow flex flex-col items-center justify-center gap-1"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>🎬</span>
+                          <span>{isRendering && convertingFormat === "mp4" ? "Rendering MP4…" : "MP4"}</span>
+                        </span>
+                        <span className="block text-[9px] font-medium opacity-80">TikTok · Instagram · YouTube · Facebook</span>
+                      </button>
 
-                  {/* Secondary Downloads */}
-                  <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
-                    <button
-                      onClick={downloadSrtSubtitles}
-                      className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-hairline transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <span>📄</span> Download Subtitles (.srt)
-                    </button>
+                      {/* WebM */}
+                      <button
+                        onClick={() => void handleFormatDownload("webm")}
+                        disabled={isRendering}
+                        title="VP9 + Opus — smallest file for the same quality"
+                        className="px-4 py-3 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all border border-hairline flex flex-col items-center justify-center gap-1"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>🌐</span>
+                          <span>{isRendering && convertingFormat === "webm" ? "Rendering WebM…" : "WebM"}</span>
+                        </span>
+                        <span className="block text-[9px] font-medium opacity-80">WhatsApp · X · Discord · web embeds</span>
+                      </button>
 
-                    <button
-                      onClick={downloadFullPackageZip}
-                      className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-hairline transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <span>📦</span> Download Assets & Scripts
-                    </button>
+                      {/* MOV */}
+                      <button
+                        onClick={() => void handleFormatDownload("mov")}
+                        disabled={isRendering || !canRecordMp4}
+                        title={canRecordMp4 ? "H.264 + AAC in the QuickTime container — Apple devices and editors" : "This browser cannot record MOV"}
+                        className="px-4 py-3 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all border border-hairline flex flex-col items-center justify-center gap-1"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>🍎</span>
+                          <span>{isRendering && convertingFormat === "mov" ? "Rendering MOV…" : "MOV"}</span>
+                        </span>
+                        <span className="block text-[9px] font-medium opacity-80">QuickTime · iMovie · Apple devices</span>
+                      </button>
+                    </div>
+
+                    {!canRecordMp4 && (
+                      <p className="text-[10px] text-gray-500 leading-relaxed">
+                        This browser cannot record MP4/MOV (Firefox is the usual case) — the WebM download works
+                        everywhere and converts in any editor.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}

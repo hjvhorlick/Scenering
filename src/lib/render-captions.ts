@@ -5,6 +5,28 @@ import {
   getCaptionStyle,
   resolveCaptionStyleId,
 } from "../data/caption-styles";
+import {
+  activeWordIndexAt,
+  alignedWordTimingsCached,
+  type WordTiming,
+} from "./word-sync";
+
+/**
+ * Optional real-time sync data for the captions.
+ *
+ * When the scene's narration was synthesised with word boundaries (Edge TTS
+ * reports them), `wordTimings` holds the *actual* spoken moment of every word
+ * and `audioTimeSec` is the current position in that audio. The karaoke
+ * highlight then follows the voice word-for-word instead of a syllable-weight
+ * estimate, which is what used to run ahead and lag behind.
+ *
+ * Both fields must be present for real timing; otherwise the renderer falls
+ * back to the estimate, so every existing caller keeps working unchanged.
+ */
+export interface CaptionSync {
+  wordTimings?: WordTiming[] | null;
+  audioTimeSec?: number;
+}
 
 export const DEFAULT_CAPTIONS_CONFIG: CaptionsConfig = {
   enabled: true,
@@ -80,7 +102,8 @@ export function renderCanvasCaptions(
   sceneProgress: number, // 0 to 1
   config: CaptionsConfig,
   w: number,
-  h: number
+  h: number,
+  sync?: CaptionSync
 ) {
   if (!config.enabled || !rawText) return;
   const cleaned = cleanCaptionText(rawText);
@@ -192,7 +215,23 @@ export function renderCanvasCaptions(
 
   let activeWordGlobalIndex = 0;
   const safeProgress = Math.max(0, Math.min(1, Number.isFinite(sceneProgress) ? sceneProgress : 0));
-  if (safeProgress >= 1) {
+
+  // ---------- Real word timing (voice-locked) ----------
+  // When the TTS engine's own word boundaries are available the highlight is
+  // driven by the audio clock, not by the estimate: each word lights up at the
+  // exact moment the voice says it, and stays lit through any pause.
+  const hasRealTiming =
+    Boolean(sync?.wordTimings && sync.wordTimings.length > 0) && Number.isFinite(sync?.audioTimeSec as number);
+
+  if (hasRealTiming) {
+    const timings = sync!.wordTimings!;
+    const aligned = alignedWordTimingsCached(words, timings);
+    const audioTime = Math.max(0, sync!.audioTimeSec as number);
+    // Past the end of the speech (the scene's breathing tail): everything sung.
+    const lastEnd = timings[timings.length - 1]?.end ?? 0;
+    activeWordGlobalIndex =
+      audioTime > lastEnd + 0.05 ? totalWords - 1 : activeWordIndexAt(aligned, audioTime);
+  } else if (safeProgress >= 1) {
     activeWordGlobalIndex = totalWords - 1;
   } else if (safeProgress <= 0) {
     activeWordGlobalIndex = 0;

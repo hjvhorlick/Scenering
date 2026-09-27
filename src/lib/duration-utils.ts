@@ -311,6 +311,42 @@ export function calculateDynamicDuration(
   return spoken > 0 ? Math.round(spoken * 10) / 10 : targetDuration || 20;
 }
 
+/**
+ * How long a scene occupies on the video timeline.
+ *
+ * The live preview and the final export MUST agree on this number: it decides
+ * when a scene cuts, when its audio starts and when the caption card flips.
+ * They used to carry two private copies of the formula (one added a 0.35s
+ * breathing tail, the other 0.25s), so the preview cut later than the render
+ * and the captions flipped at different moments in each. Both now call this.
+ *
+ * The decoded narration is the authority; the configured `scene.duration`
+ * and the word-count estimate are only fallbacks for scenes with no audio.
+ */
+/**
+ * Seconds of the FIRST image shown before the first spoken words begin.
+ *
+ * Narration used to start ~0.1s after the video began — too soon to take in
+ * the opening. The first scene now holds its image for this long before the
+ * voice (and its captions) start. The camera motion keeps moving through the
+ * lead-in, so the opening is alive, not frozen. Only applied when the video
+ * begins directly with a scene — an enabled intro section is its own opening.
+ */
+export const NARRATION_LEAD_IN_SECONDS = 2;
+
+export function sceneTimelineDuration(
+  scene: { text?: string; duration?: number; audio_duration?: number },
+  audioDuration?: number
+): number {
+  if (audioDuration && audioDuration > 0.3) {
+    return Math.max(1.5, Math.round((audioDuration + 0.35) * 10) / 10);
+  }
+  if (scene.duration && scene.duration > 0) {
+    return scene.duration;
+  }
+  return calculateDynamicDuration(scene.text, scene.audio_duration, 20);
+}
+
 // Topic-aware sentence expansions to turn 1-line text into a coherent 20s narration
 function getContextualContinuations(
   text: string,

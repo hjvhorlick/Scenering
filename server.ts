@@ -1,10 +1,19 @@
 import express from "express";
 import path from "path";
+import { existsSync } from "node:fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { NATURE_FALLBACKS } from "./src/data/nature-fallbacks.ts";
 import { sanitizeTextForSpeech } from "./src/lib/speech-sanitizer.ts";
+import { parseEdgeWordBoundaries, type WordTiming } from "./src/lib/word-sync.ts";
+import {
+  pexelsPhotoToCandidate,
+  pixabayHitToCandidate,
+  pixabayUpgradeUrlTo1920,
+  wikimediaInfoToCandidate,
+  type StockCandidate,
+} from "./src/lib/image-candidates.ts";
 
 /**
  * Fisher–Yates shuffle on a copy. Used so the bundled nature library comes
@@ -107,13 +116,7 @@ async function synthesizeGeminiTTS(text: string, voiceId: string): Promise<Buffe
   return pcmToWav(pcmBuffer, 24000, 1, 16);
 }
 
-interface ImageResult {
-  url: string;
-  thumbnail: string;
-  source: string;
-  width: number;
-  height: number;
-}
+interface ImageResult extends StockCandidate {}
 
 export const VOICES = [
   // 5 Male Natural Voices (Authentic Human Recordings)
@@ -209,6 +212,102 @@ export const VOICES = [
     preview: "Soft, peaceful, and balanced American female tone.",
     mood: "Meditation, Relaxation & Storytelling",
   },
+
+  // 5 Male Persona Narrator Presets (style-inspired — real neural voices
+  // tuned to evoke each narrator's delivery; not the named actors)
+  {
+    id: "freeman",
+    name: "Morgan Freeman Style (Deep Warm Storyteller)",
+    gender: "male",
+    lang: "en-US",
+    neural: "en-US-AndrewMultilingualNeural",
+    preview: "Deep, warm, unhurried storytelling voice.",
+    mood: "Documentaries, Storytelling & Brand Films",
+  },
+  {
+    id: "attenborough",
+    name: "David Attenborough Style (Calm Documentary Narrator)",
+    gender: "male",
+    lang: "en-GB",
+    neural: "en-GB-ThomasNeural",
+    preview: "Calm, measured British documentary narration.",
+    mood: "Nature, Science & Documentary Films",
+  },
+  {
+    id: "jones",
+    name: "James Earl Jones Style (Deep Powerful Narrator)",
+    gender: "male",
+    lang: "en-US",
+    neural: "en-US-ChristopherNeural",
+    preview: "Very deep, commanding and powerful narration.",
+    mood: "Cinematic Openers, Epics & Authority",
+  },
+  {
+    id: "neeson",
+    name: "Liam Neeson Style (Strong Authoritative)",
+    gender: "male",
+    lang: "en-GB",
+    neural: "en-GB-GeorgeNeural",
+    preview: "Strong, gravitas-heavy authoritative British voice.",
+    mood: "Thrillers, Motivation & Dramatic Reads",
+  },
+  {
+    id: "jackson",
+    name: "Samuel L. Jackson Style (Energetic Distinctive)",
+    gender: "male",
+    lang: "en-US",
+    neural: "en-US-EricNeural",
+    preview: "Energetic, bright and distinctive delivery.",
+    mood: "High-Energy Promos, Reactions & Entertainment",
+  },
+
+  // 5 Female Persona Narrator Presets (style-inspired — real neural voices
+  // tuned to evoke each narrator's delivery; not the named actors)
+  {
+    id: "thompson",
+    name: "Emma Thompson Style (Warm Intelligent)",
+    gender: "female",
+    lang: "en-GB",
+    neural: "en-GB-LibbyNeural",
+    preview: "Warm, intelligent British narration.",
+    mood: "Intelligent Explainers, Drama & Audiobooks",
+  },
+  {
+    id: "mirren",
+    name: "Helen Mirren Style (Elegant Authoritative)",
+    gender: "female",
+    lang: "en-GB",
+    neural: "en-GB-SoniaNeural",
+    preview: "Elegant, polished and authoritative British voice.",
+    mood: "Luxury Brands, History & Prestige",
+  },
+  {
+    id: "blanchett",
+    name: "Cate Blanchett Style (Sophisticated Narrator)",
+    gender: "female",
+    lang: "en-AU",
+    neural: "en-AU-NatashaMultilingualNeural",
+    preview: "Sophisticated, resonant Australian narration.",
+    mood: "Art, Culture & Sophisticated Narration",
+  },
+  {
+    id: "weaver",
+    name: "Sigourney Weaver Style (Strong Documentary)",
+    gender: "female",
+    lang: "en-US",
+    neural: "en-US-MichelleNeural",
+    preview: "Strong, steady documentary-style narration.",
+    mood: "Documentaries, Science & Investigative",
+  },
+  {
+    id: "roberts",
+    name: "Julia Roberts Style (Warm Conversational)",
+    gender: "female",
+    lang: "en-US",
+    neural: "en-US-EmmaMultilingualNeural",
+    preview: "Warm, friendly and conversational tone.",
+    mood: "Conversational Vlogs, Lifestyle & Interviews",
+  },
 ];
 
 export interface RealVoiceProfile {
@@ -258,6 +357,20 @@ function resolveVoiceShortName(voiceId: string): string {
 
   // Strip prefix like "browser:" or "web:"
   const clean = lower.replace(/^(browser:|web:)/, "");
+
+  // --- PERSONA NARRATOR PRESETS (style-inspired actor voices) ---
+  // Each maps to the neural voice whose depth, accent and delivery evokes
+  // that narrator's style. These are stock neural voices, not the actors.
+  if (clean === "freeman") return "en-US-AndrewMultilingualNeural";
+  if (clean === "attenborough") return "en-GB-ThomasNeural";
+  if (clean === "jones") return "en-US-ChristopherNeural";
+  if (clean === "neeson") return "en-GB-GeorgeNeural";
+  if (clean === "jackson") return "en-US-EricNeural";
+  if (clean === "thompson") return "en-GB-LibbyNeural";
+  if (clean === "mirren") return "en-GB-SoniaNeural";
+  if (clean === "blanchett") return "en-AU-NatashaMultilingualNeural";
+  if (clean === "weaver") return "en-US-MichelleNeural";
+  if (clean === "roberts") return "en-US-EmmaMultilingualNeural";
 
   // --- MALE VOICES (100% Genuine Male Human Recordings) ---
   if (
@@ -390,9 +503,15 @@ const REALISTIC_VOICE_UPGRADES: Record<string, string> = {
 /** Higher bitrate than before: 96kbps mono was audibly lossy on sibilants. */
 const TTS_OUTPUT_FORMAT = OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3;
 
+/** Audio plus the word-by-word timings the captions are locked to. */
+interface SynthResult {
+  buffer: Buffer;
+  words: WordTiming[];
+}
+
 // Synthesizes speech using authentic Microsoft Edge Read Aloud Neural Voices.
 // Tries the most lifelike variant of the requested voice, then the exact one.
-async function synthesizeRealEdgeTTS(text: string, voiceId: string): Promise<Buffer> {
+async function synthesizeRealEdgeTTS(text: string, voiceId: string): Promise<SynthResult> {
   const shortName = resolveVoiceShortName(voiceId);
   const upgraded = REALISTIC_VOICE_UPGRADES[shortName];
   const candidates = upgraded && upgraded !== shortName ? [upgraded, shortName] : [shortName];
@@ -408,26 +527,40 @@ async function synthesizeRealEdgeTTS(text: string, voiceId: string): Promise<Buf
   throw lastError || new Error("Edge TTS failed");
 }
 
-async function synthesizeWithEdgeVoice(text: string, shortName: string): Promise<Buffer> {
+async function synthesizeWithEdgeVoice(text: string, shortName: string): Promise<SynthResult> {
   const tts = new MsEdgeTTS();
-  await tts.setMetadata(shortName, TTS_OUTPUT_FORMAT);
+  // Word boundaries are what make the karaoke captions follow the voice
+  // word-for-word: the service reports the spoken offset and duration of
+  // every word alongside the audio.
+  await tts.setMetadata(shortName, TTS_OUTPUT_FORMAT, { wordBoundaryEnabled: true });
 
-  return new Promise<Buffer>((resolve, reject) => {
+  return new Promise<SynthResult>((resolve, reject) => {
     const timeout = setTimeout(() => {
       try { tts.close(); } catch {}
       reject(new Error(`Edge TTS timed out for voice ${shortName}`));
     }, 15000);
 
-    const { audioStream } = tts.toStream(text);
+    const { audioStream, metadataStream } = tts.toStream(text);
     const chunks: Buffer[] = [];
+    const metaFrames: string[] = [];
 
     audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    if (metadataStream) {
+      metadataStream.on("data", (m: Buffer) => {
+        try {
+          metaFrames.push(m.toString("utf8"));
+        } catch {}
+      });
+    }
     audioStream.on("end", () => {
       clearTimeout(timeout);
       try { tts.close(); } catch {}
       const combined = Buffer.concat(chunks);
       if (combined.length > 500) {
-        resolve(combined);
+        // Metadata frames precede the turn end, so by the time the audio
+        // stream ends the word boundaries are already in hand.
+        const words = parseEdgeWordBoundaries(metaFrames);
+        resolve({ buffer: combined, words });
       } else {
         reject(new Error("Empty audio buffer from Edge TTS"));
       }
@@ -537,39 +670,12 @@ function generateFallbackToneBuffer(durationSeconds: number): Buffer {
 }
 
 // In-memory cache for high-fidelity synthesized speech
-const ttsAudioCache = new Map<string, Buffer>();
+const ttsAudioCache = new Map<string, { buffer: Buffer; words: WordTiming[] }>();
 
 // Synthesizes high-fidelity authentic human speech using Microsoft Edge Neural voices (300+ free studio voices)
 async function synthesizeTTS(text: string, voice: string): Promise<Buffer> {
-  const cleanText = sanitizeTextForSpeech(text);
-  const shortName = resolveVoiceShortName(voice);
-  const cacheKey = `${shortName}_${cleanText.trim()}`;
-  const cached = ttsAudioCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  // 1. High priority: Authentic Neural studio voices (genuine male or female recording, 96kbps MP3)
-  try {
-    const realAudioBuf = await synthesizeRealEdgeTTS(cleanText, voice);
-    ttsAudioCache.set(cacheKey, realAudioBuf);
-    return realAudioBuf;
-  } catch (err: any) {
-    console.warn("Primary Edge TTS notice:", err?.message);
-  }
-
-  // 2. High reliability clean regional Google speech with studio mastering
-  try {
-    const googleBuf = await synthesizeGoogleTTSFallback(cleanText, voice);
-    ttsAudioCache.set(cacheKey, googleBuf);
-    return googleBuf;
-  } catch (googleErr: any) {
-    console.warn("Google TTS notice:", googleErr?.message);
-  }
-
-  // 3. Guaranteed buffer so the client never hangs.
-  const approxDuration = Math.max(2, cleanText.split(/\s+/).filter(Boolean).length / 2.5);
-  return generateFallbackToneBuffer(approxDuration);
+  const { buffer } = await synthesizeTTSWithSource(text, voice);
+  return buffer;
 }
 
 /** Which engine produced the audio for the most recent synthesis. */
@@ -577,91 +683,146 @@ type TtsSource = "edge" | "google" | "silent";
 
 /**
  * Same as synthesizeTTS but also reports which engine succeeded, so the API
- * can tell the client when the audio is only a silent placeholder.
+ * can tell the client when the audio is only a silent placeholder — and
+ * carries the per-word timings the captions lock onto. Google's fallback
+ * endpoint has no word boundaries, so that path reports an empty timeline and
+ * the client falls back to its estimated pacing.
  */
 async function synthesizeTTSWithSource(
   text: string,
   voice: string,
   customEntries?: any[]
-): Promise<{ buffer: Buffer; source: TtsSource }> {
+): Promise<{ buffer: Buffer; source: TtsSource; words: WordTiming[] }> {
   const cleanText = sanitizeTextForSpeech(text, customEntries);
   const shortName = resolveVoiceShortName(voice);
   const cacheKey = `${shortName}_${cleanText.trim()}`;
   const cached = ttsAudioCache.get(cacheKey);
-  if (cached) return { buffer: cached, source: "edge" };
+  if (cached) return { buffer: cached.buffer, source: "edge", words: cached.words };
 
   try {
-    const buf = await synthesizeRealEdgeTTS(cleanText, voice);
-    ttsAudioCache.set(cacheKey, buf);
-    return { buffer: buf, source: "edge" };
+    const { buffer, words } = await synthesizeRealEdgeTTS(cleanText, voice);
+    ttsAudioCache.set(cacheKey, { buffer, words });
+    return { buffer, source: "edge", words };
   } catch (err: any) {
     console.warn("Primary Edge TTS notice:", err?.message);
   }
 
   try {
-    const buf = await synthesizeGoogleTTSFallback(cleanText, voice);
-    ttsAudioCache.set(cacheKey, buf);
-    return { buffer: buf, source: "google" };
+    const googleBuf = await synthesizeGoogleTTSFallback(cleanText, voice);
+    ttsAudioCache.set(cacheKey, { buffer: googleBuf, words: [] });
+    return { buffer: googleBuf, source: "google", words: [] };
   } catch (googleErr: any) {
     console.warn("Google TTS notice:", googleErr?.message);
   }
 
   const approxDuration = Math.max(2, cleanText.split(/\s+/).filter(Boolean).length / 2.5);
-  return { buffer: generateFallbackToneBuffer(approxDuration), source: "silent" };
+  return { buffer: generateFallbackToneBuffer(approxDuration), source: "silent", words: [] };
 }
 
 // --- Pexels ---
+// Every result is delivered as an exact 1920×1080 (16:9) crop from the
+// original file, so nothing is ever upscaled into a 1080p render. Photos
+// smaller than Full HD are dropped by the shared candidate mapper.
 async function searchPexels(query: string, count: number, customKey?: string): Promise<ImageResult[]> {
   const apiKey = (customKey && customKey.trim()) || process.env.PEXELS_API_KEY;
   if (!apiKey) return [];
 
   try {
     const res = await fetch(
-      `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${count}&orientation=landscape`,
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${count}&orientation=landscape&size=large`,
       { headers: { Authorization: apiKey } }
     );
     if (!res.ok) return [];
     const data = (await res.json()) as any;
     if (!data.photos) return [];
 
-    return data.photos.map((p: any) => ({
-      url: p.src.large,
-      thumbnail: p.src.tiny,
-      source: "pexels",
-      width: p.width,
-      height: p.height,
-    }));
+    return data.photos
+      .map(pexelsPhotoToCandidate)
+      .filter((c): c is ImageResult => c !== null);
   } catch {
     return [];
   }
 }
 
+/**
+ * Whether Pixabay's CDN will serve the `_1920` variant of a `/get/` URL.
+ * Standard API keys omit `fullHDURL`/`imageURL` (their largest field is the
+ * 1280px `largeImageURL`), but the Full HD variant of the same CDN URL is
+ * often still fetchable. One cheap probe per server process decides; a failed
+ * probe means those hits are dropped rather than upscaled.
+ */
+let pixabay1920Probe: Promise<boolean> | null = null;
+function canPixabayServe1920(sampleUrl: string): Promise<boolean> {
+  if (!pixabay1920Probe) {
+    pixabay1920Probe = (async () => {
+      try {
+        const res = await fetch(sampleUrl, {
+          headers: { Accept: "image/*", Range: "bytes=0-1" },
+          redirect: "follow",
+        });
+        const type = res.headers.get("content-type") || "";
+        return res.ok && type.startsWith("image/");
+      } catch {
+        return false;
+      }
+    })();
+    // Do not cache a failure forever — the network may recover.
+    pixabay1920Probe
+      .then((ok) => {
+        if (!ok) pixabay1920Probe = null;
+      })
+      .catch(() => {
+        pixabay1920Probe = null;
+      });
+  }
+  return pixabay1920Probe;
+}
+
 // --- Pixabay ---
+// The source must already be ~16:9 and ≥1920×1080 (Pixabay cannot crop), and
+// the URL must be able to deliver that size.
 async function searchPixabay(query: string, count: number, customKey?: string): Promise<ImageResult[]> {
   const apiKey = (customKey && customKey.trim()) || process.env.PIXABAY_API_KEY;
   if (!apiKey) return [];
 
   try {
     const res = await fetch(
-      `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(query)}&per_page=${count}&image_type=photo&orientation=horizontal&min_width=800`
+      `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(query)}&per_page=${count}&image_type=photo&orientation=horizontal&min_width=1920&min_height=1080`
     );
     if (!res.ok) return [];
     const data = (await res.json()) as any;
     if (!data.hits) return [];
 
-    return data.hits.map((h: any) => ({
-      url: h.largeImageURL,
-      thumbnail: h.previewURL,
-      source: "pixabay",
-      width: h.imageWidth,
-      height: h.imageHeight,
-    }));
+    const direct = data.hits
+      .map(pixabayHitToCandidate)
+      .filter((c): c is ImageResult => c !== null);
+
+    // Hits whose only URLs are ≤1280px: recover them through the `_1920`
+    // CDN variant when the probe says it works.
+    const rest: any[] = data.hits.filter(
+      (h: any) => !(h?.fullHDURL || h?.imageURL) && pixabayUpgradeUrlTo1920(h?.largeImageURL || h?.webformatURL || "")
+    );
+    let recovered: ImageResult[] = [];
+    if (rest.length > 0) {
+      const sample = pixabayUpgradeUrlTo1920(rest[0].largeImageURL || rest[0].webformatURL)!;
+      if (await canPixabayServe1920(sample)) {
+        recovered = rest
+          .map((h: any) =>
+            pixabayHitToCandidate({ ...h, fullHDURL: pixabayUpgradeUrlTo1920(h.largeImageURL || h.webformatURL) })
+          )
+          .filter((c: ImageResult | null): c is ImageResult => c !== null);
+      }
+    }
+    return [...direct, ...recovered];
   } catch {
     return [];
   }
 }
 
 // --- Wikimedia Commons ---
+// Thumbs are requested at 1920px wide; the shared mapper keeps only images
+// that are ~16:9 and at least Full HD. Diagrams and B&W scans that survive
+// the dimension gate are removed client-side by pixel analysis.
 async function searchWikimedia(query: string, count: number): Promise<ImageResult[]> {
   try {
     const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&list=search&srnamespace=6&srlimit=${count}&srsearch=${encodeURIComponent(query + " filetype:bitmap")}&origin=*`;
@@ -674,7 +835,7 @@ async function searchWikimedia(query: string, count: number): Promise<ImageResul
     if (!searchResults || searchResults.length === 0) return [];
 
     const titles = searchResults.map((r: any) => r.title).join("|");
-    const imageInfoUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1280&iiurlheight=720&titles=${encodeURIComponent(titles)}&origin=*`;
+    const imageInfoUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1920&titles=${encodeURIComponent(titles)}&origin=*`;
     const imageRes = await fetch(imageInfoUrl, {
       headers: { "User-Agent": "SceneringApp/1.0 (https://ai.studio)" },
     });
@@ -692,16 +853,11 @@ async function searchWikimedia(query: string, count: number): Promise<ImageResul
       if (info.mime && !info.mime.startsWith("image/")) continue;
       if (info.mime === "image/svg+xml") continue;
 
-      results.push({
-        url: info.url || info.thumburl || "",
-        thumbnail: info.thumburl || info.url || "",
-        source: "wikimedia",
-        width: info.width || 0,
-        height: info.height || 0,
-      });
+      const candidate = wikimediaInfoToCandidate(info);
+      if (candidate) results.push(candidate);
     }
 
-    return results.filter((r) => r.url && r.thumbnail);
+    return results;
   } catch {
     return [];
   }
@@ -862,6 +1018,23 @@ async function startServer() {
         return res.status(400).json({ error: "Missing url parameter" });
       }
 
+      // Same-origin paths (the bundled nature library) are served straight
+      // from /public — no upstream fetch involved.
+      if (targetUrl.startsWith("/") && !targetUrl.startsWith("//")) {
+        const safe = path.normalize(targetUrl).replace(/^(\.\.[/\\])+/, "");
+        const localPath = path.join(process.cwd(), "public", safe);
+        if (localPath.startsWith(path.join(process.cwd(), "public")) && existsSync(localPath)) {
+          const ext = path.extname(localPath).toLowerCase();
+          const mime =
+            ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : "image/jpeg";
+          res.setHeader("Content-Type", mime);
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+          res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+          return res.sendFile(localPath);
+        }
+      }
+
       const response = await fetch(targetUrl, {
         headers: {
           Accept: "image/*",
@@ -900,6 +1073,40 @@ async function startServer() {
   app.get("/functions/v1/proxy-image", handleProxyImage);
 
   // TTS handler (voices on GET without text, synthesis on GET with text or POST)
+  /**
+   * Sends a synthesis result. Two shapes:
+   *  - raw audio bytes (the historic behaviour every existing caller uses)
+   *  - `withTimeline`: a JSON envelope carrying the audio (base64) plus the
+   *    per-word timings, so the captions can lock onto the voice word-for-word.
+   */
+  const sendTtsResponse = (
+    res: express.Response,
+    synthesized: { buffer: Buffer; source: TtsSource; words: WordTiming[] },
+    voice: string,
+    withTimeline: boolean
+  ) => {
+    const { buffer: audioBuffer, source, words } = synthesized;
+    const isWav = audioBuffer.length > 4 && audioBuffer.subarray(0, 4).toString() === "RIFF";
+    const mimeType = isWav ? "audio/wav" : "audio/mpeg";
+    res.setHeader("X-TTS-Source", source);
+    res.setHeader("X-TTS-Voice", resolveVoiceShortName(voice));
+    res.setHeader("Access-Control-Expose-Headers", "X-TTS-Source, X-TTS-Voice");
+    // never cache a silent placeholder — the network may recover
+    res.setHeader("Cache-Control", source === "silent" ? "no-store" : "public, max-age=3600");
+    if (!withTimeline) {
+      res.setHeader("Content-Type", mimeType);
+      return res.send(audioBuffer);
+    }
+    res.setHeader("Content-Type", "application/json");
+    return res.json({
+      audio: audioBuffer.toString("base64"),
+      mimeType,
+      source,
+      voice: resolveVoiceShortName(voice),
+      words,
+    });
+  };
+
   const handleTTSGet = async (req: express.Request, res: express.Response) => {
     const text = req.query.text as string | undefined;
     if (!text) {
@@ -916,15 +1123,9 @@ async function startServer() {
     try {
       const voice = (req.query.voice as string) || "guy";
       const trimmedText = text.slice(0, 2000);
-      const { buffer: audioBuffer, source } = await synthesizeTTSWithSource(trimmedText, voice);
-      const isWav = audioBuffer.length > 4 && audioBuffer.subarray(0, 4).toString() === "RIFF";
-      res.setHeader("Content-Type", isWav ? "audio/wav" : "audio/mpeg");
-      res.setHeader("X-TTS-Source", source);
-      res.setHeader("X-TTS-Voice", resolveVoiceShortName(voice));
-      res.setHeader("Access-Control-Expose-Headers", "X-TTS-Source, X-TTS-Voice");
-      // never cache a silent placeholder — the network may recover
-      res.setHeader("Cache-Control", source === "silent" ? "no-store" : "public, max-age=3600");
-      return res.send(audioBuffer);
+      const withTimeline = req.query.withTimeline === "1" || req.query.withTimeline === "true";
+      const synthesized = await synthesizeTTSWithSource(trimmedText, voice);
+      return sendTtsResponse(res, synthesized, voice, withTimeline);
     } catch (err: any) {
       return res.status(500).json({ error: err.message || "Failed to generate speech" });
     }
@@ -942,21 +1143,14 @@ async function startServer() {
 
   const handleTTSPost = async (req: express.Request, res: express.Response) => {
     try {
-      const { text, voice = "alloy", customDictionary } = req.body;
+      const { text, voice = "alloy", customDictionary, withTimeline } = req.body;
       if (!text || typeof text !== "string") {
         return res.status(400).json({ error: "Text is required" });
       }
 
       const trimmedText = text.slice(0, 2000);
-      const { buffer: audioBuffer, source } = await synthesizeTTSWithSource(trimmedText, voice, customDictionary);
-
-      const isWav = audioBuffer.length > 4 && audioBuffer.subarray(0, 4).toString() === "RIFF";
-      res.setHeader("Content-Type", isWav ? "audio/wav" : "audio/mpeg");
-      res.setHeader("X-TTS-Source", source);
-      res.setHeader("X-TTS-Voice", resolveVoiceShortName(voice));
-      res.setHeader("Access-Control-Expose-Headers", "X-TTS-Source, X-TTS-Voice");
-      res.setHeader("Cache-Control", source === "silent" ? "no-store" : "public, max-age=3600");
-      return res.send(audioBuffer);
+      const synthesized = await synthesizeTTSWithSource(trimmedText, voice, customDictionary);
+      return sendTtsResponse(res, synthesized, voice, withTimeline === true);
     } catch (err: any) {
       console.warn("TTS synthesis error, returning 500:", err.message);
       return res.status(500).json({ error: err.message || "Failed to generate speech" });

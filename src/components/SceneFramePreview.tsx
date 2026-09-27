@@ -7,6 +7,7 @@ import {
   placeImage,
   sceneIsBlankColor,
 } from "../lib/scene-framing";
+import { loadSceneImage } from "../lib/scene-image-loader";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 
 interface Props {
@@ -57,20 +58,16 @@ export default function SceneFramePreview({
       imgRef.current = null;
       return;
     }
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      imgRef.current = img;
-      setLoaded(true);
-    };
-    img.onerror = () => {
-      imgRef.current = null;
-      setLoaded(false);
-    };
-    img.src = url;
+    let cancelled = false;
+    // Same shared loader as the preview and the render, so this thumbnail
+    // shows exactly the image those two will show.
+    loadSceneImage(url, 0, { fallback: "none" }).then((res) => {
+      if (cancelled) return;
+      imgRef.current = res?.img ?? null;
+      setLoaded(Boolean(res));
+    });
     return () => {
-      img.onload = null;
-      img.onerror = null;
+      cancelled = true;
     };
   }, [url]);
 

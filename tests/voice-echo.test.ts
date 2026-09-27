@@ -23,6 +23,7 @@ import {
   voiceEchoIsActive,
   voiceEchoPresetConfig,
 } from "../src/lib/voice-echo";
+import { isMaleVoiceIdentifier } from "../src/lib/tts-player";
 
 const h = createHarness();
 const here = dirname(fileURLToPath(import.meta.url));
@@ -268,6 +269,81 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
   const app = read("src/App.tsx");
   h.ok(app.includes("voice_echo: VoiceEchoConfig"), "the echo is saved per project");
   h.ok(app.includes("voiceEcho={voiceEcho}"), "the setting is handed to the screens that use it");
+}
+
+// ---------------------------------------------------------------------------
+// Persona narrator presets — 10 style-inspired voices (5 male, 5 female).
+// The TTS engine only has stock neural voices, so each preset is named after
+// the narrator whose DELIVERY it evokes ("Morgan Freeman Style"), never
+// presented as the actor. These checks keep that honest and keep the voice
+// wired through every surface: the voice tab, the per-scene import modal and
+// the server's synthesis mapping.
+{
+  const studio = read("src/components/VoiceoverStudio.tsx");
+  const importModal = read("src/components/VoiceImportModal.tsx");
+  const server = read("server.ts");
+
+  const PERSONAS: Array<[id: string, name: string, gender: "male" | "female", neural: string]> = [
+    ["freeman", "Morgan Freeman Style", "male", "en-US-AndrewMultilingualNeural"],
+    ["attenborough", "David Attenborough Style", "male", "en-GB-ThomasNeural"],
+    ["jones", "James Earl Jones Style", "male", "en-US-ChristopherNeural"],
+    ["neeson", "Liam Neeson Style", "male", "en-GB-GeorgeNeural"],
+    ["jackson", "Samuel L. Jackson Style", "male", "en-US-EricNeural"],
+    ["thompson", "Emma Thompson Style", "female", "en-GB-LibbyNeural"],
+    ["mirren", "Helen Mirren Style", "female", "en-GB-SoniaNeural"],
+    ["blanchett", "Cate Blanchett Style", "female", "en-AU-NatashaMultilingualNeural"],
+    ["weaver", "Sigourney Weaver Style", "female", "en-US-MichelleNeural"],
+    ["roberts", "Julia Roberts Style", "female", "en-US-EmmaMultilingualNeural"],
+  ];
+
+  // The voice tab list: 20 presets, split 10 male / 10 female, ids unique.
+  const arraySrc = studio.slice(
+    studio.indexOf("export const STUDIO_VOICE_PRESETS"),
+    studio.indexOf("];", studio.indexOf("export const STUDIO_VOICE_PRESETS"))
+  );
+  const ids = [...arraySrc.matchAll(/id: "([a-z_]+)"/g)].map((m) => m[1]);
+  h.eq(ids.length, 20, "voice tab holds 20 presets");
+  h.eq(new Set(ids).size, 20, "voice preset ids are unique");
+  h.eq(arraySrc.match(/gender: "male"/g)?.length ?? 0, 10, "10 male presets");
+  h.eq(arraySrc.match(/gender: "female"/g)?.length ?? 0, 10, "10 female presets");
+
+  for (const [id, name, gender, neural] of PERSONAS) {
+    h.ok(ids.includes(id), `${name} is on the voice tab`);
+    h.ok(
+      new RegExp(`id: "${id}",\\s*\\n\\s*name: "${name.replace(/\$/g, "\\$")}",\\s*\\n\\s*gender: "${gender}"`).test(arraySrc),
+      `${name} is listed as ${gender} on the voice tab`
+    );
+    h.ok(
+      new RegExp(`id: "${id}",[\\s\\S]*?name: "${name}`.replace(/\$/g, "\\$")).test(importModal),
+      `${name} is in the per-scene voice import modal`
+    );
+    h.ok(
+      server.includes(`if (clean === "${id}") return "${neural}";`),
+      `${name} synthesizes with a real ${neural} neural voice`
+    );
+    h.ok(server.includes(`id: "${id}",`), `${name} is served by the TTS voice API`);
+    h.ok(name.endsWith("Style"), `${name} is labelled as a style preset, not the actor`);
+  }
+
+  // Gender detection used by the browser fallback and the credits doc.
+  const malePersonaIds = PERSONAS.filter((p) => p[2] === "male").map((p) => p[0]);
+  const femalePersonaIds = PERSONAS.filter((p) => p[2] === "female").map((p) => p[0]);
+  h.ok(
+    malePersonaIds.every((id) => isMaleVoiceIdentifier(id)),
+    "male persona presets are detected as male"
+  );
+  h.ok(
+    femalePersonaIds.every((id) => !isMaleVoiceIdentifier(id)),
+    "female persona presets are detected as female"
+  );
+  h.ok(isMaleVoiceIdentifier("brian"), "the Brian preset is detected as male (credits doc gender)");
+
+  // The tab's advertised counts must match the list.
+  h.ok(studio.includes("All ({STUDIO_VOICE_PRESETS.length})"), "All filter count derives from the list");
+  h.ok(
+    studio.includes("{STUDIO_VOICE_PRESETS.filter((v) => v.gender === \"male\").length} Male"),
+    "male filter count derives from the list"
+  );
 }
 
 h.done("voice-echo");
