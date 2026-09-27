@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 496 utility
+   Colour matrix for every non-classic theme. 502 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -516,6 +516,9 @@ html[data-theme="apple"] .border-amber-800\/50 {
 html[data-theme="apple"] .border-amber-800\/60 {
   border-color: rgb(146 64 14 / 0.6);
 }
+html[data-theme="apple"] .border-amber-800\/70 {
+  border-color: rgb(146 64 14 / 0.7);
+}
 html[data-theme="apple"] .border-amber-800\/80 {
   border-color: rgb(146 64 14 / 0.8);
 }
@@ -674,6 +677,9 @@ html[data-theme="apple"] .border-indigo-800\/50 {
 }
 html[data-theme="apple"] .border-indigo-800\/60 {
   border-color: rgb(0 94 196 / 0.6);
+}
+html[data-theme="apple"] .border-indigo-800\/70 {
+  border-color: rgb(0 94 196 / 0.7);
 }
 html[data-theme="apple"] .border-indigo-800\/80 {
   border-color: rgb(0 94 196 / 0.8);
@@ -1269,6 +1275,9 @@ html[data-theme="apple"] .text-amber-200\/80 {
 html[data-theme="apple"] .text-amber-300 {
   color: rgb(217 119 6 / 1);
 }
+html[data-theme="apple"] .text-amber-300\/90 {
+  color: rgb(217 119 6 / 0.9);
+}
 html[data-theme="apple"] .text-amber-400 {
   color: rgb(224 129 7 / 1);
 }
@@ -1310,6 +1319,9 @@ html[data-theme="apple"] .text-emerald-300 {
 }
 html[data-theme="apple"] .text-emerald-300\/80 {
   color: rgb(5 150 105 / 0.8);
+}
+html[data-theme="apple"] .text-emerald-300\/90 {
+  color: rgb(5 150 105 / 0.9);
 }
 html[data-theme="apple"] .text-emerald-400 {
   color: rgb(8 159 111 / 1);
@@ -1418,6 +1430,12 @@ html[data-theme="apple"] .text-red-200 {
 }
 html[data-theme="apple"] .text-red-300 {
   color: rgb(220 38 38 / 1);
+}
+html[data-theme="apple"] .text-red-300\/70 {
+  color: rgb(220 38 38 / 0.7);
+}
+html[data-theme="apple"] .text-red-300\/90 {
+  color: rgb(220 38 38 / 0.9);
 }
 html[data-theme="apple"] .text-red-400 {
   color: rgb(225 46 46 / 1);
@@ -2048,6 +2066,9 @@ html[data-theme="windows"] .border-amber-800\/50 {
 html[data-theme="windows"] .border-amber-800\/60 {
   border-color: rgb(138 66 22 / 0.6);
 }
+html[data-theme="windows"] .border-amber-800\/70 {
+  border-color: rgb(138 66 22 / 0.7);
+}
 html[data-theme="windows"] .border-amber-800\/80 {
   border-color: rgb(138 66 22 / 0.8);
 }
@@ -2206,6 +2227,9 @@ html[data-theme="windows"] .border-indigo-800\/50 {
 }
 html[data-theme="windows"] .border-indigo-800\/60 {
   border-color: rgb(37 92 158 / 0.6);
+}
+html[data-theme="windows"] .border-indigo-800\/70 {
+  border-color: rgb(37 92 158 / 0.7);
 }
 html[data-theme="windows"] .border-indigo-800\/80 {
   border-color: rgb(37 92 158 / 0.8);
@@ -2801,6 +2825,9 @@ html[data-theme="windows"] .text-amber-200\/80 {
 html[data-theme="windows"] .text-amber-300 {
   color: rgb(242 205 88 / 1);
 }
+html[data-theme="windows"] .text-amber-300\/90 {
+  color: rgb(242 205 88 / 0.9);
+}
 html[data-theme="windows"] .text-amber-400 {
   color: rgb(238 185 49 / 1);
 }
@@ -2842,6 +2869,9 @@ html[data-theme="windows"] .text-emerald-300 {
 }
 html[data-theme="windows"] .text-emerald-300\/80 {
   color: rgb(117 224 182 / 0.8);
+}
+html[data-theme="windows"] .text-emerald-300\/90 {
+  color: rgb(117 224 182 / 0.9);
 }
 html[data-theme="windows"] .text-emerald-400 {
   color: rgb(62 201 150 / 1);
@@ -2950,6 +2980,12 @@ html[data-theme="windows"] .text-red-200 {
 }
 html[data-theme="windows"] .text-red-300 {
   color: rgb(247 170 170 / 1);
+}
+html[data-theme="windows"] .text-red-300\/70 {
+  color: rgb(247 170 170 / 0.7);
+}
+html[data-theme="windows"] .text-red-300\/90 {
+  color: rgb(247 170 170 / 0.9);
 }
 html[data-theme="windows"] .text-red-400 {
   color: rgb(240 121 121 / 1);
@@ -3580,6 +3616,9 @@ html[data-theme="playful"] .border-amber-800\/50 {
 html[data-theme="playful"] .border-amber-800\/60 {
   border-color: rgb(163 62 0 / 0.6);
 }
+html[data-theme="playful"] .border-amber-800\/70 {
+  border-color: rgb(163 62 0 / 0.7);
+}
 html[data-theme="playful"] .border-amber-800\/80 {
   border-color: rgb(163 62 0 / 0.8);
 }
@@ -3738,6 +3777,9 @@ html[data-theme="playful"] .border-indigo-800\/50 {
 }
 html[data-theme="playful"] .border-indigo-800\/60 {
   border-color: rgb(199 58 130 / 0.6);
+}
+html[data-theme="playful"] .border-indigo-800\/70 {
+  border-color: rgb(199 58 130 / 0.7);
 }
 html[data-theme="playful"] .border-indigo-800\/80 {
   border-color: rgb(199 58 130 / 0.8);
@@ -4333,6 +4375,9 @@ html[data-theme="playful"] .text-amber-200\/80 {
 html[data-theme="playful"] .text-amber-300 {
   color: rgb(255 214 81 / 1);
 }
+html[data-theme="playful"] .text-amber-300\/90 {
+  color: rgb(255 214 81 / 0.9);
+}
 html[data-theme="playful"] .text-amber-400 {
   color: rgb(255 194 38 / 1);
 }
@@ -4374,6 +4419,9 @@ html[data-theme="playful"] .text-emerald-300 {
 }
 html[data-theme="playful"] .text-emerald-300\/80 {
   color: rgb(97 251 190 / 0.8);
+}
+html[data-theme="playful"] .text-emerald-300\/90 {
+  color: rgb(97 251 190 / 0.9);
 }
 html[data-theme="playful"] .text-emerald-400 {
   color: rgb(31 237 162 / 1);
@@ -4482,6 +4530,12 @@ html[data-theme="playful"] .text-red-200 {
 }
 html[data-theme="playful"] .text-red-300 {
   color: rgb(255 170 170 / 1);
+}
+html[data-theme="playful"] .text-red-300\/70 {
+  color: rgb(255 170 170 / 0.7);
+}
+html[data-theme="playful"] .text-red-300\/90 {
+  color: rgb(255 170 170 / 0.9);
 }
 html[data-theme="playful"] .text-red-400 {
   color: rgb(255 113 113 / 1);
@@ -5112,6 +5166,9 @@ html[data-theme="glass"] .border-amber-800\/50 {
 html[data-theme="glass"] .border-amber-800\/60 {
   border-color: rgb(137 70 42 / 0.6);
 }
+html[data-theme="glass"] .border-amber-800\/70 {
+  border-color: rgb(137 70 42 / 0.7);
+}
 html[data-theme="glass"] .border-amber-800\/80 {
   border-color: rgb(137 70 42 / 0.8);
 }
@@ -5270,6 +5327,9 @@ html[data-theme="glass"] .border-indigo-800\/50 {
 }
 html[data-theme="glass"] .border-indigo-800\/60 {
   border-color: rgb(147 118 212 / 0.6);
+}
+html[data-theme="glass"] .border-indigo-800\/70 {
+  border-color: rgb(147 118 212 / 0.7);
 }
 html[data-theme="glass"] .border-indigo-800\/80 {
   border-color: rgb(147 118 212 / 0.8);
@@ -5865,6 +5925,9 @@ html[data-theme="glass"] .text-amber-200\/80 {
 html[data-theme="glass"] .text-amber-300 {
   color: rgb(199 114 28 / 1);
 }
+html[data-theme="glass"] .text-amber-300\/90 {
+  color: rgb(199 114 28 / 0.9);
+}
 html[data-theme="glass"] .text-amber-400 {
   color: rgb(205 123 29 / 1);
 }
@@ -5906,6 +5969,9 @@ html[data-theme="glass"] .text-emerald-300 {
 }
 html[data-theme="glass"] .text-emerald-300\/80 {
   color: rgb(21 140 111 / 0.8);
+}
+html[data-theme="glass"] .text-emerald-300\/90 {
+  color: rgb(21 140 111 / 0.9);
 }
 html[data-theme="glass"] .text-emerald-400 {
   color: rgb(24 148 116 / 1);
@@ -6014,6 +6080,12 @@ html[data-theme="glass"] .text-red-200 {
 }
 html[data-theme="glass"] .text-red-300 {
   color: rgb(202 46 55 / 1);
+}
+html[data-theme="glass"] .text-red-300\/70 {
+  color: rgb(202 46 55 / 0.7);
+}
+html[data-theme="glass"] .text-red-300\/90 {
+  color: rgb(202 46 55 / 0.9);
 }
 html[data-theme="glass"] .text-red-400 {
   color: rgb(206 53 61 / 1);
@@ -6644,6 +6716,9 @@ html[data-theme="porcelain"] .border-amber-800\/50 {
 html[data-theme="porcelain"] .border-amber-800\/60 {
   border-color: rgb(146 64 14 / 0.6);
 }
+html[data-theme="porcelain"] .border-amber-800\/70 {
+  border-color: rgb(146 64 14 / 0.7);
+}
 html[data-theme="porcelain"] .border-amber-800\/80 {
   border-color: rgb(146 64 14 / 0.8);
 }
@@ -6802,6 +6877,9 @@ html[data-theme="porcelain"] .border-indigo-800\/50 {
 }
 html[data-theme="porcelain"] .border-indigo-800\/60 {
   border-color: rgb(42 99 164 / 0.6);
+}
+html[data-theme="porcelain"] .border-indigo-800\/70 {
+  border-color: rgb(42 99 164 / 0.7);
 }
 html[data-theme="porcelain"] .border-indigo-800\/80 {
   border-color: rgb(42 99 164 / 0.8);
@@ -7397,6 +7475,9 @@ html[data-theme="porcelain"] .text-amber-200\/80 {
 html[data-theme="porcelain"] .text-amber-300 {
   color: rgb(217 119 6 / 1);
 }
+html[data-theme="porcelain"] .text-amber-300\/90 {
+  color: rgb(217 119 6 / 0.9);
+}
 html[data-theme="porcelain"] .text-amber-400 {
   color: rgb(224 129 7 / 1);
 }
@@ -7438,6 +7519,9 @@ html[data-theme="porcelain"] .text-emerald-300 {
 }
 html[data-theme="porcelain"] .text-emerald-300\/80 {
   color: rgb(5 150 105 / 0.8);
+}
+html[data-theme="porcelain"] .text-emerald-300\/90 {
+  color: rgb(5 150 105 / 0.9);
 }
 html[data-theme="porcelain"] .text-emerald-400 {
   color: rgb(8 159 111 / 1);
@@ -7546,6 +7630,12 @@ html[data-theme="porcelain"] .text-red-200 {
 }
 html[data-theme="porcelain"] .text-red-300 {
   color: rgb(220 38 38 / 1);
+}
+html[data-theme="porcelain"] .text-red-300\/70 {
+  color: rgb(220 38 38 / 0.7);
+}
+html[data-theme="porcelain"] .text-red-300\/90 {
+  color: rgb(220 38 38 / 0.9);
 }
 html[data-theme="porcelain"] .text-red-400 {
   color: rgb(225 46 46 / 1);

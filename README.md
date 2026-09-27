@@ -96,6 +96,21 @@ tests/          the test suite
 Some `lib` modules are worth knowing about, because they are deliberately the
 single source of truth for their job:
 
+- **`render-profile.ts`** — the **Master Render Profile**: the one central
+  encoding configuration (resolution profiles, frame rate + CFR, H.264/AAC
+  MP4 defaults, the platform-aware bitrate ladder, quality presets, keyframe
+  interval, file naming, platform compatibility checks and human-readable
+  render-failure reports). Platform targets — YouTube, Shorts, TikTok,
+  Reels, Facebook, LinkedIn, Pinterest — inherit from it and only override
+  what the platform genuinely requires; platforms whose requirements match
+  share **one** master encode instead of being rendered again. The default
+  needs no knowledge of encoding: press Render and you get High quality,
+  1080p, 30 FPS CFR, H.264 + AAC in a web-optimised MP4.
+- **`audio-mastering.ts`** — the optional final-mix stage (on by default):
+  a gentle bus compressor and safety limiter so the mix never clips, plus
+  voice-priority ducking that eases music down while the narrator speaks.
+  Switch it to Manual on the render screen and your mix passes through
+  untouched.
 - **`scene-framing.ts`** — every image placement in the app. The editor
   preview, the live preview and the exported video all call into it, which is
   what guarantees a photo is never stretched out of shape.
