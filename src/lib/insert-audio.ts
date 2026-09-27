@@ -137,7 +137,7 @@ const bufferCache = new Map<string, AudioBuffer>();
 
 export async function decodeInsertAudio(
   url: string,
-  ctx: AudioContext
+  ctx: BaseAudioContext
 ): Promise<AudioBuffer | null> {
   const cached = bufferCache.get(url);
   if (cached) return cached;
@@ -169,11 +169,11 @@ interface ActiveSlot {
  * the current absolute timeline time. stop()/dispose() when playback ends.
  */
 export class InsertAudioMixer {
-  private ctx: AudioContext;
+  private ctx: BaseAudioContext;
   private master: GainNode;
   private slots: ActiveSlot[] = [];
 
-  constructor(ctx: AudioContext, dest: AudioNode) {
+  constructor(ctx: BaseAudioContext, dest: AudioNode) {
     this.ctx = ctx;
     this.master = ctx.createGain();
     this.master.gain.value = 1;
@@ -211,7 +211,7 @@ export class InsertAudioMixer {
 
       const bufDur = Math.max(0.01, slot.buffer.duration);
       const offset = ((at - slot.plan.startTime) % bufDur + bufDur) % bufDur;
-      source.start(0, offset);
+      source.start(this.ctx.currentTime, offset);
 
       source.onended = () => {
         if (slot.source === source) {

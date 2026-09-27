@@ -77,7 +77,7 @@ export interface MasteringChain {
   dispose(): void;
 }
 
-export function createMasteringChain(ctx: AudioContext, mode: MasteringMode): MasteringChain {
+export function createMasteringChain(ctx: BaseAudioContext, mode: MasteringMode): MasteringChain {
   const voiceInput = ctx.createGain();
   const musicInput = ctx.createGain();
   const output = ctx.createGain();
