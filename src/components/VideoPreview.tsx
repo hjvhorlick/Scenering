@@ -7,7 +7,7 @@ import {
   getPresetCoords,
   renderTimelineInsert,
 } from "../lib/render-effects";
-import { drawSceneImage, sceneHasVisual, sceneIsBlankColor } from "../lib/scene-framing";
+import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
@@ -1028,6 +1028,17 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     const images = await Promise.all(
       scenesWithImages.map((s, i) => loadImage(s.image_url || "", i))
     );
+
+    // Pre-render each scene's expensive static layers (graded copy, blurred
+    // backdrop) before playback — the same caches the export uses. Without
+    // this the first frames of every scene paid for grade + blur + decode,
+    // which is the visible "jump" at the start of each motion effect.
+    try {
+      const gradeForCache = getFilterCanvas(videoFilter, canvas.width);
+      images.forEach((img, i) => {
+        prewarmSceneFrame(img, scenesWithImages[i], canvas.width, canvas.height, gradeForCache);
+      });
+    } catch {}
 
     let audioCtx = audioCtxRef.current;
     if (!audioCtx) {

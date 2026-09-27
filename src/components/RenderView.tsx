@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, EditorStep, ResolutionType, PacingModeType } from "../types";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
-import { drawSceneImage, sceneHasVisual, sceneIsBlankColor } from "../lib/scene-framing";
+import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import {
@@ -821,6 +821,21 @@ export default function RenderView({
       const images = loadedSceneImages.map((r) => (r ? r.img : null));
       const fallbackCount = loadedSceneImages.filter((r) => r?.usedFallback).length;
       setImageFallbackCount(fallbackCount);
+
+      // Pre-render every scene's expensive static layers (colour-graded
+      // copy, blurred backdrop) BEFORE the real-time recording starts.
+      // These used to be computed during the first frames of each scene,
+      // which dropped frames exactly at the start of every effect.
+      {
+        const gradeForCache = getFilterCanvas(videoFilter, width);
+        for (let i = 0; i < scenesWithImages.length; i++) {
+          try {
+            prewarmSceneFrame(images[i], scenesWithImages[i], width, height, gradeForCache);
+          } catch {}
+          // Yield between scenes so the UI (progress bar) stays alive.
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }
 
       // Prepare any short video clips so their frames are decodable while the
       // canvas is being captured.

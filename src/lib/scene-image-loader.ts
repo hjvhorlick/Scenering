@@ -148,7 +148,16 @@ export function loadSceneImage(
           attempt(i + 1);
           return;
         }
-        resolve({ img, usedFallback: false });
+        // Force the FULL pixel decode now, off the critical path. Browsers
+        // decode lazily on the first drawImage, and for a big photo that is
+        // a 50-200ms stall — exactly the "jump" seen at the start of every
+        // scene's motion effect in the preview and in the exported video.
+        const done = () => resolve({ img, usedFallback: false });
+        if (typeof img.decode === "function") {
+          img.decode().then(done, done);
+        } else {
+          done();
+        }
       };
       img.onerror = () => {
         if (settled) return;

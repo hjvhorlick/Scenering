@@ -127,16 +127,24 @@ function paintLayer(
     case "grain": {
       const a = spec.alpha * k;
       if (a <= 0.005) break;
-      const density = (spec.density ?? 1) * (w * h) / 5200;
+      // Capped: grain is painted EVERY frame of a real-time recording, so
+      // its cost must stay flat whatever the resolution — at 4K the old
+      // uncapped density was ~1,600 rects/frame. The speck size already
+      // scales with the frame, so a capped count reads identically.
+      const density = Math.min(500, (spec.density ?? 1) * (w * h) / 5200);
       const frame = Math.floor(t * 24);
       const light = `rgba(255,255,255,${(a * 0.26).toFixed(3)})`;
       const dark = `rgba(0,0,0,${(a * 0.32).toFixed(3)})`;
       const px = Math.max(1, 1.7 * unit);
-      for (let i = 0; i < density; i++) {
-        const gx = rnd(i + frame * 0.37, 3) * w;
-        const gy = rnd(i + frame * 0.61, 7) * h;
-        ctx.fillStyle = i % 2 === 0 ? light : spec.mono ? light : dark;
-        ctx.fillRect(gx, gy, px, px);
+      // Two passes (all light, then all dark) instead of alternating the
+      // fillStyle per speck — style churn is the slow part of tiny fills.
+      ctx.fillStyle = light;
+      for (let i = 0; i < density; i += 2) {
+        ctx.fillRect(rnd(i + frame * 0.37, 3) * w, rnd(i + frame * 0.61, 7) * h, px, px);
+      }
+      ctx.fillStyle = spec.mono ? light : dark;
+      for (let i = 1; i < density; i += 2) {
+        ctx.fillRect(rnd(i + frame * 0.37, 3) * w, rnd(i + frame * 0.61, 7) * h, px, px);
       }
       break;
     }
