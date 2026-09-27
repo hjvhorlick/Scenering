@@ -498,8 +498,15 @@ function paintLayer(
     }
 
     case "letterbox": {
-      const bar = h * (spec.ratio ?? 0.1);
-      ctx.fillStyle = `rgba(0,0,0,${(spec.alpha * clamp01(s.strength)).toFixed(3)})`;
+      // Cinema bars are governed by their OWN slider, never by Look
+      // Strength, and default to 0: a filter must never letterbox the
+      // video unless the user explicitly asks for bars. (They used to be
+      // hardcoded on, which looked like black-bar render corruption in
+      // the studio preview and every export.)
+      const lb = clamp01(s.letterbox ?? 0);
+      if (lb < 0.01) break;
+      const bar = h * (spec.ratio ?? 0.1) * lb;
+      ctx.fillStyle = `rgba(0,0,0,${spec.alpha.toFixed(3)})`;
       ctx.fillRect(0, 0, w, bar);
       ctx.fillRect(0, h - bar, w, bar);
       break;
