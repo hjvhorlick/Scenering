@@ -10,6 +10,7 @@ import {
   DEMO_CAPTION_STYLE,
   DEMO_PROJECT,
   DEMO_SCENES,
+  DEMO_TIMELINE_EXTRAS,
   DEMO_TOTAL_SECONDS,
   DEMO_VOICE,
   formatDuration,
@@ -127,14 +128,17 @@ export default function Hero() {
                           ? `Playing · ${formatDuration(DEMO_TOTAL_SECONDS)}`
                           : `Preview · ${formatDuration(DEMO_TOTAL_SECONDS)}`
                       }
+                      grade={reached(5) ? DEMO_TIMELINE_EXTRAS.filter.css : undefined}
                       sizes="(min-width: 1080px) 420px, 92vw"
                       eager
                     />
                     <div className={`mkt-chiprow mkt-stage${reached(5) ? " is-in" : ""}`} style={{ marginTop: 8 }}>
-                      <span className="mkt-chip is-on">◑ Warm &amp; Gold Glow</span>
-                      <span className="mkt-chip">♪ Music</span>
-                      <span className="mkt-chip">✱ Sticker</span>
-                      <span className="mkt-chip">▶ Subscribe</span>
+                      {/* the demonstration project's own timeline, named the
+                          way the studio names these things */}
+                      <span className="mkt-chip is-on">◑ {DEMO_TIMELINE_EXTRAS.filter.name}</span>
+                      <span className="mkt-chip">♪ {DEMO_TIMELINE_EXTRAS.music.name}</span>
+                      <span className="mkt-chip">✱ {DEMO_TIMELINE_EXTRAS.sticker.name}</span>
+                      <span className="mkt-chip">▶ {DEMO_TIMELINE_EXTRAS.cta.name}</span>
                     </div>
                   </div>
                 </div>
