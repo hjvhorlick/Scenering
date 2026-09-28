@@ -79,7 +79,7 @@ import {
 } from "../lib/render-profile";
 import type { RenderProfileSettings } from "../types";
 import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
-import { OfflineExporter, supported as offlineExportSupported } from "../lib/offline-export";
+import { OfflineExporter, supported as offlineExportSupported, type OfflineExportConfig } from "../lib/offline-export";
 
 /**
  * The render screen's live settings. Every one of them is DECIDED in
@@ -273,6 +273,12 @@ export default function RenderView({
    *  download "not work" before. */
   const [renderedContainer, setRenderedContainer] = useState<"mp4" | "webm">("webm");
   const [renderError, setRenderError] = useState<string | null>(null);
+  /** Never hide which pipeline made the file. During diagnosis, frame-exact
+   * is required by default so a silent MediaRecorder fallback cannot be
+   * mistaken for a successful fix. */
+  const [renderEngine, setRenderEngine] = useState<"checking" | "frame-exact" | "compatibility" | null>(null);
+  const [offlineFailureReason, setOfflineFailureReason] = useState<string | null>(null);
+  const [requireFrameExact, setRequireFrameExact] = useState(true);
   /** How many scene photos had to be replaced by placeholder cards in the
    *  last render — surfaced so a dead image URL is never silent again. */
   const [imageFallbackCount, setImageFallbackCount] = useState(0);
@@ -649,6 +655,8 @@ export default function RenderView({
     setRenderError(null);
     setFailureReport(null);
     setShowFailureDetail(false);
+    setRenderEngine("checking");
+    setOfflineFailureReason(null);
     abortControllerRef.current = false;
     // Publish the job so the header can follow it even if the user leaves
     // this screen — the render itself keeps running either way.
@@ -1307,8 +1315,9 @@ export default function RenderView({
         targetFormat === "webm" ? "webm" : targetFormat === "mp4" || targetFormat === "mov"
           ? "mp4"
           : (plan ? plan.container : settings.format) === "webm" ? "webm" : "mp4";
-      const offlineConfig = {
-        container: requestedContainer,
+      let offlineContainer: "mp4" | "webm" = requestedContainer;
+      let offlineConfig: OfflineExportConfig = {
+        container: offlineContainer,
         width,
         height,
         fps: fpsUsed,
@@ -1316,14 +1325,42 @@ export default function RenderView({
         audioKbps,
         sampleRate: 48_000,
         channels: 2,
-      } as const;
-      const offlineProbe = await offlineExportSupported(offlineConfig);
+      };
+      let offlineProbe = await offlineExportSupported(offlineConfig);
+
+      // Many Chromium builds expose VP9/Opus WebCodecs but not AAC or H.264
+      // (especially Linux and embedded preview browsers). Preserve the
+      // frame-exact timeline by switching container rather than falling all
+      // the way back to real-time MediaRecorder.
+      if (!offlineProbe.supported && requestedContainer === "mp4") {
+        const mp4Reason = offlineProbe.reason;
+        const webmConfig: OfflineExportConfig = { ...offlineConfig, container: "webm" };
+        const webmProbe = await offlineExportSupported(webmConfig);
+        if (webmProbe.supported) {
+          offlineContainer = "webm";
+          offlineConfig = webmConfig;
+          offlineProbe = webmProbe;
+          reportStage("MP4 WebCodecs unavailable — using frame-exact VP9/Opus WebM…");
+          console.info("MP4 frame-exact codecs unavailable; preserving offline rendering with WebM:", mp4Reason);
+        } else {
+          offlineProbe = {
+            ...webmProbe,
+            reason: `MP4 failed: ${mp4Reason || "unsupported"}. WebM failed: ${webmProbe.reason || "unsupported"}`,
+          };
+        }
+      }
+
       if (offlineProbe.supported && typeof OfflineAudioContext !== "undefined") {
         let offlineEncoder: OfflineExporter | null = null;
         try {
           reportStage("3/4: Rendering sample-exact audio mix…");
           reportProgress(0.32);
           const totalFrames = Math.ceil(estimatedTotalDuration * fpsUsed);
+          // Configure real encoder instances before spending time on the audio
+          // pass. A driver/configuration rejection is reported immediately.
+          offlineEncoder = await OfflineExporter.create(offlineConfig);
+          setRenderEngine("frame-exact");
+          reportStage(`3/4: Frame-exact ${offlineProbe.videoCodec} + ${offlineProbe.audioCodec} — rendering audio…`);
           const offlineCtx = new OfflineAudioContext(2, Math.ceil(estimatedTotalDuration * 48_000), 48_000);
           const offlineMastering = createMasteringChain(offlineCtx, settings.audioMastering);
           offlineMastering.output.connect(offlineCtx.destination);
@@ -1416,7 +1453,6 @@ export default function RenderView({
           const [mixedAudio] = await Promise.all([rendering, ...suspensionTasks]);
           if (abortControllerRef.current) throw new Error("Render cancelled");
 
-          offlineEncoder = await OfflineExporter.create(offlineConfig);
           for (let frame = 0; frame < totalFrames; frame++) {
             if (abortControllerRef.current) throw new Error("Render cancelled");
             const time = frame / fpsUsed;
@@ -1445,19 +1481,40 @@ export default function RenderView({
           offlineMastering.dispose();
           offlineEcho?.dispose();
           offlineInsertMixer.dispose();
-          return await finishSuccessfulExport(offlineBlob, requestedContainer, offlineBlob.type);
+          setRenderEngine("frame-exact");
+          setOfflineFailureReason(null);
+          return await finishSuccessfulExport(offlineBlob, offlineContainer, offlineBlob.type);
         } catch (offlineError) {
           offlineEncoder?.close();
           if (abortControllerRef.current) throw offlineError;
-          console.warn("Frame-exact offline export failed; falling back to MediaRecorder:", offlineError);
-          reportStage("Offline encoder unavailable — switching to real-time compatibility mode…");
+          const reason = offlineError instanceof Error
+            ? `${offlineError.name}: ${offlineError.message}`
+            : String(offlineError);
+          setOfflineFailureReason(reason);
+          console.error("Frame-exact offline export failed:", offlineError);
+          if (requireFrameExact) {
+            throw new Error(`Frame-exact export failed. ${reason}`);
+          }
+          setRenderEngine("compatibility");
+          reportStage(`Compatibility fallback: ${reason}`);
           reportProgress(0.34);
         }
       } else {
-        console.info("Frame-exact offline export unsupported; using MediaRecorder:", offlineProbe.reason);
+        const reason = typeof OfflineAudioContext === "undefined"
+          ? "OfflineAudioContext is unavailable in this browser"
+          : offlineProbe.reason || "WebCodecs configuration is unsupported";
+        setOfflineFailureReason(reason);
+        console.error("Frame-exact offline export unsupported:", reason);
+        if (requireFrameExact) {
+          throw new Error(`Frame-exact export is required but unavailable. ${reason}`);
+        }
+        setRenderEngine("compatibility");
+        reportStage(`Compatibility fallback: ${reason}`);
       }
 
-      // Automatic compatibility fallback: retain the proven real-time path.
+      // Automatic compatibility fallback remains available only when the
+      // user explicitly unticks "Require frame-exact rendering".
+      setRenderEngine("compatibility");
       if (typeof MediaRecorder === "undefined") {
         throw new Error("This browser supports neither WebCodecs offline export nor MediaRecorder");
       }
@@ -2702,6 +2759,19 @@ export default function RenderView({
                   <h4 className="text-base font-semibold text-white mb-1">
                     Rendering Video in {resLabel}
                   </h4>
+                  <div className={`mb-2 px-2.5 py-1 rounded-full border text-[10px] font-bold ${
+                    renderEngine === "frame-exact"
+                      ? "bg-emerald-950 border-emerald-600 text-emerald-300"
+                      : renderEngine === "compatibility"
+                      ? "bg-amber-950 border-amber-600 text-amber-300"
+                      : "bg-indigo-950 border-indigo-600 text-indigo-300"
+                  }`}>
+                    {renderEngine === "frame-exact"
+                      ? "✓ FRAME-EXACT WEBCODECS"
+                      : renderEngine === "compatibility"
+                      ? "⚠ REAL-TIME COMPATIBILITY FALLBACK"
+                      : "CHECKING FRAME-EXACT SUPPORT…"}
+                  </div>
                   <p className="text-xs text-indigo-300 font-medium mb-3">{renderStage}</p>
 
                   <div className="w-64 bg-gray-800 rounded-full h-2 overflow-hidden border border-hairline">
@@ -2793,6 +2863,31 @@ export default function RenderView({
                 </div>
               )}
 
+              {/* During diagnosis, never silently accept the old real-time path. */}
+              {!isRendering && !renderedUrl && (
+                <label className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-950/40 border border-emerald-800/70 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={requireFrameExact}
+                    onChange={(event) => setRequireFrameExact(event.target.checked)}
+                    className="mt-0.5 accent-emerald-500"
+                  />
+                  <span>
+                    <span className="block text-[11px] font-bold text-emerald-200">Require frame-exact rendering</span>
+                    <span className="block text-[10px] text-emerald-300/75 leading-relaxed">
+                      Recommended. If WebCodecs fails, show the exact reason instead of silently creating a jittery real-time recording.
+                    </span>
+                  </span>
+                </label>
+              )}
+
+              {offlineFailureReason && !isRendering && (
+                <div className="p-3 rounded-lg bg-amber-950/50 border border-amber-800/70">
+                  <p className="text-[11px] font-bold text-amber-200">Frame-exact diagnostic</p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-amber-300 break-words">{offlineFailureReason}</p>
+                </div>
+              )}
+
               {/* Primary Action Button: Render or Re-Render */}
               {!renderedUrl ? (
                 <div className="space-y-1.5">
@@ -2820,6 +2915,13 @@ export default function RenderView({
                   <div className="p-3 bg-green-950/50 border border-green-800/80 rounded-xl text-green-300 text-xs flex items-center justify-between gap-2 flex-wrap">
                     <span className="flex items-center gap-2 font-medium">
                       <span>✅</span> Video rendered successfully! Format: {renderedContainer.toUpperCase()} · {resLabel}
+                      <span className={`ml-1 px-2 py-0.5 rounded-full border text-[9px] font-bold ${
+                        renderEngine === "frame-exact"
+                          ? "bg-emerald-900 border-emerald-600 text-emerald-100"
+                          : "bg-amber-900 border-amber-600 text-amber-100"
+                      }`}>
+                        {renderEngine === "frame-exact" ? "FRAME-EXACT WEBCODECS" : "REAL-TIME FALLBACK"}
+                      </span>
                     </span>
                     <button
                       onClick={() => void handleStartRender()}

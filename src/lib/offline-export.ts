@@ -18,6 +18,7 @@ export interface OfflineSupport {
   supported: boolean;
   videoCodec?: string;
   audioCodec?: string;
+  hardwareAcceleration?: HardwareAcceleration;
   reason?: string;
 }
 
@@ -36,9 +37,17 @@ export function avcCodecForSize(width: number, height: number): string {
   return "avc1.640033";
 }
 
+function avcFallbacks(width: number, height: number): string[] {
+  const pixels = width * height;
+  const level = pixels <= 1280 * 720 ? "1f" : pixels <= 1920 * 1080 ? "28" : "33";
+  // High, Main, then Constrained Baseline. Some Chrome installations expose
+  // only a software Main/Baseline encoder even though High hardware probing fails.
+  return [`avc1.6400${level}`, `avc1.4d00${level}`, `avc1.42e0${level}`];
+}
+
 function candidates(config: OfflineExportConfig): Array<{ video: string; audio: string }> {
   if (config.container === "mp4") {
-    return [{ video: avcCodecForSize(config.width, config.height), audio: "mp4a.40.2" }];
+    return avcFallbacks(config.width, config.height).map((video) => ({ video, audio: "mp4a.40.2" }));
   }
   return [
     { video: "vp09.00.10.08", audio: "opus" },
@@ -46,38 +55,76 @@ function candidates(config: OfflineExportConfig): Array<{ video: string; audio: 
   ];
 }
 
-/** Import-safe WebCodecs capability probe (returns false in Node and older browsers). */
+function videoConfig(
+  config: OfflineExportConfig,
+  codec: string,
+  hardwareAcceleration?: HardwareAcceleration
+): VideoEncoderConfig {
+  return {
+    codec,
+    width: config.width,
+    height: config.height,
+    framerate: config.fps,
+    bitrate: config.videoKbps * 1000,
+    ...(hardwareAcceleration ? { hardwareAcceleration } : {}),
+    latencyMode: "quality",
+    ...(config.container === "mp4" ? { avc: { format: "avc" as const } } : {}),
+  };
+}
+
+/** Import-safe WebCodecs capability probe with a useful failure diagnosis. */
 export async function supported(config: OfflineExportConfig): Promise<OfflineSupport> {
   const api = browserCodecs();
-  if (!api || typeof api.VideoEncoder.isConfigSupported !== "function" || typeof api.AudioEncoder.isConfigSupported !== "function") {
-    return { supported: false, reason: "WebCodecs VideoEncoder/AudioEncoder are unavailable" };
+  if (!api) return { supported: false, reason: "WebCodecs VideoEncoder/AudioEncoder are unavailable in this browser" };
+  if (typeof api.VideoEncoder.isConfigSupported !== "function") {
+    return { supported: false, reason: "VideoEncoder capability probing is unavailable" };
   }
+  if (typeof api.AudioEncoder.isConfigSupported !== "function") {
+    return { supported: false, reason: "AudioEncoder capability probing is unavailable" };
+  }
+
+  const attempts: string[] = [];
   for (const pair of candidates(config)) {
+    let audioSupported = false;
     try {
-      const [video, audio] = await Promise.all([
-        api.VideoEncoder.isConfigSupported({
-          codec: pair.video,
-          width: config.width,
-          height: config.height,
-          framerate: config.fps,
-          bitrate: config.videoKbps * 1000,
-          hardwareAcceleration: "prefer-hardware",
-          latencyMode: "quality",
-          ...(config.container === "mp4" ? { avc: { format: "avc" as const } } : {}),
-        }),
-        api.AudioEncoder.isConfigSupported({
-          codec: pair.audio,
-          sampleRate: config.sampleRate ?? 48_000,
-          numberOfChannels: config.channels ?? 2,
-          bitrate: config.audioKbps * 1000,
-        }),
-      ]);
-      if (video.supported && audio.supported) return { supported: true, videoCodec: pair.video, audioCodec: pair.audio };
-    } catch {
-      // Try the next WebM codec; MP4 falls through to the recorder.
+      const audio = await api.AudioEncoder.isConfigSupported({
+        codec: pair.audio,
+        sampleRate: config.sampleRate ?? 48_000,
+        numberOfChannels: config.channels ?? 2,
+        bitrate: config.audioKbps * 1000,
+      });
+      audioSupported = Boolean(audio.supported);
+    } catch (error) {
+      attempts.push(`${pair.audio} audio probe threw ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!audioSupported) {
+      attempts.push(`${pair.audio} audio is unsupported`);
+      continue;
+    }
+
+    // First ask for hardware. Then omit the preference so Chrome is free to
+    // select its software encoder; strict hardware-only probing caused silent fallback.
+    for (const acceleration of ["prefer-hardware", undefined] as const) {
+      try {
+        const video = await api.VideoEncoder.isConfigSupported(videoConfig(config, pair.video, acceleration));
+        if (video.supported) {
+          return {
+            supported: true,
+            videoCodec: pair.video,
+            audioCodec: pair.audio,
+            ...(acceleration ? { hardwareAcceleration: acceleration } : {}),
+          };
+        }
+        attempts.push(`${pair.video} video (${acceleration || "browser-selected"}) is unsupported`);
+      } catch (error) {
+        attempts.push(`${pair.video} video probe threw ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
-  return { supported: false, reason: `No supported ${config.container.toUpperCase()} WebCodecs configuration` };
+  return {
+    supported: false,
+    reason: `No supported ${config.container.toUpperCase()} WebCodecs configuration. ${attempts.join("; ")}`,
+  };
 }
 
 type MuxerLike = {
@@ -96,7 +143,7 @@ export class OfflineExporter {
   private readonly mime: string;
   private failure: Error | null = null;
 
-  private constructor(config: OfflineExportConfig, probe: Required<Pick<OfflineSupport, "videoCodec" | "audioCodec">>) {
+  private constructor(config: OfflineExportConfig, probe: OfflineSupport & { videoCodec: string; audioCodec: string }) {
     const api = browserCodecs();
     if (!api) throw new Error("WebCodecs disappeared after capability probing");
     this.config = { ...config, sampleRate: config.sampleRate ?? 48_000, channels: config.channels ?? 2 };
@@ -125,16 +172,7 @@ export class OfflineExporter {
 
     this.video = new api.VideoEncoder({ output: (chunk, meta) => this.muxer.addVideoChunk(chunk, meta), error: fail });
     this.audio = new api.AudioEncoder({ output: (chunk, meta) => this.muxer.addAudioChunk(chunk, meta), error: fail });
-    this.video.configure({
-      codec: probe.videoCodec,
-      width: config.width,
-      height: config.height,
-      framerate: config.fps,
-      bitrate: config.videoKbps * 1000,
-      hardwareAcceleration: "prefer-hardware",
-      latencyMode: "quality",
-      ...(config.container === "mp4" ? { avc: { format: "avc" as const } } : {}),
-    });
+    this.video.configure(videoConfig(config, probe.videoCodec, probe.hardwareAcceleration));
     this.audio.configure({
       codec: probe.audioCodec,
       sampleRate: this.config.sampleRate,
@@ -146,7 +184,7 @@ export class OfflineExporter {
   static async create(config: OfflineExportConfig): Promise<OfflineExporter> {
     const probe = await supported(config);
     if (!probe.supported || !probe.videoCodec || !probe.audioCodec) throw new Error(probe.reason || "Offline export is unsupported");
-    return new OfflineExporter(config, { videoCodec: probe.videoCodec, audioCodec: probe.audioCodec });
+    return new OfflineExporter(config, { ...probe, videoCodec: probe.videoCodec, audioCodec: probe.audioCodec });
   }
 
   private throwIfFailed(): void { if (this.failure) throw this.failure; }
