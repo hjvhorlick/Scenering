@@ -1448,7 +1448,11 @@ export default function RenderView({
             node.getByteTimeDomainData(wave);
             let sum = 0;
             for (let n = 0; n < freq.length; n++) sum += freq[n];
-            return makeBus(sum / (freq.length * 255), freq.slice(), wave.slice());
+            // freq and wave are freshly allocated above and belong to this
+            // frame alone, so they are handed over as they are. Copying them
+            // again here doubled the allocation on every frame of every
+            // render for nothing.
+            return makeBus(sum / (freq.length * 255), freq, wave);
           };
           const telemetry: AudioFrame[] = new Array(totalFrames);
           telemetry[0] = { voice: makeBus(0, null, null), music: makeBus(0, null, null) };
