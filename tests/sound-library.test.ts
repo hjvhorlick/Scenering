@@ -103,9 +103,9 @@ for (const item of foley) {
   h.ok(!img.includes("Pexels"), "unused image sources stay out of the document");
 
   // A voice used -> the voice section names it.
-  const voiced = generateAttributionDocument({ ...base, voiceName: "Morgan Freeman Style (Male • American (US))" });
+  const voiced = generateAttributionDocument({ ...base, voiceName: "The Storyteller (Male • American (US))" });
   h.ok(voiced.includes("VOICEOVER & SPEECH SYNTHESIS"), "the narration voice is credited");
-  h.ok(voiced.includes("Voice Profile: Morgan Freeman Style"), "the voice profile name is in the credits");
+  h.ok(voiced.includes("Voice Profile: The Storyteller"), "the voice profile name is in the credits");
 }
 
 h.done("sound-library");

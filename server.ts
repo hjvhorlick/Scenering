@@ -213,11 +213,11 @@ export const VOICES = [
     mood: "Meditation, Relaxation & Storytelling",
   },
 
-  // 5 Male Persona Narrator Presets (style-inspired — real neural voices
-  // tuned to evoke each narrator's delivery; not the named actors)
+  // 5 Male Narrator Personas (real neural voices
+  // tuned to a described delivery)
   {
-    id: "freeman",
-    name: "Morgan Freeman Style (Deep Resonant Storyteller)",
+    id: "storyteller",
+    name: "The Storyteller (Deep Resonant Storyteller)",
     gender: "male",
     lang: "en-US",
     neural: "en-US-ChristopherNeural",
@@ -225,8 +225,8 @@ export const VOICES = [
     mood: "Documentaries, Storytelling & Brand Films",
   },
   {
-    id: "attenborough",
-    name: "David Attenborough Style (Breathy Documentary Legend)",
+    id: "naturalist",
+    name: "The Naturalist (Breathy Documentary Legend)",
     gender: "male",
     lang: "en-GB",
     neural: "en-GB-ThomasNeural",
@@ -234,8 +234,8 @@ export const VOICES = [
     mood: "Nature, Science & Documentary Films",
   },
   {
-    id: "jones",
-    name: "James Earl Jones Style (Booming Deep Bass)",
+    id: "titan",
+    name: "The Titan (Booming Deep Bass)",
     gender: "male",
     lang: "en-US",
     neural: "en-US-ChristopherNeural",
@@ -243,8 +243,8 @@ export const VOICES = [
     mood: "Cinematic Openers, Epics & Authority",
   },
   {
-    id: "neeson",
-    name: "Liam Neeson Style (Irish Authoritative Baritone)",
+    id: "sentinel",
+    name: "The Sentinel (Irish Authoritative Baritone)",
     gender: "male",
     lang: "en-IE",
     neural: "en-IE-ConnorNeural",
@@ -252,8 +252,8 @@ export const VOICES = [
     mood: "Thrillers, Motivation & Dramatic Reads",
   },
   {
-    id: "jackson",
-    name: "Samuel L. Jackson Style (Energetic Punchy Delivery)",
+    id: "firebrand",
+    name: "The Firebrand (Energetic Punchy Delivery)",
     gender: "male",
     lang: "en-US",
     neural: "en-US-EricNeural",
@@ -261,11 +261,11 @@ export const VOICES = [
     mood: "High-Energy Promos, Reactions & Entertainment",
   },
 
-  // 5 Female Persona Narrator Presets (style-inspired — real neural voices
-  // tuned to evoke each narrator's delivery; not the named actors)
+  // 5 Female Narrator Personas (real neural voices
+  // tuned to a described delivery)
   {
-    id: "thompson",
-    name: "Emma Thompson Style (Witty & Warm Articulate)",
+    id: "raconteur",
+    name: "The Raconteur (Witty & Warm Articulate)",
     gender: "female",
     lang: "en-GB",
     neural: "en-GB-LibbyNeural",
@@ -273,8 +273,8 @@ export const VOICES = [
     mood: "Intelligent Explainers, Drama & Audiobooks",
   },
   {
-    id: "mirren",
-    name: "Helen Mirren Style (Stately & Regal Dame)",
+    id: "sovereign",
+    name: "The Sovereign (Stately & Regal Dame)",
     gender: "female",
     lang: "en-GB",
     neural: "en-GB-SoniaNeural",
@@ -282,8 +282,8 @@ export const VOICES = [
     mood: "Luxury Brands, History & Prestige",
   },
   {
-    id: "blanchett",
-    name: "Cate Blanchett Style (Sophisticated Narrator)",
+    id: "enigma",
+    name: "The Enigma (Sophisticated Narrator)",
     gender: "female",
     lang: "en-AU",
     neural: "en-AU-NatashaNeural",
@@ -291,8 +291,8 @@ export const VOICES = [
     mood: "Art, Culture & Sophisticated Narration",
   },
   {
-    id: "weaver",
-    name: "Sigourney Weaver Style (Smoky Documentary Authority)",
+    id: "investigator",
+    name: "The Investigator (Smoky Documentary Authority)",
     gender: "female",
     lang: "en-US",
     neural: "en-US-MichelleNeural",
@@ -300,8 +300,8 @@ export const VOICES = [
     mood: "Documentaries, Science & Investigative",
   },
   {
-    id: "roberts",
-    name: "Julia Roberts Style (Radiant Smiling Warmth)",
+    id: "confidante",
+    name: "The Confidante (Radiant Smiling Warmth)",
     gender: "female",
     lang: "en-US",
     neural: "en-US-EmmaMultilingualNeural",
@@ -358,30 +358,22 @@ function resolveVoiceShortName(voiceId: string): string {
   // Strip prefix like "browser:" or "web:"
   const clean = lower.replace(/^(browser:|web:)/, "");
 
-  // --- PERSONA NARRATOR PRESETS (style-inspired actor voices) ---
+  // --- NARRATOR PERSONAS (delivery styles, not impressions) ---
   // Exact ID checks match the test suite contracts
-  if (clean === "freeman") return "en-US-ChristopherNeural";
-  if (clean === "attenborough") return "en-GB-ThomasNeural";
-  if (clean === "jones") return "en-US-ChristopherNeural";
-  if (clean === "neeson") return "en-IE-ConnorNeural";
-  if (clean === "jackson") return "en-US-EricNeural";
-  if (clean === "thompson") return "en-GB-LibbyNeural";
-  if (clean === "mirren") return "en-GB-SoniaNeural";
-  if (clean === "blanchett") return "en-AU-NatashaNeural";
-  if (clean === "weaver") return "en-US-MichelleNeural";
-  if (clean === "roberts") return "en-US-EmmaMultilingualNeural";
+  if (clean === "storyteller") return "en-US-ChristopherNeural";
+  if (clean === "naturalist") return "en-GB-ThomasNeural";
+  if (clean === "titan") return "en-US-ChristopherNeural";
+  if (clean === "sentinel") return "en-IE-ConnorNeural";
+  if (clean === "firebrand") return "en-US-EricNeural";
+  if (clean === "raconteur") return "en-GB-LibbyNeural";
+  if (clean === "sovereign") return "en-GB-SoniaNeural";
+  if (clean === "enigma") return "en-AU-NatashaNeural";
+  if (clean === "investigator") return "en-US-MichelleNeural";
+  if (clean === "confidante") return "en-US-EmmaMultilingualNeural";
 
-  // Also support full names / style descriptions passed from UI
-  if (clean.includes("freeman")) return "en-US-ChristopherNeural";
-  if (clean.includes("attenborough")) return "en-GB-ThomasNeural";
-  if (clean.includes("james earl")) return "en-US-ChristopherNeural";
-  if (clean.includes("neeson") || clean.includes("liam neeson")) return "en-IE-ConnorNeural";
-  if (clean.includes("samuel l") || clean.includes("samuel jackson")) return "en-US-EricNeural";
-  if (clean.includes("emma thompson")) return "en-GB-LibbyNeural";
-  if (clean.includes("mirren") || clean.includes("helen mirren")) return "en-GB-SoniaNeural";
-  if (clean.includes("blanchett") || clean.includes("cate blanchett")) return "en-AU-NatashaNeural";
-  if (clean.includes("weaver") || clean.includes("sigourney")) return "en-US-MichelleNeural";
-  if (clean.includes("julia roberts")) return "en-US-EmmaMultilingualNeural";
+  // Projects saved before the personas were renamed still carry the old id.
+  const legacy = LEGACY_PERSONA_IDS[clean];
+  if (legacy) return PERSONA_PROSODY_CONFIG[legacy].neural;
 
   // --- MALE VOICES (100% Genuine Male Human Recordings) ---
   if (
@@ -510,13 +502,32 @@ const REALISTIC_VOICE_UPGRADES: Record<string, string> = {
 };
 
 /**
- * Calibrated prosody specifications for the 10 Persona Actor voices.
- * Tuning pitch, speaking rate, and volume directly on Microsoft's high-fidelity
- * neural voices allows them to authentically evoke each legendary actor's
- * vocal signature — from Morgan Freeman's low gravelly rumble to Liam Neeson's
- * authoritative Irish thriller cadence.
+ * Prosody settings for the ten narrator personas.
+ *
+ * Each one is a Microsoft neural voice with pitch, rate and volume tuned to a
+ * described delivery — a low unhurried rumble, a hushed documentary hush, a
+ * bright conversational lilt. They were previously named after actors, which
+ * set an expectation the voices do not meet: they are their own voices, and
+ * the names now describe how they actually sound.
  */
-export const ACTOR_PROSODY_CONFIG: Record<
+/**
+ * Personas used to be named after actors. Projects and cached audio saved
+ * before the rename still reference the old ids, so they keep resolving.
+ */
+const LEGACY_PERSONA_IDS: Record<string, string> = {
+  freeman: "storyteller",
+  attenborough: "naturalist",
+  jones: "titan",
+  neeson: "sentinel",
+  jackson: "firebrand",
+  thompson: "raconteur",
+  mirren: "sovereign",
+  blanchett: "enigma",
+  weaver: "investigator",
+  roberts: "confidante",
+};
+
+export const PERSONA_PROSODY_CONFIG: Record<
   string,
   {
     neural: string;
@@ -525,61 +536,61 @@ export const ACTOR_PROSODY_CONFIG: Record<
     volume: string;
   }
 > = {
-  freeman: {
+  storyteller: {
     neural: "en-US-ChristopherNeural",
     pitch: "-16Hz",
     rate: "-12%",
     volume: "+10%",
   },
-  attenborough: {
+  naturalist: {
     neural: "en-GB-ThomasNeural",
     pitch: "+3Hz",
     rate: "-10%",
     volume: "-2%",
   },
-  jones: {
+  titan: {
     neural: "en-US-ChristopherNeural",
     pitch: "-26Hz",
     rate: "-10%",
     volume: "+15%",
   },
-  neeson: {
+  sentinel: {
     neural: "en-IE-ConnorNeural", // Authentic Irish male voice!
     pitch: "-12Hz",
     rate: "-8%",
     volume: "+5%",
   },
-  jackson: {
+  firebrand: {
     neural: "en-US-EricNeural",
     pitch: "-3Hz",
     rate: "+6%",
     volume: "+15%",
   },
-  thompson: {
+  raconteur: {
     neural: "en-GB-LibbyNeural",
     pitch: "+2Hz",
     rate: "-5%",
     volume: "+2%",
   },
-  mirren: {
+  sovereign: {
     neural: "en-GB-SoniaNeural",
     pitch: "-4Hz",
     rate: "-7%",
     volume: "+5%",
   },
-  blanchett: {
+  enigma: {
     neural: "en-AU-NatashaNeural",
     pitch: "-8Hz",
     rate: "-6%",
     volume: "+2%",
   },
-  weaver: {
+  investigator: {
     neural: "en-US-MichelleNeural",
     pitch: "-10Hz",
     rate: "-6%",
     volume: "+5%",
   },
-  roberts: {
+  confidante: {
     neural: "en-US-EmmaMultilingualNeural",
     pitch: "+4Hz",
     rate: "+2%",
@@ -596,33 +607,28 @@ interface SynthResult {
   words: WordTiming[];
 }
 
-function resolveActorConfig(voiceId: string) {
+function resolvePersonaConfig(voiceId: string) {
   const clean = (voiceId || "").toLowerCase().replace(/^(browser:|web:)/, "").trim();
-  for (const [key, cfg] of Object.entries(ACTOR_PROSODY_CONFIG)) {
+  for (const [key, cfg] of Object.entries(PERSONA_PROSODY_CONFIG)) {
     if (clean === key || clean.includes(key)) {
       return cfg;
     }
   }
-  if (clean.includes("james earl")) return ACTOR_PROSODY_CONFIG.jones;
-  if (clean.includes("liam")) return ACTOR_PROSODY_CONFIG.neeson;
-  if (clean.includes("samuel")) return ACTOR_PROSODY_CONFIG.jackson;
-  if (clean.includes("sigourney")) return ACTOR_PROSODY_CONFIG.weaver;
-  if (clean.includes("julia")) return ACTOR_PROSODY_CONFIG.roberts;
-  if (clean.includes("helen")) return ACTOR_PROSODY_CONFIG.mirren;
-  if (clean.includes("cate")) return ACTOR_PROSODY_CONFIG.blanchett;
+  const legacy = LEGACY_PERSONA_IDS[clean];
+  if (legacy) return PERSONA_PROSODY_CONFIG[legacy];
   return null;
 }
 
 // Synthesizes speech using authentic Microsoft Edge Read Aloud Neural Voices.
 // Tries the most lifelike variant of the requested voice, then the exact one.
 async function synthesizeRealEdgeTTS(text: string, voiceId: string): Promise<SynthResult> {
-  const actorCfg = resolveActorConfig(voiceId);
-  const options = actorCfg
-    ? { pitch: actorCfg.pitch, rate: actorCfg.rate, volume: actorCfg.volume }
+  const personaCfg = resolvePersonaConfig(voiceId);
+  const options = personaCfg
+    ? { pitch: personaCfg.pitch, rate: personaCfg.rate, volume: personaCfg.volume }
     : undefined;
 
-  if (actorCfg) {
-    return await synthesizeWithEdgeVoice(text, actorCfg.neural, options);
+  if (personaCfg) {
+    return await synthesizeWithEdgeVoice(text, personaCfg.neural, options);
   }
 
   const shortName = resolveVoiceShortName(voiceId);
@@ -725,14 +731,15 @@ function splitTextIntoChunks(text: string, maxLen = 180): string[] {
 }
 
 function getVoiceLanguage(voice: string): string {
-  const v = (voice || "").toLowerCase();
+  const raw = (voice || "").toLowerCase();
+  const v = LEGACY_PERSONA_IDS[raw] ?? raw;
   if (
     v === "ryan" ||
     v === "sonia" ||
     v === "fable" ||
-    v === "attenborough" ||
-    v === "thompson" ||
-    v === "mirren" ||
+    v === "naturalist" ||
+    v === "raconteur" ||
+    v === "sovereign" ||
     v.includes("en-gb") ||
     v.includes("british")
   ) {
@@ -742,13 +749,13 @@ function getVoiceLanguage(voice: string): string {
     v === "william" ||
     v === "natasha" ||
     v === "onyx" ||
-    v === "blanchett" ||
+    v === "enigma" ||
     v.includes("en-au") ||
     v.includes("australian")
   ) {
     return "en-au";
   }
-  if (v === "neeson" || v.includes("neeson") || v.includes("en-ie") || v.includes("irish")) {
+  if (v === "sentinel" || v.includes("en-ie") || v.includes("irish")) {
     return "en-ie";
   }
   if (v.includes("en-ca") || v.includes("canadian")) return "en-ca";

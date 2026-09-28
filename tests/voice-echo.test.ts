@@ -107,6 +107,17 @@ for (const preset of VOICE_ECHO_PRESETS) {
 }
 
 // the spaces get progressively bigger
+/**
+ * These voices were named after actors and do not sound like them, so the
+ * names were replaced with ones describing the delivery. Nothing may put an
+ * actor's name back on a synthetic voice.
+ */
+const RETIRED_ACTOR_NAMES = [
+  "freeman", "attenborough", "earl jones", "neeson", "jackson",
+  "thompson", "mirren", "blanchett", "weaver", "roberts",
+  "morgan", "attenborough", "sigourney", "julia", "helen", "cate", "emma",
+];
+
 const ordered = VOICE_ECHO_PRESETS.filter((p) => p.id !== "off" && p.id !== "doubler");
 for (let i = 1; i < ordered.length; i++) {
   h.ok(
@@ -274,7 +285,7 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
 // ---------------------------------------------------------------------------
 // Persona narrator presets — 10 style-inspired voices (5 male, 5 female).
 // The TTS engine only has stock neural voices, so each preset is named after
-// the narrator whose DELIVERY it evokes ("Morgan Freeman Style"), never
+// the narrator whose DELIVERY it evokes ("The Storyteller"), never
 // presented as the actor. These checks keep that honest and keep the voice
 // wired through every surface: the voice tab, the per-scene import modal and
 // the server's synthesis mapping.
@@ -284,16 +295,16 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
   const server = read("server.ts");
 
   const PERSONAS: Array<[id: string, name: string, gender: "male" | "female", neural: string]> = [
-    ["freeman", "Morgan Freeman Style", "male", "en-US-ChristopherNeural"],
-    ["attenborough", "David Attenborough Style", "male", "en-GB-ThomasNeural"],
-    ["jones", "James Earl Jones Style", "male", "en-US-ChristopherNeural"],
-    ["neeson", "Liam Neeson Style", "male", "en-IE-ConnorNeural"],
-    ["jackson", "Samuel L. Jackson Style", "male", "en-US-EricNeural"],
-    ["thompson", "Emma Thompson Style", "female", "en-GB-LibbyNeural"],
-    ["mirren", "Helen Mirren Style", "female", "en-GB-SoniaNeural"],
-    ["blanchett", "Cate Blanchett Style", "female", "en-AU-NatashaNeural"],
-    ["weaver", "Sigourney Weaver Style", "female", "en-US-MichelleNeural"],
-    ["roberts", "Julia Roberts Style", "female", "en-US-EmmaMultilingualNeural"],
+    ["storyteller", "The Storyteller", "male", "en-US-ChristopherNeural"],
+    ["naturalist", "The Naturalist", "male", "en-GB-ThomasNeural"],
+    ["titan", "The Titan", "male", "en-US-ChristopherNeural"],
+    ["sentinel", "The Sentinel", "male", "en-IE-ConnorNeural"],
+    ["firebrand", "The Firebrand", "male", "en-US-EricNeural"],
+    ["raconteur", "The Raconteur", "female", "en-GB-LibbyNeural"],
+    ["sovereign", "The Sovereign", "female", "en-GB-SoniaNeural"],
+    ["enigma", "The Enigma", "female", "en-AU-NatashaNeural"],
+    ["investigator", "The Investigator", "female", "en-US-MichelleNeural"],
+    ["confidante", "The Confidante", "female", "en-US-EmmaMultilingualNeural"],
   ];
 
   // The voice tab list: 20 presets, split 10 male / 10 female, ids unique.
@@ -329,7 +340,10 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
       `${name} synthesizes with a real ${neural} neural voice`
     );
     h.ok(server.includes(`id: "${id}",`), `${name} is served by the TTS voice API`);
-    h.ok(name.endsWith("Style"), `${name} is labelled as a style preset, not the actor`);
+    h.ok(
+      !RETIRED_ACTOR_NAMES.some((actor) => name.toLowerCase().includes(actor)),
+      `${name} is named for how it sounds, not after an actor`
+    );
   }
 
   // Gender detection used by the browser fallback and the credits doc.

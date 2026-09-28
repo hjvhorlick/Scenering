@@ -2,7 +2,7 @@ import { lazy, Suspense, useRef, useState } from "react";
 import { Section, SectionHead, Pill, FigureNote } from "../components/primitives";
 import AppFrame from "../components/AppFrame";
 import { useInView } from "../hooks";
-import { STUDIO_VOICE_PRESETS } from "../../data/voice-presets";
+import { STUDIO_VOICE_PRESETS, resolveVoicePreset } from "../../data/voice-presets";
 import { DEMO_DIALOGUE, DEMO_SCENES, DEMO_TOTAL_SECONDS, formatDuration } from "../demo-project";
 import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES, NARRATION_CHAIN, PLANS } from "../product-facts";
 import Icon, { iconify } from "../../components/icons/Icon";
@@ -35,7 +35,7 @@ export default function VoiceSection() {
   const monitorInView = useInView(monitorRef, { once: true, rootMargin: "500px 0px" });
 
   const voices = STUDIO_VOICE_PRESETS.filter((voice) => filter === "all" || voice.gender === filter);
-  const active = STUDIO_VOICE_PRESETS.find((voice) => voice.id === voiceId) ?? STUDIO_VOICE_PRESETS[0];
+  const active = resolveVoicePreset(voiceId) ?? STUDIO_VOICE_PRESETS[0];
   const freePlan = PLANS[0];
 
   return (

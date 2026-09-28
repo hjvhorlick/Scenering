@@ -5,7 +5,7 @@ import { ttsPlayer } from "../lib/tts-player";
 import { setCachedSceneAudio, getSharedAudioContext } from "../lib/tts-cache";
 import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
 import PhoneticDictionaryTab from "./PhoneticDictionaryTab";
-import { STUDIO_VOICE_PRESETS, type VoicePreset } from "../data/voice-presets";
+import { STUDIO_VOICE_PRESETS, type VoicePreset, resolveVoicePreset } from "../data/voice-presets";
 import {
   VoiceEchoConfig,
   VOICE_ECHO_PRESETS,
@@ -215,7 +215,7 @@ export default function VoiceoverStudio({
   const generateVoiceoverForScene = async (scene: Scene, voiceToUse: string): Promise<string | null> => {
     const text = (scene.text || "").trim();
     if (!text) return null;
-    const voicePreset = STUDIO_VOICE_PRESETS.find((v) => v.id === voiceToUse);
+    const voicePreset = resolveVoicePreset(voiceToUse);
     const voiceName = voicePreset?.name || voiceToUse;
 
     try {
@@ -339,7 +339,7 @@ export default function VoiceoverStudio({
         badge: "User Audio Track",
       };
     }
-    const preset = STUDIO_VOICE_PRESETS.find((p) => p.id === selectedVoice);
+    const preset = resolveVoicePreset(selectedVoice);
     const isMale = preset ? preset.gender === "male" : true;
     return {
       name: preset?.name || selectedVoice,

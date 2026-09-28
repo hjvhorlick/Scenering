@@ -1,6 +1,6 @@
 /**
  * Narrator catalogue — 20 natural speaking voices (10 male, 10 female):
- * 10 studio voices plus 10 style-inspired narrator personas.
+ * 10 studio voices plus 10 narrator personas.
  *
  * This lives in `src/data/` with the other catalogues (caption styles,
  * filters, templates…) so anything that needs the list — the Voiceover
@@ -20,7 +20,7 @@ export interface VoicePreset {
 }
 
 // 20 High-Quality Natural Speaking Voices (10 Male and 10 Female) —
-// 10 studio voices plus 10 style-inspired narrator personas.
+// 10 studio voices plus 10 narrator personas.
 export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
   // 5 Male Natural Voices (Authentic Human Tone)
   {
@@ -116,11 +116,10 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     sampleText: "Hello. I am Ava, offering a gentle, peaceful voice designed to bring balance and clarity.",
   },
 
-  // 5 Male Persona Narrator Presets (style-inspired — real neural voices
-  // tuned to evoke each narrator's delivery; not the named actors)
+  // 5 Male Narrator Personas — neural voices tuned to a described delivery
   {
-    id: "freeman",
-    name: "Morgan Freeman Style",
+    id: "storyteller",
+    name: "The Storyteller",
     gender: "male",
     accent: "American (US)",
     tone: "Deep, Resonant, Warm Storyteller",
@@ -128,8 +127,8 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     sampleText: "Some stories begin quietly, and slowly, they change everything. Let me tell you one.",
   },
   {
-    id: "attenborough",
-    name: "David Attenborough Style",
+    id: "naturalist",
+    name: "The Naturalist",
     gender: "male",
     accent: "British (UK)",
     tone: "Breathy, Hushed Awe Nature Documentary",
@@ -137,8 +136,8 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     sampleText: "Here, in the remote corners of our planet, extraordinary things are waiting to be discovered.",
   },
   {
-    id: "jones",
-    name: "James Earl Jones Style",
+    id: "titan",
+    name: "The Titan",
     gender: "male",
     accent: "American (US)",
     tone: "Booming, Monumental Deep Bass",
@@ -146,17 +145,17 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     sampleText: "In the beginning, there was a voice. And that voice carried the weight of kingdoms.",
   },
   {
-    id: "neeson",
-    name: "Liam Neeson Style",
+    id: "sentinel",
+    name: "The Sentinel",
     gender: "male",
     accent: "Irish (IE)",
     tone: "Authoritative Irish Baritone & Gritty Gravitas",
     recommendedFor: "Thrillers, Motivation & Dramatic Reads",
-    sampleText: "I have a particular set of skills. Listen carefully, because what you are about to hear will not soon be forgotten.",
+    sampleText: "Listen carefully, because what you are about to hear will not soon be forgotten.",
   },
   {
-    id: "jackson",
-    name: "Samuel L. Jackson Style",
+    id: "firebrand",
+    name: "The Firebrand",
     gender: "male",
     accent: "American (US)",
     tone: "Punchy, Dynamic, Assertive Attitude",
@@ -164,11 +163,10 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     sampleText: "Hold on to your seats, because this story does not slow down for anybody.",
   },
 
-  // 5 Female Persona Narrator Presets (style-inspired — real neural voices
-  // tuned to evoke each narrator's delivery; not the named actors)
+  // 5 Female Narrator Personas — neural voices tuned to a described delivery
   {
-    id: "thompson",
-    name: "Emma Thompson Style",
+    id: "raconteur",
+    name: "The Raconteur",
     gender: "female",
     accent: "British (UK)",
     tone: "Witty, Warm & Articulate British Charm",
@@ -176,8 +174,8 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     sampleText: "Intelligence and warmth are not opposites — allow me to demonstrate, one story at a time.",
   },
   {
-    id: "mirren",
-    name: "Helen Mirren Style",
+    id: "sovereign",
+    name: "The Sovereign",
     gender: "female",
     accent: "British (UK)",
     tone: "Stately, Regal & Poised British Dame",
@@ -185,8 +183,8 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     sampleText: "Elegance is not about what you say. It is about how you say it.",
   },
   {
-    id: "blanchett",
-    name: "Cate Blanchett Style",
+    id: "enigma",
+    name: "The Enigma",
     gender: "female",
     accent: "Australian (AU)",
     tone: "Ethereal, Velvety & Hypnotic Sophistication",
@@ -194,8 +192,8 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     sampleText: "Every frame, every silence, every glance carries meaning. Let us begin.",
   },
   {
-    id: "weaver",
-    name: "Sigourney Weaver Style",
+    id: "investigator",
+    name: "The Investigator",
     gender: "female",
     accent: "American (US)",
     tone: "Smoky, Grounded & Cool Documentary Authority",
@@ -203,8 +201,8 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     sampleText: "What we are about to witness is real, and it is extraordinary. Observe closely.",
   },
   {
-    id: "roberts",
-    name: "Julia Roberts Style",
+    id: "confidante",
+    name: "The Confidante",
     gender: "female",
     accent: "American (US)",
     tone: "Radiant, Smiling & Warm Conversational Lilt",
@@ -212,3 +210,28 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     sampleText: "Hey, come on in — grab a coffee and let me tell you a little story.",
   },
 ];
+
+/**
+ * The personas were once named after actors. They do not sound like those
+ * actors, so the names now describe the delivery instead. Projects and cached
+ * audio saved under the old ids still resolve through here.
+ */
+export const LEGACY_VOICE_IDS: Record<string, string> = {
+  freeman: "storyteller",
+  attenborough: "naturalist",
+  jones: "titan",
+  neeson: "sentinel",
+  jackson: "firebrand",
+  thompson: "raconteur",
+  mirren: "sovereign",
+  blanchett: "enigma",
+  weaver: "investigator",
+  roberts: "confidante",
+};
+
+/** The preset for an id, accepting ids saved before the rename. */
+export function resolveVoicePreset(id: string | null | undefined): VoicePreset | undefined {
+  if (!id) return undefined;
+  const wanted = LEGACY_VOICE_IDS[id] ?? id;
+  return STUDIO_VOICE_PRESETS.find((voice) => voice.id === wanted);
+}
