@@ -777,8 +777,12 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
     "with no signal to read, the monitor holds still instead of inventing movement"
   );
   h.ok(
-    monitor.includes("Browser voice — no signal to read"),
+    monitor.includes("No signal to read from this voice"),
     "…and says why"
+  );
+  h.ok(
+    studio.includes("tapVoiceElement(audioRef.current)"),
+    "imported tracks, which play from their own element, are routed to the monitor too"
   );
   h.ok(
     monitor.includes("addVoiceListener()"),

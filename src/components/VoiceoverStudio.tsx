@@ -21,6 +21,7 @@ import LiveVoiceVisualizer, {
   saveVoiceVisualizerChoice,
 } from "./LiveVoiceVisualizer";
 import { CATALOG_ITEMS } from "../lib/video-studio-catalog";
+import { tapVoiceElement } from "../lib/voice-monitor";
 
 interface VoiceoverStudioProps {
   scenes: Scene[];
@@ -404,6 +405,9 @@ export default function VoiceoverStudio({
     } else {
       ttsPlayer.stop();
       setPlayingId(null);
+      // Imported tracks play from their own element, so the visualiser has to
+      // be pointed at it directly — the TTS player never sees this one.
+      tapVoiceElement(audioRef.current);
       audioRef.current.play();
       setIsImportPlaying(true);
     }

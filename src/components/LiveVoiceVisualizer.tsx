@@ -188,7 +188,7 @@ export default function LiveVoiceVisualizer({
           </>
         ) : (
           <span className="text-[9px] font-mono text-gray-500 uppercase tracking-wider">
-            {playing ? "Browser voice — no signal to read" : "Plays with the narration"}
+            {playing ? "No signal to read from this voice" : "Plays with the narration"}
           </span>
         )}
       </div>
