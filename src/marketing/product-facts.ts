@@ -553,6 +553,115 @@ export const MESSAGES = {
   control: "You stay in control.",
 } as const;
 
+/* ------------------------------------------------- the first five worries */
+
+export interface CommonQuestion {
+  id: string;
+  /** The worry in the visitor's own words. */
+  question: string;
+  /** One true sentence. The page must not need the click to be reassuring. */
+  answer: string;
+  /** The id of the section that explains it properly. */
+  section: string;
+  /** What the link promises. */
+  cue: string;
+}
+
+/**
+ * What people want to know before they will read anything else.
+ *
+ * Each one is a real objection, answered in one line here and properly by the
+ * section it points at — so the band at the top of the page is a table of
+ * contents for doubts rather than a list of features. `tests/marketing.test.ts`
+ * checks that every `section` is a section the page actually renders.
+ */
+export const COMMON_QUESTIONS: CommonQuestion[] = [
+  {
+    id: "credits",
+    question: "Will this cost me credits or tokens?",
+    answer:
+      "No. Nothing in Scenering is metered — there is no balance to top up, no cost per video and no word count.",
+    section: "no-meter",
+    cue: "Why there is no meter",
+  },
+  {
+    id: "face",
+    question: "Do I have to show my face?",
+    answer:
+      "No. Every video Scenering makes is faceless: real footage, a narrator and captions. You are never on camera.",
+    section: "examples",
+    cue: `See ${EXAMPLE_VIDEOS.length} examples`,
+  },
+  {
+    id: "voice",
+    question: "I don't want to record my own voice.",
+    answer: `You don't have to. Choose one of ${LIVE_COUNTS.voices} narrators, hear it read your line, then narrate the whole project.`,
+    section: "voice",
+    cue: "Hear the narrators",
+  },
+  {
+    id: "pictures",
+    question: "Where do the pictures come from — may I use them?",
+    answer:
+      "From free photo libraries: Pexels, Pixabay and Wikimedia Commons. Every library your video used is listed in an attribution document that downloads with it.",
+    section: "sources",
+    cue: "See the sources",
+  },
+  {
+    id: "editing",
+    question: "I have never edited a video.",
+    answer: `You work through ${WORKFLOW_STAGES.length} steps and the first version is made for you. Change what you want; leave the rest.`,
+    section: "workflow",
+    cue: "Walk through it",
+  },
+];
+
+/* ------------------------------------------------------------- no metering */
+
+/**
+ * Why there is no counter — the honest version.
+ *
+ * Every line here is a statement about the code, and the tests check the code
+ * still matches: the script is divided by `splitScriptIntoScenes()`, the search
+ * terms come from `topic-extract.ts` (which says in its own header that no NLP
+ * model is available), the pictures are photographs fetched from stock
+ * libraries, and the render runs on the visitor's own machine.
+ *
+ * What we must NOT say is "no AI anywhere": the narrators are neural
+ * text-to-speech, and an operator who supplies a Gemini key gets Gemini's
+ * voices. That is speech synthesis, not a model writing the video, and it is
+ * spelled out rather than hidden.
+ */
+export const NO_METER = {
+  message: "No credits. No tokens. No counter.",
+  lead:
+    "Scenering has no language model at the centre of it. Nothing writes your script, invents your pictures or charges you by the word — so there is nothing to meter.",
+  points: [
+    {
+      label: "Your script stays your script",
+      detail:
+        "It is divided into scenes by counting words and respecting sentence endings, so each scene lasts as long as its own line takes to say. Nothing rewrites it.",
+    },
+    {
+      label: "The pictures are photographs",
+      detail:
+        "Search terms are built from the scene's own nouns and names, then real photographs are fetched from free libraries. Nothing is generated, so nothing can be invented.",
+    },
+    {
+      label: "The narration is free speech synthesis",
+      detail:
+        "The narrators are neural text-to-speech voices, the same kind built into your computer, and they cost nothing to use.",
+    },
+    {
+      label: "The video is made on your machine",
+      detail:
+        "The render runs in your browser, frame by frame. There is no queue, no upload and no per-minute charge.",
+    },
+  ],
+  caveat:
+    "One optional exception, stated plainly: if whoever runs the server adds a Gemini key, the narration can be synthesised by Google's voices instead of the free ones. That is text-to-speech, not a model writing your video, and Scenering works fully without it.",
+} as const;
+
 /** Honest, repeated everywhere it matters. */
 export const HONESTY = {
   demoLabel: "Example created for demonstration",

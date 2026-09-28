@@ -27,6 +27,12 @@
   voice-shaped styles to choose from. Voices are only routed through Web Audio
   while the panel is on screen, and it holds still rather than animating when
   there is no signal to read.
+- Added "The five things people ask first" under the hero: credits, being on
+  camera, your own voice, picture rights and never having edited before. Each
+  one answers in a line and jumps to the section that explains it.
+- Added "No credits. No tokens. No counter." — why nothing is metered, with
+  the one optional exception (a Gemini key for narration) stated plainly
+  rather than hidden. The tests check the claim against the code.
 - Replaced the website's hand-drawn waveform graphics with that visualiser —
   the real canvas where the page can afford it, a CSS echo of Minimal Talking
   Dots in the light-weight artwork.

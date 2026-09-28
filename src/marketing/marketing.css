@@ -855,6 +855,104 @@ html[data-mkt="1"][data-theme] body {
   }
 }
 
+/* ---- the five questions ---- */
+
+.mkt-qs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+  .mkt-qs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* five items: the last one runs the full width rather than leaving a hole */
+  .mkt-qs > li:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1080px) {
+  .mkt-qs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .mkt-qs > li:last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+}
+
+.mkt-q {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  height: 100%;
+  padding: 16px 16px 14px;
+  border-radius: var(--mkt-r);
+  border: 1px solid var(--mkt-line);
+  background: linear-gradient(180deg, var(--mkt-surface), var(--mkt-bg));
+  box-shadow: var(--mkt-sh-1);
+  text-decoration: none;
+  color: inherit;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
+}
+
+/* The whole card is one link, so the global anchor underline has to be
+   turned off here — only the cue line underlines. */
+.mkt-q:hover {
+  transform: translateY(-2px);
+  border-color: var(--mkt-line-2);
+  box-shadow: var(--mkt-sh-2);
+  text-decoration: none;
+}
+
+.mkt-q-ask {
+  font-family: var(--mkt-serif);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--mkt-ink);
+}
+
+.mkt-q-answer {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--mkt-ink-2);
+  flex: 1 1 auto;
+}
+
+.mkt-q-cue {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--mkt-accent-ink);
+}
+
+.mkt-q:hover .mkt-q-cue {
+  text-decoration: underline;
+}
+
+/* The section a question points at, flashed briefly so the eye lands on the
+   answer instead of on the whole page. */
+.mkt-section.is-answering {
+  animation: mkt-answering 2.2s ease-out;
+}
+
+@keyframes mkt-answering {
+  0%,
+  55% {
+    box-shadow: inset 3px 0 0 var(--mkt-accent);
+  }
+  100% {
+    box-shadow: inset 3px 0 0 rgb(47 111 181 / 0);
+  }
+}
+
 /* ---- captions ---- */
 
 .mkt-caption {

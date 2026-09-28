@@ -39,6 +39,7 @@ import {
   MESSAGES,
   HONESTY,
 } from "../src/marketing/product-facts";
+import { COMMON_QUESTIONS, NO_METER } from "../src/marketing/product-facts";
 import {
   DEMO_SCENES,
   DEMO_SEARCH_RESULTS,
@@ -355,6 +356,101 @@ ok(
   DEMO_SCENES.some((scene) => scene.text.includes("Ancient cities developed around reliable sources of water")),
   "the specification's example scene is used verbatim"
 );
+
+/* ------------------------- 6a. the five questions, and the answer to the first */
+
+/*
+ * The band at the top of the page is a table of contents for doubts, so every
+ * question has to land somewhere that actually answers it, and the one-line
+ * answers have to be true on their own — most visitors will never click.
+ */
+{
+  h.eq(COMMON_QUESTIONS.length, 5, "five questions, as many as anyone reads");
+
+  const siteSource = read("src/marketing/MarketingSite.tsx");
+  const renderedIds = new Set<string>();
+  for (const { name, text } of marketingFiles) {
+    if (!/sections\/.*\.tsx$/.test(name)) continue;
+    for (const match of text.matchAll(/<Section id="([^"]+)"/g)) renderedIds.add(match[1]);
+  }
+  renderedIds.add("workflow");
+
+  for (const q of COMMON_QUESTIONS) {
+    ok(q.question.trim().endsWith("?") || q.question.trim().endsWith("."), `"${q.id}" is asked the way a person would say it`);
+    ok(q.answer.length > 40, `"${q.id}" is answered, not teased`);
+    ok(renderedIds.has(q.section), `"${q.id}" points at #${q.section}, a section the page renders`);
+    ok(q.cue.length > 0, `"${q.id}" says where it goes`);
+  }
+
+  // The jump has to work without the script, and must not steal modified clicks.
+  const questions = read("src/marketing/sections/Questions.tsx");
+  ok(questions.includes('href={`#${item.section}`}'), "each question is a real anchor");
+  ok(questions.includes("event.metaKey || event.ctrlKey"), "open-in-new-tab still works");
+  ok(questions.includes("prefers-reduced-motion"), "the jump honours reduced motion");
+
+  ok(siteSource.includes("<Questions />"), "the band is on the page");
+  ok(
+    siteSource.indexOf("<Questions />") < siteSource.indexOf("<IdeaToVideo />"),
+    "…directly under the hero, before anything is explained"
+  );
+}
+
+/*
+ * "No credits. No tokens. No counter." is the strongest claim on the site, so
+ * it is checked against the code rather than trusted. If Scenering ever grows
+ * a language model that writes or draws for the user, these fail.
+ */
+{
+  const server = read("server.ts");
+  const splitter = read("src/lib/duration-utils.ts");
+  const topics = read("src/lib/topic-extract.ts");
+
+  ok(
+    splitter.includes("export function splitScriptIntoScenes"),
+    "the script is still divided arithmetically"
+  );
+  ok(
+    topics.includes("No NLP model is available"),
+    "search terms are still extracted structurally, not by a model"
+  );
+
+  // The only model call in the whole server is speech synthesis…
+  const generateCalls = (server.match(/generateContent\(/g) || []).length;
+  h.eq(generateCalls, 1, "the server makes exactly one model call");
+  const call = server.slice(server.indexOf("generateContent("), server.indexOf("generateContent(") + 400);
+  ok(call.includes('responseModalities: ["AUDIO"]'), "…and it asks for audio, not words");
+  ok(
+    server.includes("synthesizeGeminiTTS"),
+    "…inside the text-to-speech path"
+  );
+  // …and it is optional.
+  ok(
+    server.includes("process.env.GEMINI_API_KEY"),
+    "that voice needs a key the operator supplies"
+  );
+  ok(
+    NO_METER.caveat.includes("Gemini"),
+    "the page names that exception instead of hiding it"
+  );
+  ok(
+    NO_METER.caveat.includes("works fully without it"),
+    "…and says the app does not need it"
+  );
+
+  // The claim must not overreach into "no AI at all" — the narrators are
+  // neural voices and the page says so.
+  const noMeterSource = JSON.stringify(NO_METER);
+  ok(
+    noMeterSource.includes("neural text-to-speech"),
+    "the narration is described as what it is"
+  );
+  ok(!/no AI\b/i.test(noMeterSource), "the page never claims there is no AI anywhere");
+
+  ok(
+    read("src/marketing/sections/NoMeter.tsx").includes('<Section id="no-meter"'),
+    "the answer has a section of its own to jump to"
+  );
+}
 
 /* ------------------------- 6b. the demonstration names real things */
 

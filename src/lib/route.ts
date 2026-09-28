@@ -29,6 +29,8 @@ export const SITE_PATH = "/";
  * Keys are paths, values are the section id rendered by MarketingSite.
  */
 export const SITE_SECTION_PATHS: Readonly<Record<string, string>> = {
+  "/questions": "questions",
+  "/no-meter": "no-meter",
   "/workflow": "workflow",
   "/product": "workflow",
   "/scenes": "scenes",

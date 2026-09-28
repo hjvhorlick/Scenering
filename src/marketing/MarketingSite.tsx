@@ -3,6 +3,7 @@ import "./marketing.css";
 import { navigate, sectionForPath, STUDIO_PATH } from "../lib/route";
 import { BrandMark, Stat } from "./components/primitives";
 import Hero from "./sections/Hero";
+import Questions from "./sections/Questions";
 import IdeaToVideo from "./sections/IdeaToVideo";
 import ScenesSection from "./sections/ScenesSection";
 import VisualResearch from "./sections/VisualResearch";
@@ -12,6 +13,7 @@ import VideoStudioSection from "./sections/VideoStudioSection";
 import EffectsLibrary from "./sections/EffectsLibrary";
 import BeforeAfter from "./sections/BeforeAfter";
 import Control from "./sections/Control";
+import NoMeter from "./sections/NoMeter";
 import Examples from "./sections/Examples";
 import Formats from "./sections/Formats";
 import Devices from "./sections/Devices";
@@ -27,9 +29,13 @@ import { MARKETING_ASSETS } from "./assets";
  * It is one page, and the page is the product story in the order a visitor
  * lives it (spec §34):
  *
- *   hero → workflow → scenes → visuals → voice → captions → Video Studio →
- *   effects → before/after → control → examples → formats → devices →
- *   sources → pricing → start
+ *   hero → the five questions → workflow → scenes → visuals → voice →
+ *   captions → Video Studio → effects → before/after → control → no meter →
+ *   examples → formats → devices → sources → pricing → start
+ *
+ * The questions band sits directly under the hero on purpose: a visitor
+ * arrives with a doubt, not with an interest in features, and each question
+ * jumps to the section that settles it.
  *
  * Everything below is composed from the same demonstration project and the
  * app's own catalogues, so improving Scenering improves this page.
@@ -110,6 +116,8 @@ export default function MarketingSite() {
           </div>
         </div>
 
+        <Questions />
+
         <IdeaToVideo />
         <ScenesSection />
         <VisualResearch />
@@ -119,6 +127,7 @@ export default function MarketingSite() {
         <EffectsLibrary />
         <BeforeAfter />
         <Control />
+        <NoMeter />
         <Examples />
         <Formats />
         <Devices />

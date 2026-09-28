@@ -60,6 +60,8 @@ ok(html.length > 50_000, `the page has substance (${html.length} chars of markup
 /* --------------------------------------------------------- structure */
 
 const SECTIONS = [
+  // the five worries, before anything is explained
+  "questions",
   "workflow",
   "scenes",
   "visuals",
@@ -69,6 +71,7 @@ const SECTIONS = [
   "effects",
   "before-after",
   "control",
+  "no-meter",
   "examples",
   "formats",
   "devices",
