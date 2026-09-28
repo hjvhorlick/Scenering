@@ -2603,3 +2603,14 @@ html[data-mkt="1"][data-theme] body {
   font-size: 12px;
   filter: saturate(0.86) contrast(1.04);
 }
+
+/**
+ * Replace is the primary action on a scene card — the app draws it as a solid
+ * cobalt button beside the two outlined ones (src/components/SceneEditor.tsx).
+ * `.t-btn-hero` supplies the fill; this only removes the outlined button's own
+ * face so the fill is visible.
+ */
+.mkt-mini-btn.is-primary {
+  border: 0;
+  background: none;
+}

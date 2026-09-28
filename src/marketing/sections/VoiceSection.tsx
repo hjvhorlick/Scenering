@@ -119,7 +119,7 @@ export default function VoiceSection() {
                   <Icon glyph="📁" /> Import Prepared TTS File
                 </span>
                 <span className="opt-btn">
-                  <Icon glyph="🗣" /> Phonetic Dictionary &amp; Normalization
+                  <Icon glyph="🗣" /> Phonetic Dictionary & Normalization
                 </span>
               </div>
 

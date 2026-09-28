@@ -251,6 +251,16 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     // lane because it belongs to the scene and sets its length, captions are
     // not on the timeline at all, and music and sound effects both go into
     // Sound. Six lanes advertised per-track editing the product does not do.
+    // The scene card's buttons are the app's buttons now: Replace, Research
+    // and Crop & Fit (src/components/SceneEditor.tsx). "Edit text" was never
+    // one of them -- the script is edited in the card's own text box.
+    "src/marketing/components/SceneCard.tsx",
+    // "Crop" is still on the button; it reads "Crop & Fit" now, and CODEY
+    // treats any text containing "&" as code, so the extractor stops seeing
+    // that label as prose at all.
+    new Set(["Edit", "text", "Crop"]),
+  ],
+  [
     "src/marketing/components/TimelineMock.tsx",
     new Set([
       // lane names that no longer exist

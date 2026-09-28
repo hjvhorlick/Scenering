@@ -195,7 +195,7 @@ export default function CaptionsSection() {
 
               <div>
                 <p className="mkt-panelhead" style={{ marginBottom: 2 }}>
-                  <span><Icon glyph="📜" /> Scene Subtitles &amp; On/Off Toggles</span>
+                  <span><Icon glyph="📜" /> Scene Subtitles & On/Off Toggles</span>
                 </p>
                 <p className="mkt-small" style={{ margin: "0 0 9px" }}>
                   Enable or disable caption overlays individually per scene.
