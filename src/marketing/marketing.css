@@ -1304,6 +1304,82 @@ html[data-mkt="1"][data-theme] body {
   backdrop-filter: blur(4px);
 }
 
+/* ---- a studio panel heading, and the card pairs under it ----
+ *
+ * The Captions step is five stacked panels, each introduced by a small bold
+ * heading with an icon on the left and a one-word state badge on the right,
+ * and two of them offer their choice as a pair of big cards carrying a title
+ * and a line of explanation rather than as plain buttons. See
+ * src/components/CaptionsStudio.tsx.
+ */
+
+.mkt-panelhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--mkt-ink);
+}
+
+.mkt-panelhead > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mkt-panelhead .mkt-panelstate {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pc-accent-ink);
+}
+
+.mkt-cardgrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px;
+}
+
+@media (min-width: 480px) {
+  .mkt-cardgrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.mkt-card {
+  padding: 11px;
+  border-radius: var(--mkt-r-sm);
+  border: 1px solid var(--mkt-line-2);
+  background: rgb(255 255 255 / 0.6);
+  text-align: left;
+}
+
+.mkt-card.is-on {
+  border-color: var(--pc-accent-mid);
+  background: var(--pc-accent-soft);
+  box-shadow: 0 0 0 1px var(--pc-accent-mid);
+}
+
+.mkt-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--mkt-ink);
+}
+
+.mkt-card-note {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--mkt-ink-3);
+}
+
 /* ---- a row of the app's own tabs ----
  *
  * Several studio steps open on a row of tabs above their content: the Voice

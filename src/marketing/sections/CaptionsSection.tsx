@@ -85,17 +85,75 @@ export default function CaptionsSection() {
 
         <figure style={{ margin: 0 }}>
           <AppFrame title="Where Cities Begin · Captions" phase="captions">
+            {/* The Captions step is five panels, in this order, each with its
+                own heading: Caption Playback Style, Background Framing, Live
+                Caption Preview, Subtitle Visual Style Presets, and the
+                per-scene toggles. See src/components/CaptionsStudio.tsx. The
+                first two offer their choice as a pair of cards, each with the
+                app's own title and line of explanation. */}
             <div className="mkt-work">
-              <PlayerFrame
-                assetId={scene.assetId}
-                caption={scene.caption}
-                captionStyle={style}
-                highlightWord={2}
-                progress={0.52}
-                badge="Karaoke · word by word"
-                captionSize={17}
-                sizes="(min-width: 950px) 520px, 92vw"
-              />
+              <div>
+                <p className="mkt-panelhead">
+                  <span><Icon glyph="🎤" /> Caption Playback Style</span>
+                  <span className="mkt-panelstate">Dynamic Sync</span>
+                </p>
+                <div className="mkt-cardgrid" aria-hidden="true">
+                  <span className="mkt-card is-on">
+                    <span className="mkt-card-title"><Icon glyph="✨" /> Karaoke Mode</span>
+                    <span className="mkt-card-note">
+                      Active word highlights and glows dynamically in sync with narration.
+                    </span>
+                  </span>
+                  <span className="mkt-card">
+                    <span className="mkt-card-title"><Icon glyph="📝" /> Normal Mode</span>
+                    <span className="mkt-card-note">
+                      Clean, traditional subtitles showing complete sentences with uniform color.
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <p className="mkt-panelhead">
+                  <span><Icon glyph="🖼" /> Background Framing</span>
+                  <span className="mkt-panelstate">No Box</span>
+                </p>
+                <div className="mkt-cardgrid" aria-hidden="true">
+                  <span className="mkt-card is-on">
+                    <span className="mkt-card-title"><Icon glyph="🔲" /> Transparent</span>
+                    <span className="mkt-card-note">
+                      Pure text with high-contrast outlines and drop-shadows. No background box.
+                    </span>
+                  </span>
+                  <span className="mkt-card">
+                    <span className="mkt-card-title"><Icon glyph="⬛" /> Blocked Box</span>
+                    <span className="mkt-card-note">
+                      Translucent dark rounded pill behind text for maximum cinematic legibility.
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <p className="mkt-panelhead">
+                  <span><Icon glyph="👁" /> Live Caption Preview</span>
+                </p>
+                <PlayerFrame
+                  assetId={scene.assetId}
+                  caption={scene.caption}
+                  captionStyle={style}
+                  highlightWord={2}
+                  progress={0.52}
+                  badge="Karaoke · word by word"
+                  captionSize={17}
+                  sizes="(min-width: 950px) 520px, 92vw"
+                />
+              </div>
+
+              <p className="mkt-panelhead" style={{ marginBottom: 0 }}>
+                <span><Icon glyph="🎨" /> Subtitle Visual Style Presets</span>
+                <span className="mkt-panelstate">Click to preview style</span>
+              </p>
 
               <div style={{ display: "grid", gap: 8 }}>
                 {CAPTION_STYLES.map((entry) => {
@@ -133,6 +191,31 @@ export default function CaptionsSection() {
                     </button>
                   );
                 })}
+              </div>
+
+              <div>
+                <p className="mkt-panelhead" style={{ marginBottom: 2 }}>
+                  <span><Icon glyph="📜" /> Scene Subtitles &amp; On/Off Toggles</span>
+                </p>
+                <p className="mkt-small" style={{ margin: "0 0 9px" }}>
+                  Enable or disable caption overlays individually per scene.
+                </p>
+                <div style={{ display: "grid", gap: 7 }} aria-hidden="true">
+                  {DEMO_SCENES.slice(0, 3).map((item) => (
+                    <div
+                      className="mkt-strip-row"
+                      key={item.number}
+                      style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}
+                    >
+                      <span className="mkt-strip-label">
+                        Scene {item.number} · {item.caption}
+                      </span>
+                      <span className="mkt-pill is-live" style={{ fontSize: 9.5 }}>
+                        Captions on
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </AppFrame>
