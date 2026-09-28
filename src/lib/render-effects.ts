@@ -70,13 +70,19 @@ function driftHeadroom(size: number, scale: number): number {
 function safeDrift(desired: number, size: number, scale: number): number {
   const limit = driftHeadroom(size, scale);
   if (limit <= 0.001) return 0;
-  // If comfortably within headroom, return directly
-  if (Math.abs(desired) <= limit * 0.95) return desired;
-  // Soft saturation towards limit to avoid hard clipping jerks
+  const magnitude = Math.abs(desired);
   const sign = desired < 0 ? -1 : 1;
-  const ratio = Math.min(1.5, Math.abs(desired) / limit);
-  const smoothed = Math.tanh(ratio) * limit * 0.98;
-  return sign * smoothed;
+
+  // Preserve the requested move while it is safely inside the crop. Once it
+  // approaches the edge, ease the remaining distance asymptotically toward
+  // the limit. The old implementation switched from 95% directly to ~72%
+  // at this boundary, which made Ken Burns visibly move and then jump back.
+  const knee = limit * 0.82;
+  if (magnitude <= knee) return desired;
+  const span = Math.max(0.001, limit - knee);
+  const excess = magnitude - knee;
+  const softened = knee + span * (1 - Math.exp(-excess / span));
+  return sign * Math.min(limit * 0.995, softened);
 }
 
 // Compute transform for scene movement
@@ -177,7 +183,8 @@ export function getMotionTransform(
     case "ken_burns":
     default: {
       // Distinctly noticeable documentary Ken Burns: alternating angles and vectors across scenes
-      // with sweeping cinematic pan and zoom that viewers immediately feel and appreciate.
+      // with a deliberately visible 32% zoom and broad pan. Even on long scenes this
+      // must read as camera movement, not an almost-static photograph.
       const pattern = Math.abs(sceneIndex || 0) % 4;
       let s: number;
       let dirX: number;
@@ -185,29 +192,29 @@ export function getMotionTransform(
 
       if (pattern === 0) {
         // Dynamic push-in drifting right & down
-        s = 1.10 + e * 0.28;
+        s = 1.12 + e * 0.32;
         dirX = 1;
         dirY = 0.7;
       } else if (pattern === 1) {
         // Dynamic pull-out drifting left & up
-        s = 1.38 - e * 0.28;
+        s = 1.44 - e * 0.32;
         dirX = -1;
         dirY = -0.7;
       } else if (pattern === 2) {
         // Dynamic push-in drifting left & down
-        s = 1.10 + e * 0.28;
+        s = 1.12 + e * 0.32;
         dirX = -1;
         dirY = 0.7;
       } else {
         // Dynamic pull-out drifting right & up
-        s = 1.38 - e * 0.28;
+        s = 1.44 - e * 0.32;
         dirX = 1;
         dirY = -0.7;
       }
 
       const base = centre(s);
-      const driftX = centred * w * 0.105 * dirX;
-      const driftY = centred * h * 0.075 * dirY;
+      const driftX = centred * w * 0.12 * dirX;
+      const driftY = centred * h * 0.085 * dirY;
       return {
         ...base,
         dx: base.dx + safeDrift(driftX, w, s),

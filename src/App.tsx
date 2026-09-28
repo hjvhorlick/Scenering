@@ -750,6 +750,17 @@ export default function App() {
         }
       } catch {}
 
+      // Older projects may contain several music inserts from repeated picks.
+      // Keep only the most recently selected bed so loading a project can
+      // never restore overlapping copies of the same/previous music.
+      let foundMusic = false;
+      loadedInserts = [...loadedInserts].reverse().filter((insert) => {
+        if (insert.category !== "background_music") return true;
+        if (foundMusic) return false;
+        foundMusic = true;
+        return true;
+      }).reverse();
+
       setCurrentProject(project);
       setScenes(loadedScenes);
       setInserts(loadedInserts);
@@ -1142,6 +1153,10 @@ export default function App() {
         filtered = prev.filter((i) => i.category !== "intro");
       } else if (insert.category === "outro") {
         filtered = prev.filter((i) => i.category !== "outro");
+      } else if (insert.category === "background_music") {
+        // Selecting another music bed is a replacement, never an additional
+        // layer. This also removes legacy duplicates immediately.
+        filtered = prev.filter((i) => i.category !== "background_music");
       }
       return [...filtered, insert];
     });
@@ -1186,7 +1201,12 @@ export default function App() {
   }, [view, editorStep]);
 
   const handleUpdateInsert = (updated: TimelineInsert) => {
-    setInserts((prev) => prev.map((ins) => (ins.id === updated.id ? updated : ins)));
+    setInserts((prev) => {
+      const withoutOtherMusic = updated.category === "background_music"
+        ? prev.filter((ins) => ins.id === updated.id || ins.category !== "background_music")
+        : prev;
+      return withoutOtherMusic.map((ins) => (ins.id === updated.id ? updated : ins));
+    });
     if (selectedInsert?.id === updated.id) setSelectedInsert(updated);
     if (editingInsert?.id === updated.id) setEditingInsert(updated);
   };

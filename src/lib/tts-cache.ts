@@ -112,8 +112,7 @@ export function getAudioCacheKey(sceneId: number, voiceId: string, text: string)
 export function getCachedSceneAudio(sceneId: number, voiceId?: string, text?: string): CachedAudioItem | undefined {
   if (voiceId && typeof text === "string") {
     const key = getAudioCacheKey(sceneId, voiceId, text);
-    const item = memoryAudioCache.get(key);
-    if (item) return item;
+    return memoryAudioCache.get(key);
   }
   return sceneIdAudioCache.get(sceneId);
 }
@@ -155,8 +154,16 @@ export async function resolveSceneAudioBuffer(
   const voiceId = scene.voice_id || "guy";
   const key = getAudioCacheKey(scene.id, voiceId, text);
 
-  // 1. Check in-memory item
-  const cached = memoryAudioCache.get(key) || sceneIdAudioCache.get(scene.id) || (scene.audio_url ? urlAudioCache.get(scene.audio_url) : undefined);
+  // 1. Resolve only the CURRENT selection. The old scene-id fallback ignored
+  // voice/text/URL changes and could resurrect a previous narration after the
+  // user regenerated or imported a replacement.
+  const currentUrlCached = scene.audio_url ? urlAudioCache.get(scene.audio_url) : undefined;
+  const exactCached = memoryAudioCache.get(key);
+  const cached = currentUrlCached || (
+    exactCached && (!scene.audio_url || exactCached.blobUrl === scene.audio_url)
+      ? exactCached
+      : undefined
+  );
   if (cached) {
     // If the buffer was decoded with matching sampleRate or AudioContext
     if (cached.audioBuffer && (!audioCtx || cached.audioBuffer.sampleRate === audioCtx.sampleRate)) {
@@ -181,9 +188,11 @@ export async function resolveSceneAudioBuffer(
     }
   }
 
-  // 2. Check IndexedDB storage
+  // 2. Check the exact voice+text IndexedDB key only when there is no newer
+  // explicit scene URL. Never fall back to the legacy scene-only key: it may
+  // contain the narration that was just replaced.
   try {
-    const fromIdb = (await loadAudioFromIDB(key)) || (await loadAudioFromIDB(`scene_${scene.id}`));
+    const fromIdb = !scene.audio_url ? await loadAudioFromIDB(key) : null;
     if (fromIdb && fromIdb.rawBuffer && audioCtx) {
       const decoded = await audioCtx.decodeAudioData(fromIdb.rawBuffer.slice(0));
       const blob = new Blob([fromIdb.rawBuffer], { type: "audio/mpeg" });
@@ -291,8 +300,12 @@ export async function pregenerateAllScenesAudio(
     const voiceId = scene.voice_id || defaultVoice;
     const cacheKey = getAudioCacheKey(scene.id, voiceId, text);
 
-    // Check if already in memory
-    const existing = memoryAudioCache.get(cacheKey) || sceneIdAudioCache.get(scene.id);
+    // Reuse only the currently selected track. A scene-id-only cache entry may
+    // belong to the voice or imported file that the user replaced.
+    const exact = memoryAudioCache.get(cacheKey);
+    const existing = scene.audio_url
+      ? urlAudioCache.get(scene.audio_url) || (exact?.blobUrl === scene.audio_url ? exact : undefined)
+      : exact;
     if (existing) {
       results.set(scene.id, existing);
       completed++;

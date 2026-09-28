@@ -30,7 +30,17 @@ export function buildInsertAudioPlan(
 
   const plans: InsertAudioPlan[] = [];
 
-  for (const ins of inserts) {
+  // A music selection replaces the previous selection. Keep this defensive
+  // guard in the audio engine as well as the UI so legacy saved projects can
+  // never render two background beds over one another.
+  let lastMusicIndex = -1;
+  for (let i = 0; i < inserts.length; i++) {
+    if (inserts[i].category === "background_music") lastMusicIndex = i;
+  }
+
+  for (let insertIndex = 0; insertIndex < inserts.length; insertIndex++) {
+    const ins = inserts[insertIndex];
+    if (ins.category === "background_music" && insertIndex !== lastMusicIndex) continue;
     const as = ins.audioSettings;
     if (!as || !as.soundUrl) continue;
     if (as.muted) continue;
