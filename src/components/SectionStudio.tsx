@@ -57,7 +57,7 @@ function Slider({
     <div className="bg-gray-950/60 border border-hairline rounded-lg px-2.5 py-1.5">
       <div className="flex items-center justify-between text-[11px] mb-1">
         <span className="text-gray-300 flex items-center gap-1.5">
-          {icon && <span>{icon}</span>}
+          {icon && <Icon glyph={icon} />}
           <span className="font-medium">{label}</span>
         </span>
         <span className="font-mono text-[10px] text-amber-300 font-bold">
@@ -176,7 +176,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                 : "bg-rose-500/20 border-rose-500/40 text-rose-300"
             }`}
           >
-            {isIntro ? "🎬" : "🏁"}
+            {iconify(isIntro ? "🎬" : "🏁")}
           </span>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -289,7 +289,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                       : "bg-gray-800 hover:bg-gray-700 border-hairline text-emerald-300"
                   }`}
                 >
-                  {playingSound === "active" ? "⏹ Stop" : "▶ Hear Sound"}
+                  {iconify(playingSound === "active" ? "⏹ Stop" : "▶ Hear Sound")}
                 </button>
               )}
             </div>
@@ -708,7 +708,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                           onClick={() => previewSound(cfg.customSoundUrl!, "custom")}
                           className="text-[11px] text-emerald-300 hover:text-emerald-200 px-1.5"
                         >
-                          {playingSound === "custom" ? "⏹ Stop" : "▶ Test"}
+                          {iconify(playingSound === "custom" ? "⏹ Stop" : "▶ Test")}
                         </button>
                         <button
                           type="button"
@@ -759,7 +759,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                                   : "bg-gray-900 border-hairline text-emerald-400 hover:text-emerald-300"
                               }`}
                             >
-                              {playingSound === s.id ? "⏹" : "▶"}
+                              {iconify(playingSound === s.id ? "⏹" : "▶")}
                             </button>
                           )}
                           {active && (

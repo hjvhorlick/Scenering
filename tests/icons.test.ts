@@ -19,6 +19,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHarness } from "./harness";
+import { measureSprite } from "../tools/icon-bbox.mjs";
 
 const h = createHarness();
 const ok = h.ok;
@@ -267,6 +268,44 @@ ok(/quadraticCurveTo/.test(painter), "the gold swoosh is drawn");
 ok(/isBrand \? silver : gold/.test(painter),
   "somebody else's brand is one colour — the split belongs to Scenering");
 ok(/measureText/.test(painter), "the mark is centred on its measured width");
+
+
+/**
+ * Nothing is cut off.
+ *
+ * A <symbol> clips anything outside its viewBox, so a shape drawn a fraction
+ * too large loses a flat slice off its edge — twenty of them were, and at
+ * 22px that is very visible. This measures the real ink of every drawing,
+ * curves and arcs sampled and the stroke overhang counted, and insists it
+ * lands inside the frame with a margin.
+ */
+const FRAME = 32;
+const MARGIN = 0.35;
+const measured = measureSprite(sprite) as Array<{
+  name: string; empty?: boolean; x0: number; y0: number; x1: number; y1: number;
+}>;
+ok(measured.length === drawn.length, `measured all ${drawn.length} drawings (${measured.length})`);
+for (const m of measured) {
+  ok(!m.empty, `${m.name} actually draws something`);
+  if (m.empty) continue;
+  const outside = Math.max(MARGIN - m.x0, MARGIN - m.y0, m.x1 - (FRAME - MARGIN), m.y1 - (FRAME - MARGIN));
+  ok(outside <= 0.01,
+    `${m.name} fits inside the frame (worst edge ${outside > 0 ? `${outside.toFixed(2)} over` : "clear"})`);
+}
+
+/**
+ * And nothing is too small to see. The complaint was that changed icons were
+ * invisible, so every drawing has to fill most of its frame. `dot` is the
+ * exception by design: it is a bullet, and a bullet that fills the frame is
+ * a ball.
+ */
+const BULLETS = new Set(["dot"]);
+for (const m of measured) {
+  if (m.empty || BULLETS.has(m.name)) continue;
+  const longest = Math.max(m.x1 - m.x0, m.y1 - m.y0);
+  ok(longest >= 24, `${m.name} fills its frame (${longest.toFixed(1)} of ${FRAME})`);
+}
+
 
 // One logo file behind the interface and the video watermark.
 const LOGO = "scenering-logo.png";

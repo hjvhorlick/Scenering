@@ -42,7 +42,7 @@ function StagePanel({ id }: { id: string }) {
         <div className="mkt-work">
           <div className="mkt-script">
             <div className="mkt-strip-label">
-              <span aria-hidden="true">📝</span> Script
+              <span aria-hidden="true"><Icon glyph="📝" /></span> Script
             </div>
             {DEMO_PROJECT.script.map((line) => (
               <p key={line} className="mkt-script-line">
@@ -72,7 +72,7 @@ function StagePanel({ id }: { id: string }) {
           </p>
 
           <div className="mkt-search">
-            <span aria-hidden="true">🔍</span>
+            <span aria-hidden="true"><Icon glyph="🔍" /></span>
             <span>{DEMO_SCENES[2].query}</span>
             <span className="mkt-pill is-plain" style={{ marginLeft: "auto" }}>
               Scene 03
@@ -104,7 +104,7 @@ function StagePanel({ id }: { id: string }) {
       return (
         <div className="mkt-work">
           <div className="mkt-chiprow">
-            <span className="mkt-chip is-on">🎙 {DEMO_VOICE.name}</span>
+            <span className="mkt-chip is-on"><Icon glyph="🎙" /> {DEMO_VOICE.name}</span>
             <span className="mkt-chip">{DEMO_VOICE.accent}</span>
             <span className="mkt-chip"><Icon glyph="▶" /> Preview</span>
           </div>
@@ -138,9 +138,9 @@ function StagePanel({ id }: { id: string }) {
         <div className="mkt-work">
           <TimelineMock playheadAt={0.46} height={22} />
           <div className="mkt-chiprow">
-            <span className="mkt-chip is-on">◑ Filter</span>
+            <span className="mkt-chip is-on"><Icon glyph="◑" /> Filter</span>
             <span className="mkt-chip"><Icon glyph="♪" /> Music</span>
-            <span className="mkt-chip">✶ Sound FX</span>
+            <span className="mkt-chip"><Icon glyph="✶" /> Sound FX</span>
             <span className="mkt-chip"><Icon glyph="✱" /> Stickers</span>
             <span className="mkt-chip"><Icon glyph="▭" /> Lower third</span>
             <span className="mkt-chip"><Icon glyph="▶" /> Call to action</span>

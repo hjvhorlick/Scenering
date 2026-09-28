@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Scene, TimelineInsert } from "../types";
 import { calculateDynamicDuration } from "../lib/duration-utils";
-import Icon from "./icons/Icon";
+import Icon, { iconify } from "./icons/Icon";
 
 interface TimelineProps {
   scenes: Scene[];
@@ -467,7 +467,7 @@ export default function Timeline({
 
         <span className="flex items-center gap-1 min-w-0 flex-1 px-0.5 pointer-events-none">
           <span className="t-ico flex-shrink-0">{icon}</span>
-          {width > 46 && <span className="truncate">{item.title}</span>}
+          {width > 46 && <span className="truncate">{iconify(item.title)}</span>}
         </span>
 
         {/* quick actions — visible on hover or when selected */}
@@ -645,7 +645,7 @@ export default function Timeline({
             className="t-btn-hero-ghost px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
             title={expanded ? "Contract to a single compact view" : "Expand to show the Visual FX and Sound layers"}
           >
-            <span className={`inline-block transition-transform duration-200 ${expanded ? "" : "rotate-180"}`}>▲</span>
+            <span className={`inline-block transition-transform duration-200 ${expanded ? "" : "rotate-180"}`}><Icon glyph="▲" /></span>
             <span className="hidden sm:inline">{expanded ? "Contract" : "Expand"}</span>
           </button>
         </div>
@@ -750,11 +750,11 @@ export default function Timeline({
                           {sceneThumb ? (
                             <img src={sceneThumb} alt="" className="w-full h-full object-cover" draggable={false} />
                           ) : sceneHasVideo ? (
-                            <span className="text-sm" title="Video clip">🎞️</span>
+                            <span className="text-sm" title="Video clip"><Icon glyph="🎞" /></span>
                           ) : isIntro ? (
-                            <span className="text-sm">🎬</span>
+                            <span className="text-sm"><Icon glyph="🎬" /></span>
                           ) : isOutro ? (
-                            <span className="text-sm">🏁</span>
+                            <span className="text-sm"><Icon glyph="🏁" /></span>
                           ) : (
                             <span className="text-[9px] text-gray-600">img</span>
                           )}
@@ -769,7 +769,7 @@ export default function Timeline({
                             }`}
                           >
                             {block.type === "scene" && <Icon glyph="✏" />}
-                            {block.title}
+                            {iconify(block.title)}
                           </span>
                           {width > 74 && (
                             <span

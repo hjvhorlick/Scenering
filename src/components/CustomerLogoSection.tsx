@@ -137,7 +137,7 @@ export default function CustomerLogoSection({
               </p>
               {config.url && (
                 <div className="mt-2 px-3 py-1 bg-emerald-950/80 border border-emerald-600/60 rounded-lg text-emerald-300 text-xs flex items-center gap-2">
-                  <span>✓</span>
+                  <Icon glyph="✓" />
                   <span>Logo Loaded</span>
                 </div>
               )}
@@ -151,7 +151,7 @@ export default function CustomerLogoSection({
               onClick={() => setShowUrlModal(!showUrlModal)}
               className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"
             >
-              <span>🔗</span> Or paste Direct Image URL
+              <Icon glyph="🔗" /> Or paste Direct Image URL
             </button>
 
             {config.url && (
@@ -160,7 +160,7 @@ export default function CustomerLogoSection({
                 onClick={() => onChange({ url: null, enabled: false })}
                 className="text-rose-400 hover:text-rose-300 font-medium flex items-center gap-1 hover:underline"
               >
-                <span>🗑️</span> Remove Current Logo
+                <Icon glyph="🗑" /> Remove Current Logo
               </button>
             )}
           </div>
@@ -187,7 +187,7 @@ export default function CustomerLogoSection({
           {/* Info Card */}
           <div className="p-3 bg-gray-800/40 rounded-xl border border-hairline text-xs text-gray-400 space-y-1">
             <p className="font-semibold text-gray-300 flex items-center gap-1.5">
-              <span>💡</span>
+              <Icon glyph="💡" />
               <span>Placement & Transparency Tip:</span>
             </p>
             <p>
@@ -301,7 +301,7 @@ export default function CustomerLogoSection({
             <div>
               <div className="flex justify-between items-center text-gray-300 mb-1.5">
                 <span className="font-semibold text-white flex items-center gap-1.5">
-                  <span>📐</span>
+                  <Icon glyph="📐" />
                   <span>Logo Size / Scale:</span>
                 </span>
                 <span className="text-indigo-400 font-bold font-mono text-sm">

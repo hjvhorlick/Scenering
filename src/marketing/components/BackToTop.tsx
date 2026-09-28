@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Icon from "../../components/icons/Icon";
 
 /**
  * Back to the top.
@@ -53,7 +54,7 @@ export default function BackToTop() {
       tabIndex={shown ? 0 : -1}
       aria-hidden={shown ? undefined : true}
     >
-      <span aria-hidden="true">↑</span>
+      <span aria-hidden="true"><Icon glyph="↑" /></span>
       <span className="mkt-totop-word">Top</span>
       <span className="mkt-sr">Back to the top of the page</span>
     </button>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme, getThemeDef } from "../lib/themes";
-import Icon from "./icons/Icon";
+import Icon, { iconify } from "./icons/Icon";
 
 /**
  * Theme picker for the top-right corner of the app header.
@@ -58,7 +58,7 @@ export default function ThemeSwitcher() {
             />
           ))}
         </span>
-        <span className={`text-[9px] text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}>▼</span>
+        <span className={`text-[9px] text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}><Icon glyph="▼" /></span>
       </button>
 
       {open && (

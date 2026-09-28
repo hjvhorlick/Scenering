@@ -5,7 +5,7 @@ import { useInView } from "../hooks";
 import { STUDIO_VOICE_PRESETS } from "../../data/voice-presets";
 import { DEMO_DIALOGUE, DEMO_SCENES, DEMO_TOTAL_SECONDS, formatDuration } from "../demo-project";
 import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES, NARRATION_CHAIN, PLANS } from "../product-facts";
-import Icon from "../../components/icons/Icon";
+import Icon, { iconify } from "../../components/icons/Icon";
 
 /**
  * The studio's own visualiser renderer. It carries the effect catalogue with
@@ -151,7 +151,7 @@ export default function VoiceSection() {
                       </span>
                       <span className="mkt-mini-text">{voice.accent}</span>
                       <span className={`mkt-pill ${free ? "is-live" : "is-plain"}`} style={{ fontSize: 9.5 }}>
-                        {free ? "Free" : "🔒 SceneFlow"}
+                        {iconify(free ? "Free" : "🔒 SceneFlow")}
                       </span>
                     </button>
                   );

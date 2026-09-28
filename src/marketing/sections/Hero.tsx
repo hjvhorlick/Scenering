@@ -104,7 +104,7 @@ export default function Hero() {
                 <div className="mkt-work-top">
                   <div className="mkt-script">
                     <div className="mkt-strip-label">
-                      <span aria-hidden="true">📝</span> Script
+                      <span aria-hidden="true"><Icon glyph="📝" /></span> Script
                     </div>
                     {DEMO_PROJECT.script.map((line, index) => (
                       <p
@@ -135,10 +135,10 @@ export default function Hero() {
                     <div className={`mkt-chiprow mkt-stage${reached(4) ? " is-in" : ""}`} style={{ marginTop: 8 }}>
                       {/* the demonstration project's own timeline, named the
                           way the studio names these things */}
-                      <span className="mkt-chip is-on">◑ {DEMO_TIMELINE_EXTRAS.filter.name}</span>
-                      <span className="mkt-chip">♪ {DEMO_TIMELINE_EXTRAS.music.name}</span>
-                      <span className="mkt-chip">✱ {DEMO_TIMELINE_EXTRAS.sticker.name}</span>
-                      <span className="mkt-chip">▶ {DEMO_TIMELINE_EXTRAS.cta.name}</span>
+                      <span className="mkt-chip is-on"><Icon glyph="◑" /> {DEMO_TIMELINE_EXTRAS.filter.name}</span>
+                      <span className="mkt-chip"><Icon glyph="♪" /> {DEMO_TIMELINE_EXTRAS.music.name}</span>
+                      <span className="mkt-chip"><Icon glyph="✱" /> {DEMO_TIMELINE_EXTRAS.sticker.name}</span>
+                      <span className="mkt-chip"><Icon glyph="▶" /> {DEMO_TIMELINE_EXTRAS.cta.name}</span>
                     </div>
                   </div>
                 </div>
@@ -169,7 +169,7 @@ export default function Hero() {
                 <div className={`mkt-stage${reached(2) ? " is-in" : ""}`}>
                   <div className="mkt-strip-row">
                     <span className="mkt-strip-label">
-                      <span aria-hidden="true">🎙</span> {DEMO_VOICE.name} · {DEMO_VOICE.accent}
+                      <span aria-hidden="true"><Icon glyph="🎙" /></span> {DEMO_VOICE.name} · {DEMO_VOICE.accent}
                     </span>
                     <Waveform seed="hero-narration" variant="dots" height={26} live={playing} />
                   </div>
@@ -179,7 +179,7 @@ export default function Hero() {
                 <div className={`mkt-stage${reached(3) ? " is-in" : ""}`}>
                   <div className="mkt-strip-row">
                     <span className="mkt-strip-label">
-                      <span aria-hidden="true">💬</span> {DEMO_CAPTION_STYLE.name}
+                      <span aria-hidden="true"><Icon glyph="💬" /></span> {DEMO_CAPTION_STYLE.name}
                     </span>
                     <div className="mkt-capstage">
                       <CaptionLine

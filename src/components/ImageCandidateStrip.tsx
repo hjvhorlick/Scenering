@@ -9,7 +9,7 @@
 
 import type { ImageCandidate } from "../lib/image-search";
 import { proxyImageUrl } from "../lib/image-search";
-import Icon from "./icons/Icon";
+import Icon, { iconify } from "./icons/Icon";
 
 interface ImageCandidateStripProps {
   candidates: ImageCandidate[];
@@ -50,7 +50,7 @@ export default function ImageCandidateStrip({
               className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 rounded-lg text-white text-[11px] font-medium transition-colors"
               title="Search again for a different set of photos"
             >
-              {loading ? "…" : "↻ New set"}
+              {iconify(loading ? "…" : "↻ New set")}
             </button>
           )}
           <button

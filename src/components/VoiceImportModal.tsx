@@ -426,7 +426,7 @@ export default function VoiceImportModal({
         <div className="p-4 sm:p-5 border-b border-hairline bg-gray-950 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl">🎙️</span>
+              <span className="text-xl"><Icon glyph="🎙" /></span>
               <h2 className="text-lg font-bold text-white">Import Real Quality Voice</h2>
               {scene && (
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-950 text-indigo-300 border border-indigo-800">
@@ -455,13 +455,13 @@ export default function VoiceImportModal({
             onClick={() => setActiveTab("library")}
             className={`opt-btn ${activeTab === "library" ? "opt-btn-on" : ""}`}
           >
-            <span>🎭</span> Studio Real Voices
+            <Icon glyph="🎭" /> Studio Real Voices
           </button>
           <button
             onClick={() => setActiveTab("all_directory")}
             className={`opt-btn ${activeTab === "all_directory" ? "opt-btn-on" : ""}`}
           >
-            <span>🌐</span> 300+ Free Real Voices
+            <Icon glyph="🌐" /> 300+ Free Real Voices
             {allVoicesList.length > 0 && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800">
                 {allVoicesList.length}
@@ -472,13 +472,13 @@ export default function VoiceImportModal({
             onClick={() => setActiveTab("upload")}
             className={`opt-btn ${activeTab === "upload" ? "opt-btn-on" : ""}`}
           >
-            <span>📁</span> Import Audio File
+            <Icon glyph="📁" /> Import Audio File
           </button>
           <button
             onClick={() => setActiveTab("record")}
             className={`opt-btn ${activeTab === "record" ? "opt-btn-on" : ""}`}
           >
-            <span>🔴</span> Record Live Voice
+            <Icon glyph="🔴" /> Record Live Voice
           </button>
         </div>
 
@@ -490,7 +490,7 @@ export default function VoiceImportModal({
               {/* Gender Filter Toggle (Preserves user's requested clear separation) */}
               <div className="flex items-center justify-between gap-3 bg-gray-950/60 p-2.5 rounded-xl border border-hairline">
                 <span className="text-xs text-gray-300 font-medium flex items-center gap-1.5">
-                  <span>🚻</span> Voice Category:
+                  <Icon glyph="🚻" /> Voice Category:
                 </span>
                 <div className="flex gap-1.5">
                   <button
@@ -579,7 +579,7 @@ export default function VoiceImportModal({
                         </button>
                         {isSelected && (
                           <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
-                            <span>✓</span> Selected
+                            <Icon glyph="✓" /> Selected
                           </span>
                         )}
                       </div>
@@ -653,7 +653,7 @@ export default function VoiceImportModal({
 
               {loadingVoicesList ? (
                 <div className="p-8 text-center text-xs text-indigo-300 flex items-center justify-center gap-2">
-                  <span className="animate-spin">⏳</span>
+                  <span className="animate-spin"><Icon glyph="⏳" /></span>
                   <span>Loading full library of 300+ free natural voices...</span>
                 </div>
               ) : (
@@ -725,7 +725,7 @@ export default function VoiceImportModal({
                             </button>
                             {isSelected && (
                               <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
-                                <span>✓</span> Selected
+                                <Icon glyph="✓" /> Selected
                               </span>
                             )}
                           </div>
@@ -751,7 +751,7 @@ export default function VoiceImportModal({
                   accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg"
                   className="hidden"
                 />
-                <span className="text-4xl">🎵</span>
+                <span className="text-4xl"><Icon glyph="🎵" /></span>
                 <div>
                   <h3 className="text-sm font-bold text-white mb-1">
                     Click to Upload Real Quality Voice Audio
@@ -777,7 +777,7 @@ export default function VoiceImportModal({
               {uploadedAudio && (
                 <div className="p-4 bg-indigo-950/40 border border-indigo-700/60 rounded-xl flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">🎧</span>
+                    <span className="text-2xl"><Icon glyph="🎧" /></span>
                     <div>
                       <h4 className="text-xs font-bold text-white">{uploadedAudio.name}</h4>
                       <p className="text-[11px] text-indigo-300">
@@ -792,7 +792,7 @@ export default function VoiceImportModal({
                       onClick={() => handlePlayVoiceSample("uploaded", "url:" + uploadedAudio.url)}
                       className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg border border-hairline"
                     >
-                      {previewPlayingId === "uploaded" ? "⏹️ Stop" : "▶ Play"}
+                      {iconify(previewPlayingId === "uploaded" ? "⏹️ Stop" : "▶ Play")}
                     </button>
                     <button
                       type="button"
@@ -811,7 +811,7 @@ export default function VoiceImportModal({
           {activeTab === "record" && (
             <div className="space-y-4 text-center py-4">
               <div className="max-w-md mx-auto bg-gray-950/70 border border-hairline rounded-2xl p-6 space-y-4">
-                <span className="text-4xl block">🎙️</span>
+                <span className="text-4xl block"><Icon glyph="🎙" /></span>
                 <div>
                   <h3 className="text-base font-bold text-white">Record Real Voice in Studio</h3>
                   <p className="text-xs text-gray-400 mt-1">
@@ -841,7 +841,7 @@ export default function VoiceImportModal({
                       onClick={startRecording}
                       className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-lg transition-colors flex items-center gap-2 mx-auto"
                     >
-                      <span>🔴</span> Start Microphone Recording
+                      <Icon glyph="🔴" /> Start Microphone Recording
                     </button>
                   </div>
                 )}
@@ -859,7 +859,7 @@ export default function VoiceImportModal({
                         }
                         className="px-3.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg border border-hairline"
                       >
-                        {previewPlayingId === "recorded" ? "⏹️ Stop" : "▶ Play Recording"}
+                        {iconify(previewPlayingId === "recorded" ? "⏹️ Stop" : "▶ Play Recording")}
                       </button>
                       <button
                         type="button"
@@ -912,11 +912,11 @@ export default function VoiceImportModal({
                 >
                   {loadingAudio ? (
                     <>
-                      <span className="animate-spin">⏳</span> Attaching Voice...
+                      <span className="animate-spin"><Icon glyph="⏳" /></span> Attaching Voice...
                     </>
                   ) : (
                     <>
-                      <span>✨</span> Apply to Scene {targetSceneIndex + 1}
+                      <Icon glyph="✨" /> Apply to Scene {targetSceneIndex + 1}
                     </>
                   )}
                 </button>

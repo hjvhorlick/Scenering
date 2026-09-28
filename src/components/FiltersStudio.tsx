@@ -12,7 +12,7 @@ import {
   type VideoFilterSettings,
 } from "../data/video-filters";
 import FilterPreviewCanvas from "./FilterPreviewCanvas";
-import Icon from "./icons/Icon";
+import Icon, { iconify } from "./icons/Icon";
 
 interface FiltersStudioProps {
   /** the single filter running across the whole video (null = none) */
@@ -105,7 +105,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-hairline text-gray-200 rounded-lg text-xs font-medium select-none"
               title="Hold to see the video without the filter"
             >
-              {compare ? "👁 Showing Original" : "👁 Hold: Original"}
+              {iconify(compare ? "👁 Showing Original" : "👁 Hold: Original")}
             </button>
             <button
               type="button"
@@ -176,7 +176,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                     onClick={() => setShowSettings((v) => !v)}
                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 rounded-lg text-[11px]"
                   >
-                    {showSettings ? "▲ Hide" : "▼ Settings"}
+                    {iconify(showSettings ? "▲ Hide" : "▼ Settings")}
                   </button>
                 </div>
               </div>
@@ -229,7 +229,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               : "bg-gray-900 border-hairline text-gray-300 hover:text-white hover:bg-gray-800"
           }`}
         >
-          <span>🎞️</span>
+          <Icon glyph="🎞" />
           <span>All Looks ({VIDEO_FILTERS.length})</span>
         </button>
         {FILTER_GROUPS.map((g) => {
@@ -361,7 +361,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
 
       {visible.length === 0 && (
         <div className="text-center py-14 text-gray-400">
-          <span className="text-3xl block mb-2">🔍</span>
+          <span className="text-3xl block mb-2"><Icon glyph="🔍" /></span>
           <p className="text-sm">No looks match &quot;{query}&quot;</p>
           <button type="button" onClick={() => setQuery("")} className="mt-2 text-xs text-fuchsia-400 hover:underline">
             Clear search

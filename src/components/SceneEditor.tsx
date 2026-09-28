@@ -521,7 +521,7 @@ export default function SceneEditor({
         >
           {/* Active Aspect Ratio Indicator */}
           <div className="absolute top-1 left-1 z-10 px-1.5 py-0.5 bg-gray-900/80 backdrop-blur border border-hairline rounded text-[9px] font-mono text-gray-300 pointer-events-none flex items-center gap-1">
-            <span>📐</span>
+            <Icon glyph="📐" />
             <span>{aspectRatio}</span>
           </div>
 
@@ -680,7 +680,7 @@ export default function SceneEditor({
               {/* Attached Voice Track Badge (From Voiceover Studio) */}
               {scene.audio_url && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/90 border border-emerald-600/80 text-emerald-300 text-xs font-medium animate-fade-in shadow-sm">
-                  <span>🎙️</span>
+                  <Icon glyph="🎙" />
                   <span className="truncate max-w-[140px]" title={scene.audio_name || "Saved Voiceover"}>
                     {scene.audio_name || "Voiceover Saved"}
                   </span>
@@ -690,7 +690,7 @@ export default function SceneEditor({
                     className="hover:text-white px-1 font-bold text-xs"
                     title="Play attached audio track"
                   >
-                    {isPlayingAttachedAudio ? "⏹" : "▶"}
+                    {iconify(isPlayingAttachedAudio ? "⏹" : "▶")}
                   </button>
                   <button
                     type="button"
@@ -708,7 +708,7 @@ export default function SceneEditor({
                 className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-950/80 border border-indigo-700/80 rounded-lg text-xs"
                 title={`Scene duration: ${currentSceneDuration}s`}
               >
-                <span className="text-indigo-400">⏱️</span>
+                <span className="text-indigo-400"><Icon glyph="⏱" /></span>
                 <span className="text-white font-mono font-bold">
                   {currentSceneDuration}s
                 </span>
@@ -756,7 +756,7 @@ export default function SceneEditor({
           <div className="space-y-1">
             <div className="flex items-center justify-between text-xs">
               <label htmlFor={`scene-script-${scene.id}`} className="font-semibold text-gray-200 flex items-center gap-1.5">
-                <span>📝</span>
+                <Icon glyph="📝" />
                 <span>Scene Script & Narration</span>
               </label>
               <div className="flex items-center gap-2">
@@ -821,7 +821,7 @@ export default function SceneEditor({
               className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 rounded-lg text-white text-xs font-medium transition-colors whitespace-nowrap"
               title="Replace with another photo — never the one already shown"
             >
-              {searching ? "…" : "🔁 Replace"}
+              {iconify(searching ? "…" : "🔁 Replace")}
             </button>
 
             {/* Research toggles its drawer open and shut, with the same ▼ cue
@@ -894,7 +894,7 @@ export default function SceneEditor({
           <div className="bg-gray-900/90 border border-sky-800/60 rounded-xl p-3 space-y-2.5 animate-fade-in text-xs">
             <div className="flex items-center justify-between border-b border-sky-900/60 pb-1.5">
               <span className="font-semibold text-sky-300 flex items-center gap-1.5">
-                <span>🎨</span>
+                <Icon glyph="🎨" />
                 <span>Plain colour backdrop</span>
               </span>
               {isBlank && (
@@ -954,7 +954,7 @@ export default function SceneEditor({
           <div className="bg-gray-900/90 border border-emerald-800/60 rounded-xl p-3 space-y-2 animate-fade-in text-xs">
             <div className="flex items-center justify-between border-b border-emerald-900/60 pb-1.5">
               <span className="font-semibold text-emerald-300 flex items-center gap-1.5">
-                <span>🌿</span>
+                <Icon glyph="🌿" />
                 <span>High Definition Nature Fallback Library</span>
               </span>
               <button
@@ -1317,7 +1317,7 @@ export default function SceneEditor({
                         onClick={() => setPresetPosition(px, py)}
                         className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-hairline text-gray-300 text-[11px]"
                       >
-                        {label}
+                        {iconify(label)}
                       </button>
                     ))}
                   </div>

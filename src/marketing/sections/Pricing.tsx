@@ -6,7 +6,7 @@ import PlayerFrame from "../components/PlayerFrame";
 import TimelineMock, { type TimelineTrack } from "../components/TimelineMock";
 import { DEMO_CAPTION_STYLE, DEMO_SCENES } from "../demo-project";
 import { HONESTY, PLANS, type PlanId } from "../product-facts";
-import Icon from "../../components/icons/Icon";
+import Icon, { iconify } from "../../components/icons/Icon";
 
 /**
  * Plans.
@@ -92,7 +92,7 @@ export default function Pricing() {
               {entry.includes.map((line) => (
                 <li key={line}>
                   <span className={`mkt-tick${entry.availability === "soon" ? " is-lock" : ""}`} aria-hidden="true">
-                    {entry.availability === "soon" ? "+" : "✓"}
+                    {iconify(entry.availability === "soon" ? "+" : "✓")}
                   </span>
                   <span>{line}</span>
                 </li>
@@ -152,7 +152,7 @@ export default function Pricing() {
                       const included = plan.workspace.studio.includes(tool);
                       return (
                         <span key={tool} className={`mkt-chip${included ? " is-on" : " is-locked"}`}>
-                          {included ? "●" : "🔒"} {tool}
+                          {iconify(included ? "●" : "🔒")} {tool}
                         </span>
                       );
                     })}
@@ -164,9 +164,9 @@ export default function Pricing() {
 
               {plan.id === "sceneforge" && (
                 <div className="mkt-chiprow">
-                  <span className="mkt-chip is-on">⏭ Batch queue</span>
+                  <span className="mkt-chip is-on"><Icon glyph="⏭" /> Batch queue</span>
                   <span className="mkt-chip is-on"><Icon glyph="⚡" /> Priority processing</span>
-                  <span className="mkt-chip is-on">📦 High-volume exports</span>
+                  <span className="mkt-chip is-on"><Icon glyph="📦" /> High-volume exports</span>
                 </div>
               )}
             </div>

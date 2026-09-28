@@ -295,7 +295,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.25)_0%,transparent_70%)] animate-pulse" />
           <div className="relative z-10 flex flex-col items-center text-center">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.8)] border border-yellow-200/60 mb-1">
-              <span className="text-xs font-black text-gray-950">🏷️</span>
+              <span className="text-xs font-black text-gray-950"><Icon glyph="🏷" /></span>
             </div>
             <span className="text-[10px] font-black text-amber-300 tracking-widest uppercase drop-shadow">YOUR BRAND</span>
             <span className="text-[8px] text-amber-200/80 font-serif italic">Presents An Original Story</span>
@@ -313,7 +313,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
           <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(6,182,212,0.1)_1px,transparent_1px)] bg-[size:100%_4px]" />
           <div className="relative z-10 flex flex-col items-center text-center">
             <div className="w-7 h-7 rounded bg-gray-900 border border-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.6)] flex items-center justify-center mb-1">
-              <span className="text-xs">⚡</span>
+              <span className="text-xs"><Icon glyph="⚡" /></span>
             </div>
             <span className="text-[10px] font-black text-cyan-300 tracking-wider font-mono">CYBERPUNK MEDIA</span>
             <span className="text-[8px] text-pink-400 font-mono">Next-Gen Visuals</span>
@@ -330,7 +330,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       <div className="w-full h-24 rounded-lg bg-gradient-to-r from-gray-950 via-indigo-950/60 to-gray-950 border border-indigo-500/40 p-2 flex flex-col items-center justify-center relative overflow-hidden group">
         <div className="relative z-10 flex flex-col items-center text-center">
           <div className="w-7 h-7 rounded-lg bg-indigo-600/80 border border-indigo-400 flex items-center justify-center mb-1 shadow-lg">
-            <span className="text-xs">🎬</span>
+            <span className="text-xs"><Icon glyph="🎬" /></span>
           </div>
           <span className="text-[10px] font-bold text-white tracking-wider">{item.name}</span>
           <span className="text-[8px] text-indigo-300">With Logo Reveal</span>
@@ -349,7 +349,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
         <div className="w-full h-24 rounded-lg bg-gray-950 border border-red-600/40 p-2 flex items-center justify-between relative overflow-hidden group">
           {/* Watch Next Box 1 */}
           <div className="w-16 h-14 bg-gray-900 border border-hairline rounded flex flex-col items-center justify-center text-[8px] text-gray-400 font-mono">
-            <span>📺</span>
+            <Icon glyph="📺" />
             <span>NEXT VIDEO</span>
           </div>
 
@@ -363,7 +363,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
 
           {/* Watch Next Box 2 */}
           <div className="w-16 h-14 bg-gray-900 border border-hairline rounded flex flex-col items-center justify-center text-[8px] text-gray-400 font-mono">
-            <span>▶️</span>
+            <Icon glyph="▶" />
             <span>PLAYLIST</span>
           </div>
           <div className="absolute top-1 left-2 text-[8px] font-mono text-red-400 bg-red-950/70 px-1.5 py-0.2 rounded">
@@ -392,7 +392,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     return (
       <div className="w-full h-24 rounded-lg bg-gray-950 border border-indigo-500/40 p-2 flex flex-col items-center justify-center relative overflow-hidden group">
         <div className="relative z-10 flex flex-col items-center text-center">
-          <span className="text-sm mb-0.5">🏁</span>
+          <span className="text-sm mb-0.5"><Icon glyph="🏁" /></span>
           <span className="text-[10px] font-bold text-white">{item.name}</span>
           <span className="text-[8px] text-gray-400 mt-0.5">End-Screen with Handles & Logo</span>
         </div>
@@ -436,7 +436,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   return (
     <div className="w-full h-24 rounded-lg bg-gray-950 border border-hairline p-2 flex items-center justify-center relative overflow-hidden group">
       <div className="relative z-10 flex items-center gap-2 bg-gray-900/90 px-3 py-1.5 rounded-lg border border-hairline">
-        <span className="text-base">🏷️</span>
+        <span className="text-base"><Icon glyph="🏷" /></span>
         <span className="text-xs font-semibold text-gray-200">Official Brand Watermark</span>
       </div>
     </div>

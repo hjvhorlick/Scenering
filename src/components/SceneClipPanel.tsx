@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Scene } from "../types";
 import { sceneDurationForText } from "../lib/duration-utils";
-import Icon from "./icons/Icon";
+import Icon, { iconify } from "./icons/Icon";
 
 interface SceneClipPanelProps {
   scene: Scene;
@@ -173,7 +173,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
             onClick={() => fileRef.current?.click()}
             className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition-colors"
           >
-            {hasClip ? "Replace clip" : "➕ Add clip"}
+            {iconify(hasClip ? "Replace clip" : "➕ Add clip")}
           </button>
           {hasClip && (
             <button

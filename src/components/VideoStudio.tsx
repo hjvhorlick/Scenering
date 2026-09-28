@@ -200,7 +200,7 @@ export default function VideoStudio({
       <div className="px-5 py-3.5 bg-gray-900/90 border-b border-hairline flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <span>🎬</span>
+            <Icon glyph="🎬" />
             <span>Video Studio</span>
             <span className="text-xs font-normal text-indigo-300 bg-indigo-950/80 px-2 py-0.5 rounded-full border border-indigo-800/60">
               Creative Effects & Branding
@@ -218,7 +218,7 @@ export default function VideoStudio({
           {/* Studio Audio Master Volume Control */}
           <div className="flex items-center gap-2 bg-gray-850 border border-hairline px-3 py-1.5 rounded-xl">
             <span className="text-xs text-gray-300 flex items-center gap-1.5 flex-shrink-0">
-              <span>🔊</span>
+              <Icon glyph="🔊" />
               <span className="hidden sm:inline text-[11px] font-medium text-gray-300">Audio Vol:</span>
             </span>
             <input
@@ -248,7 +248,7 @@ export default function VideoStudio({
                 className="ml-1 px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold animate-pulse flex items-center gap-1"
                 title="Stop all playing audio previews"
               >
-                <span>⏹️</span>
+                <Icon glyph="⏹" />
                 <span>Off</span>
               </button>
             )}
@@ -303,7 +303,7 @@ export default function VideoStudio({
           );
         })}
         <span className="opt-hint ml-auto shrink-0 hidden sm:inline-flex">
-          <span>👆</span>
+          <Icon glyph="👆" />
           <span>pick a section — all its options are listed below</span>
         </span>
       </div>
@@ -410,7 +410,7 @@ export default function VideoStudio({
 
             {filteredItems.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
-                <span className="text-3xl block mb-2">🔍</span>
+                <span className="text-3xl block mb-2"><Icon glyph="🔍" /></span>
                 <p className="text-sm">No items found for &quot;{searchQuery}&quot;</p>
                 <button
                   type="button"
@@ -491,7 +491,7 @@ export default function VideoStudio({
                         {hasSound && soundUrl && (
                           <div className="mb-2 px-2.5 py-1.5 bg-gray-950/90 rounded-lg border border-hairline flex items-center justify-between gap-2 shadow-inner">
                             <span className="text-[10px] text-gray-400 flex items-center gap-1">
-                              <span>🔉</span>
+                              <Icon glyph="🔉" />
                               <span className="text-[10px] font-medium text-gray-300">Volume:</span>
                             </span>
                             <div className="flex items-center gap-1.5">
@@ -541,11 +541,13 @@ export default function VideoStudio({
                           }`}
                         >
                           <span>
-                            {item.category === "intro"
-                              ? "➕ Insert Before Script"
-                              : item.category === "outro"
-                              ? "➕ Insert After Script"
-                              : "➕ Add"}
+                            {iconify(
+                              item.category === "intro"
+                                ? "➕ Insert Before Script"
+                                : item.category === "outro"
+                                ? "➕ Insert After Script"
+                                : "➕ Add",
+                            )}
                           </span>
                         </button>
                         <button

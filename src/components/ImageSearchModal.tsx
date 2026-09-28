@@ -4,7 +4,7 @@ import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "../l
 import { pickRandomSample } from "../lib/image-picker";
 import { searchImagePool, type ImageCandidate } from "../lib/image-search";
 import ApiKeysModal from "./ApiKeysModal";
-import { iconify } from "./icons/Icon";
+import Icon, { iconify } from "./icons/Icon";
 
 interface ImageSearchModalProps {
   initialQuery: string;
@@ -131,7 +131,7 @@ export default function ImageSearchModal({
             className="px-2.5 py-1.5 rounded-lg border border-hairline bg-gray-800 hover:bg-gray-750 text-xs text-gray-300 hover:text-white flex items-center gap-1.5 flex-shrink-0"
             title="Configure personal Pexels & Pixabay API keys"
           >
-            <span>🔑</span>
+            <Icon glyph="🔑" />
             <span className="hidden sm:inline">API Keys</span>
             {hasKeys && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
           </button>
@@ -179,7 +179,7 @@ export default function ImageSearchModal({
             </div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center py-16 text-center max-w-md mx-auto">
-              <div className="text-4xl mb-3">🔍</div>
+              <div className="text-4xl mb-3"><Icon glyph="🔍" /></div>
               <p className="text-gray-300 text-sm font-medium mb-1">{error}</p>
               <p className="text-xs text-gray-500 mb-5">
                 Pexels and Pixabay offer millions of free stock photos. You can insert your customer API key to unlock them.
@@ -190,7 +190,7 @@ export default function ImageSearchModal({
                   onClick={() => setKeysModalOpen(true)}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white text-xs font-medium flex items-center gap-1.5"
                 >
-                  <span>🔑</span> Insert Pexels / Pixabay Key
+                  <Icon glyph="🔑" /> Insert Pexels / Pixabay Key
                 </button>
               </div>
               <form onSubmit={handleSubmit} className="w-full flex gap-2">

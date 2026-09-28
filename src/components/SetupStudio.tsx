@@ -518,7 +518,7 @@ export default function SetupStudio({
       {startError && (
         <div className="p-3.5 bg-red-950/80 border border-red-700/80 rounded-xl text-red-200 text-xs flex items-center justify-between shadow-lg">
           <span className="flex items-center gap-2">
-            <span>⚠️</span>
+            <Icon glyph="⚠" />
             <span className="font-medium">{startError}</span>
           </span>
           <button onClick={() => setStartError(null)} className="text-red-400 hover:text-white text-xs">
@@ -530,7 +530,7 @@ export default function SetupStudio({
       {appliedNotice && (
         <div className="p-3.5 bg-emerald-950/80 border border-emerald-700/80 rounded-xl text-emerald-200 text-xs flex items-center justify-between shadow-lg">
           <span className="flex items-center gap-2">
-            <span>✅</span>
+            <Icon glyph="✅" />
             <span className="font-medium">{appliedNotice}</span>
           </span>
           <button onClick={() => setAppliedNotice(null)} className="text-emerald-400 hover:text-white text-xs">
@@ -560,7 +560,7 @@ export default function SetupStudio({
         {isExistingProject && (
           <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-emerald-950/50 border border-emerald-800/60 rounded-xl px-3 py-2.5">
             <span className="text-[11px] text-emerald-200 flex items-center gap-2 min-w-0">
-              <span>📂</span>
+              <Icon glyph="📂" />
               <span className="truncate">
                 Currently editing: <strong className="text-white">{project?.title || "Untitled"}</strong>
                 {project?.script ? ` · ${countWords(project.script)} words` : ""}
@@ -649,7 +649,7 @@ export default function SetupStudio({
             className="px-2.5 py-1 bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-300 border border-indigo-700/60 rounded-lg text-[11px] font-semibold transition-colors flex items-center justify-center gap-1 shadow-sm shrink-0"
             title={`Calibrate each paragraph to ~${targetWordsPerScene} words so each scene lasts ${activeDuration}s`}
           >
-            <span>✨</span>
+            <Icon glyph="✨" />
             <span>Calibrate My Script to {activeDuration}s (~{targetWordsPerScene}w)</span>
           </button>
         </div>
@@ -666,7 +666,7 @@ export default function SetupStudio({
         {isExistingProject && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-[11px] text-gray-400 flex items-center gap-1.5">
-              <span>💡</span>
+              <Icon glyph="💡" />
               <span>Each paragraph becomes a scene calibrated for {activeDuration}s (~{targetWordsPerScene} words).</span>
             </div>
             <div className="flex items-center gap-2">
@@ -682,7 +682,7 @@ export default function SetupStudio({
                 onClick={() => handleApplyScript(true)}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
               >
-                <span>⚡</span>
+                <Icon glyph="⚡" />
                 <span>Re-Generate All Scenes</span>
               </button>
             </div>
@@ -844,7 +844,7 @@ export default function SetupStudio({
             className="w-full flex items-center justify-between text-xs font-semibold text-gray-300 hover:text-white transition-colors"
           >
             <span className="flex items-center gap-1.5">
-              <span>🔧</span> Advanced overrides
+              <Icon glyph="🔧" /> Advanced overrides
               <span className="text-[10px] font-normal text-gray-500">— aspect ratio, resolution, FPS, format</span>
             </span>
             <span>{iconify(showOutputAdvanced ? "▾ Hide" : "▸ Show")}</span>
@@ -1054,7 +1054,7 @@ export default function SetupStudio({
                 </div>
                 <div className="min-w-0 flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold truncate">{opt.label}</div>
+                    <div className="text-xs font-semibold truncate">{iconify(opt.label)}</div>
                     <div className="text-[10px] text-gray-400 leading-tight">{opt.desc}</div>
                   </div>
                   {isSelected && (
@@ -1075,7 +1075,7 @@ export default function SetupStudio({
             }}
             className="w-full mt-3 py-2 px-3 bg-gray-800 hover:bg-gray-700 border border-hairline rounded-xl text-xs font-semibold text-gray-200 hover:text-white transition-all flex items-center justify-center gap-1.5"
           >
-            <span>🔄</span> Apply Motion Style to All Scenes
+            <Icon glyph="🔄" /> Apply Motion Style to All Scenes
           </button>
         )}
       </div>
@@ -1085,7 +1085,7 @@ export default function SetupStudio({
       <div className="bg-gray-900/90 border border-hairline rounded-2xl p-6 shadow-xl space-y-6">
         <div className="text-center max-w-xl mx-auto space-y-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-950/80 border border-indigo-700/60 text-indigo-300">
-            <span>💎</span> Pricing & Studio Plans
+            <Icon glyph="💎" /> Pricing & Studio Plans
           </div>
           <h3 className="text-xl font-bold text-white tracking-tight">
             Flexible Plans for Every Video Creator
@@ -1114,16 +1114,16 @@ export default function SetupStudio({
 
               <ul className="space-y-2 text-xs text-gray-300 pt-2 border-t border-hairline">
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Unlimited scenes & scripts
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Unlimited scenes & scripts
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> 1080p Full HD rendering
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> 1080p Full HD rendering
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> 10+ Neural voiceover actors
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> 10+ Neural voiceover actors
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Full 3D audio visualizer suite
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Full 3D audio visualizer suite
                 </li>
                 <li className="flex items-center gap-2 text-gray-400">
                   <span className="text-gray-500 font-bold">•</span> Standard Scenering watermark
@@ -1166,19 +1166,19 @@ export default function SetupStudio({
 
               <ul className="space-y-2 text-xs text-gray-200 pt-2 border-t border-indigo-800/40">
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Watermark removal included
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Watermark removal included
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Custom customer brand logo embedding
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Custom customer brand logo embedding
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> High-speed priority cloud rendering
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> High-speed priority cloud rendering
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> All 20+ multi-accent neural voices
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> All 20+ multi-accent neural voices
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Commercial monetization rights
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Commercial monetization rights
                 </li>
               </ul>
             </div>
@@ -1213,19 +1213,19 @@ export default function SetupStudio({
 
               <ul className="space-y-2 text-xs text-gray-300 pt-2 border-t border-hairline">
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> 4K Ultra-HD 60 FPS exporting
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> 4K Ultra-HD 60 FPS exporting
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Multi-speaker dialogue auto-splitting
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Multi-speaker dialogue auto-splitting
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Unlimited custom audio SFX upload
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Unlimited custom audio SFX upload
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Dedicated fast rendering queue
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Dedicated fast rendering queue
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> White-label video agency export
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> White-label video agency export
                 </li>
               </ul>
             </div>
@@ -1257,7 +1257,7 @@ export default function SetupStudio({
         </p>
         {!canStart && (
           <p className="text-[11px] text-amber-300 flex items-center gap-1.5 mt-2">
-            <span>⚠️</span>
+            <Icon glyph="⚠" />
             <span>Add a script in section 3 — every scene is generated from it.</span>
           </p>
         )}

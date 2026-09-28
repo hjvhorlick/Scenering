@@ -1,5 +1,6 @@
 import { Section, SectionHead } from "../components/primitives";
 import { COMMON_QUESTIONS } from "../product-facts";
+import Icon from "../../components/icons/Icon";
 
 /**
  * The five worries, at the top of the page.
@@ -54,7 +55,7 @@ export default function Questions() {
               <span className="mkt-q-answer">{item.answer}</span>
               <span className="mkt-q-cue">
                 {item.cue}
-                <span aria-hidden="true"> ↓</span>
+                <span aria-hidden="true"><Icon glyph="↓" /></span>
               </span>
             </a>
           </li>

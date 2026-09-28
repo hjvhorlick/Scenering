@@ -64,7 +64,7 @@ export default function SceneCard({
 
         {showNarration && !compact && (
           <div className="mkt-scene-narr">
-            <span className="mkt-scene-narr-ico" aria-hidden="true">🎙</span>
+            <span className="mkt-scene-narr-ico" aria-hidden="true"><Icon glyph="🎙" /></span>
             <span className="mkt-small">
               {DEMO_VOICE.name} · {scene.duration.toFixed(1)}s of narration
             </span>

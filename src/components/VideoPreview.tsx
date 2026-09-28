@@ -1588,7 +1588,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
   if (scenesWithImages.length === 0) {
     return (
       <div className="bg-gray-800/50 border border-hairline rounded-xl p-8 text-center">
-        <div className="text-4xl mb-3">🎬</div>
+        <div className="text-4xl mb-3"><Icon glyph="🎬" /></div>
         <h3 className="text-lg font-semibold mb-1">No Images Yet</h3>
         <p className="text-gray-400 text-sm">
           Search and assign images to your scenes first.
@@ -1685,7 +1685,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
               </button>
 
               <span className="text-xs text-indigo-300 font-mono font-semibold bg-indigo-950/80 px-2.5 py-1 rounded-md border border-indigo-700/60 flex items-center gap-1.5">
-                <span>🎬</span>
+                <Icon glyph="🎬" />
                 <span>Total: {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}</span>
                 <span className="text-gray-500">·</span>
                 <span>{Math.round(progress * 100)}%</span>
@@ -1738,7 +1738,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
                   className="px-3 py-2 bg-emerald-950/70 hover:bg-emerald-900/70 border border-emerald-700/60 rounded-lg transition-colors text-emerald-200 font-medium text-xs flex items-center gap-2 cursor-pointer"
                   title={`Download ${downloadName} again`}
                 >
-                  <span>💾</span>
+                  <Icon glyph="💾" />
                   <span>
                     Save Video
                     {downloadSize > 0 && (

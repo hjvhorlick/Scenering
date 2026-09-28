@@ -346,7 +346,7 @@ export default function VoiceoverStudio({
       type: "Natural Speaking Voice",
       gender: isMale ? "Male Narrator" : "Female Narrator",
       isMale,
-      badge: `${isMale ? "👨 Male" : "👩 Female"} • ${preset?.accent || "Natural Voice"}`,
+      badge: `${iconify(isMale ? "👨 Male" : "👩 Female")} • ${preset?.accent || "Natural Voice"}`,
     };
   }, [selectedVoice]);
 
@@ -459,17 +459,17 @@ export default function VoiceoverStudio({
             >
               {loadingId === "test-global" ? (
                 <>
-                  <span className="animate-spin text-indigo-400">⏳</span>
+                  <span className="animate-spin text-indigo-400"><Icon glyph="⏳" /></span>
                   <span>Generating Audio...</span>
                 </>
               ) : playingId === "test-global" ? (
                 <>
-                  <span className="animate-pulse text-amber-400">⏹️</span>
+                  <span className="animate-pulse text-amber-400"><Icon glyph="⏹" /></span>
                   <span>Stop Preview</span>
                 </>
               ) : (
                 <>
-                  <span>🔊</span>
+                  <Icon glyph="🔊" />
                   <span>Test Active Voice</span>
                 </>
               )}
@@ -482,17 +482,17 @@ export default function VoiceoverStudio({
             >
               {isGeneratingAll ? (
                 <>
-                  <span className="animate-spin text-sm">⏳</span>
+                  <span className="animate-spin text-sm"><Icon glyph="⏳" /></span>
                   <span>Generating Voiceover ({generationProgress?.current || 0}/{scenes.length})...</span>
                 </>
               ) : allScenesHaveSavedAudio ? (
                 <>
-                  <span>✅</span>
+                  <Icon glyph="✅" />
                   <span>Voiceovers Saved ({scenesWithAudioCount}/{scenes.length}) • Re-generate</span>
                 </>
               ) : (
                 <>
-                  <span>🎙️</span>
+                  <Icon glyph="🎙" />
                   <span>Generate & Save Voiceover for All Scenes</span>
                 </>
               )}
@@ -505,7 +505,7 @@ export default function VoiceoverStudio({
         {ttsDegraded && (
           <div className="mt-3 p-3 bg-amber-950/80 border border-amber-600/80 rounded-xl text-amber-200 text-xs flex items-start justify-between gap-3 shadow-lg">
             <span className="flex items-start gap-2 font-medium">
-              <span>⚠️</span>
+              <Icon glyph="⚠" />
               <span>
                 The neural speech service could not be reached, so the generated tracks are
                 silent placeholders of the right length. Check the machine's internet
@@ -524,7 +524,7 @@ export default function VoiceoverStudio({
         {downloadNotice && (
           <div className="mt-3 p-3 bg-gray-900 border border-hairline rounded-xl text-gray-200 text-xs flex items-center justify-between gap-3 shadow-lg animate-fade-in">
             <span className="flex items-center gap-2">
-              <span>⬇️</span>
+              <Icon glyph="⬇" />
               <span>{downloadNotice}</span>
             </span>
             <button
@@ -539,7 +539,7 @@ export default function VoiceoverStudio({
         {isGeneratingAll && (
           <div className="mt-3 p-3 bg-indigo-950/90 border border-indigo-500/80 rounded-xl text-indigo-200 text-xs flex items-center justify-between animate-pulse shadow-lg">
             <span className="flex items-center gap-2 font-medium">
-              <span className="animate-spin">⏳</span>
+              <span className="animate-spin"><Icon glyph="⏳" /></span>
               <span>Synthesizing and saving narration for Scene {generationProgress?.current} of {generationProgress?.total}... Please wait.</span>
             </span>
             <span className="font-mono text-xs bg-indigo-900 px-2 py-0.5 rounded text-indigo-200">
@@ -551,9 +551,9 @@ export default function VoiceoverStudio({
         {generationSuccess && (
           <div className="mt-3 p-3 bg-emerald-950/80 border border-emerald-600/90 rounded-xl text-emerald-200 text-xs flex items-center justify-between animate-fade-in shadow-lg">
             <span className="flex items-center gap-2 font-medium">
-              <span>✅</span> All {scenes.length} scene voiceovers generated & saved with "{activeVoiceInfo.name}" ({activeVoiceInfo.gender})! Voiceovers are pre-saved and ready for Video Studio.
+              <Icon glyph="✅" /> All {scenes.length} scene voiceovers generated & saved with "{activeVoiceInfo.name}" ({activeVoiceInfo.gender})! Voiceovers are pre-saved and ready for Video Studio.
             </span>
-            <button onClick={() => setGenerationSuccess(false)} className="text-emerald-400 hover:text-white text-sm font-bold">✕</button>
+            <button onClick={() => setGenerationSuccess(false)} className="text-emerald-400 hover:text-white text-sm font-bold"><Icon glyph="✕" /></button>
           </div>
         )}
 
@@ -563,7 +563,7 @@ export default function VoiceoverStudio({
             <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-base border ${
               activeVoiceInfo.isMale ? "bg-blue-950/60 border-blue-700/60 text-blue-300" : "bg-pink-950/60 border-pink-700/60 text-pink-300"
             }`}>
-              {activeVoiceInfo.isMale ? "👨" : "👩"}
+              {iconify(activeVoiceInfo.isMale ? "👨" : "👩")}
             </span>
             <div>
               <div className="flex items-center gap-2">
@@ -607,7 +607,7 @@ export default function VoiceoverStudio({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>◎</span> Sound Visualiser
+              <Icon glyph="◎" /> Sound Visualiser
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-700/60 bg-indigo-950/60 text-indigo-300">
                 Live
               </span>
@@ -657,7 +657,7 @@ export default function VoiceoverStudio({
           onClick={() => setActiveTab("natural_voices")}
           className={`opt-btn ${activeTab === "natural_voices" ? "opt-btn-on" : ""}`}
         >
-          <span>🎭</span>
+          <Icon glyph="🎭" />
           <span>20 Natural Voices (10 Male • 10 Female)</span>
         </button>
 
@@ -665,7 +665,7 @@ export default function VoiceoverStudio({
           onClick={() => setActiveTab("import_tts")}
           className={`opt-btn ${activeTab === "import_tts" ? "opt-btn-on" : ""}`}
         >
-          <span>📁</span>
+          <Icon glyph="📁" />
           <span>Import Prepared TTS File</span>
         </button>
 
@@ -673,7 +673,7 @@ export default function VoiceoverStudio({
           onClick={() => setActiveTab("phonetic_dictionary")}
           className={`opt-btn ${activeTab === "phonetic_dictionary" ? "opt-btn-on" : ""}`}
         >
-          <span>🗣️</span>
+          <Icon glyph="🗣" />
           <span>Phonetic Dictionary &amp; Normalization</span>
         </button>
       </div>
@@ -684,7 +684,7 @@ export default function VoiceoverStudio({
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>🔊</span> Voice Echo &amp; Ambience
+              <Icon glyph="🔊" /> Voice Echo &amp; Ambience
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-700/60 bg-indigo-950/60 text-indigo-300">
                 {echoConfig.enabled ? "ON" : "OFF"}
               </span>
@@ -810,7 +810,7 @@ export default function VoiceoverStudio({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <span>🎭</span> 20 Natural Speaking Voices
+                  <Icon glyph="🎭" /> 20 Natural Speaking Voices
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
                   10 male and 10 female natural speaking voices with realistic human intonation — 10 studio voices plus 10 style-inspired narrator personas.
@@ -835,7 +835,7 @@ export default function VoiceoverStudio({
                     genderFilter === "male" ? "bg-blue-600 text-white shadow" : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  <span>👨</span> {STUDIO_VOICE_PRESETS.filter((v) => v.gender === "male").length} Male
+                  <Icon glyph="👨" /> {STUDIO_VOICE_PRESETS.filter((v) => v.gender === "male").length} Male
                 </button>
                 <button
                   type="button"
@@ -844,7 +844,7 @@ export default function VoiceoverStudio({
                     genderFilter === "female" ? "bg-pink-600 text-white shadow" : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  <span>👩</span> {STUDIO_VOICE_PRESETS.filter((v) => v.gender === "female").length} Female
+                  <Icon glyph="👩" /> {STUDIO_VOICE_PRESETS.filter((v) => v.gender === "female").length} Female
                 </button>
               </div>
             </div>
@@ -853,7 +853,7 @@ export default function VoiceoverStudio({
             <div className="bg-gray-800/40 p-3 rounded-xl border border-hairline space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <span className="text-xs text-gray-300 font-medium flex items-center gap-2">
-                  <span>🔀</span> Rotate between two voices
+                  <Icon glyph="🔀" /> Rotate between two voices
                 </span>
                 <button
                   type="button"
@@ -884,7 +884,7 @@ export default function VoiceoverStudio({
                       >
                         {STUDIO_VOICE_PRESETS.map((v) => (
                           <option key={v.id} value={v.id}>
-                            {v.gender === "male" ? "👨 " : "👩 "}
+                            {iconify(v.gender === "male" ? "👨 " : "👩 ")}
                             {v.name}
                           </option>
                         ))}
@@ -901,7 +901,7 @@ export default function VoiceoverStudio({
                       >
                         {STUDIO_VOICE_PRESETS.map((v) => (
                           <option key={v.id} value={v.id}>
-                            {v.gender === "male" ? "👨 " : "👩 "}
+                            {iconify(v.gender === "male" ? "👨 " : "👩 ")}
                             {v.name}
                           </option>
                         ))}
@@ -973,7 +973,7 @@ export default function VoiceoverStudio({
                                 : "bg-pink-950/80 border-pink-700 text-pink-300"
                             }`}
                           >
-                            {isMale ? "👨" : "👩"}
+                            {iconify(isMale ? "👨" : "👩")}
                           </span>
                           <div>
                             <h4 className="font-bold text-sm text-white">{voice.name}</h4>
@@ -1020,17 +1020,17 @@ export default function VoiceoverStudio({
                       >
                         {isCurrentLoading ? (
                           <>
-                            <span className="animate-spin text-xs">⏳</span>
+                            <span className="animate-spin text-xs"><Icon glyph="⏳" /></span>
                             <span>Loading...</span>
                           </>
                         ) : isCurrentPlaying ? (
                           <>
-                            <span>⏹️</span>
+                            <Icon glyph="⏹" />
                             <span>Stop</span>
                           </>
                         ) : (
                           <>
-                            <span>▶</span>
+                            <Icon glyph="▶" />
                             <span>Listen Sample</span>
                           </>
                         )}
@@ -1047,12 +1047,12 @@ export default function VoiceoverStudio({
                         title={`Download a sample of ${voice.name}`}
                         className="px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-700/60 border border-hairline transition-colors"
                       >
-                        {downloadingId === `sample-${voice.id}` ? "⏳" : "⬇️"}
+                        {iconify(downloadingId === `sample-${voice.id}` ? "⏳" : "⬇️")}
                       </button>
 
                       {isSelected ? (
                         <span className={`text-xs font-bold flex items-center gap-1 ${isMale ? "text-blue-400" : "text-pink-400"}`}>
-                          <span>✓</span> Active Voice
+                          <Icon glyph="✓" /> Active Voice
                         </span>
                       ) : (
                         <button
@@ -1081,7 +1081,7 @@ export default function VoiceoverStudio({
               className="w-full flex items-center justify-between text-xs font-bold text-gray-300 hover:text-white"
             >
               <span className="flex items-center gap-2">
-                <span>📝</span>
+                <Icon glyph="📝" />
                 <span>Review Scene Narration Scripts ({scenes.length} Scenes)</span>
               </span>
               <span>{iconify(showSceneReview ? "▲ Hide" : "▼ Show")}</span>
@@ -1100,11 +1100,11 @@ export default function VoiceoverStudio({
                           <span className="text-[11px] font-bold text-indigo-400">Scene {idx + 1} ({scene.duration}s):</span>
                           {hasSavedAudio ? (
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/90 text-emerald-300 border border-emerald-700 font-semibold flex items-center gap-1">
-                              <span>✅</span> Voiceover Saved ({scene.audio_name || "Audio"})
+                              <Icon glyph="✅" /> Voiceover Saved ({scene.audio_name || "Audio"})
                             </span>
                           ) : (
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/70 text-amber-300 border border-amber-800 font-semibold flex items-center gap-1">
-                              <span>⏳</span> Pending Generation
+                              <Icon glyph="⏳" /> Pending Generation
                             </span>
                           )}
                         </div>
@@ -1124,7 +1124,7 @@ export default function VoiceoverStudio({
                           }
                           className="px-2.5 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg border border-hairline flex items-center gap-1 transition-colors"
                         >
-                          {playingId === scene.id ? "⏹️ Stop" : "▶ Play Audio"}
+                          {iconify(playingId === scene.id ? "⏹️ Stop" : "▶ Play Audio")}
                         </button>
 
                         <button
@@ -1135,12 +1135,12 @@ export default function VoiceoverStudio({
                         >
                           {isSingleGen ? (
                             <>
-                              <span className="animate-spin text-xs">⏳</span>
+                              <span className="animate-spin text-xs"><Icon glyph="⏳" /></span>
                               <span>Generating...</span>
                             </>
                           ) : (
                             <>
-                              <span>🎙️</span>
+                              <Icon glyph="🎙" />
                               <span>{hasSavedAudio ? "Re-generate" : "Generate Audio"}</span>
                             </>
                           )}
@@ -1154,10 +1154,10 @@ export default function VoiceoverStudio({
                           className="px-2.5 py-1 text-xs bg-emerald-900/50 hover:bg-emerald-800 text-emerald-200 disabled:opacity-50 rounded-lg border border-emerald-700/60 flex items-center gap-1 transition-colors"
                         >
                           {downloadingId === scene.id ? (
-                            <span className="animate-spin text-xs">⏳</span>
+                            <span className="animate-spin text-xs"><Icon glyph="⏳" /></span>
                           ) : (
                             <>
-                              <span>⬇️</span>
+                              <Icon glyph="⬇" />
                               <span>Download</span>
                             </>
                           )}
@@ -1188,7 +1188,7 @@ export default function VoiceoverStudio({
         <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-xl space-y-5">
           <div className="border-b border-hairline pb-3">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>📁</span> Import Prepared TTS Audio File
+              <Icon glyph="📁" /> Import Prepared TTS Audio File
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
               Upload your own externally generated or recorded speech file (.mp3, .wav, .m4a, .ogg, .webm) and attach it to your project narration.
@@ -1198,9 +1198,9 @@ export default function VoiceoverStudio({
           {importSuccessBanner && (
             <div className="p-3 bg-emerald-950/90 border border-emerald-600 rounded-xl text-emerald-200 text-xs flex items-center justify-between animate-fade-in shadow-lg">
               <span className="flex items-center gap-2 font-medium">
-                <span>✅</span> {importSuccessBanner}
+                <Icon glyph="✅" /> {importSuccessBanner}
               </span>
-              <button onClick={() => setImportSuccessBanner(null)} className="text-emerald-400 hover:text-white font-bold">✕</button>
+              <button onClick={() => setImportSuccessBanner(null)} className="text-emerald-400 hover:text-white font-bold"><Icon glyph="✕" /></button>
             </div>
           )}
 
@@ -1335,7 +1335,7 @@ export default function VoiceoverStudio({
                   onClick={handleApplyImportedAudio}
                   className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-2"
                 >
-                  <span>✨</span>
+                  <Icon glyph="✨" />
                   <span>Confirm & Apply Prepared TTS Audio</span>
                 </button>
               </div>
@@ -1344,7 +1344,7 @@ export default function VoiceoverStudio({
 
           {/* Attribution Notice */}
           <div className="p-3 bg-gray-950/60 rounded-xl border border-hairline text-xs text-gray-400 flex items-start gap-2">
-            <span className="text-base">📢</span>
+            <span className="text-base"><Icon glyph="📢" /></span>
             <p>
               <strong className="text-gray-200">Full Video Attribution:</strong> When exporting your video, the attribution document in the Export/Render tab will automatically credit your voice narration with the specified voice profile and licensing terms.
             </p>

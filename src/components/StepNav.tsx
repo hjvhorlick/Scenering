@@ -152,13 +152,13 @@ export default function StepNav({
           >
             {busy ? (
               <>
-                <span className="t-ico animate-spin">⏳</span>
+                <span className="t-ico animate-spin"><Icon glyph="⏳" /></span>
                 <span>{busyLabel}</span>
               </>
             ) : (
               <>
                 <span>{nextLabel || `Next: ${nextPhase.phase}`}</span>
-                <span className="t-hero-arrow">→</span>
+                <span className="t-hero-arrow"><Icon glyph="→" /></span>
               </>
             )}
           </button>

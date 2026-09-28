@@ -17,7 +17,7 @@ import {
   formatDuration,
 } from "../demo-project";
 import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES } from "../product-facts";
-import Icon from "../../components/icons/Icon";
+import Icon, { iconify } from "../../components/icons/Icon";
 
 /**
  * Video Studio — the largest demonstration on the page, because it is the
@@ -119,10 +119,10 @@ export default function VideoStudioSection() {
                   </span>
                 </PlayerFrame>
                 <div className="mkt-chiprow" style={{ marginTop: 9 }}>
-                  <span className="mkt-chip is-on">◑ {DEMO_TIMELINE_EXTRAS.filter.name}</span>
-                  <span className="mkt-chip is-on">⇄ {DEMO_TIMELINE_EXTRAS.transition.name}</span>
-                  <span className="mkt-chip">▭ {DEMO_TIMELINE_EXTRAS.lowerThird.name}</span>
-                  <span className="mkt-chip">✱ {DEMO_TIMELINE_EXTRAS.sticker.name}</span>
+                  <span className="mkt-chip is-on"><Icon glyph="◑" /> {DEMO_TIMELINE_EXTRAS.filter.name}</span>
+                  <span className="mkt-chip is-on"><Icon glyph="⇄" /> {DEMO_TIMELINE_EXTRAS.transition.name}</span>
+                  <span className="mkt-chip"><Icon glyph="▭" /> {DEMO_TIMELINE_EXTRAS.lowerThird.name}</span>
+                  <span className="mkt-chip"><Icon glyph="✱" /> {DEMO_TIMELINE_EXTRAS.sticker.name}</span>
                 </div>
               </div>
 
@@ -152,7 +152,7 @@ export default function VideoStudioSection() {
                       style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}
                     >
                       <span className="mkt-strip-label">
-                        {"on" in tool && tool.on ? "● " : "○ "}
+                        {iconify("on" in tool && tool.on ? "● " : "○ ")}
                         {tool.name}
                       </span>
                       <span className="mkt-pill is-plain">{tool.count}</span>
@@ -177,7 +177,7 @@ export default function VideoStudioSection() {
             <TimelineMock tracks={TRACK_SETS[stage]} playheadAt={playhead} />
 
             <div className="mkt-chiprow">
-              <span className="mkt-chip">↶ Undo</span>
+              <span className="mkt-chip"><Icon glyph="↶" /> Undo</span>
               <span className="mkt-chip"><Icon glyph="▶" /> Preview timeline</span>
               <span className="mkt-chip is-on">⤓ Render · MP4 1080p</span>
             </div>

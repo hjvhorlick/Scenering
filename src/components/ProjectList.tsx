@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Project } from "../types";
+import Icon from "./icons/Icon";
 
 interface ProjectListProps {
   projects: Project[];
@@ -19,7 +20,7 @@ export default function ProjectList({
   if (projects.length === 0) {
     return (
       <div className="text-center py-8 text-gray-500">
-        <div className="text-3xl mb-2">📁</div>
+        <div className="text-3xl mb-2"><Icon glyph="📁" /></div>
         <p className="text-sm">No projects yet. Create your first one!</p>
       </div>
     );

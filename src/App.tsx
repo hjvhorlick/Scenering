@@ -44,7 +44,7 @@ import type { VideoFilterConfig } from "./data/video-filters";
 import type { SectionConfig } from "./data/intro-outro";
 import { VoiceEchoConfig, DEFAULT_VOICE_ECHO, resolveVoiceEcho } from "./lib/voice-echo";
 import IconSprite from "./components/icons/IconSprite";
-import Icon from "./components/icons/Icon";
+import Icon, { iconify } from "./components/icons/Icon";
 
 type View = "create" | "editor";
 
@@ -1274,7 +1274,7 @@ export default function App() {
             className="opt-btn shrink-0"
             title="Sign out and return to the website"
           >
-            <span className="t-ico">⎋</span>
+            <span className="t-ico"><Icon glyph="⎋" /></span>
             <span className="hidden sm:inline">Sign out</span>
           </button>
 
@@ -1323,7 +1323,7 @@ export default function App() {
                     }`}
                   >
                     <span className="flex items-center gap-1 whitespace-nowrap">
-                      {isLocked && <span className="text-[9px] opacity-90">🔒</span>}
+                      {isLocked && <span className="text-[9px] opacity-90"><Icon glyph="🔒" /></span>}
                       <span className={isActive ? "" : "text-indigo-300/80"}>{i + 1}.</span>
                       <Icon glyph={phase.icon} />
                       {/* The word is dropped on phones; the number and icon still
@@ -1339,7 +1339,7 @@ export default function App() {
                 they only light up once a project exists on this screen. */}
             {!currentProject && (
               <span className="opt-hint ml-auto shrink-0 hidden lg:inline-flex pr-1" title="Steps 2–6 edit a project's scenes, voices and video — they unlock as soon as you create or select a project in Setup">
-                <span>🔓</span>
+                <Icon glyph="🔓" />
                 <span>create or select a project to unlock steps 2–6</span>
               </span>
             )}
@@ -1398,7 +1398,7 @@ export default function App() {
               className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-hairline bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
               title="Image search API keys (Pexels & Pixabay)"
             >
-              <span className="t-ico">🔑</span>
+              <span className="t-ico"><Icon glyph="🔑" /></span>
               <span className="hidden sm:inline">API Keys</span>
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -1416,7 +1416,7 @@ export default function App() {
               {navNotice && (
                 <div className="max-w-4xl mx-auto mb-4 p-3.5 bg-amber-950/80 border border-amber-700/80 rounded-xl text-amber-200 text-xs flex items-center justify-between shadow-lg">
                   <span className="flex items-center gap-2">
-                    <span>ℹ️</span>
+                    <Icon glyph="ℹ" />
                     <span className="font-medium">{navNotice}</span>
                   </span>
                   <button onClick={() => setNavNotice(null)} className="text-amber-400 hover:text-white text-xs">
@@ -1608,7 +1608,7 @@ export default function App() {
                       <div>
                         <div className="flex items-center gap-2.5">
                           <h3 className="text-base font-semibold flex items-center gap-2">
-                            <span>📝</span> Scene Editor
+                            <Icon glyph="📝" /> Scene Editor
                           </h3>
                           <span className="px-2.5 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700/60 font-mono text-xs font-semibold">
                             Total: {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
@@ -1707,7 +1707,7 @@ export default function App() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-base font-semibold flex items-center gap-2">
-                        <span>🎬</span> Video Studio & Timeline
+                        <Icon glyph="🎬" /> Video Studio & Timeline
                       </h3>
                       <p className="text-xs text-gray-400 mt-0.5">
                         Preview video with 3D graphics & audio FX, scrub timeline, and insert dynamic studio items with customizable visual/audio settings.

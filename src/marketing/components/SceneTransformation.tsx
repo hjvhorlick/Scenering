@@ -5,6 +5,7 @@ import Waveform from "./Waveform";
 import CaptionLine from "./CaptionLine";
 import PlayerFrame from "./PlayerFrame";
 import { DEMO_CAPTION_STYLE, DEMO_VOICE, type DemoScene } from "../demo-project";
+import Icon from "../../components/icons/Icon";
 
 /**
  * One scene becoming a finished scene — script, visual, voice, caption, shot.
@@ -71,7 +72,7 @@ export default function SceneTransformation({ scene }: { scene: DemoScene }) {
         <div className={`mkt-stage${reached(2) ? " is-in" : ""}`}>
           <div className="mkt-panel-flat" style={{ padding: 10, display: "grid", gap: 6 }}>
             <div className="mkt-scene-top">
-              <span className="mkt-pill is-accent">🎙 {DEMO_VOICE.name}</span>
+              <span className="mkt-pill is-accent"><Icon glyph="🎙" /> {DEMO_VOICE.name}</span>
               <span className="mkt-small">{DEMO_VOICE.accent}</span>
               <span className="mkt-small">· {scene.duration.toFixed(1)}s of narration</span>
             </div>

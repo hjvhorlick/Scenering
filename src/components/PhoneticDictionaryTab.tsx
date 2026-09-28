@@ -271,7 +271,7 @@ export default function PhoneticDictionaryTab({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold uppercase tracking-wider mb-2">
-              <span>🗣️</span> Narration Normalization Engine
+              <Icon glyph="🗣" /> Narration Normalization Engine
             </div>
             <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight">
               Phonetic Dictionary &amp; Script Normalization
@@ -295,7 +295,7 @@ export default function PhoneticDictionaryTab({
 
         {feedbackMessage && (
           <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs font-medium flex items-center gap-2 animate-fadeIn">
-            <span>✅</span> {feedbackMessage}
+            <Icon glyph="✅" /> {feedbackMessage}
           </div>
         )}
       </div>
@@ -305,7 +305,7 @@ export default function PhoneticDictionaryTab({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-hairline pb-3">
           <div>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <span>🧪</span> Live Script Normalization Tester
+              <Icon glyph="🧪" /> Live Script Normalization Tester
             </h3>
             <p className="text-xs text-gray-400">
               Type or select text below to verify how citations, symbols, and phonetic rules transform into spoken prose.
@@ -375,7 +375,7 @@ export default function PhoneticDictionaryTab({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
-                <span>🔊</span> Spoken Normalization (Spoken By TTS)
+                <Icon glyph="🔊" /> Spoken Normalization (Spoken By TTS)
               </label>
               <button
                 type="button"
@@ -436,7 +436,7 @@ export default function PhoneticDictionaryTab({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
           <div>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <span>📖</span> Phonetic Pronunciation Lexicon
+              <Icon glyph="📖" /> Phonetic Pronunciation Lexicon
             </h3>
             <p className="text-xs text-gray-400">
               Browse standard pronunciations or add custom phonetic replacements for characters, places, and brands.
@@ -579,7 +579,7 @@ export default function PhoneticDictionaryTab({
               placeholder="Search words or pronunciations..."
               className="w-full bg-gray-950 border border-hairline rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
             />
-            <span className="absolute left-2.5 top-2 text-xs text-gray-500">🔍</span>
+            <span className="absolute left-2.5 top-2 text-xs text-gray-500"><Icon glyph="🔍" /></span>
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
@@ -664,7 +664,7 @@ export default function PhoneticDictionaryTab({
                               }`}
                               title={`Listen to "${entry.spokenAs}"`}
                             >
-                              {isWordPlaying ? "⏹️" : "🔊"}
+                              {iconify(isWordPlaying ? "⏹️" : "🔊")}
                             </button>
 
                             {isCustom && (

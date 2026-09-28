@@ -58,7 +58,7 @@ export default function VisualResearch() {
         <AppFrame title="Where Cities Begin · Scene 03 · Visual search" phase="scenes">
           <div className="mkt-work">
             <div className="mkt-search">
-              <span aria-hidden="true">🔍</span>
+              <span aria-hidden="true"><Icon glyph="🔍" /></span>
               <span>{scene.query}</span>
               <span className="mkt-pill is-plain" style={{ marginLeft: "auto" }}>
                 built from the scene text

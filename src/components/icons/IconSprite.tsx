@@ -170,14 +170,16 @@ export default function IconSprite() {
       {/* ------------------------------------------------------- the craft */}
 
       <symbol id="ico-gear" viewBox="0 0 32 32">
-        <path
-          d="M13.4 1.4h5.2l.7 3.6 2.9 1.2 3-2 3.6 3.6-2 3 1.2 2.9 3.6.7v5.2l-3.6.7-1.2 2.9 2 3-3.6 3.6-3-2-2.9 1.2-.7 3.6h-5.2l-.7-3.6-2.9-1.2-3 2L2.8 25.6l2-3-1.2-2.9L0 19v-5.2l3.6-.7 1.2-2.9-2-3 3.6-3.6 3 2 2.9-1.2Z"
-          transform="translate(.9 .3) scale(.94)"
-          {...BLUE}
-        />
-        <circle cx="16" cy="16" r="5.6" {...GOLD} />
-        <circle cx="16" cy="16" r="2.3" fill="#12409f" opacity=".6" />
-        <Sheen d="M16 3.4c4.6 0 8.6 2.3 10.6 5.6-2.6-2.4-6.3-3.8-10.6-3.8S8 6.6 5.4 9C7.4 5.7 11.4 3.4 16 3.4Z" o={0.3} />
+        <g transform="translate(0.25 -0.28)">
+          <path
+            d="M13.4 1.4h5.2l.7 3.6 2.9 1.2 3-2 3.6 3.6-2 3 1.2 2.9 3.6.7v5.2l-3.6.7-1.2 2.9 2 3-3.6 3.6-3-2-2.9 1.2-.7 3.6h-5.2l-.7-3.6-2.9-1.2-3 2L2.8 25.6l2-3-1.2-2.9L0 19v-5.2l3.6-.7 1.2-2.9-2-3 3.6-3.6 3 2 2.9-1.2Z"
+            transform="translate(.9 .3) scale(.94)"
+            {...BLUE}
+          />
+          <circle cx="16" cy="16" r="5.6" {...GOLD} />
+          <circle cx="16" cy="16" r="2.3" fill="#12409f" opacity=".6" />
+          <Sheen d="M16 3.4c4.6 0 8.6 2.3 10.6 5.6-2.6-2.4-6.3-3.8-10.6-3.8S8 6.6 5.4 9C7.4 5.7 11.4 3.4 16 3.4Z" o={0.3} />
+        </g>
       </symbol>
 
       {/* Scenes: a page with a pen on it. */}
@@ -236,10 +238,12 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-search" viewBox="0 0 32 32">
-        <path d="m19.6 19.6 9 9" stroke="url(#icoGold)" strokeWidth="6.4" strokeLinecap="round" />
-        <circle cx="13.4" cy="13.4" r="11" {...BLUE} />
-        <circle cx="13.4" cy="13.4" r="6.6" fill="#d9e8ff" opacity=".65" />
-        <Sheen d="M13.4 2.4a11 11 0 0 1 9.6 5.6c-2.2-2.4-5.6-3.8-9.6-3.8S6 5.6 3.8 8a11 11 0 0 1 9.6-5.6Z" />
+        <g transform="translate(-0.78 -0.78)">
+          <path d="m19.6 19.6 9 9" stroke="url(#icoGold)" strokeWidth="6.4" strokeLinecap="round" />
+          <circle cx="13.4" cy="13.4" r="11" {...BLUE} />
+          <circle cx="13.4" cy="13.4" r="6.6" fill="#d9e8ff" opacity=".65" />
+          <Sheen d="M13.4 2.4a11 11 0 0 1 9.6 5.6c-2.2-2.4-5.6-3.8-9.6-3.8S6 5.6 3.8 8a11 11 0 0 1 9.6-5.6Z" />
+        </g>
       </symbol>
 
       <symbol id="ico-palette" viewBox="0 0 32 32">
@@ -261,22 +265,26 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-eye" viewBox="0 0 32 32">
-        <path d="M16 4.6c8 0 14.4 5.4 16 11.4-1.6 6-8 11.4-16 11.4S1.6 22 0 16C1.6 10 8 4.6 16 4.6Z" {...STEEL} />
-        <circle cx="16" cy="16" r="7.4" fill="url(#icoBlue)" stroke="url(#icoGold)" strokeWidth="2" />
-        <circle cx="16" cy="16" r="3.2" fill="#071c47" />
-        <circle cx="13.4" cy="13.2" r="1.8" fill="#fff" opacity=".85" />
+        <g transform="translate(1.11 1.11) scale(0.9309)">
+          <path d="M16 4.6c8 0 14.4 5.4 16 11.4-1.6 6-8 11.4-16 11.4S1.6 22 0 16C1.6 10 8 4.6 16 4.6Z" {...STEEL} />
+          <circle cx="16" cy="16" r="7.4" fill="url(#icoBlue)" stroke="url(#icoGold)" strokeWidth="2" />
+          <circle cx="16" cy="16" r="3.2" fill="#071c47" />
+          <circle cx="13.4" cy="13.2" r="1.8" fill="#fff" opacity=".85" />
+        </g>
       </symbol>
 
       <symbol id="ico-flag" viewBox="0 0 32 32">
-        <path d="M5.8 2.2v28.2" stroke="url(#icoSteel)" strokeWidth="4" strokeLinecap="round" />
-        <path d="M8.6 3.4h20.8v14.4H8.6Z" {...GOLD} />
-        <g fill="#12409f">
-          <rect x="8.6" y="3.4" width="5.2" height="4.8" />
-          <rect x="19" y="3.4" width="5.2" height="4.8" />
-          <rect x="13.8" y="8.2" width="5.2" height="4.8" />
-          <rect x="24.2" y="8.2" width="5.2" height="4.8" />
-          <rect x="8.6" y="13" width="5.2" height="4.8" />
-          <rect x="19" y="13" width="5.2" height="4.8" />
+        <g transform="translate(-0.29 0.31) scale(0.9627)">
+          <path d="M5.8 2.2v28.2" stroke="url(#icoSteel)" strokeWidth="4" strokeLinecap="round" />
+          <path d="M8.6 3.4h20.8v14.4H8.6Z" {...GOLD} />
+          <g fill="#12409f">
+            <rect x="8.6" y="3.4" width="5.2" height="4.8" />
+            <rect x="19" y="3.4" width="5.2" height="4.8" />
+            <rect x="13.8" y="8.2" width="5.2" height="4.8" />
+            <rect x="24.2" y="8.2" width="5.2" height="4.8" />
+            <rect x="8.6" y="13" width="5.2" height="4.8" />
+            <rect x="19" y="13" width="5.2" height="4.8" />
+          </g>
         </g>
       </symbol>
 
@@ -296,18 +304,22 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-trash" viewBox="0 0 32 32">
-        <path d="M5 8.6h22l-2 20.4a2.6 2.6 0 0 1-2.6 2.2H9.6A2.6 2.6 0 0 1 7 29Z" {...BLUE} />
-        <path d="M12 14.4v11M16 14.4v11M20 14.4v11" stroke="#0b2a63" strokeWidth="2.2" strokeLinecap="round" opacity=".5" />
-        <rect x="2.4" y="5" width="27.2" height="4.4" rx="2.2" {...GOLD} />
-        <path d="M11.6 0.8h8.8v4.2h-8.8Z" {...GOLD} />
+        <g transform="translate(0.35 0.35) scale(0.9779)">
+          <path d="M5 8.6h22l-2 20.4a2.6 2.6 0 0 1-2.6 2.2H9.6A2.6 2.6 0 0 1 7 29Z" {...BLUE} />
+          <path d="M12 14.4v11M16 14.4v11M20 14.4v11" stroke="#0b2a63" strokeWidth="2.2" strokeLinecap="round" opacity=".5" />
+          <rect x="2.4" y="5" width="27.2" height="4.4" rx="2.2" {...GOLD} />
+          <path d="M11.6 0.8h8.8v4.2h-8.8Z" {...GOLD} />
+        </g>
       </symbol>
 
       <symbol id="ico-lock" viewBox="0 0 32 32">
-        <path d="M8.6 13.4V9.2a7.4 7.4 0 0 1 14.8 0v4.2" fill="none" stroke="url(#icoSteel)" strokeWidth="4.2" strokeLinecap="round" />
-        <rect x="3.8" y="12.8" width="24.4" height="18.4" rx="3.4" {...GOLD} />
-        <circle cx="16" cy="20.4" r="3.2" fill="#12409f" />
-        <path d="M16 22.8v4" stroke="#12409f" strokeWidth="2.8" strokeLinecap="round" />
-        <Sheen d="M7.2 14h17.6a1.6 1.6 0 0 1 1.6 1.6v1.2H5.6v-1.2A1.6 1.6 0 0 1 7.2 14Z" o={0.34} />
+        <g transform="translate(0.57 0.79) scale(0.9642)">
+          <path d="M8.6 13.4V9.2a7.4 7.4 0 0 1 14.8 0v4.2" fill="none" stroke="url(#icoSteel)" strokeWidth="4.2" strokeLinecap="round" />
+          <rect x="3.8" y="12.8" width="24.4" height="18.4" rx="3.4" {...GOLD} />
+          <circle cx="16" cy="20.4" r="3.2" fill="#12409f" />
+          <path d="M16 22.8v4" stroke="#12409f" strokeWidth="2.8" strokeLinecap="round" />
+          <Sheen d="M7.2 14h17.6a1.6 1.6 0 0 1 1.6 1.6v1.2H5.6v-1.2A1.6 1.6 0 0 1 7.2 14Z" o={0.34} />
+        </g>
       </symbol>
 
       <symbol id="ico-speaker" viewBox="0 0 32 32">
@@ -316,16 +328,20 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-music" viewBox="0 0 32 32">
-        <path d="M11.4 23V5.4l17-3.6v17.4" fill="none" stroke="url(#icoGold)" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
-        <path d="M11.4 11 28.4 7.4" stroke="url(#icoGold)" strokeWidth="4" strokeLinecap="round" />
-        <ellipse cx="7" cy="24.4" rx="6" ry="5" {...BLUE} />
-        <ellipse cx="24.4" cy="20.4" rx="5.6" ry="4.8" {...BLUE} />
+        <g transform="translate(0.5 1.08)">
+          <path d="M11.4 23V5.4l17-3.6v17.4" fill="none" stroke="url(#icoGold)" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
+          <path d="M11.4 11 28.4 7.4" stroke="url(#icoGold)" strokeWidth="4" strokeLinecap="round" />
+          <ellipse cx="7" cy="24.4" rx="6" ry="5" {...BLUE} />
+          <ellipse cx="24.4" cy="20.4" rx="5.6" ry="4.8" {...BLUE} />
+        </g>
       </symbol>
 
       <symbol id="ico-headphones" viewBox="0 0 32 32">
-        <path d="M3.6 21V15.6a12.4 12.4 0 0 1 24.8 0V21" fill="none" stroke="url(#icoBlue)" strokeWidth="4.4" strokeLinecap="round" />
-        <rect x="1" y="17.4" width="8.8" height="13.2" rx="4" {...GOLD} />
-        <rect x="22.2" y="17.4" width="8.8" height="13.2" rx="4" {...GOLD} />
+        <g transform="translate(0.15 0.03) scale(0.9904)">
+          <path d="M3.6 21V15.6a12.4 12.4 0 0 1 24.8 0V21" fill="none" stroke="url(#icoBlue)" strokeWidth="4.4" strokeLinecap="round" />
+          <rect x="1" y="17.4" width="8.8" height="13.2" rx="4" {...GOLD} />
+          <rect x="22.2" y="17.4" width="8.8" height="13.2" rx="4" {...GOLD} />
+        </g>
       </symbol>
 
       <symbol id="ico-visualiser" viewBox="0 0 32 32">
@@ -341,11 +357,13 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-rocket" viewBox="0 0 32 32">
-        <path d="M16 .8c5.6 4.4 8.4 10.2 8.4 16.4L21.2 25h-10.4L7.6 17.2C7.6 11 10.4 5.2 16 .8Z" {...STEEL} />
-        <circle cx="16" cy="12.6" r="4.2" {...BLUE} />
-        <path d="M7.8 16.6 2.8 23.4l5.4-.8Zm16.4 0 5 6.8-5.4-.8Z" {...BLUE} />
-        <path d="M16 31.6c-2.2-2.8-3.4-5.2-3.4-7.6h6.8c0 2.4-1.2 4.8-3.4 7.6Z" {...GOLD} />
-        <Sheen d="M14.2 3.2c-2.8 3.6-4.4 7.6-4.6 12l2.4-.8c.2-4 1.1-7.8 2.2-11.2Z" o={0.5} />
+        <g transform="translate(0.55 0.36) scale(0.9657)">
+          <path d="M16 .8c5.6 4.4 8.4 10.2 8.4 16.4L21.2 25h-10.4L7.6 17.2C7.6 11 10.4 5.2 16 .8Z" {...STEEL} />
+          <circle cx="16" cy="12.6" r="4.2" {...BLUE} />
+          <path d="M7.8 16.6 2.8 23.4l5.4-.8Zm16.4 0 5 6.8-5.4-.8Z" {...BLUE} />
+          <path d="M16 31.6c-2.2-2.8-3.4-5.2-3.4-7.6h6.8c0 2.4-1.2 4.8-3.4 7.6Z" {...GOLD} />
+          <Sheen d="M14.2 3.2c-2.8 3.6-4.4 7.6-4.6 12l2.4-.8c.2-4 1.1-7.8 2.2-11.2Z" o={0.5} />
+        </g>
       </symbol>
 
       <symbol id="ico-target" viewBox="0 0 32 32">
@@ -356,9 +374,11 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-folder" viewBox="0 0 32 32">
-        <path d="M1.6 6.4a2.8 2.8 0 0 1 2.8-2.8h7.4l3.4 4h13.4a2.8 2.8 0 0 1 2.8 2.8v16.4a2.8 2.8 0 0 1-2.8 2.8H4.4a2.8 2.8 0 0 1-2.8-2.8Z" {...BLUE} />
-        <path d="M2 13.4h28v13.4a2.8 2.8 0 0 1-2.8 2.8H4.8A2.8 2.8 0 0 1 2 26.8Z" {...GOLD} />
-        <Sheen d="M4.6 14.4h22.8a1.6 1.6 0 0 1 1.6 1.6v1.2H3V16a1.6 1.6 0 0 1 1.6-1.6Z" o={0.4} />
+        <g transform="translate(-0.45 -0.55) scale(0.9968)">
+          <path d="M1.6 6.4a2.8 2.8 0 0 1 2.8-2.8h7.4l3.4 4h13.4a2.8 2.8 0 0 1 2.8 2.8v16.4a2.8 2.8 0 0 1-2.8 2.8H4.4a2.8 2.8 0 0 1-2.8-2.8Z" {...BLUE} />
+          <path d="M2 13.4h28v13.4a2.8 2.8 0 0 1-2.8 2.8H4.8A2.8 2.8 0 0 1 2 26.8Z" {...GOLD} />
+          <Sheen d="M4.6 14.4h22.8a1.6 1.6 0 0 1 1.6 1.6v1.2H3V16a1.6 1.6 0 0 1 1.6-1.6Z" o={0.4} />
+        </g>
       </symbol>
 
       <symbol id="ico-globe" viewBox="0 0 32 32">
@@ -368,15 +388,19 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-bell" viewBox="0 0 32 32">
-        <path d="M16 1.4a2.6 2.6 0 0 1 2.6 2.6v1.2a10.2 10.2 0 0 1 7.6 9.8v5.8l3.4 5.2H2.4l3.4-5.2V15a10.2 10.2 0 0 1 7.6-9.8V4A2.6 2.6 0 0 1 16 1.4Z" {...GOLD} />
-        <path d="M11.8 27.4h8.4a4.2 4.2 0 0 1-8.4 0Z" {...BLUE} />
-        <Sheen d="M12.6 6.8C9.8 8.4 8.2 11.2 8.2 14.4v5l-1.2 2v-7c0-3.4 2.2-6.4 5.6-7.6Z" o={0.48} />
+        <g transform="translate(0.25 -0.24) scale(0.9841)">
+          <path d="M16 1.4a2.6 2.6 0 0 1 2.6 2.6v1.2a10.2 10.2 0 0 1 7.6 9.8v5.8l3.4 5.2H2.4l3.4-5.2V15a10.2 10.2 0 0 1 7.6-9.8V4A2.6 2.6 0 0 1 16 1.4Z" {...GOLD} />
+          <path d="M11.8 27.4h8.4a4.2 4.2 0 0 1-8.4 0Z" {...BLUE} />
+          <Sheen d="M12.6 6.8C9.8 8.4 8.2 11.2 8.2 14.4v5l-1.2 2v-7c0-3.4 2.2-6.4 5.6-7.6Z" o={0.48} />
+        </g>
       </symbol>
 
       <symbol id="ico-bulb" viewBox="0 0 32 32">
-        <path d="M16 1.2a11 11 0 0 1 6.6 19.8c-1.2 1-1.8 2.1-1.8 3.4v1.4h-9.6v-1.4c0-1.3-.6-2.4-1.8-3.4A11 11 0 0 1 16 1.2Z" {...GOLD} />
-        <path d="M11.2 26.8h9.6v2.2a2.6 2.6 0 0 1-2.6 2.6h-4.4a2.6 2.6 0 0 1-2.6-2.6Z" {...BLUE} />
-        <Sheen d="M13 4.4A8.6 8.6 0 0 0 7.8 12c0 .8-2.2.8-2.2 0A10.6 10.6 0 0 1 13 4.4Z" o={0.55} />
+        <g transform="translate(0.35 -0.04) scale(0.9779)">
+          <path d="M16 1.2a11 11 0 0 1 6.6 19.8c-1.2 1-1.8 2.1-1.8 3.4v1.4h-9.6v-1.4c0-1.3-.6-2.4-1.8-3.4A11 11 0 0 1 16 1.2Z" {...GOLD} />
+          <path d="M11.2 26.8h9.6v2.2a2.6 2.6 0 0 1-2.6 2.6h-4.4a2.6 2.6 0 0 1-2.6-2.6Z" {...BLUE} />
+          <Sheen d="M13 4.4A8.6 8.6 0 0 0 7.8 12c0 .8-2.2.8-2.2 0A10.6 10.6 0 0 1 13 4.4Z" o={0.55} />
+        </g>
       </symbol>
 
       <symbol id="ico-clock" viewBox="0 0 32 32">
@@ -388,16 +412,20 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-person" viewBox="0 0 32 32">
-        <circle cx="16" cy="9" r="7" {...GOLD} />
-        <path d="M2 31.4a14 14 0 0 1 28 0Z" {...BLUE} />
-        <Sheen d="M13 3.4a6.8 6.8 0 0 0-3.8 5c-.2.9-1.8.7-1.6-.4A7 7 0 0 1 13 3.4Z" o={0.55} />
+        <g transform="translate(0 -0.7)">
+          <circle cx="16" cy="9" r="7" {...GOLD} />
+          <path d="M2 31.4a14 14 0 0 1 28 0Z" {...BLUE} />
+          <Sheen d="M13 3.4a6.8 6.8 0 0 0-3.8 5c-.2.9-1.8.7-1.6-.4A7 7 0 0 1 13 3.4Z" o={0.55} />
+        </g>
       </symbol>
 
       <symbol id="ico-people" viewBox="0 0 32 32">
-        <circle cx="23.4" cy="9.6" r="5.6" {...BLUE} />
-        <path d="M13.4 30.4a10.4 10.4 0 0 1 20.4 0Z" {...BLUE} />
-        <circle cx="11.2" cy="8.6" r="6.8" {...GOLD} />
-        <path d="M-1.4 30.6a12.8 12.8 0 0 1 25.6 0Z" {...GOLD} />
+        <g transform="translate(2.24 2.24) scale(0.8493)">
+          <circle cx="23.4" cy="9.6" r="5.6" {...BLUE} />
+          <path d="M13.4 30.4a10.4 10.4 0 0 1 20.4 0Z" {...BLUE} />
+          <circle cx="11.2" cy="8.6" r="6.8" {...GOLD} />
+          <path d="M-1.4 30.6a12.8 12.8 0 0 1 25.6 0Z" {...GOLD} />
+        </g>
       </symbol>
 
       <symbol id="ico-mouse" viewBox="0 0 32 32">
@@ -419,9 +447,11 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-phone" viewBox="0 0 32 32">
-        <rect x="7.4" y="0.8" width="17.2" height="30.4" rx="3.8" {...BLUE} />
-        <rect x="9.8" y="5" width="12.4" height="20.8" rx="1.6" fill="#d9e8ff" opacity=".85" />
-        <rect x="13" y="27.4" width="6" height="2" rx="1" {...GOLD} />
+        <g transform="translate(0.35 0.35) scale(0.9779)">
+          <rect x="7.4" y="0.8" width="17.2" height="30.4" rx="3.8" {...BLUE} />
+          <rect x="9.8" y="5" width="12.4" height="20.8" rx="1.6" fill="#d9e8ff" opacity=".85" />
+          <rect x="13" y="27.4" width="6" height="2" rx="1" {...GOLD} />
+        </g>
       </symbol>
 
       <symbol id="ico-screen" viewBox="0 0 32 32">
@@ -440,14 +470,18 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-star" viewBox="0 0 32 32">
-        <path d="m16 1 4.7 9.5 10.5 1.5-7.6 7.4 1.8 10.4L16 24.9 6.6 29.8l1.8-10.4L.8 12l10.5-1.5Z" {...GOLD} />
-        <Sheen d="m16 4.6 3.2 6.4-7.4 1.2Z" o={0.45} />
+        <g transform="translate(0.35 0.94) scale(0.9779)">
+          <path d="m16 1 4.7 9.5 10.5 1.5-7.6 7.4 1.8 10.4L16 24.9 6.6 29.8l1.8-10.4L.8 12l10.5-1.5Z" {...GOLD} />
+          <Sheen d="m16 4.6 3.2 6.4-7.4 1.2Z" o={0.45} />
+        </g>
       </symbol>
 
       <symbol id="ico-tag" viewBox="0 0 32 32">
-        <path d="M1.6 2.6h12.6a2.8 2.8 0 0 1 2 .8l14.2 14.2a2.8 2.8 0 0 1 0 4l-9.8 9.8a2.8 2.8 0 0 1-4 0L2.4 17.2a2.8 2.8 0 0 1-.8-2Z" {...BLUE} />
-        <circle cx="9.6" cy="10.4" r="3.6" {...GOLD} />
-        <Sheen d="M3.8 4.6h9.4l1.8 1.8H3.8Z" o={0.3} />
+        <g transform="translate(-0.42 -1.42)">
+          <path d="M1.6 2.6h12.6a2.8 2.8 0 0 1 2 .8l14.2 14.2a2.8 2.8 0 0 1 0 4l-9.8 9.8a2.8 2.8 0 0 1-4 0L2.4 17.2a2.8 2.8 0 0 1-.8-2Z" {...BLUE} />
+          <circle cx="9.6" cy="10.4" r="3.6" {...GOLD} />
+          <Sheen d="M3.8 4.6h9.4l1.8 1.8H3.8Z" o={0.3} />
+        </g>
       </symbol>
 
       <symbol id="ico-shuffle" viewBox="0 0 32 32">
@@ -456,17 +490,23 @@ export default function IconSprite() {
       </symbol>
 
       <symbol id="ico-crop" viewBox="0 0 32 32">
-        <path d="M8.6 1.4v22h22M1.4 8.6h22v22" {...GOLDLINE} strokeWidth="4.6" />
+        <g transform="translate(1.33 1.33) scale(0.9172)">
+          <path d="M8.6 1.4v22h22M1.4 8.6h22v22" {...GOLDLINE} strokeWidth="4.6" />
+        </g>
       </symbol>
 
       <symbol id="ico-download" viewBox="0 0 32 32">
-        <path d="M16 1.6v17m0 0 7-7M16 18.6l-7-7" {...GOLDLINE} strokeWidth="4.4" />
-        <path d="M2.6 22.4v4.4a3.2 3.2 0 0 0 3.2 3.2h20.4a3.2 3.2 0 0 0 3.2-3.2v-4.4" fill="none" stroke="url(#icoBlue)" strokeWidth="4" strokeLinecap="round" />
+        <g transform="translate(0.79 1.07) scale(0.9509)">
+          <path d="M16 1.6v17m0 0 7-7M16 18.6l-7-7" {...GOLDLINE} strokeWidth="4.4" />
+          <path d="M2.6 22.4v4.4a3.2 3.2 0 0 0 3.2 3.2h20.4a3.2 3.2 0 0 0 3.2-3.2v-4.4" fill="none" stroke="url(#icoBlue)" strokeWidth="4" strokeLinecap="round" />
+        </g>
       </symbol>
 
       <symbol id="ico-upload" viewBox="0 0 32 32">
-        <path d="M16 19.4v-17m0 0 7 7M16 2.4l-7 7" {...GOLDLINE} strokeWidth="4.4" />
-        <path d="M2.6 22.4v4.4a3.2 3.2 0 0 0 3.2 3.2h20.4a3.2 3.2 0 0 0 3.2-3.2v-4.4" fill="none" stroke="url(#icoBlue)" strokeWidth="4" strokeLinecap="round" />
+        <g transform="translate(0.4 0.31) scale(0.9748)">
+          <path d="M16 19.4v-17m0 0 7 7M16 2.4l-7 7" {...GOLDLINE} strokeWidth="4.4" />
+          <path d="M2.6 22.4v4.4a3.2 3.2 0 0 0 3.2 3.2h20.4a3.2 3.2 0 0 0 3.2-3.2v-4.4" fill="none" stroke="url(#icoBlue)" strokeWidth="4" strokeLinecap="round" />
+        </g>
       </symbol>
 
       <symbol id="ico-leaf" viewBox="0 0 32 32">
@@ -488,6 +528,165 @@ export default function IconSprite() {
       <symbol id="ico-dot" viewBox="0 0 32 32">
         <circle cx="16" cy="16" r="9.6" {...GOLD} />
         <Sheen d="M16 6.4a9.6 9.6 0 0 1 8.4 5c-1.8-2.2-4.8-3.6-8.4-3.6s-6.6 1.4-8.4 3.6A9.6 9.6 0 0 1 16 6.4Z" />
+      </symbol>
+
+      <symbol id="ico-key" viewBox="0 0 32 32">
+        <circle cx="10.4" cy="16" r="8.6" {...GOLD} />
+        <circle cx="10.4" cy="16" r="3.4" fill="#12409f" />
+        <rect x="17" y="13.2" width="13.4" height="5.6" rx="1.4" {...GOLD} />
+        <rect x="24.4" y="17.8" width="4.4" height="5.4" rx="1.4" {...GOLD} />
+        <rect x="18.6" y="17.8" width="4.2" height="3.6" rx="1.4" {...GOLD} />
+        <Sheen d="M10.4 9a7 7 0 0 0-6.2 3.8c-.5 1-2.2.2-1.7-.8A8.8 8.8 0 0 1 10.4 7.2Z" o={0.5} />
+      </symbol>
+
+      <symbol id="ico-info" viewBox="0 0 32 32">
+        <circle cx="16" cy="16" r="14.4" {...BLUE} />
+        <circle cx="16" cy="9.2" r="2.7" {...GOLD} strokeWidth={0} />
+        <rect x="13.3" y="13.4" width="5.4" height="11.4" rx="2" {...GOLD} strokeWidth={0} />
+        <Sheen d="M16 3.4a12.6 12.6 0 0 0-11 6.4c-.6 1-2.6 0-2-1A14.8 14.8 0 0 1 16 1.2Z" o={0.5} />
+      </symbol>
+
+      <symbol id="ico-unlock" viewBox="0 0 32 32">
+        <g transform="translate(0.28 0.21) scale(0.9826)">
+          <path d="M23.6 13.2V9.4a7 7 0 0 0-14 0" fill="none" stroke="url(#icoSteel)" strokeWidth="4.2" strokeLinecap="round" />
+          <rect x="3.8" y="12.8" width="24.4" height="18.4" rx="3.4" {...GOLD} />
+          <circle cx="16" cy="20.4" r="3.2" fill="#12409f" />
+          <path d="M16 22.8v4" stroke="#12409f" strokeWidth="2.8" strokeLinecap="round" />
+          <Sheen d="M7.2 14h17.6a1.6 1.6 0 0 1 1.6 1.6v1.2H5.6v-1.2A1.6 1.6 0 0 1 7.2 14Z" o={0.34} />
+        </g>
+      </symbol>
+
+      <symbol id="ico-link" viewBox="0 0 32 32">
+        <path d="M12.6 8.8 15 6.4a7.2 7.2 0 0 1 10.2 10.2l-2.4 2.4" fill="none" stroke="url(#icoBlue)" strokeWidth="4.6" strokeLinecap="round" />
+        <path d="M19.4 23.2 17 25.6A7.2 7.2 0 0 1 6.8 15.4l2.4-2.4" fill="none" stroke="url(#icoBlue)" strokeWidth="4.6" strokeLinecap="round" />
+        <path d="M12.2 19.8 19.8 12.2" fill="none" stroke="url(#icoGold)" strokeWidth="4.6" strokeLinecap="round" />
+      </symbol>
+
+      <symbol id="ico-clipboard" viewBox="0 0 32 32">
+        <rect x="4.6" y="4.4" width="22.8" height="26.2" rx="3.4" {...BLUE} />
+        <rect x="8.4" y="8.4" width="15.2" height="18.4" rx="2" {...STEEL} />
+        <rect x="11" y="1.4" width="10" height="6.4" rx="2.4" {...GOLD} />
+        <path d="M11.6 14.4h8.8M11.6 19.4h6" stroke="#12409f" strokeWidth="2.4" strokeLinecap="round" />
+        <Sheen d="M7.4 6h6v1.8a1.4 1.4 0 0 1-1.4 1.4H8.8A1.4 1.4 0 0 1 7.4 7.8Z" o={0.4} />
+      </symbol>
+
+      <symbol id="ico-shield" viewBox="0 0 32 32">
+        <g transform="translate(0 -0.3)">
+          <path d="M16 1.6 29 6.2v9.2c0 7.6-5.2 13.6-13 15.6-7.8-2-13-8-13-15.6V6.2Z" {...BLUE} />
+          <path d="M10.4 16.2 14.4 20.2 21.8 12.4" fill="none" stroke="url(#icoGold)" strokeWidth="3.8" strokeLinecap="round" strokeLinejoin="round" />
+          <Sheen d="M16 4.2 6 7.8v7.6c0 1-2 1-2 0V6.8Z" o={0.4} />
+        </g>
+      </symbol>
+
+      <symbol id="ico-flask" viewBox="0 0 32 32">
+        <g transform="translate(0.35 0.16) scale(0.9779)">
+          <path d="M12.6 3.4h6.8v8.8l7.6 13.6a3.6 3.6 0 0 1-3.2 5.4H8.2A3.6 3.6 0 0 1 5 25.8l7.6-13.6Z" {...STEEL} />
+          <path d="M9.2 21.6h13.6l3.8 6.8a2 2 0 0 1-1.8 3H7.2a2 2 0 0 1-1.8-3Z" {...GOLD} />
+          <rect x="10.6" y="1" width="10.8" height="3.8" rx="1.8" {...BLUE} />
+          <Sheen d="M14.2 5.6h1.6v7.4l-6.4 11.6c-.5.9-2 .1-1.5-.8l6.3-11.4Z" o={0.5} />
+        </g>
+      </symbol>
+
+      <symbol id="ico-book" viewBox="0 0 32 32">
+        <path d="M2.4 5.8c4.4-2.4 9-2.4 13.6.6v22.4c-4.6-3-9.2-3-13.6-.6Z" {...BLUE} />
+        <path d="M29.6 5.8c-4.4-2.4-9-2.4-13.6.6v22.4c4.6-3 9.2-3 13.6-.6Z" {...STEEL} />
+        <rect x="14.4" y="5.2" width="3.2" height="24" rx="1.4" {...GOLD} />
+        <Sheen d="M5 8.4c2.8-1 5.6-.8 8.4.8v1.8c-2.8-1.6-5.6-1.8-8.4-.8Z" o={0.45} />
+      </symbol>
+
+      <symbol id="ico-gem" viewBox="0 0 32 32">
+        <path d="M9.6 3.4h12.8l7.2 8.4L16 29.2 2.4 11.8Z" {...GOLD} />
+        <path d="M2.4 11.8h27.2M9.6 3.4l2.8 8.4L16 29.2l3.6-17.4 2.8-8.4" fill="none" stroke="#8a5609" strokeWidth="1.4" strokeLinejoin="round" />
+        <Sheen d="M10.4 4.8h4L11.8 11H5.4Z" o={0.5} />
+      </symbol>
+
+      <symbol id="ico-masks" viewBox="0 0 32 32">
+        <path d="M16.6 5h11a2.8 2.8 0 0 1 2.8 2.8v5.8c0 6-3.9 10.8-8.7 10.8s-8.7-4.8-8.7-10.8V7.8A2.8 2.8 0 0 1 16.6 5Z" {...STEEL} />
+        <path d="M4.4 8h11a2.8 2.8 0 0 1 2.8 2.8v5.8c0 6-3.9 10.8-8.7 10.8S1.6 22.6 1.6 16.6v-5.8A2.8 2.8 0 0 1 4.4 8Z" {...GOLD} />
+        <ellipse cx="6.6" cy="14.6" rx="1.7" ry="2.2" fill="#12409f" />
+        <ellipse cx="13.4" cy="14.6" rx="1.7" ry="2.2" fill="#12409f" />
+        <path d="M6.8 20.4c1.8 1.8 4.6 1.8 6.4 0" fill="none" stroke="#12409f" strokeWidth="2.2" strokeLinecap="round" />
+        <Sheen d="M4.8 9.6h9.4a1.4 1.4 0 0 1 1.4 1.4v1H3.4v-1a1.4 1.4 0 0 1 1.4-1.4Z" o={0.4} />
+      </symbol>
+
+      <symbol id="ico-save" viewBox="0 0 32 32">
+        <path d="M2.8 5.6a2.8 2.8 0 0 1 2.8-2.8h16.8l7.6 7.6v16.4a2.8 2.8 0 0 1-2.8 2.8H5.6a2.8 2.8 0 0 1-2.8-2.8Z" {...BLUE} />
+        <path d="M9.4 2.8h12.6v9.4H9.4Z" {...STEEL} />
+        <rect x="17" y="4.8" width="3.4" height="5.6" rx="1.2" fill="#12409f" />
+        <rect x="7.6" y="17.6" width="16.8" height="11.8" rx="1.8" {...GOLD} />
+        <Sheen d="M5.4 4.6h3.2v1.8H5.4Z" o={0.5} />
+      </symbol>
+
+      <symbol id="ico-pin" viewBox="0 0 32 32">
+        <path d="M16 1.4c6.4 0 11.6 5.2 11.6 11.6 0 8.4-11.6 17.6-11.6 17.6S4.4 21.4 4.4 13C4.4 6.6 9.6 1.4 16 1.4Z" {...GOLD} />
+        <circle cx="16" cy="12.8" r="4.6" fill="#12409f" />
+        <Sheen d="M16 4a9 9 0 0 0-7.8 4.6c-.6 1-2.2 0-1.6-1A10.8 10.8 0 0 1 16 2.2Z" o={0.5} />
+      </symbol>
+
+      <symbol id="ico-wave" viewBox="0 0 32 32">
+        <g transform="translate(0.2 0.2) scale(0.9873)">
+          <path d="M2.4 10.6q3.4-4.4 6.8 0t6.8 0 6.8 0 6.8 0" fill="none" stroke="url(#icoGold)" strokeWidth="4.2" strokeLinecap="round" />
+          <path d="M2.4 21.4q3.4-4.4 6.8 0t6.8 0 6.8 0 6.8 0" fill="none" stroke="url(#icoBlue)" strokeWidth="4.2" strokeLinecap="round" />
+        </g>
+      </symbol>
+
+      <symbol id="ico-contrast" viewBox="0 0 32 32">
+        <circle cx="16" cy="16" r="12.5" {...STEEL} />
+        <path d="M16 3.5a12.5 12.5 0 0 1 0 25Z" fill="url(#icoBlue)" stroke="#0e3374" strokeWidth="1.3" strokeLinejoin="round" />
+        <circle cx="16" cy="16" r="13.7" fill="none" stroke="url(#icoGold)" strokeWidth="2.4" />
+        <Sheen d="M16 5.5a10.5 10.5 0 0 0-8.5 4.3c-.6.9-2.1-.2-1.5-1.1A12.5 12.5 0 0 1 16 3.5Z" o={0.5} />
+      </symbol>
+
+      <symbol id="ico-skip" viewBox="0 0 32 32">
+        <path d="M3 6.2 13.4 16 3 25.8Z" {...GOLD} />
+        <path d="M13.2 6.2 23.6 16 13.2 25.8Z" {...GOLD} />
+        <rect x="24.8" y="5.4" width="4.8" height="21.2" rx="1.8" {...BLUE} />
+      </symbol>
+
+      <symbol id="ico-box" viewBox="0 0 32 32">
+        <path d="M16 2.4 30 8.8v14.4L16 29.6 2 23.2V8.8Z" {...BLUE} />
+        <path d="M2 8.8 16 2.4l14 6.4-14 6.4Z" {...STEEL} />
+        <path d="M12.6 12.8h6.8v14.8L16 29.2l-3.4-1.6Z" {...GOLD} />
+        <Sheen d="M6.2 8.8 16 4.4l3.4 1.6-9.8 4.4Z" o={0.45} />
+      </symbol>
+
+      <symbol id="ico-undo" viewBox="0 0 32 32">
+        <path d="M9.6 11.6h10.6a8.2 8.2 0 0 1 0 16.4h-7.4" fill="none" stroke="url(#icoBlue)" strokeWidth="4.6" strokeLinecap="round" />
+        <path d="M14 3.4 5 11.6l9 8.2Z" {...GOLD} />
+      </symbol>
+
+      <symbol id="ico-ring" viewBox="0 0 32 32">
+        <circle cx="16" cy="16" r="11.4" fill="none" stroke="url(#icoGold)" strokeWidth="4.6" />
+      </symbol>
+
+      <symbol id="ico-square" viewBox="0 0 32 32">
+        <rect x="3.6" y="3.6" width="24.8" height="24.8" rx="4.4" {...BLUE} />
+        <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="2.4" fill="none" stroke="url(#icoGold)" strokeWidth="2.6" />
+        <Sheen d="M7 6h18a1.6 1.6 0 0 1 1.6 1.6v1.6H5.4V7.6A1.6 1.6 0 0 1 7 6Z" o={0.36} />
+      </symbol>
+
+      <symbol id="ico-hand" viewBox="0 0 32 32">
+        <rect x="12.6" y="1.6" width="6.8" height="15.4" rx="3.4" {...STEEL} />
+        <path d="M8.6 13.6h11.8a6 6 0 0 1 6 6v4.6a6.2 6.2 0 0 1-6.2 6.2h-5.4a6.2 6.2 0 0 1-6.2-6.2Z" {...STEEL} />
+        <path d="M8.6 22.4h17.8v1.8a6.2 6.2 0 0 1-6.2 6.2h-5.4a6.2 6.2 0 0 1-6.2-6.2Z" {...GOLD} />
+        <Sheen d="M15 3.6h1.8v11.8H15Z" o={0.5} />
+      </symbol>
+
+      <symbol id="ico-exit" viewBox="0 0 32 32">
+        <path d="M4.4 4.4a2.8 2.8 0 0 1 2.8-2.8h8.4a2.8 2.8 0 0 1 2.8 2.8v23.2a2.8 2.8 0 0 1-2.8 2.8H7.2a2.8 2.8 0 0 1-2.8-2.8Z" {...BLUE} />
+        <circle cx="14.4" cy="16.4" r="1.9" fill="#ffc43c" />
+        <path d="M21 16h8.4" fill="none" stroke="url(#icoGold)" strokeWidth="4.2" strokeLinecap="round" />
+        <path d="M24.6 9.8 30.6 16l-6 6.2Z" {...GOLD} />
+        <Sheen d="M7.6 4.4h7.6a1.4 1.4 0 0 1 1.4 1.4v1.4H6.2V5.8a1.4 1.4 0 0 1 1.4-1.4Z" o={0.4} />
+      </symbol>
+
+      <symbol id="ico-flip" viewBox="0 0 32 32">
+        <g transform="translate(1.15 1.15) scale(0.9281)">
+          <path d="M14.2 9.4H2.6l6.2-5.8Z" {...GOLD} />
+          <path d="M17.8 22.6h11.6l-6.2 5.8Z" {...GOLD} />
+          <path d="M6 6.6h22a2.6 2.6 0 0 1 2.6 2.6v3.6" fill="none" stroke="url(#icoBlue)" strokeWidth="4.2" strokeLinecap="round" />
+          <path d="M26 25.4H4a2.6 2.6 0 0 1-2.6-2.6v-3.6" fill="none" stroke="url(#icoBlue)" strokeWidth="4.2" strokeLinecap="round" />
+        </g>
       </symbol>
     </svg>
   );
