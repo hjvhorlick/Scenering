@@ -1,5 +1,14 @@
+import { Suspense, lazy, useRef } from "react";
 import { Section, SectionHead, Pill, ComingSoon, FigureNote } from "../components/primitives";
 import { EFFECT_CATEGORIES, HONESTY } from "../product-facts";
+import { useInView } from "../hooks";
+
+/**
+ * The gallery is the studio's own renderers running on this page, which makes
+ * it the heaviest thing the website can load. It is a separate chunk, and it
+ * is only fetched once somebody has scrolled far enough to see it.
+ */
+const RealEffectsGallery = lazy(() => import("../components/RealEffectsGallery"));
 
 /**
  * The effects library, grouped the way a creator thinks about it: branding,
@@ -11,6 +20,8 @@ import { EFFECT_CATEGORIES, HONESTY } from "../product-facts";
  * where a plan is quietly presented as a feature.
  */
 export default function EffectsLibrary() {
+  const galleryRef = useRef<HTMLElement>(null);
+  const seen = useInView(galleryRef, { once: true, rootMargin: "400px 0px" });
   const live = EFFECT_CATEGORIES.flatMap((c) => c.items).filter((item) => item.status === "live").length;
   const soon = EFFECT_CATEGORIES.flatMap((c) => c.items).filter((item) => item.status === "soon").length;
 
@@ -23,7 +34,26 @@ export default function EffectsLibrary() {
         lead={`${live} kinds of effect are in the app today. ${soon} more are planned and marked as such — the website says which is which.`}
       />
 
-      <div className="mkt-grid cols-3">
+      <figure className="mkt-figure" ref={galleryRef}>
+        <div className="mkt-panel mkt-pad">
+          <div className="mkt-real-intro">
+            <Pill tone="live">
+              <span className="mkt-dot" aria-hidden="true" />
+              Rendered by the app, here on the page
+            </Pill>
+            <p className="mkt-small" style={{ marginTop: 8 }}>
+              Nothing below is a picture of the product. Every grade, sticker, caption plate and badge on this
+              panel is drawn by the same code that draws the finished video — so what you are looking at is what
+              would be exported.
+            </p>
+          </div>
+          <Suspense fallback={<div className="mkt-real-loading">Loading the real effects…</div>}>
+            {seen && <RealEffectsGallery />}
+          </Suspense>
+        </div>
+      </figure>
+
+      <div className="mkt-grid cols-3" style={{ marginTop: 22 }}>
         {EFFECT_CATEGORIES.map((category) => (
           <div className="mkt-panel mkt-pad" key={category.id}>
             <div className="mkt-scene-top">

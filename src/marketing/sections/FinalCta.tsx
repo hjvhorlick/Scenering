@@ -1,4 +1,3 @@
-import { navigate, STUDIO_PATH } from "../../lib/route";
 import { Section, Pill } from "../components/primitives";
 import { HONESTY, MESSAGES, WORKFLOW_STAGES } from "../product-facts";
 
@@ -17,20 +16,16 @@ export default function FinalCta() {
           Start with a script. Finish with a video.
         </h2>
         <p className="mkt-lead" style={{ maxWidth: 620, margin: "14px auto 0" }}>
-          Open the studio, paste something you have already written, and watch it become scenes. Nothing to install,
-          no account, and your projects stay on your own machine.
+          Sign in, paste something you have already written, and watch it become scenes. Nothing to install, and
+          your projects stay on your own machine.
         </p>
 
         <div className="mkt-hero-cta" style={{ justifyContent: "center" }}>
-          <button
-            type="button"
-            className="mkt-btn mkt-btn-primary mkt-btn-lg"
-            onClick={() => navigate(STUDIO_PATH)}
-          >
-            Open the studio
-          </button>
-          <a className="mkt-btn mkt-btn-lg" href="#workflow">
+          <a className="mkt-btn mkt-btn-primary mkt-btn-lg" href="#workflow">
             Walk through it again
+          </a>
+          <a className="mkt-btn mkt-btn-lg" href="#pricing">
+            What is in the free plan
           </a>
         </div>
 

@@ -13,6 +13,15 @@
   link-preview card (`npm run marketing:og`).
 - Added two test suites: one that checks the website tells the truth, one that
   renders it to HTML and inspects the markup.
+- Made **Porcelain** the default theme and moved its palette into
+  `src/shared/porcelain.css`, so the website, the sign-in screen and the
+  studio are all the same colours.
+- Put the studio behind a local sign-in (`/app`): a name and a passphrase
+  hashed with PBKDF2 in the browser, no account server, session ends with the
+  tab. The navigation's "Sign in" is now the only route into the editor.
+- The website's effects are rendered by the studio's own preview canvases —
+  real stickers, text templates, colour grades, CTA badges and audio
+  visualisers — loaded on demand when the section scrolls into view.
 
 ## 1.1.0 — Frame-exact export
 

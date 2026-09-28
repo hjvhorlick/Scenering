@@ -17,7 +17,7 @@
       name="description"
       content="Scenering turns a script into scenes, finds a visual for each one, gives them a voice, adds captions and finishes the video in Video Studio. Runs on your own machine."
     />
-    <meta name="theme-color" content="#f4f6fb" />
+    <meta name="theme-color" content="#faf7f2" />
     <link rel="canonical" href="/" />
     <!-- Apply the saved UI theme before first paint to avoid a flash of the
          default theme. Kept in sync with src/lib/themes.ts. -->
@@ -25,10 +25,10 @@
       (function () {
         try {
           var t = localStorage.getItem("scenering_theme");
-          if (!t || ["classic", "apple", "windows", "playful", "glass", "porcelain"].indexOf(t) === -1) t = "classic";
+          if (!t || ["classic", "apple", "windows", "playful", "glass", "porcelain"].indexOf(t) === -1) t = "porcelain";
           document.documentElement.setAttribute("data-theme", t);
         } catch (e) {
-          document.documentElement.setAttribute("data-theme", "classic");
+          document.documentElement.setAttribute("data-theme", "porcelain");
         }
       })();
     </script>

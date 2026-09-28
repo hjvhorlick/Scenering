@@ -113,6 +113,7 @@ export function MarketingImage({
   eager = false,
   className,
   vertical = false,
+  grade,
   children,
 }: {
   assetId: string;
@@ -120,6 +121,8 @@ export function MarketingImage({
   eager?: boolean;
   className?: string;
   vertical?: boolean;
+  /** CSS filter string from the app's own grade — see demo-project.ts. */
+  grade?: string;
   children?: ReactNode;
 }) {
   const asset = getAsset(assetId);
@@ -158,6 +161,7 @@ export function MarketingImage({
         alt={asset.alt}
         loading={eager ? "eager" : "lazy"}
         decoding="async"
+        style={grade ? { filter: grade } : undefined}
         // @ts-expect-error fetchpriority is valid HTML, typed only in newer React
         fetchpriority={eager ? "high" : undefined}
       />
@@ -183,6 +187,7 @@ export function BrandMark({ height = 26, className }: { height?: number; classNa
       width={width}
       height={height}
       alt={asset.alt}
+      loading="lazy"
       decoding="async"
       style={{ display: "block", height, width: "auto" }}
     />

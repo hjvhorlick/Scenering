@@ -89,8 +89,10 @@ export default function MarketingSite() {
 
           <span className="mkt-nav-spacer" />
 
+          {/* The only way into the studio anywhere on this site. There are
+              no shortcuts past it: the sign-in screen is the door. */}
           <button type="button" className="mkt-btn mkt-btn-primary" onClick={() => navigate(STUDIO_PATH)}>
-            Open the studio
+            Sign in
           </button>
         </div>
       </nav>

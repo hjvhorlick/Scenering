@@ -23,6 +23,7 @@ export default function PlayerFrame({
   sizes = "(min-width: 900px) 520px, 92vw",
   eager = false,
   captionSize = 15,
+  grade,
   children,
 }: {
   assetId: string;
@@ -36,11 +37,13 @@ export default function PlayerFrame({
   sizes?: string;
   eager?: boolean;
   captionSize?: number;
+  /** The project's colour grade, as CSS, from the app's filter catalogue. */
+  grade?: string;
   children?: ReactNode;
 }) {
   return (
     <div className={`mkt-player${vertical ? " is-vertical" : ""}`}>
-      <MarketingImage assetId={assetId} sizes={sizes} eager={eager} vertical={vertical} />
+      <MarketingImage assetId={assetId} sizes={sizes} eager={eager} vertical={vertical} grade={grade} />
       <span className="mkt-player-shade" aria-hidden="true" />
       {caption && captionStyle && (
         <span className="mkt-player-cap">

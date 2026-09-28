@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Section, SectionHead, Pill, FigureNote } from "../components/primitives";
 import PlayerFrame from "../components/PlayerFrame";
 import TimelineMock from "../components/TimelineMock";
-import Waveform from "../components/Waveform";
 import CaptionLine from "../components/CaptionLine";
 import {
   DEMO_CAPTION_STYLE,
@@ -74,12 +73,15 @@ export default function BeforeAfter() {
             highlightWord={3}
             progress={0.78}
             badge={`${DEMO_VOICE.name} · ${DEMO_TIMELINE_EXTRAS.filter.name}`}
+            grade={DEMO_TIMELINE_EXTRAS.filter.css}
             sizes="(min-width: 860px) 520px, 92vw"
           />
 
           <div className="mkt-strip-row" style={{ marginTop: 10 }}>
             <span className="mkt-strip-label">🎙 Narration</span>
-            <Waveform seed="before-after" bars={56} height={22} />
+            <span className="mkt-small">
+              {DEMO_VOICE.name} · {DEMO_VOICE.accent} · {formatDuration(DEMO_TOTAL_SECONDS)}
+            </span>
           </div>
 
           <div className="mkt-strip-row" style={{ marginTop: 8 }}>

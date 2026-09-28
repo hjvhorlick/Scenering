@@ -39,16 +39,21 @@ import {
   MESSAGES,
   HONESTY,
 } from "../src/marketing/product-facts";
-import { DEMO_SCENES, DEMO_SEARCH_RESULTS, DEMO_TOTAL_SECONDS } from "../src/marketing/demo-project";
+import {
+  DEMO_SCENES,
+  DEMO_SEARCH_RESULTS,
+  DEMO_TIMELINE_EXTRAS,
+  DEMO_TOTAL_SECONDS,
+} from "../src/marketing/demo-project";
 import { normalizePath, routeForPath, sectionForPath, SITE_SECTION_PATHS } from "../src/lib/route";
 
 import { CAPTION_STYLES } from "../src/data/caption-styles";
 import { STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
-import { VIDEO_FILTERS, FILTER_GROUPS } from "../src/data/video-filters";
-import { TEXT_TEMPLATES } from "../src/data/text-templates";
+import { VIDEO_FILTERS, FILTER_GROUPS, getFilterCss, makeFilterConfig } from "../src/data/video-filters";
+import { TEXT_TEMPLATES, TEMPLATE_BY_ID } from "../src/data/text-templates";
 import { CTA_PLATFORMS, CTA_GROUPS } from "../src/data/cta-library";
 import { BACKGROUND_MUSIC_TRACKS, SOUND_LIBRARY } from "../src/data/media-library";
-import { STICKER_LIBRARY, STICKER_GROUPS } from "../src/lib/sticker-3d";
+import { STICKER_LIBRARY, STICKER_GROUPS, STICKER_BY_ID } from "../src/lib/sticker-3d";
 import { CATALOG_ITEMS, SCENE_MOTIONS, STUDIO_CATEGORIES } from "../src/lib/video-studio-catalog";
 import { TITLE_ANIMATIONS, STINGERS } from "../src/data/intro-outro";
 import { TRANSITION_OPTIONS } from "../src/lib/scene-transition";
@@ -351,11 +356,119 @@ ok(
   "the specification's example scene is used verbatim"
 );
 
+/* ------------------------- 6b. the demonstration names real things */
+
+/*
+ * The mockups name a filter, a transition, a music bed, a sound effect, a
+ * sticker, a badge and a lower third. Every one of them has to be a real
+ * entry in the app's catalogue, under the name the app gives it — otherwise
+ * the website is advertising an effect nobody can find.
+ */
+{
+  const extras = DEMO_TIMELINE_EXTRAS;
+
+  const filter = VIDEO_FILTERS.find((f) => f.id === extras.filter.id);
+  ok(Boolean(filter), `the demonstration grade "${extras.filter.id}" is a real filter`);
+  h.eq(extras.filter.name, filter?.name ?? "", "the grade is named as the app names it");
+  h.eq(
+    extras.filter.css,
+    getFilterCss(makeFilterConfig(extras.filter.id)),
+    "the grade shown on the page is the grade the app computes"
+  );
+
+  const transition = TRANSITION_OPTIONS.find((t) => t.id === extras.transition.id);
+  ok(Boolean(transition), `the demonstration transition "${extras.transition.id}" is real`);
+  h.eq(extras.transition.name, transition?.label ?? "", "the transition is named as the app names it");
+
+  const music = BACKGROUND_MUSIC_TRACKS.find((m) => m.id === extras.music.id);
+  ok(Boolean(music), `the demonstration music "${extras.music.id}" is real`);
+  h.eq(extras.music.name, (music as { name?: string })?.name ?? "", "the music bed is named as the app names it");
+
+  const sfx = SOUND_LIBRARY.find((m) => m.id === extras.soundEffect.id);
+  ok(Boolean(sfx), `the demonstration sound effect "${extras.soundEffect.id}" is real`);
+  h.eq(extras.soundEffect.name, (sfx as { name?: string })?.name ?? "", "the sound effect is named as the app names it");
+
+  ok(Boolean(STICKER_BY_ID[extras.sticker.id]), `the demonstration sticker "${extras.sticker.id}" is real`);
+  h.eq(extras.sticker.name, STICKER_BY_ID[extras.sticker.id]?.name ?? "", "the sticker is named as the app names it");
+
+  ok(Boolean(TEMPLATE_BY_ID[extras.lowerThird.id]), `the demonstration lower third "${extras.lowerThird.id}" is real`);
+  h.eq(
+    extras.lowerThird.name,
+    TEMPLATE_BY_ID[extras.lowerThird.id]?.name ?? "",
+    "the lower third is named as the app names it"
+  );
+
+  const cta = CTA_PLATFORMS.find((c) => c.id === extras.cta.id);
+  ok(Boolean(cta), `the demonstration badge "${extras.cta.id}" is real`);
+  h.eq(extras.cta.name, cta?.name ?? "", "the badge is named as the app names it");
+}
+
+/* ------------------------------ 6c. one product, one look */
+
+/*
+ * The website and the studio are meant to be the same place. The shared
+ * token file is the studio's Porcelain theme, Porcelain is what a new visitor
+ * gets in the app, and the website's stylesheet must be built from those
+ * tokens rather than a palette of its own.
+ */
+{
+  const porcelain = read("src/shared/porcelain.css");
+  const marketingCss = read("src/marketing/marketing.css");
+  const themes = read("src/lib/themes.ts");
+  const bootstrap = read("index.html");
+
+  ok(themes.includes('DEFAULT_THEME: ThemeId = "porcelain"'), "Porcelain is the studio's default theme");
+  ok(bootstrap.includes('t = "porcelain"'), "the pre-paint bootstrap defaults to Porcelain too");
+  ok(marketingCss.includes('@import "../shared/porcelain.css"'), "the website is built on the shared tokens");
+  ok(read("src/studio/sign-in.css").includes('@import "../shared/porcelain.css"'), "so is the sign-in screen");
+
+  // The palette values themselves have to match the theme generator.
+  const themeGen = read("scripts/generate-theme-css.mjs");
+  const porcelainBlock = themeGen.slice(themeGen.indexOf("porcelain: {"), themeGen.indexOf("porcelain: {") + 1200);
+  for (const colour of ["#fffdfa", "#f7f4ef", "#e4dccf", "#33302c", "#2f6fb5", "#245a99"]) {
+    ok(porcelainBlock.includes(colour), `${colour} comes from the studio's porcelain palette`);
+    ok(porcelain.includes(colour), `${colour} is in the shared token file`);
+  }
+  // …and the website must not have kept a palette of its own.
+  for (const stray of ["#f3f5fb", "#6366f1", "#5257e3", "#0b0e17", "#101427"]) {
+    ok(!marketingCss.includes(stray), `the website no longer uses its old colour ${stray}`);
+  }
+}
+
+/* ------------------------------ 6d. no shortcuts into the studio */
+
+/*
+ * The only way in is the sign-in. The website may link to it once, from the
+ * navigation; nowhere else on the page may jump into the editor.
+ */
+{
+  const siteFiles = marketingFiles.filter((f) => /\.tsx$/.test(f.name));
+  const linkers = siteFiles.filter((f) => f.text.includes("STUDIO_PATH"));
+  h.eq(linkers.length, 1, "exactly one module links to the studio");
+  h.eq(linkers[0]?.name.split("/").pop(), "MarketingSite.tsx", "…and it is the navigation");
+  const nav = read("src/marketing/MarketingSite.tsx");
+  h.eq(
+    (nav.match(/navigate\(STUDIO_PATH\)/g) || []).length,
+    1,
+    "the navigation links to the studio exactly once"
+  );
+  ok(nav.includes("Sign in"), "that link is the sign-in");
+  ok(!/Open the studio/.test(marketingSource), "no 'open the studio' shortcuts anywhere on the site");
+  // And the studio does not offer a way back in past the door either.
+  const app = read("src/App.tsx");
+  ok(app.includes("signOut()"), "the studio can be signed out of");
+}
+
 /* ----------------------------------------------- 7. performance */
 
 const main = read("src/main.tsx");
 ok(main.includes("lazy(() => import(\"./marketing/MarketingSite\"))"), "the website is code-split");
-ok(main.includes("lazy(() => import(\"./App\"))"), "the studio is code-split");
+ok(main.includes("lazy(() => import(\"./studio/StudioEntry\"))"), "the studio entry is code-split");
+// The editor itself waits behind the sign-in: the door is a few kilobytes,
+// the studio is a megabyte, and nobody downloads an editor they cannot open.
+const studioEntry = read("src/studio/StudioEntry.tsx");
+ok(studioEntry.includes("lazy(() => import(\"../App\"))"), "the studio loads only after sign-in");
+ok(studioEntry.includes("useSession"), "the studio entry checks the session");
 ok(
   read("src/marketing/components/primitives.tsx").includes('loading={eager ? "eager" : "lazy"}'),
   "images lazy-load unless explicitly eager"
@@ -366,7 +479,12 @@ ok(
 );
 ok(read("src/marketing/components/primitives.tsx").includes("srcSet"), "images ship a srcset");
 ok(read("src/marketing/components/primitives.tsx").includes("sizes"), "images ship sizes hints");
-// The marketing chunk must not drag the studio's heavy catalogues in with it.
+/*
+ * The studio's catalogues and renderers are heavy. Exactly two modules are
+ * allowed to touch them — the ones that exist to render the real effects on
+ * the page — and everything else must reach those two through a dynamic
+ * import, so the weight lands in its own chunk instead of the first paint.
+ */
 const HEAVY = [
   "lib/sticker-3d",
   "lib/video-studio-catalog",
@@ -377,14 +495,42 @@ const HEAVY = [
   "lib/offline-export",
   "lib/render-",
 ];
+const REAL_PREVIEW_MODULES = ["RealEffects.tsx", "RealEffectsGallery.tsx"];
 for (const { name, text } of marketingFiles) {
   if (!/\.tsx?$/.test(name)) continue;
+  if (REAL_PREVIEW_MODULES.some((allowed) => name.endsWith(allowed))) continue;
   for (const heavy of HEAVY) {
     ok(!text.includes(`from "../../${heavy}`) && !text.includes(`from "../${heavy}`), `${name}: does not import ${heavy}`);
   }
+  // …and no static import of the heavy preview modules either.
+  ok(
+    !/^import .*from "[^"]*RealEffects/m.test(text),
+    `${name}: reaches the real-effect previews through lazy(), not a static import`
+  );
 }
+// The real-effect modules must actually be the real thing: the studio's own
+// preview components, not a lookalike rebuilt for the website.
+const realEffects = read("src/marketing/components/RealEffects.tsx");
+for (const component of [
+  "components/FilterPreviewCanvas",
+  "components/StickerPreviewCanvas",
+  "components/TemplatePreviewCanvas",
+  "components/CtaOptionThumb",
+  "components/EffectVisualPreview",
+]) {
+  ok(realEffects.includes(component), `the website renders effects with the app's ${component}`);
+}
+// Both entry points into them are lazy.
+ok(
+  read("src/marketing/sections/EffectsLibrary.tsx").includes("lazy(() => import(\"../components/RealEffectsGallery\"))"),
+  "the effects gallery is its own chunk"
+);
+ok(
+  read("src/marketing/sections/VideoStudioSection.tsx").includes("lazy(() =>"),
+  "the live visualiser is its own chunk"
+);
 // Only the marketing entry pulls the stylesheet, so the studio never loads it.
-const cssImporters = marketingFiles.filter((f) => f.text.includes('"./marketing.css"') || f.text.includes("marketing.css"));
+const cssImporters = marketingFiles.filter((f) => /^import "\.\/marketing\.css";/m.test(f.text));
 h.eq(cssImporters.length, 1, "exactly one module imports marketing.css");
 
 /* --------------------------------------------- 8. accessibility */

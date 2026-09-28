@@ -154,13 +154,31 @@ export const DEMO_DIALOGUE: { speaker: string; voiceId: string; line: string; se
   { speaker: "Second voice", voiceId: DEMO_SECOND_VOICE.id, line: "The river chose the city.", seconds: 2.4 },
 ];
 
-/** Music and effect entries on the demonstration timeline. */
+/**
+ * Music and effect entries on the demonstration timeline.
+ *
+ * Every `id` here is a real entry in the app's catalogues and every `name` is
+ * that entry's real name — `tests/marketing.test.ts` looks each one up and
+ * fails if the website starts advertising an effect the studio does not have.
+ * The ids are also what the live previews render, so the page shows the
+ * actual sticker, badge and grade named here.
+ */
 export const DEMO_TIMELINE_EXTRAS = {
-  music: { name: "Gentle Reflection", detail: "Ducked under narration" },
-  soundEffect: { name: "Water chime", at: 18.4 },
-  cta: { name: "Subscribe badge", from: 38, to: 46 },
-  sticker: { name: "Arrow pointer", from: 12, to: 16 },
-  lowerThird: { name: "Where Cities Begin", from: 1.5, to: 6 },
-  filter: { name: "Warm & Gold Glow" },
-  transition: { name: "Crossfade" },
+  music: { id: "gentle_reflection", name: "Gentle Reflection", detail: "Ducked under narration" },
+  soundEffect: { id: "ting", name: "Ting Bell Chime", at: 18.4 },
+  cta: { id: "youtube_subscribe", name: "YouTube — Subscribe", from: 38, to: 46 },
+  sticker: { id: "arrow", name: "Pointer", from: 12, to: 16 },
+  lowerThird: { id: "lt_broadcast_bar", name: "Broadcast Bar", from: 1.5, to: 6 },
+  filter: {
+    id: "golden_hour",
+    name: "Golden Hour Glow",
+    /**
+     * The grade itself, as the app computes it. Copied rather than imported
+     * so the website's first paint does not carry the filter catalogue;
+     * `tests/marketing.test.ts` checks it against getFilterCss() and fails if
+     * the preset is ever retuned.
+     */
+    css: "sepia(0.432) saturate(1.600) contrast(1.216) brightness(1.072) hue-rotate(-6.3deg)",
+  },
+  transition: { id: "crossfade", name: "Crossfade" },
 };

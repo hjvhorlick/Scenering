@@ -1,5 +1,4 @@
 import { useRef } from "react";
-import { navigate, STUDIO_PATH } from "../../lib/route";
 import { useInView, useStageSequence } from "../hooks";
 import { MarketingImage, Pill } from "../components/primitives";
 import AppFrame from "../components/AppFrame";
@@ -67,16 +66,14 @@ export default function Hero() {
             <h1 className="mkt-h1">{MESSAGES.hero}</h1>
             <p className="mkt-lead">{MESSAGES.heroSub}</p>
 
+            {/* No shortcut into the studio here — signing in is a decision
+                for the top of the page, not something to trip over. */}
             <div className="mkt-hero-cta">
-              <button
-                type="button"
-                className="mkt-btn mkt-btn-primary mkt-btn-lg"
-                onClick={() => navigate(STUDIO_PATH)}
-              >
-                Open the studio
-              </button>
-              <a className="mkt-btn mkt-btn-lg" href="#workflow">
+              <a className="mkt-btn mkt-btn-primary mkt-btn-lg" href="#workflow">
                 See how it works
+              </a>
+              <a className="mkt-btn mkt-btn-lg" href="#examples">
+                See what people make
               </a>
             </div>
 

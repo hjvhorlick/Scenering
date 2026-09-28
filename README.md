@@ -18,14 +18,14 @@ keys, no accounts. Projects are saved in your browser's local storage.
 
 There are two front doors on the same server:
 
-| Path   | What it is                                                     |
-| ------ | -------------------------------------------------------------- |
-| `/`    | the website — what Scenering does, shown rather than described |
-| `/app` | the studio — the actual editor                                 |
+| Path   | What it is                                                      |
+| ------ | --------------------------------------------------------------- |
+| `/`    | the website — what Scenering does, shown rather than described  |
+| `/app` | the door: sign in, and the studio loads behind it                |
 
-They are separate bundles (`src/marketing` and `src/App`), lazily loaded, so a
-visitor reading the website never downloads the renderer and someone opening
-the studio never downloads the website's artwork.
+They are separate bundles (`src/marketing`, `src/studio`, `src/App`), lazily
+loaded, so a visitor reading the website never downloads the renderer, and the
+editor is only fetched once someone has signed in.
 
 To run the production build instead:
 
@@ -187,7 +187,29 @@ Four files hold the whole thing together:
   timeline, the captions and the examples all agree with each other.
 - **`marketing.css`** — a self-contained `.mkt-*` design system, imported only
   by `MarketingSite.tsx`. It shares no classes with the studio, so neither
-  side can restyle the other.
+  side can restyle the other — but it is built from the same colours (below).
+
+### One product, one look
+
+The studio ships several themes; **Porcelain** is the default one a new
+visitor gets, and the website is painted in it too. The colours live once, in
+`src/shared/porcelain.css`, as `--pc-*` custom properties copied from the
+theme generator's porcelain palette; `marketing.css` and the sign-in screen
+both `@import` that file and define their own variables in terms of it.
+`tests/marketing.test.ts` checks the values still match the generator, so the
+two halves cannot drift apart.
+
+### Real previews, not pictures of previews
+
+The effects on the page are not screenshots. `components/RealEffects.tsx`
+mounts the studio's own preview canvases — the sticker renderer, the text
+template renderer, the colour grader, the CTA badge, the audio visualiser —
+and the website renders live examples with them. The grade on the finished
+frames is the string the app's own `getFilterCss()` produces. These are the
+only two modules allowed to import the heavy catalogues, they are pulled in
+with `React.lazy` when the section scrolls into view, and everything they
+name (a filter, a sticker, a lower third, a music bed) is checked against the
+real catalogue by the tests.
 
 Artwork pipeline:
 
@@ -203,6 +225,23 @@ The page keeps to a few rules, and the tests enforce them: nothing is claimed
 that the app cannot do, unbuilt ideas are labelled **Coming soon**, mockups
 say they are mockups, the sample data is fictional, there are no real people
 or customer projects, and there is no "go viral" anywhere.
+
+### The door
+
+The website has exactly one way into the editor: **Sign in**, in the
+navigation. There are no "try it now" shortcuts sprinkled through the page and
+no link back out of the studio; `tests/marketing.test.ts` fails if a second
+one appears.
+
+`src/studio/` is that door. There is no account server — Scenering runs
+entirely in your browser — so signing in creates a local profile: a name and a
+passphrase, hashed with PBKDF2 (SHA-256, 210,000 iterations) via the Web
+Crypto API and stored in `localStorage`; the session itself lives in
+`sessionStorage` and ends with the tab. The screen says as much, including
+that a forgotten passphrase means starting over, and that on a page served
+without HTTPS the browser withholds the strong hashing and a weaker fallback
+is used. It keeps other people out of your projects on a shared computer; it
+is not a security boundary against someone with the machine.
 
 ## UI conventions
 

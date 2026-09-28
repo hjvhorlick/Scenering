@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Section, SectionHead, Pill, ComingSoon, FigureNote } from "../components/primitives";
-import { navigate, STUDIO_PATH } from "../../lib/route";
 import { useRovingTabs } from "../hooks";
 import AppFrame from "../components/AppFrame";
 import PlayerFrame from "../components/PlayerFrame";
@@ -103,11 +102,11 @@ export default function Pricing() {
               {entry.availability === "live" ? (
                 <button
                   type="button"
-                  className="mkt-btn mkt-btn-primary"
+                  className="mkt-btn"
                   style={{ width: "100%" }}
-                  onClick={() => navigate(STUDIO_PATH)}
+                  onClick={() => setActive(index)}
                 >
-                  Open the studio
+                  See what is included
                 </button>
               ) : (
                 <button

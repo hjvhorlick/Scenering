@@ -1,10 +1,14 @@
-import { useRef, useState } from "react";
+import { Suspense, lazy, useRef, useState } from "react";
 import { Section, SectionHead, Pill, FigureNote } from "../components/primitives";
 import { useInView, useStageSequence } from "../hooks";
 import AppFrame from "../components/AppFrame";
 import PlayerFrame from "../components/PlayerFrame";
 import TimelineMock, { type TimelineTrack } from "../components/TimelineMock";
-import Waveform from "../components/Waveform";
+
+/** The studio's own visualiser renderer — a separate chunk, loaded on sight. */
+const RealVisualiser = lazy(() =>
+  import("../components/RealEffects").then((m) => ({ default: m.RealVisualiser }))
+);
 import {
   DEMO_CAPTION_STYLE,
   DEMO_SCENES,
@@ -103,6 +107,7 @@ export default function VideoStudioSection() {
                   highlightWord={1}
                   progress={playhead}
                   badge={`Scene ${scene.number} · ${DEMO_TIMELINE_EXTRAS.filter.name}`}
+            grade={DEMO_TIMELINE_EXTRAS.filter.css}
                   sizes="(min-width: 950px) 520px, 92vw"
                 >
                   <span
@@ -154,9 +159,16 @@ export default function VideoStudioSection() {
                   ))}
                 </div>
 
-                <div className="mkt-strip-row" style={{ marginTop: 10 }}>
-                  <span className="mkt-strip-label">◎ Sound visualiser</span>
-                  <Waveform seed="studio-visualiser" bars={40} height={24} live={inView} />
+                {/* The real visualiser, drawn by the render engine rather than
+                    a decorative squiggle. Loaded with the effects gallery. */}
+                <div style={{ marginTop: 10 }}>
+                  <div className="mkt-strip-row" style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}>
+                    <span className="mkt-strip-label">◎ Sound visualiser</span>
+                    <span className="mkt-pill is-plain">{CATALOG_COUNTS.visualisers}</span>
+                  </div>
+                  <Suspense fallback={<div className="mkt-real-loading is-small">Loading…</div>}>
+                    {inView && <RealVisualiser type="minimal_voice" />}
+                  </Suspense>
                 </div>
               </div>
             </div>

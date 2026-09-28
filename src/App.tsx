@@ -28,6 +28,7 @@ import InsertPropertiesModal from "./components/InsertPropertiesModal";
 import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
 import { navigate, SITE_PATH } from "./lib/route";
+import { signOut } from "./lib/session";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "./lib/api-keys";
 import {
   calculateDynamicDuration,
@@ -1260,14 +1261,18 @@ export default function App() {
             />
           </button>
 
-          {/* Back to the public website (the studio lives at /app) */}
+          {/* Sign out. There is no shortcut back into the studio from the
+              public site — the sign-in screen is the only way in. */}
           <button
-            onClick={() => navigate(SITE_PATH)}
+            onClick={() => {
+              signOut();
+              navigate(SITE_PATH);
+            }}
             className="opt-btn shrink-0"
-            title="Back to the Scenering website"
+            title="Sign out and return to the website"
           >
-            <span className="t-ico">←</span>
-            <span className="hidden sm:inline">Website</span>
+            <span className="t-ico">⎋</span>
+            <span className="hidden sm:inline">Sign out</span>
           </button>
 
           <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />

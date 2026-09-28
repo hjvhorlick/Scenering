@@ -1,0 +1,201 @@
+/**
+ * The sign-in screen.
+ *
+ * Deliberately tiny and independent of the studio's Tailwind build: this is
+ * the first thing loaded at /app, and it should paint before the editor's
+ * megabyte arrives. It uses the shared Porcelain tokens, so the door looks
+ * like the website it was opened from.
+ */
+
+@import "../shared/porcelain.css";
+
+.si-page {
+  box-sizing: border-box;
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 24px;
+  padding: 22px;
+  background: var(--pc-backdrop);
+  background-attachment: fixed;
+  color: var(--pc-ink);
+  font-family: var(--pc-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  letter-spacing: 0.008em;
+  -webkit-font-smoothing: antialiased;
+}
+
+.si-page *,
+.si-page *::before,
+.si-page *::after {
+  box-sizing: border-box;
+}
+
+.si-page a {
+  color: var(--pc-accent-ink);
+  text-decoration: none;
+  font-weight: 650;
+}
+
+.si-page a:hover {
+  text-decoration: underline;
+}
+
+.si-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.si-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.si-center {
+  display: grid;
+  place-items: center;
+}
+
+.si-card {
+  width: min(430px, 100%);
+  background: var(--pc-panel);
+  border: 1px solid var(--pc-line-2);
+  border-radius: var(--pc-r-lg);
+  box-shadow: var(--pc-sh-4);
+  padding: 26px;
+  display: grid;
+  gap: 16px;
+}
+
+.si-card h1 {
+  margin: 0;
+  font-family: var(--pc-serif);
+  font-weight: 700;
+  font-size: 32px;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+}
+
+.si-card p {
+  margin: 0;
+  color: var(--pc-ink-3);
+  font-size: 14px;
+}
+
+.si-field {
+  display: grid;
+  gap: 6px;
+}
+
+.si-field label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--pc-ink-3);
+}
+
+.si-field input {
+  font: inherit;
+  font-size: 15px;
+  color: var(--pc-ink);
+  background: #ffffff;
+  border: 1px solid var(--pc-line-3);
+  border-radius: var(--pc-r-sm);
+  padding: 11px 13px;
+  box-shadow: inset 0 1px 2px rgb(126 110 86 / 0.1);
+  width: 100%;
+}
+
+.si-field input:focus-visible {
+  outline: var(--pc-focus);
+  outline-offset: 1px;
+  border-color: var(--pc-accent-mid);
+}
+
+.si-btn {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffffff;
+  background: var(--pc-accent-grad);
+  border: 1px solid var(--pc-accent-edge);
+  border-radius: var(--pc-r-sm);
+  box-shadow: var(--pc-sh-cobalt);
+  padding: 12px 18px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.si-btn:hover:not(:disabled) {
+  background: var(--pc-accent-grad-hover);
+}
+
+.si-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.si-quiet {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--pc-accent-ink);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.si-quiet:hover {
+  text-decoration: underline;
+}
+
+.si-note {
+  background: var(--pc-well);
+  border: 1px solid var(--pc-line);
+  border-radius: var(--pc-r-sm);
+  padding: 13px 14px;
+  font-size: 12.5px;
+  color: var(--pc-ink-4);
+  display: grid;
+  gap: 7px;
+}
+
+.si-note b {
+  color: var(--pc-ink-2);
+}
+
+.si-error {
+  background: var(--pc-rose-soft);
+  border: 1px solid rgb(169 84 107 / 0.3);
+  color: #8c3f54;
+  border-radius: var(--pc-r-sm);
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.si-foot {
+  text-align: center;
+  font-size: 12px;
+  color: var(--pc-ink-5);
+}
+
+.si-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--pc-accent-soft);
+  border: 1px solid var(--pc-accent-line);
+  color: var(--pc-accent-ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}

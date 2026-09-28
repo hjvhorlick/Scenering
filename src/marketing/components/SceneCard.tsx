@@ -1,6 +1,5 @@
 import { MarketingImage } from "./primitives";
-import Waveform from "./Waveform";
-import type { DemoScene } from "../demo-project";
+import { DEMO_VOICE, type DemoScene } from "../demo-project";
 
 /**
  * The scene card — the single most recognisable object in Scenering, and the
@@ -63,7 +62,12 @@ export default function SceneCard({
         <p className="mkt-scene-text">{scene.text}</p>
 
         {showNarration && !compact && (
-          <Waveform seed={scene.number + scene.text} bars={36} height={22} />
+          <div className="mkt-scene-narr">
+            <span className="mkt-scene-narr-ico" aria-hidden="true">🎙</span>
+            <span className="mkt-small">
+              {DEMO_VOICE.name} · {scene.duration.toFixed(1)}s of narration
+            </span>
+          </div>
         )}
 
         <div className="mkt-scene-meta">
