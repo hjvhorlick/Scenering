@@ -80,6 +80,7 @@ import {
 import type { RenderProfileSettings } from "../types";
 import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
 import { OfflineExporter, supported as offlineExportSupported, type OfflineExportConfig } from "../lib/offline-export";
+import { createFrameBudget } from "../lib/yield-to-browser";
 import Icon, { iconify } from "./icons/Icon";
 
 /**
@@ -1326,6 +1327,17 @@ export default function RenderView({
         audioKbps,
         sampleRate: 48_000,
         channels: 2,
+        /**
+         * Upper bounds on how many chunks each track will produce, so the
+         * muxer can reserve room for the index at the front of the file
+         * instead of keeping the whole video in memory and rearranging it at
+         * the end. One chunk per frame for video; AAC works in 1024-sample
+         * frames, so the audio count follows from the duration. Rounded up
+         * generously — reserving slightly too much space costs a few unused
+         * bytes, reserving too little would fail the export.
+         */
+        expectedVideoChunks: Math.ceil(estimatedTotalDuration * fpsUsed) + 2,
+        expectedAudioChunks: Math.ceil((estimatedTotalDuration * 48_000) / 1024) + 8,
       };
       let offlineProbe = await offlineExportSupported(offlineConfig);
 
@@ -1454,6 +1466,7 @@ export default function RenderView({
           const [mixedAudio] = await Promise.all([rendering, ...suspensionTasks]);
           if (abortControllerRef.current) throw new Error("Render cancelled");
 
+          const encodeBudget = createFrameBudget();
           for (let frame = 0; frame < totalFrames; frame++) {
             if (abortControllerRef.current) throw new Error("Render cancelled");
             const time = frame / fpsUsed;
@@ -1469,16 +1482,37 @@ export default function RenderView({
             drawFrameAt(time, telemetry[frame] || null);
             await offlineEncoder.encodeCanvas(canvas, frame);
             if (frame % 4 === 0) {
-              const progress = 0.35 + ((frame + 1) / totalFrames) * 0.57;
-              reportProgress(Math.min(0.92, progress));
+              const progress = 0.35 + ((frame + 1) / totalFrames) * 0.5;
+              reportProgress(Math.min(0.85, progress));
               reportStage(`3/4: Encoding frame ${frame + 1} of ${totalFrames} (frame-exact)…`);
-              await new Promise<void>((resolve) => setTimeout(resolve, 0));
             }
+            // Hand the browser a turn on a time budget rather than every
+            // fourth frame, and through a message rather than a timer —
+            // timers are clamped to a second once the tab is in the
+            // background, which is what made a long render crawl the moment
+            // you looked at something else.
+            await encodeBudget.maybeYield();
           }
-          reportStage("4/4: Encoding sample-exact audio & finalizing container…");
-          reportProgress(0.94);
-          await offlineEncoder.encodeAudio(mixedAudio);
+
+          /**
+           * Everything past this point used to sit behind a single 94% and a
+           * frozen window: the soundtrack was encoded in one unbroken loop,
+           * then the container was assembled in another. On a nine-minute
+           * video that is a long time to look at a bar that is not moving,
+           * and long enough to look like a crash. Both now yield, and both
+           * report where they are.
+           */
+          reportStage("4/4: Encoding sample-exact audio…");
+          reportProgress(0.86);
+          await offlineEncoder.encodeAudio(mixedAudio, 4_800, (fraction) => {
+            reportProgress(0.86 + fraction * 0.08);
+          });
+
+          reportStage("4/4: Finalising the container…");
+          reportProgress(0.95);
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
           const offlineBlob = await offlineEncoder.finalize();
+          reportProgress(0.98);
           offlineMastering.dispose();
           offlineEcho?.dispose();
           offlineInsertMixer.dispose();

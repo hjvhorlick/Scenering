@@ -1,5 +1,6 @@
-import { Muxer as Mp4Muxer, ArrayBufferTarget as Mp4Target } from "mp4-muxer";
-import { Muxer as WebMMuxer, ArrayBufferTarget as WebMTarget } from "webm-muxer";
+import { Muxer as Mp4Muxer, StreamTarget as Mp4Target } from "mp4-muxer";
+import { Muxer as WebMMuxer, StreamTarget as WebMTarget } from "webm-muxer";
+import { createFrameBudget, yieldToBrowser } from "./yield-to-browser";
 
 export type OfflineContainer = "mp4" | "webm";
 
@@ -12,6 +13,21 @@ export interface OfflineExportConfig {
   audioKbps: number;
   sampleRate?: number;
   channels?: number;
+  /**
+   * How many frames the render will produce, if it is known up front.
+   *
+   * MP4 keeps its index (the `moov` atom) either at the front of the file or
+   * at the back. At the front is what lets a player start without the whole
+   * file, but the muxer can only do that if it knows how much room to leave —
+   * otherwise it has to hold the entire video in memory and shuffle it into
+   * place at the end, which on a long render is hundreds of megabytes moved
+   * in one synchronous go, right at the finish.
+   *
+   * Given the frame count it reserves the space instead, and the file streams
+   * out as it is written.
+   */
+  expectedVideoChunks?: number;
+  expectedAudioChunks?: number;
 }
 
 export interface OfflineSupport {
@@ -127,6 +143,108 @@ export async function supported(config: OfflineExportConfig): Promise<OfflineSup
   };
 }
 
+
+/**
+ * Where the muxed file accumulates.
+ *
+ * `ArrayBufferTarget`, which this used to use, keeps the whole file in one
+ * contiguous buffer and grows it by allocating a bigger one and copying. At
+ * the end the finished buffer is copied again into a Blob. For a nine-minute
+ * 1080p export that is roughly 540 MB of file, about a gigabyte while it is
+ * being grown, and another copy on top to hand it over — enough to take the
+ * tab down, and all of it happening in the last few seconds of a render that
+ * has already been going for a while.
+ *
+ * Keeping the pieces as a list instead costs one copy of each piece and no
+ * reallocation. A Blob built from many small buffers does not need them to be
+ * contiguous and the browser is free to spill it to disk, so the peak is
+ * roughly the size of the file rather than three times it.
+ *
+ * The muxer mostly appends, but it does seek back to patch box sizes, and —
+ * when space has been reserved for it — to write the index at the front. So
+ * writes have to be accepted at any position, not just at the end.
+ */
+export class ChunkStore {
+  /** Appended pieces, in file order. `end` is exclusive. */
+  private parts: Array<{ start: number; end: number; data: Uint8Array<ArrayBuffer> }> = [];
+  private size = 0;
+
+  get byteLength(): number {
+    return this.size;
+  }
+
+  write(data: Uint8Array, position: number): void {
+    if (data.byteLength === 0) return;
+
+    // The common case by far: the next piece of the file.
+    if (position === this.size) {
+      const copy = new Uint8Array(new ArrayBuffer(data.byteLength));
+      copy.set(data);
+      this.parts.push({ start: position, end: position + copy.byteLength, data: copy });
+      this.size += copy.byteLength;
+      return;
+    }
+
+    // A patch into what has already been written.
+    if (position < this.size) {
+      this.patch(data, position);
+      const overrun = position + data.byteLength - this.size;
+      if (overrun > 0) this.write(data.subarray(data.byteLength - overrun), this.size);
+      return;
+    }
+
+    // A write past the end: pad the hole, then append. The muxer does this
+    // when it reserves room for the index it will come back and fill in.
+    const gap = position - this.size;
+    const pad = new Uint8Array(new ArrayBuffer(gap));
+    this.parts.push({ start: this.size, end: position, data: pad });
+    this.size = position;
+    this.write(data, position);
+  }
+
+  /** Overwrite bytes already stored, across as many pieces as it spans. */
+  private patch(data: Uint8Array, position: number): void {
+    const limit = Math.min(position + data.byteLength, this.size);
+    let index = this.indexOf(position);
+    let cursor = position;
+
+    while (cursor < limit && index < this.parts.length) {
+      const part = this.parts[index];
+      const from = cursor - part.start;
+      const take = Math.min(part.end, limit) - cursor;
+      part.data.set(data.subarray(cursor - position, cursor - position + take), from);
+      cursor += take;
+      index += 1;
+    }
+  }
+
+  /** Binary search for the piece containing `position`. */
+  private indexOf(position: number): number {
+    let low = 0;
+    let high = this.parts.length - 1;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      const part = this.parts[mid];
+      if (position < part.start) high = mid - 1;
+      else if (position >= part.end) low = mid + 1;
+      else return mid;
+    }
+    return this.parts.length;
+  }
+
+  /**
+   * Hand the file over as a Blob. Single use: the pieces are released as they
+   * are handed on, so the store and the Blob are never both fully resident.
+   */
+  toBlob(type: string): Blob {
+    const blob = new Blob(this.parts.map((part) => part.data), { type });
+    // Let the pieces go before the Blob is handed on, so the two are never
+    // both fully resident.
+    this.parts = [];
+    return blob;
+  }
+}
+
 type MuxerLike = {
   addVideoChunk(chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata): void;
   addAudioChunk(chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata): void;
@@ -135,11 +253,12 @@ type MuxerLike = {
 
 /** Owns the encoders and muxer for a deterministic, non-real-time export. */
 export class OfflineExporter {
-  readonly config: Required<OfflineExportConfig>;
+  readonly config: Required<Omit<OfflineExportConfig, "expectedVideoChunks" | "expectedAudioChunks">> &
+    Pick<OfflineExportConfig, "expectedVideoChunks" | "expectedAudioChunks">;
   private readonly video: VideoEncoder;
   private readonly audio: AudioEncoder;
   private readonly muxer: MuxerLike;
-  private readonly target: { buffer: ArrayBuffer };
+  private readonly store = new ChunkStore();
   private readonly mime: string;
   private failure: Error | null = null;
 
@@ -149,21 +268,31 @@ export class OfflineExporter {
     this.config = { ...config, sampleRate: config.sampleRate ?? 48_000, channels: config.channels ?? 2 };
     const fail = (error: DOMException) => { this.failure = new Error(error.message || "WebCodecs encoding failed"); };
 
+    const onData = (data: Uint8Array, position: number) => this.store.write(data, position);
+
     if (config.container === "mp4") {
-      const target = new Mp4Target();
-      this.target = target;
       this.muxer = new Mp4Muxer({
-        target,
+        target: new Mp4Target({ onData }),
         video: { codec: "avc", width: config.width, height: config.height, frameRate: config.fps },
         audio: { codec: "aac", numberOfChannels: this.config.channels, sampleRate: this.config.sampleRate },
-        fastStart: "in-memory",
+        /**
+         * Reserve room for the index rather than holding the whole file to
+         * shuffle it into place at the end. Needs an upper bound on the chunk
+         * counts; without one we fall back to writing the index last, which
+         * still streams — the file simply is not fast-start.
+         */
+        fastStart:
+          config.expectedVideoChunks && config.expectedAudioChunks
+            ? {
+                expectedVideoChunks: config.expectedVideoChunks,
+                expectedAudioChunks: config.expectedAudioChunks,
+              }
+            : false,
       });
       this.mime = "video/mp4";
     } else {
-      const target = new WebMTarget();
-      this.target = target;
       this.muxer = new WebMMuxer({
-        target,
+        target: new WebMTarget({ onData }),
         video: { codec: probe.videoCodec.startsWith("vp8") ? "V_VP8" : "V_VP9", width: config.width, height: config.height, frameRate: config.fps },
         audio: { codec: "A_OPUS", numberOfChannels: this.config.channels, sampleRate: this.config.sampleRate },
       });
@@ -204,13 +333,34 @@ export class OfflineExporter {
     }
   }
 
-  async encodeAudio(buffer: AudioBuffer, chunkFrames = 4_800): Promise<void> {
+  /**
+   * Encode the whole mixed soundtrack.
+   *
+   * This used to hand control back only when the encoder's queue was full.
+   * When the encoder keeps up — which it does, because AAC is cheap next to
+   * H.264 — the queue never fills, nothing is awaited, and the loop runs to
+   * completion in one go. Nine minutes of audio is 5,400 turns of it, and the
+   * window is frozen solid for every one of them. That is the stall at the
+   * end of a long render, when the progress bar has stopped at the last step
+   * and the tab stops responding.
+   *
+   * It now yields on a time budget as well, so the browser gets a turn
+   * several times a second no matter how fast the encoder is going.
+   */
+  async encodeAudio(
+    buffer: AudioBuffer,
+    chunkFrames = 4_800,
+    onProgress?: (fraction: number) => void,
+  ): Promise<void> {
     const channels = this.config.channels;
+    const budget = createFrameBudget();
     for (let offset = 0; offset < buffer.length; offset += chunkFrames) {
       while (this.audio.encodeQueueSize > 8) {
         this.throwIfFailed();
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        await yieldToBrowser();
       }
+      await budget.maybeYield();
+      onProgress?.(Math.min(1, offset / Math.max(1, buffer.length)));
       const frames = Math.min(chunkFrames, buffer.length - offset);
       const planar = new Float32Array(frames * channels);
       for (let channel = 0; channel < channels; channel++) {
@@ -229,13 +379,21 @@ export class OfflineExporter {
     }
   }
 
+  /** Bytes written so far — useful for reporting progress on a long render. */
+  get bytesWritten(): number {
+    return this.store.byteLength;
+  }
+
   async finalize(): Promise<Blob> {
+    // Both encoders still have work queued at this point; flushing is where
+    // the last of the video actually gets encoded, and on a long render that
+    // is not instant.
     await Promise.all([this.video.flush(), this.audio.flush()]);
     this.throwIfFailed();
     this.video.close();
     this.audio.close();
     this.muxer.finalize();
-    return new Blob([this.target.buffer], { type: this.mime });
+    return this.store.toBlob(this.mime);
   }
 
   close(): void {
