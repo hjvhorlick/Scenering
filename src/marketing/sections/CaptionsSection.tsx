@@ -6,6 +6,7 @@ import PlayerFrame from "../components/PlayerFrame";
 import { CAPTION_STYLES, loadCaptionFonts } from "../../data/caption-styles";
 import { DEMO_SCENES } from "../demo-project";
 import { HONESTY, LIVE_COUNTS, MESSAGES } from "../product-facts";
+import Icon from "../../components/icons/Icon";
 
 /**
  * Captions.
@@ -130,7 +131,7 @@ export default function CaptionsSection() {
                           </span>
                         ) : (
                           <span className="mkt-pill is-plain" style={{ fontSize: 9.5 }}>
-                            🔒 SceneFlow
+                            <Icon glyph="🔒" /> SceneFlow
                           </span>
                         )}
                       </span>

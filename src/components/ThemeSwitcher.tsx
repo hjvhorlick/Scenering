@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme, getThemeDef } from "../lib/themes";
+import Icon from "./icons/Icon";
 
 /**
  * Theme picker for the top-right corner of the app header.
@@ -45,7 +46,7 @@ export default function ThemeSwitcher() {
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className="t-ico">🎨</span>
+        <Icon glyph="🎨" />
         <span className="hidden sm:inline">Theme</span>
         {/* live palette dot preview of the active theme */}
         <span className="hidden sm:flex items-center -space-x-1">
@@ -67,7 +68,7 @@ export default function ThemeSwitcher() {
           className="t-theme-menu absolute right-0 top-full mt-2 w-72 max-w-[85vw] z-[80] bg-gray-900/95 border border-hairline rounded-2xl shadow-2xl p-1.5 backdrop-blur-md animate-fade-in"
         >
           <div className="px-2.5 pt-1.5 pb-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
-            <span className="t-ico">🖌️</span>
+            <Icon glyph="🖌" />
             <span>Choose your look &amp; feel</span>
           </div>
           {themes.map((t) => {
@@ -94,7 +95,7 @@ export default function ThemeSwitcher() {
                     <span className={`text-xs font-semibold ${isActive ? "text-white" : "text-gray-200"}`}>
                       {t.name}
                     </span>
-                    {isActive && <span className="text-[10px] text-indigo-300 font-bold">✓ Active</span>}
+                    {isActive && <span className="text-[10px] text-indigo-300 font-bold"><Icon glyph="✓" /> Active</span>}
                   </span>
                   <span className="block text-[10px] text-gray-400 leading-snug truncate" title={t.tagline}>
                     {t.tagline}

@@ -30,6 +30,7 @@ import {
 import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import { loadSceneImage } from "../lib/scene-image-loader";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
+import Icon from "./icons/Icon";
 
 interface VideoPreviewProps {
   scenes: Scene[];
@@ -1618,7 +1619,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
           {/* Hint Overlay when hovering canvas */}
           <div className="absolute bottom-2 right-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur px-2.5 py-1 rounded-md text-[11px] text-gray-300 border border-hairline">
-            🖱️ Drag elements to reposition
+            <Icon glyph="🖱" /> Drag elements to reposition
           </div>
 
           {loadingAudio && (

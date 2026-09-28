@@ -5,6 +5,7 @@ import { useInView } from "../hooks";
 import { STUDIO_VOICE_PRESETS } from "../../data/voice-presets";
 import { DEMO_DIALOGUE, DEMO_SCENES, DEMO_TOTAL_SECONDS, formatDuration } from "../demo-project";
 import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES, NARRATION_CHAIN, PLANS } from "../product-facts";
+import Icon from "../../components/icons/Icon";
 
 /**
  * The studio's own visualiser renderer. It carries the effect catalogue with
@@ -163,7 +164,7 @@ export default function VoiceSection() {
                   <Pill>{active.accent}</Pill>
                   <Pill tone="plain">{active.tone}</Pill>
                   <button type="button" className="mkt-mini-btn" style={{ marginLeft: "auto" }}>
-                    ▶ Preview voice
+                    <Icon glyph="▶" /> Preview voice
                   </button>
                 </div>
                 <p className="mkt-small" style={{ marginTop: 8 }}>
@@ -173,7 +174,7 @@ export default function VoiceSection() {
                     listen — the studio's own renderer, not a picture of it. */}
                 <div style={{ marginTop: 10 }} ref={monitorRef}>
                   <div className="mkt-strip-row is-head">
-                    <span className="mkt-strip-label">◎ Sound visualiser</span>
+                    <span className="mkt-strip-label"><Icon glyph="◎" /> Sound visualiser</span>
                     <span className="mkt-pill is-plain">{CATALOG_COUNTS.visualisers} styles</span>
                   </div>
                   <Suspense fallback={<div className="mkt-real-loading is-small">Loading the real one…</div>}>

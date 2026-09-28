@@ -1,5 +1,6 @@
 import { MarketingImage } from "./primitives";
 import { DEMO_VOICE, type DemoScene } from "../demo-project";
+import Icon from "../../components/icons/Icon";
 
 /**
  * The scene card — the single most recognisable object in Scenering, and the
@@ -81,7 +82,7 @@ export default function SceneCard({
               ⟳ {replaceLabel}
             </button>
             <button type="button" className="mkt-mini-btn">
-              ✎ Edit text
+              <Icon glyph="✎" /> Edit text
             </button>
             <button type="button" className="mkt-mini-btn">
               ⤢ Crop

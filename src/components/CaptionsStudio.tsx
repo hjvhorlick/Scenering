@@ -14,6 +14,7 @@ import {
   resolveCaptionStyleId,
   type CaptionStyleDef,
 } from "../data/caption-styles";
+import Icon, { iconify } from "./icons/Icon";
 
 interface CaptionsStudioProps {
   scenes: Scene[];
@@ -512,7 +513,7 @@ export default function CaptionsStudio({
                       {style.background === "blocked" ? "backdrop" : "no box"}
                     </span>
                   </div>
-                  {isSelected && <span className="text-[10px] font-bold text-purple-400">✓ Active</span>}
+                  {isSelected && <span className="text-[10px] font-bold text-purple-400"><Icon glyph="✓" /> Active</span>}
                 </div>
               </div>
             );
@@ -796,7 +797,7 @@ export default function CaptionsStudio({
                       : "bg-gray-800 border-hairline text-gray-400 hover:text-white"
                   }`}
                 >
-                  <span>{(scene.burn_caption ?? true) ? "✓ Caption Active" : "✕ Disabled"}</span>
+                  <span>{iconify((scene.burn_caption ?? true) ? "✓ Caption Active" : "✕ Disabled")}</span>
                 </button>
               </div>
             </div>

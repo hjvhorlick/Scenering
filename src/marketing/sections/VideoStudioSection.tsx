@@ -17,6 +17,7 @@ import {
   formatDuration,
 } from "../demo-project";
 import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES } from "../product-facts";
+import Icon from "../../components/icons/Icon";
 
 /**
  * Video Studio — the largest demonstration on the page, because it is the
@@ -114,7 +115,7 @@ export default function VideoStudioSection() {
                     className="mkt-chip"
                     style={{ position: "absolute", right: 9, top: 9, fontSize: 10 }}
                   >
-                    ▶ Subscribe
+                    <Icon glyph="▶" /> Subscribe
                   </span>
                 </PlayerFrame>
                 <div className="mkt-chiprow" style={{ marginTop: 9 }}>
@@ -163,7 +164,7 @@ export default function VideoStudioSection() {
                     a decorative squiggle. Loaded with the effects gallery. */}
                 <div style={{ marginTop: 10 }}>
                   <div className="mkt-strip-row" style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}>
-                    <span className="mkt-strip-label">◎ Sound visualiser</span>
+                    <span className="mkt-strip-label"><Icon glyph="◎" /> Sound visualiser</span>
                     <span className="mkt-pill is-plain">{CATALOG_COUNTS.visualisers}</span>
                   </div>
                   <Suspense fallback={<div className="mkt-real-loading is-small">Loading…</div>}>
@@ -177,7 +178,7 @@ export default function VideoStudioSection() {
 
             <div className="mkt-chiprow">
               <span className="mkt-chip">↶ Undo</span>
-              <span className="mkt-chip">▶ Preview timeline</span>
+              <span className="mkt-chip"><Icon glyph="▶" /> Preview timeline</span>
               <span className="mkt-chip is-on">⤓ Render · MP4 1080p</span>
             </div>
           </div>

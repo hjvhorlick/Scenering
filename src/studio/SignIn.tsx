@@ -9,6 +9,8 @@ import {
 } from "../lib/session";
 import { navigate, SITE_PATH } from "../lib/route";
 import logo from "../assets/scenering-logo.png";
+import Icon from "../components/icons/Icon";
+import IconSprite from "../components/icons/IconSprite";
 
 /**
  * The door to the studio.
@@ -53,10 +55,11 @@ export default function SignIn() {
 
   return (
     <div className="si-page">
+      <IconSprite />
       <header className="si-top">
         <img src={logo} alt="Scenering" height={30} style={{ height: 30, width: "auto" }} />
         <a className="si-back" href={SITE_PATH} onClick={(e) => { e.preventDefault(); navigate(SITE_PATH); }}>
-          ← Back to the website
+          <Icon glyph="←" /> Back to the website
         </a>
       </header>
 

@@ -13,6 +13,7 @@ import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
 import { wantsCentreLogo } from "../lib/render-visualizers";
 import { MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { startPreviewLoop } from "../lib/preview-loop";
+import Icon from "./icons/Icon";
 
 interface EffectVisualPreviewProps {
   item: CatalogItem;
@@ -299,8 +300,8 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
             <span className="text-[10px] font-black text-amber-300 tracking-widest uppercase drop-shadow">YOUR BRAND</span>
             <span className="text-[8px] text-amber-200/80 font-serif italic">Presents An Original Story</span>
           </div>
-          <div className="absolute top-1 left-2 text-[8px] font-mono text-amber-400/80 bg-amber-950/70 px-1.5 py-0.2 rounded border border-amber-700/40">
-            🎬 Intro Video
+          <div className="absolute top-1 left-2 text-[8px] font-mono text-amber-400/80 bg-amber-950/70 px-1.5 py-0.2 rounded">
+            <Icon glyph="🎬" /> Intro Video
           </div>
         </div>
       );
@@ -317,8 +318,8 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
             <span className="text-[10px] font-black text-cyan-300 tracking-wider font-mono">CYBERPUNK MEDIA</span>
             <span className="text-[8px] text-pink-400 font-mono">Next-Gen Visuals</span>
           </div>
-          <div className="absolute top-1 left-2 text-[8px] font-mono text-cyan-400 bg-cyan-950/70 px-1.5 py-0.2 rounded border border-cyan-700/40">
-            🎬 Tech Intro
+          <div className="absolute top-1 left-2 text-[8px] font-mono text-cyan-400 bg-cyan-950/70 px-1.5 py-0.2 rounded">
+            <Icon glyph="🎬" /> Tech Intro
           </div>
         </div>
       );
@@ -334,8 +335,8 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
           <span className="text-[10px] font-bold text-white tracking-wider">{item.name}</span>
           <span className="text-[8px] text-indigo-300">With Logo Reveal</span>
         </div>
-        <div className="absolute top-1 left-2 text-[8px] font-mono text-indigo-400 bg-indigo-950/70 px-1.5 py-0.2 rounded border border-indigo-700/40">
-          🎬 Video Intro
+        <div className="absolute top-1 left-2 text-[8px] font-mono text-indigo-400 bg-indigo-950/70 px-1.5 py-0.2 rounded">
+          <Icon glyph="🎬" /> Video Intro
         </div>
       </div>
     );
@@ -365,8 +366,8 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
             <span>▶️</span>
             <span>PLAYLIST</span>
           </div>
-          <div className="absolute top-1 left-2 text-[8px] font-mono text-red-400 bg-red-950/70 px-1.5 py-0.2 rounded border border-red-700/40">
-            🏁 YouTube End-Slate
+          <div className="absolute top-1 left-2 text-[8px] font-mono text-red-400 bg-red-950/70 px-1.5 py-0.2 rounded">
+            <Icon glyph="🏁" /> YouTube End-Slate
           </div>
         </div>
       );

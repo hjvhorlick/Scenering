@@ -13,6 +13,7 @@ import {
   formatDuration,
 } from "../demo-project";
 import { HONESTY } from "../product-facts";
+import Icon from "../../components/icons/Icon";
 
 /**
  * Before and after.
@@ -78,14 +79,14 @@ export default function BeforeAfter() {
           />
 
           <div className="mkt-strip-row" style={{ marginTop: 10 }}>
-            <span className="mkt-strip-label">🎙 Narration</span>
+            <span className="mkt-strip-label"><Icon glyph="🎙" /> Narration</span>
             <span className="mkt-small">
               {DEMO_VOICE.name} · {DEMO_VOICE.accent} · {formatDuration(DEMO_TOTAL_SECONDS)}
             </span>
           </div>
 
           <div className="mkt-strip-row" style={{ marginTop: 8 }}>
-            <span className="mkt-strip-label">💬 Captions</span>
+            <span className="mkt-strip-label"><Icon glyph="💬" /> Captions</span>
             <span className="mkt-capstage">
               <CaptionLine text={DEMO_SCENES[4].caption} style={DEMO_CAPTION_STYLE} size={14} highlightWord={3} />
             </span>

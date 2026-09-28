@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Scene, TimelineInsert } from "../types";
 import { calculateDynamicDuration } from "../lib/duration-utils";
+import Icon from "./icons/Icon";
 
 interface TimelineProps {
   scenes: Scene[];
@@ -523,10 +524,10 @@ export default function Timeline({
      gap, then a small inset so it never covers the arrow button. */
   const laneChip = (top: number, label: string, icon: string) => (
     <div
-      className="absolute z-30 pointer-events-none flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-950/85 border border-hairline text-[9px] font-bold uppercase tracking-wider text-gray-300 shadow"
+      className="absolute z-30 pointer-events-none flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-950/85 text-[9px] font-bold uppercase tracking-wider text-gray-300 shadow"
       style={{ top, left: 42 }}
     >
-      <span className="t-ico">{icon}</span>
+      <Icon glyph={icon} />
       <span>{label}</span>
     </div>
   );
@@ -767,7 +768,7 @@ export default function Timeline({
                               isIntro ? "text-amber-300" : isOutro ? "text-rose-300" : "text-gray-200"
                             }`}
                           >
-                            {block.type === "scene" && <span className="t-ico">✏️</span>}
+                            {block.type === "scene" && <Icon glyph="✏" />}
                             {block.title}
                           </span>
                           {width > 74 && (
@@ -868,7 +869,7 @@ export default function Timeline({
           {selectedInsert ? (
             <div className="flex flex-wrap items-center gap-2 bg-indigo-950/60 border border-indigo-700/60 px-2.5 py-1 rounded-lg">
               <span className="text-yellow-400 font-semibold flex items-center gap-1">
-                <span className="t-ico">{CATEGORY_ICON[selectedInsert.category] || "🎬"}</span>
+                <Icon glyph={CATEGORY_ICON[selectedInsert.category] || "🎬"} />
                 Selected: {selectedInsert.title}
               </span>
               <span className="text-gray-400 font-mono text-[10px]">
@@ -880,7 +881,7 @@ export default function Timeline({
                   onClick={() => onEditInsertDetails(selectedInsert)}
                   className="t-card-cta-ghost px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-yellow-300 text-[10px] font-medium border border-hairline ml-1"
                 >
-                  ✏️ Edit
+                  <Icon glyph="✏" /> Edit
                 </button>
               )}
               <button
@@ -888,7 +889,7 @@ export default function Timeline({
                 onClick={() => onDeleteInsert(selectedInsert.id)}
                 className="px-2 py-0.5 rounded bg-red-950 hover:bg-red-800 text-red-200 text-[10px] font-medium border border-red-700/70"
               >
-                🗑️ Delete Effect
+                <Icon glyph="🗑" /> Delete Effect
               </button>
             </div>
           ) : inserts.length === 0 ? (
@@ -907,7 +908,7 @@ export default function Timeline({
           <span>
             Playhead: <span className="text-amber-300 font-bold">{formatTime(currentTime)}</span>
           </span>
-          {isPlaying && <span className="text-emerald-300 font-bold animate-pulse">▶ playing</span>}
+          {isPlaying && <span className="text-emerald-300 font-bold animate-pulse"><Icon glyph="▶" /> playing</span>}
         </div>
       </div>
     </div>

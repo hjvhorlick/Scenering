@@ -13,6 +13,7 @@ import FiltersStudio from "./FiltersStudio";
 import SectionStudio from "./SectionStudio";
 import type { VideoFilterConfig } from "../data/video-filters";
 import type { SectionConfig } from "../data/intro-outro";
+import Icon, { iconify } from "./icons/Icon";
 
 interface VideoStudioProps {
   currentPlayheadTime: number;
@@ -320,7 +321,7 @@ export default function VideoStudio({
                 onClick={() => setSelectedSubcategory(sub.id)}
                 className={`t-spill opt-btn ${isSubSelected ? "t-spill-active opt-btn-on bg-indigo-600 text-white shadow-md" : "bg-gray-800/70 text-gray-300 hover:bg-gray-700/80 hover:text-white"}`}
               >
-                <span className="t-ico">{sub.icon}</span>
+                <Icon glyph={sub.icon} />
                 <span>{sub.name}</span>
               </button>
             );
@@ -467,7 +468,7 @@ export default function VideoStudio({
                                     : "bg-gray-800 hover:bg-indigo-950 border-hairline hover:border-indigo-500 text-emerald-400 hover:text-emerald-300"
                                 }`}
                               >
-                                <span>{isPlaying ? "⏹️" : "▶️"}</span>
+                                <span>{iconify(isPlaying ? "⏹️" : "▶️")}</span>
                                 <span>
                                   {isPlaying ? "Off" : "Test"}
                                 </span>
@@ -557,7 +558,7 @@ export default function VideoStudio({
                           className="t-card-cta-ghost px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-hairline rounded-lg text-xs transition-colors"
                           title="Customise before placing"
                         >
-                          ⚙️ Edit
+                          <Icon glyph="⚙" /> Edit
                         </button>
                       </div>
                     </div>

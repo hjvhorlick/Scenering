@@ -23,6 +23,8 @@ import Pricing from "./sections/Pricing";
 import FinalCta from "./sections/FinalCta";
 import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES } from "./product-facts";
 import { MARKETING_ASSETS } from "./assets";
+import IconSprite from "../components/icons/IconSprite";
+import { iconify } from "../components/icons/Icon";
 
 /**
  * The public website.
@@ -98,6 +100,7 @@ export default function MarketingSite() {
 
   return (
     <div className="mkt-root">
+      <IconSprite />
       <a className="mkt-skip" href="#main">
         Skip to content
       </a>
@@ -127,7 +130,7 @@ export default function MarketingSite() {
               aria-controls="mkt-nav-panel"
               onClick={() => setMenuOpen((open) => !open)}
             >
-              <span aria-hidden="true">{menuOpen ? "✕" : "☰"}</span>
+              <span aria-hidden="true">{iconify(menuOpen ? "✕" : "☰")}</span>
               <span>Sections</span>
             </button>
 

@@ -1,0 +1,107 @@
+/* ============================================================
+   Icon sizing — shared by the website and the studio.
+
+   The icons these replace were operating-system emoji sitting at the text
+   size, which on a 13px label is a picture about 12px tall. These sit at
+   1.75em, so roughly twice the height, and they carry a drop shadow so the
+   drawn bevel reads as raised rather than flat.
+
+   The negative block margins are the important part: the icon is taller than
+   the line it sits on, so without them every button and every row would grow.
+   With them, a label with an icon occupies the same line height as one
+   without, and nothing in the layout moves.
+   ============================================================ */
+
+.ico {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 1.75em;
+  height: 1.75em;
+  /* Sit on the text baseline instead of above it. */
+  vertical-align: -0.55em;
+  /* Grow past the line box without pushing it open. */
+  margin-block: -0.55em;
+  /* The raised look. A drawn bevel needs a cast shadow to finish it. */
+  filter: drop-shadow(0 1px 1.5px rgba(8, 31, 77, 0.34));
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ico-sm {
+  width: 1.45em;
+  height: 1.45em;
+  vertical-align: -0.4em;
+  margin-block: -0.4em;
+  filter: drop-shadow(0 1px 1px rgba(8, 31, 77, 0.3));
+}
+
+.ico-lg {
+  width: 2.3em;
+  height: 2.3em;
+  vertical-align: -0.8em;
+  margin-block: -0.8em;
+  filter: drop-shadow(0 2px 3px rgba(8, 31, 77, 0.32));
+}
+
+/* A glyph with no drawing yet still gets the new size, so a row of icons
+   stays on one line while the set is being filled in. */
+.ico-glyph {
+  line-height: 1;
+  font-size: 1.15em;
+  text-align: center;
+  filter: none;
+}
+
+/* Pressed controls push their icon down with them. */
+button:active > .ico,
+[role="button"]:active > .ico {
+  filter: drop-shadow(0 0 1px rgba(8, 31, 77, 0.4));
+  transform: translateY(1px);
+}
+
+/* A disabled control's icon should read as unavailable, not as decoration. */
+button:disabled > .ico,
+[aria-disabled="true"] > .ico {
+  filter: grayscale(0.7) opacity(0.55);
+}
+
+/* ------------------------------------------------------------
+   No border unless it is a button.
+
+   Icons that only label a word are not controls, so they must not be drawn
+   with the box, outline or ring of one. Anything that is genuinely clickable
+   keeps its own styling from the component that owns it.
+   ------------------------------------------------------------ */
+
+:where(span, div, figure, li, dt, h1, h2, h3, h4, h5, h6, label, p, td, th) > .ico,
+:where(span, div, figure, li, dt, h1, h2, h3, h4, h5, h6, label, p, td, th) > .ico-glyph {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: none;
+  padding: 0;
+}
+
+/* The old emoji wrapper, kept so themes that style it keep working. It is a
+   label, never a control, so it carries no box of its own. */
+.t-ico {
+  display: inline-block;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:active > .ico,
+  [role="button"]:active > .ico {
+    transform: none;
+  }
+}
+
+/* Printed pages get the shape without the gloss. */
+@media print {
+  .ico {
+    filter: none;
+  }
+}

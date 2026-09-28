@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Scene } from "../types";
 import { sceneDurationForText } from "../lib/duration-utils";
+import Icon from "./icons/Icon";
 
 interface SceneClipPanelProps {
   scene: Scene;
@@ -139,7 +140,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
           className="px-2 py-1 rounded-lg border border-hairline bg-gray-900/60 text-[11px] text-gray-400 hover:text-white hover:border-indigo-600 transition-colors flex items-center gap-1"
           title="Use a short video clip for this scene instead of a still image"
         >
-          🎬 Add video clip
+          <Icon glyph="🎬" /> Add video clip
         </button>
         {loadError && <span className="text-[10px] text-rose-400">{loadError}</span>}
       </div>
@@ -151,7 +152,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-white flex items-center gap-1.5">
-            🎬 Short video clip
+            <Icon glyph="🎬" /> Short video clip
           </span>
           {isInserted && (
             <span className="px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700/60 text-[10px] font-semibold">
@@ -243,7 +244,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
                   onClick={fitToNarration}
                   className="w-full px-2 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg font-semibold transition-colors"
                 >
-                  ✂️ Cut clip to fit the narration ({fmt(narrationDuration)})
+                  <Icon glyph="✂" /> Cut clip to fit the narration ({fmt(narrationDuration)})
                 </button>
               )}
             </div>

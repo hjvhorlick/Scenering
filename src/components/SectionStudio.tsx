@@ -13,6 +13,7 @@ import {
 } from "../data/intro-outro";
 import SectionPreviewCanvas from "./SectionPreviewCanvas";
 import type { AspectRatioType } from "../types";
+import Icon, { iconify } from "./icons/Icon";
 
 interface Props {
   kind: SectionKind;
@@ -206,7 +207,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
               onClick={disable}
               className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-hairline text-gray-300 rounded-lg text-xs font-semibold"
             >
-              ✕ Remove {isIntro ? "Intro" : "Outro"}
+              <Icon glyph="✕" /> Remove {isIntro ? "Intro" : "Outro"}
             </button>
           ) : (
             <button
@@ -214,7 +215,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
               onClick={enable}
               className={`px-4 py-1.5 bg-gradient-to-r ${accentBtn} rounded-lg text-xs font-bold shadow`}
             >
-              ➕ Add {isIntro ? "Intro" : "Outro"}
+              <Icon glyph="➕" /> Add {isIntro ? "Intro" : "Outro"}
             </button>
           )}
         </div>
@@ -248,7 +249,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
               onClick={enable}
               className={`mt-4 px-5 py-2 bg-gradient-to-r ${accentBtn} rounded-lg text-sm font-bold shadow`}
             >
-              ➕ Add {isIntro ? "Intro" : "Outro"}
+              <Icon glyph="➕" /> Add {isIntro ? "Intro" : "Outro"}
             </button>
           </div>
         </div>
@@ -276,7 +277,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                 onClick={() => setRestartKey((k) => k + 1)}
                 className="flex-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-200 rounded-lg text-xs font-semibold"
               >
-                ↻ Replay
+                <Icon glyph="↻" /> Replay
               </button>
               {activeSound && (
                 <button
@@ -332,7 +333,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                       onClick={() => mediaInputRef.current?.click()}
                       className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-semibold"
                     >
-                      ⬆ Upload my own video / image
+                      <Icon glyph="⬆" /> Upload my own video / image
                     </button>
                     <input
                       ref={mediaInputRef}
@@ -346,7 +347,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                   {cfg.backgroundKind !== "motion" && cfg.mediaUrl && (
                     <div className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-indigo-950/50 border border-indigo-700/60">
                       <span className="text-[11px] text-indigo-200 truncate flex items-center gap-1.5">
-                        <span>{cfg.backgroundKind === "video" ? "🎥" : "🖼️"}</span>
+                        <span>{iconify(cfg.backgroundKind === "video" ? "🎥" : "🖼️")}</span>
                         <span className="truncate">Using your own {cfg.backgroundKind}: {cfg.mediaName || "uploaded file"}</span>
                       </span>
                       <button
@@ -354,7 +355,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                         onClick={() => update({ backgroundKind: "motion", mediaUrl: "", mediaName: undefined })}
                         className="text-[11px] text-gray-300 hover:text-white px-1.5 flex-shrink-0"
                       >
-                        ✕ Use motion instead
+                        <Icon glyph="✕" /> Use motion instead
                       </button>
                     </div>
                   )}
@@ -586,7 +587,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                       onClick={() => logoInputRef.current?.click()}
                       className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-semibold"
                     >
-                      ⬆ Upload logo
+                      <Icon glyph="⬆" /> Upload logo
                     </button>
                     <input
                       ref={logoInputRef}
@@ -617,7 +618,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                         onClick={() => update({ logoUrl: "" })}
                         className="text-[11px] text-gray-400 hover:text-rose-400"
                       >
-                        ✕ Clear
+                        <Icon glyph="✕" /> Clear
                       </button>
                     </div>
                   ) : (
@@ -691,7 +692,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                       onClick={() => soundInputRef.current?.click()}
                       className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-semibold"
                     >
-                      ⬆ Upload my own sound
+                      <Icon glyph="⬆" /> Upload my own sound
                     </button>
                     <input
                       ref={soundInputRef}
@@ -705,7 +706,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                   {cfg.customSoundUrl && (
                     <div className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-indigo-950/50 border border-indigo-700/60">
                       <span className="text-[11px] text-indigo-200 truncate">
-                        🎵 Your sound: {cfg.customSoundName || "uploaded audio"}
+                        <Icon glyph="🎵" /> Your sound: {cfg.customSoundName || "uploaded audio"}
                       </span>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button

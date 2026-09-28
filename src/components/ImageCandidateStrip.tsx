@@ -9,6 +9,7 @@
 
 import type { ImageCandidate } from "../lib/image-search";
 import { proxyImageUrl } from "../lib/image-search";
+import Icon from "./icons/Icon";
 
 interface ImageCandidateStripProps {
   candidates: ImageCandidate[];
@@ -34,7 +35,7 @@ export default function ImageCandidateStrip({
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-xs font-semibold text-indigo-300 truncate">
-            🖼️ Research results
+            <Icon glyph="🖼" /> Research results
           </span>
           <span className="text-[10px] text-gray-500 shrink-0">
             {loading ? "searching…" : `${candidates.length} photos · click to use`}

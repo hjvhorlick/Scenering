@@ -1,4 +1,5 @@
 import type { EditorStep } from "../types";
+import Icon from "./icons/Icon";
 
 /**
  * Single source of truth for the project phases.
@@ -118,12 +119,12 @@ export default function StepNav({
             className="t-btn-hero-ghost opt-btn w-full sm:w-auto"
             title={`Go back to ${prevPhase.phase}`}
           >
-            <span className="t-ico">←</span>
+            <Icon glyph="←" />
             <span>Previous: {prevPhase.phase}</span>
           </button>
         ) : (
           <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-gray-500 px-1">
-            <span className="t-ico">🏁</span>
+            <Icon glyph="🏁" />
             <span>First phase</span>
           </span>
         )}
@@ -133,7 +134,7 @@ export default function StepNav({
       <div className="flex-1 min-w-0 text-center sm:text-left">
         <p className="text-[11px] text-gray-400 truncate">
           <span className="text-gray-300 font-semibold">
-            <span className="t-ico">{getPhase(current).icon}</span> {getPhase(current).phase}
+            <Icon glyph={getPhase(current).icon} /> {getPhase(current).phase}
           </span>
           {note ? <span className="text-gray-500"> — {note}</span> : null}
         </p>
@@ -163,7 +164,7 @@ export default function StepNav({
           </button>
         ) : (
           <span className="flex items-center justify-center gap-1.5 text-[11px] text-emerald-300 px-1">
-            <span className="t-ico">✅</span>
+            <Icon glyph="✅" />
             <span>Final phase — render & download</span>
           </span>
         )}

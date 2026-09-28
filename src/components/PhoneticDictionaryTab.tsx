@@ -15,6 +15,7 @@ import {
   type NormalizationResult,
 } from "../lib/speech-sanitizer";
 import { ttsPlayer } from "../lib/tts-player";
+import Icon, { iconify } from "./icons/Icon";
 
 interface PhoneticDictionaryTabProps {
   scenes: Scene[];
@@ -386,7 +387,7 @@ export default function PhoneticDictionaryTab({
                     : "bg-indigo-600 hover:bg-indigo-500 text-white"
                 } disabled:opacity-50`}
               >
-                <span>{isPlayingAudio ? "⏹️ Stop" : "▶️ Listen"}</span>
+                <span>{iconify(isPlayingAudio ? "⏹️ Stop" : "▶️ Listen")}</span>
                 <span>({selectedVoice})</span>
               </button>
             </div>
@@ -454,7 +455,7 @@ export default function PhoneticDictionaryTab({
               }}
               className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium flex items-center gap-1.5 transition-colors shadow-md"
             >
-              <span>{isAddingNew ? "✖ Cancel" : "➕ Add Custom Word"}</span>
+              <span>{iconify(isAddingNew ? "✖ Cancel" : "➕ Add Custom Word")}</span>
             </button>
 
             <button
@@ -699,7 +700,7 @@ export default function PhoneticDictionaryTab({
 
         {/* Footer Note */}
         <p className="text-[11px] text-gray-500 italic">
-          💡 The phonetic dictionary and text normalization pipeline are automatically applied
+          <Icon glyph="💡" /> The phonetic dictionary and text normalization pipeline are automatically applied
           to all scene voiceovers, video previews, and exported renders without requiring manual edits to your scene script cards.
         </p>
       </div>

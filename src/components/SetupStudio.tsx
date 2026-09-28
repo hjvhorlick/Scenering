@@ -37,6 +37,7 @@ import {
   countWords,
   formatDuration,
 } from "../lib/duration-utils";
+import Icon, { iconify } from "./icons/Icon";
 
 /**
  * How much of a project title fits on the video banner.
@@ -789,7 +790,7 @@ export default function SetupStudio({
 
         {/* What Scenering will deliver — plain words, no jargon needed */}
         <div className="mt-3 p-3 bg-gray-800/60 border border-hairline rounded-xl text-[11px] leading-relaxed">
-          <span className="text-emerald-300 font-semibold">✓ Scenering will deliver: </span>
+          <span className="text-emerald-300 font-semibold"><Icon glyph="✓" /> Scenering will deliver: </span>
           <span className="text-white font-medium">
             {getResolutionDimensions(aspectRatio, resolution)} · {resolveFrameRate(renderProfile.fps)} FPS ·{" "}
             {getQualityLevel(renderProfile.quality).name} quality ·{" "}
@@ -848,7 +849,7 @@ export default function SetupStudio({
               <span>🔧</span> Advanced overrides
               <span className="text-[10px] font-normal text-gray-500">— aspect ratio, resolution, FPS, format</span>
             </span>
-            <span>{showOutputAdvanced ? "▾ Hide" : "▸ Show"}</span>
+            <span>{iconify(showOutputAdvanced ? "▾ Hide" : "▸ Show")}</span>
           </button>
 
           {showOutputAdvanced && (

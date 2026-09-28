@@ -22,6 +22,7 @@ import LiveVoiceVisualizer, {
 } from "./LiveVoiceVisualizer";
 import { CATALOG_ITEMS } from "../lib/video-studio-catalog";
 import { tapVoiceElement } from "../lib/voice-monitor";
+import { iconify } from "./icons/Icon";
 
 interface VoiceoverStudioProps {
   scenes: Scene[];
@@ -794,7 +795,7 @@ export default function VoiceoverStudio({
                     : "bg-indigo-600 hover:bg-indigo-500 border-indigo-400 text-white"
                 }`}
               >
-                <span>{playingId === "test-echo" ? "⏹️" : "▶️"}</span>
+                <span>{iconify(playingId === "test-echo" ? "⏹️" : "▶️")}</span>
                 <span>{playingId === "test-echo" ? "Stop" : "Listen with echo"}</span>
               </button>
             </div>
@@ -1084,7 +1085,7 @@ export default function VoiceoverStudio({
                 <span>📝</span>
                 <span>Review Scene Narration Scripts ({scenes.length} Scenes)</span>
               </span>
-              <span>{showSceneReview ? "▲ Hide" : "▼ Show"}</span>
+              <span>{iconify(showSceneReview ? "▲ Hide" : "▼ Show")}</span>
             </button>
 
             {showSceneReview && (
@@ -1266,7 +1267,7 @@ export default function VoiceoverStudio({
                     onClick={toggleImportPlayback}
                     className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow"
                   >
-                    <span>{isImportPlaying ? "⏸️ Pause" : "▶ Listen Audio"}</span>
+                    <span>{iconify(isImportPlaying ? "⏸️ Pause" : "▶ Listen Audio")}</span>
                   </button>
                   <button
                     type="button"

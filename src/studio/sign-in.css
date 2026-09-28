@@ -8,6 +8,7 @@
  */
 
 @import "../shared/porcelain.css";
+@import "../shared/icons.css";
 
 .si-page {
   box-sizing: border-box;

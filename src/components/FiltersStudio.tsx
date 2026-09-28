@@ -12,6 +12,7 @@ import {
   type VideoFilterSettings,
 } from "../data/video-filters";
 import FilterPreviewCanvas from "./FilterPreviewCanvas";
+import Icon from "./icons/Icon";
 
 interface FiltersStudioProps {
   /** the single filter running across the whole video (null = none) */
@@ -113,7 +114,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               onClick={() => onChange(null)}
               className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold"
             >
-              ✕ Remove Filter
+              <Icon glyph="✕" /> Remove Filter
             </button>
           </div>
         )}
@@ -170,7 +171,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                     onClick={resetSettings}
                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 rounded-lg text-[11px]"
                   >
-                    ↺ Reset
+                    <Icon glyph="↺" /> Reset
                   </button>
                   <button
                     type="button"
@@ -314,7 +315,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                 </div>
                 {isActive && (
                   <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-fuchsia-600 text-[9px] font-bold text-white shadow">
-                    ✓ ACTIVE
+                    <Icon glyph="✓" /> ACTIVE
                   </div>
                 )}
                 <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">

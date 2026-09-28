@@ -4,6 +4,7 @@ import AppFrame from "../components/AppFrame";
 import PlayerFrame from "../components/PlayerFrame";
 import { DEMO_CAPTION_STYLE, DEMO_SCENES, DEMO_SEARCH_RESULTS } from "../demo-project";
 import { HONESTY, MESSAGES, SEARCH_POLICY } from "../product-facts";
+import Icon from "../../components/icons/Icon";
 
 /**
  * Visual research, and the replace control.
@@ -136,7 +137,7 @@ export default function VisualResearch() {
                     ⟳ Replace
                   </button>
                   <button type="button" className="mkt-mini-btn">
-                    ⬆ Use my own file
+                    <Icon glyph="⬆" /> Use my own file
                   </button>
                   <button type="button" className="mkt-mini-btn">
                     ⤢ Crop &amp; reposition

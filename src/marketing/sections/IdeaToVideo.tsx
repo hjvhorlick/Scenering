@@ -19,6 +19,7 @@ import {
 import { HONESTY, WORKFLOW_STAGES } from "../product-facts";
 import { CAPTION_STYLES } from "../../data/caption-styles";
 import type { ProjectPhase } from "../../components/StepNav";
+import Icon from "../../components/icons/Icon";
 
 /**
  * "From Idea to Video" — the workflow, one step at a time.
@@ -105,7 +106,7 @@ function StagePanel({ id }: { id: string }) {
           <div className="mkt-chiprow">
             <span className="mkt-chip is-on">🎙 {DEMO_VOICE.name}</span>
             <span className="mkt-chip">{DEMO_VOICE.accent}</span>
-            <span className="mkt-chip">▶ Preview</span>
+            <span className="mkt-chip"><Icon glyph="▶" /> Preview</span>
           </div>
           {DEMO_SCENES.slice(0, 3).map((scene) => (
             <div className="mkt-strip-row" key={scene.number}>
@@ -138,12 +139,12 @@ function StagePanel({ id }: { id: string }) {
           <TimelineMock playheadAt={0.46} height={22} />
           <div className="mkt-chiprow">
             <span className="mkt-chip is-on">◑ Filter</span>
-            <span className="mkt-chip">♪ Music</span>
+            <span className="mkt-chip"><Icon glyph="♪" /> Music</span>
             <span className="mkt-chip">✶ Sound FX</span>
-            <span className="mkt-chip">✱ Stickers</span>
-            <span className="mkt-chip">▭ Lower third</span>
-            <span className="mkt-chip">▶ Call to action</span>
-            <span className="mkt-chip">◎ Visualiser</span>
+            <span className="mkt-chip"><Icon glyph="✱" /> Stickers</span>
+            <span className="mkt-chip"><Icon glyph="▭" /> Lower third</span>
+            <span className="mkt-chip"><Icon glyph="▶" /> Call to action</span>
+            <span className="mkt-chip"><Icon glyph="◎" /> Visualiser</span>
           </div>
         </div>
       );

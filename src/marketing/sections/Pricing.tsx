@@ -6,6 +6,7 @@ import PlayerFrame from "../components/PlayerFrame";
 import TimelineMock, { type TimelineTrack } from "../components/TimelineMock";
 import { DEMO_CAPTION_STYLE, DEMO_SCENES } from "../demo-project";
 import { HONESTY, PLANS, type PlanId } from "../product-facts";
+import Icon from "../../components/icons/Icon";
 
 /**
  * Plans.
@@ -139,11 +140,11 @@ export default function Pricing() {
                 />
                 <div>
                   <div className="mkt-strip-row" style={{ gridTemplateColumns: "1fr auto" }}>
-                    <span className="mkt-strip-label">🎙 Narrators</span>
+                    <span className="mkt-strip-label"><Icon glyph="🎙" /> Narrators</span>
                     <Pill tone="accent">{plan.workspace.voices}</Pill>
                   </div>
                   <div className="mkt-strip-row" style={{ gridTemplateColumns: "1fr auto", marginTop: 8 }}>
-                    <span className="mkt-strip-label">💬 Captions</span>
+                    <span className="mkt-strip-label"><Icon glyph="💬" /> Captions</span>
                     <Pill tone="accent">{plan.workspace.captions}</Pill>
                   </div>
                   <div className="mkt-chiprow" style={{ marginTop: 10 }}>
@@ -164,7 +165,7 @@ export default function Pricing() {
               {plan.id === "sceneforge" && (
                 <div className="mkt-chiprow">
                   <span className="mkt-chip is-on">⏭ Batch queue</span>
-                  <span className="mkt-chip is-on">⚡ Priority processing</span>
+                  <span className="mkt-chip is-on"><Icon glyph="⚡" /> Priority processing</span>
                   <span className="mkt-chip is-on">📦 High-volume exports</span>
                 </div>
               )}

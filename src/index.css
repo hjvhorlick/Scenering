@@ -1,3 +1,4 @@
+@import "./shared/icons.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

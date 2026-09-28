@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 508 utility
+   Colour matrix for every non-classic theme. 504 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -507,9 +507,6 @@ html[data-theme="apple"] .border-amber-600\/70 {
 html[data-theme="apple"] .border-amber-600\/80 {
   border-color: rgb(217 119 6 / 0.8);
 }
-html[data-theme="apple"] .border-amber-700\/40 {
-  border-color: rgb(180 83 9 / 0.4);
-}
 html[data-theme="apple"] .border-amber-700\/60 {
   border-color: rgb(180 83 9 / 0.6);
 }
@@ -560,9 +557,6 @@ html[data-theme="apple"] .border-cyan-500\/50 {
 }
 html[data-theme="apple"] .border-cyan-600\/50 {
   border-color: rgb(8 145 178 / 0.5);
-}
-html[data-theme="apple"] .border-cyan-700\/40 {
-  border-color: rgb(14 116 144 / 0.4);
 }
 html[data-theme="apple"] .border-emerald-400 {
   border-color: rgb(52 211 153 / 1);
@@ -666,9 +660,6 @@ html[data-theme="apple"] .border-indigo-600\/70 {
 html[data-theme="apple"] .border-indigo-700 {
   border-color: rgb(0 122 255 / 1);
 }
-html[data-theme="apple"] .border-indigo-700\/40 {
-  border-color: rgb(0 122 255 / 0.4);
-}
 html[data-theme="apple"] .border-indigo-700\/50 {
   border-color: rgb(0 122 255 / 0.5);
 }
@@ -758,9 +749,6 @@ html[data-theme="apple"] .border-red-600\/40 {
 }
 html[data-theme="apple"] .border-red-700 {
   border-color: rgb(185 28 28 / 1);
-}
-html[data-theme="apple"] .border-red-700\/40 {
-  border-color: rgb(185 28 28 / 0.4);
 }
 html[data-theme="apple"] .border-red-700\/70 {
   border-color: rgb(185 28 28 / 0.7);
@@ -2075,9 +2063,6 @@ html[data-theme="windows"] .border-amber-600\/70 {
 html[data-theme="windows"] .border-amber-600\/80 {
   border-color: rgb(204 118 19 / 0.8);
 }
-html[data-theme="windows"] .border-amber-700\/40 {
-  border-color: rgb(170 84 19 / 0.4);
-}
 html[data-theme="windows"] .border-amber-700\/60 {
   border-color: rgb(170 84 19 / 0.6);
 }
@@ -2128,9 +2113,6 @@ html[data-theme="windows"] .border-cyan-500\/50 {
 }
 html[data-theme="windows"] .border-cyan-600\/50 {
   border-color: rgb(18 139 168 / 0.5);
-}
-html[data-theme="windows"] .border-cyan-700\/40 {
-  border-color: rgb(22 112 136 / 0.4);
 }
 html[data-theme="windows"] .border-emerald-400 {
   border-color: rgb(62 201 150 / 1);
@@ -2234,9 +2216,6 @@ html[data-theme="windows"] .border-indigo-600\/70 {
 html[data-theme="windows"] .border-indigo-700 {
   border-color: rgb(45 127 217 / 1);
 }
-html[data-theme="windows"] .border-indigo-700\/40 {
-  border-color: rgb(45 127 217 / 0.4);
-}
 html[data-theme="windows"] .border-indigo-700\/50 {
   border-color: rgb(45 127 217 / 0.5);
 }
@@ -2326,9 +2305,6 @@ html[data-theme="windows"] .border-red-600\/40 {
 }
 html[data-theme="windows"] .border-red-700 {
   border-color: rgb(176 37 37 / 1);
-}
-html[data-theme="windows"] .border-red-700\/40 {
-  border-color: rgb(176 37 37 / 0.4);
 }
 html[data-theme="windows"] .border-red-700\/70 {
   border-color: rgb(176 37 37 / 0.7);
@@ -3643,9 +3619,6 @@ html[data-theme="playful"] .border-amber-600\/70 {
 html[data-theme="playful"] .border-amber-600\/80 {
   border-color: rgb(227 122 0 / 0.8);
 }
-html[data-theme="playful"] .border-amber-700\/40 {
-  border-color: rgb(193 83 0 / 0.4);
-}
 html[data-theme="playful"] .border-amber-700\/60 {
   border-color: rgb(193 83 0 / 0.6);
 }
@@ -3696,9 +3669,6 @@ html[data-theme="playful"] .border-cyan-500\/50 {
 }
 html[data-theme="playful"] .border-cyan-600\/50 {
   border-color: rgb(0 153 190 / 0.5);
-}
-html[data-theme="playful"] .border-cyan-700\/40 {
-  border-color: rgb(0 126 161 / 0.4);
 }
 html[data-theme="playful"] .border-emerald-400 {
   border-color: rgb(31 237 162 / 1);
@@ -3802,9 +3772,6 @@ html[data-theme="playful"] .border-indigo-600\/70 {
 html[data-theme="playful"] .border-indigo-700 {
   border-color: rgb(224 73 155 / 1);
 }
-html[data-theme="playful"] .border-indigo-700\/40 {
-  border-color: rgb(224 73 155 / 0.4);
-}
 html[data-theme="playful"] .border-indigo-700\/50 {
   border-color: rgb(224 73 155 / 0.5);
 }
@@ -3894,9 +3861,6 @@ html[data-theme="playful"] .border-red-600\/40 {
 }
 html[data-theme="playful"] .border-red-700 {
   border-color: rgb(214 3 3 / 1);
-}
-html[data-theme="playful"] .border-red-700\/40 {
-  border-color: rgb(214 3 3 / 0.4);
 }
 html[data-theme="playful"] .border-red-700\/70 {
   border-color: rgb(214 3 3 / 0.7);
@@ -5211,9 +5175,6 @@ html[data-theme="glass"] .border-amber-600\/70 {
 html[data-theme="glass"] .border-amber-600\/80 {
   border-color: rgb(193 113 36 / 0.8);
 }
-html[data-theme="glass"] .border-amber-700\/40 {
-  border-color: rgb(164 85 38 / 0.4);
-}
 html[data-theme="glass"] .border-amber-700\/60 {
   border-color: rgb(164 85 38 / 0.6);
 }
@@ -5264,9 +5225,6 @@ html[data-theme="glass"] .border-cyan-500\/50 {
 }
 html[data-theme="glass"] .border-cyan-600\/50 {
   border-color: rgb(30 133 170 / 0.5);
-}
-html[data-theme="glass"] .border-cyan-700\/40 {
-  border-color: rgb(34 110 144 / 0.4);
 }
 html[data-theme="glass"] .border-emerald-400 {
   border-color: rgb(64 184 151 / 1);
@@ -5370,9 +5328,6 @@ html[data-theme="glass"] .border-indigo-600\/70 {
 html[data-theme="glass"] .border-indigo-700 {
   border-color: rgb(164 136 221 / 1);
 }
-html[data-theme="glass"] .border-indigo-700\/40 {
-  border-color: rgb(164 136 221 / 0.4);
-}
 html[data-theme="glass"] .border-indigo-700\/50 {
   border-color: rgb(164 136 221 / 0.5);
 }
@@ -5462,9 +5417,6 @@ html[data-theme="glass"] .border-red-600\/40 {
 }
 html[data-theme="glass"] .border-red-700 {
   border-color: rgb(168 42 53 / 1);
-}
-html[data-theme="glass"] .border-red-700\/40 {
-  border-color: rgb(168 42 53 / 0.4);
 }
 html[data-theme="glass"] .border-red-700\/70 {
   border-color: rgb(168 42 53 / 0.7);
@@ -6779,9 +6731,6 @@ html[data-theme="porcelain"] .border-amber-600\/70 {
 html[data-theme="porcelain"] .border-amber-600\/80 {
   border-color: rgb(217 119 6 / 0.8);
 }
-html[data-theme="porcelain"] .border-amber-700\/40 {
-  border-color: rgb(180 83 9 / 0.4);
-}
 html[data-theme="porcelain"] .border-amber-700\/60 {
   border-color: rgb(180 83 9 / 0.6);
 }
@@ -6832,9 +6781,6 @@ html[data-theme="porcelain"] .border-cyan-500\/50 {
 }
 html[data-theme="porcelain"] .border-cyan-600\/50 {
   border-color: rgb(8 145 178 / 0.5);
-}
-html[data-theme="porcelain"] .border-cyan-700\/40 {
-  border-color: rgb(14 116 144 / 0.4);
 }
 html[data-theme="porcelain"] .border-emerald-400 {
   border-color: rgb(52 211 153 / 1);
@@ -6938,9 +6884,6 @@ html[data-theme="porcelain"] .border-indigo-600\/70 {
 html[data-theme="porcelain"] .border-indigo-700 {
   border-color: rgb(47 111 181 / 1);
 }
-html[data-theme="porcelain"] .border-indigo-700\/40 {
-  border-color: rgb(47 111 181 / 0.4);
-}
 html[data-theme="porcelain"] .border-indigo-700\/50 {
   border-color: rgb(47 111 181 / 0.5);
 }
@@ -7030,9 +6973,6 @@ html[data-theme="porcelain"] .border-red-600\/40 {
 }
 html[data-theme="porcelain"] .border-red-700 {
   border-color: rgb(185 28 28 / 1);
-}
-html[data-theme="porcelain"] .border-red-700\/40 {
-  border-color: rgb(185 28 28 / 0.4);
 }
 html[data-theme="porcelain"] .border-red-700\/70 {
   border-color: rgb(185 28 28 / 0.7);

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import type { Scene } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
+import Icon, { iconify } from "./icons/Icon";
 
 interface VoiceImportModalProps {
   scene?: Scene;
@@ -510,7 +511,7 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-blue-300"
                     }`}
                   >
-                    👨 Male Voices
+                    <Icon glyph="👨" /> Male Voices
                   </button>
                   <button
                     onClick={() => setGenderFilter("female")}
@@ -520,7 +521,7 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-pink-300"
                     }`}
                   >
-                    👩 Female Voices
+                    <Icon glyph="👩" /> Female Voices
                   </button>
                 </div>
               </div>
@@ -545,7 +546,7 @@ export default function VoiceImportModal({
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="font-bold text-sm text-white flex items-center gap-1.5">
-                            <span>{v.gender === "male" ? "👨" : "👩"}</span>
+                            <span>{iconify(v.gender === "male" ? "👨" : "👩")}</span>
                             <span>{v.name}</span>
                           </span>
                           <span
@@ -574,7 +575,7 @@ export default function VoiceImportModal({
                               : "bg-gray-700 hover:bg-gray-600 text-gray-200"
                           }`}
                         >
-                          <span>{isPlaying ? "⏹️ Stop" : "▶ Listen Sample"}</span>
+                          <span>{iconify(isPlaying ? "⏹️ Stop" : "▶ Listen Sample")}</span>
                         </button>
                         {isSelected && (
                           <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
@@ -635,7 +636,7 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-blue-300"
                     }`}
                   >
-                    👨 Male ({allVoicesList.filter((v) => v.gender === "male").length || 159})
+                    <Icon glyph="👨" /> Male ({allVoicesList.filter((v) => v.gender === "male").length || 159})
                   </button>
                   <button
                     onClick={() => setGenderFilter("female")}
@@ -645,7 +646,7 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-pink-300"
                     }`}
                   >
-                    👩 Female ({allVoicesList.filter((v) => v.gender === "female").length || 163})
+                    <Icon glyph="👩" /> Female ({allVoicesList.filter((v) => v.gender === "female").length || 163})
                   </button>
                 </div>
               </div>
@@ -688,7 +689,7 @@ export default function VoiceImportModal({
                           <div>
                             <div className="flex items-center justify-between gap-1 mb-1">
                               <span className="font-bold text-xs text-white flex items-center gap-1.5 truncate">
-                                <span>{v.gender === "male" ? "👨" : "👩"}</span>
+                                <span>{iconify(v.gender === "male" ? "👨" : "👩")}</span>
                                 <span className="truncate">{cleanName}</span>
                               </span>
                               <span
@@ -720,7 +721,7 @@ export default function VoiceImportModal({
                                   : "bg-gray-700 hover:bg-gray-600 text-gray-200"
                               }`}
                             >
-                              <span>{isPlaying ? "⏹️ Stop" : "▶ Listen Sample"}</span>
+                              <span>{iconify(isPlaying ? "⏹️ Stop" : "▶ Listen Sample")}</span>
                             </button>
                             {isSelected && (
                               <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
@@ -830,7 +831,7 @@ export default function VoiceImportModal({
                       onClick={stopRecording}
                       className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold shadow-lg transition-colors"
                     >
-                      ⏹️ Stop Recording
+                      <Icon glyph="⏹" /> Stop Recording
                     </button>
                   </div>
                 ) : (
@@ -848,7 +849,7 @@ export default function VoiceImportModal({
                 {recordedAudio && !isRecording && (
                   <div className="p-3 bg-gray-900 border border-emerald-700/60 rounded-xl space-y-3 pt-4">
                     <p className="text-xs text-emerald-300 font-semibold">
-                      ✅ Recording ready ({recordedAudio.duration}s)!
+                      <Icon glyph="✅" /> Recording ready ({recordedAudio.duration}s)!
                     </p>
                     <div className="flex items-center justify-center gap-2">
                       <button

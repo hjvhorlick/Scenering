@@ -80,6 +80,7 @@ import {
 import type { RenderProfileSettings } from "../types";
 import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
 import { OfflineExporter, supported as offlineExportSupported, type OfflineExportConfig } from "../lib/offline-export";
+import Icon, { iconify } from "./icons/Icon";
 
 /**
  * The render screen's live settings. Every one of them is DECIDED in
@@ -2462,7 +2463,7 @@ export default function RenderView({
                 </span>
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950 border border-emerald-700/60 text-emerald-300">
-                ✓ Optimized for social platforms
+                <Icon glyph="✓" /> Optimized for social platforms
               </span>
             </div>
 
@@ -2547,7 +2548,7 @@ export default function RenderView({
 
             {settings.quality === "draft" && (
               <p className="text-[10px] text-amber-300/90 leading-relaxed">
-                ⚡ Draft is a fast preview render at 720p — perfect while editing. Switch to High in Project
+                <Icon glyph="⚡" /> Draft is a fast preview render at 720p — perfect while editing. Switch to High in Project
                 Setup for the final platform-quality export.
               </p>
             )}
@@ -2623,8 +2624,8 @@ export default function RenderView({
                 </div>
               </div>
               {job.active && (
-                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-950/90 text-indigo-200 border border-indigo-600/60">
-                  ⏳ Rendering {Math.round(job.progress * 100)}%
+                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-950/90 text-indigo-200">
+                  <Icon glyph="⏳" /> Rendering {Math.round(job.progress * 100)}%
                 </span>
               )}
             </div>
@@ -2810,7 +2811,7 @@ export default function RenderView({
                         disabled={isRendering}
                         className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white transition-colors"
                       >
-                        🔄 Retry Automatically
+                        <Icon glyph="🔄" /> Retry Automatically
                       </button>
                     )}
                     <button
@@ -2928,7 +2929,7 @@ export default function RenderView({
                       disabled={isRendering}
                       className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-xs border border-hairline transition-colors"
                     >
-                      🔄 Re-render
+                      <Icon glyph="🔄" /> Re-render
                     </button>
                   </div>
 
@@ -3028,7 +3029,7 @@ export default function RenderView({
                   : "bg-indigo-600 hover:bg-indigo-500 text-white"
               }`}
             >
-              <span>{copiedAttribution ? "✅" : "📋"}</span>
+              <span>{iconify(copiedAttribution ? "✅" : "📋")}</span>
               <span>{copiedAttribution ? "Copied!" : "Copy"}</span>
             </button>
           </div>

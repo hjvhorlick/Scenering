@@ -4,6 +4,7 @@ import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "../l
 import { pickRandomSample } from "../lib/image-picker";
 import { searchImagePool, type ImageCandidate } from "../lib/image-search";
 import ApiKeysModal from "./ApiKeysModal";
+import { iconify } from "./icons/Icon";
 
 interface ImageSearchModalProps {
   initialQuery: string;
@@ -161,7 +162,7 @@ export default function ImageSearchModal({
             onClick={() => setKeysModalOpen(true)}
             className="text-[11px] text-gray-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
           >
-            <span>{hasKeys ? "✓ Using Customer API Key" : "⚡ Want higher resolution photos?"}</span>
+            <span>{iconify(hasKeys ? "✓ Using Customer API Key" : "⚡ Want higher resolution photos?")}</span>
             <span className="text-indigo-400 underline">{hasKeys ? "Edit Keys" : "Insert Pexels/Pixabay Key"}</span>
           </button>
         </div>

@@ -1,5 +1,6 @@
 import { MarketingImage } from "./primitives";
 import { DEMO_SCENES, DEMO_TOTAL_SECONDS, DEMO_TIMELINE_EXTRAS, formatDuration } from "../demo-project";
+import Icon from "../../components/icons/Icon";
 
 /**
  * The Video Studio timeline.
@@ -130,7 +131,7 @@ export default function TimelineMock({
                 className="mkt-clip is-fx"
                 style={{ width: pct(DEMO_TIMELINE_EXTRAS.lowerThird.to - DEMO_TIMELINE_EXTRAS.lowerThird.from) }}
               >
-                ▭ Lower third
+                <Icon glyph="▭" /> Lower third
               </span>
               <span
                 className="mkt-clip is-empty"
@@ -140,7 +141,7 @@ export default function TimelineMock({
                 className="mkt-clip is-fx"
                 style={{ width: pct(DEMO_TIMELINE_EXTRAS.sticker.to - DEMO_TIMELINE_EXTRAS.sticker.from) }}
               >
-                ✱ Sticker
+                <Icon glyph="✱" /> Sticker
               </span>
               <span
                 className="mkt-clip is-empty"
@@ -150,7 +151,7 @@ export default function TimelineMock({
                 className="mkt-clip is-fx"
                 style={{ width: pct(DEMO_TIMELINE_EXTRAS.cta.to - DEMO_TIMELINE_EXTRAS.cta.from) }}
               >
-                ▶ Subscribe
+                <Icon glyph="▶" /> Subscribe
               </span>
               <span className="mkt-clip is-empty" style={{ flex: "1 1 auto" }} />
             </>

@@ -43,6 +43,7 @@ import { DEFAULT_RENDER_PROFILE_SETTINGS, resolveRenderProfileSettings } from ".
 import type { VideoFilterConfig } from "./data/video-filters";
 import type { SectionConfig } from "./data/intro-outro";
 import { VoiceEchoConfig, DEFAULT_VOICE_ECHO, resolveVoiceEcho } from "./lib/voice-echo";
+import IconSprite from "./components/icons/IconSprite";
 
 type View = "create" | "editor";
 
@@ -1241,6 +1242,7 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen bg-gray-950 text-white font-sans">
+      <IconSprite />
       {/* Main Content */}
       {/* min-w-0 is load-bearing: without it this flex child keeps its
           content's intrinsic width and drags the whole app wider than the
