@@ -229,6 +229,23 @@ const RETIRED_WORDS = new Set([
   "I", "have", "a", "particular", "set", "of", "skills",
 ]);
 
+/**
+ * Words retired from one file only.
+ *
+ * Kept separate from the list above so an exemption stays as small as the
+ * change that needed it: losing `is-on` anywhere else is still a failure.
+ */
+const RETIRED_IN_FILE = new Map<string, Set<string>>([
+  [
+    // The website's phase rail stopped marking its own state with `is-on` and
+    // `is-next`. It now carries the studio's real class names — `opt-btn-on`
+    // and `t-tab-next` — so the picture of the app is drawn with the app's
+    // own buttons instead of a look-alike.
+    "src/marketing/components/AppFrame.tsx",
+    new Set(["is-on", "is-next"]),
+  ],
+]);
+
 let guarded = 0;
 for (const { name } of files) {
   let old: string;
@@ -249,8 +266,9 @@ for (const { name } of files) {
   const need = new Map<string, number>();
   for (const w of a) need.set(w, (need.get(w) ?? 0) + 1);
   let lost: string | null = null;
+  const retiredHere = RETIRED_IN_FILE.get(name);
   for (const [word, count] of need) {
-    if (RETIRED_WORDS.has(word)) continue;
+    if (RETIRED_WORDS.has(word) || retiredHere?.has(word)) continue;
     if ((tally.get(word) ?? 0) < count) {
       lost = `${word} (${count} -> ${tally.get(word) ?? 0})`;
       break;

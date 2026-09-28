@@ -1,0 +1,347 @@
+/**
+ * Controls — the shared, themeable definition of the app's option buttons.
+ *
+ * Why this file exists
+ * --------------------
+ * The website shows pictures of the studio. If those pictures are drawn with
+ * their own buttons, the website is showing a product that does not exist:
+ * the shapes, the sizes and the pressed states all drift apart over time and
+ * nobody notices until a visitor signs in and finds something else. So the
+ * option button is defined exactly once, here, and both front doors import
+ * it — the studio through `src/index.css`, the website through
+ * `src/marketing/marketing.css`. A mockup cannot show a button the app does
+ * not have, because it is literally the same button.
+ *
+ * Why it is variable-driven
+ * -------------------------
+ * These rules used to live in `src/index.css` with their colours written in
+ * directly, and those colours were dark: pale slate text on a translucent
+ * white film, meant for the near-black surfaces of the original Classic
+ * theme. That was fine while the app was dark.
+ *
+ * It stopped being fine when Porcelain became the default (see
+ * `DEFAULT_THEME` in src/lib/themes.ts). The theme system remaps Tailwind
+ * utility classes — `.bg-gray-900`, `.text-gray-300` and the rest — but it
+ * never touched `.opt-btn`, because `.opt-btn` is not a utility. So on the
+ * app's own default theme the panels turned china-white while every option
+ * button kept its dark-theme colours: label rgb(185,193,212) on an almost
+ * white face, which measures 1.6:1 against its own background where the
+ * readable minimum is 4.5:1, with a 1.2:1 border. They were very nearly
+ * invisible.
+ *
+ * Geometry, spacing and behaviour are therefore written once and shared by
+ * every theme; only the colours move, through the `--ctl-*` variables. The
+ * defaults below are the original dark values, so Classic and the other four
+ * dark themes render exactly as they did before. Porcelain — and the website,
+ * which is always porcelain — override them at the bottom of this file.
+ */
+
+/* ---------------------------------------------------------------- *
+ * Geometry and behaviour: identical in every theme.
+ * ---------------------------------------------------------------- */
+
+/**
+ * Option buttons — the "what can I click here" language of the app.
+ *
+ * Phase tabs, Video Studio tabs, sub-section pickers and modal section rows
+ * all use these so every available option visibly reads as a button (tinted,
+ * hairline-bordered, pressed-able) instead of underlined text the user could
+ * walk past.
+ */
+.opt-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--ctl-group-edge, rgba(148, 163, 184, 0.18));
+  background: var(--ctl-group-face, rgba(255, 255, 255, 0.03));
+  box-shadow: var(
+    --ctl-group-shadow,
+    0 0 0 1px rgba(99, 102, 241, 0.06),
+    0 10px 26px -14px rgba(79, 70, 229, 0.45)
+  );
+}
+
+.opt-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1rem;
+  white-space: nowrap;
+  color: var(--ctl-ink, rgb(185, 193, 212));
+  background-image: var(
+    --ctl-face,
+    linear-gradient(180deg, rgba(148, 163, 184, 0.13), rgba(148, 163, 184, 0.04))
+  );
+  border: 1px solid var(--ctl-edge, rgba(148, 163, 184, 0.22));
+  border-radius: 0.6rem;
+  box-shadow: var(
+    --ctl-shadow,
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 1px 2px rgba(0, 0, 0, 0.35)
+  );
+  cursor: pointer;
+  user-select: none;
+  transition:
+    color 0.15s ease,
+    background-image 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
+}
+
+.opt-btn:hover {
+  color: var(--ctl-ink-hover, #ffffff);
+  border-color: var(--ctl-edge-hover, rgba(129, 140, 248, 0.6));
+  background-image: var(
+    --ctl-face-hover,
+    linear-gradient(180deg, rgba(99, 102, 241, 0.3), rgba(99, 102, 241, 0.12))
+  );
+}
+
+.opt-btn:focus-visible {
+  outline: none;
+  box-shadow: var(
+    --ctl-focus,
+    0 0 0 2px rgba(129, 140, 248, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07)
+  );
+}
+
+.opt-btn:active {
+  transform: translateY(1px);
+}
+
+/**
+ * Selected option: bright gradient + glow + a small caret that ties the
+ * button to the content it owns.
+ */
+.opt-btn-on {
+  color: var(--ctl-on-ink, #ffffff);
+  border-color: var(--ctl-on-edge, rgba(165, 180, 252, 0.75));
+  background-image: var(
+    --ctl-on-face,
+    linear-gradient(180deg, rgba(99, 102, 241, 0.85), rgba(124, 58, 237, 0.65))
+  );
+  box-shadow: var(
+    --ctl-on-shadow,
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 5px 16px -4px rgba(99, 102, 241, 0.6)
+  );
+}
+
+.opt-btn-on:hover {
+  color: var(--ctl-on-ink, #ffffff);
+  border-color: var(--ctl-on-edge, rgba(165, 180, 252, 0.75));
+  background-image: var(
+    --ctl-on-face,
+    linear-gradient(180deg, rgba(99, 102, 241, 0.85), rgba(124, 58, 237, 0.65))
+  );
+}
+
+.opt-btn-on::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 0;
+  height: 0;
+  margin-left: -4px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid var(--ctl-on-caret, rgba(129, 140, 248, 0.85));
+}
+
+/** Amber / rose variants for the intro & outro contexts. */
+.opt-btn-amber.opt-btn-on,
+.opt-btn-amber:hover {
+  border-color: var(--ctl-amber-edge, rgba(252, 211, 77, 0.7));
+}
+.opt-btn-amber.opt-btn-on {
+  background-image: var(
+    --ctl-amber-face,
+    linear-gradient(180deg, rgba(245, 158, 11, 0.8), rgba(217, 119, 6, 0.6))
+  );
+  box-shadow: var(
+    --ctl-amber-shadow,
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 5px 16px -4px rgba(245, 158, 11, 0.55)
+  );
+}
+.opt-btn-amber.opt-btn-on::after {
+  border-top-color: var(--ctl-amber-caret, rgba(252, 211, 77, 0.85));
+}
+
+.opt-btn-rose.opt-btn-on,
+.opt-btn-rose:hover {
+  border-color: var(--ctl-rose-edge, rgba(253, 164, 175, 0.7));
+}
+.opt-btn-rose.opt-btn-on {
+  background-image: var(
+    --ctl-rose-face,
+    linear-gradient(180deg, rgba(244, 63, 94, 0.8), rgba(190, 18, 60, 0.6))
+  );
+  box-shadow: var(
+    --ctl-rose-shadow,
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 5px 16px -4px rgba(244, 63, 94, 0.55)
+  );
+}
+.opt-btn-rose.opt-btn-on::after {
+  border-top-color: var(--ctl-rose-caret, rgba(253, 164, 175, 0.85));
+}
+
+/**
+ * The gently pulsing caption placed next to option rows so first-time users
+ * notice that the row itself is interactive.
+ */
+.opt-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 500;
+  color: var(--ctl-hint-ink, rgba(165, 180, 252, 0.9));
+  animation: pulse-slow 2.8s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------- *
+ * Porcelain: the app's default theme, and the website's only theme.
+ *
+ * Values come from `src/shared/porcelain.css`, so a control on the website
+ * and the same control in the studio resolve to the same ink and the same
+ * glaze. Raised and legible: warm white face, biscuit rim, dark ink, and the
+ * single cobalt accent for the selected state.
+ * ---------------------------------------------------------------- */
+html[data-theme="porcelain"],
+.mkt-root {
+  --ctl-group-face: rgb(255 255 255 / 0.62);
+  --ctl-group-edge: var(--pc-line-2);
+  --ctl-group-shadow: var(--pc-sh-1);
+
+  --ctl-ink: var(--pc-ink-2);
+  --ctl-face: linear-gradient(180deg, #fffdfa, #f4f0e9);
+  --ctl-edge: var(--pc-line-3);
+  --ctl-shadow: var(--pc-sh-raised);
+
+  --ctl-ink-hover: var(--pc-accent-ink);
+  --ctl-edge-hover: var(--pc-accent-mid);
+  --ctl-face-hover: linear-gradient(180deg, #ffffff, #eaf1fc);
+  --ctl-focus:
+    0 0 0 2px rgb(47 111 181 / 0.5),
+    inset 0 1px 0 rgb(255 255 255 / 0.85);
+
+  /**
+   * The selected state is cobalt. These are the values the studio already
+   * paints on the active phase tab (`html[data-theme="porcelain"] .t-tabbar
+   * button.bg-indigo-600` in src/themes.css) — the same gradient, the same
+   * lift — so every selected control in both front doors agrees.
+   */
+  --ctl-on-ink: #ffffff;
+  --ctl-on-face: var(--pc-accent-grad);
+  --ctl-on-edge: var(--pc-accent-edge);
+  --ctl-on-shadow: 0 4px 12px rgb(47 111 181 / 0.3);
+  --ctl-on-caret: var(--pc-accent);
+
+  --ctl-amber-face: linear-gradient(180deg, #b0803a, #96692a);
+  --ctl-amber-edge: #8a5f24;
+  --ctl-amber-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 6px 16px -6px rgb(150 105 42 / 0.5);
+  --ctl-amber-caret: #96692a;
+
+  --ctl-rose-face: linear-gradient(180deg, #bb6379, #a9546b);
+  --ctl-rose-edge: #954b5f;
+  --ctl-rose-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 6px 16px -6px rgb(169 84 107 / 0.5);
+  --ctl-rose-caret: #a9546b;
+
+  --ctl-hint-ink: var(--pc-accent-ink);
+}
+
+/* ---------------------------------------------------------------- *
+ * The phase rail.
+ *
+ * The row of numbered steps across the top of the studio — Setup, Scenes,
+ * Voice Over, Captions, Video Studio, Render — is the first thing anyone
+ * sees in a picture of the app, so it is the first thing that has to be
+ * right. The studio builds it as `.t-tabbar.opt-group` holding
+ * `.t-tab.opt-btn` buttons; the website's `AppFrame` now builds it from the
+ * same `PROJECT_PHASES` list with the same class names, so it inherits the
+ * option-button styling above instead of approximating it.
+ *
+ * The studio's own porcelain values for the rail live in `src/themes.css`
+ * beside the other five themes and win there through `!important`. These
+ * restate them for the website, which does not load the theme sheets, and
+ * `tests/ui-chrome.test.ts` fails if the two ever stop matching.
+ * ---------------------------------------------------------------- */
+.mkt-root .t-tabbar {
+  background: rgb(255 253 250 / 0.95);
+  border-color: #e4dccf;
+}
+
+.mkt-root .t-tabbar .t-tab-next {
+  color: #245a99;
+}
+
+/** The pulsing dot that points at the step the creator has not reached yet. */
+.mkt-root .t-next-cue {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: rgb(129 140 248 / 0.9);
+  margin-left: 2px;
+  flex-shrink: 0;
+  animation: tCuePulse 1.8s ease-in-out infinite;
+}
+
+@keyframes tCuePulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mkt-root .t-next-cue {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/**
+ * `.opt-hint` pulses. The keyframes live in `src/index.css` for the studio;
+ * the website has no other use for them, so they are declared here too. A
+ * duplicate @keyframes of the same name is harmless — the later one wins and
+ * both are identical.
+ */
+@keyframes pulse-slow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/** Anyone who has asked for less movement gets a still hint. */
+@media (prefers-reduced-motion: reduce) {
+  .opt-hint {
+    animation: none;
+  }
+}
