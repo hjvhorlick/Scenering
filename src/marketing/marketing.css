@@ -1304,6 +1304,24 @@ html[data-mkt="1"][data-theme] body {
   backdrop-filter: blur(4px);
 }
 
+/* ---- a row of the app's own tabs ----
+ *
+ * Several studio steps open on a row of tabs above their content: the Voice
+ * Over step's Natural Voices / Import Prepared TTS File / Phonetic Dictionary,
+ * for instance. The app lays that row out as `flex flex-wrap items-center
+ * gap-2 border-b border-hairline pb-3` and fills it with `.opt-btn`s, so this
+ * is only the row; the buttons style themselves from the shared control file.
+ */
+
+.mkt-apptabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--mkt-line);
+}
+
 /* ---- timeline ----
  *
  * Laid out like src/components/Timeline.tsx: a panel with a transport header,

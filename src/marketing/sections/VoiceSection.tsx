@@ -106,6 +106,23 @@ export default function VoiceSection() {
         <figure style={{ margin: 0 }}>
           <AppFrame title="Where Cities Begin · Voiceover" phase="voiceover">
             <div className="mkt-work">
+              {/* The Voice Over step opens on three tabs. They are the app's
+                  own, with the app's own labels — see the "Voiceover sections"
+                  tablist in src/components/VoiceoverStudio.tsx. The narrator
+                  list below sits inside the first of them. */}
+              <div className="mkt-apptabs" aria-hidden="true">
+                <span className="opt-btn opt-btn-on">
+                  <Icon glyph="🎭" /> {LIVE_COUNTS.voices} Natural Voices ({LIVE_COUNTS.maleVoices} Male •{" "}
+                  {LIVE_COUNTS.femaleVoices} Female)
+                </span>
+                <span className="opt-btn">
+                  <Icon glyph="📁" /> Import Prepared TTS File
+                </span>
+                <span className="opt-btn">
+                  <Icon glyph="🗣" /> Phonetic Dictionary &amp; Normalization
+                </span>
+              </div>
+
               <div className="mkt-optrow" role="tablist" aria-label="Filter narrators">
                 {(["all", "male", "female"] as const).map((option) => (
                   <button
@@ -120,8 +137,8 @@ export default function VoiceSection() {
                     {option === "all"
                       ? `All (${LIVE_COUNTS.voices})`
                       : option === "male"
-                        ? `${LIVE_COUNTS.maleVoices} Male`
-                        : `${LIVE_COUNTS.femaleVoices} Female`}
+                        ? iconify(`\u{1F468} ${LIVE_COUNTS.maleVoices} Male`)
+                        : iconify(`\u{1F469} ${LIVE_COUNTS.femaleVoices} Female`)}
                   </button>
                 ))}
               </div>
