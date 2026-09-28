@@ -11,6 +11,8 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "theme:css": "node scripts/generate-theme-css.mjs",
+    "marketing:assets": "node scripts/optimize-marketing-assets.mjs",
+    "marketing:og": "node scripts/make-og-card.mjs",
     "test": "tsx tests/run-all.ts",
     "verify": "tsc --noEmit && tsx tests/run-all.ts && npm run build"
   },

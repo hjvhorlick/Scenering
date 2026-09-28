@@ -297,9 +297,16 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
   ];
 
   // The voice tab list: 20 presets, split 10 male / 10 female, ids unique.
-  const arraySrc = studio.slice(
-    studio.indexOf("export const STUDIO_VOICE_PRESETS"),
-    studio.indexOf("];", studio.indexOf("export const STUDIO_VOICE_PRESETS"))
+  // The catalogue lives in src/data/ with the other catalogues; the studio
+  // re-exports it, which is what the count assertions below check.
+  const presets = read("src/data/voice-presets.ts");
+  h.ok(
+    studio.includes('export { STUDIO_VOICE_PRESETS } from "../data/voice-presets"'),
+    "VoiceoverStudio re-exports the shared voice catalogue"
+  );
+  const arraySrc = presets.slice(
+    presets.indexOf("export const STUDIO_VOICE_PRESETS"),
+    presets.indexOf("];", presets.indexOf("export const STUDIO_VOICE_PRESETS"))
   );
   const ids = [...arraySrc.matchAll(/id: "([a-z_]+)"/g)].map((m) => m[1]);
   h.eq(ids.length, 20, "voice tab holds 20 presets");

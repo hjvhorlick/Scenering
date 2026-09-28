@@ -16,6 +16,17 @@ npm run dev
 Open **http://localhost:3000**. That is the whole setup — no database, no API
 keys, no accounts. Projects are saved in your browser's local storage.
 
+There are two front doors on the same server:
+
+| Path   | What it is                                                     |
+| ------ | -------------------------------------------------------------- |
+| `/`    | the website — what Scenering does, shown rather than described |
+| `/app` | the studio — the actual editor                                 |
+
+They are separate bundles (`src/marketing` and `src/App`), lazily loaded, so a
+visitor reading the website never downloads the renderer and someone opening
+the studio never downloads the website's artwork.
+
 To run the production build instead:
 
 ```bash
@@ -93,9 +104,13 @@ src/
   components/   React UI, one studio per phase
   lib/          the engines — framing, motion, text art, rendering, filters
   data/         catalogues: templates, filters, voices, caption styles
+  marketing/    the public website at "/" (see below)
 public/
   sounds/       music and sound effects
   videos/       intro and outro clips
+  marketing/    optimised website artwork (WebP) + the link-preview card
+assets-src/     full-size artwork sources, ignored by git
+scripts/        theme CSS generator, website asset optimiser, preview card
 server.ts       Express API: narration, image search, hosts Vite in dev
 tests/          the test suite
 ```
@@ -146,6 +161,49 @@ single source of truth for their job:
   black-and-white shots, diagrams and flat artwork are recognised from their
   thumbnails and dropped.
 
+## The website
+
+`src/marketing/` is the page at `/`. It explains the product by rebuilding it:
+the scene list, the visual search, the voice picker, the caption styles and
+the Video Studio timeline are all live React drawn from the app's own
+catalogues, so the moment the app gains a caption style or a transition, the
+website shows it.
+
+Four files hold the whole thing together:
+
+- **`product-facts.ts`** — every number, claim and piece of plan packaging on
+  the page, in one place. The counts are imported from the real catalogues
+  rather than typed out, the provider order matches `server.ts`, and anything
+  that is not built yet is marked `comingSoon`. If a sentence on the website
+  makes a promise, it is written here and tested.
+- **`assets.ts`** — the artwork registry. Each entry says what the picture is,
+  which responsive widths exist and what kind of thing it is (`rendered` for
+  live UI, `concept` for our own artwork, `screenshot`/`recording` for the
+  real thing, `pending` for a slot that has no file yet and degrades into a
+  labelled placeholder). Swapping concept art for a real screen recording is
+  an edit to this file, not a redesign.
+- **`demo-project.ts`** — the one fictional project ("Where Cities Begin")
+  that every mockup on the page renders, which is why the scene list, the
+  timeline, the captions and the examples all agree with each other.
+- **`marketing.css`** — a self-contained `.mkt-*` design system, imported only
+  by `MarketingSite.tsx`. It shares no classes with the studio, so neither
+  side can restyle the other.
+
+Artwork pipeline:
+
+```bash
+npm run marketing:assets   # assets-src/marketing/*.png → public/marketing/*.webp
+npm run marketing:og       # rebuilds the 1200x630 link-preview card
+```
+
+The sources in `assets-src/` are deliberately untracked; the optimised WebP
+files (a few hundred KB in total) are what ships.
+
+The page keeps to a few rules, and the tests enforce them: nothing is claimed
+that the app cannot do, unbuilt ideas are labelled **Coming soon**, mockups
+say they are mockups, the sample data is fictional, there are no real people
+or customer projects, and there is no "go viral" anywhere.
+
 ## UI conventions
 
 Three rules keep the interface clean as it grows, and `tests/ui-chrome.test.ts`
@@ -178,3 +236,13 @@ browser. The suites cover image framing (aspect ratio is never distorted
 across every fit/zoom/crop/rotate/flip combination), camera motion (edge-safe
 and actually visible), scene splitting and durations, the sticker/template/
 filter catalogues, and responsive layout from 320px to 2560px.
+
+Two of them guard the website. `marketing.test.ts` checks that it tells the
+truth: every count matches the catalogue it came from, every asset in the
+registry has alt text and a file, planned features are labelled, the visual
+providers match the server, and a list of banned phrases (guaranteed views,
+going viral, rate limits) never appears. `marketing-render.test.ts` builds the
+site with esbuild, renders it to HTML with `react-dom/server` and inspects the
+markup — one `h1`, every section present and in story order, every image with
+alt text, dimensions and a `srcset`, one selected tab per tablist, and no
+`undefined` anywhere in the copy.

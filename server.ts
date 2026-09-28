@@ -1350,8 +1350,21 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    // Hashed bundles never change under the same name, and the website's
+    // artwork changes only when someone re-runs the asset script — both are
+    // worth caching hard. index.html stays uncached so a deploy is picked up
+    // on the next visit.
+    app.use(
+      "/assets",
+      express.static(path.join(distPath, "assets"), { immutable: true, maxAge: "1y" })
+    );
+    app.use("/marketing", express.static(path.join(distPath, "marketing"), { maxAge: "7d" }));
     app.use(express.static(distPath));
+    // Both front doors ("/" for the website, "/app" for the studio) and any
+    // deep link into a website section are served by the same document; the
+    // router in src/lib/route.ts decides which half to load.
     app.use((_req, res) => {
+      res.setHeader("Cache-Control", "no-cache");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

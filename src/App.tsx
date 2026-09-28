@@ -1,4 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+// The studio owns its styling: Tailwind's build, the generated theme colour
+// matrix and the hand-written theme layer. They load with this chunk so the
+// public website never downloads them (see main.tsx).
+import "./index.css";
+import "./themes.generated.css";
+import "./themes.css";
 import SceneEditor from "./components/SceneEditor";
 import VideoPreview from "./components/VideoPreview";
 import { loadCaptionFonts } from "./data/caption-styles";
@@ -21,6 +27,7 @@ import { stretchFullVideoVisualisers } from "./lib/render-visualizers";
 import InsertPropertiesModal from "./components/InsertPropertiesModal";
 import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
+import { navigate, SITE_PATH } from "./lib/route";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "./lib/api-keys";
 import {
   calculateDynamicDuration,
@@ -1251,6 +1258,16 @@ export default function App() {
               alt="Scenering"
               className="h-9 w-auto max-w-[130px] sm:max-w-[160px] object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)] select-none"
             />
+          </button>
+
+          {/* Back to the public website (the studio lives at /app) */}
+          <button
+            onClick={() => navigate(SITE_PATH)}
+            className="opt-btn shrink-0"
+            title="Back to the Scenering website"
+          >
+            <span className="t-ico">←</span>
+            <span className="hidden sm:inline">Website</span>
           </button>
 
           <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />
