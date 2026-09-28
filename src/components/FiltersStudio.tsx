@@ -74,9 +74,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
       {/* ---------------- Banner ---------------- */}
       <div className="bg-gradient-to-r from-fuchsia-950/80 via-gray-900 to-amber-950/70 border border-fuchsia-500/40 rounded-xl p-3.5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 shadow-md">
         <div className="flex items-center gap-3">
-          <span className="text-2xl p-2 bg-fuchsia-500/20 border border-fuchsia-500/40 rounded-lg text-fuchsia-200">
-            🎨
-          </span>
+          <span className="text-2xl p-2 bg-fuchsia-500/20 border border-fuchsia-500/40 rounded-lg text-fuchsia-200" aria-hidden="true"><Icon glyph="🎨" /></span>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm font-bold text-fuchsia-100">Video Look & Atmosphere Filters</h3>

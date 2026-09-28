@@ -471,9 +471,7 @@ export default function SetupStudio({
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <div className="min-w-0">
             <div className="flex items-center gap-2.5 mb-1.5">
-              <span className="p-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-xl text-lg">
-                🎬
-              </span>
+              <span className="p-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-xl text-lg" aria-hidden="true"><Icon glyph="🎬" /></span>
               <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
                 {isExistingProject ? "Project Setup" : "Start a New Project"}
               </h2>

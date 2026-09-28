@@ -2606,9 +2606,7 @@ export default function RenderView({
           <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 shadow-lg">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="p-1.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-lg text-sm shrink-0">
-                  🗄️
-                </span>
+                <span className="p-1.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-lg text-sm shrink-0" aria-hidden="true"><Icon glyph="🗄️" /></span>
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     The Vault
@@ -2986,9 +2984,7 @@ export default function RenderView({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="p-1.5 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg text-sm">
-                📜
-              </span>
+              <span className="p-1.5 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg text-sm" aria-hidden="true"><Icon glyph="📜" /></span>
               <h3 className="text-base font-bold text-white">
                 Video Description Attribution & License Credits
               </h3>

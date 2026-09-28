@@ -1,5 +1,6 @@
 import { Section, Pill } from "../components/primitives";
 import { HONESTY, MESSAGES, WORKFLOW_STAGES } from "../product-facts";
+import Icon from "../../components/icons/Icon";
 
 /**
  * The close: the whole story in one line, then the door into the studio.
@@ -36,9 +37,7 @@ export default function FinalCta() {
                 {stage.number} {stage.name}
               </span>
               {index < WORKFLOW_STAGES.length - 1 && (
-                <span className="mkt-flow-arrow" aria-hidden="true">
-                  →
-                </span>
+                <span className="mkt-flow-arrow" aria-hidden="true"><Icon glyph="→" /></span>
               )}
             </span>
           ))}

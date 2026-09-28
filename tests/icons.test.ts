@@ -15,7 +15,7 @@
  * mount the sprite.
  */
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHarness } from "./harness";
@@ -192,5 +192,46 @@ for (const { name } of files) {
   compared += 1;
 }
 ok(compared > 25, `${compared} files compared against ${BEFORE} word for word`);
+
+/* ----------------------------------------------- 5. one brand, everywhere */
+
+/* The wordmark appears in four places: the website nav, the studio header,
+   the sign-in screen, and burned into every exported video. They have to be
+   the same mark, and it has to be spelled correctly — it was previously
+   drawn into video as "SCENERINGS", with an extra S. */
+
+const effects = read("src/lib/render-effects.ts");
+
+ok(/export const BRAND_NAME = "Scenering";/.test(effects), "the product name is declared once");
+for (const { name, text } of files) {
+  ok(!/SCENERINGS/.test(text), `${name}: the name is not misspelled`);
+}
+
+// The mark is drawn, not blitted, so it stays sharp at any export size.
+ok(/export function drawBrandWordmark/.test(effects), "there is one wordmark painter");
+ok(/drawBrandWordmark\(ctx, item\.content\?\.primaryText \|\| BRAND_NAME/.test(effects),
+  "the branding element uses it, and falls back to the product name");
+ok(/const BRAND_SPLIT = 5;/.test(effects), "the silver/gold split is Scene | ring");
+
+const painter = effects.slice(effects.indexOf("export function drawBrandWordmark"), effects.indexOf("function renderBranding"));
+ok(/#ffffff/.test(painter) && /#b7c9e4/.test(painter), "the first half is the silver face");
+ok(/#ffc83f/.test(painter), "the second half is gold");
+ok(/#0e4fa8/.test(painter), "the blue outline is there, so it holds on any footage");
+ok(/quadraticCurveTo/.test(painter), "the gold swoosh is drawn");
+ok(/isBrand \? silver : gold/.test(painter),
+  "somebody else's brand is one colour — the split belongs to Scenering");
+ok(/measureText/.test(painter), "the mark is centred on its measured width");
+
+// One logo file behind the interface and the video watermark.
+const LOGO = "scenering-logo.png";
+for (const surface of ["src/App.tsx", "src/studio/SignIn.tsx", "src/components/RenderView.tsx"]) {
+  ok(read(surface).includes(LOGO), `${surface} uses the one logo file`);
+}
+ok(existsSync(join(repoRoot, "public", LOGO)), "the logo file exists");
+
+// And the website ships the same mark, re-encoded small.
+const assets = read("src/marketing/assets.ts");
+ok(/id: "brand\.mark"/.test(assets), "the website registers the wordmark");
+ok(/id: "brand\.showpiece"/.test(assets), "the website registers the key art");
 
 h.done("icons");

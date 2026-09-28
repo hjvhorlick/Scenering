@@ -17,6 +17,7 @@ import {
 } from "../demo-project";
 import { HONESTY, LIVE_COUNTS, MESSAGES } from "../product-facts";
 import type { ProjectPhase } from "../../components/StepNav";
+import Icon from "../../components/icons/Icon";
 
 /**
  * The hero: one idea becoming a complete video, in the six steps the studio
@@ -153,8 +154,8 @@ export default function Hero() {
                         <div className="mkt-mini-top">
                           <span className="mkt-scene-no">{scene.number}</span>
                           {reached(2) && (
-                            <span className="mkt-pill is-accent" style={{ padding: "1px 6px", fontSize: 10 }}>
-                              🎙
+                            <span className="mkt-pill is-accent" style={{ padding: "1px 6px", fontSize: 10 }} aria-hidden="true">
+                              <Icon glyph="🎙" />
                             </span>
                           )}
                         </div>

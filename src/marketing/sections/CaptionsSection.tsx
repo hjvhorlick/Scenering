@@ -47,35 +47,27 @@ export default function CaptionsSection() {
         <div>
           <ul className="mkt-list">
             <li>
-              <span className="mkt-tick" aria-hidden="true">
-                ✓
-              </span>
+              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
                 <b>Timed to the narration.</b> Caption timing comes from the generated audio, not from a guess at
                 reading speed.
               </span>
             </li>
             <li>
-              <span className="mkt-tick" aria-hidden="true">
-                ✓
-              </span>
+              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
                 <b>Word-by-word or line-by-line.</b> Karaoke highlighting for social cuts, a steady subtitle for
                 documentary work.
               </span>
             </li>
             <li>
-              <span className="mkt-tick" aria-hidden="true">
-                ✓
-              </span>
+              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
                 <b>Yours to adjust.</b> Size, position, case, text and highlight colour, background box or none.
               </span>
             </li>
             <li>
-              <span className="mkt-tick is-lock" aria-hidden="true">
-                🔒
-              </span>
+              <span className="mkt-tick is-lock" aria-hidden="true"><Icon glyph="🔒" /></span>
               <span>
                 <b>{FREE_STYLE_IDS.length} styles on Free, all {LIVE_COUNTS.captionStyles} on SceneFlow.</b> The Free
                 set is complete and unmarked — nothing is watermarked to make a point.

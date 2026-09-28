@@ -372,9 +372,7 @@ export default function VideoStudio({
             {selectedCategory === "background_music" && (
               <div className="bg-gradient-to-r from-indigo-950/90 via-gray-900 to-purple-950/90 border border-indigo-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl p-2 bg-indigo-500/20 border border-indigo-500/40 rounded-lg text-indigo-300">
-                    🎵
-                  </span>
+                  <span className="text-2xl p-2 bg-indigo-500/20 border border-indigo-500/40 rounded-lg text-indigo-300" aria-hidden="true"><Icon glyph="🎵" /></span>
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-bold text-indigo-200">Calming Royalty-Free Background Music</h3>
@@ -394,9 +392,7 @@ export default function VideoStudio({
             {selectedCategory === "sound_effects" && (
               <div className="bg-gradient-to-r from-cyan-950/90 via-gray-900 to-cyan-950/90 border border-cyan-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl p-2 bg-cyan-500/20 border border-cyan-500/40 rounded-lg text-cyan-300">
-                    🔊
-                  </span>
+                  <span className="text-2xl p-2 bg-cyan-500/20 border border-cyan-500/40 rounded-lg text-cyan-300" aria-hidden="true"><Icon glyph="🔊" /></span>
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-bold text-cyan-200">Studio Sound Effects & Foley</h3>

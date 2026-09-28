@@ -47,9 +47,7 @@ export default function VisualResearch() {
               </span>
               <span className="mkt-small">{step.detail}</span>
               {index < SEARCH_POLICY.length - 1 && (
-                <span className="mkt-flow-arrow" aria-hidden="true">
-                  →
-                </span>
+                <span className="mkt-flow-arrow" aria-hidden="true"><Icon glyph="→" /></span>
               )}
             </span>
           ))}

@@ -404,13 +404,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                               className="w-full h-auto block"
                             />
                             {active && (
-                              <span
-                                className={`absolute top-1 right-1 px-1.5 py-0.5 rounded text-[8px] font-bold text-white ${
-                                  isIntro ? "bg-amber-600" : "bg-rose-600"
-                                }`}
-                              >
-                                ✓
-                              </span>
+                              <span aria-hidden="true"><Icon glyph="✓" /></span>
                             )}
                           </div>
                           <div className="px-2 py-1.5">
@@ -769,13 +763,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                             </button>
                           )}
                           {active && (
-                            <span
-                              className={`text-[9px] font-bold flex-shrink-0 ${
-                                isIntro ? "text-amber-400" : "text-rose-400"
-                              }`}
-                            >
-                              ✓
-                            </span>
+                            <span aria-hidden="true"><Icon glyph="✓" /></span>
                           )}
                         </div>
                       );

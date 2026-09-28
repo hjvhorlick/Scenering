@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import type { CustomerLogoConfig, AspectRatioType } from "../types";
+import Icon from "./icons/Icon";
 
 interface CustomerLogoSectionProps {
   config: CustomerLogoConfig;
@@ -59,9 +60,7 @@ export default function CustomerLogoSection({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-lg">
-              🏷️
-            </span>
+            <span className="p-1.5 rounded-lg bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-lg" aria-hidden="true"><Icon glyph="🏷️" /></span>
             <h3 className="text-base font-bold text-white">
               Customer Brand Logo (Top-Right Corner)
             </h3>
@@ -129,9 +128,7 @@ export default function CustomerLogoSection({
               className="hidden"
             />
             <div className="flex flex-col items-center justify-center gap-2.5">
-              <span className="p-3 rounded-full bg-indigo-600/20 text-indigo-400 text-3xl">
-                📤
-              </span>
+              <span className="p-3 rounded-full bg-indigo-600/20 text-indigo-400 text-3xl" aria-hidden="true"><Icon glyph="📤" /></span>
               <div className="text-sm font-semibold text-white">
                 Upload Your Logo Image
               </div>

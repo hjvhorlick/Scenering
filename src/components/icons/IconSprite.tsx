@@ -524,6 +524,14 @@ export default function IconSprite() {
         <path d="M9.6 11.6h12.8M9.6 16h12.8M9.6 20.4h12.8" fill="none" stroke="url(#icoGold)" strokeWidth="2.8" strokeLinecap="round" />
       </symbol>
 
+      <symbol id="ico-archive" viewBox="0 0 32 32">
+        <Base cy={19} r={11.8} />
+        <rect x="3.4" y="4.6" width="25.2" height="6.6" rx="1.8" fill="url(#icoGold)" stroke="#8a5609" strokeWidth="1.1" />
+        <path d="M5.4 12.6h21.2v13.2a2.6 2.6 0 0 1-2.6 2.6H8a2.6 2.6 0 0 1-2.6-2.6Z" fill="url(#icoBlue)" stroke="#0e3374" strokeWidth="1.1" strokeLinejoin="round" />
+        <path d="M12.6 17.4h6.8" stroke="url(#icoGold)" strokeWidth="2.6" strokeLinecap="round" />
+        <path d="M5.4 5.6h21.2a1 1 0 0 1 1 1v1.2H4.4V6.6a1 1 0 0 1 1-1Z" fill="#fff" opacity=".32" />
+      </symbol>
+
       <symbol id="ico-dot" viewBox="0 0 32 32">
         <Disc />
         <circle cx="16" cy="16" r="4.6" fill="url(#icoGold)" stroke="#8a5609" strokeWidth="0.8" />

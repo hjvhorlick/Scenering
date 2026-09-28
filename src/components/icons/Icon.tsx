@@ -140,6 +140,8 @@ export const ICON_FOR_GLYPH: Record<string, string> = {
   "⬇️": "download",
   "📤": "upload",
   "🌿": "leaf",
+  "🗄": "archive",
+  "🗃": "archive",
   "☰": "menu",
   "●": "dot",
   "⬤": "dot",
@@ -155,7 +157,7 @@ export const ICON_NAMES = [
   "lock", "speaker", "music", "headphones", "visualiser", "rocket", "target",
   "folder", "globe", "bell", "bulb", "clock", "person", "people", "mouse",
   "frame", "text", "phone", "screen", "chart", "star", "tag", "shuffle",
-  "crop", "download", "upload", "leaf", "menu", "dot",
+  "crop", "download", "upload", "leaf", "menu", "dot", "archive",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];

@@ -4,6 +4,7 @@ import AppFrame from "../components/AppFrame";
 import SceneCard from "../components/SceneCard";
 import { DEMO_PROJECT, DEMO_SCENES, DEMO_TOTAL_SECONDS, formatDuration } from "../demo-project";
 import { HONESTY, MESSAGES } from "../product-facts";
+import Icon from "../../components/icons/Icon";
 
 /**
  * The Scenes board.
@@ -29,9 +30,7 @@ export default function ScenesSection() {
         <div>
           <ul className="mkt-list">
             <li>
-              <span className="mkt-tick" aria-hidden="true">
-                ✓
-              </span>
+              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
                 <b>Divided by meaning, not by a timer.</b> Scene lengths below run from{" "}
                 {Math.min(...DEMO_SCENES.map((s) => s.duration)).toFixed(1)}s to{" "}
@@ -39,27 +38,21 @@ export default function ScenesSection() {
               </span>
             </li>
             <li>
-              <span className="mkt-tick" aria-hidden="true">
-                ✓
-              </span>
+              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
                 <b>Narration sets the timing.</b> When the voice is generated, each scene is fitted to the audio, so
                 there are no silent gaps at the end of a scene.
               </span>
             </li>
             <li>
-              <span className="mkt-tick" aria-hidden="true">
-                ✓
-              </span>
+              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
                 <b>Every card is editable.</b> Rewrite the text, swap the visual, drop in your own clip, crop and
                 reposition, change the motion — one scene or all of them.
               </span>
             </li>
             <li>
-              <span className="mkt-tick" aria-hidden="true">
-                ✓
-              </span>
+              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
                 <b>Nothing is locked in.</b> Change a scene after narration and the timing follows the new line.
               </span>

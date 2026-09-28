@@ -23,6 +23,7 @@ import LiveVoiceVisualizer, {
 import { CATALOG_ITEMS } from "../lib/video-studio-catalog";
 import { tapVoiceElement } from "../lib/voice-monitor";
 import { iconify } from "./icons/Icon";
+import Icon from "./icons/Icon";
 
 interface VoiceoverStudioProps {
   scenes: Scene[];
@@ -433,9 +434,7 @@ export default function VoiceoverStudio({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-xl">
-                🎙️
-              </span>
+              <span className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-xl" aria-hidden="true"><Icon glyph="🎙️" /></span>
               <h2 className="text-xl font-bold text-white">Voiceover Studio</h2>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/80 border border-emerald-700/60 text-emerald-300">
                 10 Free Natural Voices Active
