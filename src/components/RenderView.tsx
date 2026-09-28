@@ -1437,7 +1437,9 @@ export default function RenderView({
           ];
           const offlineInsertMixer = new InsertAudioMixer(offlineCtx, offlineMusicAnalyser);
           await offlineInsertMixer.load(insertPlans);
-          offlineInsertMixer.startFrom(0);
+          // Placed on the timeline up front, to the sample, so the render does
+          // not have to stop once per frame to ask whether a sound is due.
+          offlineInsertMixer.scheduleAll();
 
           const readOfflineBus = (node: AnalyserNode) => {
             const freq = new Uint8Array(node.frequencyBinCount);
@@ -1458,7 +1460,6 @@ export default function RenderView({
               const snapshot = { voice: readOfflineBus(voiceAnalyser), music: readOfflineBus(offlineMusicAnalyser) };
               telemetry[frame] = snapshot;
               offlineMastering.updateVoiceLevel(snapshot.voice.level, offlineCtx.currentTime);
-              offlineInsertMixer.tick(time);
               return offlineCtx.resume();
             }));
           }
