@@ -81,6 +81,7 @@ import type { RenderProfileSettings } from "../types";
 import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
 import { OfflineExporter, supported as offlineExportSupported, type OfflineExportConfig } from "../lib/offline-export";
 import { createFrameBudget } from "../lib/yield-to-browser";
+import { RenderTimer } from "../lib/render-timing";
 import Icon, { iconify } from "./icons/Icon";
 
 /**
@@ -1368,12 +1369,18 @@ export default function RenderView({
         try {
           reportStage("3/4: Rendering sample-exact audio mix…");
           reportProgress(0.32);
+          // Times itself, because the renders that go wrong are the long ones
+          // and nobody can be asked to sit and watch a nine-minute export to
+          // tell me which part was slow.
+          const renderTimer = new RenderTimer();
+          renderTimer.stage("encoder setup");
           const totalFrames = Math.ceil(estimatedTotalDuration * fpsUsed);
           // Configure real encoder instances before spending time on the audio
           // pass. A driver/configuration rejection is reported immediately.
           offlineEncoder = await OfflineExporter.create(offlineConfig);
           setRenderEngine("frame-exact");
           reportStage(`3/4: Frame-exact ${offlineProbe.videoCodec} + ${offlineProbe.audioCodec} — rendering audio…`);
+          renderTimer.stage("audio graph");
           const offlineCtx = new OfflineAudioContext(2, Math.ceil(estimatedTotalDuration * 48_000), 48_000);
           const offlineMastering = createMasteringChain(offlineCtx, settings.audioMastering);
           offlineMastering.output.connect(offlineCtx.destination);
@@ -1467,10 +1474,15 @@ export default function RenderView({
               return offlineCtx.resume();
             }));
           }
+          // The suspensions above make this stage stop and restart the audio
+          // engine once per video frame. Its share of the total is the number
+          // that decides whether that is worth redesigning.
+          renderTimer.stage("audio render + telemetry");
           const rendering = offlineCtx.startRendering();
           const [mixedAudio] = await Promise.all([rendering, ...suspensionTasks]);
           if (abortControllerRef.current) throw new Error("Render cancelled");
 
+          renderTimer.stage("video frames");
           const encodeBudget = createFrameBudget();
           for (let frame = 0; frame < totalFrames; frame++) {
             if (abortControllerRef.current) throw new Error("Render cancelled");
@@ -1507,16 +1519,28 @@ export default function RenderView({
            * and long enough to look like a crash. Both now yield, and both
            * report where they are.
            */
+          renderTimer.stage("audio encode");
           reportStage("4/4: Encoding sample-exact audio…");
           reportProgress(0.86);
           await offlineEncoder.encodeAudio(mixedAudio, 4_800, (fraction) => {
             reportProgress(0.86 + fraction * 0.08);
           });
 
+          renderTimer.stage("finalise container");
           reportStage("4/4: Finalising the container…");
           reportProgress(0.95);
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
           const offlineBlob = await offlineEncoder.finalize();
+          renderTimer.stop();
+          renderTimer.note(
+            "video",
+            `${Math.round(estimatedTotalDuration)}s at ${fpsUsed}fps (${totalFrames} frames), ${offlineConfig.width}x${offlineConfig.height}`
+          );
+          renderTimer.note(
+            "file",
+            `${(offlineBlob.size / 1_048_576).toFixed(0)} MB ${offlineContainer.toUpperCase()}`
+          );
+          console.log(renderTimer.format());
           reportProgress(0.98);
           offlineMastering.dispose();
           offlineEcho?.dispose();
