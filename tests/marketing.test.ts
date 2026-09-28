@@ -751,4 +751,140 @@ for (const [path, section] of Object.entries(SITE_SECTION_PATHS)) {
 }
 ok(read("src/App.tsx").includes("navigate(SITE_PATH)"), "the studio links back to the website");
 
+/* --------------------------------------------------- 10. responsive */
+
+/* The page is long and most of it will be read on a phone. These checks are
+   about one failure mode: something wider than the screen, which turns the
+   whole document into a horizontal scroll. They read the stylesheet rather
+   than a browser, so they run everywhere. */
+
+// Mobile-first: every breakpoint adds to a small-screen base, never the
+// reverse. A single max-width query would mean the base layer is a desktop
+// layout being walked back, which is where overflow comes from.
+const queries = css.match(/@media[^{]+/g) ?? [];
+ok(queries.length > 0, `the stylesheet has ${queries.length} media queries`);
+for (const query of queries) {
+  const feature = query.replace(/\s+/g, " ").trim();
+  ok(
+    !/max-width:\s*\d/.test(feature) || /print|prefers-/.test(feature),
+    `mobile-first (min-width only): ${feature}`,
+  );
+}
+
+/* Walk the base layer — every rule outside a min-width query — and budget it
+   against the narrowest phone we support. */
+const PHONE = 320;
+type Rule = { selector: string; body: string; responsive: boolean };
+const rules: Rule[] = [];
+{
+  let index = 0;
+  let mediaEnd = -1;
+  while (index < css.length) {
+    const open = css.indexOf("{", index);
+    if (open < 0) break;
+    const head = css.slice(index, open).split("\n").pop()!.trim();
+    if (head.startsWith("@media") && /min-width/.test(head)) {
+      let depth = 1;
+      let scan = open + 1;
+      while (scan < css.length && depth > 0) {
+        if (css[scan] === "{") depth += 1;
+        else if (css[scan] === "}") depth -= 1;
+        scan += 1;
+      }
+      mediaEnd = scan;
+      index = open + 1;
+      continue;
+    }
+    if (head.startsWith("@")) {
+      let depth = 1;
+      let scan = open + 1;
+      while (scan < css.length && depth > 0) {
+        if (css[scan] === "{") depth += 1;
+        else if (css[scan] === "}") depth -= 1;
+        scan += 1;
+      }
+      index = scan;
+      continue;
+    }
+    const close = css.indexOf("}", open);
+    if (close < 0) break;
+    rules.push({ selector: head, body: css.slice(open + 1, close), responsive: open < mediaEnd });
+    index = close + 1;
+  }
+}
+ok(rules.length > 150, `${rules.length} rules parsed out of the stylesheet`);
+
+for (const rule of rules.filter((r) => !r.responsive)) {
+  const width = rule.body.match(/(?:^|[;\s])width:\s*(\d+)px/);
+  if (width && Number(width[1]) >= 200) {
+    ok(/max-width:\s*100%/.test(rule.body), `${rule.selector}: ${width[1]}px wide, capped at 100%`);
+  }
+  const floor = rule.body.match(/(?:^|[;\s])min-width:\s*(\d+)px/);
+  ok(!floor || Number(floor[1]) < PHONE, `${rule.selector}: no min-width past a ${PHONE}px screen`);
+  const columns = rule.body.match(/grid-template-columns:\s*([^;]+)/);
+  if (columns) {
+    const fixed = [...columns[1].matchAll(/(\d+)px/g)].reduce((sum, m) => sum + Number(m[1]), 0);
+    ok(fixed < 260, `${rule.selector}: grid columns are not ${fixed}px of fixed track`);
+  }
+}
+
+// 100vw ignores the scrollbar on desktop and overflows by its width.
+ok(!/width:\s*100vw/.test(css), "nothing is sized to 100vw");
+
+// Anything that lays children out in a fixed-size row has to be allowed to
+// either wrap or scroll, or it pushes the page sideways.
+for (const strip of [".mkt-strip", ".mkt-optrow"]) {
+  const rule = rules.find((r) => r.selector.split(",").some((s) => s.trim() === strip) && !r.responsive);
+  ok(!!rule && /overflow-x:\s*auto/.test(rule.body), `${strip} scrolls sideways instead of overflowing`);
+}
+
+/* The desktop link rail is hidden below 1000px. Something has to take its
+   place, or a phone gets a wordmark, a Sign in button, and twenty screens of
+   scrolling with no way to jump. */
+const railHidden = rules.some(
+  (r) => r.selector.includes(".mkt-nav-links") && !r.responsive && /display:\s*none/.test(r.body),
+);
+ok(railHidden, "the wide link rail is hidden on small screens");
+const menuHiddenWide = rules.some(
+  (r) => r.selector.includes(".mkt-nav-menu") && r.responsive && /display:\s*none/.test(r.body),
+);
+ok(menuHiddenWide, "the small-screen menu gets out of the way once the rail fits");
+ok(site.includes("mkt-nav-panel"), "small screens get a section menu");
+ok(site.includes("aria-expanded={menuOpen}"), "the menu reports its state");
+ok(site.includes('aria-controls="mkt-nav-panel"'), "the toggle points at the panel it opens");
+ok(/Escape/.test(site) && /setMenuOpen\(false\)/.test(site), "Escape closes the menu");
+// The panel is the rail: same links, no shorter list for phones.
+ok(/NAV\.map\([\s\S]{0,400}mkt-nav-panel-link/.test(site), "the menu lists every section the rail does");
+
+/* Back to top. */
+const totop = read("src/marketing/components/BackToTop.tsx");
+ok(site.includes("<BackToTop />"), "the page mounts a back-to-top control");
+ok(/Back to the top/.test(totop), "back-to-top has an accessible name");
+ok(/prefers-reduced-motion/.test(totop), "back-to-top honours reduced motion");
+ok(/tabIndex={shown \? 0 : -1}/.test(totop), "back-to-top leaves the tab order while hidden");
+ok(/getElementById\("main"\)\?\.focus/.test(totop), "back-to-top moves focus, not just the scroll position");
+ok(/passive: true/.test(totop), "the scroll listener is passive");
+const totopRule = rules.find((r) => r.selector.trim() === ".mkt-totop");
+ok(!!totopRule && /position:\s*fixed/.test(totopRule.body), "back-to-top is pinned to the viewport");
+ok(!!totopRule && /min-height:\s*44px/.test(totopRule.body), "back-to-top is a 44px touch target");
+ok(!!totopRule && /env\(safe-area-inset-bottom/.test(totopRule.body), "back-to-top clears the phone home bar");
+ok(/\.mkt-totop:focus-visible/.test(css), "back-to-top shows a focus ring");
+
+/* Images tell the browser how much of the screen they will take, so a phone
+   downloads a phone-sized file. */
+const imgSizes = marketingSource.match(/sizes="[^"]+"/g) ?? [];
+ok(imgSizes.length >= 10, `${imgSizes.length} images declare their layout width`);
+for (const size of imgSizes) {
+  const value = size.slice(7, -1);
+  // Two honest shapes: an element that grows with the screen ends in a
+  // viewport-relative fallback, and a fixed thumbnail states its one width.
+  // A fixed width only has to fit the narrowest phone.
+  if (/vw/.test(value)) {
+    ok(/\d+vw\s*$/.test(value), `sizes ends in a viewport-relative fallback: ${value}`);
+  } else {
+    const fixed = Number(value.match(/^(\d+)px$/)?.[1] ?? NaN);
+    ok(fixed > 0 && fixed < PHONE, `fixed thumbnail fits a ${PHONE}px screen: ${value}`);
+  }
+}
+
 h.done("marketing");

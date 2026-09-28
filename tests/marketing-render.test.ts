@@ -154,4 +154,24 @@ for (const [whole, inner] of buttons) {
   ok(named, `every button has a label or accessible name: ${whole.slice(0, 80)}`);
 }
 
+/* ------------------------------------------------- navigation aids */
+
+/* Back to top, as it arrives in the first paint: present, out of sight, and
+   out of the tab order until scrolling brings it in. */
+const totop = html.match(/<button[^>]*class="mkt-totop"[\s\S]*?<\/button>/)?.[0] ?? "";
+ok(totop.length > 0, "the rendered page carries a back-to-top control");
+ok(!/is-shown/.test(totop), "back-to-top starts hidden, at the top of the page");
+ok(/tabindex="-1"/i.test(totop), "back-to-top is not a tab stop while hidden");
+ok(/aria-hidden="true"/i.test(totop), "back-to-top is hidden from screen readers too");
+ok(/Back to the top of the page/.test(totop), "back-to-top says where it goes");
+ok(html.includes('id="main"'), "there is a #main landmark for it to return focus to");
+
+/* The small-screen section menu. */
+const toggle = html.match(/<button[^>]*class="[^"]*mkt-nav-toggle[^"]*"[\s\S]*?<\/button>/)?.[0] ?? "";
+ok(toggle.length > 0, "the nav carries a section menu toggle");
+ok(/aria-expanded="false"/.test(toggle), "the menu starts closed");
+ok(/aria-controls="mkt-nav-panel"/.test(toggle), "the toggle names the panel it controls");
+ok(/Sections/.test(toggle), "the toggle is labelled, not just an icon");
+ok(!/mkt-nav-panel-link/.test(html), "the closed menu renders no links");
+
 h.done("marketing-render");

@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./marketing.css";
 import { navigate, sectionForPath, STUDIO_PATH } from "../lib/route";
 import { BrandMark, Stat } from "./components/primitives";
+import BackToTop from "./components/BackToTop";
 import Hero from "./sections/Hero";
 import Questions from "./sections/Questions";
 import IdeaToVideo from "./sections/IdeaToVideo";
@@ -53,6 +54,11 @@ const NAV = [
 ];
 
 export default function MarketingSite() {
+  // Below 1000px the link rail does not fit beside the wordmark, so it
+  // collapses into this panel rather than disappearing — on a page this long,
+  // a phone without navigation is a phone with a scrollbar and nothing else.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   // The studio themes paint the document dark; the website is its own light
   // surface, and this flag lets the stylesheet claim <html> while it is open.
   useEffect(() => {
@@ -69,6 +75,23 @@ export default function MarketingSite() {
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
   }, []);
+
+  // Escape closes it, and so does a click anywhere else on the page.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    const onPointer = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+    };
+  }, [menuOpen]);
 
   const conceptCount = MARKETING_ASSETS.filter((asset) => asset.status === "concept").length;
   const renderedCount = MARKETING_ASSETS.filter((asset) => asset.status === "rendered").length;
@@ -94,6 +117,35 @@ export default function MarketingSite() {
           </div>
 
           <span className="mkt-nav-spacer" />
+
+          {/* The same links, for screens the rail does not fit on. */}
+          <div className="mkt-nav-menu" ref={menuRef}>
+            <button
+              type="button"
+              className="mkt-btn mkt-btn-quiet mkt-nav-toggle"
+              aria-expanded={menuOpen}
+              aria-controls="mkt-nav-panel"
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <span aria-hidden="true">{menuOpen ? "✕" : "☰"}</span>
+              <span>Sections</span>
+            </button>
+
+            {menuOpen && (
+              <div className="mkt-nav-panel" id="mkt-nav-panel">
+                {NAV.map((item) => (
+                  <a
+                    key={item.id}
+                    className="mkt-nav-panel-link"
+                    href={`#${item.id}`}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    {item.label}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* The only way into the studio anywhere on this site. There are
               no shortcuts past it: the sign-in screen is the door. */}
@@ -135,6 +187,8 @@ export default function MarketingSite() {
         <Pricing />
         <FinalCta />
       </main>
+
+      <BackToTop />
 
       <footer className="mkt-footer">
         <div className="mkt-container">
