@@ -148,6 +148,21 @@ const pending = (
 export const MARKETING_ASSETS: MarketingAsset[] = [
   // --------------------------------------------------------------- brand
   {
+    id: "brand.showpiece",
+    group: "hero",
+    file: "hero-showpiece",
+    widths: [1024, 512],
+    width: 1024,
+    height: 1024,
+    alt:
+      "The Scenering wordmark under a gold ring, surrounded by the pieces of a video: " +
+      "four landscape photographs fanned out like dealt cards, a clapperboard, a player " +
+      "panel with a play button, a strip of film carrying more photographs, and a " +
+      "microphone beside a bank of audio level bars.",
+    status: "concept",
+    note: "Key art for the top of the page — the parts of a finished video, drawn as one object",
+  },
+  {
     id: "brand.mark",
     group: "hero",
     file: "mark-scenering",
@@ -385,6 +400,22 @@ export function assetsInGroup(group: MarketingAssetGroup): MarketingAsset[] {
 /** Public URL for one encoded width. */
 export function assetSrc(asset: MarketingAsset, width: number): string {
   return `/marketing/${asset.file}-${width}.webp`;
+}
+
+/**
+ * The plain `src`, for a browser that ignores `srcset`.
+ *
+ * It has to name a width the asset was actually encoded at — most are
+ * 640/1280, but the wordmark is 120/240 and the key art is 512/1024, and
+ * asking for a 640 of either is a request for a file that does not exist.
+ * Picks whichever encoded width is closest to the one wanted.
+ */
+export function assetSrcNear(asset: MarketingAsset, wanted: number): string {
+  const widths = asset.widths ?? PHOTO_WIDTHS;
+  const closest = widths.reduce((best, w) =>
+    Math.abs(w - wanted) < Math.abs(best - wanted) ? w : best,
+  );
+  return assetSrc(asset, closest);
 }
 
 /** `srcset` across every encoded width. */

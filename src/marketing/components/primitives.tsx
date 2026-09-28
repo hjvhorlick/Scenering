@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { getAsset, assetSrc, assetSrcSet, type MarketingAsset } from "../assets";
+import { getAsset, assetSrc, assetSrcNear, assetSrcSet, type MarketingAsset } from "../assets";
 
 /**
  * The website's shared furniture: sections, headings, labels and the one
@@ -153,7 +153,7 @@ export function MarketingImage({
   return (
     <span className={`mkt-thumb${shape} ${className ?? ""}`}>
       <img
-        src={assetSrc(asset, 640)}
+        src={assetSrcNear(asset, 640)}
         srcSet={assetSrcSet(asset)}
         sizes={sizes}
         width={asset.width}

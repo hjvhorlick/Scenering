@@ -130,7 +130,6 @@ export default function Hero() {
                       }
                       grade={reached(4) ? DEMO_TIMELINE_EXTRAS.filter.css : undefined}
                       sizes="(min-width: 1080px) 420px, 92vw"
-                      eager
                     />
                     <div className={`mkt-chiprow mkt-stage${reached(4) ? " is-in" : ""}`} style={{ marginTop: 8 }}>
                       {/* the demonstration project's own timeline, named the

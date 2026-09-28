@@ -38,6 +38,9 @@ const outDir = join(repoRoot, "public", "marketing");
  */
 const WIDTH_PRESETS = [
   { match: /^mark-/, widths: [240, 120] },
+  // The square key art never renders wider than a hero column, and the source
+  // is 1024 square — encoding a 1280 would be an upscale.
+  { match: /^hero-showpiece$/, widths: [1024, 512] },
   { match: /.*/, widths: [1280, 640] },
 ];
 const widthsFor = (id) => WIDTH_PRESETS.find((preset) => preset.match.test(id)).widths;

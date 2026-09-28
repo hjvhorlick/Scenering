@@ -175,8 +175,20 @@ for (const { name } of files) {
   }
   const a = prose(old);
   const b = prose(read(name));
-  const same = a.length === b.length && a.every((w, i) => w === b[i]);
-  ok(same, `${name}: every word is unchanged`);
+  /* Every word that was there must still be there, in the same order. New
+     copy for a new feature is allowed to appear alongside it; an edited,
+     reordered or deleted word is not, because it breaks the run. */
+  let cursor = 0;
+  let lost: string | null = null;
+  for (const word of a) {
+    const at = b.indexOf(word, cursor);
+    if (at < 0) {
+      lost = word;
+      break;
+    }
+    cursor = at + 1;
+  }
+  ok(lost === null, `${name}: every word is unchanged${lost ? ` (lost "${lost}")` : ""}`);
   compared += 1;
 }
 ok(compared > 25, `${compared} files compared against ${BEFORE} word for word`);

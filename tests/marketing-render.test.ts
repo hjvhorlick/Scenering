@@ -12,7 +12,7 @@
  * no-test-runner spirit of the rest of the suite.
  */
 import { build } from "esbuild";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { createElement } from "react";
@@ -87,7 +87,11 @@ h.eq(rendered.join(","), SECTIONS.join(","), "sections render in story order");
 
 h.eq((html.match(/<h1/g) || []).length, 1, "exactly one h1");
 ok(/<h1[^>]*>From idea to video\.<\/h1>/.test(html), "the h1 is the product promise");
-h.eq((html.match(/<h2/g) || []).length, SECTIONS.length, "every section has one h2");
+// One per story section, plus the key-art band above them — it carries a
+// heading but no anchor, because it is the page opening rather than a stop on
+// the way through it.
+h.eq((html.match(/<h2/g) || []).length, SECTIONS.length + 1, "every section has one h2");
+ok(/id="showpiece-title"/.test(html), "the key-art band names itself");
 ok(!/<h[1-4][^>]*><\/h[1-4]>/.test(html), "no empty headings");
 ok(/<main id="main"[^>]*>/.test(html), "there is a main landmark");
 ok(/<main id="main"[^>]*tabindex="-1"/i.test(html), "the skip link's target can take focus");
@@ -173,5 +177,24 @@ ok(/aria-expanded="false"/.test(toggle), "the menu starts closed");
 ok(/aria-controls="mkt-nav-panel"/.test(toggle), "the toggle names the panel it controls");
 ok(/Sections/.test(toggle), "the toggle is labelled, not just an icon");
 ok(!/mkt-nav-panel-link/.test(html), "the closed menu renders no links");
+
+/* ------------------------------------------------- artwork on disk */
+
+/* Every image URL in the markup must name a file that exists. The registry
+   encodes each asset at its own widths — 640/1280 for photography, 120/240
+   for the wordmark, 512/1024 for the key art — so a hard-coded fallback width
+   silently points at nothing. This catches that. */
+const referenced = [...new Set([...html.matchAll(/\/marketing\/[a-z0-9-]+\.(?:webp|jpg|png)/g)].map((m) => m[0]))];
+ok(referenced.length >= 15, `the page references ${referenced.length} image files`);
+for (const url of referenced) {
+  ok(existsSync(join(repoRoot, "public", url)), `${url} exists on disk`);
+}
+
+// And each <img> offers a srcset, so a phone is not sent the desktop encode.
+const sized = html.match(/<img\b[^>]*>/g) ?? [];
+for (const img of sized) {
+  if (!/\/marketing\//.test(img)) continue;
+  ok(/srcset=/i.test(img), `image offers responsive widths: ${img.slice(0, 70)}`);
+}
 
 h.done("marketing-render");

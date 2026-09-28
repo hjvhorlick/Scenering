@@ -4,6 +4,7 @@ import { navigate, sectionForPath, STUDIO_PATH } from "../lib/route";
 import { BrandMark, Stat } from "./components/primitives";
 import BackToTop from "./components/BackToTop";
 import Hero from "./sections/Hero";
+import Showpiece from "./sections/Showpiece";
 import Questions from "./sections/Questions";
 import IdeaToVideo from "./sections/IdeaToVideo";
 import ScenesSection from "./sections/ScenesSection";
@@ -159,6 +160,7 @@ export default function MarketingSite() {
       </nav>
 
       <main id="main" tabIndex={-1}>
+        <Showpiece />
         <Hero />
 
         {/* what the numbers actually are */}

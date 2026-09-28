@@ -726,7 +726,14 @@ ok(site.includes("mkt-skip"), "there is a skip link");
 ok(site.includes('aria-label="Main"'), "the nav is labelled");
 for (const { name, text } of marketingFiles) {
   if (!/sections\/.*\.tsx$/.test(name)) continue;
-  ok(/role="tablist"|<Section/.test(text), `${name}: renders a landmark section`);
+  // Either the shared <Section> wrapper, a tablist, or a plain <section>
+  // element carrying an accessible name — all three are real landmarks. The
+  // full-bleed key-art band is the third kind.
+  const landmark =
+    /<Section/.test(text) ||
+    /role="tablist"/.test(text) ||
+    /<section[^>]*aria-label(?:ledby)?=/.test(text);
+  ok(landmark, `${name}: renders a landmark section`);
   ok(!/<img(?![^>]*alt=)/.test(text), `${name}: no <img> without alt`);
 }
 // every tablist declares an accessible name
