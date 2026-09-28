@@ -1,0 +1,2616 @@
+/**
+ * Scenering public website — visual language.
+ *
+ * One product, one look. Every value here comes from `src/shared/porcelain.css`,
+ * which is the studio's Porcelain theme (the app default) written as tokens:
+ * china-white panels, biscuit hairlines, cobalt ink, warm glazed shadows and
+ * fine serif headings. Someone who reads this page and then signs in should
+ * feel they stayed in the same place.
+ *
+ * Still self-contained in the other direction: every class is prefixed `mkt-`
+ * and this sheet is only imported by the marketing chunk, so nothing here can
+ * restyle the studio.
+ *
+ * Structure
+ *   1. tokens
+ *   2. page furniture (nav, section, footer, buttons, pills)
+ *   3. product surfaces (app frame, scene card, waveform, timeline, player)
+ *   4. section layouts
+ *   5. motion — every animation is switched off by prefers-reduced-motion
+ */
+
+@import "../shared/porcelain.css";
+/* The studio's own option buttons. Every mockup on this page that shows
+   a control the app has uses the app's definition of it, so the two
+   cannot drift apart. */
+@import "../shared/controls.css";
+@import "../shared/icons.css";
+
+/* ============================================================ 1. tokens */
+
+.mkt-root {
+  --mkt-bg: var(--pc-page);
+  --mkt-bg-deep: var(--pc-page-2);
+  --mkt-surface: var(--pc-panel);
+  --mkt-surface-2: var(--pc-well);
+  --mkt-surface-3: var(--pc-panel-2);
+
+  --mkt-ink: var(--pc-ink);
+  --mkt-ink-2: var(--pc-ink-3);
+  --mkt-ink-3: var(--pc-ink-4);
+  --mkt-ink-4: var(--pc-ink-5);
+
+  --mkt-line: var(--pc-line);
+  --mkt-line-2: var(--pc-line-2);
+
+  --mkt-accent: var(--pc-accent);
+  --mkt-accent-ink: var(--pc-accent-ink);
+  --mkt-accent-soft: var(--pc-accent-soft);
+  --mkt-accent-line: var(--pc-accent-line);
+
+  --mkt-teal: var(--pc-green);
+  --mkt-teal-soft: var(--pc-green-soft);
+  --mkt-amber: var(--pc-amber);
+  --mkt-amber-soft: var(--pc-amber-soft);
+  --mkt-rose: var(--pc-rose);
+
+  --mkt-r-sm: var(--pc-r-sm);
+  --mkt-r: var(--pc-r);
+  --mkt-r-lg: var(--pc-r-lg);
+  --mkt-r-xl: var(--pc-r-xl);
+
+  --mkt-sh-1: var(--pc-sh-1);
+  --mkt-sh-2: var(--pc-sh-2);
+  --mkt-sh-3: var(--pc-sh-3);
+  --mkt-sh-raised: var(--pc-sh-raised);
+
+  --mkt-font: var(--pc-sans);
+  --mkt-serif: var(--pc-serif);
+
+  background: transparent;
+  color: var(--mkt-ink);
+  font-family: var(--mkt-font);
+  font-size: 16px;
+  line-height: 1.55;
+  letter-spacing: 0.008em;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  overflow-x: clip;
+}
+
+/* ---- standalone reset ----
+   Tailwind's preflight travels with the studio chunk, so the website brings
+   the handful of resets it actually depends on. Keeping them scoped to
+   [data-mkt] / .mkt-root means nothing here can reach the studio. */
+html[data-mkt="1"] {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+html[data-mkt="1"] body {
+  margin: 0;
+}
+
+.mkt-root img {
+  display: block;
+  max-width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-mkt="1"] {
+    scroll-behavior: auto;
+  }
+}
+
+/* The studio themes paint the document; the website paints itself.
+   The extra [data-theme] selector outranks the theme layer's own body rule. */
+html[data-mkt="1"],
+html[data-mkt="1"] body,
+html[data-mkt="1"][data-theme] body {
+  background: var(--pc-backdrop);
+  background-attachment: fixed;
+}
+
+.mkt-root *,
+.mkt-root *::before,
+.mkt-root *::after {
+  box-sizing: border-box;
+}
+
+.mkt-root h1,
+.mkt-root h2,
+.mkt-root h3,
+.mkt-root h4,
+.mkt-root p,
+.mkt-root figure,
+.mkt-root ul,
+.mkt-root ol {
+  margin: 0;
+}
+
+.mkt-root ul,
+.mkt-root ol {
+  padding: 0;
+  list-style: none;
+}
+
+.mkt-root button {
+  font: inherit;
+  color: inherit;
+}
+
+.mkt-root a {
+  color: var(--mkt-accent-ink);
+  text-decoration: none;
+}
+
+.mkt-root a:hover {
+  text-decoration: underline;
+}
+
+.mkt-root :focus-visible {
+  outline: 2px solid var(--mkt-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Skip link — first thing a keyboard user reaches. */
+.mkt-skip {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 60;
+  padding: 10px 16px;
+  border-radius: var(--mkt-r-sm);
+  background: var(--mkt-surface);
+  box-shadow: var(--mkt-sh-2);
+  font-weight: 650;
+  transition: top 0.15s ease;
+}
+
+.mkt-skip:focus {
+  top: 12px;
+}
+
+/* ================================================== 2. page furniture */
+
+.mkt-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 18px;
+}
+
+@media (min-width: 768px) {
+  .mkt-container {
+    padding: 0 28px;
+  }
+}
+
+/* ---- nav ---- */
+
+.mkt-nav {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgb(250 247 242 / 0.86);
+  backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--mkt-line);
+}
+
+.mkt-nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 62px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.mkt-nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  font-size: 17px;
+  color: var(--mkt-ink);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.mkt-nav-logo img {
+  height: 26px;
+  width: auto;
+}
+
+.mkt-nav-links {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: 10px;
+  min-width: 0;
+}
+
+@media (min-width: 1000px) {
+  .mkt-nav-links {
+    display: flex;
+  }
+}
+
+.mkt-nav-link {
+  padding: 7px 11px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 560;
+  color: var(--mkt-ink-2);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mkt-nav-link:hover {
+  background: rgb(126 110 86 / 0.07);
+  color: var(--mkt-ink);
+  text-decoration: none;
+}
+
+.mkt-nav-spacer {
+  flex: 1 1 auto;
+}
+
+/* ---- small-screen section menu ---- */
+/* The link rail above is hidden below 1000px. This replaces it, so the page
+   is navigable on a phone instead of being one long scroll. */
+
+.mkt-nav-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.mkt-nav-toggle {
+  padding: 8px 12px;
+}
+
+@media (min-width: 1000px) {
+  .mkt-nav-menu {
+    display: none;
+  }
+}
+
+.mkt-nav-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  min-width: 190px;
+  max-width: min(78vw, 280px);
+  padding: 8px;
+  border: 1px solid var(--pc-line);
+  border-radius: 14px;
+  background: var(--pc-surface);
+  box-shadow: 0 18px 40px rgba(24, 33, 48, 0.16);
+}
+
+.mkt-nav-panel-link {
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--pc-ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mkt-nav-panel-link:hover {
+  background: var(--pc-surface-2);
+  color: var(--pc-accent-ink);
+}
+
+/* ---- back to top ---- */
+
+.mkt-totop {
+  position: fixed;
+  right: 14px;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--pc-line);
+  border-radius: 999px;
+  background: var(--pc-surface);
+  color: var(--pc-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 10px 26px rgba(24, 33, 48, 0.16);
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    background 0.18s ease;
+}
+
+.mkt-totop.is-shown {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.mkt-totop:hover {
+  background: var(--pc-surface-2);
+}
+
+.mkt-totop:active {
+  transform: translateY(1px);
+}
+
+.mkt-totop:focus-visible {
+  outline: 2px solid var(--pc-focus);
+  outline-offset: 3px;
+}
+
+/* On the narrowest phones the word costs more than it is worth — the arrow
+   carries it, and the accessible name is on the element either way. */
+.mkt-totop-word {
+  display: none;
+}
+
+@media (min-width: 560px) {
+  .mkt-totop {
+    right: 20px;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mkt-totop-word {
+    display: inline;
+  }
+}
+
+/* Visible to screen readers, not to the eye. */
+.mkt-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media print {
+  .mkt-totop,
+  .mkt-nav-menu {
+    display: none;
+  }
+}
+
+/* ---- buttons ---- */
+
+.mkt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--mkt-line-2);
+  background: linear-gradient(180deg, #fffdfa, #f7f4ef);
+  box-shadow: var(--mkt-sh-raised);
+  font-size: 14px;
+  font-weight: 640;
+  color: var(--mkt-ink);
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.12s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.mkt-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--mkt-sh-2);
+  text-decoration: none;
+}
+
+.mkt-btn:active {
+  transform: translateY(0);
+}
+
+.mkt-btn-primary {
+  border-color: var(--pc-accent-edge);
+  background: var(--pc-accent-grad);
+  color: #fff;
+  box-shadow: var(--pc-sh-cobalt);
+}
+
+.mkt-btn-primary:hover {
+  background: var(--pc-accent-grad-hover);
+}
+
+.mkt-btn-lg {
+  padding: 13px 22px;
+  font-size: 15px;
+  border-radius: 14px;
+}
+
+.mkt-btn-quiet {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--mkt-ink-2);
+}
+
+.mkt-btn-quiet:hover {
+  background: rgb(126 110 86 / 0.07);
+  box-shadow: none;
+}
+
+/* ---- pills & labels ---- */
+
+.mkt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--mkt-line);
+  background: var(--mkt-surface);
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--mkt-ink-2);
+  white-space: nowrap;
+}
+
+.mkt-pill.is-live {
+  background: var(--mkt-teal-soft);
+  border-color: rgb(63 125 87 / 0.25);
+  color: #3f7d57;
+}
+
+.mkt-pill.is-soon {
+  background: var(--mkt-amber-soft);
+  border-color: rgb(150 105 42 / 0.25);
+  color: var(--mkt-amber);
+}
+
+.mkt-pill.is-accent {
+  background: var(--mkt-accent-soft);
+  border-color: var(--mkt-accent-line);
+  color: var(--mkt-accent-ink);
+}
+
+.mkt-pill.is-plain {
+  background: var(--mkt-surface-3);
+  border-color: transparent;
+  color: var(--mkt-ink-3);
+}
+
+.mkt-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: none;
+}
+
+/* The skip link's target is focusable so the keyboard actually lands there,
+   but it should not draw a ring when it is reached that way. */
+.mkt-root main:focus {
+  outline: none;
+}
+
+/* ---- sections ---- */
+
+.mkt-section {
+  padding: 58px 0;
+  scroll-margin-top: 76px;
+}
+
+@media (min-width: 900px) {
+  .mkt-section {
+    padding: 84px 0;
+  }
+}
+
+.mkt-section.is-tinted {
+  background: linear-gradient(180deg, var(--mkt-bg-deep), var(--mkt-bg));
+  border-top: 1px solid var(--mkt-line);
+  border-bottom: 1px solid var(--mkt-line);
+}
+
+.mkt-section.is-white {
+  background: var(--mkt-surface);
+  border-top: 1px solid var(--mkt-line);
+  border-bottom: 1px solid var(--mkt-line);
+}
+
+.mkt-head {
+  max-width: 720px;
+  margin-bottom: 30px;
+}
+
+.mkt-head.is-center {
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+}
+
+.mkt-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mkt-accent-ink);
+  margin-bottom: 12px;
+}
+
+/* Headings use the studio's porcelain serif. It sets slightly small for its
+   size, so these run larger and lighter than a sans would. */
+.mkt-h1,
+.mkt-h2,
+.mkt-h3 {
+  font-family: var(--mkt-serif);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.mkt-h1 {
+  font-size: clamp(42px, 7.4vw, 72px);
+  line-height: 1.02;
+}
+
+.mkt-h2 {
+  font-size: clamp(30px, 4.2vw, 46px);
+  line-height: 1.1;
+}
+
+.mkt-h3 {
+  font-size: 21px;
+  line-height: 1.24;
+}
+
+.mkt-lead {
+  margin-top: 14px;
+  font-size: clamp(15.5px, 1.6vw, 18px);
+  color: var(--mkt-ink-2);
+  line-height: 1.6;
+}
+
+.mkt-muted {
+  color: var(--mkt-ink-3);
+  font-size: 13.5px;
+}
+
+.mkt-small {
+  font-size: 12.5px;
+  color: var(--mkt-ink-3);
+}
+
+/* ---- panels ---- */
+
+.mkt-panel {
+  background: var(--mkt-surface);
+  border: 1px solid var(--mkt-line);
+  border-radius: var(--mkt-r-lg);
+  box-shadow: var(--mkt-sh-2);
+}
+
+.mkt-panel-flat {
+  background: var(--mkt-surface);
+  border: 1px solid var(--mkt-line);
+  border-radius: var(--mkt-r);
+  box-shadow: var(--mkt-sh-1);
+}
+
+.mkt-panel-big {
+  border-radius: var(--mkt-r-xl);
+  box-shadow: var(--mkt-sh-3);
+}
+
+.mkt-pad {
+  padding: 18px;
+}
+
+@media (min-width: 768px) {
+  .mkt-pad {
+    padding: 24px;
+  }
+}
+
+/* raised, slightly 3D control — used for studio-style buttons */
+.mkt-raise {
+  border: 1px solid var(--mkt-line-2);
+  border-radius: 11px;
+  background: linear-gradient(180deg, #fffdfa, #f3efe8);
+  box-shadow: var(--mkt-sh-raised);
+}
+
+/* ================================================ 3. product surfaces */
+
+/* ---- window chrome ---- */
+
+.mkt-app {
+  background: var(--mkt-surface);
+  border: 1px solid var(--mkt-line);
+  border-radius: var(--mkt-r-lg);
+  box-shadow: var(--mkt-sh-3);
+  overflow: hidden;
+}
+
+.mkt-app-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgb(255 253 250 / 0.95);
+  border-bottom: 1px solid var(--pc-line-2);
+}
+
+.mkt-app-mark {
+  flex: none;
+  opacity: 0.95;
+}
+
+.mkt-app-divider {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  background: var(--pc-line-2);
+}
+
+.mkt-app-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mkt-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The studio's header rail: china-white trough, biscuit rim, 3px padding. */
+.mkt-app-tabs {
+  /* Layout only. The rail's face, its buttons and their selected state all
+     come from the studio's own `.t-tabbar` / `.opt-group` / `.opt-btn` rules
+     in src/shared/controls.css, which the app imports too. */
+  margin-left: auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+  max-width: 100%;
+}
+
+.mkt-app-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.mkt-app-tab {
+  /* `.opt-btn` supplies the face, the rim, the ink, the padding and the
+     radius. Only the things the app expresses with Tailwind utilities — the
+     tab's slightly tighter type — are restated here. */
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  gap: 4px;
+}
+
+.mkt-app-tab-n {
+  color: var(--pc-accent-3);
+  opacity: 0.8;
+}
+
+.mkt-app-tab-ico {
+  filter: saturate(0.86) contrast(1.04);
+}
+
+/* The current phase is unmistakable — same treatment as the app's emphasis
+   layer: cobalt gradient, bolder, a shade larger, lifted by a pixel. */
+.mkt-app-tab.t-tab-active {
+  /* The studio renders the active tab bolder and a shade larger
+     (`font-bold` plus the porcelain rail rule in src/themes.css). */
+  font-size: 11.6px;
+  font-weight: 800;
+}
+
+.mkt-app-tab.t-tab-active .mkt-app-tab-n {
+  color: rgb(255 255 255 / 0.8);
+}
+
+.mkt-app-body {
+  padding: 14px;
+}
+
+@media (min-width: 768px) {
+  .mkt-app-body {
+    padding: 18px;
+  }
+}
+
+/* ---- thumbnails ---- */
+
+.mkt-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--mkt-r-sm);
+  background: linear-gradient(135deg, #ece6dc, #e4dccf);
+  aspect-ratio: 16 / 9;
+}
+
+.mkt-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mkt-thumb.is-vertical {
+  aspect-ratio: 9 / 16;
+}
+
+.mkt-thumb.is-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mkt-ink-3);
+  background: repeating-linear-gradient(
+    135deg,
+    #f3efe8,
+    #f3efe8 9px,
+    #e4dccf 9px,
+    #e4dccf 18px
+  );
+}
+
+.mkt-thumb-tag {
+  position: absolute;
+  left: 7px;
+  bottom: 7px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgb(25 23 20 / 0.62);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 640;
+  letter-spacing: 0.01em;
+  backdrop-filter: blur(4px);
+}
+
+.mkt-thumb-tag.is-right {
+  left: auto;
+  right: 7px;
+}
+
+/* ---- scene card ---- */
+
+.mkt-scene {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 10px;
+  background: var(--mkt-surface);
+  border: 1px solid var(--mkt-line);
+  border-radius: var(--mkt-r);
+  box-shadow: var(--mkt-sh-1);
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+
+.mkt-scene.is-selected {
+  border-color: var(--mkt-accent-line);
+  box-shadow: 0 0 0 3px var(--mkt-accent-soft), var(--mkt-sh-2);
+}
+
+@media (min-width: 560px) {
+  .mkt-scene {
+    grid-template-columns: 148px 1fr;
+    align-items: start;
+  }
+}
+
+.mkt-scene-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mkt-scene-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mkt-scene-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 7px;
+  background: var(--mkt-accent-soft);
+  color: var(--mkt-accent-ink);
+  font-size: 11.5px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+.mkt-scene-text {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--mkt-ink);
+}
+
+.mkt-scene-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mkt-scene-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mkt-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--mkt-line-2);
+  background: linear-gradient(180deg, #fffdfa, #f3efe8);
+  box-shadow: var(--mkt-sh-raised);
+  font-size: 11.5px;
+  font-weight: 640;
+  color: var(--mkt-ink-2);
+  cursor: pointer;
+}
+
+.mkt-mini-btn:hover {
+  color: var(--mkt-ink);
+  border-color: var(--mkt-accent-line);
+}
+
+.mkt-mini-btn.is-primary {
+  background: linear-gradient(180deg, #3f83cc, #2a63a4);
+  border-color: transparent;
+  color: #fff;
+}
+
+/* ---- waveform ---- */
+
+.mkt-wave {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  width: 100%;
+  min-width: 0;
+}
+
+.mkt-wave-bar {
+  flex: 1 1 auto;
+  min-width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #6ba1d8, #2f6fb5);
+  opacity: 0.55;
+}
+
+.mkt-wave.is-live .mkt-wave-bar {
+  animation: mkt-wave 1.4s ease-in-out infinite;
+}
+
+.mkt-wave.is-quiet .mkt-wave-bar {
+  background: linear-gradient(180deg, #cdc2b2, #9a9287);
+}
+
+/* ---- talking dots ----
+   The CSS echo of the app's Minimal Talking Dots visualiser: four glossy
+   spheres that stretch into pills while the voice speaks. The real renderer
+   draws the same thing, on a canvas, further down the page. */
+
+.mkt-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 30px;
+  width: 100%;
+  min-width: 0;
+}
+
+.mkt-dot {
+  position: relative;
+  width: 9px;
+  min-height: 9px;
+  border-radius: 999px;
+  box-shadow:
+    0 2px 5px rgb(15 18 30 / 0.4),
+    inset 0 -2px 3px rgb(0 0 0 / 0.25);
+  transform-origin: center;
+}
+
+/* the glossy bulb the renderer paints near the top of each sphere */
+.mkt-dot::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.8);
+}
+
+.mkt-dots.is-live .mkt-dot {
+  animation: mkt-dot-talk 1.1s ease-in-out infinite;
+}
+
+.mkt-dots.is-quiet .mkt-dot {
+  background: linear-gradient(150deg, #cdc2b2 8%, #b9ac99 46%, rgb(0 0 0 / 0.25)) !important;
+}
+
+@keyframes mkt-dot-talk {
+  0%,
+  100% {
+    transform: scaleY(0.72);
+  }
+  45% {
+    transform: scaleY(1.18);
+  }
+}
+
+/* ---- the five questions ---- */
+
+.mkt-qs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+  .mkt-qs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* five items: the last one runs the full width rather than leaving a hole */
+  .mkt-qs > li:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1080px) {
+  .mkt-qs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .mkt-qs > li:last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+}
+
+.mkt-q {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  height: 100%;
+  padding: 16px 16px 14px;
+  border-radius: var(--mkt-r);
+  border: 1px solid var(--mkt-line);
+  background: linear-gradient(180deg, var(--mkt-surface), var(--mkt-bg));
+  box-shadow: var(--mkt-sh-1);
+  text-decoration: none;
+  color: inherit;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
+}
+
+/* The whole card is one link, so the global anchor underline has to be
+   turned off here — only the cue line underlines. */
+.mkt-q:hover {
+  transform: translateY(-2px);
+  border-color: var(--mkt-line-2);
+  box-shadow: var(--mkt-sh-2);
+  text-decoration: none;
+}
+
+.mkt-q-ask {
+  font-family: var(--mkt-serif);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--mkt-ink);
+}
+
+.mkt-q-answer {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--mkt-ink-2);
+  flex: 1 1 auto;
+}
+
+.mkt-q-cue {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--mkt-accent-ink);
+}
+
+.mkt-q:hover .mkt-q-cue {
+  text-decoration: underline;
+}
+
+/* The section a question points at, flashed briefly so the eye lands on the
+   answer instead of on the whole page. */
+.mkt-section.is-answering {
+  animation: mkt-answering 2.2s ease-out;
+}
+
+@keyframes mkt-answering {
+  0%,
+  55% {
+    box-shadow: inset 3px 0 0 var(--mkt-accent);
+  }
+  100% {
+    box-shadow: inset 3px 0 0 rgb(47 111 181 / 0);
+  }
+}
+
+/* ---- showpiece ---- */
+/* The key art is dark navy, so it gets a dark band rather than being cut out
+   and floated on porcelain. The page opens saturated and then settles. */
+
+.mkt-showpiece {
+  position: relative;
+  overflow: hidden;
+  padding: 30px 0 34px;
+  background:
+    radial-gradient(110% 80% at 50% 0%, #1b3570 0%, #0e1f47 48%, #0a1733 100%);
+  color: #eaf1ff;
+}
+
+/* A hairline of gold along the bottom, picking up the ring in the art and
+   handing over to the light page beneath it. */
+.mkt-showpiece::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #ffc43c 22%, #ffe9a8 50%, #ffc43c 78%, transparent);
+  opacity: 0.8;
+}
+
+.mkt-showpiece-inner {
+  display: grid;
+  gap: 22px;
+  align-items: center;
+  justify-items: center;
+  text-align: center;
+}
+
+.mkt-showpiece-art {
+  width: min(86vw, 380px);
+}
+
+.mkt-showpiece-art img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 20px;
+  /* The art already carries its own glow; this only lifts it off the band. */
+  filter: drop-shadow(0 18px 44px rgba(3, 10, 28, 0.55));
+}
+
+.mkt-showpiece-title {
+  margin: 0 0 8px;
+  font-family: var(--pc-serif);
+  font-size: clamp(25px, 5.4vw, 38px);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  color: #fff;
+}
+
+.mkt-showpiece-lede {
+  max-width: 44ch;
+  margin: 0 auto;
+  color: #b9caea;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.mkt-showpiece-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.mkt-showpiece-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid rgba(160, 190, 240, 0.22);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.mkt-showpiece-step-text {
+  display: grid;
+  min-width: 0;
+}
+
+.mkt-showpiece-step b {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #fff;
+}
+
+.mkt-showpiece-step i {
+  font-size: 11.5px;
+  font-style: normal;
+  line-height: 1.3;
+  color: #9fb4dd;
+}
+
+@media (min-width: 560px) {
+  .mkt-showpiece {
+    padding: 40px 0 44px;
+  }
+
+  .mkt-showpiece-art {
+    width: min(70vw, 420px);
+  }
+}
+
+@media (min-width: 900px) {
+  .mkt-showpiece {
+    padding: 52px 0 56px;
+  }
+
+  .mkt-showpiece-inner {
+    grid-template-columns: minmax(0, 460px) minmax(0, 1fr);
+    gap: 46px;
+    justify-items: stretch;
+    text-align: left;
+  }
+
+  .mkt-showpiece-art {
+    width: 100%;
+  }
+
+  .mkt-showpiece-lede {
+    margin: 0;
+  }
+}
+
+/* ---- captions ---- */
+
+.mkt-caption {
+  display: inline-block;
+  max-width: 92%;
+  padding: 4px 10px;
+  border-radius: 8px;
+  text-align: center;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+.mkt-caption-word {
+  display: inline;
+}
+
+/* ---- player ---- */
+
+.mkt-player {
+  position: relative;
+  border-radius: var(--mkt-r);
+  overflow: hidden;
+  background: #131110;
+  box-shadow: var(--mkt-sh-2);
+  aspect-ratio: 16 / 9;
+}
+
+.mkt-player.is-vertical {
+  aspect-ratio: 9 / 16;
+}
+
+.mkt-player img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mkt-player-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(25 23 20 / 0.12) 0%, rgb(25 23 20 / 0) 38%, rgb(25 23 20 / 0.55) 100%);
+}
+
+.mkt-player-cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 13%;
+  display: flex;
+  justify-content: center;
+  padding: 0 8%;
+  text-align: center;
+}
+
+.mkt-player-bar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 9px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  overflow: hidden;
+}
+
+.mkt-player-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.mkt-player-badge {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgb(25 23 20 / 0.6);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 650;
+  backdrop-filter: blur(4px);
+}
+
+/* ---- a studio panel heading, and the card pairs under it ----
+ *
+ * The Captions step is five stacked panels, each introduced by a small bold
+ * heading with an icon on the left and a one-word state badge on the right,
+ * and two of them offer their choice as a pair of big cards carrying a title
+ * and a line of explanation rather than as plain buttons. See
+ * src/components/CaptionsStudio.tsx.
+ */
+
+.mkt-panelhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--mkt-ink);
+}
+
+.mkt-panelhead > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mkt-panelhead .mkt-panelstate {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pc-accent-ink);
+}
+
+.mkt-cardgrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px;
+}
+
+@media (min-width: 480px) {
+  .mkt-cardgrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.mkt-card {
+  padding: 11px;
+  border-radius: var(--mkt-r-sm);
+  border: 1px solid var(--mkt-line-2);
+  background: rgb(255 255 255 / 0.6);
+  text-align: left;
+}
+
+.mkt-card.is-on {
+  border-color: var(--pc-accent-mid);
+  background: var(--pc-accent-soft);
+  box-shadow: 0 0 0 1px var(--pc-accent-mid);
+}
+
+.mkt-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--mkt-ink);
+}
+
+.mkt-card-note {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--mkt-ink-3);
+}
+
+/* ---- a row of the app's own tabs ----
+ *
+ * Several studio steps open on a row of tabs above their content: the Voice
+ * Over step's Natural Voices / Import Prepared TTS File / Phonetic Dictionary,
+ * for instance. The app lays that row out as `flex flex-wrap items-center
+ * gap-2 border-b border-hairline pb-3` and fills it with `.opt-btn`s, so this
+ * is only the row; the buttons style themselves from the shared control file.
+ */
+
+.mkt-apptabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--mkt-line);
+}
+
+/* ---- timeline ----
+ *
+ * Laid out like src/components/Timeline.tsx: a panel with a transport header,
+ * then a track area with a step arrow either side of a scrolling viewport,
+ * and inside it the ruler and the app's three lanes — Scenes, Visual FX,
+ * Sound. The lane names ride on pinned chips at the left edge exactly as they
+ * do in the studio, which is why the lanes are padded instead of sitting in a
+ * label column.
+ */
+
+.mkt-tl {
+  --mkt-play: 0;
+  /* the pinned lane chips overlay the left edge of every lane */
+  --mkt-lane-x: 62px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--mkt-r);
+  border: 1px solid var(--mkt-line);
+  background: var(--mkt-surface);
+  box-shadow: var(--mkt-sh-2);
+}
+
+/* ---- header: transport on the left, zoom and expand on the right ---- */
+
+.mkt-tl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mkt-tl-transport,
+.mkt-tl-right {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mkt-tl-play {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.mkt-tl-step,
+.mkt-tl-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.mkt-tl-step {
+  width: 24px;
+  height: 24px;
+}
+
+.mkt-tl-time {
+  display: none;
+  align-items: baseline;
+  gap: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--mkt-ink-3);
+}
+
+.mkt-tl-time b {
+  color: var(--mkt-ink);
+  font-weight: 800;
+}
+
+.mkt-tl-time i {
+  color: var(--mkt-ink-5);
+  font-style: normal;
+}
+
+.mkt-tl-zoom {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  border-radius: 9px;
+  border: 1px solid var(--mkt-line-2);
+  background: rgb(255 255 255 / 0.6);
+}
+
+.mkt-tl-zoom-btn {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pc-panel-2);
+  color: var(--mkt-ink-2);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.mkt-tl-zoom-rail {
+  position: relative;
+  width: 54px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--pc-line-3);
+}
+
+.mkt-tl-zoom-knob {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  border-radius: 999px;
+  background: var(--pc-accent);
+}
+
+.mkt-tl-zoom-pct {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--pc-accent-ink);
+}
+
+.mkt-tl-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+/* ---- track area ---- */
+
+.mkt-tl-area {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.mkt-tl-arrow {
+  width: 22px;
+}
+
+.mkt-tl-view {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--mkt-line-2);
+  background: var(--pc-well);
+}
+
+.mkt-tl-ruler {
+  position: relative;
+  height: 15px;
+  border-bottom: 1px solid var(--mkt-line-2);
+}
+
+.mkt-tl-tick {
+  position: absolute;
+  top: 2px;
+  padding-left: 3px;
+  border-left: 1px solid var(--mkt-line-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  color: var(--mkt-ink-5);
+  line-height: 11px;
+}
+
+/* ---- lanes ---- */
+
+.mkt-tl-lane {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding-left: var(--mkt-lane-x);
+  border-bottom: 1px solid var(--mkt-line);
+}
+
+.mkt-tl-lane:last-of-type {
+  border-bottom: 0;
+}
+
+/* the app tints the two overlay lanes very slightly */
+.mkt-tl-lane.is-scenes {
+  background: transparent;
+}
+
+/**
+ * The pinned lane name. The studio draws these as small dark chips that stay
+ * at the left edge while the tracks scroll under them.
+ */
+.mkt-tl-chip {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px;
+  border-radius: 6px;
+  background: rgb(25 23 20 / 0.82);
+  color: #f3efe8;
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.mkt-tl-clip {
+  position: relative;
+  overflow: hidden;
+  border-radius: 5px;
+  border: 1px solid var(--mkt-line-2);
+  background: var(--pc-panel-2);
+  flex-shrink: 0;
+  margin: 3px 0;
+}
+
+.mkt-tl-clip img,
+.mkt-tl-clip .mkt-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0;
+  display: block;
+}
+
+.mkt-tl-block {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mkt-tl-block.is-visual {
+  background: var(--pc-accent-soft);
+  border: 1px solid var(--pc-accent-line);
+  color: var(--pc-accent-ink);
+}
+
+.mkt-tl-block.is-sound {
+  background: var(--pc-green-soft);
+  border: 1px solid #cfe3d6;
+  color: var(--pc-green);
+}
+
+.mkt-tl-empty {
+  position: absolute;
+  left: calc(var(--mkt-lane-x) + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  font-style: italic;
+  color: var(--mkt-ink-5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - var(--mkt-lane-x) - 12px);
+}
+
+/* ---- playhead ---- */
+
+.mkt-tl-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--mkt-lane-x) + (100% - var(--mkt-lane-x)) * var(--mkt-play));
+  width: 2px;
+  background: var(--pc-accent);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.6);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.mkt-tl-playhead::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  border-radius: 2px;
+  background: var(--pc-accent);
+}
+
+/* Mobile first: the narrow layout is the default. On a phone the lane chips
+   sit closer in and the zoom and time readout step aside, exactly as they do
+   in the studio, where both are hidden below the small breakpoint. */
+@media (min-width: 641px) {
+  .mkt-tl {
+    --mkt-lane-x: 78px;
+  }
+  .mkt-tl-zoom {
+    display: inline-flex;
+  }
+  .mkt-tl-time {
+    display: inline-flex;
+  }
+}
+
+/* ---- script sheet ---- */
+
+.mkt-script {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  border-radius: var(--mkt-r);
+  border: 1px solid var(--mkt-line);
+  background: linear-gradient(180deg, #fffdfa, #fffdfa);
+  box-shadow: var(--mkt-sh-1);
+}
+
+.mkt-script-line {
+  position: relative;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--mkt-ink-2);
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+
+.mkt-script-line.is-split {
+  background: var(--mkt-accent-soft);
+  border-color: var(--mkt-accent-line);
+  color: var(--mkt-ink);
+}
+
+/* ---- device frames ---- */
+
+.mkt-devices {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 1fr;
+  align-items: end;
+}
+
+@media (min-width: 820px) {
+  .mkt-devices {
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.85fr) minmax(0, 0.5fr);
+  }
+}
+
+.mkt-device {
+  border-radius: 18px;
+  border: 1px solid var(--mkt-line-2);
+  background: linear-gradient(180deg, #fffdfa, #f3efe8);
+  padding: 9px;
+  box-shadow: var(--mkt-sh-3);
+}
+
+.mkt-device.is-phone {
+  border-radius: 26px;
+  padding: 7px;
+}
+
+.mkt-device-screen {
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--mkt-surface);
+  border: 1px solid var(--mkt-line);
+}
+
+.mkt-device.is-phone .mkt-device-screen {
+  border-radius: 20px;
+}
+
+.mkt-device-foot {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--mkt-ink-3);
+}
+
+/* ================================================= 4. section layouts */
+
+.mkt-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.mkt-grid.cols-2 {
+  grid-template-columns: 1fr;
+}
+
+.mkt-grid.cols-3 {
+  grid-template-columns: 1fr;
+}
+
+.mkt-grid.cols-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 700px) {
+  .mkt-grid.cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mkt-grid.cols-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1000px) {
+  .mkt-grid.cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .mkt-grid.cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* split: text beside a demonstration, stacked on phones */
+.mkt-split {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: 1fr;
+  align-items: center;
+}
+
+@media (min-width: 950px) {
+  .mkt-split {
+    grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+    gap: 40px;
+  }
+  .mkt-split.is-reverse > *:first-child {
+    order: 2;
+  }
+}
+
+/* option rows — the website's version of the studio's .opt-btn language */
+.mkt-optrow {
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border-radius: 14px;
+  border: 1px solid var(--mkt-line);
+  background: var(--mkt-surface);
+  box-shadow: var(--mkt-sh-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mkt-optrow::-webkit-scrollbar {
+  display: none;
+}
+
+.mkt-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: none;
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--mkt-ink-3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.mkt-opt:hover {
+  background: var(--mkt-surface-3);
+  color: var(--mkt-ink);
+}
+
+.mkt-opt[aria-selected="true"],
+.mkt-opt.is-on {
+  background: linear-gradient(180deg, #fffdfa, #f3efe8);
+  border-color: var(--mkt-line-2);
+  color: var(--mkt-accent-ink);
+  box-shadow: var(--mkt-sh-raised);
+}
+
+.mkt-opt-no {
+  font-size: 10.5px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  color: var(--mkt-ink-4);
+}
+
+.mkt-opt[aria-selected="true"] .mkt-opt-no {
+  color: var(--mkt-accent);
+}
+
+/* vertical stage rail used by the workflow section on wide screens */
+.mkt-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mkt-rail .mkt-opt {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+/* feature list */
+.mkt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.mkt-list li {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: 14px;
+  color: var(--mkt-ink-2);
+  line-height: 1.5;
+}
+
+.mkt-tick {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border-radius: 999px;
+  background: var(--mkt-teal-soft);
+  color: #3f7d57;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.mkt-tick.is-lock {
+  background: var(--mkt-surface-3);
+  color: var(--mkt-ink-4);
+}
+
+/* stat strip */
+.mkt-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (min-width: 760px) {
+  .mkt-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.mkt-stat {
+  padding: 13px 14px;
+  border-radius: var(--mkt-r);
+  border: 1px solid var(--mkt-line);
+  background: var(--mkt-surface);
+  box-shadow: var(--mkt-sh-1);
+}
+
+.mkt-stat b {
+  display: block;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.mkt-stat span {
+  font-size: 12px;
+  color: var(--mkt-ink-3);
+}
+
+/* figure caption used under every conceptual visual */
+.mkt-figcap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--mkt-ink-4);
+  flex-wrap: wrap;
+}
+
+/* before / after */
+.mkt-ba {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 860px) {
+  .mkt-ba {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.mkt-range {
+  width: 100%;
+  accent-color: var(--mkt-accent);
+}
+
+/* footer */
+.mkt-footer {
+  background: #191714;
+  color: #d8cec0;
+  padding: 44px 0 30px;
+}
+
+.mkt-footer a {
+  color: #9dbdea;
+}
+
+.mkt-footer-grid {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 760px) {
+  .mkt-footer-grid {
+    grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr));
+  }
+}
+
+.mkt-footer h4 {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #867f74;
+  margin-bottom: 10px;
+}
+
+.mkt-footer li {
+  font-size: 13.5px;
+  margin-bottom: 7px;
+}
+
+/* ========================================================== 5. motion */
+
+@keyframes mkt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mkt-wave {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes mkt-sweep {
+  from {
+    left: 0%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+/* Staged reveal used by the hero and the scene transformation.
+   A stage is invisible until its index is reached. */
+.mkt-stage {
+  opacity: 0;
+  transform: translateY(10px) scale(0.995);
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.mkt-stage.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* Elements that only *dim* between stages rather than move. */
+.mkt-soft {
+  opacity: 0.45;
+  transition: opacity 0.45s ease;
+}
+
+.mkt-soft.is-in {
+  opacity: 1;
+}
+
+.mkt-pulse {
+  animation: mkt-rise 0.5s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mkt-root *,
+  .mkt-root *::before,
+  .mkt-root *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Nothing may stay hidden when motion is off. */
+  .mkt-stage,
+  .mkt-soft {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================ 6. hero & demo composites */
+
+.mkt-hero {
+  padding: 34px 0 44px;
+}
+
+@media (min-width: 900px) {
+  .mkt-hero {
+    padding: 56px 0 72px;
+  }
+}
+
+.mkt-hero-grid {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: 1fr;
+  align-items: center;
+}
+
+@media (min-width: 1080px) {
+  .mkt-hero-grid {
+    grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+    gap: 44px;
+  }
+}
+
+.mkt-hero-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.mkt-hero-note {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* the workspace composition inside the hero frame */
+.mkt-work {
+  display: grid;
+  gap: 11px;
+}
+
+.mkt-work-top {
+  display: grid;
+  gap: 11px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+  .mkt-work-top {
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  }
+}
+
+/* horizontal strip of compact scene cards */
+.mkt-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.mkt-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.mkt-mini {
+  flex: 1 0 104px;
+  min-width: 104px;
+  display: grid;
+  gap: 5px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--mkt-line);
+  background: var(--mkt-surface);
+  box-shadow: var(--mkt-sh-1);
+}
+
+.mkt-mini-top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mkt-mini-text {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--mkt-ink-3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* a row of raised studio controls */
+.mkt-chiprow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mkt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--mkt-line-2);
+  background: linear-gradient(180deg, #fffdfa, #f3efe8);
+  box-shadow: var(--mkt-sh-raised);
+  font-size: 11.5px;
+  font-weight: 640;
+  color: var(--mkt-ink-2);
+  white-space: nowrap;
+}
+
+.mkt-chip.is-on {
+  border-color: var(--mkt-accent-line);
+  color: var(--mkt-accent-ink);
+  background: linear-gradient(180deg, #f6f2ea, #e7eefb);
+}
+
+.mkt-chip.is-locked {
+  color: var(--mkt-ink-4);
+  background: var(--mkt-surface-3);
+  box-shadow: none;
+  border-style: dashed;
+}
+
+/* labelled strip used for narration / captions rows */
+.mkt-strip-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--mkt-line);
+  background: linear-gradient(180deg, #fffdfa, #faf7f2);
+  box-shadow: var(--mkt-sh-1);
+}
+
+@media (min-width: 560px) {
+  .mkt-strip-row {
+    grid-template-columns: 118px 1fr;
+    align-items: center;
+    gap: 10px;
+  }
+}
+
+.mkt-strip-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 680;
+  color: var(--mkt-ink-3);
+  white-space: nowrap;
+}
+
+/* dark strip for caption previews */
+.mkt-capstage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 54px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: radial-gradient(120% 140% at 50% 0%, #332f2a 0%, #1d1b18 70%);
+}
+
+/* search result grid */
+.mkt-results {
+  display: grid;
+  gap: 9px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 620px) {
+  .mkt-results {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.mkt-result {
+  display: grid;
+  gap: 5px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--mkt-line);
+  background: var(--mkt-surface);
+  box-shadow: var(--mkt-sh-1);
+}
+
+.mkt-result.is-selected {
+  border-color: var(--mkt-accent-line);
+  box-shadow: 0 0 0 3px var(--mkt-accent-soft), var(--mkt-sh-2);
+}
+
+.mkt-result.is-rejected {
+  opacity: 0.62;
+}
+
+.mkt-result-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 620;
+  color: var(--mkt-ink-4);
+}
+
+/* search box */
+.mkt-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--mkt-line-2);
+  background: var(--mkt-surface);
+  box-shadow: inset 0 1px 2px rgb(126 110 86 / 0.07);
+  font-size: 13px;
+  color: var(--mkt-ink-2);
+}
+
+.mkt-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--mkt-ink-3);
+}
+
+.mkt-flow-arrow {
+  color: var(--mkt-ink-4);
+}
+
+/* plan cards */
+.mkt-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border-radius: var(--mkt-r-lg);
+  border: 1px solid var(--mkt-line);
+  background: var(--mkt-surface);
+  box-shadow: var(--mkt-sh-2);
+  height: 100%;
+}
+
+.mkt-plan.is-on {
+  border-color: var(--mkt-accent-line);
+  box-shadow: 0 0 0 3px var(--mkt-accent-soft), var(--mkt-sh-3);
+}
+
+.mkt-plan-price {
+  font-size: 26px;
+  font-weight: 760;
+  letter-spacing: -0.03em;
+}
+
+/* example card */
+.mkt-example {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 9px;
+  border-radius: var(--mkt-r);
+  border: 1px solid var(--mkt-line);
+  background: var(--mkt-surface);
+  box-shadow: var(--mkt-sh-1);
+  height: 100%;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.mkt-example:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--mkt-sh-2);
+}
+
+/* format comparison */
+.mkt-formats {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+  align-items: end;
+}
+
+@media (min-width: 720px) {
+  .mkt-formats {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.62fr);
+  }
+}
+
+/* ==================================== real previews from the application
+
+   The gallery in the effects section is drawn by the studio's own preview
+   components. Those components come from the Tailwind side of the codebase
+   and expect utility classes the website does not ship, so this block
+   supplies the same boxes — nothing more. */
+
+.mkt-real {
+  display: grid;
+  gap: 20px;
+}
+
+.mkt-real-intro {
+  margin-bottom: 16px;
+}
+
+.mkt-real-block {
+  display: grid;
+  gap: 10px;
+}
+
+.mkt-real-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.mkt-real-head b {
+  font-size: 14px;
+}
+
+.mkt-real-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.mkt-real-item {
+  margin: 0;
+  display: grid;
+  gap: 7px;
+  justify-items: center;
+  padding: 10px;
+  border-radius: var(--pc-r-sm);
+  background: var(--pc-well);
+  border: 1px solid var(--pc-line);
+}
+
+.mkt-real-item figcaption {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--mkt-ink-3);
+  text-align: center;
+  max-width: 210px;
+}
+
+.mkt-real-item.is-tight {
+  padding: 8px;
+  gap: 5px;
+}
+
+.mkt-real-item.is-badge {
+  background: linear-gradient(160deg, #2b3448, #141a26);
+  border-color: #2a3142;
+}
+
+.mkt-real-item.is-badge figcaption {
+  color: #d9dfe9;
+}
+
+/* the app's canvases: block, crisp, and no bigger than their box */
+.mkt-real canvas,
+.mkt-real-visualiser canvas {
+  display: block;
+  max-width: 100%;
+  border-radius: 10px;
+}
+
+.mkt-real-item.is-badge canvas {
+  width: 168px;
+  height: auto;
+}
+
+/* the visualiser card's wrapper (its own markup is Tailwind) */
+.mkt-real-visualiser {
+  margin-top: 8px;
+}
+
+.mkt-real-visualiser > div {
+  position: relative;
+  width: 100%;
+  height: 92px;
+  border-radius: var(--pc-r-sm);
+  border: 1px solid var(--pc-line-3);
+  background: #131110;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mkt-real-visualiser canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0;
+}
+
+/* the little "live" caption the studio card draws over its visualiser */
+.mkt-real-visualiser > div > div {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9aa2ae;
+}
+
+.mkt-real-visualiser > div > div span:first-child {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #4ade80;
+}
+
+.mkt-real-loading {
+  padding: 26px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--mkt-ink-4);
+}
+
+.mkt-real-loading.is-small {
+  padding: 12px 0;
+  font-size: 12px;
+}
+
+/* the narration line on a scene card, as the studio shows it */
+.mkt-scene-narr {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border-radius: 9px;
+  background: var(--pc-well);
+  border: 1px solid var(--pc-line);
+}
+
+.mkt-scene-narr-ico {
+  font-size: 12px;
+  filter: saturate(0.86) contrast(1.04);
+}
+
+/**
+ * Replace is the primary action on a scene card — the app draws it as a solid
+ * cobalt button beside the two outlined ones (src/components/SceneEditor.tsx).
+ * `.t-btn-hero` supplies the fill; this only removes the outlined button's own
+ * face so the fill is visible.
+ */
+.mkt-mini-btn.is-primary {
+  border: 0;
+  background: none;
+}

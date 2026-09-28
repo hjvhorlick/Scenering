@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getStoredApiKeys, saveStoredApiKeys, clearStoredApiKeys, CustomerApiKeys } from "../lib/api-keys";
+import Icon, { iconify } from "./icons/Icon";
 
 interface ApiKeysModalProps {
   isOpen: boolean;
@@ -199,7 +200,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
                   testResults.pexels.valid ? "text-emerald-400" : "text-amber-400"
                 } flex items-center gap-1.5 pt-0.5`}
               >
-                <span>{testResults.pexels.valid ? "✓" : "⚠"}</span>
+                <span>{iconify(testResults.pexels.valid ? "✓" : "⚠")}</span>
                 {testResults.pexels.message}
               </p>
             )}
@@ -257,7 +258,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
                   testResults.pixabay.valid ? "text-emerald-400" : "text-amber-400"
                 } flex items-center gap-1.5 pt-0.5`}
               >
-                <span>{testResults.pixabay.valid ? "✓" : "⚠"}</span>
+                <span>{iconify(testResults.pixabay.valid ? "✓" : "⚠")}</span>
                 {testResults.pixabay.message}
               </p>
             )}
@@ -269,7 +270,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
           {/* Wikimedia fallback reminder */}
           <div className="p-3 bg-gray-800/60 rounded-xl border border-hairline text-xs text-gray-400 space-y-1">
             <div className="font-semibold text-gray-300 flex items-center gap-1.5">
-              <span>ℹ️</span> Free Keyless Fallback
+              <Icon glyph="ℹ" /> Free Keyless Fallback
             </div>
             <p>
               If no keys are entered or a search yields no results on Pexels/Pixabay, Scenering automatically searches Wikimedia Commons as a free fallback.

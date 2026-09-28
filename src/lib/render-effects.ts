@@ -2196,6 +2196,93 @@ function renderSpecialEffect(
 }
 
 // ---------------- BRANDING ----------------
+
+/** The product name, spelled once, so it cannot drift. */
+export const BRAND_NAME = "Scenering";
+/** Where the silver half ends and the gold half begins: Scene | ring. */
+const BRAND_SPLIT = 5;
+
+/**
+ * Paints a wordmark in the Scenering house style, centred on the origin.
+ *
+ * The same treatment as the logo file and the key art on the website: a
+ * polished silver-to-white face with a deep blue outline, a gold second half,
+ * a soft drop shadow and the gold swoosh beneath. Drawn rather than blitted
+ * from the PNG because this runs inside the frame loop — it has to be sharp
+ * at any export resolution, it has to scale with the frame, and it cannot
+ * wait on an image decode.
+ *
+ * Text that is not the product name is drawn in the same treatment but in one
+ * colour. The silver/gold split is the Scenering mark specifically; applying
+ * it to somebody else's brand would be putting our logo on their video.
+ */
+export function drawBrandWordmark(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  size: number
+): void {
+  const isBrand = text.trim().toLowerCase() === BRAND_NAME.toLowerCase();
+  const head = isBrand ? text.slice(0, BRAND_SPLIT) : text;
+  const tail = isBrand ? text.slice(BRAND_SPLIT) : "";
+
+  ctx.save();
+  ctx.font = `900 ${size}px "Segoe UI", system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  const headWidth = ctx.measureText(head).width;
+  const tailWidth = tail ? ctx.measureText(tail).width : 0;
+  const total = headWidth + tailWidth;
+  const left = -total / 2;
+
+  const silver = ctx.createLinearGradient(0, -size * 0.78, 0, size * 0.18);
+  silver.addColorStop(0, "#ffffff");
+  silver.addColorStop(0.5, "#eef4fd");
+  silver.addColorStop(1, "#b7c9e4");
+
+  const gold = ctx.createLinearGradient(0, -size * 0.78, 0, size * 0.18);
+  gold.addColorStop(0, "#fff2bd");
+  gold.addColorStop(0.45, "#ffc83f");
+  gold.addColorStop(1, "#df8a0b");
+
+  // 1. Outline, carrying the shadow, so the mark holds on any footage.
+  ctx.save();
+  ctx.shadowColor = "rgba(4, 16, 40, 0.55)";
+  ctx.shadowBlur = size * 0.34;
+  ctx.shadowOffsetY = size * 0.1;
+  ctx.lineWidth = size * 0.3;
+  ctx.strokeStyle = "#0e4fa8";
+  ctx.strokeText(head, left, 0);
+  if (tail) {
+    ctx.strokeStyle = "#8a5609";
+    ctx.strokeText(tail, left + headWidth, 0);
+  }
+  ctx.restore();
+
+  // 2. Faces.
+  ctx.fillStyle = isBrand ? silver : gold;
+  ctx.fillText(head, left, 0);
+  if (tail) {
+    ctx.fillStyle = gold;
+    ctx.fillText(tail, left + headWidth, 0);
+  }
+
+  // 3. The swoosh, which is what makes it read as the mark rather than
+  //    as bold text.
+  ctx.beginPath();
+  ctx.moveTo(left - size * 0.16, size * 0.44);
+  ctx.quadraticCurveTo(0, size * 0.95, left + total + size * 0.16, size * 0.3);
+  ctx.lineWidth = size * 0.12;
+  ctx.strokeStyle = gold;
+  ctx.shadowColor = "rgba(4, 16, 40, 0.4)";
+  ctx.shadowBlur = size * 0.2;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 function renderBranding(
   ctx: CanvasRenderingContext2D,
   item: TimelineInsert,
@@ -2206,16 +2293,7 @@ function renderBranding(
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(size, size);
-
-  const text = item.content?.primaryText || "SCENERINGS";
-  ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-  ctx.font = "bold 15px system-ui";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.shadowColor = "rgba(0,0,0,0.8)";
-  ctx.shadowBlur = 8;
-  ctx.fillText(text, 0, 0);
-
+  drawBrandWordmark(ctx, item.content?.primaryText || BRAND_NAME, 15);
   ctx.restore();
 }
 

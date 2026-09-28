@@ -5,6 +5,7 @@ import { ttsPlayer } from "../lib/tts-player";
 import { setCachedSceneAudio, getSharedAudioContext } from "../lib/tts-cache";
 import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
 import PhoneticDictionaryTab from "./PhoneticDictionaryTab";
+import { STUDIO_VOICE_PRESETS, type VoicePreset, resolveVoicePreset } from "../data/voice-presets";
 import {
   VoiceEchoConfig,
   VOICE_ECHO_PRESETS,
@@ -14,6 +15,15 @@ import {
   describeVoiceEcho,
   getVoiceEchoPreset,
 } from "../lib/voice-echo";
+import LiveVoiceVisualizer, {
+  VOICE_VISUALIZERS,
+  loadVoiceVisualizerChoice,
+  saveVoiceVisualizerChoice,
+} from "./LiveVoiceVisualizer";
+import { CATALOG_ITEMS } from "../lib/video-studio-catalog";
+import { tapVoiceElement } from "../lib/voice-monitor";
+import { iconify } from "./icons/Icon";
+import Icon from "./icons/Icon";
 
 interface VoiceoverStudioProps {
   scenes: Scene[];
@@ -27,209 +37,14 @@ interface VoiceoverStudioProps {
   onUpdateVoiceEcho?: (config: VoiceEchoConfig) => void;
 }
 
-export interface VoicePreset {
-  id: string;
-  name: string;
-  gender: "male" | "female";
-  accent: string;
-  tone: string;
-  recommendedFor: string;
-  sampleText: string;
-}
-
-// 20 High-Quality Natural Speaking Voices (10 Male and 10 Female) —
-// 10 studio voices plus 10 style-inspired narrator personas.
-export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
-  // 5 Male Natural Voices (Authentic Human Tone)
-  {
-    id: "guy",
-    name: "Guy",
-    gender: "male",
-    accent: "American (US)",
-    tone: "Warm, Natural & Conversational",
-    recommendedFor: "Documentaries, Explainers & Engaging Stories",
-    sampleText: "Hello! I am Guy, a warm and conversational American male narrator with natural pacing.",
-  },
-  {
-    id: "christopher",
-    name: "Christopher",
-    gender: "male",
-    accent: "American (US)",
-    tone: "Authoritative, Deep & Cinematic",
-    recommendedFor: "Dramatic Trailers, Movie Promos & Motivation",
-    sampleText: "In a world of infinite possibilities, every second shapes destiny. Christopher speaking.",
-  },
-  {
-    id: "ryan",
-    name: "Ryan",
-    gender: "male",
-    accent: "British RP (UK)",
-    tone: "Articulate, Sophisticated & Distinguished",
-    recommendedFor: "History, Luxury Brands, Architecture & Academia",
-    sampleText: "Good day. I am Ryan, offering a refined British voice for sophisticated storytelling.",
-  },
-  {
-    id: "william",
-    name: "William",
-    gender: "male",
-    accent: "Australian (AU)",
-    tone: "Crisp, Charismatic & Friendly",
-    recommendedFor: "Travel Vlogs, Tech Reviews & Casual Entertainment",
-    sampleText: "G'day! William here, bringing an upbeat and charismatic Australian narration to your video.",
-  },
-  {
-    id: "brian",
-    name: "Brian",
-    gender: "male",
-    accent: "American (US)",
-    tone: "Smooth, Relatable & Professional",
-    recommendedFor: "Educational Guides, How-Tos, Podcasts & Explanations",
-    sampleText: "Hi there! I am Brian, providing smooth, trustworthy professional narration for your project.",
-  },
-
-  // 5 Female Natural Voices (Authentic Human Tone)
-  {
-    id: "jenny",
-    name: "Jenny",
-    gender: "female",
-    accent: "American (US)",
-    tone: "Clear, Friendly & Engaging",
-    recommendedFor: "Tutorials, Product Reviews, Guides & Lifestyle",
-    sampleText: "Hello there! I am Jenny, a clear and friendly American female voice for your videos.",
-  },
-  {
-    id: "aria",
-    name: "Aria",
-    gender: "female",
-    accent: "American (US)",
-    tone: "Crisp, Dynamic, Bright & Modern",
-    recommendedFor: "Viral Shorts, Reels, TikTok Highlights & Tech",
-    sampleText: "Hey everyone! Aria here with high-energy, vibrant narration to keep your viewers hooked.",
-  },
-  {
-    id: "sonia",
-    name: "Sonia",
-    gender: "female",
-    accent: "British RP (UK)",
-    tone: "Polished, Elegant & Expressive",
-    recommendedFor: "Audiobooks, Podcasts, Storytelling & Literature",
-    sampleText: "Welcome. I am Sonia, delivering an elegant and expressive British narration with emotional depth.",
-  },
-  {
-    id: "natasha",
-    name: "Natasha",
-    gender: "female",
-    accent: "Australian (AU)",
-    tone: "Calm, Soothing & Resonant",
-    recommendedFor: "Meditation, Nature Docs, Wellness & Bedtime Stories",
-    sampleText: "Take a gentle breath and relax. Natasha here, sharing a calm and soothing Australian voice.",
-  },
-  {
-    id: "ava",
-    name: "Ava",
-    gender: "female",
-    accent: "American (US)",
-    tone: "Peaceful, Balanced & Melodic",
-    recommendedFor: "Wellness, Relaxation, Ambient Guides & Reflection",
-    sampleText: "Hello. I am Ava, offering a gentle, peaceful voice designed to bring balance and clarity.",
-  },
-
-  // 5 Male Persona Narrator Presets (style-inspired — real neural voices
-  // tuned to evoke each narrator's delivery; not the named actors)
-  {
-    id: "freeman",
-    name: "Morgan Freeman Style",
-    gender: "male",
-    accent: "American (US)",
-    tone: "Deep, Resonant, Warm Storyteller",
-    recommendedFor: "Documentaries, Storytelling & Brand Films",
-    sampleText: "Some stories begin quietly, and slowly, they change everything. Let me tell you one.",
-  },
-  {
-    id: "attenborough",
-    name: "David Attenborough Style",
-    gender: "male",
-    accent: "British (UK)",
-    tone: "Breathy, Hushed Awe Nature Documentary",
-    recommendedFor: "Nature, Science & Documentary Films",
-    sampleText: "Here, in the remote corners of our planet, extraordinary things are waiting to be discovered.",
-  },
-  {
-    id: "jones",
-    name: "James Earl Jones Style",
-    gender: "male",
-    accent: "American (US)",
-    tone: "Booming, Monumental Deep Bass",
-    recommendedFor: "Cinematic Openers, Epics & Authority",
-    sampleText: "In the beginning, there was a voice. And that voice carried the weight of kingdoms.",
-  },
-  {
-    id: "neeson",
-    name: "Liam Neeson Style",
-    gender: "male",
-    accent: "Irish (IE)",
-    tone: "Authoritative Irish Baritone & Gritty Gravitas",
-    recommendedFor: "Thrillers, Motivation & Dramatic Reads",
-    sampleText: "I have a particular set of skills. Listen carefully, because what you are about to hear will not soon be forgotten.",
-  },
-  {
-    id: "jackson",
-    name: "Samuel L. Jackson Style",
-    gender: "male",
-    accent: "American (US)",
-    tone: "Punchy, Dynamic, Assertive Attitude",
-    recommendedFor: "High-Energy Promos, Reactions & Entertainment",
-    sampleText: "Hold on to your seats, because this story does not slow down for anybody.",
-  },
-
-  // 5 Female Persona Narrator Presets (style-inspired — real neural voices
-  // tuned to evoke each narrator's delivery; not the named actors)
-  {
-    id: "thompson",
-    name: "Emma Thompson Style",
-    gender: "female",
-    accent: "British (UK)",
-    tone: "Witty, Warm & Articulate British Charm",
-    recommendedFor: "Intelligent Explainers, Drama & Audiobooks",
-    sampleText: "Intelligence and warmth are not opposites — allow me to demonstrate, one story at a time.",
-  },
-  {
-    id: "mirren",
-    name: "Helen Mirren Style",
-    gender: "female",
-    accent: "British (UK)",
-    tone: "Stately, Regal & Poised British Dame",
-    recommendedFor: "Luxury Brands, History & Prestige",
-    sampleText: "Elegance is not about what you say. It is about how you say it.",
-  },
-  {
-    id: "blanchett",
-    name: "Cate Blanchett Style",
-    gender: "female",
-    accent: "Australian (AU)",
-    tone: "Ethereal, Velvety & Hypnotic Sophistication",
-    recommendedFor: "Art, Culture & Sophisticated Narration",
-    sampleText: "Every frame, every silence, every glance carries meaning. Let us begin.",
-  },
-  {
-    id: "weaver",
-    name: "Sigourney Weaver Style",
-    gender: "female",
-    accent: "American (US)",
-    tone: "Smoky, Grounded & Cool Documentary Authority",
-    recommendedFor: "Documentaries, Science & Investigative",
-    sampleText: "What we are about to witness is real, and it is extraordinary. Observe closely.",
-  },
-  {
-    id: "roberts",
-    name: "Julia Roberts Style",
-    gender: "female",
-    accent: "American (US)",
-    tone: "Radiant, Smiling & Warm Conversational Lilt",
-    recommendedFor: "Conversational Vlogs, Lifestyle & Interviews",
-    sampleText: "Hey, come on in — grab a coffee and let me tell you a little story.",
-  },
-];
+/**
+ * The narrator catalogue now lives with the other catalogues in
+ * `src/data/voice-presets.ts`. Re-exported here so existing imports
+ * (`import { STUDIO_VOICE_PRESETS } from "./components/VoiceoverStudio"`)
+ * keep working.
+ */
+export { STUDIO_VOICE_PRESETS } from "../data/voice-presets";
+export type { VoicePreset } from "../data/voice-presets";
 
 export default function VoiceoverStudio({
   scenes,
@@ -290,6 +105,8 @@ export default function VoiceoverStudio({
   const [customVoiceLabel, setCustomVoiceLabel] = useState<string>("My Prepared TTS Voice");
   const [importTargetScene, setImportTargetScene] = useState<string>("all");
   const [isImportPlaying, setIsImportPlaying] = useState<boolean>(false);
+  /** Which sound visualiser the monitor draws. Remembered between visits. */
+  const [voiceVisualizer, setVoiceVisualizer] = useState<string>(loadVoiceVisualizerChoice);
   const [importSuccessBanner, setImportSuccessBanner] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -398,7 +215,7 @@ export default function VoiceoverStudio({
   const generateVoiceoverForScene = async (scene: Scene, voiceToUse: string): Promise<string | null> => {
     const text = (scene.text || "").trim();
     if (!text) return null;
-    const voicePreset = STUDIO_VOICE_PRESETS.find((v) => v.id === voiceToUse);
+    const voicePreset = resolveVoicePreset(voiceToUse);
     const voiceName = voicePreset?.name || voiceToUse;
 
     try {
@@ -522,14 +339,14 @@ export default function VoiceoverStudio({
         badge: "User Audio Track",
       };
     }
-    const preset = STUDIO_VOICE_PRESETS.find((p) => p.id === selectedVoice);
+    const preset = resolveVoicePreset(selectedVoice);
     const isMale = preset ? preset.gender === "male" : true;
     return {
       name: preset?.name || selectedVoice,
       type: "Natural Speaking Voice",
       gender: isMale ? "Male Narrator" : "Female Narrator",
       isMale,
-      badge: `${isMale ? "👨 Male" : "👩 Female"} • ${preset?.accent || "Natural Voice"}`,
+      badge: `${iconify(isMale ? "👨 Male" : "👩 Female")} • ${preset?.accent || "Natural Voice"}`,
     };
   }, [selectedVoice]);
 
@@ -590,6 +407,9 @@ export default function VoiceoverStudio({
     } else {
       ttsPlayer.stop();
       setPlayingId(null);
+      // Imported tracks play from their own element, so the visualiser has to
+      // be pointed at it directly — the TTS player never sees this one.
+      tapVoiceElement(audioRef.current);
       audioRef.current.play();
       setIsImportPlaying(true);
     }
@@ -614,9 +434,7 @@ export default function VoiceoverStudio({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-xl">
-                🎙️
-              </span>
+              <span className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-xl" aria-hidden="true"><Icon glyph="🎙️" /></span>
               <h2 className="text-xl font-bold text-white">Voiceover Studio</h2>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/80 border border-emerald-700/60 text-emerald-300">
                 10 Free Natural Voices Active
@@ -641,17 +459,17 @@ export default function VoiceoverStudio({
             >
               {loadingId === "test-global" ? (
                 <>
-                  <span className="animate-spin text-indigo-400">⏳</span>
+                  <span className="animate-spin text-indigo-400"><Icon glyph="⏳" /></span>
                   <span>Generating Audio...</span>
                 </>
               ) : playingId === "test-global" ? (
                 <>
-                  <span className="animate-pulse text-amber-400">⏹️</span>
+                  <span className="animate-pulse text-amber-400"><Icon glyph="⏹" /></span>
                   <span>Stop Preview</span>
                 </>
               ) : (
                 <>
-                  <span>🔊</span>
+                  <Icon glyph="🔊" />
                   <span>Test Active Voice</span>
                 </>
               )}
@@ -664,17 +482,17 @@ export default function VoiceoverStudio({
             >
               {isGeneratingAll ? (
                 <>
-                  <span className="animate-spin text-sm">⏳</span>
+                  <span className="animate-spin text-sm"><Icon glyph="⏳" /></span>
                   <span>Generating Voiceover ({generationProgress?.current || 0}/{scenes.length})...</span>
                 </>
               ) : allScenesHaveSavedAudio ? (
                 <>
-                  <span>✅</span>
+                  <Icon glyph="✅" />
                   <span>Voiceovers Saved ({scenesWithAudioCount}/{scenes.length}) • Re-generate</span>
                 </>
               ) : (
                 <>
-                  <span>🎙️</span>
+                  <Icon glyph="🎙" />
                   <span>Generate & Save Voiceover for All Scenes</span>
                 </>
               )}
@@ -687,7 +505,7 @@ export default function VoiceoverStudio({
         {ttsDegraded && (
           <div className="mt-3 p-3 bg-amber-950/80 border border-amber-600/80 rounded-xl text-amber-200 text-xs flex items-start justify-between gap-3 shadow-lg">
             <span className="flex items-start gap-2 font-medium">
-              <span>⚠️</span>
+              <Icon glyph="⚠" />
               <span>
                 The neural speech service could not be reached, so the generated tracks are
                 silent placeholders of the right length. Check the machine's internet
@@ -706,7 +524,7 @@ export default function VoiceoverStudio({
         {downloadNotice && (
           <div className="mt-3 p-3 bg-gray-900 border border-hairline rounded-xl text-gray-200 text-xs flex items-center justify-between gap-3 shadow-lg animate-fade-in">
             <span className="flex items-center gap-2">
-              <span>⬇️</span>
+              <Icon glyph="⬇" />
               <span>{downloadNotice}</span>
             </span>
             <button
@@ -721,7 +539,7 @@ export default function VoiceoverStudio({
         {isGeneratingAll && (
           <div className="mt-3 p-3 bg-indigo-950/90 border border-indigo-500/80 rounded-xl text-indigo-200 text-xs flex items-center justify-between animate-pulse shadow-lg">
             <span className="flex items-center gap-2 font-medium">
-              <span className="animate-spin">⏳</span>
+              <span className="animate-spin"><Icon glyph="⏳" /></span>
               <span>Synthesizing and saving narration for Scene {generationProgress?.current} of {generationProgress?.total}... Please wait.</span>
             </span>
             <span className="font-mono text-xs bg-indigo-900 px-2 py-0.5 rounded text-indigo-200">
@@ -733,9 +551,9 @@ export default function VoiceoverStudio({
         {generationSuccess && (
           <div className="mt-3 p-3 bg-emerald-950/80 border border-emerald-600/90 rounded-xl text-emerald-200 text-xs flex items-center justify-between animate-fade-in shadow-lg">
             <span className="flex items-center gap-2 font-medium">
-              <span>✅</span> All {scenes.length} scene voiceovers generated & saved with "{activeVoiceInfo.name}" ({activeVoiceInfo.gender})! Voiceovers are pre-saved and ready for Video Studio.
+              <Icon glyph="✅" /> All {scenes.length} scene voiceovers generated & saved with "{activeVoiceInfo.name}" ({activeVoiceInfo.gender})! Voiceovers are pre-saved and ready for Video Studio.
             </span>
-            <button onClick={() => setGenerationSuccess(false)} className="text-emerald-400 hover:text-white text-sm font-bold">✕</button>
+            <button onClick={() => setGenerationSuccess(false)} className="text-emerald-400 hover:text-white text-sm font-bold"><Icon glyph="✕" /></button>
           </div>
         )}
 
@@ -745,7 +563,7 @@ export default function VoiceoverStudio({
             <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-base border ${
               activeVoiceInfo.isMale ? "bg-blue-950/60 border-blue-700/60 text-blue-300" : "bg-pink-950/60 border-pink-700/60 text-pink-300"
             }`}>
-              {activeVoiceInfo.isMale ? "👨" : "👩"}
+              {iconify(activeVoiceInfo.isMale ? "👨" : "👩")}
             </span>
             <div>
               <div className="flex items-center gap-2">
@@ -778,13 +596,68 @@ export default function VoiceoverStudio({
         </div>
       </div>
 
+      {/* THE VOICE, WHILE YOU LISTEN TO IT
+
+          Every ▶ on this page feeds a live analyser, and the panel below is
+          painted by renderTimelineInsert() — the same function that draws the
+          finished video. So this is not a picture of a visualiser: it is the
+          visualiser, hearing the real narration. Pick a style here and you
+          have seen exactly what placing it on the video will look like. */}
+      <div className="bg-gray-900/90 border border-indigo-900/60 rounded-2xl p-4 sm:p-5 shadow-xl space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Icon glyph="◎" /> Sound Visualiser
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-700/60 bg-indigo-950/60 text-indigo-300">
+                Live
+              </span>
+            </h3>
+            <p className="text-[11px] text-gray-400 mt-0.5 max-w-lg">
+              The narration, drawn by the render engine while you listen. Press any ▶ on this
+              page and it moves with the voice.
+            </p>
+          </div>
+
+          <div className="opt-group" role="group" aria-label="Sound visualiser style">
+            {VOICE_VISUALIZERS.map((v) => (
+              <button
+                key={v.type}
+                type="button"
+                title={v.description}
+                aria-pressed={voiceVisualizer === v.type}
+                onClick={() => {
+                  setVoiceVisualizer(v.type);
+                  saveVoiceVisualizerChoice(v.type);
+                }}
+                className={`opt-btn ${voiceVisualizer === v.type ? "opt-btn-on" : ""}`}
+              >
+                <span><Icon glyph={v.icon} /></span>
+                <span>{v.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <LiveVoiceVisualizer
+          type={voiceVisualizer}
+          playing={playingId !== null || isImportPlaying}
+          height={116}
+        />
+
+        <p className="text-[10px] text-gray-500">
+          Four of the {(CATALOG_ITEMS.audio_visualizers || []).length} sound visualisers in the
+          catalogue — the voice-shaped ones. Put any of them on the video itself in Video Studio →
+          Sound Visualisers.
+        </p>
+      </div>
+
       {/* Exactly 2 Tabs Navigation */}
       <div className="flex flex-wrap items-center gap-2 border-b border-hairline pb-3" role="tablist" aria-label="Voiceover sections">
         <button
           onClick={() => setActiveTab("natural_voices")}
           className={`opt-btn ${activeTab === "natural_voices" ? "opt-btn-on" : ""}`}
         >
-          <span>🎭</span>
+          <Icon glyph="🎭" />
           <span>20 Natural Voices (10 Male • 10 Female)</span>
         </button>
 
@@ -792,7 +665,7 @@ export default function VoiceoverStudio({
           onClick={() => setActiveTab("import_tts")}
           className={`opt-btn ${activeTab === "import_tts" ? "opt-btn-on" : ""}`}
         >
-          <span>📁</span>
+          <Icon glyph="📁" />
           <span>Import Prepared TTS File</span>
         </button>
 
@@ -800,7 +673,7 @@ export default function VoiceoverStudio({
           onClick={() => setActiveTab("phonetic_dictionary")}
           className={`opt-btn ${activeTab === "phonetic_dictionary" ? "opt-btn-on" : ""}`}
         >
-          <span>🗣️</span>
+          <Icon glyph="🗣" />
           <span>Phonetic Dictionary &amp; Normalization</span>
         </button>
       </div>
@@ -811,7 +684,7 @@ export default function VoiceoverStudio({
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>🔊</span> Voice Echo &amp; Ambience
+              <Icon glyph="🔊" /> Voice Echo &amp; Ambience
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-700/60 bg-indigo-950/60 text-indigo-300">
                 {echoConfig.enabled ? "ON" : "OFF"}
               </span>
@@ -844,7 +717,7 @@ export default function VoiceoverStudio({
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="text-sm">{preset.icon}</span>
+                  <span className="text-sm"><Icon glyph={preset.icon} /></span>
                   <span className="text-[11px] font-semibold text-white">{preset.name}</span>
                 </div>
                 <p className="text-[9px] text-gray-400 leading-tight mt-0.5">{preset.blurb}</p>
@@ -921,7 +794,7 @@ export default function VoiceoverStudio({
                     : "bg-indigo-600 hover:bg-indigo-500 border-indigo-400 text-white"
                 }`}
               >
-                <span>{playingId === "test-echo" ? "⏹️" : "▶️"}</span>
+                <span>{iconify(playingId === "test-echo" ? "⏹️" : "▶️")}</span>
                 <span>{playingId === "test-echo" ? "Stop" : "Listen with echo"}</span>
               </button>
             </div>
@@ -937,7 +810,7 @@ export default function VoiceoverStudio({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <span>🎭</span> 20 Natural Speaking Voices
+                  <Icon glyph="🎭" /> 20 Natural Speaking Voices
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
                   10 male and 10 female natural speaking voices with realistic human intonation — 10 studio voices plus 10 style-inspired narrator personas.
@@ -962,7 +835,7 @@ export default function VoiceoverStudio({
                     genderFilter === "male" ? "bg-blue-600 text-white shadow" : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  <span>👨</span> {STUDIO_VOICE_PRESETS.filter((v) => v.gender === "male").length} Male
+                  <Icon glyph="👨" /> {STUDIO_VOICE_PRESETS.filter((v) => v.gender === "male").length} Male
                 </button>
                 <button
                   type="button"
@@ -971,7 +844,7 @@ export default function VoiceoverStudio({
                     genderFilter === "female" ? "bg-pink-600 text-white shadow" : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  <span>👩</span> {STUDIO_VOICE_PRESETS.filter((v) => v.gender === "female").length} Female
+                  <Icon glyph="👩" /> {STUDIO_VOICE_PRESETS.filter((v) => v.gender === "female").length} Female
                 </button>
               </div>
             </div>
@@ -980,7 +853,7 @@ export default function VoiceoverStudio({
             <div className="bg-gray-800/40 p-3 rounded-xl border border-hairline space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <span className="text-xs text-gray-300 font-medium flex items-center gap-2">
-                  <span>🔀</span> Rotate between two voices
+                  <Icon glyph="🔀" /> Rotate between two voices
                 </span>
                 <button
                   type="button"
@@ -1011,7 +884,7 @@ export default function VoiceoverStudio({
                       >
                         {STUDIO_VOICE_PRESETS.map((v) => (
                           <option key={v.id} value={v.id}>
-                            {v.gender === "male" ? "👨 " : "👩 "}
+                            {iconify(v.gender === "male" ? "👨 " : "👩 ")}
                             {v.name}
                           </option>
                         ))}
@@ -1028,7 +901,7 @@ export default function VoiceoverStudio({
                       >
                         {STUDIO_VOICE_PRESETS.map((v) => (
                           <option key={v.id} value={v.id}>
-                            {v.gender === "male" ? "👨 " : "👩 "}
+                            {iconify(v.gender === "male" ? "👨 " : "👩 ")}
                             {v.name}
                           </option>
                         ))}
@@ -1100,7 +973,7 @@ export default function VoiceoverStudio({
                                 : "bg-pink-950/80 border-pink-700 text-pink-300"
                             }`}
                           >
-                            {isMale ? "👨" : "👩"}
+                            {iconify(isMale ? "👨" : "👩")}
                           </span>
                           <div>
                             <h4 className="font-bold text-sm text-white">{voice.name}</h4>
@@ -1147,17 +1020,17 @@ export default function VoiceoverStudio({
                       >
                         {isCurrentLoading ? (
                           <>
-                            <span className="animate-spin text-xs">⏳</span>
+                            <span className="animate-spin text-xs"><Icon glyph="⏳" /></span>
                             <span>Loading...</span>
                           </>
                         ) : isCurrentPlaying ? (
                           <>
-                            <span>⏹️</span>
+                            <Icon glyph="⏹" />
                             <span>Stop</span>
                           </>
                         ) : (
                           <>
-                            <span>▶</span>
+                            <Icon glyph="▶" />
                             <span>Listen Sample</span>
                           </>
                         )}
@@ -1174,12 +1047,12 @@ export default function VoiceoverStudio({
                         title={`Download a sample of ${voice.name}`}
                         className="px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-700/60 border border-hairline transition-colors"
                       >
-                        {downloadingId === `sample-${voice.id}` ? "⏳" : "⬇️"}
+                        {iconify(downloadingId === `sample-${voice.id}` ? "⏳" : "⬇️")}
                       </button>
 
                       {isSelected ? (
                         <span className={`text-xs font-bold flex items-center gap-1 ${isMale ? "text-blue-400" : "text-pink-400"}`}>
-                          <span>✓</span> Active Voice
+                          <Icon glyph="✓" /> Active Voice
                         </span>
                       ) : (
                         <button
@@ -1208,10 +1081,10 @@ export default function VoiceoverStudio({
               className="w-full flex items-center justify-between text-xs font-bold text-gray-300 hover:text-white"
             >
               <span className="flex items-center gap-2">
-                <span>📝</span>
+                <Icon glyph="📝" />
                 <span>Review Scene Narration Scripts ({scenes.length} Scenes)</span>
               </span>
-              <span>{showSceneReview ? "▲ Hide" : "▼ Show"}</span>
+              <span>{iconify(showSceneReview ? "▲ Hide" : "▼ Show")}</span>
             </button>
 
             {showSceneReview && (
@@ -1227,11 +1100,11 @@ export default function VoiceoverStudio({
                           <span className="text-[11px] font-bold text-indigo-400">Scene {idx + 1} ({scene.duration}s):</span>
                           {hasSavedAudio ? (
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/90 text-emerald-300 border border-emerald-700 font-semibold flex items-center gap-1">
-                              <span>✅</span> Voiceover Saved ({scene.audio_name || "Audio"})
+                              <Icon glyph="✅" /> Voiceover Saved ({scene.audio_name || "Audio"})
                             </span>
                           ) : (
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/70 text-amber-300 border border-amber-800 font-semibold flex items-center gap-1">
-                              <span>⏳</span> Pending Generation
+                              <Icon glyph="⏳" /> Pending Generation
                             </span>
                           )}
                         </div>
@@ -1251,7 +1124,7 @@ export default function VoiceoverStudio({
                           }
                           className="px-2.5 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg border border-hairline flex items-center gap-1 transition-colors"
                         >
-                          {playingId === scene.id ? "⏹️ Stop" : "▶ Play Audio"}
+                          {iconify(playingId === scene.id ? "⏹️ Stop" : "▶ Play Audio")}
                         </button>
 
                         <button
@@ -1262,12 +1135,12 @@ export default function VoiceoverStudio({
                         >
                           {isSingleGen ? (
                             <>
-                              <span className="animate-spin text-xs">⏳</span>
+                              <span className="animate-spin text-xs"><Icon glyph="⏳" /></span>
                               <span>Generating...</span>
                             </>
                           ) : (
                             <>
-                              <span>🎙️</span>
+                              <Icon glyph="🎙" />
                               <span>{hasSavedAudio ? "Re-generate" : "Generate Audio"}</span>
                             </>
                           )}
@@ -1281,10 +1154,10 @@ export default function VoiceoverStudio({
                           className="px-2.5 py-1 text-xs bg-emerald-900/50 hover:bg-emerald-800 text-emerald-200 disabled:opacity-50 rounded-lg border border-emerald-700/60 flex items-center gap-1 transition-colors"
                         >
                           {downloadingId === scene.id ? (
-                            <span className="animate-spin text-xs">⏳</span>
+                            <span className="animate-spin text-xs"><Icon glyph="⏳" /></span>
                           ) : (
                             <>
-                              <span>⬇️</span>
+                              <Icon glyph="⬇" />
                               <span>Download</span>
                             </>
                           )}
@@ -1315,7 +1188,7 @@ export default function VoiceoverStudio({
         <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-xl space-y-5">
           <div className="border-b border-hairline pb-3">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>📁</span> Import Prepared TTS Audio File
+              <Icon glyph="📁" /> Import Prepared TTS Audio File
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
               Upload your own externally generated or recorded speech file (.mp3, .wav, .m4a, .ogg, .webm) and attach it to your project narration.
@@ -1325,9 +1198,9 @@ export default function VoiceoverStudio({
           {importSuccessBanner && (
             <div className="p-3 bg-emerald-950/90 border border-emerald-600 rounded-xl text-emerald-200 text-xs flex items-center justify-between animate-fade-in shadow-lg">
               <span className="flex items-center gap-2 font-medium">
-                <span>✅</span> {importSuccessBanner}
+                <Icon glyph="✅" /> {importSuccessBanner}
               </span>
-              <button onClick={() => setImportSuccessBanner(null)} className="text-emerald-400 hover:text-white font-bold">✕</button>
+              <button onClick={() => setImportSuccessBanner(null)} className="text-emerald-400 hover:text-white font-bold"><Icon glyph="✕" /></button>
             </div>
           )}
 
@@ -1393,7 +1266,7 @@ export default function VoiceoverStudio({
                     onClick={toggleImportPlayback}
                     className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow"
                   >
-                    <span>{isImportPlaying ? "⏸️ Pause" : "▶ Listen Audio"}</span>
+                    <span>{iconify(isImportPlaying ? "⏸️ Pause" : "▶ Listen Audio")}</span>
                   </button>
                   <button
                     type="button"
@@ -1462,7 +1335,7 @@ export default function VoiceoverStudio({
                   onClick={handleApplyImportedAudio}
                   className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-2"
                 >
-                  <span>✨</span>
+                  <Icon glyph="✨" />
                   <span>Confirm & Apply Prepared TTS Audio</span>
                 </button>
               </div>
@@ -1471,7 +1344,7 @@ export default function VoiceoverStudio({
 
           {/* Attribution Notice */}
           <div className="p-3 bg-gray-950/60 rounded-xl border border-hairline text-xs text-gray-400 flex items-start gap-2">
-            <span className="text-base">📢</span>
+            <span className="text-base"><Icon glyph="📢" /></span>
             <p>
               <strong className="text-gray-200">Full Video Attribution:</strong> When exporting your video, the attribution document in the Export/Render tab will automatically credit your voice narration with the specified voice profile and licensing terms.
             </p>

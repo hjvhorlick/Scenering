@@ -11,8 +11,11 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "theme:css": "node scripts/generate-theme-css.mjs",
+    "marketing:assets": "node scripts/optimize-marketing-assets.mjs",
+    "marketing:og": "node scripts/make-og-card.mjs",
     "test": "tsx tests/run-all.ts",
-    "verify": "tsc --noEmit && tsx tests/run-all.ts && npm run build"
+    "verify": "tsc --noEmit && tsx tests/run-all.ts && npm run build",
+    "brand:check": "esbuild src/lib/render-effects.ts --bundle --format=esm --outfile=public/brand-mark.mjs --loader:.png=dataurl --loader:.jpg=dataurl --log-level=silent"
   },
   "dependencies": {
     "@google/genai": "^2.22.0",

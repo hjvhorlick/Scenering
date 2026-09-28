@@ -8,3 +8,10 @@ public/Scenering-full-app.zip
 dist-package/
 
 dist/
+
+# Full-size marketing artwork sources. The website ships the optimised WebP
+# set in public/marketing/ (rebuild with `npm run marketing:assets`).
+assets-src/
+
+# Generated preview bundle for public/brand-check.html (npm run brand:check)
+public/brand-mark.mjs

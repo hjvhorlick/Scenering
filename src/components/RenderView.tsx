@@ -80,6 +80,9 @@ import {
 import type { RenderProfileSettings } from "../types";
 import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
 import { OfflineExporter, supported as offlineExportSupported, type OfflineExportConfig } from "../lib/offline-export";
+import { createFrameBudget } from "../lib/yield-to-browser";
+import { RenderTimer } from "../lib/render-timing";
+import Icon, { iconify } from "./icons/Icon";
 
 /**
  * The render screen's live settings. Every one of them is DECIDED in
@@ -153,7 +156,7 @@ function SummaryRow({
   return (
     <div className="flex items-start justify-between gap-3">
       <span className="text-[11px] text-gray-400 flex items-center gap-1.5 shrink-0">
-        <span>{icon}</span>
+        <Icon glyph={icon} />
         {label}
       </span>
       <span className="text-[11px] font-medium text-white text-right break-words min-w-0">
@@ -266,6 +269,9 @@ export default function RenderView({
   const [isRendering, setIsRendering] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderStage, setRenderStage] = useState("");
+  /** Where the last render spent its time, shown on screen when it finishes. */
+  const [renderTiming, setRenderTiming] = useState<string | null>(null);
+  const [timingCopied, setTimingCopied] = useState(false);
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(propRenderedBlob || null);
   const [renderedUrl, setRenderedUrl] = useState<string | null>(propRenderedUrl || null);
   /** The container the finished render was ACTUALLY recorded in. The download
@@ -651,6 +657,8 @@ export default function RenderView({
     if (scenesWithImages.length === 0 || isRendering) return null;
 
     setIsRendering(true);
+    setRenderTiming(null);
+    setTimingCopied(false);
     reportProgress(0);
     setRenderError(null);
     setFailureReport(null);
@@ -1325,6 +1333,17 @@ export default function RenderView({
         audioKbps,
         sampleRate: 48_000,
         channels: 2,
+        /**
+         * Upper bounds on how many chunks each track will produce, so the
+         * muxer can reserve room for the index at the front of the file
+         * instead of keeping the whole video in memory and rearranging it at
+         * the end. One chunk per frame for video; AAC works in 1024-sample
+         * frames, so the audio count follows from the duration. Rounded up
+         * generously — reserving slightly too much space costs a few unused
+         * bytes, reserving too little would fail the export.
+         */
+        expectedVideoChunks: Math.ceil(estimatedTotalDuration * fpsUsed) + 2,
+        expectedAudioChunks: Math.ceil((estimatedTotalDuration * 48_000) / 1024) + 8,
       };
       let offlineProbe = await offlineExportSupported(offlineConfig);
 
@@ -1355,12 +1374,18 @@ export default function RenderView({
         try {
           reportStage("3/4: Rendering sample-exact audio mix…");
           reportProgress(0.32);
+          // Times itself, because the renders that go wrong are the long ones
+          // and nobody can be asked to sit and watch a nine-minute export to
+          // tell me which part was slow.
+          const renderTimer = new RenderTimer();
+          renderTimer.stage("encoder setup");
           const totalFrames = Math.ceil(estimatedTotalDuration * fpsUsed);
           // Configure real encoder instances before spending time on the audio
           // pass. A driver/configuration rejection is reported immediately.
           offlineEncoder = await OfflineExporter.create(offlineConfig);
           setRenderEngine("frame-exact");
           reportStage(`3/4: Frame-exact ${offlineProbe.videoCodec} + ${offlineProbe.audioCodec} — rendering audio…`);
+          renderTimer.stage("audio graph");
           const offlineCtx = new OfflineAudioContext(2, Math.ceil(estimatedTotalDuration * 48_000), 48_000);
           const offlineMastering = createMasteringChain(offlineCtx, settings.audioMastering);
           offlineMastering.output.connect(offlineCtx.destination);
@@ -1424,7 +1449,9 @@ export default function RenderView({
           ];
           const offlineInsertMixer = new InsertAudioMixer(offlineCtx, offlineMusicAnalyser);
           await offlineInsertMixer.load(insertPlans);
-          offlineInsertMixer.startFrom(0);
+          // Placed on the timeline up front, to the sample, so the render does
+          // not have to stop once per frame to ask whether a sound is due.
+          offlineInsertMixer.scheduleAll();
 
           const readOfflineBus = (node: AnalyserNode) => {
             const freq = new Uint8Array(node.frequencyBinCount);
@@ -1433,7 +1460,11 @@ export default function RenderView({
             node.getByteTimeDomainData(wave);
             let sum = 0;
             for (let n = 0; n < freq.length; n++) sum += freq[n];
-            return makeBus(sum / (freq.length * 255), freq.slice(), wave.slice());
+            // freq and wave are freshly allocated above and belong to this
+            // frame alone, so they are handed over as they are. Copying them
+            // again here doubled the allocation on every frame of every
+            // render for nothing.
+            return makeBus(sum / (freq.length * 255), freq, wave);
           };
           const telemetry: AudioFrame[] = new Array(totalFrames);
           telemetry[0] = { voice: makeBus(0, null, null), music: makeBus(0, null, null) };
@@ -1445,14 +1476,19 @@ export default function RenderView({
               const snapshot = { voice: readOfflineBus(voiceAnalyser), music: readOfflineBus(offlineMusicAnalyser) };
               telemetry[frame] = snapshot;
               offlineMastering.updateVoiceLevel(snapshot.voice.level, offlineCtx.currentTime);
-              offlineInsertMixer.tick(time);
               return offlineCtx.resume();
             }));
           }
+          // The suspensions above make this stage stop and restart the audio
+          // engine once per video frame. Its share of the total is the number
+          // that decides whether that is worth redesigning.
+          renderTimer.stage("audio render + telemetry");
           const rendering = offlineCtx.startRendering();
           const [mixedAudio] = await Promise.all([rendering, ...suspensionTasks]);
           if (abortControllerRef.current) throw new Error("Render cancelled");
 
+          renderTimer.stage("video frames");
+          const encodeBudget = createFrameBudget();
           for (let frame = 0; frame < totalFrames; frame++) {
             if (abortControllerRef.current) throw new Error("Render cancelled");
             const time = frame / fpsUsed;
@@ -1468,16 +1504,51 @@ export default function RenderView({
             drawFrameAt(time, telemetry[frame] || null);
             await offlineEncoder.encodeCanvas(canvas, frame);
             if (frame % 4 === 0) {
-              const progress = 0.35 + ((frame + 1) / totalFrames) * 0.57;
-              reportProgress(Math.min(0.92, progress));
+              const progress = 0.35 + ((frame + 1) / totalFrames) * 0.5;
+              reportProgress(Math.min(0.85, progress));
               reportStage(`3/4: Encoding frame ${frame + 1} of ${totalFrames} (frame-exact)…`);
-              await new Promise<void>((resolve) => setTimeout(resolve, 0));
             }
+            // Hand the browser a turn on a time budget rather than every
+            // fourth frame, and through a message rather than a timer —
+            // timers are clamped to a second once the tab is in the
+            // background, which is what made a long render crawl the moment
+            // you looked at something else.
+            await encodeBudget.maybeYield();
           }
-          reportStage("4/4: Encoding sample-exact audio & finalizing container…");
-          reportProgress(0.94);
-          await offlineEncoder.encodeAudio(mixedAudio);
+
+          /**
+           * Everything past this point used to sit behind a single 94% and a
+           * frozen window: the soundtrack was encoded in one unbroken loop,
+           * then the container was assembled in another. On a nine-minute
+           * video that is a long time to look at a bar that is not moving,
+           * and long enough to look like a crash. Both now yield, and both
+           * report where they are.
+           */
+          renderTimer.stage("audio encode");
+          reportStage("4/4: Encoding sample-exact audio…");
+          reportProgress(0.86);
+          await offlineEncoder.encodeAudio(mixedAudio, 4_800, (fraction) => {
+            reportProgress(0.86 + fraction * 0.08);
+          });
+
+          renderTimer.stage("finalise container");
+          reportStage("4/4: Finalising the container…");
+          reportProgress(0.95);
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
           const offlineBlob = await offlineEncoder.finalize();
+          renderTimer.stop();
+          renderTimer.note(
+            "video",
+            `${Math.round(estimatedTotalDuration)}s at ${fpsUsed}fps (${totalFrames} frames), ${offlineConfig.width}x${offlineConfig.height}`
+          );
+          renderTimer.note(
+            "file",
+            `${(offlineBlob.size / 1_048_576).toFixed(0)} MB ${offlineContainer.toUpperCase()}`
+          );
+          const timingReport = renderTimer.format();
+          console.log(timingReport);
+          setRenderTiming(timingReport);
+          reportProgress(0.98);
           offlineMastering.dispose();
           offlineEcho?.dispose();
           offlineInsertMixer.dispose();
@@ -2146,6 +2217,22 @@ export default function RenderView({
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
+  /**
+   * Puts the timing report on the clipboard. One button beats asking anyone
+   * to open developer tools and copy a line out of a console.
+   */
+  const copyTimingReport = async () => {
+    if (!renderTiming) return;
+    try {
+      await navigator.clipboard.writeText(renderTiming);
+      setTimingCopied(true);
+      window.setTimeout(() => setTimingCopied(false), 2000);
+    } catch {
+      // Clipboard access can be refused; selecting the text by hand still works.
+      setTimingCopied(false);
+    }
+  };
+
   const cancelRender = () => {
     abortControllerRef.current = true;
     setIsRendering(false);
@@ -2301,7 +2388,7 @@ export default function RenderView({
                 Step 3 of 3
               </span>
               <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-                <span>🎬</span> Render & Export Video
+                <Icon glyph="🎬" /> Render & Export Video
               </h2>
             </div>
             <p className="text-xs text-gray-400 mt-1">
@@ -2332,7 +2419,7 @@ export default function RenderView({
           <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between border-b border-hairline pb-2 gap-2">
               <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <span>📋</span> Your Choices
+                <Icon glyph="📋" /> Your Choices
               </h3>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-900 border border-hairline text-gray-400 font-semibold shrink-0">
                 Read-only
@@ -2430,14 +2517,14 @@ export default function RenderView({
                 onClick={onOpenSetup}
                 className="w-full mt-1 py-2 px-3 bg-gray-900 hover:bg-gray-750 border border-hairline rounded-xl text-[11px] font-semibold text-gray-200 hover:text-white transition-all flex items-center justify-center gap-1.5"
               >
-                <span>⚙️</span>
+                <Icon glyph="⚙" />
                 <span>Change these in Project Setup</span>
               </button>
             )}
           </div>
 
           <div className="bg-gray-800/30 border border-hairline rounded-xl p-3 flex items-start gap-2">
-            <span className="text-sm">🔒</span>
+            <span className="text-sm"><Icon glyph="🔒" /></span>
             <p className="text-[10px] text-gray-400 leading-relaxed">
               The render screen does not allow any changes. Go back to Scenes, Voiceover, Captions or Studio
               to edit your video — then render again.
@@ -2456,13 +2543,13 @@ export default function RenderView({
           <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 shadow-lg space-y-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>🎛️</span> Render Profile
+                <Icon glyph="🎛" /> Render Profile
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-900 border border-hairline text-gray-400">
                   Read-only — set in Project Setup
                 </span>
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950 border border-emerald-700/60 text-emerald-300">
-                ✓ Optimized for social platforms
+                <Icon glyph="✓" /> Optimized for social platforms
               </span>
             </div>
 
@@ -2531,7 +2618,7 @@ export default function RenderView({
                           key={c.id}
                           className={`text-[10px] leading-snug ${c.ok ? "text-gray-400" : "text-amber-300"}`}
                         >
-                          {c.ok ? "✓" : "⚠"} <span className="font-medium">{c.label}</span> — {c.detail}
+                          {iconify(c.ok ? "✓" : "⚠")} <span className="font-medium">{c.label}</span> — {c.detail}
                         </li>
                       ))}
                     </ul>
@@ -2547,14 +2634,14 @@ export default function RenderView({
 
             {settings.quality === "draft" && (
               <p className="text-[10px] text-amber-300/90 leading-relaxed">
-                ⚡ Draft is a fast preview render at 720p — perfect while editing. Switch to High in Project
+                <Icon glyph="⚡" /> Draft is a fast preview render at 720p — perfect while editing. Switch to High in Project
                 Setup for the final platform-quality export.
               </p>
             )}
             {compatibilityWarnings.length > 0 && (
               <div className="p-2.5 bg-amber-950/50 border border-amber-800/70 rounded-lg space-y-1">
                 {compatibilityWarnings.map((w, i) => (
-                  <p key={i} className="text-[10px] text-amber-300 leading-relaxed">⚠ {w}</p>
+                  <p key={i} className="text-[10px] text-amber-300 leading-relaxed"><Icon glyph="⚠" /> {w}</p>
                 ))}
               </div>
             )}
@@ -2566,7 +2653,7 @@ export default function RenderView({
                   onClick={onOpenSetup}
                   className="px-3 py-2 bg-gray-900 hover:bg-gray-750 border border-hairline rounded-xl text-[11px] font-semibold text-gray-200 hover:text-white transition-all flex items-center gap-1.5"
                 >
-                  <span>⚙️</span> Change these in Project Setup
+                  <Icon glyph="⚙" /> Change these in Project Setup
                 </button>
               )}
               <button
@@ -2574,7 +2661,7 @@ export default function RenderView({
                 onClick={() => setShowAdvanced((v) => !v)}
                 className="px-3 py-2 bg-gray-900 hover:bg-gray-750 border border-hairline rounded-xl text-[11px] font-semibold text-gray-300 hover:text-white transition-all flex items-center gap-1.5"
               >
-                <span>🔧</span> {showAdvanced ? "Hide" : "Show"} technical details
+                <Icon glyph="🔧" /> {showAdvanced ? "Hide" : "Show"} technical details
               </button>
             </div>
 
@@ -2605,9 +2692,7 @@ export default function RenderView({
           <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 shadow-lg">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="p-1.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-lg text-sm shrink-0">
-                  🗄️
-                </span>
+                <span className="p-1.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-lg text-sm shrink-0" aria-hidden="true"><Icon glyph="🗄️" /></span>
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     The Vault
@@ -2623,8 +2708,8 @@ export default function RenderView({
                 </div>
               </div>
               {job.active && (
-                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-950/90 text-indigo-200 border border-indigo-600/60">
-                  ⏳ Rendering {Math.round(job.progress * 100)}%
+                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-950/90 text-indigo-200">
+                  <Icon glyph="⏳" /> Rendering {Math.round(job.progress * 100)}%
                 </span>
               )}
             </div>
@@ -2659,14 +2744,14 @@ export default function RenderView({
                           onClick={() => setVaultPreviewId(vaultPreviewId === row.id ? null : row.id)}
                           className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 border border-hairline transition-colors"
                         >
-                          {vaultPreviewId === row.id ? "▾ Hide" : "▶ Preview"}
+                          {iconify(vaultPreviewId === row.id ? "▾ Hide" : "▶ Preview")}
                         </button>
                         <button
                           onClick={() => void downloadVaultRender(row)}
                           disabled={vaultBusyId === row.id}
                           className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 text-white transition-colors"
                         >
-                          {vaultBusyId === row.id ? "Saving…" : "⬇ Download"}
+                          {iconify(vaultBusyId === row.id ? "Saving…" : "⬇ Download")}
                         </button>
                         <button
                           onClick={() => void removeVaultRender(row)}
@@ -2766,11 +2851,13 @@ export default function RenderView({
                       ? "bg-amber-950 border-amber-600 text-amber-300"
                       : "bg-indigo-950 border-indigo-600 text-indigo-300"
                   }`}>
-                    {renderEngine === "frame-exact"
-                      ? "✓ FRAME-EXACT WEBCODECS"
-                      : renderEngine === "compatibility"
-                      ? "⚠ REAL-TIME COMPATIBILITY FALLBACK"
-                      : "CHECKING FRAME-EXACT SUPPORT…"}
+                    {iconify(
+                      renderEngine === "frame-exact"
+                        ? "✓ FRAME-EXACT WEBCODECS"
+                        : renderEngine === "compatibility"
+                        ? "⚠ REAL-TIME COMPATIBILITY FALLBACK"
+                        : "CHECKING FRAME-EXACT SUPPORT…",
+                    )}
                   </div>
                   <p className="text-xs text-indigo-300 font-medium mb-3">{renderStage}</p>
 
@@ -2798,7 +2885,7 @@ export default function RenderView({
                    an automatic retry, and the raw log under Advanced Details */
                 <div className="p-3.5 bg-red-950/60 border border-red-800/80 rounded-xl space-y-2">
                   <p className="text-red-200 text-xs font-bold flex items-center gap-2">
-                    <span>⚠️</span> {failureReport.title}
+                    <Icon glyph="⚠" /> {failureReport.title}
                   </p>
                   <p className="text-red-300/90 text-[11px] leading-relaxed">{failureReport.explanation}</p>
                   <p className="text-red-300/70 text-[11px] leading-relaxed">{failureReport.retryHint}</p>
@@ -2810,7 +2897,7 @@ export default function RenderView({
                         disabled={isRendering}
                         className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white transition-colors"
                       >
-                        🔄 Retry Automatically
+                        <Icon glyph="🔄" /> Retry Automatically
                       </button>
                     )}
                     <button
@@ -2829,7 +2916,7 @@ export default function RenderView({
                 </div>
               ) : renderError ? (
                 <div className="p-3 bg-red-950/60 border border-red-800/80 rounded-lg text-red-300 text-xs flex items-center gap-2">
-                  <span>⚠️</span>
+                  <Icon glyph="⚠" />
                   <span>{renderError}</span>
                 </div>
               ) : null}
@@ -2854,7 +2941,7 @@ export default function RenderView({
 
               {imageFallbackCount > 0 && (
                 <div className="p-3 bg-amber-950/60 border border-amber-800/80 rounded-lg text-amber-300 text-xs flex items-start gap-2">
-                  <span>🖼️</span>
+                  <Icon glyph="🖼" />
                   <span>
                     {imageFallbackCount} scene image{imageFallbackCount === 1 ? "" : "s"} could not be loaded and rendered as
                     placeholder card{imageFallbackCount === 1 ? "" : "s"}. Re-search those scenes in the Scenes step to get
@@ -2914,7 +3001,7 @@ export default function RenderView({
                 <div className="space-y-3">
                   <div className="p-3 bg-green-950/50 border border-green-800/80 rounded-xl text-green-300 text-xs flex items-center justify-between gap-2 flex-wrap">
                     <span className="flex items-center gap-2 font-medium">
-                      <span>✅</span> Video rendered successfully! Format: {renderedContainer.toUpperCase()} · {resLabel}
+                      <Icon glyph="✅" /> Video rendered successfully! Format: {renderedContainer.toUpperCase()} · {resLabel}
                       <span className={`ml-1 px-2 py-0.5 rounded-full border text-[9px] font-bold ${
                         renderEngine === "frame-exact"
                           ? "bg-emerald-900 border-emerald-600 text-emerald-100"
@@ -2928,7 +3015,7 @@ export default function RenderView({
                       disabled={isRendering}
                       className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-xs border border-hairline transition-colors"
                     >
-                      🔄 Re-render
+                      <Icon glyph="🔄" /> Re-render
                     </button>
                   </div>
 
@@ -2941,14 +3028,41 @@ export default function RenderView({
                       disabled={isRendering}
                       className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all shadow flex items-center gap-2"
                     >
-                      <span>⬇️</span>
+                      <Icon glyph="⬇" />
                       <span>Download video (.{renderedContainer})</span>
                     </button>
                     <p className="text-[10px] text-gray-400 leading-relaxed flex-1 min-w-[200px]">
-                      🗄️ This render is also parked in <span className="font-semibold text-gray-300">The Vault</span> above —
+                      <Icon glyph="🗄" /> This render is also parked in <span className="font-semibold text-gray-300">The Vault</span> above —
                       every finished video waits there until you download it, so nothing gets lost between renders.
                     </p>
                   </div>
+
+                  {/* How long the render took, on screen rather than hidden
+                      in the browser console. Nobody should need developer
+                      tools to answer "why was that slow", and the one button
+                      copies the whole thing for pasting into a bug report. */}
+                  {renderTiming && (
+                    <div className="p-3 bg-gray-900/70 border border-hairline rounded-xl space-y-2">
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <p className="text-[11px] font-bold text-gray-200">
+                          <Icon glyph="⏱" /> How long this render took
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void copyTimingReport()}
+                          className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 text-[11px] border border-hairline transition-colors"
+                        >
+                          {timingCopied ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                      <pre className="text-[10px] leading-relaxed text-gray-300 font-mono whitespace-pre overflow-x-auto m-0">
+{renderTiming}
+                      </pre>
+                      <p className="text-[10px] text-gray-500 leading-relaxed">
+                        Each line is one part of the job and how much of the total it used.
+                      </p>
+                    </div>
+                  )}
 
                   {/* One render at a time, by design: another platform =
                       back to Setup, pick that destination, render again. */}
@@ -2985,9 +3099,7 @@ export default function RenderView({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="p-1.5 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg text-sm">
-                📜
-              </span>
+              <span className="p-1.5 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg text-sm" aria-hidden="true"><Icon glyph="📜" /></span>
               <h3 className="text-base font-bold text-white">
                 Video Description Attribution & License Credits
               </h3>
@@ -3006,7 +3118,7 @@ export default function RenderView({
               onClick={() => setShowAttributionPreview(!showAttributionPreview)}
               className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-hairline transition-colors flex items-center gap-1.5 shadow"
             >
-              <span>👁️</span>
+              <Icon glyph="👁" />
               <span>{showAttributionPreview ? "Hide Credits" : "View Credits"}</span>
             </button>
 
@@ -3015,7 +3127,7 @@ export default function RenderView({
               onClick={downloadAttributionDoc}
               className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-hairline transition-colors flex items-center gap-1.5 shadow"
             >
-              <span>⬇️</span>
+              <Icon glyph="⬇" />
               <span>Download (.txt)</span>
             </button>
 
@@ -3028,7 +3140,7 @@ export default function RenderView({
                   : "bg-indigo-600 hover:bg-indigo-500 text-white"
               }`}
             >
-              <span>{copiedAttribution ? "✅" : "📋"}</span>
+              <span>{iconify(copiedAttribution ? "✅" : "📋")}</span>
               <span>{copiedAttribution ? "Copied!" : "Copy"}</span>
             </button>
           </div>
@@ -3058,7 +3170,7 @@ export default function RenderView({
                   onClick={copyAttributionDoc}
                   className="px-2.5 py-1 rounded bg-gray-800/90 hover:bg-gray-700 border border-hairline text-gray-200 text-[10px] font-medium transition-colors"
                 >
-                  {copiedAttribution ? "✓ Copied" : "Copy"}
+                  {iconify(copiedAttribution ? "✓ Copied" : "Copy")}
                 </button>
               </div>
             </div>

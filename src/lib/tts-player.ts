@@ -6,7 +6,9 @@ import {
   voiceEchoIsActive,
   getEchoAudioContext,
 } from "./voice-echo";
+import { LEGACY_VOICE_IDS } from "../data/voice-presets";
 import { sanitizeTextForSpeech } from "./speech-sanitizer";
+import { getVoiceAnalyser, tapVoiceElement, voiceMonitorWanted } from "./voice-monitor";
 // Provides high-fidelity MP3/WAV playback via /api/tts and full support for over 300+ Web Speech API voices with gender-aware matching
 
 export interface BrowserVoiceInfo {
@@ -19,8 +21,17 @@ export interface BrowserVoiceInfo {
   voiceURI: string;
 }
 
+/**
+ * Narrator personas were renamed away from actor names. Audio and projects
+ * saved under the old ids still play with the right voice and pitch.
+ */
+function canonicalVoiceId(voiceId: string): string {
+  const v = (voiceId || "").toLowerCase().replace(/^(browser:|web:)/, "").trim();
+  return LEGACY_VOICE_IDS[v] ?? v;
+}
+
 export function isMaleVoiceIdentifier(voiceId: string): boolean {
-  const v = (voiceId || "").toLowerCase();
+  const v = canonicalVoiceId(voiceId);
   return (
     v.includes("guy") ||
     v.includes("christopher") ||
@@ -50,20 +61,18 @@ export function isMaleVoiceIdentifier(voiceId: string): boolean {
     v.includes("steffan") ||
     v.includes("brian") ||
     // persona narrator presets (male)
-    v.includes("freeman") ||
-    v.includes("attenborough") ||
-    v.includes("jones") ||
-    v.includes("neeson") ||
-    v.includes("jackson") ||
+    v.includes("storyteller") ||
+    v.includes("naturalist") ||
+    v.includes("titan") ||
+    v.includes("sentinel") ||
+    v.includes("firebrand") ||
     v.includes("connor") ||
-    v.includes("liam") ||
-    v.includes("morgan") ||
-    v.includes("samuel")
+    v.includes("liam")
   );
 }
 
 export function detectVoiceGenderFromName(name: string): "male" | "female" {
-  const lower = name.toLowerCase();
+  const lower = canonicalVoiceId(name);
   if (
     lower.includes("female") ||
     lower.includes("woman") ||
@@ -88,11 +97,11 @@ export function detectVoiceGenderFromName(name: string): "male" | "female" {
     lower.includes("kore") ||
     lower.includes("zephyr") ||
     lower.includes("aoede") ||
-    lower.includes("thompson") ||
-    lower.includes("mirren") ||
-    lower.includes("blanchett") ||
-    lower.includes("weaver") ||
-    lower.includes("roberts")
+    lower.includes("raconteur") ||
+    lower.includes("sovereign") ||
+    lower.includes("enigma") ||
+    lower.includes("investigator") ||
+    lower.includes("confidante")
   ) {
     return "female";
   }
@@ -120,11 +129,11 @@ export function detectVoiceGenderFromName(name: string): "male" | "female" {
     lower.includes("fenrir") ||
     lower.includes("standard-b") ||
     lower.includes("standard-d") ||
-    lower.includes("neeson") ||
+    lower.includes("sentinel") ||
     lower.includes("connor") ||
-    lower.includes("attenborough") ||
-    lower.includes("freeman") ||
-    lower.includes("jackson") ||
+    lower.includes("naturalist") ||
+    lower.includes("storyteller") ||
+    lower.includes("firebrand") ||
     lower.includes("brian") ||
     lower.includes("liam")
   ) {
@@ -171,12 +180,29 @@ class TTSAudioPlayer {
     } catch {}
   }
 
-  /** Routes one freshly created audio element through the echo chain. */
+  /**
+   * Routes one freshly created audio element through the echo chain, and —
+   * only while something on screen is drawing the voice — through the shared
+   * analyser as well.
+   *
+   * When neither is wanted the element is left exactly as it was: plain
+   * playback, no Web Audio, nothing that can go wrong.
+   */
   private attachEcho(audio: HTMLAudioElement) {
     this.disposeEchoRoute();
-    if (!this.voiceEcho || !voiceEchoIsActive(this.voiceEcho)) return;
-    const route = routeElementThroughEcho(audio, this.voiceEcho, getEchoAudioContext);
-    if (route) this.activeEchoRoute = route;
+    const echoOn = !!this.voiceEcho && voiceEchoIsActive(this.voiceEcho);
+    const tap = voiceMonitorWanted() ? getVoiceAnalyser() : null;
+    if (!echoOn && !tap) return;
+
+    if (echoOn) {
+      const route = routeElementThroughEcho(audio, this.voiceEcho!, getEchoAudioContext, tap);
+      if (route) {
+        this.activeEchoRoute = route;
+        return;
+      }
+      // The echo could not be built; fall through and at least try to listen.
+    }
+    if (tap) tapVoiceElement(audio);
   }
 
   private disposeEchoRoute() {
@@ -419,44 +445,45 @@ class TTSAudioPlayer {
       utterance.rate = Math.max(0.5, Math.min(2.0, speed));
       utterance.volume = Math.max(0, Math.min(1.0, volume));
 
+      const canonicalId = canonicalVoiceId(voiceId);
       const isMale = isMaleVoiceIdentifier(voiceId);
       const isIrish =
-        voiceId.toLowerCase().includes("neeson") ||
-        voiceId.toLowerCase().includes("connor") ||
-        voiceId.toLowerCase().includes("ie");
+        canonicalId.includes("sentinel") ||
+        canonicalId.includes("connor") ||
+        canonicalId.includes("ie");
       const isBritish =
         voiceId === "fable" ||
-        voiceId.toLowerCase().includes("gb") ||
-        voiceId.toLowerCase().includes("ryan") ||
-        voiceId.toLowerCase().includes("attenborough") ||
-        voiceId.toLowerCase().includes("thompson") ||
-        voiceId.toLowerCase().includes("mirren");
+        canonicalId.includes("gb") ||
+        canonicalId.includes("ryan") ||
+        canonicalId.includes("naturalist") ||
+        canonicalId.includes("raconteur") ||
+        canonicalId.includes("sovereign");
       const isAustralian =
         voiceId === "onyx" ||
-        voiceId.toLowerCase().includes("au") ||
-        voiceId.toLowerCase().includes("william") ||
-        voiceId.toLowerCase().includes("blanchett") ||
-        voiceId.toLowerCase().includes("natasha");
+        canonicalId.includes("au") ||
+        canonicalId.includes("william") ||
+        canonicalId.includes("enigma") ||
+        canonicalId.includes("natasha");
 
-      // Set pitch according to actor vocal ranges and personas
-      const lowerVoice = voiceId.toLowerCase();
-      if (lowerVoice.includes("jones")) {
-        utterance.pitch = 0.65; // Booming thunderous bass (James Earl Jones)
-      } else if (lowerVoice.includes("freeman")) {
-        utterance.pitch = 0.70; // Deep resonant gravelly rumble (Morgan Freeman)
-      } else if (lowerVoice.includes("neeson")) {
-        utterance.pitch = 0.78; // Deep authoritative Irish baritone (Liam Neeson)
+      // Set pitch to match each persona's described delivery
+      const lowerVoice = canonicalId;
+      if (lowerVoice.includes("titan")) {
+        utterance.pitch = 0.65; // Booming thunderous bass (The Titan)
+      } else if (lowerVoice.includes("storyteller")) {
+        utterance.pitch = 0.70; // Deep resonant gravelly rumble (The Storyteller)
+      } else if (lowerVoice.includes("sentinel")) {
+        utterance.pitch = 0.78; // Deep authoritative Irish baritone (The Sentinel)
       } else if (lowerVoice.includes("christopher")) {
         utterance.pitch = 0.72; // Deep authoritative cinematic rumble
-      } else if (lowerVoice.includes("jackson")) {
+      } else if (lowerVoice.includes("firebrand")) {
         utterance.pitch = 0.88; // Punchy energetic delivery
-      } else if (lowerVoice.includes("weaver")) {
+      } else if (lowerVoice.includes("investigator")) {
         utterance.pitch = 0.88; // Smoky grounded female documentary authority
-      } else if (lowerVoice.includes("blanchett")) {
+      } else if (lowerVoice.includes("enigma")) {
         utterance.pitch = 0.90; // Velvety sophisticated Australian tone
-      } else if (lowerVoice.includes("mirren")) {
+      } else if (lowerVoice.includes("sovereign")) {
         utterance.pitch = 0.94; // Stately regal British dame
-      } else if (lowerVoice.includes("roberts")) {
+      } else if (lowerVoice.includes("confidante")) {
         utterance.pitch = 1.05; // Radiant smiling warmth
       } else if (isMale) {
         utterance.pitch = 0.84; // Natural masculine lower register

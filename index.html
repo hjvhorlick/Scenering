@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Scenering - Script to Video Maker</title>
+    <title>Scenering — From idea to video</title>
     <!-- Caption typefaces: formal, classical, artsy and fun faces used by the
          Captions studio. The renderer also injects this at runtime as a fallback. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -13,22 +13,46 @@
       data-caption-fonts="true"
       href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400..700&family=Cormorant+Garamond:wght@400..700&family=Cinzel:wght@400..800&family=Inter:wght@400..800&family=Anton&family=Permanent+Marker&family=Caveat:wght@400..700&family=Monoton&family=Bangers&family=Baloo+2:wght@400..800&display=swap"
     />
-    <meta name="description" content="Script to video maker that generates scenes, image visuals, and narration previews." />
+    <meta
+      name="description"
+      content="Scenering turns a script into scenes, finds a visual for each one, gives them a voice, adds captions and finishes the video in Video Studio. Runs on your own machine."
+    />
+    <meta name="theme-color" content="#faf7f2" />
+    <link rel="canonical" href="/" />
     <!-- Apply the saved UI theme before first paint to avoid a flash of the
          default theme. Kept in sync with src/lib/themes.ts. -->
     <script>
       (function () {
         try {
           var t = localStorage.getItem("scenering_theme");
-          if (!t || ["classic", "apple", "windows", "playful", "glass", "porcelain"].indexOf(t) === -1) t = "classic";
+          if (!t || ["classic", "apple", "windows", "playful", "glass", "porcelain"].indexOf(t) === -1) t = "porcelain";
           document.documentElement.setAttribute("data-theme", t);
         } catch (e) {
-          document.documentElement.setAttribute("data-theme", "classic");
+          document.documentElement.setAttribute("data-theme", "porcelain");
         }
       })();
     </script>
-    <meta property="og:title" content="Scenering - Script to Video Maker" />
-    <meta property="og:description" content="Script to video maker that generates scenes, image visuals, and narration previews." />
+    <!-- Link previews. og:image is relative because this app ships without a
+         fixed domain; set it to an absolute URL when you deploy one. The card
+         is built by scripts/make-og-card.mjs from our own artwork. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Scenering" />
+    <meta property="og:title" content="Scenering — From idea to video" />
+    <meta
+      property="og:description"
+      content="Turn your script into scenes, find visuals that fit the story, give every scene a voice, add captions, and finish in Video Studio."
+    />
+    <meta property="og:image" content="/marketing/og-card.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Scenering — from idea to video. A script becomes scenes, visuals, voice and captions." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Scenering — From idea to video" />
+    <meta
+      name="twitter:description"
+      content="Turn your script into scenes, find visuals that fit the story, give every scene a voice, add captions, and finish in Video Studio."
+    />
+    <meta name="twitter:image" content="/marketing/og-card.jpg" />
 </head>
   <body>
     <div id="root"></div>

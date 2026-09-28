@@ -42,6 +42,7 @@ import {
 } from "../data/cta-library";
 import CtaBadgePreview from "./CtaBadgePreview";
 import CtaOptionThumb from "./CtaOptionThumb";
+import Icon, { iconify } from "./icons/Icon";
 
 interface InsertPropertiesModalProps {
   insert: TimelineInsert | null;
@@ -63,7 +64,7 @@ interface InsertPropertiesModalProps {
 function BlockTitle({ id, icon, title, hint }: { id: string; icon: string; title: string; hint?: string }) {
   return (
     <h4 id={id} className="scroll-mt-6 border-b border-hairline pb-2 flex items-baseline gap-2">
-      <span aria-hidden="true">{icon}</span>
+      <Icon glyph={icon} />
       <span className="text-sm font-bold text-white">{title}</span>
       {hint && <span className="text-[10px] font-normal text-gray-400">{hint}</span>}
     </h4>
@@ -111,7 +112,7 @@ function CtaFloatingPreview({
     >
       <div className="rounded-xl border border-indigo-500/50 bg-gray-950/95 p-2 shadow-2xl">
         <div className="pb-1.5 flex items-center justify-between text-[9px]">
-          <span className="font-bold text-indigo-300">👁️ Live preview</span>
+          <span className="font-bold text-indigo-300"><Icon glyph="👁" /> Live preview</span>
           <button
             type="button"
             onClick={() =>
@@ -756,12 +757,12 @@ function InsertPropertiesContent({
               onClick={() => jumpToSection(s.tab, s.id)}
               className={`opt-btn ${s.tone ?? ""} ${activeTab === s.tab ? "opt-btn-on" : ""}`}
             >
-              <span className="text-sm">{s.icon}</span>
+              <span className="text-sm"><Icon glyph={s.icon} /></span>
               <span>{s.name}</span>
             </button>
           ))}
           <span className="opt-hint ml-auto">
-            <span>↓</span>
+            <Icon glyph="↓" />
             <span>every section is listed below — just scroll</span>
           </span>
         </div>
@@ -779,20 +780,20 @@ function InsertPropertiesContent({
             >
               <div className="flex items-center gap-2">
                 <span className="font-bold text-white text-sm">
-                  {insert.category === "intro" ? "🎬 Intro Placement:" : "🏁 Outro Placement:"}
+                  {iconify(insert.category === "intro" ? "🎬 Intro Placement:" : "🏁 Outro Placement:")}
                 </span>
                 <span className="font-mono text-white bg-black/60 px-2 py-0.5 rounded border border-hairline">
                   {data.startTime.toFixed(1)}s (duration {data.duration}s)
                 </span>
                 {insert.category === "intro" && data.startTime === 0 && (
                   <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                    ✓ Before Script (0.0s)
+                    <Icon glyph="✓" /> Before Script (0.0s)
                   </span>
                 )}
                 {insert.category === "outro" &&
                   Math.abs(data.startTime - Math.max(0, totalDuration - data.duration)) < 0.2 && (
                     <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                      ✓ After Script (End)
+                      <Icon glyph="✓" /> After Script (End)
                     </span>
                   )}
               </div>
@@ -803,7 +804,7 @@ function InsertPropertiesContent({
                   onClick={() => setData((prev) => ({ ...prev, startTime: 0 }))}
                   className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm"
                 >
-                  <span>⚡ Align Before Script (0.0s)</span>
+                  <span><Icon glyph="⚡" /> Align Before Script (0.0s)</span>
                 </button>
               ) : (
                 <button
@@ -817,7 +818,7 @@ function InsertPropertiesContent({
                   className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm"
                 >
                   <span>
-                    ⚡ Align After Script ({Math.max(0, totalDuration - data.duration).toFixed(1)}s)
+                    <Icon glyph="⚡" /> Align After Script ({Math.max(0, totalDuration - data.duration).toFixed(1)}s)
                   </span>
                 </button>
               )}
@@ -831,7 +832,7 @@ function InsertPropertiesContent({
               {/* Tension Getter Selector */}
               <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <label className="text-xs font-semibold text-white block">
-                  ⚡ Tension Getter Motion Style:
+                  <Icon glyph="⚡" /> Tension Getter Motion Style:
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {[
@@ -863,7 +864,7 @@ function InsertPropertiesContent({
                         }`}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-xs text-white">
-                          <span>{style.icon}</span>
+                          <span><Icon glyph={style.icon} /></span>
                           <span>{style.name}</span>
                         </div>
                         <p className="text-[10px] text-gray-400 mt-1 line-clamp-1">{style.desc}</p>
@@ -877,7 +878,7 @@ function InsertPropertiesContent({
               <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-white">
-                    🎬 HD Video Background (
+                    <Icon glyph="🎬" /> HD Video Background (
                     {insert.category === "intro" ? "5 Tension Openers" : "5 Professional End-Slates"}):
                   </label>
                   <span className="text-[10px] text-amber-400 font-mono">1080p MP4 Ready</span>
@@ -915,7 +916,7 @@ function InsertPropertiesContent({
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-xs flex items-center gap-1.5 text-white">
-                            <span>{preset.icon}</span>
+                            <span><Icon glyph={preset.icon} /></span>
                             <span>{preset.name}</span>
                           </span>
                           {isSelected && (
@@ -968,7 +969,7 @@ function InsertPropertiesContent({
                     <div className="flex items-center justify-between">
                       <div>
                         <span className="text-xs font-semibold text-amber-300 block">
-                          🔊 Video Clip Audio Volume
+                          <Icon glyph="🔊" /> Video Clip Audio Volume
                         </span>
                         <span className="text-[10px] text-gray-400">
                           Preserves original sound in your video clips (dialogue, jingle, sound effects)
@@ -1012,7 +1013,7 @@ function InsertPropertiesContent({
                           }`}
                           title="Play a 2-second sample of the clip's original audio"
                         >
-                          <span>{isTestingClipAudio ? "⏹️" : "▶️"}</span>
+                          <span>{iconify(isTestingClipAudio ? "⏹️" : "▶️")}</span>
                           <span>{isTestingClipAudio ? "Stop (Off)" : "Test Clip Audio"}</span>
                         </button>
                       )}
@@ -1070,7 +1071,7 @@ function InsertPropertiesContent({
                       onClick={() => logoFileInputRef.current?.click()}
                       className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap"
                     >
-                      <span>📁 Upload</span>
+                      <span><Icon glyph="📁" /> Upload</span>
                     </button>
                     <input
                       ref={logoFileInputRef}
@@ -1139,7 +1140,7 @@ function InsertPropertiesContent({
                       className="max-h-16 max-w-[120px] object-contain drop-shadow-[0_0_12px_rgba(251,191,36,0.5)]"
                     />
                     <div className="text-xs text-gray-400">
-                      <span className="text-emerald-400 font-semibold block">✓ Brand Logo Ready</span>
+                      <span className="text-emerald-400 font-semibold block"><Icon glyph="✓" /> Brand Logo Ready</span>
                       <span>Will be displayed during the reveal animation</span>
                     </div>
                   </div>
@@ -1155,7 +1156,7 @@ function InsertPropertiesContent({
               {/* Note for wave effects */}
               {isAudioVisualizer && (
                 <div className="bg-indigo-950/50 border border-indigo-800/60 rounded-xl p-3 text-xs text-indigo-200 flex items-start gap-2.5">
-                  <span className="text-base">🌊</span>
+                  <span className="text-base"><Icon glyph="🌊" /></span>
                   <div>
                     <span className="font-semibold text-white">Audio Reactive Visualizer:</span>
                     <p className="mt-0.5 text-indigo-300/90 leading-relaxed">
@@ -1169,7 +1170,7 @@ function InsertPropertiesContent({
               <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-2">
                 <div className="flex justify-between text-xs text-gray-300">
                   <span className="font-medium text-white flex items-center gap-1.5">
-                    <span>🔍</span>
+                    <Icon glyph="🔍" />
                     <span>Visual Scale / Height</span>
                   </span>
                   <span className="font-mono text-indigo-400 font-bold">
@@ -1213,7 +1214,7 @@ function InsertPropertiesContent({
                             : "bg-gray-800 border-hairline text-gray-300 hover:bg-gray-750"
                         }`}
                       >
-                        <span>🎙️</span>
+                        <Icon glyph="🎙" />
                         <span>Moves With Voiceover</span>
                       </button>
                       <button
@@ -1225,7 +1226,7 @@ function InsertPropertiesContent({
                             : "bg-gray-800 border-hairline text-gray-300 hover:bg-gray-750"
                         }`}
                       >
-                        <span>🎵</span>
+                        <Icon glyph="🎵" />
                         <span>Moves With Music</span>
                       </button>
                     </div>
@@ -1545,7 +1546,7 @@ function InsertPropertiesContent({
               {(isSticker || isCallToAction) && (
                 <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-4">
                   <div>
-                    <span className="text-xs font-semibold text-white block">🎞️ Motion</span>
+                    <span className="text-xs font-semibold text-white block"><Icon glyph="🎞" /> Motion</span>
                     <span className="text-[11px] text-gray-400">
                       How this element moves while it is on screen
                     </span>
@@ -1591,7 +1592,7 @@ function InsertPropertiesContent({
                               : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                           }`}
                         >
-                          <span className="text-base leading-none">{m.icon}</span>
+                          <span className="text-base leading-none"><Icon glyph={m.icon} /></span>
                           <span className="leading-tight text-center">{m.name}</span>
                         </button>
                       );
@@ -1656,7 +1657,7 @@ function InsertPropertiesContent({
               {isSticker && (
                 <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   <div>
-                    <span className="text-xs font-semibold text-white block">✨ 3D Look</span>
+                    <span className="text-xs font-semibold text-white block"><Icon glyph="✨" /> 3D Look</span>
                     <span className="text-[11px] text-gray-400">
                       Depth shadow, ambient glow and colour
                     </span>
@@ -1742,7 +1743,7 @@ function InsertPropertiesContent({
                                 : "bg-gray-900/70 border-hairline hover:border-hairline"
                             }`}
                           >
-                            {st.icon}
+                            <Icon glyph={st.icon} />
                           </button>
                         );
                       })}
@@ -1791,7 +1792,7 @@ function InsertPropertiesContent({
               {isAudioVisualizer && (
                 <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   <label className="text-xs font-semibold text-white block">
-                    🎨 Visualizer Colors & 3D Lighting:
+                    <Icon glyph="🎨" /> Visualizer Colors & 3D Lighting:
                   </label>
 
                   {/* Primary Color */}
@@ -1921,7 +1922,7 @@ function InsertPropertiesContent({
               <BlockTitle id="ipm-reactivity" icon="🎙️" title="Audio Reactivity" />
               <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <label className="text-xs font-semibold text-white block">
-                  🎧 What should it move with?
+                  <Icon glyph="🎧" /> What should it move with?
                 </label>
                 <p className="text-xs text-gray-400">
                   Pick the track that drives the movement. This applies to the live preview and to
@@ -1939,7 +1940,7 @@ function InsertPropertiesContent({
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-lg">🎙️</span>
+                      <span className="text-lg"><Icon glyph="🎙" /></span>
                       <span className="text-xs font-bold text-white">Moves with the Voiceover</span>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-relaxed">
@@ -1958,7 +1959,7 @@ function InsertPropertiesContent({
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-lg">🎵</span>
+                      <span className="text-lg"><Icon glyph="🎵" /></span>
                       <span className="text-xs font-bold text-white">Moves with the Music</span>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-relaxed">
@@ -1997,7 +1998,7 @@ function InsertPropertiesContent({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <span className="text-xs font-semibold text-white block">
-                      🌐 Call-to-Action Platform:
+                      <Icon glyph="🌐" /> Call-to-Action Platform:
                     </span>
                     <span className="text-[11px] text-gray-400">
                       36 ready-made social badges. Pick one to load its wording, brand colours, mark and sound.
@@ -2037,7 +2038,7 @@ function InsertPropertiesContent({
                           : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
                       }`}
                     >
-                      {g.icon} {g.name}
+                      <Icon glyph={g.icon} /> {g.name}
                     </button>
                   ))}
                 </div>
@@ -2079,7 +2080,7 @@ function InsertPropertiesContent({
                             boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 1px 3px rgba(0,0,0,0.5)",
                           }}
                         >
-                          {pf.icon}
+                          <Icon glyph={pf.icon} />
                         </span>
                         <span className="min-w-0">
                           <span className="block text-[11px] font-semibold text-white truncate">
@@ -2100,7 +2101,7 @@ function InsertPropertiesContent({
             <div className="space-y-4">
               <BlockTitle id="ipm-cta-text" icon="✏️" title="Button Text &amp; Icon" />
               <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
-                <span className="text-xs font-semibold text-white block">✏️ Button Wording:</span>
+                <span className="text-xs font-semibold text-white block"><Icon glyph="✏" /> Button Wording:</span>
 
                 <div>
                   <span className="text-[11px] text-gray-300 block mb-1">Primary Button Text:</span>
@@ -2224,7 +2225,7 @@ function InsertPropertiesContent({
             <div className="space-y-4">
               <BlockTitle id="ipm-cta-style" icon="🎨" title="Colours, Shape &amp; Gradient" />
               <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
-                <span className="text-xs font-semibold text-white block">🎨 Badge Shape:</span>
+                <span className="text-xs font-semibold text-white block"><Icon glyph="🎨" /> Badge Shape:</span>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {CTA_SHAPES.map((sh) => {
                     const isActive = (data.visualOptions?.ctaShape || "pill") === sh.id;
@@ -2241,7 +2242,7 @@ function InsertPropertiesContent({
                       >
                         <CtaOptionThumb item={data} patch={{ ctaShape: sh.id }} width={128} height={52} />
                         <div className="text-[11px] font-semibold text-white mt-1.5 flex items-center gap-1">
-                          <span>{sh.icon}</span>
+                          <span><Icon glyph={sh.icon} /></span>
                           <span>{sh.name}</span>
                         </div>
                         <div className="text-[9px] text-gray-400 leading-tight">{sh.desc}</div>
@@ -2277,7 +2278,7 @@ function InsertPropertiesContent({
               </div>
 
               <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
-                <span className="text-xs font-semibold text-white block">🎨 Brand Colour Themes:</span>
+                <span className="text-xs font-semibold text-white block"><Icon glyph="🎨" /> Brand Colour Themes:</span>
                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                   {COLOR_PRESETS.map((cp) => {
                     const isActive =
@@ -2336,7 +2337,7 @@ function InsertPropertiesContent({
               </div>
 
               <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-4">
-                <span className="text-xs font-semibold text-white block">🪄 Raised 2D Badge Look:</span>
+                <span className="text-xs font-semibold text-white block"><Icon glyph="🪄" /> Raised 2D Badge Look:</span>
 
                 <div>
                   <div className="flex justify-between text-[11px] text-gray-300 mb-1.5">
@@ -2474,7 +2475,7 @@ function InsertPropertiesContent({
               </div>
 
               <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
-                <span className="text-xs font-semibold text-white block">📍 Screen Position:</span>
+                <span className="text-xs font-semibold text-white block"><Icon glyph="📍" /> Screen Position:</span>
                 <div className="grid grid-cols-3 gap-2 max-w-xs">
                   {CTA_POSITIONS.map((pp) => {
                     const isActive = data.presetPosition === pp.id;
@@ -2563,7 +2564,7 @@ function InsertPropertiesContent({
                   onClick={() => onClose()}
                   className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors"
                 >
-                  🖱️ Move &amp; resize it on the video preview
+                  <Icon glyph="🖱" /> Move &amp; resize it on the video preview
                 </button>
                 <p className="text-[10px] text-gray-500">
                   Closes this panel, keeps the badge selected — then drag the badge to move it and drag its
@@ -2629,7 +2630,7 @@ function InsertPropertiesContent({
                       />
                       <div>
                         <span className="text-xs font-bold text-white block">
-                          🔁 Loop to repeat through the complete video
+                          <Icon glyph="🔁" /> Loop to repeat through the complete video
                         </span>
                         <span className="text-[11px] text-gray-400 block leading-relaxed">
                           {data.audioSettings?.loop
@@ -2681,7 +2682,7 @@ function InsertPropertiesContent({
                         : "bg-indigo-600 hover:bg-indigo-500"
                     }`}
                   >
-                    <span>{isPlayingTestSound ? "⏹️" : "▶️"}</span>
+                    <span>{iconify(isPlayingTestSound ? "⏹️" : "▶️")}</span>
                     <span>{isPlayingTestSound ? "Stop Sound (Turn Off)" : "Test Play Sound"}</span>
                   </button>
                   <span className="text-[11px] text-gray-400">
@@ -2716,7 +2717,7 @@ function InsertPropertiesContent({
                           : "bg-emerald-600 hover:bg-emerald-500 text-white"
                       }`}
                     >
-                      <span>{isPlayingTestSound ? "⏹️" : "▶️"}</span>
+                      <span>{iconify(isPlayingTestSound ? "⏹️" : "▶️")}</span>
                       <span>{isPlayingTestSound ? "Stop (Off)" : "Test Sound"}</span>
                     </button>
                   )}
@@ -2735,7 +2736,7 @@ function InsertPropertiesContent({
                         : "bg-gray-800 border-hairline text-gray-300 hover:bg-gray-750"
                     }`}
                   >
-                    🚫 None (Silent)
+                    <Icon glyph="🚫" /> None (Silent)
                   </button>
 
                   {SOUND_LIBRARY.slice(0, 10).map((sound) => (
@@ -2755,7 +2756,7 @@ function InsertPropertiesContent({
                     >
                       <span className="truncate">{sound.name}</span>
                       <span className="text-[10px] opacity-70">
-                        {isPlayingTestSound && data.audioSettings?.soundUrl === sound.url ? "⏹️ Off" : "🔊"}
+                        {iconify(isPlayingTestSound && data.audioSettings?.soundUrl === sound.url ? "⏹️ Off" : "🔊")}
                       </span>
                     </button>
                   ))}
@@ -2788,7 +2789,7 @@ function InsertPropertiesContent({
                           : "bg-gray-700 hover:bg-gray-600 text-white border border-hairline"
                       }`}
                     >
-                      <span>{isPlayingTestSound ? "⏹️" : "▶️"}</span>
+                      <span>{iconify(isPlayingTestSound ? "⏹️" : "▶️")}</span>
                       <span>{isPlayingTestSound ? "Stop (Off)" : "Test Attached Audio"}</span>
                     </button>
                   </div>
@@ -2805,7 +2806,7 @@ function InsertPropertiesContent({
                 <div className="flex items-center justify-between pb-2 border-b border-hairline">
                   <div className="flex items-center gap-2">
                     <span className="text-base text-amber-400">
-                      {insert.category === "intro" ? "🎬" : "🏁"}
+                      {iconify(insert.category === "intro" ? "🎬" : "🏁")}
                     </span>
                     <div>
                       <span className="text-xs font-bold text-white block">
@@ -2986,7 +2987,7 @@ function InsertPropertiesContent({
                               : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                           }`}
                         >
-                          <span className="text-sm">{t.icon}</span>
+                          <span className="text-sm"><Icon glyph={t.icon} /></span>
                           <span className="truncate text-left">{t.name}</span>
                         </button>
                       );
@@ -2996,7 +2997,7 @@ function InsertPropertiesContent({
 
                 {/* ---- Background ---- */}
                 <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
-                  <span className="text-xs font-semibold text-white block">🎨 Background</span>
+                  <span className="text-xs font-semibold text-white block"><Icon glyph="🎨" /> Background</span>
 
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-300">Colour:</span>
@@ -3077,13 +3078,13 @@ function InsertPropertiesContent({
                         : "bg-gray-900 border-hairline text-gray-300 hover:border-hairline"
                     }`}
                   >
-                    {st.bgOpacity <= 0.02 ? "✓ No background (text floats on video)" : "Remove background entirely"}
+                    {iconify(st.bgOpacity <= 0.02 ? "✓ No background (text floats on video)" : "Remove background entirely")}
                   </button>
                 </div>
 
                 {/* ---- Border ---- */}
                 <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
-                  <span className="text-xs font-semibold text-white block">▢ Border</span>
+                  <span className="text-xs font-semibold text-white block"><Icon glyph="▢" /> Border</span>
 
                   <div className="grid grid-cols-3 gap-1.5">
                     {BORDER_MODES.map((b) => (
@@ -3097,7 +3098,7 @@ function InsertPropertiesContent({
                             : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                         }`}
                       >
-                        <span className="font-mono">{b.icon}</span>
+                        <span className="font-mono"><Icon glyph={b.icon} /></span>
                         <span className="truncate">{b.name}</span>
                       </button>
                     ))}
@@ -3139,7 +3140,7 @@ function InsertPropertiesContent({
 
                 {/* ---- Text & font ---- */}
                 <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
-                  <span className="text-xs font-semibold text-white block">🔤 Text & Font</span>
+                  <span className="text-xs font-semibold text-white block"><Icon glyph="🔤" /> Text & Font</span>
 
                   <div className="space-y-1.5">
                     <span className="text-xs text-gray-300">Font:</span>
@@ -3277,7 +3278,7 @@ function InsertPropertiesContent({
                   return (
                     <div className="bg-amber-950/20 border border-amber-800/40 rounded-xl p-4 space-y-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-amber-200">🎨 Text Art — the letters</span>
+                        <span className="text-xs font-semibold text-amber-200"><Icon glyph="🎨" /> Text Art — the letters</span>
                         <button
                           type="button"
                           onClick={() => updateTemplateStyle("art", undefined)}
@@ -3299,7 +3300,7 @@ function InsertPropertiesContent({
                               onClick={() => applyArtPreset(p.style)}
                               className="px-1.5 py-2 rounded-lg border border-hairline bg-gray-900/70 text-gray-300 hover:border-amber-400 text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer"
                             >
-                              <span className="text-base leading-none">{p.icon}</span>
+                              <span className="text-base leading-none"><Icon glyph={p.icon} /></span>
                               <span className="leading-tight text-center">{p.name}</span>
                             </button>
                           ))}
@@ -3454,7 +3455,7 @@ function InsertPropertiesContent({
 
                 {/* ---- Motion & depth ---- */}
                 <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
-                  <span className="text-xs font-semibold text-white block">🎞️ Entrance & Depth</span>
+                  <span className="text-xs font-semibold text-white block"><Icon glyph="🎞" /> Entrance & Depth</span>
 
                   <div className="grid grid-cols-3 gap-1.5">
                     {TEMPLATE_MOTIONS.map((m) => (
@@ -3469,7 +3470,7 @@ function InsertPropertiesContent({
                             : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                         }`}
                       >
-                        <span className="text-base leading-none">{m.icon}</span>
+                        <span className="text-base leading-none"><Icon glyph={m.icon} /></span>
                         <span className="leading-tight text-center">{m.name}</span>
                       </button>
                     ))}
@@ -3512,7 +3513,7 @@ function InsertPropertiesContent({
                   <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-semibold text-white block">
-                        🎯 Choose Completed CTA Template:
+                        <Icon glyph="🎯" /> Choose Completed CTA Template:
                       </label>
                       <span className="text-[10px] text-indigo-400 font-medium">1-Click Apply</span>
                     </div>
@@ -3556,7 +3557,7 @@ function InsertPropertiesContent({
                           }}
                           className="px-2.5 py-2 bg-gray-850 hover:bg-gray-750 border border-hairline hover:border-indigo-500/60 rounded-xl text-left transition-all flex items-center gap-2 group"
                         >
-                          <span className="text-base group-hover:scale-110 transition-transform">{tmpl.icon}</span>
+                          <span className="text-base group-hover:scale-110 transition-transform"><Icon glyph={tmpl.icon} /></span>
                           <div className="truncate">
                             <div className="text-[11px] font-semibold text-white truncate">{tmpl.name}</div>
                             <div className="text-[9px] text-gray-400 truncate">{tmpl.text}</div>
@@ -3569,7 +3570,7 @@ function InsertPropertiesContent({
                   {/* Customizable Options */}
                   <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                     <label className="text-xs font-semibold text-white block">
-                      ✏️ Edit Call to Action Options:
+                      <Icon glyph="✏" /> Edit Call to Action Options:
                     </label>
 
                     <div>
@@ -3656,7 +3657,7 @@ function InsertPropertiesContent({
                 /* Dedicated Scripture Verse Fields */
                 <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                   <div className="flex items-center gap-2 pb-2 border-b border-hairline">
-                    <span className="text-base text-amber-400">📖</span>
+                    <span className="text-base text-amber-400"><Icon glyph="📖" /></span>
                     <div>
                       <span className="text-xs font-bold text-white block">Holy Scripture Verse Settings</span>
                       <span className="text-[10px] text-gray-400">Customize biblical citation, translation, and passage text</span>
@@ -3880,7 +3881,7 @@ function InsertPropertiesContent({
                   </div>
                   {isIntroOutro && (
                     <span className="text-[10px] text-amber-400 font-medium">
-                      {insert.category === "intro" ? "🎬 Intro Segment" : "🏁 Outro Segment"}
+                      {iconify(insert.category === "intro" ? "🎬 Intro Segment" : "🏁 Outro Segment")}
                     </span>
                   )}
                 </div>
@@ -3893,7 +3894,7 @@ function InsertPropertiesContent({
                         onClick={() => setData((prev) => ({ ...prev, startTime: 0 }))}
                         className="w-full py-2 px-3 bg-amber-950/70 hover:bg-amber-900 text-amber-200 border border-amber-500/50 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
                       >
-                        <span>⚡ Snap to Timeline Start (0.0s Before Script)</span>
+                        <span><Icon glyph="⚡" /> Snap to Timeline Start (0.0s Before Script)</span>
                       </button>
                     ) : (
                       <button
@@ -3907,7 +3908,7 @@ function InsertPropertiesContent({
                         className="w-full py-2 px-3 bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-500/50 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
                       >
                         <span>
-                          ⚡ Snap to Timeline End (
+                          <Icon glyph="⚡" /> Snap to Timeline End (
                           {Math.max(0, totalDuration - data.duration).toFixed(1)}s After Script)
                         </span>
                       </button>
@@ -3929,10 +3930,10 @@ function InsertPropertiesContent({
             }}
             className="px-3.5 py-2 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/60 rounded-xl text-xs font-medium transition-colors"
           >
-            🗑️ Delete Element
+            <Icon glyph="🗑" /> Delete Element
           </button>
           <span className="hidden sm:inline text-[10px] text-emerald-400/80 font-medium">
-            ● Changes show on the video preview as you edit
+            <Icon glyph="●" /> Changes show on the video preview as you edit
           </span>
 
           <div className="flex items-center gap-2">

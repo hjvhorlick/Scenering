@@ -16,6 +16,17 @@ npm run dev
 Open **http://localhost:3000**. That is the whole setup — no database, no API
 keys, no accounts. Projects are saved in your browser's local storage.
 
+There are two front doors on the same server:
+
+| Path   | What it is                                                      |
+| ------ | --------------------------------------------------------------- |
+| `/`    | the website — what Scenering does, shown rather than described  |
+| `/app` | the door: sign in, and the studio loads behind it                |
+
+They are separate bundles (`src/marketing`, `src/studio`, `src/App`), lazily
+loaded, so a visitor reading the website never downloads the renderer, and the
+editor is only fetched once someone has signed in.
+
 To run the production build instead:
 
 ```bash
@@ -72,7 +83,8 @@ classes to components, regenerate the matrix with `npm run theme:css`.
    its own narration, so there are no silent gaps.
 2. **Scenes** — one card per scene. Swap the image, drop in a video clip, crop
    and reposition (aspect ratio is always preserved), edit the narration.
-3. **Voiceover** — pick a voice, generate narration, download the audio.
+3. **Voiceover** — pick a voice, generate narration, download the audio. A
+   live sound visualiser draws the narration while you listen to it.
 4. **Captions** — styling and timing.
 5. **Video Studio** — the look of the finished video: filters, text templates,
    3D stickers, lower thirds, titles, call-to-action badges, music and sound
@@ -93,9 +105,13 @@ src/
   components/   React UI, one studio per phase
   lib/          the engines — framing, motion, text art, rendering, filters
   data/         catalogues: templates, filters, voices, caption styles
+  marketing/    the public website at "/" (see below)
 public/
   sounds/       music and sound effects
   videos/       intro and outro clips
+  marketing/    optimised website artwork (WebP) + the link-preview card
+assets-src/     full-size artwork sources, ignored by git
+scripts/        theme CSS generator, website asset optimiser, preview card
 server.ts       Express API: narration, image search, hosts Vite in dev
 tests/          the test suite
 ```
@@ -124,6 +140,13 @@ single source of truth for their job:
   preview, the live preview and the exported video all call into it, which is
   what guarantees a photo is never stretched out of shape.
 - **`render-effects.ts`** — `getMotionTransform()` drives all camera motion.
+- **`voice-monitor.ts`** — one shared analyser the voice player routes through,
+  so the Voiceover step's visualiser is driven by the real narration. Nothing
+  is routed until a visualiser is on screen, and every Web Audio call is
+  guarded: if the tap cannot be attached the voice still plays, untapped, and
+  the panel says so rather than animating something it cannot hear. Browser
+  speech-synthesis voices expose no audio node at all, so they can never be
+  measured — the panel is honest about that too.
 - **`text-art.ts`** / **`render-text-template.ts`** — title lettering and the
   29 text templates.
 - **`offline-export.ts`** — the preferred frame-exact WebCodecs encoder and
@@ -145,6 +168,117 @@ single source of truth for their job:
   upscaled into a 1080p render. `image-analysis.ts` adds the visual half:
   black-and-white shots, diagrams and flat artwork are recognised from their
   thumbnails and dropped.
+
+## The website
+
+`src/marketing/` is the page at `/`. It explains the product by rebuilding it:
+the scene list, the visual search, the voice picker, the caption styles and
+the Video Studio timeline are all live React drawn from the app's own
+catalogues, so the moment the app gains a caption style or a transition, the
+website shows it.
+
+Four files hold the whole thing together:
+
+- **`product-facts.ts`** — every number, claim and piece of plan packaging on
+  the page, in one place. The workflow steps are not written here either:
+  they are `PROJECT_PHASES`, the studio's own tab rail, so the page cannot
+  advertise a step the app does not have. (It once told a seven-stage story
+  against a six-tab app; choosing the visuals belongs to Scenes, because that
+  is the tab it happens on.) The counts are imported from the real catalogues
+  rather than typed out, the provider order matches `server.ts`, and anything
+  that is not built yet is marked `comingSoon`. If a sentence on the website
+  makes a promise, it is written here and tested.
+- **`assets.ts`** — the artwork registry. Each entry says what the picture is,
+  which responsive widths exist and what kind of thing it is (`rendered` for
+  live UI, `concept` for our own artwork, `screenshot`/`recording` for the
+  real thing, `pending` for a slot that has no file yet and degrades into a
+  labelled placeholder). Swapping concept art for a real screen recording is
+  an edit to this file, not a redesign.
+- **`demo-project.ts`** — the one fictional project ("Where Cities Begin")
+  that every mockup on the page renders, which is why the scene list, the
+  timeline, the captions and the examples all agree with each other.
+- **`marketing.css`** — a self-contained `.mkt-*` design system, imported only
+  by `MarketingSite.tsx`. It shares no classes with the studio, so neither
+  side can restyle the other — but it is built from the same colours (below).
+
+### One product, one look
+
+The studio ships several themes; **Porcelain** is the default one a new
+visitor gets, and the website is painted in it too. The colours live once, in
+`src/shared/porcelain.css`, as `--pc-*` custom properties copied from the
+theme generator's porcelain palette; `marketing.css` and the sign-in screen
+both `@import` that file and define their own variables in terms of it.
+`tests/marketing.test.ts` checks the values still match the generator, so the
+two halves cannot drift apart.
+
+### The same visualiser on both sides
+
+The Voiceover step draws the narration with `LiveVoiceVisualizer`, which is
+`renderTimelineInsert()` — the function that paints the finished video — fed by
+the live analyser. Pick a style there and you have already seen what placing it
+on the video will look like.
+
+The website shows that same visualiser: the real canvas where it can afford the
+catalogue chunk (the voice section and the Video Studio mockup), and a
+CSS-only echo of Minimal Talking Dots where it cannot (the hero, the stepper,
+the transformation strip). There are no invented waveform graphics left on the
+page — the dot colours are the renderer's own, and a test fails if they drift.
+
+### Real previews, not pictures of previews
+
+The effects on the page are not screenshots. `components/RealEffects.tsx`
+mounts the studio's own preview canvases — the sticker renderer, the text
+template renderer, the colour grader, the CTA badge, the audio visualiser —
+and the website renders live examples with them. The grade on the finished
+frames is the string the app's own `getFilterCss()` produces. These are the
+only two modules allowed to import the heavy catalogues, they are pulled in
+with `React.lazy` when the section scrolls into view, and everything they
+name (a filter, a sticker, a lower third, a music bed) is checked against the
+real catalogue by the tests.
+
+Artwork pipeline:
+
+```bash
+npm run marketing:assets   # assets-src/marketing/*.png → public/marketing/*.webp
+npm run marketing:og       # rebuilds the 1200x630 link-preview card
+```
+
+The sources in `assets-src/` are deliberately untracked; the optimised WebP
+files (a few hundred KB in total) are what ships.
+
+The page keeps to a few rules, and the tests enforce them: nothing is claimed
+that the app cannot do, unbuilt ideas are labelled **Coming soon**, mockups
+say they are mockups, the sample data is fictional, there are no real people
+or customer projects, and there is no "go viral" anywhere.
+
+### The five questions
+
+The band under the hero is five real objections — credits, being on camera,
+not wanting to record a voice, whether the pictures are allowed, never having
+edited before. Each answers in one true line and links to the section that
+explains it, which then flashes so the answer is found rather than hunted.
+The strongest of them, "No credits. No tokens. No counter.", is checked
+against the code by `tests/marketing.test.ts`: the script is split by
+`splitScriptIntoScenes()`, the search terms come from `topic-extract.ts`, the
+only model call in `server.ts` asks for audio, and the optional Gemini key is
+named on the page rather than hidden.
+
+### The door
+
+The website has exactly one way into the editor: **Sign in**, in the
+navigation. There are no "try it now" shortcuts sprinkled through the page and
+no link back out of the studio; `tests/marketing.test.ts` fails if a second
+one appears.
+
+`src/studio/` is that door. There is no account server — Scenering runs
+entirely in your browser — so signing in creates a local profile: a name and a
+passphrase, hashed with PBKDF2 (SHA-256, 210,000 iterations) via the Web
+Crypto API and stored in `localStorage`; the session itself lives in
+`sessionStorage` and ends with the tab. The screen says as much, including
+that a forgotten passphrase means starting over, and that on a page served
+without HTTPS the browser withholds the strong hashing and a weaker fallback
+is used. It keeps other people out of your projects on a shared computer; it
+is not a security boundary against someone with the machine.
 
 ## UI conventions
 
@@ -178,3 +312,13 @@ browser. The suites cover image framing (aspect ratio is never distorted
 across every fit/zoom/crop/rotate/flip combination), camera motion (edge-safe
 and actually visible), scene splitting and durations, the sticker/template/
 filter catalogues, and responsive layout from 320px to 2560px.
+
+Two of them guard the website. `marketing.test.ts` checks that it tells the
+truth: every count matches the catalogue it came from, every asset in the
+registry has alt text and a file, planned features are labelled, the visual
+providers match the server, and a list of banned phrases (guaranteed views,
+going viral, rate limits) never appears. `marketing-render.test.ts` builds the
+site with esbuild, renders it to HTML with `react-dom/server` and inspects the
+markup — one `h1`, every section present and in story order, every image with
+alt text, dimensions and a `srcset`, one selected tab per tablist, and no
+`undefined` anywhere in the copy.

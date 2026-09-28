@@ -35,6 +35,7 @@ import {
   calibrateTextToTargetDuration,
   getTargetWordCount,
 } from "../lib/duration-utils";
+import Icon, { iconify } from "./icons/Icon";
 
 /**
  * Swatches offered for a plain-colour scene.
@@ -520,7 +521,7 @@ export default function SceneEditor({
         >
           {/* Active Aspect Ratio Indicator */}
           <div className="absolute top-1 left-1 z-10 px-1.5 py-0.5 bg-gray-900/80 backdrop-blur border border-hairline rounded text-[9px] font-mono text-gray-300 pointer-events-none flex items-center gap-1">
-            <span>📐</span>
+            <Icon glyph="📐" />
             <span>{aspectRatio}</span>
           </div>
 
@@ -549,7 +550,7 @@ export default function SceneEditor({
                   style={{ borderColor: `${activeLook.accent}cc`, color: activeLook.accent }}
                   title={`${activeLook.name} — applied to the whole video from Video Studio → Filters`}
                 >
-                  <span>{activeLook.icon}</span>
+                  <span><Icon glyph={activeLook.icon} /></span>
                   <span>{activeLook.name}</span>
                 </div>
               )}
@@ -578,7 +579,7 @@ export default function SceneEditor({
                   className="px-2 py-1 bg-white/20 hover:bg-white/30 backdrop-blur rounded-lg text-white text-[11px] transition-colors flex items-center gap-1"
                   title="Crop and reposition image"
                 >
-                  ✂️ Crop & Fit
+                  <Icon glyph="✂" /> Crop & Fit
                 </button>
                 <button
                   type="button"
@@ -586,7 +587,7 @@ export default function SceneEditor({
                   className="px-2 py-1 bg-indigo-600/80 hover:bg-indigo-600 backdrop-blur rounded-lg text-white text-[11px] transition-colors flex items-center gap-1"
                   title="Show photos for this scene to choose from"
                 >
-                  🔍 Research
+                  <Icon glyph="🔍" /> Research
                 </button>
               </div>
             </div>
@@ -611,7 +612,7 @@ export default function SceneEditor({
                     Searching...
                   </>
                 ) : (
-                  <>🔍 Find Image</>
+                  <><Icon glyph="🔍" /> Find Image</>
                 )}
               </button>
 
@@ -679,7 +680,7 @@ export default function SceneEditor({
               {/* Attached Voice Track Badge (From Voiceover Studio) */}
               {scene.audio_url && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/90 border border-emerald-600/80 text-emerald-300 text-xs font-medium animate-fade-in shadow-sm">
-                  <span>🎙️</span>
+                  <Icon glyph="🎙" />
                   <span className="truncate max-w-[140px]" title={scene.audio_name || "Saved Voiceover"}>
                     {scene.audio_name || "Voiceover Saved"}
                   </span>
@@ -689,7 +690,7 @@ export default function SceneEditor({
                     className="hover:text-white px-1 font-bold text-xs"
                     title="Play attached audio track"
                   >
-                    {isPlayingAttachedAudio ? "⏹" : "▶"}
+                    {iconify(isPlayingAttachedAudio ? "⏹" : "▶")}
                   </button>
                   <button
                     type="button"
@@ -707,7 +708,7 @@ export default function SceneEditor({
                 className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-950/80 border border-indigo-700/80 rounded-lg text-xs"
                 title={`Scene duration: ${currentSceneDuration}s`}
               >
-                <span className="text-indigo-400">⏱️</span>
+                <span className="text-indigo-400"><Icon glyph="⏱" /></span>
                 <span className="text-white font-mono font-bold">
                   {currentSceneDuration}s
                 </span>
@@ -755,7 +756,7 @@ export default function SceneEditor({
           <div className="space-y-1">
             <div className="flex items-center justify-between text-xs">
               <label htmlFor={`scene-script-${scene.id}`} className="font-semibold text-gray-200 flex items-center gap-1.5">
-                <span>📝</span>
+                <Icon glyph="📝" />
                 <span>Scene Script & Narration</span>
               </label>
               <div className="flex items-center gap-2">
@@ -773,7 +774,7 @@ export default function SceneEditor({
                     className="px-2 py-0.5 bg-amber-950/90 hover:bg-amber-900 border border-amber-500/70 text-amber-200 rounded text-[10px] font-medium transition-colors flex items-center gap-1 shadow-sm"
                     title={`Expand scene to ~${targetWordCount} words to fit ${formatDuration(currentSceneDuration)} duration`}
                   >
-                    <span>⚡ Calibrate to {formatDuration(currentSceneDuration)} (~{targetWordCount}w)</span>
+                    <span><Icon glyph="⚡" /> Calibrate to {formatDuration(currentSceneDuration)} (~{targetWordCount}w)</span>
                   </button>
                 )}
               </div>
@@ -820,7 +821,7 @@ export default function SceneEditor({
               className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 rounded-lg text-white text-xs font-medium transition-colors whitespace-nowrap"
               title="Replace with another photo — never the one already shown"
             >
-              {searching ? "…" : "🔁 Replace"}
+              {iconify(searching ? "…" : "🔁 Replace")}
             </button>
 
             {/* Research toggles its drawer open and shut, with the same ▼ cue
@@ -836,8 +837,8 @@ export default function SceneEditor({
               }`}
               title="Show photos for this scene to choose from"
             >
-              <span>🖼️ Research</span>
-              <span className="text-[10px]">{showCandidates ? "▲" : "▼"}</span>
+              <span><Icon glyph="🖼" /> Research</span>
+              <span className="text-[10px]">{iconify(showCandidates ? "▲" : "▼")}</span>
             </button>
 
             {/* Nature Fallback Button */}
@@ -847,8 +848,8 @@ export default function SceneEditor({
               className="px-2.5 py-1.5 bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1"
               title="Select high-definition verified nature fallback background — reshuffled on every open"
             >
-              <span>🌿 Nature Fallback</span>
-              <span className="text-[10px]">{showNatureMenu ? "▲" : "▼"}</span>
+              <span><Icon glyph="🌿" /> Nature Fallback</span>
+              <span className="text-[10px]">{iconify(showNatureMenu ? "▲" : "▼")}</span>
             </button>
 
             {/* Image Edit & Crop Toggle */}
@@ -862,8 +863,8 @@ export default function SceneEditor({
               }`}
               title="Crop, pan, and move around until it fits"
             >
-              <span>✂️ Crop & Move</span>
-              <span className="text-[10px]">{showCropTools ? "▲" : "▼"}</span>
+              <span><Icon glyph="✂" /> Crop & Move</span>
+              <span className="text-[10px]">{iconify(showCropTools ? "▲" : "▼")}</span>
             </button>
 
             {/* Blank colour backdrop — the last option, for a scene that
@@ -883,7 +884,7 @@ export default function SceneEditor({
                 style={{ background: isBlank ? scene.blank_color || "#101828" : "transparent" }}
               />
               <span>Colour</span>
-              <span className="text-[10px]">{showColorPicker ? "▲" : "▼"}</span>
+              <span className="text-[10px]">{iconify(showColorPicker ? "▲" : "▼")}</span>
             </button>
           </div>
         </div>
@@ -893,7 +894,7 @@ export default function SceneEditor({
           <div className="bg-gray-900/90 border border-sky-800/60 rounded-xl p-3 space-y-2.5 animate-fade-in text-xs">
             <div className="flex items-center justify-between border-b border-sky-900/60 pb-1.5">
               <span className="font-semibold text-sky-300 flex items-center gap-1.5">
-                <span>🎨</span>
+                <Icon glyph="🎨" />
                 <span>Plain colour backdrop</span>
               </span>
               {isBlank && (
@@ -953,7 +954,7 @@ export default function SceneEditor({
           <div className="bg-gray-900/90 border border-emerald-800/60 rounded-xl p-3 space-y-2 animate-fade-in text-xs">
             <div className="flex items-center justify-between border-b border-emerald-900/60 pb-1.5">
               <span className="font-semibold text-emerald-300 flex items-center gap-1.5">
-                <span>🌿</span>
+                <Icon glyph="🌿" />
                 <span>High Definition Nature Fallback Library</span>
               </span>
               <button
@@ -996,7 +997,7 @@ export default function SceneEditor({
           <div className="bg-gray-900/95 border border-amber-800/50 rounded-xl p-3 space-y-3 animate-fade-in text-xs">
             <div className="flex items-center justify-between border-b border-hairline pb-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-amber-400 font-semibold">✂️ Crop, Move & Fit</span>
+                <span className="text-amber-400 font-semibold"><Icon glyph="✂" /> Crop, Move & Fit</span>
                 <span className="text-[11px] text-gray-400">
                   Drag the preview to move, scroll to zoom — the image keeps its shape
                 </span>
@@ -1075,7 +1076,7 @@ export default function SceneEditor({
                             : "bg-gray-800 border-hairline text-gray-400 hover:border-hairline"
                         }`}
                       >
-                        <span className="text-sm leading-none">{m.icon}</span>
+                        <span className="text-sm leading-none"><Icon glyph={m.icon} /></span>
                         <span>{m.name}</span>
                       </button>
                     ))}
@@ -1101,7 +1102,7 @@ export default function SceneEditor({
                               : "bg-gray-800 border-hairline text-gray-400"
                           }`}
                         >
-                          {b.icon} {b.name}
+                          <Icon glyph={b.icon} /> {b.name}
                         </button>
                       ))}
                       {backdrop === "transparent" && (
@@ -1316,7 +1317,7 @@ export default function SceneEditor({
                         onClick={() => setPresetPosition(px, py)}
                         className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-hairline text-gray-300 text-[11px]"
                       >
-                        {label}
+                        {iconify(label)}
                       </button>
                     ))}
                   </div>
@@ -1328,14 +1329,14 @@ export default function SceneEditor({
                       onClick={() => onUpdate(scene.id, { image_rotate: normaliseAngle(rotate - 90) })}
                       className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-hairline text-gray-300 text-[11px]"
                     >
-                      ↺ 90°
+                      <Icon glyph="↺" /> 90°
                     </button>
                     <button
                       type="button"
                       onClick={() => onUpdate(scene.id, { image_rotate: normaliseAngle(rotate + 90) })}
                       className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-hairline text-gray-300 text-[11px]"
                     >
-                      ↻ 90°
+                      <Icon glyph="↻" /> 90°
                     </button>
                     <input
                       type="range"
@@ -1364,7 +1365,7 @@ export default function SceneEditor({
                         flipV ? "bg-amber-950 border-amber-600 text-amber-300" : "bg-gray-800 border-hairline text-gray-300"
                       }`}
                     >
-                      ⇅ Flip
+                      <Icon glyph="⇅" /> Flip
                     </button>
                   </div>
                 </div>
@@ -1410,7 +1411,7 @@ export default function SceneEditor({
             className="absolute inset-x-2 inset-y-0 flex items-center justify-center rounded opacity-0 group-hover/ins:opacity-100 transition-opacity text-[10px] text-emerald-300 hover:bg-emerald-950/40 border border-dashed border-transparent hover:border-emerald-700"
             title={`Insert a new scene after scene ${index + 1}`}
           >
-            ➕ Insert a scene here
+            <Icon glyph="➕" /> Insert a scene here
           </button>
         </div>
       )}

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import type { Scene } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
+import Icon, { iconify } from "./icons/Icon";
 
 interface VoiceImportModalProps {
   scene?: Scene;
@@ -83,80 +84,80 @@ export const REAL_STUDIO_VOICES = [
 
   // Persona Narrator Presets — style-inspired neural voices (not the actors)
   {
-    id: "freeman",
-    name: "Morgan Freeman Style (Deep Warm Storyteller)",
+    id: "storyteller",
+    name: "The Storyteller (Deep Warm Storyteller)",
     gender: "male" as const,
     accent: "American",
     desc: "Deep, warm, unhurried storytelling that makes any script feel important.",
     sampleText: "Some stories begin quietly, and slowly, they change everything. Let me tell you one.",
   },
   {
-    id: "attenborough",
-    name: "David Attenborough Style (Calm Documentary)",
+    id: "naturalist",
+    name: "The Naturalist (Calm Documentary)",
     gender: "male" as const,
     accent: "British",
     desc: "Calm, measured British documentary narration for nature and science.",
     sampleText: "Here, in the remote corners of our planet, extraordinary things are waiting to be discovered.",
   },
   {
-    id: "jones",
-    name: "James Earl Jones Style (Deep Powerful)",
+    id: "titan",
+    name: "The Titan (Deep Powerful)",
     gender: "male" as const,
     accent: "American",
     desc: "Very deep, commanding and powerful voice for cinematic authority.",
     sampleText: "In the beginning, there was a voice. And that voice carried the weight of kingdoms.",
   },
   {
-    id: "neeson",
-    name: "Liam Neeson Style (Strong Authoritative)",
+    id: "sentinel",
+    name: "The Sentinel (Strong Authoritative)",
     gender: "male" as const,
     accent: "Irish",
     desc: "Authoritative Irish male baritone with calm, gritty cinematic gravitas.",
     sampleText: "I have a particular set of skills. Listen carefully, because what you are about to hear will not soon be forgotten.",
   },
   {
-    id: "jackson",
-    name: "Samuel L. Jackson Style (Energetic Distinctive)",
+    id: "firebrand",
+    name: "The Firebrand (Energetic Distinctive)",
     gender: "male" as const,
     accent: "American",
     desc: "Energetic, bright and distinctive delivery that commands attention.",
     sampleText: "Hold on to your seats, because this story does not slow down for anybody.",
   },
   {
-    id: "thompson",
-    name: "Emma Thompson Style (Warm Intelligent)",
+    id: "raconteur",
+    name: "The Raconteur (Warm Intelligent)",
     gender: "female" as const,
     accent: "British",
     desc: "Warm, intelligent British narration for explainers and drama.",
     sampleText: "Intelligence and warmth are not opposites — allow me to demonstrate, one story at a time.",
   },
   {
-    id: "mirren",
-    name: "Helen Mirren Style (Elegant Authoritative)",
+    id: "sovereign",
+    name: "The Sovereign (Elegant Authoritative)",
     gender: "female" as const,
     accent: "British",
     desc: "Elegant, polished and authoritative voice for prestige content.",
     sampleText: "Elegance is not about what you say. It is about how you say it.",
   },
   {
-    id: "blanchett",
-    name: "Cate Blanchett Style (Sophisticated Narrator)",
+    id: "enigma",
+    name: "The Enigma (Sophisticated Narrator)",
     gender: "female" as const,
     accent: "Australian",
     desc: "Sophisticated, resonant narration for art and culture.",
     sampleText: "Every frame, every silence, every glance carries meaning. Let us begin.",
   },
   {
-    id: "weaver",
-    name: "Sigourney Weaver Style (Strong Documentary)",
+    id: "investigator",
+    name: "The Investigator (Strong Documentary)",
     gender: "female" as const,
     accent: "American",
     desc: "Strong, steady documentary-style female narration.",
     sampleText: "What we are about to witness is real, and it is extraordinary. Observe closely.",
   },
   {
-    id: "roberts",
-    name: "Julia Roberts Style (Warm Conversational)",
+    id: "confidante",
+    name: "The Confidante (Warm Conversational)",
     gender: "female" as const,
     accent: "American",
     desc: "Warm, friendly and conversational tone that feels like a friend.",
@@ -425,7 +426,7 @@ export default function VoiceImportModal({
         <div className="p-4 sm:p-5 border-b border-hairline bg-gray-950 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl">🎙️</span>
+              <span className="text-xl"><Icon glyph="🎙" /></span>
               <h2 className="text-lg font-bold text-white">Import Real Quality Voice</h2>
               {scene && (
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-950 text-indigo-300 border border-indigo-800">
@@ -454,13 +455,13 @@ export default function VoiceImportModal({
             onClick={() => setActiveTab("library")}
             className={`opt-btn ${activeTab === "library" ? "opt-btn-on" : ""}`}
           >
-            <span>🎭</span> Studio Real Voices
+            <Icon glyph="🎭" /> Studio Real Voices
           </button>
           <button
             onClick={() => setActiveTab("all_directory")}
             className={`opt-btn ${activeTab === "all_directory" ? "opt-btn-on" : ""}`}
           >
-            <span>🌐</span> 300+ Free Real Voices
+            <Icon glyph="🌐" /> 300+ Free Real Voices
             {allVoicesList.length > 0 && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800">
                 {allVoicesList.length}
@@ -471,13 +472,13 @@ export default function VoiceImportModal({
             onClick={() => setActiveTab("upload")}
             className={`opt-btn ${activeTab === "upload" ? "opt-btn-on" : ""}`}
           >
-            <span>📁</span> Import Audio File
+            <Icon glyph="📁" /> Import Audio File
           </button>
           <button
             onClick={() => setActiveTab("record")}
             className={`opt-btn ${activeTab === "record" ? "opt-btn-on" : ""}`}
           >
-            <span>🔴</span> Record Live Voice
+            <Icon glyph="🔴" /> Record Live Voice
           </button>
         </div>
 
@@ -489,7 +490,7 @@ export default function VoiceImportModal({
               {/* Gender Filter Toggle (Preserves user's requested clear separation) */}
               <div className="flex items-center justify-between gap-3 bg-gray-950/60 p-2.5 rounded-xl border border-hairline">
                 <span className="text-xs text-gray-300 font-medium flex items-center gap-1.5">
-                  <span>🚻</span> Voice Category:
+                  <Icon glyph="🚻" /> Voice Category:
                 </span>
                 <div className="flex gap-1.5">
                   <button
@@ -510,7 +511,7 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-blue-300"
                     }`}
                   >
-                    👨 Male Voices
+                    <Icon glyph="👨" /> Male Voices
                   </button>
                   <button
                     onClick={() => setGenderFilter("female")}
@@ -520,7 +521,7 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-pink-300"
                     }`}
                   >
-                    👩 Female Voices
+                    <Icon glyph="👩" /> Female Voices
                   </button>
                 </div>
               </div>
@@ -545,7 +546,7 @@ export default function VoiceImportModal({
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="font-bold text-sm text-white flex items-center gap-1.5">
-                            <span>{v.gender === "male" ? "👨" : "👩"}</span>
+                            <span>{iconify(v.gender === "male" ? "👨" : "👩")}</span>
                             <span>{v.name}</span>
                           </span>
                           <span
@@ -574,11 +575,11 @@ export default function VoiceImportModal({
                               : "bg-gray-700 hover:bg-gray-600 text-gray-200"
                           }`}
                         >
-                          <span>{isPlaying ? "⏹️ Stop" : "▶ Listen Sample"}</span>
+                          <span>{iconify(isPlaying ? "⏹️ Stop" : "▶ Listen Sample")}</span>
                         </button>
                         {isSelected && (
                           <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
-                            <span>✓</span> Selected
+                            <Icon glyph="✓" /> Selected
                           </span>
                         )}
                       </div>
@@ -635,7 +636,7 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-blue-300"
                     }`}
                   >
-                    👨 Male ({allVoicesList.filter((v) => v.gender === "male").length || 159})
+                    <Icon glyph="👨" /> Male ({allVoicesList.filter((v) => v.gender === "male").length || 159})
                   </button>
                   <button
                     onClick={() => setGenderFilter("female")}
@@ -645,14 +646,14 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-pink-300"
                     }`}
                   >
-                    👩 Female ({allVoicesList.filter((v) => v.gender === "female").length || 163})
+                    <Icon glyph="👩" /> Female ({allVoicesList.filter((v) => v.gender === "female").length || 163})
                   </button>
                 </div>
               </div>
 
               {loadingVoicesList ? (
                 <div className="p-8 text-center text-xs text-indigo-300 flex items-center justify-center gap-2">
-                  <span className="animate-spin">⏳</span>
+                  <span className="animate-spin"><Icon glyph="⏳" /></span>
                   <span>Loading full library of 300+ free natural voices...</span>
                 </div>
               ) : (
@@ -688,7 +689,7 @@ export default function VoiceImportModal({
                           <div>
                             <div className="flex items-center justify-between gap-1 mb-1">
                               <span className="font-bold text-xs text-white flex items-center gap-1.5 truncate">
-                                <span>{v.gender === "male" ? "👨" : "👩"}</span>
+                                <span>{iconify(v.gender === "male" ? "👨" : "👩")}</span>
                                 <span className="truncate">{cleanName}</span>
                               </span>
                               <span
@@ -720,11 +721,11 @@ export default function VoiceImportModal({
                                   : "bg-gray-700 hover:bg-gray-600 text-gray-200"
                               }`}
                             >
-                              <span>{isPlaying ? "⏹️ Stop" : "▶ Listen Sample"}</span>
+                              <span>{iconify(isPlaying ? "⏹️ Stop" : "▶ Listen Sample")}</span>
                             </button>
                             {isSelected && (
                               <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
-                                <span>✓</span> Selected
+                                <Icon glyph="✓" /> Selected
                               </span>
                             )}
                           </div>
@@ -750,7 +751,7 @@ export default function VoiceImportModal({
                   accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg"
                   className="hidden"
                 />
-                <span className="text-4xl">🎵</span>
+                <span className="text-4xl"><Icon glyph="🎵" /></span>
                 <div>
                   <h3 className="text-sm font-bold text-white mb-1">
                     Click to Upload Real Quality Voice Audio
@@ -776,7 +777,7 @@ export default function VoiceImportModal({
               {uploadedAudio && (
                 <div className="p-4 bg-indigo-950/40 border border-indigo-700/60 rounded-xl flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">🎧</span>
+                    <span className="text-2xl"><Icon glyph="🎧" /></span>
                     <div>
                       <h4 className="text-xs font-bold text-white">{uploadedAudio.name}</h4>
                       <p className="text-[11px] text-indigo-300">
@@ -791,7 +792,7 @@ export default function VoiceImportModal({
                       onClick={() => handlePlayVoiceSample("uploaded", "url:" + uploadedAudio.url)}
                       className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg border border-hairline"
                     >
-                      {previewPlayingId === "uploaded" ? "⏹️ Stop" : "▶ Play"}
+                      {iconify(previewPlayingId === "uploaded" ? "⏹️ Stop" : "▶ Play")}
                     </button>
                     <button
                       type="button"
@@ -810,7 +811,7 @@ export default function VoiceImportModal({
           {activeTab === "record" && (
             <div className="space-y-4 text-center py-4">
               <div className="max-w-md mx-auto bg-gray-950/70 border border-hairline rounded-2xl p-6 space-y-4">
-                <span className="text-4xl block">🎙️</span>
+                <span className="text-4xl block"><Icon glyph="🎙" /></span>
                 <div>
                   <h3 className="text-base font-bold text-white">Record Real Voice in Studio</h3>
                   <p className="text-xs text-gray-400 mt-1">
@@ -830,7 +831,7 @@ export default function VoiceImportModal({
                       onClick={stopRecording}
                       className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold shadow-lg transition-colors"
                     >
-                      ⏹️ Stop Recording
+                      <Icon glyph="⏹" /> Stop Recording
                     </button>
                   </div>
                 ) : (
@@ -840,7 +841,7 @@ export default function VoiceImportModal({
                       onClick={startRecording}
                       className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-lg transition-colors flex items-center gap-2 mx-auto"
                     >
-                      <span>🔴</span> Start Microphone Recording
+                      <Icon glyph="🔴" /> Start Microphone Recording
                     </button>
                   </div>
                 )}
@@ -848,7 +849,7 @@ export default function VoiceImportModal({
                 {recordedAudio && !isRecording && (
                   <div className="p-3 bg-gray-900 border border-emerald-700/60 rounded-xl space-y-3 pt-4">
                     <p className="text-xs text-emerald-300 font-semibold">
-                      ✅ Recording ready ({recordedAudio.duration}s)!
+                      <Icon glyph="✅" /> Recording ready ({recordedAudio.duration}s)!
                     </p>
                     <div className="flex items-center justify-center gap-2">
                       <button
@@ -858,7 +859,7 @@ export default function VoiceImportModal({
                         }
                         className="px-3.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg border border-hairline"
                       >
-                        {previewPlayingId === "recorded" ? "⏹️ Stop" : "▶ Play Recording"}
+                        {iconify(previewPlayingId === "recorded" ? "⏹️ Stop" : "▶ Play Recording")}
                       </button>
                       <button
                         type="button"
@@ -911,11 +912,11 @@ export default function VoiceImportModal({
                 >
                   {loadingAudio ? (
                     <>
-                      <span className="animate-spin">⏳</span> Attaching Voice...
+                      <span className="animate-spin"><Icon glyph="⏳" /></span> Attaching Voice...
                     </>
                   ) : (
                     <>
-                      <span>✨</span> Apply to Scene {targetSceneIndex + 1}
+                      <Icon glyph="✨" /> Apply to Scene {targetSceneIndex + 1}
                     </>
                   )}
                 </button>

@@ -182,6 +182,8 @@ export class InsertAudioMixer {
   private ctx: BaseAudioContext;
   private master: GainNode;
   private slots: ActiveSlot[] = [];
+  /** Set by scheduleAll(): the timeline is already placed, so polling must stop. */
+  private prescheduled = false;
 
   constructor(ctx: BaseAudioContext, dest: AudioNode) {
     this.ctx = ctx;
@@ -239,6 +241,51 @@ export class InsertAudioMixer {
     }
   }
 
+  /**
+   * Offline render path: place every sound on the timeline up front.
+   *
+   * Live playback has to poll, because it cannot know when the user will
+   * pause or scrub. An offline render knows the whole timeline before it
+   * starts, so each sound is scheduled once at its exact start time and
+   * stopped at its exact end time. The Web Audio clock then places it to the
+   * sample, instead of the nearest frame a poll happened to land on, and the
+   * render no longer has to be interrupted once per frame to check.
+   *
+   * Only for an OfflineAudioContext, and only before rendering begins.
+   * Do not call tick() afterwards — the sounds are already placed.
+   */
+  scheduleAll(): number {
+    this.prescheduled = true;
+    let placed = 0;
+    for (const slot of this.slots) {
+      const { startTime, endTime, loop, volume } = slot.plan;
+      if (!(endTime > startTime)) continue;
+      try {
+        const source = this.ctx.createBufferSource();
+        source.buffer = slot.buffer;
+        if (loop) source.loop = true;
+
+        const gain = this.ctx.createGain();
+        gain.gain.value = volume;
+        source.connect(gain);
+        gain.connect(this.master);
+
+        source.start(Math.max(0, startTime));
+        // Harmless for a one-shot that has already finished; it truncates a
+        // sound that would otherwise outrun its slot, which is what tick() did.
+        source.stop(Math.max(0, endTime));
+
+        slot.source = source;
+        slot.gain = gain;
+        slot.started = true;
+        placed++;
+      } catch (err) {
+        console.warn("Insert audio scheduling failed:", err);
+      }
+    }
+    return placed;
+  }
+
   /** Begin everything that is already active at `time`. */
   startFrom(time: number) {
     for (const slot of this.slots) {
@@ -255,6 +302,10 @@ export class InsertAudioMixer {
 
   /** Per-frame update: start sounds whose start time was crossed, stop ones past their end. */
   tick(time: number) {
+    // Everything is already placed on the clock. Polling now would only do
+    // harm: the stop() below takes no argument, so it would cut a sound off
+    // at the context's current time instead of its planned end.
+    if (this.prescheduled) return;
     for (const slot of this.slots) {
       if (slot.started) {
         // Stop at the planned end — also for looping beds (music that fills the video)
@@ -278,6 +329,7 @@ export class InsertAudioMixer {
 
   /** Stop everything immediately and reset state. */
   stop() {
+    this.prescheduled = false;
     for (const slot of this.slots) {
       if (slot.source) {
         try {

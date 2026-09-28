@@ -353,14 +353,21 @@ export interface ElementEchoRoute {
 export function routeElementThroughEcho(
   element: HTMLAudioElement,
   config: VoiceEchoConfig,
-  ctxFactory: () => AudioContext
+  ctxFactory: () => AudioContext,
+  /**
+   * Optional listening post. When the Voiceover step is drawing the voice, the
+   * echoed signal is sent through this node on its way to the speakers so the
+   * visualiser sees exactly what the ear hears — reverb tail included. The node
+   * is expected to be connected to the destination by whoever owns it.
+   */
+  tap?: AnalyserNode | null
 ): ElementEchoRoute | null {
   try {
     const ctx = ctxFactory();
     const source = ctx.createMediaElementSource(element);
     const graph = createVoiceEchoGraph(ctx, config);
     source.connect(graph.input);
-    graph.output.connect(ctx.destination);
+    graph.output.connect(tap ?? ctx.destination);
     return {
       graph,
       update: (next: VoiceEchoConfig) => graph.update(next),
