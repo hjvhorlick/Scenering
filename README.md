@@ -83,7 +83,8 @@ classes to components, regenerate the matrix with `npm run theme:css`.
    its own narration, so there are no silent gaps.
 2. **Scenes** — one card per scene. Swap the image, drop in a video clip, crop
    and reposition (aspect ratio is always preserved), edit the narration.
-3. **Voiceover** — pick a voice, generate narration, download the audio.
+3. **Voiceover** — pick a voice, generate narration, download the audio. A
+   live sound visualiser draws the narration while you listen to it.
 4. **Captions** — styling and timing.
 5. **Video Studio** — the look of the finished video: filters, text templates,
    3D stickers, lower thirds, titles, call-to-action badges, music and sound
@@ -139,6 +140,13 @@ single source of truth for their job:
   preview, the live preview and the exported video all call into it, which is
   what guarantees a photo is never stretched out of shape.
 - **`render-effects.ts`** — `getMotionTransform()` drives all camera motion.
+- **`voice-monitor.ts`** — one shared analyser the voice player routes through,
+  so the Voiceover step's visualiser is driven by the real narration. Nothing
+  is routed until a visualiser is on screen, and every Web Audio call is
+  guarded: if the tap cannot be attached the voice still plays, untapped, and
+  the panel says so rather than animating something it cannot hear. Browser
+  speech-synthesis voices expose no audio node at all, so they can never be
+  measured — the panel is honest about that too.
 - **`text-art.ts`** / **`render-text-template.ts`** — title lettering and the
   29 text templates.
 - **`offline-export.ts`** — the preferred frame-exact WebCodecs encoder and
@@ -198,6 +206,19 @@ theme generator's porcelain palette; `marketing.css` and the sign-in screen
 both `@import` that file and define their own variables in terms of it.
 `tests/marketing.test.ts` checks the values still match the generator, so the
 two halves cannot drift apart.
+
+### The same visualiser on both sides
+
+The Voiceover step draws the narration with `LiveVoiceVisualizer`, which is
+`renderTimelineInsert()` — the function that paints the finished video — fed by
+the live analyser. Pick a style there and you have already seen what placing it
+on the video will look like.
+
+The website shows that same visualiser: the real canvas where it can afford the
+catalogue chunk (the voice section and the Video Studio mockup), and a
+CSS-only echo of Minimal Talking Dots where it cannot (the hero, the stepper,
+the transformation strip). There are no invented waveform graphics left on the
+page — the dot colours are the renderer's own, and a test fails if they drift.
 
 ### Real previews, not pictures of previews
 

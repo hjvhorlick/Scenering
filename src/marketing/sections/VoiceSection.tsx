@@ -1,10 +1,18 @@
-import { useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { Section, SectionHead, Pill, FigureNote } from "../components/primitives";
 import AppFrame from "../components/AppFrame";
-import Waveform from "../components/Waveform";
+import { useInView } from "../hooks";
 import { STUDIO_VOICE_PRESETS } from "../../data/voice-presets";
 import { DEMO_DIALOGUE, DEMO_SCENES, DEMO_TOTAL_SECONDS, formatDuration } from "../demo-project";
-import { HONESTY, LIVE_COUNTS, MESSAGES, NARRATION_CHAIN, PLANS } from "../product-facts";
+import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES, NARRATION_CHAIN, PLANS } from "../product-facts";
+
+/**
+ * The studio's own visualiser renderer. It carries the effect catalogue with
+ * it, so it is a separate chunk fetched only when this section is in sight.
+ */
+const RealVisualiser = lazy(() =>
+  import("../components/RealEffects").then((m) => ({ default: m.RealVisualiser }))
+);
 
 /**
  * Voice over.
@@ -22,6 +30,8 @@ const FREE_VOICE_IDS = ["guy", "aria", "ryan", "jenny"];
 export default function VoiceSection() {
   const [voiceId, setVoiceId] = useState(STUDIO_VOICE_PRESETS[2]?.id ?? STUDIO_VOICE_PRESETS[0].id);
   const [filter, setFilter] = useState<"all" | "male" | "female">("all");
+  const monitorRef = useRef<HTMLDivElement | null>(null);
+  const monitorInView = useInView(monitorRef, { once: true, rootMargin: "500px 0px" });
 
   const voices = STUDIO_VOICE_PRESETS.filter((voice) => filter === "all" || voice.gender === filter);
   const active = STUDIO_VOICE_PRESETS.find((voice) => voice.id === voiceId) ?? STUDIO_VOICE_PRESETS[0];
@@ -76,7 +86,10 @@ export default function VoiceSection() {
                     <p className="mkt-scene-text" style={{ marginBottom: 6 }}>
                       “{line.line}”
                     </p>
-                    <Waveform seed={`dialogue-${line.voiceId}`} bars={40} height={18} />
+                    <p className="mkt-scene-narr">
+                      {STUDIO_VOICE_PRESETS.find((v) => v.id === line.voiceId)?.accent} ·{" "}
+                      {STUDIO_VOICE_PRESETS.find((v) => v.id === line.voiceId)?.tone}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -156,8 +169,16 @@ export default function VoiceSection() {
                 <p className="mkt-small" style={{ marginTop: 8 }}>
                   Recommended for {active.recommendedFor.toLowerCase()}
                 </p>
-                <div style={{ marginTop: 10 }}>
-                  <Waveform seed={`voice-preview-${active.id}`} bars={64} height={30} />
+                {/* The sound visualiser the Voiceover step draws while you
+                    listen — the studio's own renderer, not a picture of it. */}
+                <div style={{ marginTop: 10 }} ref={monitorRef}>
+                  <div className="mkt-strip-row is-head">
+                    <span className="mkt-strip-label">◎ Sound visualiser</span>
+                    <span className="mkt-pill is-plain">{CATALOG_COUNTS.visualisers} styles</span>
+                  </div>
+                  <Suspense fallback={<div className="mkt-real-loading is-small">Loading the real one…</div>}>
+                    {monitorInView && <RealVisualiser type="minimal_voice" />}
+                  </Suspense>
                 </div>
               </div>
 
@@ -171,7 +192,9 @@ export default function VoiceSection() {
                     <p className="mkt-scene-text" style={{ marginBottom: 6 }}>
                       {scene.text}
                     </p>
-                    <Waveform seed={`scene-voice-${scene.number}-${active.id}`} bars={52} height={20} />
+                    <p className="mkt-scene-narr">
+                      🎙 {active.name} · {scene.duration.toFixed(1)}s of narration
+                    </p>
                   </div>
                 </div>
               ))}

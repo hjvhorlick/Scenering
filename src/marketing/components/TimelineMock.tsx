@@ -1,5 +1,4 @@
 import { MarketingImage } from "./primitives";
-import Waveform from "./Waveform";
 import { DEMO_SCENES, DEMO_TOTAL_SECONDS, DEMO_TIMELINE_EXTRAS, formatDuration } from "../demo-project";
 
 /**
@@ -76,7 +75,7 @@ export default function TimelineMock({
           {lane(
             DEMO_SCENES.map((scene) => (
               <span key={scene.number} className="mkt-clip is-voice" style={{ width: pct(scene.duration) }}>
-                <Waveform seed={`voice-${scene.number}`} bars={14} height={14} />
+                🎙️ {scene.duration.toFixed(1)}s
               </span>
             ))
           )}

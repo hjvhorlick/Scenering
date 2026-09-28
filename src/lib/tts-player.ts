@@ -7,6 +7,7 @@ import {
   getEchoAudioContext,
 } from "./voice-echo";
 import { sanitizeTextForSpeech } from "./speech-sanitizer";
+import { getVoiceAnalyser, tapVoiceElement, voiceMonitorWanted } from "./voice-monitor";
 // Provides high-fidelity MP3/WAV playback via /api/tts and full support for over 300+ Web Speech API voices with gender-aware matching
 
 export interface BrowserVoiceInfo {
@@ -171,12 +172,29 @@ class TTSAudioPlayer {
     } catch {}
   }
 
-  /** Routes one freshly created audio element through the echo chain. */
+  /**
+   * Routes one freshly created audio element through the echo chain, and —
+   * only while something on screen is drawing the voice — through the shared
+   * analyser as well.
+   *
+   * When neither is wanted the element is left exactly as it was: plain
+   * playback, no Web Audio, nothing that can go wrong.
+   */
   private attachEcho(audio: HTMLAudioElement) {
     this.disposeEchoRoute();
-    if (!this.voiceEcho || !voiceEchoIsActive(this.voiceEcho)) return;
-    const route = routeElementThroughEcho(audio, this.voiceEcho, getEchoAudioContext);
-    if (route) this.activeEchoRoute = route;
+    const echoOn = !!this.voiceEcho && voiceEchoIsActive(this.voiceEcho);
+    const tap = voiceMonitorWanted() ? getVoiceAnalyser() : null;
+    if (!echoOn && !tap) return;
+
+    if (echoOn) {
+      const route = routeElementThroughEcho(audio, this.voiceEcho!, getEchoAudioContext, tap);
+      if (route) {
+        this.activeEchoRoute = route;
+        return;
+      }
+      // The echo could not be built; fall through and at least try to listen.
+    }
+    if (tap) tapVoiceElement(audio);
   }
 
   private disposeEchoRoute() {

@@ -799,6 +799,62 @@ html[data-mkt="1"][data-theme] body {
   background: linear-gradient(180deg, #cdc2b2, #9a9287);
 }
 
+/* ---- talking dots ----
+   The CSS echo of the app's Minimal Talking Dots visualiser: four glossy
+   spheres that stretch into pills while the voice speaks. The real renderer
+   draws the same thing, on a canvas, further down the page. */
+
+.mkt-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 30px;
+  width: 100%;
+  min-width: 0;
+}
+
+.mkt-dot {
+  position: relative;
+  width: 9px;
+  min-height: 9px;
+  border-radius: 999px;
+  box-shadow:
+    0 2px 5px rgb(15 18 30 / 0.4),
+    inset 0 -2px 3px rgb(0 0 0 / 0.25);
+  transform-origin: center;
+}
+
+/* the glossy bulb the renderer paints near the top of each sphere */
+.mkt-dot::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.8);
+}
+
+.mkt-dots.is-live .mkt-dot {
+  animation: mkt-dot-talk 1.1s ease-in-out infinite;
+}
+
+.mkt-dots.is-quiet .mkt-dot {
+  background: linear-gradient(150deg, #cdc2b2 8%, #b9ac99 46%, rgb(0 0 0 / 0.25)) !important;
+}
+
+@keyframes mkt-dot-talk {
+  0%,
+  100% {
+    transform: scaleY(0.72);
+  }
+  45% {
+    transform: scaleY(1.18);
+  }
+}
+
 /* ---- captions ---- */
 
 .mkt-caption {

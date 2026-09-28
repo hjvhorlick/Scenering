@@ -749,4 +749,92 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
   );
 }
 
+/* ---------------------------------------------------------------------
+ * The live voice monitor
+ *
+ * The Voiceover step draws the narration while you listen to it. Three things
+ * have to stay true for that panel to be honest: it must use the render engine
+ * rather than a drawing of one, it must only ever move when real audio has
+ * reached the analyser, and the voice player must leave its audio completely
+ * alone until something is actually watching.
+ * ------------------------------------------------------------------- */
+{
+  const monitor = read("src/components/LiveVoiceVisualizer.tsx");
+  const lib = read("src/lib/voice-monitor.ts");
+  const player = read("src/lib/tts-player.ts");
+  const studio = read("src/components/VoiceoverStudio.tsx");
+
+  h.ok(
+    monitor.includes("renderTimelineInsert("),
+    "the voice monitor is painted by the render engine, not by its own drawing code"
+  );
+  h.ok(
+    monitor.includes("readVoiceBus()") && monitor.includes("hasVoiceSignal()"),
+    "…driven by the live analyser"
+  );
+  h.ok(
+    monitor.includes("if (!signal) return;"),
+    "with no signal to read, the monitor holds still instead of inventing movement"
+  );
+  h.ok(
+    monitor.includes("Browser voice — no signal to read"),
+    "…and says why"
+  );
+  h.ok(
+    monitor.includes("addVoiceListener()"),
+    "the monitor announces itself, so the player knows to route the voice"
+  );
+
+  h.ok(
+    player.includes("voiceMonitorWanted()") && player.includes("if (!echoOn && !tap) return;"),
+    "a voice with no echo and nobody watching is played exactly as before — no Web Audio at all"
+  );
+  h.ok(
+    lib.includes("source.connect(getEchoAudioContext().destination)"),
+    "if the tap cannot be attached the voice is put back on the speakers"
+  );
+
+  // The styles offered are real catalogue entries, and the default is the one
+  // the website shows.
+  const speech = (CATALOG_ITEMS.audio_visualizers || []).filter((i) => i.subCategory === "speech");
+  h.ok(speech.length >= 4, "there are voice-shaped visualisers to offer");
+  h.ok(
+    monitor.includes('subCategory === "speech"'),
+    "the picker is the catalogue's own speech family, not a hand-written list"
+  );
+  h.ok(
+    monitor.includes('DEFAULT_VOICE_VISUALIZER = "minimal_voice"'),
+    "it opens on Minimal Talking Dots — the visualiser the website shows"
+  );
+  h.ok(
+    Boolean(speech.find((i) => i.type === "minimal_voice")),
+    "…which is a real speech visualiser"
+  );
+  h.ok(
+    studio.includes("<LiveVoiceVisualizer") && studio.includes("playing={playingId !== null || isImportPlaying}"),
+    "the Voiceover step shows it, live while anything on the page is playing"
+  );
+  h.ok(
+    studio.includes("opt-btn") && studio.includes("saveVoiceVisualizerChoice"),
+    "the style picker follows the studio's option-button convention and is remembered"
+  );
+
+  // The four dot colours the website echoes in CSS must be the renderer's own.
+  const renderer = read("src/lib/render-visualizers.ts");
+  const dots = renderer.slice(renderer.indexOf('case "minimal_voice"'));
+  const colours = dots.slice(0, 260).match(/#[0-9a-f]{6}/g) || [];
+  for (const colour of ["#ef4444", "#f59e0b", "#10b981"]) {
+    h.ok(colours.includes(colour), `Minimal Talking Dots still uses ${colour}`);
+  }
+  const marketingDots = read("src/marketing/components/Waveform.tsx");
+  h.ok(
+    marketingDots.includes('["#38bdf8", "#ef4444", "#f59e0b", "#10b981"]'),
+    "the website's lightweight echo of the dots uses the renderer's colours"
+  );
+  h.ok(
+    read("src/lib/visualizer-palettes.ts").includes('"#38bdf8"'),
+    "…including the renderer's default primary"
+  );
+}
+
 h.done("visualizers");

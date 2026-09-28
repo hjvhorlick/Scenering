@@ -173,7 +173,7 @@ export default function Hero() {
                     <span className="mkt-strip-label">
                       <span aria-hidden="true">🎙</span> {DEMO_VOICE.name} · {DEMO_VOICE.accent}
                     </span>
-                    <Waveform seed="hero-narration" bars={72} height={26} live={playing} />
+                    <Waveform seed="hero-narration" variant="dots" height={26} live={playing} />
                   </div>
                 </div>
 

@@ -22,6 +22,14 @@
 - The website's effects are rendered by the studio's own preview canvases —
   real stickers, text templates, colour grades, CTA badges and audio
   visualisers — loaded on demand when the section scrolls into view.
+- Added a live sound visualiser to the Voiceover step: the render engine,
+  driven by an analyser on the real narration, with the catalogue's four
+  voice-shaped styles to choose from. Voices are only routed through Web Audio
+  while the panel is on screen, and it holds still rather than animating when
+  there is no signal to read.
+- Replaced the website's hand-drawn waveform graphics with that visualiser —
+  the real canvas where the page can afford it, a CSS echo of Minimal Talking
+  Dots in the light-weight artwork.
 
 ## 1.1.0 — Frame-exact export
 

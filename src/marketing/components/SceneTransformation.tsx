@@ -75,7 +75,7 @@ export default function SceneTransformation({ scene }: { scene: DemoScene }) {
               <span className="mkt-small">{DEMO_VOICE.accent}</span>
               <span className="mkt-small">· {scene.duration.toFixed(1)}s of narration</span>
             </div>
-            <Waveform seed={`transform-${scene.number}`} bars={54} height={26} live={stage === 2} />
+            <Waveform seed={`transform-${scene.number}`} variant="dots" height={26} live={stage === 2} />
           </div>
         </div>
 

@@ -529,6 +529,41 @@ ok(
   read("src/marketing/sections/VideoStudioSection.tsx").includes("lazy(() =>"),
   "the live visualiser is its own chunk"
 );
+ok(
+  read("src/marketing/sections/VoiceSection.tsx").includes("lazy(() =>"),
+  "so is the one in the voice section"
+);
+
+/*
+ * Voice, honestly. The app draws the narration with a real visualiser now, so
+ * the page shows that visualiser rather than a hand-drawn waveform — and where
+ * a full canvas would be too heavy (the hero, the stepper, the transformation
+ * strip) the stand-in is the CSS echo of the same Minimal Talking Dots, never
+ * bars the studio does not draw.
+ */
+{
+  const voice = read("src/marketing/sections/VoiceSection.tsx");
+  ok(!voice.includes("<Waveform"), "the voice section draws no invented waveform");
+  ok(voice.includes("RealVisualiser"), "…it shows the studio's own visualiser instead");
+
+  const timeline = read("src/marketing/components/TimelineMock.tsx");
+  ok(
+    !timeline.includes("<Waveform"),
+    "the timeline mockup labels its clips the way the studio's timeline does"
+  );
+
+  const waveUsers = marketingFiles.filter((f) => f.text.includes("<Waveform"));
+  for (const f of waveUsers) {
+    ok(
+      /variant="dots"/.test(f.text),
+      `${f.name}: the remaining stand-in is the talking-dots echo, not bars`
+    );
+  }
+  ok(
+    read("src/components/LiveVoiceVisualizer.tsx").includes("renderTimelineInsert("),
+    "and the app itself now draws the voice with the render engine"
+  );
+}
 // Only the marketing entry pulls the stylesheet, so the studio never loads it.
 const cssImporters = marketingFiles.filter((f) => /^import "\.\/marketing\.css";/m.test(f.text));
 h.eq(cssImporters.length, 1, "exactly one module imports marketing.css");

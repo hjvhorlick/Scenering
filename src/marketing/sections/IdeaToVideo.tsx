@@ -120,7 +120,7 @@ function StagePanel({ id }: { id: string }) {
               <span className="mkt-strip-label">
                 <span className="mkt-scene-no">{scene.number}</span> {scene.duration.toFixed(1)}s
               </span>
-              <Waveform seed={`flow-${scene.number}`} bars={44} height={22} />
+              <Waveform seed={`flow-${scene.number}`} variant="dots" height={22} />
             </div>
           ))}
         </div>

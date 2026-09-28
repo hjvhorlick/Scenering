@@ -15,6 +15,12 @@ import {
   describeVoiceEcho,
   getVoiceEchoPreset,
 } from "../lib/voice-echo";
+import LiveVoiceVisualizer, {
+  VOICE_VISUALIZERS,
+  loadVoiceVisualizerChoice,
+  saveVoiceVisualizerChoice,
+} from "./LiveVoiceVisualizer";
+import { CATALOG_ITEMS } from "../lib/video-studio-catalog";
 
 interface VoiceoverStudioProps {
   scenes: Scene[];
@@ -96,6 +102,8 @@ export default function VoiceoverStudio({
   const [customVoiceLabel, setCustomVoiceLabel] = useState<string>("My Prepared TTS Voice");
   const [importTargetScene, setImportTargetScene] = useState<string>("all");
   const [isImportPlaying, setIsImportPlaying] = useState<boolean>(false);
+  /** Which sound visualiser the monitor draws. Remembered between visits. */
+  const [voiceVisualizer, setVoiceVisualizer] = useState<string>(loadVoiceVisualizerChoice);
   const [importSuccessBanner, setImportSuccessBanner] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -582,6 +590,61 @@ export default function VoiceoverStudio({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* THE VOICE, WHILE YOU LISTEN TO IT
+
+          Every ▶ on this page feeds a live analyser, and the panel below is
+          painted by renderTimelineInsert() — the same function that draws the
+          finished video. So this is not a picture of a visualiser: it is the
+          visualiser, hearing the real narration. Pick a style here and you
+          have seen exactly what placing it on the video will look like. */}
+      <div className="bg-gray-900/90 border border-indigo-900/60 rounded-2xl p-4 sm:p-5 shadow-xl space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <span>◎</span> Sound Visualiser
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-700/60 bg-indigo-950/60 text-indigo-300">
+                Live
+              </span>
+            </h3>
+            <p className="text-[11px] text-gray-400 mt-0.5 max-w-lg">
+              The narration, drawn by the render engine while you listen. Press any ▶ on this
+              page and it moves with the voice.
+            </p>
+          </div>
+
+          <div className="opt-group" role="group" aria-label="Sound visualiser style">
+            {VOICE_VISUALIZERS.map((v) => (
+              <button
+                key={v.type}
+                type="button"
+                title={v.description}
+                aria-pressed={voiceVisualizer === v.type}
+                onClick={() => {
+                  setVoiceVisualizer(v.type);
+                  saveVoiceVisualizerChoice(v.type);
+                }}
+                className={`opt-btn ${voiceVisualizer === v.type ? "opt-btn-on" : ""}`}
+              >
+                <span>{v.icon}</span>
+                <span>{v.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <LiveVoiceVisualizer
+          type={voiceVisualizer}
+          playing={playingId !== null || isImportPlaying}
+          height={116}
+        />
+
+        <p className="text-[10px] text-gray-500">
+          Four of the {(CATALOG_ITEMS.audio_visualizers || []).length} sound visualisers in the
+          catalogue — the voice-shaped ones. Put any of them on the video itself in Video Studio →
+          Sound Visualisers.
+        </p>
       </div>
 
       {/* Exactly 2 Tabs Navigation */}
