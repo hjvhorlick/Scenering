@@ -177,7 +177,7 @@ export const MARKETING_ASSETS: MarketingAsset[] = [
   rendered(
     "workflow.stage_panels",
     "workflow",
-    "The seven stages of the Scenering workflow — script, scenes, visuals, voice over, captions, Video Studio and render — each with its own interface panel.",
+    "The six steps of the Scenering workflow — script, scenes and their visuals, voice over, captions, Video Studio and render — each with its own interface panel.",
     "Drawn by marketing/sections/IdeaToVideo.tsx"
   ),
 

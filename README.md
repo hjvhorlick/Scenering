@@ -180,7 +180,11 @@ website shows it.
 Four files hold the whole thing together:
 
 - **`product-facts.ts`** — every number, claim and piece of plan packaging on
-  the page, in one place. The counts are imported from the real catalogues
+  the page, in one place. The workflow steps are not written here either:
+  they are `PROJECT_PHASES`, the studio's own tab rail, so the page cannot
+  advertise a step the app does not have. (It once told a seven-stage story
+  against a six-tab app; choosing the visuals belongs to Scenes, because that
+  is the tab it happens on.) The counts are imported from the real catalogues
   rather than typed out, the provider order matches `server.ts`, and anything
   that is not built yet is marked `comingSoon`. If a sentence on the website
   makes a promise, it is written here and tested.
@@ -246,6 +250,18 @@ The page keeps to a few rules, and the tests enforce them: nothing is claimed
 that the app cannot do, unbuilt ideas are labelled **Coming soon**, mockups
 say they are mockups, the sample data is fictional, there are no real people
 or customer projects, and there is no "go viral" anywhere.
+
+### The five questions
+
+The band under the hero is five real objections — credits, being on camera,
+not wanting to record a voice, whether the pictures are allowed, never having
+edited before. Each answers in one true line and links to the section that
+explains it, which then flashes so the answer is found rather than hunted.
+The strongest of them, "No credits. No tokens. No counter.", is checked
+against the code by `tests/marketing.test.ts`: the script is split by
+`splitScriptIntoScenes()`, the search terms come from `topic-extract.ts`, the
+only model call in `server.ts` asks for audio, and the optional Gemini key is
+named on the page rather than hidden.
 
 ### The door
 

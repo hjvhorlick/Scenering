@@ -19,35 +19,35 @@ import { HONESTY, LIVE_COUNTS, MESSAGES } from "../product-facts";
 import type { ProjectPhase } from "../../components/StepNav";
 
 /**
- * The hero: one idea becoming a complete video, in seven stages.
+ * The hero: one idea becoming a complete video, in the six steps the studio
+ * really has.
  *
- *   1 script            5 captions
- *   2 scenes            6 Video Studio
- *   3 visuals           7 finished video
- *   4 voice
+ *   1 Script (Setup)     4 Captions
+ *   2 Scenes & visuals   5 Video Studio
+ *   3 Voice              6 Finished video (Render)
  *
- * The stages are the product, in order, and the same order the rest of the
- * page follows. The sequence runs only while the hero is on screen, any stage
- * can be selected from the keyboard, and with reduced motion the finished
- * composition is what loads.
+ * One chip per phase, in the phase rail's own order, so the frame's tabs and
+ * the chips below it always agree — choosing the visuals belongs to Scenes
+ * because that is the tab it happens on. The sequence runs only while the
+ * hero is on screen, any step can be selected from the keyboard, and with
+ * reduced motion the finished composition is what loads.
  */
 
 const STAGES = [
-  { id: "script", label: "Script", phase: "setup" },
-  { id: "scenes", label: "Scenes", phase: "scenes" },
-  { id: "visuals", label: "Visuals", phase: "scenes" },
-  { id: "voice", label: "Voice", phase: "voiceover" },
+  { id: "setup", label: "Script", phase: "setup" },
+  { id: "scenes", label: "Scenes & visuals", phase: "scenes" },
+  { id: "voiceover", label: "Voice", phase: "voiceover" },
   { id: "captions", label: "Captions", phase: "captions" },
   { id: "studio", label: "Video Studio", phase: "studio" },
-  { id: "video", label: "Finished video", phase: "render" },
+  { id: "render", label: "Finished video", phase: "render" },
 ] as const;
 
 export default function Hero() {
   const figureRef = useRef<HTMLElement>(null);
   const inView = useInView(figureRef);
   // Plays through once and rests on the finished video — a hero that
-  // restarts every thirteen seconds is a distraction, and the seven chips
-  // below let anyone step back through it by hand.
+  // restarts every twelve seconds is a distraction, and the six chips below
+  // let anyone step back through it by hand.
   const { stage, goTo, reached } = useStageSequence(STAGES.length, {
     intervalMs: 1900,
     active: inView,
@@ -119,7 +119,7 @@ export default function Hero() {
                   <div>
                     <PlayerFrame
                       assetId={DEMO_SCENES[3].assetId}
-                      caption={reached(4) ? DEMO_SCENES[3].caption : undefined}
+                      caption={reached(3) ? DEMO_SCENES[3].caption : undefined}
                       captionStyle={DEMO_CAPTION_STYLE}
                       highlightWord={playing ? 1 : undefined}
                       progress={playing ? 0.62 : 0.24}
@@ -128,11 +128,11 @@ export default function Hero() {
                           ? `Playing · ${formatDuration(DEMO_TOTAL_SECONDS)}`
                           : `Preview · ${formatDuration(DEMO_TOTAL_SECONDS)}`
                       }
-                      grade={reached(5) ? DEMO_TIMELINE_EXTRAS.filter.css : undefined}
+                      grade={reached(4) ? DEMO_TIMELINE_EXTRAS.filter.css : undefined}
                       sizes="(min-width: 1080px) 420px, 92vw"
                       eager
                     />
-                    <div className={`mkt-chiprow mkt-stage${reached(5) ? " is-in" : ""}`} style={{ marginTop: 8 }}>
+                    <div className={`mkt-chiprow mkt-stage${reached(4) ? " is-in" : ""}`} style={{ marginTop: 8 }}>
                       {/* the demonstration project's own timeline, named the
                           way the studio names these things */}
                       <span className="mkt-chip is-on">◑ {DEMO_TIMELINE_EXTRAS.filter.name}</span>
@@ -148,18 +148,12 @@ export default function Hero() {
                   <div className="mkt-strip">
                     {DEMO_SCENES.map((scene, index) => (
                       <div key={scene.number} className="mkt-mini" style={{ transitionDelay: `${index * 60}ms` }}>
-                        {reached(2) ? (
-                          <MarketingImage assetId={scene.assetId} sizes="120px">
-                            <span className="mkt-thumb-tag">{scene.duration.toFixed(1)}s</span>
-                          </MarketingImage>
-                        ) : (
-                          <span className="mkt-thumb is-pending" role="img" aria-label="Searching for a visual">
-                            Searching…
-                          </span>
-                        )}
+                        <MarketingImage assetId={scene.assetId} sizes="120px">
+                          <span className="mkt-thumb-tag">{scene.duration.toFixed(1)}s</span>
+                        </MarketingImage>
                         <div className="mkt-mini-top">
                           <span className="mkt-scene-no">{scene.number}</span>
-                          {reached(3) && (
+                          {reached(2) && (
                             <span className="mkt-pill is-accent" style={{ padding: "1px 6px", fontSize: 10 }}>
                               🎙
                             </span>
@@ -172,7 +166,7 @@ export default function Hero() {
                 </div>
 
                 {/* narration */}
-                <div className={`mkt-stage${reached(3) ? " is-in" : ""}`}>
+                <div className={`mkt-stage${reached(2) ? " is-in" : ""}`}>
                   <div className="mkt-strip-row">
                     <span className="mkt-strip-label">
                       <span aria-hidden="true">🎙</span> {DEMO_VOICE.name} · {DEMO_VOICE.accent}
@@ -182,7 +176,7 @@ export default function Hero() {
                 </div>
 
                 {/* captions */}
-                <div className={`mkt-stage${reached(4) ? " is-in" : ""}`}>
+                <div className={`mkt-stage${reached(3) ? " is-in" : ""}`}>
                   <div className="mkt-strip-row">
                     <span className="mkt-strip-label">
                       <span aria-hidden="true">💬</span> {DEMO_CAPTION_STYLE.name}
@@ -199,7 +193,7 @@ export default function Hero() {
                 </div>
 
                 {/* timeline */}
-                <div className={`mkt-stage${reached(5) ? " is-in" : ""}`}>
+                <div className={`mkt-stage${reached(4) ? " is-in" : ""}`}>
                   <TimelineMock
                     tracks={["scenes", "voice", "music", "captions", "effects"]}
                     playheadAt={playing ? 0.62 : 0.24}

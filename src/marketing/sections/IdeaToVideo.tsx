@@ -21,27 +21,22 @@ import { CAPTION_STYLES } from "../../data/caption-styles";
 import type { ProjectPhase } from "../../components/StepNav";
 
 /**
- * "From Idea to Video" — the workflow, one stage at a time.
+ * "From Idea to Video" — the workflow, one step at a time.
  *
- * Selecting a stage changes the interface beside it: scenes show the scene
- * board, visuals show the search, Video Studio shows the timeline. It is a
+ * Selecting a step changes the interface beside it: Scenes shows the scene
+ * board and the visual search, Video Studio shows the timeline. It is a
  * marketing demonstration of real screens, not a pretend application — none
  * of these controls claim to do anything.
+ *
+ * The steps are the studio's own phases, so a step id *is* a phase id and the
+ * frame beside it opens on the matching tab. There is no seventh step here
+ * because there is no seventh tab in the app: choosing the visuals happens
+ * inside Scenes, which is what this shows.
  */
-
-const PHASE_FOR_STAGE: Record<string, ProjectPhase> = {
-  script: "setup",
-  scenes: "scenes",
-  visuals: "scenes",
-  voice: "voiceover",
-  captions: "captions",
-  "video-studio": "studio",
-  render: "render",
-};
 
 function StagePanel({ id }: { id: string }) {
   switch (id) {
-    case "script":
+    case "setup":
       return (
         <div className="mkt-work">
           <div className="mkt-script">
@@ -63,6 +58,7 @@ function StagePanel({ id }: { id: string }) {
         </div>
       );
 
+    // Scenes and their visuals are one step, because they are one tab.
     case "scenes":
       return (
         <div className="mkt-work">
@@ -70,14 +66,10 @@ function StagePanel({ id }: { id: string }) {
             <SceneCard key={scene.number} scene={scene} showActions={false} />
           ))}
           <p className="mkt-small">
-            Five scenes · {formatDuration(DEMO_TOTAL_SECONDS)} · each one as long as its own narration
+            {DEMO_SCENES.length} scenes · {formatDuration(DEMO_TOTAL_SECONDS)} · each one as long as
+            its own narration
           </p>
-        </div>
-      );
 
-    case "visuals":
-      return (
-        <div className="mkt-work">
           <div className="mkt-search">
             <span aria-hidden="true">🔍</span>
             <span>{DEMO_SCENES[2].query}</span>
@@ -107,7 +99,7 @@ function StagePanel({ id }: { id: string }) {
         </div>
       );
 
-    case "voice":
+    case "voiceover":
       return (
         <div className="mkt-work">
           <div className="mkt-chiprow">
@@ -140,7 +132,7 @@ function StagePanel({ id }: { id: string }) {
         </div>
       );
 
-    case "video-studio":
+    case "studio":
       return (
         <div className="mkt-work">
           <TimelineMock playheadAt={0.46} height={22} />
@@ -189,8 +181,8 @@ export default function IdeaToVideo() {
       <SectionHead
         id="workflow"
         eyebrow="From idea to video"
-        title="Seven stages, one project."
-        lead="Pick a stage to see the part of Scenering that handles it. Everything here is the same project, carried the whole way from a block of text to an exported file."
+        title={`${WORKFLOW_STAGES.length} steps, one project.`}
+        lead="Pick a step to see the part of Scenering that handles it — they are the studio's own tabs, in its own order. Everything here is the same project, carried the whole way from a block of text to an exported file."
       />
 
       <div className="mkt-split">
@@ -233,13 +225,15 @@ export default function IdeaToVideo() {
             aria-labelledby={`workflow-tab-${stage.id}`}
             tabIndex={-1}
           >
-            <AppFrame title={`${DEMO_PROJECT.title} · ${stage.name}`} phase={PHASE_FOR_STAGE[stage.id]}>
+            <AppFrame title={`${DEMO_PROJECT.title} · ${stage.name}`} phase={stage.id as ProjectPhase}>
               <StagePanel id={stage.id} />
             </AppFrame>
           </div>
           <FigureNote>
             <Pill>{HONESTY.conceptLabel}</Pill>
-            <span>Stage {stage.number} — {stage.name}</span>
+            <span>
+              Step {stage.number} — {stage.name} · the <b>{stage.appTab}</b> tab in the studio
+            </span>
           </FigureNote>
         </figure>
       </div>

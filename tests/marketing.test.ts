@@ -49,6 +49,7 @@ import {
 import { normalizePath, routeForPath, sectionForPath, SITE_SECTION_PATHS } from "../src/lib/route";
 
 import { CAPTION_STYLES } from "../src/data/caption-styles";
+import { PROJECT_PHASES } from "../src/components/StepNav";
 import { STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
 import { VIDEO_FILTERS, FILTER_GROUPS, getFilterCss, makeFilterConfig } from "../src/data/video-filters";
 import { TEXT_TEMPLATES, TEMPLATE_BY_ID } from "../src/data/text-templates";
@@ -325,12 +326,51 @@ for (const section of STORY) {
   ok(at > cursor, `${section} appears in story order`);
   cursor = at;
 }
-h.eq(WORKFLOW_STAGES.length, 7, "the workflow has seven stages");
+/*
+ * The workflow the page tells is the workflow the app has — one step per
+ * phase, in the phase rail's own order. Finding the visuals lives inside
+ * Scenes because that is the tab it happens on; a page that numbered it
+ * separately would be promising a seventh screen that does not exist.
+ */
+h.eq(
+  WORKFLOW_STAGES.map((s) => s.id).join(","),
+  PROJECT_PHASES.map((p) => p.id).join(","),
+  "the website's steps are the studio's phases, in order"
+);
 WORKFLOW_STAGES.forEach((stage, index) => {
   h.eq(stage.number, String(index + 1).padStart(2, "0"), `stage ${index + 1} is numbered ${stage.number}`);
+  h.eq(stage.appTab, PROJECT_PHASES[index].tab, `step ${stage.number} names its tab in the app`);
   ok(stage.message.length > 10, `stage ${stage.number} carries a message`);
   ok(stage.thought.length > 5, `stage ${stage.number} carries the visitor's thought`);
 });
+// The visuals story survives the merge: it is still a section of its own and
+// still carries its required line.
+ok(MESSAGES.visuals === "Find visuals that fit the story.", "the visuals line is still said");
+ok(
+  read("src/marketing/sections/VisualResearch.tsx").includes("MESSAGES.visuals"),
+  "…by the visuals section"
+);
+ok(
+  WORKFLOW_STAGES[1].body.toLowerCase().includes("search"),
+  "…and the Scenes step says the searching happens there"
+);
+// Nothing may still claim a seventh stage.
+for (const { name, text } of marketingFiles) {
+  ok(
+    !/seven stages|7 stages|Seven stages/.test(text),
+    `${name}: no seventh stage is promised`
+  );
+}
+// The hero's chips are the same six phases.
+{
+  const hero = read("src/marketing/sections/Hero.tsx");
+  const ids = [...hero.matchAll(/\{ id: "([a-z]+)", label: "[^"]+", phase: "([a-z]+)" \}/g)];
+  h.eq(ids.length, PROJECT_PHASES.length, "the hero has one chip per phase");
+  ids.forEach(([, id, phase], index) => {
+    h.eq(id, PROJECT_PHASES[index].id, `hero chip ${index + 1} is the ${PROJECT_PHASES[index].id} phase`);
+    h.eq(phase, PROJECT_PHASES[index].id, `hero chip ${index + 1} opens the frame on its own tab`);
+  });
+}
 h.eq(EXAMPLE_VIDEOS.length, 8, "eight example categories");
 for (const category of [
   "Travel",

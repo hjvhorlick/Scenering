@@ -22,6 +22,7 @@
 import { CAPTION_STYLES } from "../data/caption-styles";
 import { STUDIO_VOICE_PRESETS } from "../data/voice-presets";
 import { TRANSITION_OPTIONS } from "../lib/scene-transition";
+import { PROJECT_PHASES } from "../components/StepNav";
 
 /* ------------------------------------------------------------------ counts */
 
@@ -73,8 +74,10 @@ export const CATALOG_COUNTS = {
 /* ---------------------------------------------------------------- workflow */
 
 export interface WorkflowStage {
+  /** The tab this step is called in the application. */
+  appTab: string;
   id: string;
-  /** "01" … "07" */
+  /** "01" … "06" — one per phase the studio has. */
   number: string;
   name: string;
   /** The one-line marketing message for this stage. */
@@ -85,64 +88,65 @@ export interface WorkflowStage {
   thought: string;
 }
 
-export const WORKFLOW_STAGES: WorkflowStage[] = [
-  {
-    id: "script",
-    number: "01",
+/**
+ * The copy for each step, keyed by the app's own phase id.
+ *
+ * The list itself is not written here — it is `PROJECT_PHASES`, the rail the
+ * studio actually shows. That way the website can never advertise a step the
+ * app does not have, which is exactly what happened when the page told a
+ * seven-stage story against a six-tab application. Finding the visuals is
+ * part of Scenes, because that is where you do it.
+ */
+const STAGE_COPY: Record<string, Omit<WorkflowStage, "id" | "number" | "appTab">> = {
+  setup: {
     name: "Script",
     message: "Start with what you want to say.",
     body: "Paste or write your script, name the project and choose the format. Nothing else is required to begin.",
     thought: "Here is my content.",
   },
-  {
-    id: "scenes",
-    number: "02",
-    name: "Scenes",
+  scenes: {
+    name: "Scenes & visuals",
     message: "Turn your script into scenes.",
-    body: "The script is divided into scenes that follow the narration, so each scene lasts as long as its own line takes to say — not a fixed interval.",
-    thought: "Scenering understands the structure.",
+    body: "The script is divided into scenes that follow the narration, so each one lasts as long as its own line takes to say. Every scene then gets a search built from its own words — and any picture you do not like can be replaced.",
+    thought: "Scenering understands the structure, and finds the pictures.",
   },
-  {
-    id: "visuals",
-    number: "03",
-    name: "Visuals",
-    message: "Find visuals that fit the story.",
-    body: "Each scene gets a search built from its own words. Results are checked for size and quality, and only the picture the scene uses is downloaded.",
-    thought: "Scenering finds suitable visuals.",
-  },
-  {
-    id: "voice",
-    number: "04",
+  voiceover: {
     name: "Voice Over",
     message: "Give every scene a voice.",
     body: `Choose from ${LIVE_COUNTS.voices} narrators, preview a line, then narrate the whole project. Scene lengths follow the narration that is generated.`,
     thought: "Now it can speak.",
   },
-  {
-    id: "captions",
-    number: "05",
+  captions: {
     name: "Captions",
     message: "Add captions that match your style.",
     body: `${LIVE_COUNTS.captionStyles} caption styles across ${LIVE_COUNTS.captionCategories} families, word-by-word or line-by-line, with your own colours if you want them.`,
     thought: "Now viewers can follow it.",
   },
-  {
-    id: "video-studio",
-    number: "06",
+  studio: {
     name: "Video Studio",
     message: "Finish your video in Video Studio.",
     body: "Timeline, filters, music, sound effects, stickers, text templates, lower thirds, calls to action, intro and outro — arranged against the scenes you already have.",
     thought: "Now I can make it my own.",
   },
-  {
-    id: "render",
-    number: "07",
+  render: {
     name: "Render",
     message: "Preview. Adjust. Perfect. Export.",
     body: "A frame-exact offline render writes the file, using the output settings chosen in Setup, and puts the finished video in your Vault.",
     thought: "Now I have a video.",
   },
-];
+};
+
+/**
+ * The workflow, numbered — one entry per phase the studio really has, in the
+ * studio's own order. `tests/marketing.test.ts` fails if the two lists ever
+ * disagree.
+ */
+export const WORKFLOW_STAGES: WorkflowStage[] = PROJECT_PHASES.map((phase, index) => ({
+  id: phase.id,
+  number: String(index + 1).padStart(2, "0"),
+  appTab: phase.tab,
+  ...STAGE_COPY[phase.id],
+}));
 
 /* ---------------------------------------------------------- visual sources */
 

@@ -27,6 +27,10 @@
   voice-shaped styles to choose from. Voices are only routed through Web Audio
   while the panel is on screen, and it holds still rather than animating when
   there is no signal to read.
+- The website now tells a six-step story, not seven: `WORKFLOW_STAGES` is
+  derived from the studio's own `PROJECT_PHASES`, so the page can no longer
+  promise a tab the app does not have. Finding the visuals is part of Scenes,
+  where it happens; the visuals section of the page is unchanged.
 - Added "The five things people ask first" under the hero: credits, being on
   camera, your own voice, picture rights and never having edited before. Each
   one answers in a line and jumps to the section that explains it.
