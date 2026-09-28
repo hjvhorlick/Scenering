@@ -148,7 +148,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xl">{activePreset.icon}</span>
+                    <span className="text-xl"><Icon glyph={activePreset.icon} /></span>
                     <h4 className="text-base font-bold text-white">{activePreset.name}</h4>
                     <span
                       className="text-[10px] px-2 py-0.5 rounded-full font-semibold border"
@@ -190,7 +190,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                       <div key={key} className="bg-gray-950/60 border border-hairline rounded-lg px-2.5 py-1.5">
                         <div className="flex items-center justify-between text-[11px] mb-1">
                           <span className="text-gray-300 flex items-center gap-1.5" title={meta.hint}>
-                            <span>{meta.icon}</span>
+                            <span><Icon glyph={meta.icon} /></span>
                             <span className="font-medium">{meta.label}</span>
                           </span>
                           <span className="font-mono text-[10px] text-fuchsia-300 font-bold">
@@ -247,7 +247,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                   : "bg-gray-900 border-hairline text-gray-300 hover:text-white hover:bg-gray-800"
               }`}
             >
-              <span>{g.icon}</span>
+              <span><Icon glyph={g.icon} /></span>
               <span>
                 {g.name} ({count})
               </span>
@@ -308,7 +308,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                   className="w-full h-auto block"
                 />
                 <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur text-[9px] font-semibold text-white border border-white/10 flex items-center gap-1">
-                  <span>{f.icon}</span>
+                  <span><Icon glyph={f.icon} /></span>
                   <span>{FILTER_GROUPS.find((g) => g.id === f.group)?.name}</span>
                 </div>
                 {isActive && (
@@ -344,7 +344,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                       key={c}
                       className="text-[9px] px-1.5 py-0.5 rounded bg-gray-950/80 border border-hairline text-gray-400"
                     >
-                      {CONTROL_META[c].icon} {CONTROL_META[c].label}
+                      <Icon glyph={CONTROL_META[c].icon} /> {CONTROL_META[c].label}
                     </span>
                   ))}
                   {f.controls.length > 4 && (

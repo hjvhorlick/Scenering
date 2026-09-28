@@ -757,7 +757,7 @@ function InsertPropertiesContent({
               onClick={() => jumpToSection(s.tab, s.id)}
               className={`opt-btn ${s.tone ?? ""} ${activeTab === s.tab ? "opt-btn-on" : ""}`}
             >
-              <span className="text-sm">{s.icon}</span>
+              <span className="text-sm"><Icon glyph={s.icon} /></span>
               <span>{s.name}</span>
             </button>
           ))}
@@ -864,7 +864,7 @@ function InsertPropertiesContent({
                         }`}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-xs text-white">
-                          <span>{style.icon}</span>
+                          <span><Icon glyph={style.icon} /></span>
                           <span>{style.name}</span>
                         </div>
                         <p className="text-[10px] text-gray-400 mt-1 line-clamp-1">{style.desc}</p>
@@ -916,7 +916,7 @@ function InsertPropertiesContent({
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-xs flex items-center gap-1.5 text-white">
-                            <span>{preset.icon}</span>
+                            <span><Icon glyph={preset.icon} /></span>
                             <span>{preset.name}</span>
                           </span>
                           {isSelected && (
@@ -1592,7 +1592,7 @@ function InsertPropertiesContent({
                               : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                           }`}
                         >
-                          <span className="text-base leading-none">{m.icon}</span>
+                          <span className="text-base leading-none"><Icon glyph={m.icon} /></span>
                           <span className="leading-tight text-center">{m.name}</span>
                         </button>
                       );
@@ -1743,7 +1743,7 @@ function InsertPropertiesContent({
                                 : "bg-gray-900/70 border-hairline hover:border-hairline"
                             }`}
                           >
-                            {st.icon}
+                            <Icon glyph={st.icon} />
                           </button>
                         );
                       })}
@@ -2038,7 +2038,7 @@ function InsertPropertiesContent({
                           : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
                       }`}
                     >
-                      {g.icon} {g.name}
+                      <Icon glyph={g.icon} /> {g.name}
                     </button>
                   ))}
                 </div>
@@ -2080,7 +2080,7 @@ function InsertPropertiesContent({
                             boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 1px 3px rgba(0,0,0,0.5)",
                           }}
                         >
-                          {pf.icon}
+                          <Icon glyph={pf.icon} />
                         </span>
                         <span className="min-w-0">
                           <span className="block text-[11px] font-semibold text-white truncate">
@@ -2242,7 +2242,7 @@ function InsertPropertiesContent({
                       >
                         <CtaOptionThumb item={data} patch={{ ctaShape: sh.id }} width={128} height={52} />
                         <div className="text-[11px] font-semibold text-white mt-1.5 flex items-center gap-1">
-                          <span>{sh.icon}</span>
+                          <span><Icon glyph={sh.icon} /></span>
                           <span>{sh.name}</span>
                         </div>
                         <div className="text-[9px] text-gray-400 leading-tight">{sh.desc}</div>
@@ -2987,7 +2987,7 @@ function InsertPropertiesContent({
                               : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                           }`}
                         >
-                          <span className="text-sm">{t.icon}</span>
+                          <span className="text-sm"><Icon glyph={t.icon} /></span>
                           <span className="truncate text-left">{t.name}</span>
                         </button>
                       );
@@ -3098,7 +3098,7 @@ function InsertPropertiesContent({
                             : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                         }`}
                       >
-                        <span className="font-mono">{b.icon}</span>
+                        <span className="font-mono"><Icon glyph={b.icon} /></span>
                         <span className="truncate">{b.name}</span>
                       </button>
                     ))}
@@ -3300,7 +3300,7 @@ function InsertPropertiesContent({
                               onClick={() => applyArtPreset(p.style)}
                               className="px-1.5 py-2 rounded-lg border border-hairline bg-gray-900/70 text-gray-300 hover:border-amber-400 text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 cursor-pointer"
                             >
-                              <span className="text-base leading-none">{p.icon}</span>
+                              <span className="text-base leading-none"><Icon glyph={p.icon} /></span>
                               <span className="leading-tight text-center">{p.name}</span>
                             </button>
                           ))}
@@ -3470,7 +3470,7 @@ function InsertPropertiesContent({
                             : "bg-gray-900/70 border-hairline text-gray-300 hover:border-hairline"
                         }`}
                       >
-                        <span className="text-base leading-none">{m.icon}</span>
+                        <span className="text-base leading-none"><Icon glyph={m.icon} /></span>
                         <span className="leading-tight text-center">{m.name}</span>
                       </button>
                     ))}
@@ -3557,7 +3557,7 @@ function InsertPropertiesContent({
                           }}
                           className="px-2.5 py-2 bg-gray-850 hover:bg-gray-750 border border-hairline hover:border-indigo-500/60 rounded-xl text-left transition-all flex items-center gap-2 group"
                         >
-                          <span className="text-base group-hover:scale-110 transition-transform">{tmpl.icon}</span>
+                          <span className="text-base group-hover:scale-110 transition-transform"><Icon glyph={tmpl.icon} /></span>
                           <div className="truncate">
                             <div className="text-[11px] font-semibold text-white truncate">{tmpl.name}</div>
                             <div className="text-[9px] text-gray-400 truncate">{tmpl.text}</div>

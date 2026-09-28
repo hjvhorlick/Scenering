@@ -10,6 +10,7 @@ import {
   resetVoiceSignal,
 } from "../lib/voice-monitor";
 import type { TimelineInsert } from "../types";
+import Icon from "./icons/Icon";
 
 /**
  * The voice, drawn while you listen to it.
@@ -174,7 +175,7 @@ export default function LiveVoiceVisualizer({
 
       <div className="absolute top-1.5 left-2 flex items-center gap-1.5">
         <span className="text-[10px] font-medium text-gray-300/90 bg-black/40 rounded-md px-1.5 py-0.5 backdrop-blur-sm">
-          {item.icon} {item.name}
+          <Icon glyph={item.icon} /> {item.name}
         </span>
       </div>
 

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { PROJECT_PHASES, type ProjectPhase } from "../../components/StepNav";
 import { BrandMark } from "./primitives";
+import Icon from "../../components/icons/Icon";
 
 /**
  * Application chrome — the studio's own header, rebuilt at website scale.
@@ -42,7 +43,7 @@ export default function AppFrame({
               return (
                 <span key={entry.id} className={`mkt-app-tab${state}`}>
                   <span className="mkt-app-tab-n">{index + 1}.</span>
-                  <span className="mkt-app-tab-ico">{entry.icon}</span>
+                  <span className="mkt-app-tab-ico"><Icon glyph={entry.icon} /></span>
                   {entry.tab}
                 </span>
               );

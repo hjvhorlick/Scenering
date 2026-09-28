@@ -295,7 +295,7 @@ export default function VideoStudio({
                   : "bg-gray-900/30 text-gray-400 hover:text-gray-200 hover:bg-gray-800/40"
               }`}
             >
-              <span className="t-ico text-base">{cat.icon}</span>
+              <span className="t-ico text-base"><Icon glyph={cat.icon} /></span>
               <span>
                 {idx + 1}. {cat.name}
               </span>

@@ -89,7 +89,7 @@ export default function ThemeSwitcher() {
                     : "hover:bg-gray-800/80 border border-transparent"
                 }`}
               >
-                <span className="t-ico text-base w-6 text-center shrink-0">{t.icon}</span>
+                <span className="t-ico text-base w-6 text-center shrink-0"><Icon glyph={t.icon} /></span>
                 <span className="flex-1 min-w-0">
                   <span className="flex items-center gap-2">
                     <span className={`text-xs font-semibold ${isActive ? "text-white" : "text-gray-200"}`}>

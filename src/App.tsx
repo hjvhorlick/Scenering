@@ -44,6 +44,7 @@ import type { VideoFilterConfig } from "./data/video-filters";
 import type { SectionConfig } from "./data/intro-outro";
 import { VoiceEchoConfig, DEFAULT_VOICE_ECHO, resolveVoiceEcho } from "./lib/voice-echo";
 import IconSprite from "./components/icons/IconSprite";
+import Icon from "./components/icons/Icon";
 
 type View = "create" | "editor";
 
@@ -1324,7 +1325,7 @@ export default function App() {
                     <span className="flex items-center gap-1 whitespace-nowrap">
                       {isLocked && <span className="text-[9px] opacity-90">🔒</span>}
                       <span className={isActive ? "" : "text-indigo-300/80"}>{i + 1}.</span>
-                      <span className="t-ico">{phase.icon}</span>
+                      <Icon glyph={phase.icon} />
                       {/* The word is dropped on phones; the number and icon still
                           identify the step and the row stops overflowing. */}
                       <span className="hidden xs:inline sm:inline">{phase.tab}</span>
@@ -1347,7 +1348,7 @@ export default function App() {
           <div className="ml-auto flex items-center gap-2 shrink-0">
             {view === "editor" && (
               <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 shadow-sm hidden lg:flex items-center gap-1.5">
-                <span className="t-ico">🎬</span>
+                <Icon glyph="🎬" />
                 <span>
                   {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
                 </span>
@@ -1378,7 +1379,7 @@ export default function App() {
                       : "bg-emerald-950/80 text-emerald-200 border-emerald-700/70 hover:bg-emerald-900"
                 }`}
               >
-                <span className="t-ico">{renderJob.active ? "⏳" : renderJob.error ? "⚠️" : "🗄️"}</span>
+                <Icon glyph={renderJob.active ? "⏳" : renderJob.error ? "⚠️" : "🗄️"} />
                 <span className="hidden sm:inline">
                   {renderJob.active
                     ? `Rendering ${Math.round(renderJob.progress * 100)}%`
@@ -1554,7 +1555,7 @@ export default function App() {
                       className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white text-[11px] font-semibold border border-fuchsia-400/40 shadow flex items-center gap-1.5"
                       title="Filters & video looks are applied to the whole video in the Video Studio"
                     >
-                      <span>🎨 Video Look & Filters</span>
+                      <span><Icon glyph="🎨" /> Video Look & Filters</span>
                       <span className="text-[10px] font-normal opacity-80">in Video Studio</span>
                     </button>
                   </div>
@@ -1593,7 +1594,7 @@ export default function App() {
                             }`}
                             title={opt.description}
                           >
-                            <span>{opt.icon}</span>
+                            <span><Icon glyph={opt.icon} /></span>
                             <span>{opt.label}</span>
                           </button>
                         );
@@ -1623,7 +1624,7 @@ export default function App() {
                           onClick={() => handleAddScene(scenes.length)}
                           className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow transition-colors"
                         >
-                          <span>➕ Add Scene</span>
+                          <span><Icon glyph="➕" /> Add Scene</span>
                         </button>
                       </div>
                     </div>
@@ -1665,7 +1666,7 @@ export default function App() {
                         onClick={() => handleAddScene(scenes.length)}
                         className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-hairline font-semibold text-xs rounded-xl shadow transition-all flex items-center gap-2"
                       >
-                        <span>➕ Add Another Scene</span>
+                        <span><Icon glyph="➕" /> Add Another Scene</span>
                       </button>
                       <span className="text-[11px] text-gray-500">
                         Continue to Voiceover with the button at the top of this page

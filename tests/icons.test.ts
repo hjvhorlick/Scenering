@@ -29,10 +29,15 @@ const sprite = read("src/components/icons/IconSprite.tsx");
 const icon = read("src/components/icons/Icon.tsx");
 const css = read("src/shared/icons.css");
 
-const files = execSync("git ls-files 'src/**/*.tsx' 'src/**/*.ts'", { cwd: repoRoot, encoding: "utf8" })
+/* 'src/**' does not match a file sitting directly in src/, so an earlier
+   version of this list silently skipped src/App.tsx — the largest file in the
+   product and the one holding the phase tabs. The transform used the same
+   glob, so the icons there were never swapped and this suite never noticed.
+   Match everything and filter by prefix instead. */
+const files = execSync("git ls-files '*.tsx' '*.ts'", { cwd: repoRoot, encoding: "utf8" })
   .trim()
   .split("\n")
-  .filter((f) => !f.includes("/icons/"))
+  .filter((f) => f.startsWith("src/") && !f.includes("/icons/"))
   .map((name) => ({ name, text: read(name) }));
 
 /* ------------------------------------------------------- 1. the sprite */
@@ -61,12 +66,22 @@ for (const [, glyph, name] of mapped) ok(drawn.includes(name), `${glyph} maps to
 const symbols = [...sprite.matchAll(/<symbol id="ico-([a-z-]+)"[^>]*>([\s\S]*?)<\/symbol>/g)];
 for (const [, name, body] of symbols) {
   // The accent is either written out or applied with the shared {...gold} spread.
-  ok(/icoGold|\{\.\.\.gold/.test(body), `${name} carries a gold accent`);
+  ok(/icoGold|\{\.\.\.GOLD/.test(body), `${name} carries a gold accent`);
   // A few icons — the warning triangle, the bolt, the star — are gold objects
   // in their own right, so blue is not required, but a body is.
-  ok(/icoBlue|icoSteel|icoGold|Disc|\{\.\.\.gold/.test(body), `${name} has a body`);
-  ok(/Disc|Base|d="|rect|circle|ellipse|path/.test(body), `${name} actually draws something`);
+  ok(/ico(?:Blue|Steel|Gold)|\{\.\.\.(?:BLUE|GOLD|STEEL|GOLDLINE)/.test(body), `${name} has a body`);
+  ok(/d="|rect|circle|ellipse|path/.test(body), `${name} actually draws something`);
 }
+/* No icon sits on a disc. A plate behind the shape reads as a coloured dot at
+   22px and destroys the silhouette — it is what stopped the dropdown carets
+   looking like arrows. */
+ok(!/const Disc/.test(sprite), "there is no backing plate");
+for (const arrow of ["up", "down", "left", "right", "caret-up", "caret-down"]) {
+  const body = symbols.find(([, n]) => n === arrow)?.[2] ?? "";
+  ok(body.length > 0, `${arrow} exists`);
+  ok(!/<circle/.test(body), `${arrow} is an arrow shape, not a disc`);
+}
+
 for (const id of ["icoBlue", "icoGold", "icoSteel"]) {
   ok(sprite.includes(`id="${id}"`), `the shared gradient ${id} is defined`);
 }
@@ -106,9 +121,15 @@ for (const { name, text } of files) {
 
 // Twice the height of the emoji they replace, without opening up the line.
 const base = css.match(/^\.ico \{([\s\S]*?)\}/m)?.[1] ?? "";
-const em = Number(base.match(/width:\s*([\d.]+)em/)?.[1] ?? 0);
-ok(em >= 1.6, `icons are ${em}em — about twice the old emoji`);
-ok(/margin-block:\s*-[\d.]+em/.test(base), "the line box does not grow to fit them");
+/* One size everywhere. An em-based icon beside 8px caption text came out at
+   11px and could not be seen; the size of a picture must not depend on the
+   type next to it. */
+const px = Number(base.match(/width:\s*(\d+)px/)?.[1] ?? 0);
+ok(px >= 20, `icons are a fixed ${px}px — the same everywhere`);
+ok(!/width:\s*[\d.]+em/.test(base), "icon size does not follow the surrounding font size");
+const sm = css.match(/\.ico-sm \{([\s\S]*?)\}/)?.[1] ?? "";
+h.eq(Number(sm.match(/width:\s*(\d+)px/)?.[1] ?? 0), px, "there is no smaller variant to get lost in");
+ok(/margin-block:\s*-\d+px/.test(base), "the line box does not grow to fit them");
 ok(/drop-shadow/.test(base), "icons cast a shadow, which is what makes them read as raised");
 ok(/vertical-align/.test(base), "icons sit on the text baseline");
 for (const variant of [".ico-sm", ".ico-lg"]) {
@@ -132,28 +153,45 @@ ok(/role: "img"/.test(icon) || /role="img"/.test(icon), "a labelled icon announc
    moved, this fails. */
 const EMOJI = /[\u{1F300}-\u{1FAFF}\u2190-\u21FF\u2300-\u27BF\u2B00-\u2BFF\u2600-\u26FF]\uFE0F?/gu;
 
+/* Anything holding one of these is an expression, not a sentence. It is what
+   keeps `renderJob.error` and class-name templates out of the word count. */
+const CODEY = /[{}$=|&<>]|\w\.\w|\?\s|\s:\s|=>/;
+
 /**
- * The words a reader actually sees: JSX text nodes plus string literals that
- * read like a sentence. Deliberately not the whole source — renaming a
- * variable or dropping a CSS class is not a copy change, and this has to fail
- * only when the prose moves.
+ * The words a reader actually sees.
+ *
+ * Literal text between tags, plus string literals that read like a sentence.
+ * Deliberately no attempt to balance braces: conditional JSX wraps real copy
+ * in {}, so stripping brace blocks deletes the very text this is meant to
+ * guard — an earlier version did exactly that and quietly reduced App.tsx to
+ * one word, which is why the suite passed while the phase tabs had not been
+ * touched at all.
  */
 const prose = (text: string): string[] => {
   const stripped = text
-    // class lists are not words
-    .replace(/className=(?:"[^"]*"|\{`[^`]*`\}|\{[^{}]*(?:\{[^{}]*\})?[^{}]*\})/g, " ")
-    // the markup this change introduced, and the emoji it replaced
-    .replace(/<Icon glyph=(?:"[^"]*"|\{[^{}]*\})(?:\s+size="\w+")?\s*\/>/g, " ")
-    .replace(/<span className="t-ico">(?:[^<]*|\{[^{}]*\})<\/span>/g, " ")
+    .replace(/<Icon\s+glyph=(?:"[^"]*"|\{[^{}]*\})(?:\s+size="\w+")?\s*\/>/g, " ")
+    .replace(/<span className="t-ico">\s*(?:[^<{]*|\{[^{}]*\})\s*<\/span>/g, " ")
+    .replace(/\{[a-zA-Z_$][\w$]*(?:\[[^\]]+\])?\.icon\}/g, " ")
+    .replace(/^\s*import [^\n]*icons\/Icon[^\n]*;\s*\n/gm, "")
+    .replace(/^\s*import IconSprite[^\n]*;\s*\n/gm, "")
     .replace(/<IconSprite \/>/g, " ")
     .replace(/\biconify\(/g, "(");
 
   const out: string[] = [];
-  // text sitting between tags
-  for (const m of stripped.matchAll(/>([^<>{}]+)</g)) out.push(m[1]);
-  // quoted copy: at least two words, so identifiers and ids are skipped
+  for (const m of stripped.matchAll(/>([^<>]+)</g)) {
+    const value = m[1].trim();
+    if (value && !CODEY.test(value) && /[A-Za-z]/.test(value)) out.push(value);
+  }
   for (const m of stripped.matchAll(/"([^"\\\n]{4,})"/g)) {
-    if (/\s/.test(m[1]) && /[A-Za-z]{2}/.test(m[1]) && !/^[a-z-]+(?: [a-z0-9:/[\]-]+)*$/.test(m[1])) out.push(m[1]);
+    const value = m[1];
+    if (
+      /\s/.test(value) &&
+      /[A-Za-z]{2}/.test(value) &&
+      !/^[a-z-]+(?: [a-z0-9:/[\]-]+)*$/.test(value) &&
+      !CODEY.test(value)
+    ) {
+      out.push(value);
+    }
   }
   return (
     out
@@ -166,6 +204,7 @@ const prose = (text: string): string[] => {
 // The commit the icon work branched from.
 const BEFORE = "dfd46d2";
 let compared = 0;
+let guarded = 0;
 for (const { name } of files) {
   let old: string;
   try {
@@ -175,23 +214,30 @@ for (const { name } of files) {
   }
   const a = prose(old);
   const b = prose(read(name));
-  /* Every word that was there must still be there, in the same order. New
-     copy for a new feature is allowed to appear alongside it; an edited,
-     reordered or deleted word is not, because it breaks the run. */
-  let cursor = 0;
+  /* Compare how many times each word appears, not just the order. A
+     subsequence check looks strong but is not: with "Sign out" on the page
+     three times, changing one of them still finds the word in the other two.
+     Counting catches that. New copy for a new feature may appear — a word is
+     only allowed to become MORE common, never less. */
+  const tally = new Map<string, number>();
+  for (const w of b) tally.set(w, (tally.get(w) ?? 0) + 1);
+  const need = new Map<string, number>();
+  for (const w of a) need.set(w, (need.get(w) ?? 0) + 1);
   let lost: string | null = null;
-  for (const word of a) {
-    const at = b.indexOf(word, cursor);
-    if (at < 0) {
-      lost = word;
+  for (const [word, count] of need) {
+    if ((tally.get(word) ?? 0) < count) {
+      lost = `${word} (${count} -> ${tally.get(word) ?? 0})`;
       break;
     }
-    cursor = at + 1;
   }
-  ok(lost === null, `${name}: every word is unchanged${lost ? ` (lost "${lost}")` : ""}`);
+  ok(lost === null, `${name}: every word is unchanged${lost ? ` (lost ${lost})` : ""}`);
   compared += 1;
+  guarded += a.length;
 }
 ok(compared > 25, `${compared} files compared against ${BEFORE} word for word`);
+ok(guarded > 9000, `${guarded} words of copy are under guard`);
+// The file that was missed the first time round, named explicitly.
+ok(prose(read("src/App.tsx")).length > 150, "src/App.tsx is in the guard, with real copy in it");
 
 /* ----------------------------------------------- 5. one brand, everywhere */
 

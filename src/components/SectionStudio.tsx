@@ -316,7 +316,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                   onClick={() => setTab(tb.id)}
                   className={`opt-btn flex-1 ${isIntro ? "opt-btn-amber" : "opt-btn-rose"} ${tab === tb.id ? "opt-btn-on" : ""}`}
                 >
-                  <span>{tb.icon}</span>
+                  <span><Icon glyph={tb.icon} /></span>
                   <span>{tb.name}</span>
                 </button>
               ))}
@@ -409,7 +409,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                           </div>
                           <div className="px-2 py-1.5">
                             <div className="text-[11px] font-bold text-white truncate flex items-center gap-1">
-                              <span>{b.icon}</span>
+                              <span><Icon glyph={b.icon} /></span>
                               <span className="truncate">{b.name}</span>
                             </div>
                             <div className="text-[9px] text-gray-500 truncate">{b.blurb}</div>
@@ -510,7 +510,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                               : "bg-gray-950 border-hairline text-gray-300 hover:border-hairline"
                           }`}
                         >
-                          <span className="mr-1">{a.icon}</span>
+                          <span className="mr-1"><Icon glyph={a.icon} /></span>
                           {a.name}
                         </button>
                       ))}
@@ -740,7 +740,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                             onClick={() => update({ stingerId: s.id, customSoundUrl: undefined, customSoundName: undefined })}
                             className="flex-1 flex items-center gap-2 text-left min-w-0"
                           >
-                            <span className="text-base flex-shrink-0">{s.icon}</span>
+                            <span className="text-base flex-shrink-0"><Icon glyph={s.icon} /></span>
                             <span className="min-w-0">
                               <span className="block text-[12px] font-semibold text-white truncate">{s.name}</span>
                               <span className="block text-[10px] text-gray-500 truncate">{s.blurb}</span>

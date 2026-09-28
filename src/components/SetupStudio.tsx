@@ -776,7 +776,7 @@ export default function SetupStudio({
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-base leading-none">{d.icon}</span>
+                  <span className="text-base leading-none"><Icon glyph={d.icon} /></span>
                   {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />}
                 </div>
                 <div className="text-xs font-bold leading-tight mt-1.5">{d.name}</div>

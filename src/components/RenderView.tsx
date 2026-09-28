@@ -2944,7 +2944,7 @@ export default function RenderView({
                       <span>Download video (.{renderedContainer})</span>
                     </button>
                     <p className="text-[10px] text-gray-400 leading-relaxed flex-1 min-w-[200px]">
-                      🗄️ This render is also parked in <span className="font-semibold text-gray-300">The Vault</span> above —
+                      <Icon glyph="🗄" /> This render is also parked in <span className="font-semibold text-gray-300">The Vault</span> above —
                       every finished video waits there until you download it, so nothing gets lost between renders.
                     </p>
                   </div>

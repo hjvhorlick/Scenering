@@ -550,7 +550,7 @@ export default function SceneEditor({
                   style={{ borderColor: `${activeLook.accent}cc`, color: activeLook.accent }}
                   title={`${activeLook.name} — applied to the whole video from Video Studio → Filters`}
                 >
-                  <span>{activeLook.icon}</span>
+                  <span><Icon glyph={activeLook.icon} /></span>
                   <span>{activeLook.name}</span>
                 </div>
               )}
@@ -1076,7 +1076,7 @@ export default function SceneEditor({
                             : "bg-gray-800 border-hairline text-gray-400 hover:border-hairline"
                         }`}
                       >
-                        <span className="text-sm leading-none">{m.icon}</span>
+                        <span className="text-sm leading-none"><Icon glyph={m.icon} /></span>
                         <span>{m.name}</span>
                       </button>
                     ))}
@@ -1102,7 +1102,7 @@ export default function SceneEditor({
                               : "bg-gray-800 border-hairline text-gray-400"
                           }`}
                         >
-                          {b.icon} {b.name}
+                          <Icon glyph={b.icon} /> {b.name}
                         </button>
                       ))}
                       {backdrop === "transparent" && (

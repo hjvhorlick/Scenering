@@ -631,7 +631,7 @@ export default function VoiceoverStudio({
                 }}
                 className={`opt-btn ${voiceVisualizer === v.type ? "opt-btn-on" : ""}`}
               >
-                <span>{v.icon}</span>
+                <span><Icon glyph={v.icon} /></span>
                 <span>{v.name}</span>
               </button>
             ))}
@@ -717,7 +717,7 @@ export default function VoiceoverStudio({
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="text-sm">{preset.icon}</span>
+                  <span className="text-sm"><Icon glyph={preset.icon} /></span>
                   <span className="text-[11px] font-semibold text-white">{preset.name}</span>
                 </div>
                 <p className="text-[9px] text-gray-400 leading-tight mt-0.5">{preset.blurb}</p>
