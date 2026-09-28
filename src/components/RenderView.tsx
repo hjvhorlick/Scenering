@@ -269,6 +269,9 @@ export default function RenderView({
   const [isRendering, setIsRendering] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderStage, setRenderStage] = useState("");
+  /** Where the last render spent its time, shown on screen when it finishes. */
+  const [renderTiming, setRenderTiming] = useState<string | null>(null);
+  const [timingCopied, setTimingCopied] = useState(false);
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(propRenderedBlob || null);
   const [renderedUrl, setRenderedUrl] = useState<string | null>(propRenderedUrl || null);
   /** The container the finished render was ACTUALLY recorded in. The download
@@ -654,6 +657,8 @@ export default function RenderView({
     if (scenesWithImages.length === 0 || isRendering) return null;
 
     setIsRendering(true);
+    setRenderTiming(null);
+    setTimingCopied(false);
     reportProgress(0);
     setRenderError(null);
     setFailureReport(null);
@@ -1540,7 +1545,9 @@ export default function RenderView({
             "file",
             `${(offlineBlob.size / 1_048_576).toFixed(0)} MB ${offlineContainer.toUpperCase()}`
           );
-          console.log(renderTimer.format());
+          const timingReport = renderTimer.format();
+          console.log(timingReport);
+          setRenderTiming(timingReport);
           reportProgress(0.98);
           offlineMastering.dispose();
           offlineEcho?.dispose();
@@ -2208,6 +2215,22 @@ export default function RenderView({
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
+  /**
+   * Puts the timing report on the clipboard. One button beats asking anyone
+   * to open developer tools and copy a line out of a console.
+   */
+  const copyTimingReport = async () => {
+    if (!renderTiming) return;
+    try {
+      await navigator.clipboard.writeText(renderTiming);
+      setTimingCopied(true);
+      window.setTimeout(() => setTimingCopied(false), 2000);
+    } catch {
+      // Clipboard access can be refused; selecting the text by hand still works.
+      setTimingCopied(false);
+    }
   };
 
   const cancelRender = () => {
@@ -3013,6 +3036,33 @@ export default function RenderView({
                       every finished video waits there until you download it, so nothing gets lost between renders.
                     </p>
                   </div>
+
+                  {/* How long the render took, on screen rather than hidden
+                      in the browser console. Nobody should need developer
+                      tools to answer "why was that slow", and the one button
+                      copies the whole thing for pasting into a bug report. */}
+                  {renderTiming && (
+                    <div className="p-3 bg-gray-900/70 border border-hairline rounded-xl space-y-2">
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <p className="text-[11px] font-bold text-gray-200">
+                          <Icon glyph="⏱" /> How long this render took
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void copyTimingReport()}
+                          className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 text-[11px] border border-hairline transition-colors"
+                        >
+                          {timingCopied ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                      <pre className="text-[10px] leading-relaxed text-gray-300 font-mono whitespace-pre overflow-x-auto m-0">
+{renderTiming}
+                      </pre>
+                      <p className="text-[10px] text-gray-500 leading-relaxed">
+                        Each line is one part of the job and how much of the total it used.
+                      </p>
+                    </div>
+                  )}
 
                   {/* One render at a time, by design: another platform =
                       back to Setup, pick that destination, render again. */}
