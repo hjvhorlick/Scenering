@@ -31,7 +31,7 @@ export default function Devices() {
               <div style={{ display: "grid", gap: 9 }}>
                 <MarketingImage assetId={DEMO_SCENES[1].assetId} sizes="(min-width: 820px) 520px, 90vw" />
                 <TimelineMock
-                  tracks={["scenes", "voice", "music", "captions"]}
+                  showHeader={false}
                   playheadAt={0.45}
                   showRuler={false}
                   height={18}

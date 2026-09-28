@@ -9,6 +9,7 @@ import PlayerFrame from "../components/PlayerFrame";
 import TimelineMock from "../components/TimelineMock";
 import {
   DEMO_CAPTION_STYLE,
+  DEMO_TIMELINE_EXTRAS,
   DEMO_PROJECT,
   DEMO_SCENES,
   DEMO_SEARCH_RESULTS,
@@ -134,8 +135,24 @@ function StagePanel({ id }: { id: string }) {
       );
 
     case "studio":
+      /**
+       * The order is the app's order: the preview canvas first, the timeline
+       * under it, then the things you can add. See the Video Studio step in
+       * src/App.tsx, which renders VideoPreview, then Timeline, then
+       * VideoStudio in exactly that sequence.
+       */
       return (
         <div className="mkt-work">
+          <PlayerFrame
+            assetId={DEMO_SCENES[2].assetId}
+            caption={DEMO_SCENES[2].caption}
+            captionStyle={DEMO_CAPTION_STYLE}
+            highlightWord={1}
+            progress={0.46}
+            badge={`Scene ${DEMO_SCENES[2].number} · ${DEMO_TIMELINE_EXTRAS.filter.name}`}
+            grade={DEMO_TIMELINE_EXTRAS.filter.css}
+            sizes="(min-width: 950px) 520px, 92vw"
+          />
           <TimelineMock playheadAt={0.46} height={22} />
           <div className="mkt-chiprow">
             <span className="mkt-chip is-on"><Icon glyph="◑" /> Filter</span>

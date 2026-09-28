@@ -93,7 +93,7 @@ export default function BeforeAfter() {
           </div>
 
           <div style={{ marginTop: 10 }}>
-            <TimelineMock playheadAt={0.78} showRuler={false} height={20} />
+            <TimelineMock playheadAt={0.78} showRuler={false} showHeader={false} height={20} />
           </div>
         </div>
       </div>

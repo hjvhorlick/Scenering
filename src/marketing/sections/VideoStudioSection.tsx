@@ -3,7 +3,7 @@ import { Section, SectionHead, Pill, FigureNote } from "../components/primitives
 import { useInView, useStageSequence } from "../hooks";
 import AppFrame from "../components/AppFrame";
 import PlayerFrame from "../components/PlayerFrame";
-import TimelineMock, { type TimelineTrack } from "../components/TimelineMock";
+import TimelineMock from "../components/TimelineMock";
 
 /** The studio's own visualiser renderer — a separate chunk, loaded on sight. */
 const RealVisualiser = lazy(() =>
@@ -65,20 +65,21 @@ const TOOL_TABS = [
   },
 ] as const;
 
-const TRACK_SETS: TimelineTrack[][] = [
-  ["scenes"],
-  ["scenes", "voice"],
-  ["scenes", "voice", "captions"],
-  ["scenes", "voice", "music", "sfx", "captions"],
-  ["scenes", "voice", "music", "sfx", "captions", "effects"],
-];
+/**
+ * The staged reveal fills the timeline up rather than growing it. The three
+ * lanes are there from the first frame because they are there in the app the
+ * moment you open the Video Studio; what arrives one at a time is the work —
+ * the lower third, the sticker, the call to action, then the music and the
+ * sound effect.
+ */
+const ITEMS_BY_STAGE = [0, 1, 2, 3, 5];
 
 export default function VideoStudioSection() {
   const figureRef = useRef<HTMLElement>(null);
   const inView = useInView(figureRef);
   // Builds the timeline up one track at a time and then holds the finished
   // arrangement, rather than looping while someone is reading it.
-  const { stage } = useStageSequence(TRACK_SETS.length, {
+  const { stage } = useStageSequence(ITEMS_BY_STAGE.length, {
     intervalMs: 1600,
     active: inView,
     loop: false,
@@ -98,83 +99,85 @@ export default function VideoStudioSection() {
 
       <figure ref={figureRef} style={{ margin: 0 }}>
         <AppFrame title={`Where Cities Begin · Video Studio · ${formatDuration(DEMO_TOTAL_SECONDS)}`} phase="studio">
+          {/* The app's order, from the Video Studio step in src/App.tsx:
+              the preview canvas across the full width, the timeline beneath
+              it, then the catalogue of things you can add. The tools are not
+              a sidebar beside the preview — they sit under the timeline. */}
           <div className="mkt-work">
-            <div className="mkt-work-top">
-              <div>
-                <PlayerFrame
-                  assetId={scene.assetId}
-                  caption={scene.caption}
-                  captionStyle={DEMO_CAPTION_STYLE}
-                  highlightWord={1}
-                  progress={playhead}
-                  badge={`Scene ${scene.number} · ${DEMO_TIMELINE_EXTRAS.filter.name}`}
-            grade={DEMO_TIMELINE_EXTRAS.filter.css}
-                  sizes="(min-width: 950px) 520px, 92vw"
+            <div>
+              <PlayerFrame
+                assetId={scene.assetId}
+                caption={scene.caption}
+                captionStyle={DEMO_CAPTION_STYLE}
+                highlightWord={1}
+                progress={playhead}
+                badge={`Scene ${scene.number} · ${DEMO_TIMELINE_EXTRAS.filter.name}`}
+                grade={DEMO_TIMELINE_EXTRAS.filter.css}
+                sizes="(min-width: 950px) 520px, 92vw"
+              >
+                <span
+                  className="mkt-chip"
+                  style={{ position: "absolute", right: 9, top: 9, fontSize: 10 }}
                 >
-                  <span
-                    className="mkt-chip"
-                    style={{ position: "absolute", right: 9, top: 9, fontSize: 10 }}
-                  >
-                    <Icon glyph="▶" /> Subscribe
-                  </span>
-                </PlayerFrame>
-                <div className="mkt-chiprow" style={{ marginTop: 9 }}>
-                  <span className="mkt-chip is-on"><Icon glyph="◑" /> {DEMO_TIMELINE_EXTRAS.filter.name}</span>
-                  <span className="mkt-chip is-on"><Icon glyph="⇄" /> {DEMO_TIMELINE_EXTRAS.transition.name}</span>
-                  <span className="mkt-chip"><Icon glyph="▭" /> {DEMO_TIMELINE_EXTRAS.lowerThird.name}</span>
-                  <span className="mkt-chip"><Icon glyph="✱" /> {DEMO_TIMELINE_EXTRAS.sticker.name}</span>
-                </div>
-              </div>
-
-              {/* tool rail */}
-              <div>
-                <div className="mkt-optrow" role="tablist" aria-label="Studio tools">
-                  {TOOL_TABS.map((entry, index) => (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      role="tab"
-                      className="mkt-opt"
-                      aria-selected={tab === index}
-                      tabIndex={tab === index ? 0 : -1}
-                      onClick={() => setTab(index)}
-                    >
-                      {entry.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div style={{ display: "grid", gap: 7, marginTop: 10 }}>
-                  {TOOL_TABS[tab].tools.map((tool) => (
-                    <div
-                      className="mkt-strip-row"
-                      key={tool.name}
-                      style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}
-                    >
-                      <span className="mkt-strip-label">
-                        {iconify("on" in tool && tool.on ? "● " : "○ ")}
-                        {tool.name}
-                      </span>
-                      <span className="mkt-pill is-plain">{tool.count}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* The real visualiser, drawn by the render engine rather than
-                    a decorative squiggle. Loaded with the effects gallery. */}
-                <div style={{ marginTop: 10 }}>
-                  <div className="mkt-strip-row" style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}>
-                    <span className="mkt-strip-label"><Icon glyph="◎" /> Sound visualiser</span>
-                    <span className="mkt-pill is-plain">{CATALOG_COUNTS.visualisers}</span>
-                  </div>
-                  <Suspense fallback={<div className="mkt-real-loading is-small">Loading…</div>}>
-                    {inView && <RealVisualiser type="minimal_voice" />}
-                  </Suspense>
-                </div>
+                  <Icon glyph="▶" /> Subscribe
+                </span>
+              </PlayerFrame>
+              <div className="mkt-chiprow" style={{ marginTop: 9 }}>
+                <span className="mkt-chip is-on"><Icon glyph="◑" /> {DEMO_TIMELINE_EXTRAS.filter.name}</span>
+                <span className="mkt-chip is-on"><Icon glyph="⇄" /> {DEMO_TIMELINE_EXTRAS.transition.name}</span>
+                <span className="mkt-chip"><Icon glyph="▭" /> {DEMO_TIMELINE_EXTRAS.lowerThird.name}</span>
+                <span className="mkt-chip"><Icon glyph="✱" /> {DEMO_TIMELINE_EXTRAS.sticker.name}</span>
               </div>
             </div>
 
-            <TimelineMock tracks={TRACK_SETS[stage]} playheadAt={playhead} />
+            <TimelineMock items={ITEMS_BY_STAGE[stage]} playheadAt={playhead} />
+
+            {/* tool rail */}
+            <div>
+              <div className="mkt-optrow" role="tablist" aria-label="Studio tools">
+                {TOOL_TABS.map((entry, index) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    role="tab"
+                    className="mkt-opt"
+                    aria-selected={tab === index}
+                    tabIndex={tab === index ? 0 : -1}
+                    onClick={() => setTab(index)}
+                  >
+                    {entry.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: "grid", gap: 7, marginTop: 10 }}>
+                {TOOL_TABS[tab].tools.map((tool) => (
+                  <div
+                    className="mkt-strip-row"
+                    key={tool.name}
+                    style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}
+                  >
+                    <span className="mkt-strip-label">
+                      {iconify("on" in tool && tool.on ? "● " : "○ ")}
+                      {tool.name}
+                    </span>
+                    <span className="mkt-pill is-plain">{tool.count}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* The real visualiser, drawn by the render engine rather than
+                  a decorative squiggle. Loaded with the effects gallery. */}
+              <div style={{ marginTop: 10 }}>
+                <div className="mkt-strip-row" style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}>
+                  <span className="mkt-strip-label"><Icon glyph="◎" /> Sound visualiser</span>
+                  <span className="mkt-pill is-plain">{CATALOG_COUNTS.visualisers}</span>
+                </div>
+                <Suspense fallback={<div className="mkt-real-loading is-small">Loading…</div>}>
+                  {inView && <RealVisualiser type="minimal_voice" />}
+                </Suspense>
+              </div>
+            </div>
 
             <div className="mkt-chiprow">
               <span className="mkt-chip"><Icon glyph="↶" /> Undo</span>

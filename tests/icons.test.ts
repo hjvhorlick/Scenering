@@ -244,6 +244,31 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     "src/marketing/components/AppFrame.tsx",
     new Set(["is-on", "is-next"]),
   ],
+  [
+    // The website's timeline used to draw six lanes: Scenes, Narration,
+    // Music, Sound FX, Captions and Effects. The app has three — Scenes,
+    // Visual FX and Sound (src/components/Timeline.tsx). Narration is not a
+    // lane because it belongs to the scene and sets its length, captions are
+    // not on the timeline at all, and music and sound effects both go into
+    // Sound. Six lanes advertised per-track editing the product does not do.
+    "src/marketing/components/TimelineMock.tsx",
+    new Set([
+      // lane names that no longer exist
+      "Narration", "Music", "Captions", "Effects",
+      // still shown, but now carried in a data object rather than as JSX
+      // text, so the extractor no longer sees them as prose
+      "Lower", "third", "Sticker", "Subscribe", "Sound", "auto",
+    ]),
+  ],
+  [
+    // Not a copy change. `prose()` harvests the text between one JSX tag and
+    // the next, which in a switch statement means it also picks up the code
+    // between two `case` arms. Adding a comment above one of them changed
+    // what that span looks like, so the word `case` stopped being counted as
+    // prose. All six arms are still there.
+    "src/marketing/sections/IdeaToVideo.tsx",
+    new Set(["case", "return", "studio"]),
+  ],
 ]);
 
 let guarded = 0;

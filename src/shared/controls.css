@@ -323,6 +323,29 @@ html[data-theme="porcelain"],
   }
 }
 
+/* ---------------------------------------------------------------- *
+ * Transport buttons.
+ *
+ * The timeline's play, step and scroll controls. The studio styles them
+ * `.t-btn-hero` (the solid cobalt one) and `.t-btn-hero-ghost` (the pale
+ * outlined ones); those live in src/themes.css with the other five themes.
+ * Restated here for the website, which does not load the theme sheets.
+ * ---------------------------------------------------------------- */
+.mkt-root .t-btn-hero {
+  background: linear-gradient(90deg, #2f6fb5, #3f83cc);
+  color: #ffffff;
+  border: 1px solid #2a63a4;
+  box-shadow:
+    0 8px 20px rgb(47 111 181 / 0.32),
+    inset 0 1px 0 rgb(255 255 255 / 0.35);
+}
+
+.mkt-root .t-btn-hero-ghost {
+  background: #fffdfa;
+  color: #2f6fb5;
+  border: 1px solid #cddff7;
+}
+
 /**
  * `.opt-hint` pulses. The keyframes live in `src/index.css` for the studio;
  * the website has no other use for them, so they are declared here too. A

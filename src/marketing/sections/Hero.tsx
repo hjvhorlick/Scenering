@@ -195,7 +195,7 @@ export default function Hero() {
                 {/* timeline */}
                 <div className={`mkt-stage${reached(4) ? " is-in" : ""}`}>
                   <TimelineMock
-                    tracks={["scenes", "voice", "music", "captions", "effects"]}
+                    showHeader={false}
                     playheadAt={playing ? 0.62 : 0.24}
                     showRuler={false}
                     height={22}

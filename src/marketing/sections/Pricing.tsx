@@ -3,7 +3,7 @@ import { Section, SectionHead, Pill, ComingSoon, FigureNote } from "../component
 import { useRovingTabs } from "../hooks";
 import AppFrame from "../components/AppFrame";
 import PlayerFrame from "../components/PlayerFrame";
-import TimelineMock, { type TimelineTrack } from "../components/TimelineMock";
+import TimelineMock from "../components/TimelineMock";
 import { DEMO_CAPTION_STYLE, DEMO_SCENES } from "../demo-project";
 import { HONESTY, PLANS, type PlanId } from "../product-facts";
 import Icon, { iconify } from "../../components/icons/Icon";
@@ -24,10 +24,16 @@ import Icon, { iconify } from "../../components/icons/Icon";
  * would gain, rather than the page greying itself out.
  */
 
-const TRACKS_BY_PLAN: Record<PlanId, TimelineTrack[]> = {
-  free: ["scenes", "voice", "captions"],
-  sceneflow: ["scenes", "voice", "music", "sfx", "captions", "effects"],
-  sceneforge: ["scenes", "voice", "music", "sfx", "captions", "effects"],
+/**
+ * Every plan gets the same timeline — the same three lanes, because the lanes
+ * are the app and the app does not take any of them away. What changes is how
+ * much you can put in them, so the plans differ by the number of overlay
+ * items placed, not by hiding the places they go.
+ */
+const ITEMS_BY_PLAN: Record<PlanId, number> = {
+  free: 1,
+  sceneflow: 5,
+  sceneforge: 5,
 };
 
 export default function Pricing() {
@@ -160,7 +166,7 @@ export default function Pricing() {
                 </div>
               </div>
 
-              <TimelineMock tracks={TRACKS_BY_PLAN[plan.id]} playheadAt={0.5} showRuler={false} height={20} />
+              <TimelineMock items={ITEMS_BY_PLAN[plan.id]} playheadAt={0.5} showRuler={false} showHeader={false} height={20} />
 
               {plan.id === "sceneforge" && (
                 <div className="mkt-chiprow">
