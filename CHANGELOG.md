@@ -48,6 +48,17 @@
 - Replaced the website's hand-drawn waveform graphics with that visualiser —
   the real canvas where the page can afford it, a CSS echo of the twenty-band
   Talking Dot Wave in the light-weight artwork.
+- Rebuilt long-render output around an OPFS-backed random-access stream where
+  the browser supports it. MP4/WebM bytes are drained to protected browser
+  storage with bounded backpressure instead of retaining the complete growing
+  file in JavaScript memory; a capacity preflight fails early and clearly.
+- Replaced one retained Promise and several analyser objects per video frame
+  with a bounded rolling audio-suspension window and compact packed telemetry.
+- Bounded decoded visual memory to the previous/current/next scenes and release
+  old photo caches and video decoders as the render advances.
+- Added the long-render health dashboard: named stages, elapsed/estimated time,
+  frame and output counters, storage/asset/audio safety indicators, background
+  tab state and a screen wake lock. Reloading during a render now warns first.
 
 ## 1.1.0 — Frame-exact export
 

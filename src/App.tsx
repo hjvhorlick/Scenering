@@ -1371,7 +1371,7 @@ export default function App() {
                   setView("editor");
                   setEditorStep("render");
                 }}
-                title="Open the render page"
+                title={renderJob.active ? `${renderJob.stage} — open the render dashboard` : "Open the render page"}
                 className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
                   renderJob.active
                     ? "bg-indigo-950/90 text-indigo-200 border-indigo-600/70 hover:bg-indigo-900"

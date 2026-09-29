@@ -208,6 +208,8 @@ const taintFail = describeRenderFailure("SecurityError: canvas is tainted by cro
 t.ok(/image/i.test(taintFail.title), "a tainted canvas is explained as an image problem");
 const memFail = describeRenderFailure("RangeError: Array buffer allocation failed — out of memory");
 t.ok(/memory/i.test(memFail.title), "an OOM is explained as a memory problem");
+const storageFail = describeRenderFailure("Not enough protected browser storage for this render");
+t.ok(/storage/i.test(storageFail.title), "disk capacity is explained separately from RAM");
 const unknown = describeRenderFailure("");
 t.ok(unknown.explanation.includes("incompatible with the source"), "unknown failures use the standard explanation");
 t.ok(unknown.canAutoRetry, "unknown failures can auto-retry");

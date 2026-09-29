@@ -11,6 +11,7 @@ import {
 } from "../lib/render-effects";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
+import { PackedAudioTelemetry } from "../lib/audio-telemetry";
 import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import type { WordTiming } from "../lib/word-sync";
 import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
@@ -81,7 +82,9 @@ import type { RenderProfileSettings } from "../types";
 import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
 import { OfflineExporter, supported as offlineExportSupported, type OfflineExportConfig } from "../lib/offline-export";
 import { createFrameBudget } from "../lib/yield-to-browser";
-import { RenderTimer } from "../lib/render-timing";
+import { RenderTimer, formatMs } from "../lib/render-timing";
+import { holdRenderWakeLock, type RenderWakeLockState } from "../lib/render-wake-lock";
+import { formatStorageBytes, type RenderOutputStorageMode } from "../lib/render-output-store";
 import Icon, { iconify } from "./icons/Icon";
 
 /**
@@ -107,6 +110,34 @@ export interface RenderSettings {
    *  music ducking). "manual" = the user's mix passes through untouched. */
   audioMastering: MasteringMode;
 }
+
+interface RenderHealthState {
+  startedAt: number | null;
+  elapsedMs: number;
+  framesDone: number;
+  totalFrames: number;
+  outputBytes: number;
+  queuedOutputBytes: number;
+  outputStorage: RenderOutputStorageMode | "checking";
+  outputStorageDetail: string;
+  telemetryBytes: number;
+  tabHidden: boolean;
+  wakeLock: RenderWakeLockState;
+}
+
+const EMPTY_RENDER_HEALTH: RenderHealthState = {
+  startedAt: null,
+  elapsedMs: 0,
+  framesDone: 0,
+  totalFrames: 0,
+  outputBytes: 0,
+  queuedOutputBytes: 0,
+  outputStorage: "checking",
+  outputStorageDetail: "Checking protected browser storage…",
+  telemetryBytes: 0,
+  tabHidden: false,
+  wakeLock: "released",
+};
 
 interface RenderViewProps {
   project: Project | null;
@@ -288,6 +319,8 @@ export default function RenderView({
   /** How many scene photos had to be replaced by placeholder cards in the
    *  last render — surfaced so a dead image URL is never silent again. */
   const [imageFallbackCount, setImageFallbackCount] = useState(0);
+  /** Live safety/throughput facts for the stronger long-render dashboard. */
+  const [renderHealth, setRenderHealth] = useState<RenderHealthState>(EMPTY_RENDER_HEALTH);
 
   // ---- Master Render Profile UI state ---------------------------------
   /** Technical details panel (read-only — normal users never need it). */
@@ -356,6 +389,33 @@ export default function RenderView({
     setRenderStage(stage);
     setRenderStatus({ stage });
   }, []);
+
+  // Keep the dashboard clock alive, reflect background-tab state, and warn
+  // before a reload/navigation destroys a local encoder that cannot survive a
+  // document unload.
+  useEffect(() => {
+    if (!isRendering) return;
+    const update = () => {
+      setRenderHealth((health) => ({
+        ...health,
+        elapsedMs: health.startedAt ? Date.now() - health.startedAt : health.elapsedMs,
+        tabHidden: typeof document !== "undefined" ? document.hidden : false,
+      }));
+    };
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "A video render is still running.";
+    };
+    const timer = window.setInterval(update, 1000);
+    document.addEventListener("visibilitychange", update);
+    window.addEventListener("beforeunload", beforeUnload);
+    update();
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", update);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, [isRendering]);
 
   // Sync with prop when returning to render tab
   useEffect(() => {
@@ -666,6 +726,12 @@ export default function RenderView({
     setRenderEngine("checking");
     setOfflineFailureReason(null);
     abortControllerRef.current = false;
+    const renderStartedAt = Date.now();
+    setRenderHealth({
+      ...EMPTY_RENDER_HEALTH,
+      startedAt: renderStartedAt,
+      tabHidden: typeof document !== "undefined" ? document.hidden : false,
+    });
     // Publish the job so the header can follow it even if the user leaves
     // this screen — the render itself keeps running either way.
     setRenderStatus({
@@ -673,7 +739,7 @@ export default function RenderView({
       progress: 0,
       stage: "1/4: Preparing narration, visuals and audio…",
       title: project?.title || "Untitled render",
-      startedAt: Date.now(),
+      startedAt: renderStartedAt,
       finishedAt: null,
       error: null,
       lastVaultId: null,
@@ -717,15 +783,22 @@ export default function RenderView({
       return null;
     }
 
-    // Make sure the caption faces are ready before the first frame is captured
-    await loadCaptionFonts();
+    let releaseWakeLock: () => Promise<void> = async () => {};
+    let renderAudioContext: AudioContext | null = null;
 
     try {
+      releaseWakeLock = await holdRenderWakeLock((wakeLock) => {
+        setRenderHealth((health) => ({ ...health, wakeLock }));
+      });
+      // Make sure the caption faces are ready before the first frame is captured
+      await loadCaptionFonts();
+
       // 1. Synthesizing audio & sound effects
       reportStage("1/4: Synthesizing narration voices & sound effects...");
       reportProgress(0.08);
 
       const audioCtx = new AudioContext();
+      renderAudioContext = audioCtx;
       if (audioCtx.state === "suspended") {
         await audioCtx.resume();
       }
@@ -871,15 +944,12 @@ export default function RenderView({
         finalBlob: Blob,
         recordedContainer: "mp4" | "webm",
         fallbackMime: string
-      ): Promise<{ blob: Blob; container: "mp4" | "webm" }> => {
-        const url = URL.createObjectURL(finalBlob);
-        setRenderedBlob(finalBlob);
-        setRenderedUrl(url);
-        setRenderedContainer(recordedContainer);
-        setSettings((current) => ({ ...current, format: recordedContainer }));
-        reportProgress(1);
-        reportStage("Render Complete! 🎉");
-        onRenderSuccess?.(finalBlob, url);
+      ): Promise<{ blob: Blob; container: "mp4" | "webm"; durableVaultCopy: boolean }> => {
+        let finishedBlob = finalBlob;
+        let durableVaultCopy = false;
+        let lastVaultId: string | null = null;
+        reportProgress(0.99);
+        reportStage("4/4: Securing the finished video in the Vault…");
         try {
           const entry = await saveRenderToVault({
             blob: finalBlob,
@@ -892,62 +962,128 @@ export default function RenderView({
             height,
             label: `${resolutionToken(width, height)} · ${fpsUsed}fps CFR · ${recordedContainer.toUpperCase()} · ${getQualityLevel(settings.quality).name}`,
           });
+          // IndexedDB returns its verified clone. Use that Blob for preview,
+          // download and App state, then the OPFS staging file may be removed.
+          finishedBlob = entry.blob;
+          durableVaultCopy = entry.storageKind === "indexeddb";
+          lastVaultId = entry.id;
           setVaultMessage(
             `Render finished — ${vaultRenders.length >= MAX_VAULT_RENDERS ? "oldest vault slot cleared, " : ""}waiting in the vault to download.`
           );
-          setRenderStatus({ active: false, progress: 1, stage: "Render finished — waiting in the vault", finishedAt: Date.now(), lastVaultId: entry.id });
           void refreshVault();
         } catch (vaultErr) {
           console.warn("Vault save notice:", vaultErr);
-          setRenderStatus({ active: false, progress: 1, stage: "Render finished", finishedAt: Date.now() });
+          setVaultMessage("Render finished, but the Vault could not verify a copy. Download this video before closing the tab.");
         }
-        return { blob: finalBlob, container: recordedContainer };
+
+        const url = URL.createObjectURL(finishedBlob);
+        setRenderedBlob(finishedBlob);
+        setRenderedUrl(url);
+        setRenderedContainer(recordedContainer);
+        setSettings((current) => ({ ...current, format: recordedContainer }));
+        reportProgress(1);
+        reportStage("Render Complete! 🎉");
+        onRenderSuccess?.(finishedBlob, url);
+        setRenderStatus({
+          active: false,
+          progress: 1,
+          stage: durableVaultCopy ? "Render finished — verified in the Vault" : "Render finished — download before closing",
+          finishedAt: Date.now(),
+          lastVaultId,
+        });
+        return { blob: finishedBlob, container: recordedContainer, durableVaultCopy };
       };
 
       // 2. Loading High-Resolution Visual Assets & Watermark
       reportStage("2/4: Loading high-resolution visuals & watermark...");
       reportProgress(0.28);
 
-      const loadedSceneImages = await Promise.all(
-        scenesWithImages.map((s, i) => loadSceneImage(s.image_url || "", i))
-      );
-      const images = loadedSceneImages.map((r) => (r ? r.img : null));
-      const fallbackCount = loadedSceneImages.filter((r) => r?.usedFallback).length;
-      setImageFallbackCount(fallbackCount);
-
-      // Pre-render every scene's expensive static layers (colour-graded
-      // copy, blurred backdrop) BEFORE the real-time recording starts.
-      // These used to be computed during the first frames of each scene,
-      // which dropped frames exactly at the start of every effect.
-      {
-        const gradeForCache = getFilterCanvas(videoFilter, width);
-        for (let i = 0; i < scenesWithImages.length; i++) {
-          try {
-            prewarmSceneFrame(images[i], scenesWithImages[i], width, height, gradeForCache);
-          } catch {}
-          // Yield between scenes so the UI (progress bar) stays alive.
-          await new Promise((r) => setTimeout(r, 0));
-        }
-      }
-
-      // Prepare any short video clips so their frames are decodable while the
-      // canvas is being captured.
+      /**
+       * Bounded visual window.
+       *
+       * The old preparation step decoded every scene photo, built every
+       * full-size graded canvas and opened every video decoder at once. A long
+       * project can easily turn that into several gigabytes before frame one.
+       * Sequential export only needs previous/current/next (the previous one
+       * is retained for transitions), so keep exactly that three-scene window.
+       */
+      type RenderImage = (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null;
+      const images: RenderImage[] = new Array(scenesWithImages.length).fill(null);
+      const imageLoads = new Map<number, Promise<void>>();
+      const fallbackScenes = new Set<number>();
+      const gradeForCache = getFilterCanvas(videoFilter, width);
       const clipPool = new ClipPool();
       clipPoolRef.current = clipPool;
-      await Promise.all(
-        scenesWithImages.filter(sceneHasClip).map(
-          (s) =>
-            new Promise<void>((resolve) => {
-              const el = clipPool.get(s);
-              if (!el) return resolve();
-              if (el.readyState >= 2) return resolve();
-              const done = () => resolve();
-              el.addEventListener("loadeddata", done, { once: true });
-              el.addEventListener("error", done, { once: true });
-              setTimeout(done, 8000);
-            })
-        )
-      );
+
+      const loadWindowImage = (index: number): Promise<void> => {
+        if (index < 0 || index >= scenesWithImages.length || images[index]) return Promise.resolve();
+        const inFlight = imageLoads.get(index);
+        if (inFlight) return inFlight;
+        const task = loadSceneImage(scenesWithImages[index].image_url || "", index)
+          .then((result) => {
+            if (!result) return;
+            images[index] = result.img as RenderImage;
+            if (result.usedFallback) fallbackScenes.add(index);
+            setImageFallbackCount(fallbackScenes.size);
+            try {
+              prewarmSceneFrame(result.img, scenesWithImages[index], width, height, gradeForCache);
+            } catch {}
+          })
+          .finally(() => imageLoads.delete(index));
+        imageLoads.set(index, task);
+        return task;
+      };
+
+      const loadWindowClip = async (index: number): Promise<void> => {
+        const scene = scenesWithImages[index];
+        if (!scene || !sceneHasClip(scene)) return;
+        const el = clipPool.get(scene);
+        if (!el || el.readyState >= 2) return;
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+          };
+          el.addEventListener("loadeddata", done, { once: true });
+          el.addEventListener("error", done, { once: true });
+          setTimeout(done, 8000);
+        });
+      };
+
+      let visualWindowCenter = -1;
+      let visualWindowTask: Promise<void> = Promise.resolve();
+      const ensureVisualWindow = (center: number): Promise<void> => {
+        const safeCenter = Math.max(0, Math.min(scenesWithImages.length - 1, center));
+        if (safeCenter === visualWindowCenter) return visualWindowTask;
+        visualWindowCenter = safeCenter;
+        visualWindowTask = (async () => {
+          const keep = [safeCenter - 1, safeCenter, safeCenter + 1].filter(
+            (index) => index >= 0 && index < scenesWithImages.length,
+          );
+          await Promise.all(keep.flatMap((index) => [loadWindowImage(index), loadWindowClip(index)]));
+
+          // Do not release the old window until the new one is ready: a slow
+          // network image can never create a black gap at a scene boundary.
+          const keepSet = new Set(keep);
+          for (let index = 0; index < images.length; index++) {
+            if (keepSet.has(index) || !images[index]) continue;
+            const old = images[index] as HTMLImageElement;
+            images[index] = null;
+            try {
+              if ("src" in old) old.src = "";
+            } catch {}
+          }
+          clipPool.retain(keep.map((index) => scenesWithImages[index].id));
+        })();
+        return visualWindowTask;
+      };
+
+      // Frame zero and the next scene are decoded and prewarmed before any
+      // encoder starts. Later windows are prepared as the sequential loop
+      // reaches them.
+      await ensureVisualWindow(0);
 
       // Watermark image
       if (!watermarkImgRef.current) {
@@ -966,6 +1102,14 @@ export default function RenderView({
           console.warn("Notice: Customer logo preload issue:", logoErr);
         }
       }
+
+      const sceneIndexAt = (time: number): number => {
+        if (sceneSchedule.length === 0) return 0;
+        for (const entry of sceneSchedule) {
+          if (time < entry.endTime) return entry.index;
+        }
+        return sceneSchedule[sceneSchedule.length - 1].index;
+      };
 
       // Pure canvas pass: timeline time and analyser telemetry are explicit
       // inputs, so this produces the same pixels in real time or frame-by-frame.
@@ -1380,9 +1524,15 @@ export default function RenderView({
           const renderTimer = new RenderTimer();
           renderTimer.stage("encoder setup");
           const totalFrames = Math.ceil(estimatedTotalDuration * fpsUsed);
+          setRenderHealth((health) => ({ ...health, totalFrames }));
           // Configure real encoder instances before spending time on the audio
           // pass. A driver/configuration rejection is reported immediately.
           offlineEncoder = await OfflineExporter.create(offlineConfig);
+          setRenderHealth((health) => ({
+            ...health,
+            outputStorage: offlineEncoder!.outputStorage,
+            outputStorageDetail: offlineEncoder!.outputStorageDetail,
+          }));
           setRenderEngine("frame-exact");
           reportStage(`3/4: Frame-exact ${offlineProbe.videoCodec} + ${offlineProbe.audioCodec} — rendering audio…`);
           renderTimer.stage("audio graph");
@@ -1453,45 +1603,103 @@ export default function RenderView({
           // not have to stop once per frame to ask whether a sound is due.
           offlineInsertMixer.scheduleAll();
 
-          const readOfflineBus = (node: AnalyserNode) => {
-            const freq = new Uint8Array(node.frequencyBinCount);
-            const wave = new Uint8Array(node.fftSize);
+          // One packed allocation replaces tens of thousands of retained
+          // AudioFrame objects/ArrayBuffers on a long render. Scratch arrays
+          // are reused at every suspension point and copied into a fixed row.
+          const telemetry = new PackedAudioTelemetry(
+            totalFrames,
+            voiceAnalyser.frequencyBinCount,
+            voiceAnalyser.fftSize,
+          );
+          setRenderHealth((health) => ({ ...health, telemetryBytes: telemetry.byteLength }));
+          const voiceFreq = new Uint8Array(voiceAnalyser.frequencyBinCount);
+          const voiceWave = new Uint8Array(voiceAnalyser.fftSize);
+          const musicFreq = new Uint8Array(offlineMusicAnalyser.frequencyBinCount);
+          const musicWave = new Uint8Array(offlineMusicAnalyser.fftSize);
+          const readLevel = (
+            node: AnalyserNode,
+            freq: Uint8Array<ArrayBuffer>,
+            wave: Uint8Array<ArrayBuffer>,
+          ) => {
             node.getByteFrequencyData(freq);
             node.getByteTimeDomainData(wave);
             let sum = 0;
             for (let n = 0; n < freq.length; n++) sum += freq[n];
-            // freq and wave are freshly allocated above and belong to this
-            // frame alone, so they are handed over as they are. Copying them
-            // again here doubled the allocation on every frame of every
-            // render for nothing.
-            return makeBus(sum / (freq.length * 255), freq, wave);
+            return sum / Math.max(1, freq.length * 255);
           };
-          const telemetry: AudioFrame[] = new Array(totalFrames);
-          telemetry[0] = { voice: makeBus(0, null, null), music: makeBus(0, null, null) };
-          const suspensionTasks: Promise<void>[] = [];
-          for (let frame = 1; frame < totalFrames; frame++) {
-            const time = frame / fpsUsed;
-            suspensionTasks.push(offlineCtx.suspend(time).then(() => {
-              if (abortControllerRef.current) throw new Error("Render cancelled");
-              const snapshot = { voice: readOfflineBus(voiceAnalyser), music: readOfflineBus(offlineMusicAnalyser) };
-              telemetry[frame] = snapshot;
-              offlineMastering.updateVoiceLevel(snapshot.voice.level, offlineCtx.currentTime);
-              return offlineCtx.resume();
-            }));
-          }
-          // The suspensions above make this stage stop and restart the audio
-          // engine once per video frame. Its share of the total is the number
-          // that decides whether that is worth redesigning.
+
+          /**
+           * Register a small look-ahead window of suspension points. A purely
+           * sequential suspend can lose a race with the very fast offline
+           * audio thread; registering all 27,000 points up front avoids that
+           * race but retains 27,000 promises. At the last suspended frame of
+           * each window the next window is registered *before* resume(), so
+           * the renderer can never pass it and only a few seconds of promises
+           * are live at once.
+           */
+          const captureTelemetry = () => new Promise<void>((resolve, reject) => {
+            const WINDOW_FRAMES = Math.max(30, Math.round(fpsUsed * 4));
+            let settled = false;
+            const fail = (error: unknown) => {
+              if (settled) return;
+              settled = true;
+              reject(error);
+            };
+            const scheduleWindow = (start: number) => {
+              const end = Math.min(totalFrames, start + WINDOW_FRAMES);
+              for (let frame = start; frame < end; frame++) {
+                offlineCtx.suspend(frame / fpsUsed).then(async () => {
+                  if (abortControllerRef.current) throw new Error("Render cancelled");
+                  const voiceLevel = readLevel(voiceAnalyser, voiceFreq, voiceWave);
+                  const musicLevel = readLevel(offlineMusicAnalyser, musicFreq, musicWave);
+                  telemetry.setAnalyserFrame(
+                    frame,
+                    voiceLevel,
+                    voiceFreq,
+                    voiceWave,
+                    musicLevel,
+                    musicFreq,
+                    musicWave,
+                  );
+                  offlineMastering.updateVoiceLevel(voiceLevel, offlineCtx.currentTime);
+
+                  // Extend the runway while the context is safely suspended.
+                  if (frame === end - 1 && end < totalFrames) scheduleWindow(end);
+                  await offlineCtx.resume();
+                  if (frame === totalFrames - 1 && !settled) {
+                    settled = true;
+                    resolve();
+                  }
+                }).catch(fail);
+              }
+            };
+            if (totalFrames <= 1) {
+              settled = true;
+              resolve();
+            } else {
+              scheduleWindow(1);
+            }
+          });
+          // The first look-ahead window is registered synchronously before
+          // startRendering begins.
           renderTimer.stage("audio render + telemetry");
+          const telemetryCapture = captureTelemetry();
           const rendering = offlineCtx.startRendering();
-          const [mixedAudio] = await Promise.all([rendering, ...suspensionTasks]);
+          const [mixedAudio] = await Promise.all([rendering, telemetryCapture]);
           if (abortControllerRef.current) throw new Error("Render cancelled");
 
           renderTimer.stage("video frames");
           const encodeBudget = createFrameBudget();
+          let assetScene = -1;
+          let lastOfflineProgressAt = 0;
           for (let frame = 0; frame < totalFrames; frame++) {
             if (abortControllerRef.current) throw new Error("Render cancelled");
             const time = frame / fpsUsed;
+            const nextAssetScene = sceneIndexAt(time);
+            if (nextAssetScene !== assetScene) {
+              await ensureVisualWindow(nextAssetScene);
+              assetScene = nextAssetScene;
+            }
             let active = sceneSchedule[sceneSchedule.length - 1];
             for (const entry of sceneSchedule) {
               if (time >= entry.startTime && time < entry.endTime) { active = entry; break; }
@@ -1501,12 +1709,20 @@ export default function RenderView({
               const elapsed = Math.max(0, time - active.startTime);
               await clipPool.seekExact(active.scene, Math.min(1, elapsed / Math.max(0.1, active.duration)), active.duration);
             }
-            drawFrameAt(time, telemetry[frame] || null);
+            drawFrameAt(time, telemetry.frame(frame));
             await offlineEncoder.encodeCanvas(canvas, frame);
-            if (frame % 4 === 0) {
+            const progressNow = performance.now();
+            if (frame === totalFrames - 1 || progressNow - lastOfflineProgressAt >= 250) {
+              lastOfflineProgressAt = progressNow;
               const progress = 0.35 + ((frame + 1) / totalFrames) * 0.5;
               reportProgress(Math.min(0.85, progress));
               reportStage(`3/4: Encoding frame ${frame + 1} of ${totalFrames} (frame-exact)…`);
+              setRenderHealth((health) => ({
+                ...health,
+                framesDone: frame + 1,
+                outputBytes: offlineEncoder!.bytesWritten,
+                queuedOutputBytes: offlineEncoder!.queuedOutputBytes,
+              }));
             }
             // Hand the browser a turn on a time budget rather than every
             // fourth frame, and through a message rather than a timer —
@@ -1530,12 +1746,23 @@ export default function RenderView({
           await offlineEncoder.encodeAudio(mixedAudio, 4_800, (fraction) => {
             reportProgress(0.86 + fraction * 0.08);
           });
+          setRenderHealth((health) => ({
+            ...health,
+            outputBytes: offlineEncoder!.bytesWritten,
+            queuedOutputBytes: offlineEncoder!.queuedOutputBytes,
+          }));
 
           renderTimer.stage("finalise container");
           reportStage("4/4: Finalising the container…");
           reportProgress(0.95);
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
           const offlineBlob = await offlineEncoder.finalize();
+          setRenderHealth((health) => ({
+            ...health,
+            framesDone: totalFrames,
+            outputBytes: offlineBlob.size,
+            queuedOutputBytes: 0,
+          }));
           renderTimer.stop();
           renderTimer.note(
             "video",
@@ -1545,6 +1772,9 @@ export default function RenderView({
             "file",
             `${(offlineBlob.size / 1_048_576).toFixed(0)} MB ${offlineContainer.toUpperCase()}`
           );
+          renderTimer.note("output storage", offlineEncoder.outputStorageDetail);
+          renderTimer.note("audio telemetry", `${(telemetry.byteLength / 1_048_576).toFixed(1)} MB packed`);
+          renderTimer.note("visual assets", "bounded 3-scene decode window");
           const timingReport = renderTimer.format();
           console.log(timingReport);
           setRenderTiming(timingReport);
@@ -1554,7 +1784,11 @@ export default function RenderView({
           offlineInsertMixer.dispose();
           setRenderEngine("frame-exact");
           setOfflineFailureReason(null);
-          return await finishSuccessfulExport(offlineBlob, offlineContainer, offlineBlob.type);
+          const finished = await finishSuccessfulExport(offlineBlob, offlineContainer, offlineBlob.type);
+          if (finished.durableVaultCopy) {
+            await offlineEncoder.releaseOutputStorage();
+          }
+          return { blob: finished.blob, container: finished.container };
         } catch (offlineError) {
           offlineEncoder?.close();
           if (abortControllerRef.current) throw offlineError;
@@ -1586,6 +1820,11 @@ export default function RenderView({
       // Automatic compatibility fallback remains available only when the
       // user explicitly unticks "Require frame-exact rendering".
       setRenderEngine("compatibility");
+      setRenderHealth((health) => ({
+        ...health,
+        outputStorage: "memory",
+        outputStorageDetail: "Compatibility recorder chunks in memory",
+      }));
       if (typeof MediaRecorder === "undefined") {
         throw new Error("This browser supports neither WebCodecs offline export nor MediaRecorder");
       }
@@ -1902,6 +2141,7 @@ export default function RenderView({
       let lastProgressUiUpdate = 0;
       let lastProgressVal = 0.35;
       let lastResumeAttempt = 0;
+      let realTimeAssetScene = 0;
 
       // Frame drawing loop with robust error boundaries and background tab resilience.
       //
@@ -1965,6 +2205,14 @@ export default function RenderView({
               smoothedGlobalTime += dt;
             }
             const currentGlobalTime = smoothedGlobalTime;
+
+            const nextAssetScene = sceneIndexAt(currentGlobalTime);
+            if (nextAssetScene !== realTimeAssetScene) {
+              realTimeAssetScene = nextAssetScene;
+              // The previous scene preloaded this one; now prefetch one more.
+              // Real-time fallback cannot pause its audio clock to await I/O.
+              void ensureVisualWindow(nextAssetScene);
+            }
 
             if (audioCtx.state !== "running" && now - renderStartTime - lastResumeAttempt > 2000) {
               lastResumeAttempt = now - renderStartTime;
@@ -2046,6 +2294,12 @@ export default function RenderView({
       return null;
     } finally {
       setIsRendering(false);
+      await releaseWakeLock();
+      setRenderHealth((health) => ({
+        ...health,
+        elapsedMs: health.startedAt ? Date.now() - health.startedAt : health.elapsedMs,
+        wakeLock: "released",
+      }));
       // Belt and braces: the loop stops its own ticker on cleanup, but an
       // exception between start and cleanup must not leave it ticking.
       try {
@@ -2057,6 +2311,12 @@ export default function RenderView({
         clipPoolRef.current?.dispose();
         clipPoolRef.current = null;
       } catch {}
+      try {
+        if (renderAudioContext && renderAudioContext.state !== "closed") {
+          await renderAudioContext.close();
+        }
+      } catch {}
+      renderAudioContext = null;
     }
   };
 
@@ -2841,9 +3101,34 @@ export default function RenderView({
                     </span>
                   </div>
 
-                  <h4 className="text-base font-semibold text-white mb-1">
+                  <h4 className="text-base font-semibold text-white mb-2">
                     Rendering Video in {resLabel}
                   </h4>
+                  <div className="mb-2 grid w-full max-w-md grid-cols-4 gap-1" aria-label="Render stages">
+                    {[
+                      { label: "Prepare", at: 0 },
+                      { label: "Audio mix", at: 0.32 },
+                      { label: "Frames", at: 0.35 },
+                      { label: "Package", at: 0.86 },
+                    ].map((stage, index) => {
+                      const active = renderProgress >= stage.at;
+                      const complete = index < 3 && renderProgress >= [0.32, 0.35, 0.86][index];
+                      return (
+                        <div
+                          key={stage.label}
+                          className={`rounded-md border px-1.5 py-1 text-[9px] font-bold ${
+                            complete
+                              ? "border-emerald-700/70 bg-emerald-950/70 text-emerald-300"
+                              : active
+                                ? "border-indigo-500/80 bg-indigo-950/80 text-indigo-200"
+                                : "border-hairline bg-gray-900/80 text-gray-500"
+                          }`}
+                        >
+                          {complete ? "✓ " : `${index + 1}. `}{stage.label}
+                        </div>
+                      );
+                    })}
+                  </div>
                   <div className={`mb-2 px-2.5 py-1 rounded-full border text-[10px] font-bold ${
                     renderEngine === "frame-exact"
                       ? "bg-emerald-950 border-emerald-600 text-emerald-300"
@@ -2861,11 +3146,82 @@ export default function RenderView({
                   </div>
                   <p className="text-xs text-indigo-300 font-medium mb-3">{renderStage}</p>
 
-                  <div className="w-64 bg-gray-800 rounded-full h-2 overflow-hidden border border-hairline">
+                  <div className="w-full max-w-md bg-gray-800 rounded-full h-2 overflow-hidden border border-hairline">
                     <div
                       className="bg-indigo-500 h-full rounded-full transition-all duration-150"
                       style={{ width: `${Math.round(renderProgress * 100)}%` }}
                     />
+                  </div>
+
+                  {/* Long-render safety dashboard: visible proof of what the
+                      engine is doing instead of one opaque percentage at 94%. */}
+                  <div className="mt-4 w-full max-w-xl rounded-xl border border-hairline bg-gray-950/80 p-3 text-left shadow-2xl">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="rounded-lg bg-white/5 px-2.5 py-2">
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">Elapsed</p>
+                        <p className="text-[11px] font-bold text-white">{formatMs(renderHealth.elapsedMs)}</p>
+                      </div>
+                      <div className="rounded-lg bg-white/5 px-2.5 py-2">
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">Approx. left</p>
+                        <p className="text-[11px] font-bold text-white">
+                          {renderProgress > 0.03 && renderProgress < 0.99
+                            ? formatMs((renderHealth.elapsedMs / renderProgress) * (1 - renderProgress))
+                            : "Calculating…"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-white/5 px-2.5 py-2">
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">Frames</p>
+                        <p className="text-[11px] font-bold text-white">
+                          {renderHealth.totalFrames > 0
+                            ? `${renderHealth.framesDone.toLocaleString()} / ${renderHealth.totalFrames.toLocaleString()}`
+                            : "Preparing…"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-white/5 px-2.5 py-2">
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">Output written</p>
+                        <p className="text-[11px] font-bold text-white">{formatStorageBytes(renderHealth.outputBytes)}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <span
+                        title={renderHealth.outputStorageDetail}
+                        className={`rounded-full border px-2 py-1 text-[9px] font-bold ${
+                          renderHealth.outputStorage === "disk"
+                            ? "border-emerald-600/70 bg-emerald-950/80 text-emerald-200"
+                            : renderHealth.outputStorage === "memory"
+                              ? "border-amber-600/70 bg-amber-950/80 text-amber-200"
+                              : "border-indigo-600/70 bg-indigo-950/80 text-indigo-200"
+                        }`}
+                      >
+                        {renderHealth.outputStorage === "disk"
+                          ? "✓ OUTPUT STREAMING TO DISK"
+                          : renderHealth.outputStorage === "memory"
+                            ? "⚠ MEMORY OUTPUT FALLBACK"
+                            : "… CHECKING OUTPUT STORAGE"}
+                      </span>
+                      <span className="rounded-full border border-emerald-700/60 bg-emerald-950/60 px-2 py-1 text-[9px] font-bold text-emerald-200">
+                        ✓ 3-SCENE ASSET WINDOW
+                      </span>
+                      <span className="rounded-full border border-emerald-700/60 bg-emerald-950/60 px-2 py-1 text-[9px] font-bold text-emerald-200">
+                        ✓ PACKED AUDIO ANALYSIS
+                      </span>
+                      <span className={`rounded-full border px-2 py-1 text-[9px] font-bold ${
+                        renderHealth.wakeLock === "active"
+                          ? "border-emerald-700/60 bg-emerald-950/60 text-emerald-200"
+                          : "border-hairline bg-gray-900 text-gray-400"
+                      }`}>
+                        {renderHealth.wakeLock === "active" ? "✓ DEVICE KEPT AWAKE" : "BROWSER MANAGES WAKE"}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[9px] leading-relaxed text-gray-400">
+                      {renderHealth.tabHidden
+                        ? "This tab is in the background. Message-channel yielding keeps the encode moving without timer throttling."
+                        : renderHealth.outputStorageDetail}
+                      {renderHealth.queuedOutputBytes > 0
+                        ? ` · ${formatStorageBytes(renderHealth.queuedOutputBytes)} waiting for disk`
+                        : ""}
+                    </p>
                   </div>
 
                   <button
