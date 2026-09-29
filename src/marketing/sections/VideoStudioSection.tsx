@@ -55,12 +55,9 @@ const TOOL_TABS = [
   },
   {
     id: "audio",
-    label: "Audio",
+    label: "Sound",
     tools: [
-      { name: "Background music", count: CATALOG_COUNTS.musicTracks, on: true },
-      { name: "Sound effects", count: CATALOG_COUNTS.soundEffects },
-      { name: "Sound visualisers", count: CATALOG_COUNTS.visualisers },
-      { name: "Narration ambience", count: 1 },
+      { name: "Sound effects", count: CATALOG_COUNTS.soundEffects, on: true },
     ],
   },
 ] as const;
@@ -94,7 +91,7 @@ export default function VideoStudioSection() {
         id="video-studio"
         eyebrow="06 · Video Studio"
         title={MESSAGES.studio}
-        lead="A preview, a timeline and every layer that sits on top of it: filters, music, sound effects, captions, stickers, lower thirds, calls to action, intro and outro — arranged against the scenes you already have."
+        lead="A preview, a timeline and every layer that sits on top of it: filters, music, sound effects, captions, stickers, lower thirds, calls to action, intro and outro — arranged against the scenes you already have. Background music, Sound visualisers and Narration ambience now sit together in Voiceover; Video Studio keeps its Sound effects focused on exact timeline moments."
       />
 
       <figure ref={figureRef} style={{ margin: 0 }}>

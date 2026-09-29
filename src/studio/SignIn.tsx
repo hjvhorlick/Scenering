@@ -8,6 +8,7 @@ import {
   signIn,
 } from "../lib/session";
 import { navigate, SITE_PATH } from "../lib/route";
+import { preloadStudio } from "./studio-loader";
 import logo from "../assets/scenering-logo.png";
 import Icon from "../components/icons/Icon";
 import IconSprite from "../components/icons/IconSprite";
@@ -35,6 +36,10 @@ export default function SignIn() {
     setBusy(true);
     try {
       if (existing) {
+        // The request normally finished while the landing/sign-in page was on
+        // screen. Waiting here is a final race guard: the session event is not
+        // opened until the studio component is ready to mount synchronously.
+        await preloadStudio().catch(() => null);
         const ok = await signIn(passphrase);
         if (!ok) setError("That passphrase does not match the one saved on this machine.");
       } else {
@@ -45,6 +50,7 @@ export default function SignIn() {
         } else if (passphrase !== confirm) {
           setError("The two passphrases are different.");
         } else {
+          await preloadStudio().catch(() => null);
           await createProfile(name, passphrase);
         }
       }

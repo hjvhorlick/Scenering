@@ -1,6 +1,12 @@
 import { useState, useEffect } from "react";
 import { TimelineInsert, CustomerLogoConfig, AspectRatioType } from "../types";
-import { CATALOG_ITEMS, CatalogItem, STUDIO_CATEGORIES, StudioCategoryDef } from "../lib/video-studio-catalog";
+import {
+  CATALOG_ITEMS,
+  CatalogItem,
+  VIDEO_STUDIO_CATEGORIES,
+  StudioCategoryDef,
+} from "../lib/video-studio-catalog";
+import { createCatalogInsert } from "../lib/catalog-insert";
 import {
   toggleSoundPreview,
   stopAllSoundPreviews,
@@ -75,72 +81,13 @@ export default function VideoStudio({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${ms}`;
   })();
 
-  const createTimelineInsert = (item: CatalogItem): TimelineInsert => {
-    // Intros are inserted before script (0.0s), Outros after script (end of timeline)
-    let startTime = currentPlayheadTime;
-    if (item.category === "intro") {
-      startTime = 0.0;
-    } else if (item.category === "outro") {
-      startTime = Math.max(0, (totalDuration || 60) - item.defaultDuration);
-    }
-
-    // Audio visualisers run across the whole video by default: they start at 0
-    // and stretch to the end of the timeline instead of a fixed 6-8s window.
-    const spansWholeVideo = Boolean(item.spansFullVideo);
-    if (spansWholeVideo) {
-      startTime = 0;
-    }
-
-    const defaultContent = item.defaultContent ? { ...item.defaultContent } : {};
-    const logoUrlToUse = defaultContent.logoUrl || (customerLogo?.enabled && customerLogo.url ? customerLogo.url : "/scenering-logo.png");
-    const itemVol = itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? studioVolume;
-    const soundUrl = item.defaultAudioSettings?.soundUrl || (defaultContent as any)?.soundUrl;
-
-    return {
-      id: `${item.type}-${Date.now()}`,
-      category: item.category,
-      type: item.type,
-      title: item.name,
-      startTime,
-      duration: spansWholeVideo
-        ? Math.max(1, totalDuration || 60)
-        : item.defaultDuration,
-      videoUrl: item.videoUrl || defaultContent.videoUrl,
-      position: { x: 0.5, y: 0.5 },
-      presetPosition: item.defaultPosition || "center",
-      size: item.defaultSize || 1.0,
-      opacity: 1.0,
-      intensity: 1.0,
-      audioSource: item.defaultAudioSource || "voice",
-      content: {
-        ...defaultContent,
-        videoUrl: item.videoUrl || defaultContent.videoUrl,
-        showLogo: defaultContent.showLogo ?? true,
-        includeLogo: defaultContent.includeLogo ?? true,
-        logoUrl: logoUrlToUse,
-        tensionStyle: defaultContent.tensionStyle || "flare",
-        soundUrl: soundUrl || defaultContent.soundUrl,
-        soundVolume: itemVol,
-      },
-      visualOptions: item.defaultVisualOptions
-        ? { ...item.defaultVisualOptions, spanFullVideo: spansWholeVideo || undefined }
-        : spansWholeVideo
-        ? { spanFullVideo: true }
-        : undefined,
-      audioSettings: item.defaultAudioSettings
-        ? {
-            ...item.defaultAudioSettings,
-            volume: itemVol,
-            soundUrl: soundUrl || item.defaultAudioSettings.soundUrl,
-            // Normalize legacy loopAudio alias so the loop control + players read one field
-            loop:
-              item.defaultAudioSettings.loop !== undefined
-                ? item.defaultAudioSettings.loop
-                : Boolean((item.defaultAudioSettings as { loopAudio?: boolean }).loopAudio),
-          }
-        : { volume: itemVol, soundUrl },
-    };
-  };
+  const createTimelineInsert = (item: CatalogItem): TimelineInsert =>
+    createCatalogInsert(item, {
+      currentPlayheadTime,
+      totalDuration,
+      customerLogo,
+      volume: itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? studioVolume,
+    });
 
   const handleAdd = (item: CatalogItem) => {
     const newInsert = createTimelineInsert(item);
@@ -163,7 +110,7 @@ export default function VideoStudio({
     setCurrentlyPlayingAudio(isPlaying ? soundUrl : null);
   };
 
-  const currentCategoryDef: StudioCategoryDef | undefined = STUDIO_CATEGORIES.find(
+  const currentCategoryDef: StudioCategoryDef | undefined = VIDEO_STUDIO_CATEGORIES.find(
     (c) => c.id === selectedCategory
   );
 
@@ -207,10 +154,10 @@ export default function VideoStudio({
             </span>
           </h2>
           <p className="text-xs text-gray-400 mt-0.5">
-            Add overlays, callouts, and audio waves at playhead timestamp{" "}
+            Add overlays and callouts at playhead timestamp{" "}
             <span className="font-mono text-amber-300 bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-800/40">
               {formattedTime}
-            </span>
+            </span>. Audio waves and full-video music now live together in Voiceover
           </p>
         </div>
 
@@ -277,9 +224,9 @@ export default function VideoStudio({
         </div>
       </div>
 
-      {/* 5 Ordered Main Tabs: 1. Logo, 2. Call to action, 3. Stickers, 4. Text Content, 5. Audio visualisers */}
+      {/* Audio Visualisers and Background Music are now grouped with Voiceover. */}
       <div className="t-studio-tabbar bg-gray-900/60 border-b border-hairline px-4 pt-2.5 flex gap-1.5 overflow-x-auto scrollbar-thin" role="tablist" aria-label="Video Studio sections">
-        {STUDIO_CATEGORIES.map((cat, idx) => {
+        {VIDEO_STUDIO_CATEGORIES.map((cat, idx) => {
           const isSelected = selectedCategory === cat.id;
           return (
             <button

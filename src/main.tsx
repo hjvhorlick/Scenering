@@ -1,27 +1,39 @@
 import React, { Suspense, lazy } from "react";
 import ReactDOM from "react-dom/client";
 import { initTheme } from "./lib/themes";
-import { useRoute } from "./lib/route";
+import { routeForPath, useRoute } from "./lib/route";
+import { preloadStudio } from "./studio/studio-loader";
 
 /**
- * Two front doors, one bundle.
+ * One product with the website as its front page.
  *
- *   /      the public website  (src/marketing)
- *   /app   the studio, behind its sign-in  (src/studio → src/App)
+ *   /      the public front page (src/marketing)
+ *   /app   the studio, behind its sign-in (src/studio → src/App)
  *
- * Three lazy layers, so nobody downloads something they cannot use: the
- * website, the sign-in screen, and — only once somebody is signed in — the
- * studio itself. That includes CSS. The studio's stylesheets (Tailwind plus
- * the six themes, ~300 kB) are imported by App.tsx and travel in its chunk;
- * the website and the sign-in screen bring their own, built from the shared
- * Porcelain tokens so all three look like one product.
+ * The surfaces remain separate chunks, but their requests start together.
+ * While somebody reads the landing page or types a passphrase, the browser is
+ * already downloading and parsing the sign-in door, the editor, the renderer
+ * and the studio CSS. Authentication still controls whether the studio is
+ * mounted; it no longer controls when the application starts loading.
  */
-const MarketingSite = lazy(() => import("./marketing/MarketingSite"));
-const StudioEntry = lazy(() => import("./studio/StudioEntry"));
+const marketingModule = import("./marketing/MarketingSite");
+const studioEntryModule = import("./studio/StudioEntry");
+const MarketingSite = lazy(() => marketingModule);
+const StudioEntry = lazy(() => studioEntryModule);
+
+// Start the large application request in parallel with the front page. A
+// transient preload failure is retried by StudioEntry when the user signs in.
+void preloadStudio().catch(() => {});
 
 // Apply the persisted theme before first paint (index.html also applies it
 // with an inline bootstrap, so this is just a safety net for HMR).
 initTheme();
+// The studio stylesheet is arriving in parallel now. Claim the marketing
+// surface before either stylesheet can paint, rather than waiting for the
+// MarketingSite effect and risking one frame of studio-wide base styles.
+if (typeof window !== "undefined" && routeForPath(window.location.pathname) === "site") {
+  document.documentElement.setAttribute("data-mkt", "1");
+}
 
 /** Quiet placeholder — one paint at most, so it must not flash anything loud. */
 function Loading({ label }: { label: string }) {

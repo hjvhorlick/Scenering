@@ -598,13 +598,45 @@ ok(
 /* ----------------------------------------------- 7. performance */
 
 const main = read("src/main.tsx");
-ok(main.includes("lazy(() => import(\"./marketing/MarketingSite\"))"), "the website is code-split");
-ok(main.includes("lazy(() => import(\"./studio/StudioEntry\"))"), "the studio entry is code-split");
-// The editor itself waits behind the sign-in: the door is a few kilobytes,
-// the studio is a megabyte, and nobody downloads an editor they cannot open.
+ok(
+  main.includes('const marketingModule = import("./marketing/MarketingSite")'),
+  "the website starts loading as soon as the product boots"
+);
+ok(
+  main.includes('const studioEntryModule = import("./studio/StudioEntry")'),
+  "the sign-in door starts loading beside the website"
+);
+ok(main.includes("preloadStudio()"), "the full studio starts preparing beside the front page");
+ok(
+  main.includes('document.documentElement.setAttribute("data-mkt", "1")'),
+  "the front page claims its scoped styles before the background studio CSS can paint"
+);
+
+// The editor stays behind authentication, but its one shared request begins on
+// the landing page and StudioEntry can synchronously take the prepared module.
+const studioLoader = read("src/studio/studio-loader.ts");
 const studioEntry = read("src/studio/StudioEntry.tsx");
-ok(studioEntry.includes("lazy(() => import(\"../App\"))"), "the studio loads only after sign-in");
-ok(studioEntry.includes("useSession"), "the studio entry checks the session");
+ok(studioLoader.includes('import("../App")'), "the warm-up request contains the real studio");
+ok(
+  studioLoader.includes("if (studioRequest) return studioRequest"),
+  "the front page and sign-in reuse one studio download"
+);
+ok(
+  studioEntry.includes("getPreloadedStudio()") && studioEntry.includes("<LoadedStudio />"),
+  "sign-in mounts the already-prepared studio without a second lazy boundary"
+);
+const signInDoor = read("src/studio/SignIn.tsx");
+ok(
+  signInDoor.includes("await preloadStudio()") &&
+    signInDoor.indexOf("await preloadStudio()") < signInDoor.indexOf("await signIn(passphrase)"),
+  "the existing-profile session opens only after studio preparation wins the final race"
+);
+ok(
+  signInDoor.lastIndexOf("await preloadStudio()") >= 0 &&
+    signInDoor.lastIndexOf("await preloadStudio()") < signInDoor.indexOf("await createProfile(name, passphrase)"),
+  "first-time setup also opens only when the prepared studio can mount"
+);
+ok(studioEntry.includes("useSession"), "the prepared studio still stays behind the session check");
 ok(
   read("src/marketing/components/primitives.tsx").includes('loading={eager ? "eager" : "lazy"}'),
   "images lazy-load unless explicitly eager"
@@ -674,8 +706,8 @@ ok(
  * Voice, honestly. The app draws the narration with a real visualiser now, so
  * the page shows that visualiser rather than a hand-drawn waveform — and where
  * a full canvas would be too heavy (the hero, the stepper, the transformation
- * strip) the stand-in is the CSS echo of the same Minimal Talking Dots, never
- * bars the studio does not draw.
+ * strip) the stand-in is the CSS echo of the same twenty-band Talking Dot Wave,
+ * never bars the studio does not draw.
  */
 {
   const voice = read("src/marketing/sections/VoiceSection.tsx");

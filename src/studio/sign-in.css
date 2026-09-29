@@ -1,10 +1,10 @@
 /**
  * The sign-in screen.
  *
- * Deliberately tiny and independent of the studio's Tailwind build: this is
- * the first thing loaded at /app, and it should paint before the editor's
- * megabyte arrives. It uses the shared Porcelain tokens, so the door looks
- * like the website it was opened from.
+ * Deliberately tiny and independent of the studio's Tailwind build, so the
+ * door can paint immediately even if background studio preparation is still
+ * finishing. It uses the shared Porcelain tokens, so the door looks like the
+ * website it was opened from.
  */
 
 @import "../shared/porcelain.css";

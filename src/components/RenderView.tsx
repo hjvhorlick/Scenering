@@ -2362,7 +2362,7 @@ export default function RenderView({
     musicInserts.length === 0
       ? {
           value: "None added",
-          hint: "Add music in Video Studio → Background Music",
+          hint: "Add music in Voiceover → Background Music (formerly in Video Studio)",
         }
       : {
           value: musicInserts.map((i) => i.title || i.audioSettings?.soundName || "Music track").join(", "),

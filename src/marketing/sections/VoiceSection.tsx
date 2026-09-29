@@ -198,6 +198,12 @@ export default function VoiceSection() {
                     {monitorInView && <RealVisualiser type="minimal_voice" />}
                   </Suspense>
                 </div>
+                <div className="mkt-strip-row" style={{ marginTop: 10 }}>
+                  <span className="mkt-strip-label"><Icon glyph="🎵" /> Background music</span>
+                  <span className="mkt-small">
+                    {CATALOG_COUNTS.musicTracks} instrumental tracks · one bed across the complete video
+                  </span>
+                </div>
               </div>
 
               {DEMO_SCENES.slice(0, 3).map((scene) => (

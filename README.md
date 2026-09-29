@@ -23,9 +23,11 @@ There are two front doors on the same server:
 | `/`    | the website — what Scenering does, shown rather than described  |
 | `/app` | the door: sign in, and the studio loads behind it                |
 
-They are separate bundles (`src/marketing`, `src/studio`, `src/App`), lazily
-loaded, so a visitor reading the website never downloads the renderer, and the
-editor is only fetched once someone has signed in.
+They remain separate bundles (`src/marketing`, `src/studio`, `src/App`), but
+the website is now the application's front page: all three bundles start
+loading together. The landing page stays visible while the editor, renderer and
+studio styles are prepared in the background, so signing in mounts an already
+loaded application instead of beginning a second large download.
 
 To run the production build instead:
 
@@ -220,9 +222,10 @@ on the video will look like.
 
 The website shows that same visualiser: the real canvas where it can afford the
 catalogue chunk (the voice section and the Video Studio mockup), and a
-CSS-only echo of Minimal Talking Dots where it cannot (the hero, the stepper,
-the transformation strip). There are no invented waveform graphics left on the
-page — the dot colours are the renderer's own, and a test fails if they drift.
+CSS-only echo of the twenty-band Talking Dot Wave where it cannot (the hero,
+the stepper, the transformation strip). There are no invented waveform graphics
+left on the page — the varied dot colours come from the renderer's editable
+palette, and a test fails if the two presentations drift.
 
 ### Real previews, not pictures of previews
 

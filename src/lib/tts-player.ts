@@ -8,7 +8,12 @@ import {
 } from "./voice-echo";
 import { LEGACY_VOICE_IDS } from "../data/voice-presets";
 import { sanitizeTextForSpeech } from "./speech-sanitizer";
-import { getVoiceAnalyser, tapVoiceElement, voiceMonitorWanted } from "./voice-monitor";
+import {
+  getVoiceAnalyser,
+  prepareVoiceMonitor,
+  tapVoiceElement,
+  voiceMonitorWanted,
+} from "./voice-monitor";
 // Provides high-fidelity MP3/WAV playback via /api/tts and full support for over 300+ Web Speech API voices with gender-aware matching
 
 export interface BrowserVoiceInfo {
@@ -270,6 +275,11 @@ class TTSAudioPlayer {
       return;
     }
 
+    // Do this before the first await. Browsers only allow a suspended Web Audio
+    // context to resume during a user gesture; creating it after the TTS fetch
+    // completed made the monitor randomly receive digital silence.
+    prepareVoiceMonitor();
+
     // Case 0: Direct Audio URL or Imported Real Voice Track
     if (
       voice.startsWith("url:") ||
@@ -308,6 +318,16 @@ class TTSAudioPlayer {
 
         if (!res.ok) {
           throw new Error(`TTS server error: ${res.status}`);
+        }
+
+        // The server deliberately returns a correctly-sized silent WAV when
+        // every network speech provider is unavailable. That is useful while
+        // building a render timeline, but it is a terrible audition: it used
+        // to look as if both the play button and visualiser were broken. For a
+        // preview, fall through to the audible browser voice instead, and do
+        // not poison the in-memory audio cache with silence.
+        if (res.headers.get("X-TTS-Source") === "silent") {
+          throw new Error("TTS providers returned a silent preview placeholder");
         }
 
         const blob = await res.blob();

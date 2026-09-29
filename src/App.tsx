@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // The studio owns its styling: Tailwind's build, the generated theme colour
-// matrix and the hand-written theme layer. They load with this chunk so the
-// public website never downloads them (see main.tsx).
+// matrix and the hand-written theme layer. They travel with the studio chunk,
+// which the public front page now prepares in the background (see main.tsx) so
+// signing in does not start a second, slow application load.
 import "./index.css";
 import "./themes.generated.css";
 import "./themes.css";
@@ -23,7 +24,7 @@ import CaptionsStudio from "./components/CaptionsStudio";
 import SetupStudio from "./components/SetupStudio";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./components/StepNav";
 import ThemeSwitcher from "./components/ThemeSwitcher";
-import { stretchFullVideoVisualisers } from "./lib/render-visualizers";
+import { stretchFullVideoMedia } from "./lib/render-visualizers";
 import InsertPropertiesModal from "./components/InsertPropertiesModal";
 import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
@@ -1182,8 +1183,8 @@ export default function App() {
     setCurrentPlayheadTime(mid);
   };
 
-  /** Intro + script + outro. Used to stretch whole-video visualisers and to fill
-   *  the timeline readouts in the studio and the properties editor. */
+  /** Intro + script + outro. Used to stretch whole-video visualisers and music,
+   *  and to fill the timeline readouts in the studio and properties editor. */
   const estimatedTotalDuration = useMemo(() => {
     const intro = introSection?.enabled ? Math.max(0.5, introSection.duration) : 0;
     const outro = outroSection?.enabled ? Math.max(0.5, outroSection.duration) : 0;
@@ -1191,10 +1192,10 @@ export default function App() {
     return Math.max(1, Math.round((intro + script + outro) * 10) / 10);
   }, [scenes, introSection, outroSection]);
 
-  // Visualisers added with "runs for the entire video" stay pinned to the full
+  // Visualisers and music added for the entire video stay pinned to its full
   // length, even after scenes are re-timed or the voiceover changes.
   useEffect(() => {
-    setInserts((prev) => stretchFullVideoVisualisers(prev, estimatedTotalDuration));
+    setInserts((prev) => stretchFullVideoMedia(prev, estimatedTotalDuration));
   }, [estimatedTotalDuration]);
 
   /**
@@ -1685,6 +1686,11 @@ export default function App() {
                   onSelectVoice={handleSelectVoice}
                   voiceEcho={voiceEcho}
                   onUpdateVoiceEcho={handleUpdateVoiceEcho}
+                  inserts={inserts}
+                  totalDuration={estimatedTotalDuration}
+                  customerLogo={customerLogo}
+                  onInsertItem={handleAddInsert}
+                  onConfigureItem={openInsertEditor}
                 />
               ) : editorStep === "captions" ? (
                 /* Step 3: Captions & Subtitles Studio */

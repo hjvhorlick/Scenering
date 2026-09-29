@@ -8,10 +8,10 @@ import { useSeededSeries } from "../hooks";
  * strip all paint on first sight, and the real renderer carries the whole
  * effect catalogue with it.
  *
- * - `dots` (the default for voice) is the website's CSS echo of **Minimal
- *   Talking Dots**, the visualiser the Voiceover step now draws live: four
- *   glossy spheres in the renderer's own colours that stretch into pills while
- *   the voice speaks. The heavy, real version of exactly this is rendered
+ * - `dots` (the default for voice) is the website's CSS echo of **Talking Dot
+ *   Wave**, the visualiser the Voiceover step now draws live: twenty varied,
+ *   colour-blended dots that stretch to different lengths with the frequency
+ *   bands. The heavy, real version of exactly this is rendered
  *   further down the page by `RealVisualiser`.
  * - `bars` is the older silhouette, kept for the places that are showing a
  *   *clip* of audio rather than a visualiser.
@@ -21,12 +21,12 @@ import { useSeededSeries } from "../hooks";
  * as decoration, and this one is standing in for real audio.
  */
 
-/**
- * The four dot colours from `render-visualizers.ts` (`case "minimal_voice"`),
- * with the renderer's default primary. `tests/marketing.test.ts` checks they
- * still agree.
- */
-export const TALKING_DOT_COLORS = ["#38bdf8", "#ef4444", "#f59e0b", "#10b981"];
+/** A lightweight 20-dot echo of the renderer's editable Synthwave palette. */
+const TALKING_DOT_PALETTE = ["#f472b6", "#2dd4bf", "#fde68a", "#a78bfa", "#38bdf8"];
+export const TALKING_DOT_COLORS = Array.from(
+  { length: 20 },
+  (_, index) => TALKING_DOT_PALETTE[index % TALKING_DOT_PALETTE.length]
+);
 
 export default function Waveform({
   seed,
@@ -46,7 +46,7 @@ export default function Waveform({
   height?: number;
   /** Accessible description; omit inside an already-labelled figure. */
   label?: string;
-  /** `dots` mirrors the app's Minimal Talking Dots visualiser. */
+  /** `dots` mirrors the app's twenty-band Talking Dot Wave visualiser. */
   variant?: "bars" | "dots";
 }) {
   const series = useSeededSeries(seed, variant === "dots" ? TALKING_DOT_COLORS.length : bars, quiet ? 0.12 : 0.2, quiet ? 0.42 : 1);
@@ -62,13 +62,14 @@ export default function Waveform({
       >
         {TALKING_DOT_COLORS.map((color, index) => (
           <span
-            key={color}
+            key={index}
             className="mkt-dot"
             style={{
-              // the renderer stretches each sphere into a pill on its own beat
-              height: `${Math.round(34 + series[index] * 62)}%`,
+              // The renderer gives every band its own width and reactive length.
+              width: `${5 + (index % 4)}px`,
+              height: `${Math.round(24 + series[index] * 74)}%`,
               background: `linear-gradient(150deg, ${color} 8%, ${color} 46%, rgb(0 0 0 / 0.36))`,
-              animationDelay: live ? `${index * 0.13}s` : undefined,
+              animationDelay: live ? `${index * 0.055}s` : undefined,
             }}
           />
         ))}
