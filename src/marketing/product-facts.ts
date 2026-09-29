@@ -58,7 +58,7 @@ export const CATALOG_COUNTS = {
   musicTracks: 12,
   soundEffects: 12,
   /** src/lib/video-studio-catalog.ts → CATALOG_ITEMS.audio_visualizers */
-  visualisers: 52,
+  visualisers: 42,
   /** src/lib/video-studio-catalog.ts → SCENE_MOTIONS */
   sceneMotions: 5,
   /** src/lib/video-studio-catalog.ts → STUDIO_CATEGORIES */

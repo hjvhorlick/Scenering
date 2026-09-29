@@ -180,6 +180,24 @@ export class ClipPool {
     }
   }
 
+  /**
+   * Keep only the clips around the active scene. Long projects can contain
+   * dozens of source videos; retaining every decoder for the whole export is
+   * an avoidable way to exhaust the browser's media/GPU process.
+   */
+  retain(sceneIds: Iterable<number>): void {
+    const keep = new Set(sceneIds);
+    for (const [id, el] of this.elements) {
+      if (keep.has(id)) continue;
+      try {
+        el.pause();
+        el.removeAttribute("src");
+        el.load();
+      } catch {}
+      this.elements.delete(id);
+    }
+  }
+
   /** Pause everything; used when the preview stops. */
   pauseAll(): void {
     for (const el of this.elements.values()) {

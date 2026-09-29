@@ -1,10 +1,10 @@
 /**
  * Audio-visualiser suite.
  *
- * Covers the 52 visualisers in the catalogue — the 22 originals (13 racks, the
- * seven full-frame "immersive scenes" and the two centre-stage styles) plus the
- * 30 Pixabay-inspired looks (5 families x 6 — Bass & Speakers, Spectrum Bars,
- * Flowing Waves, 3D Grids, Circular) — and the option plumbing behind them:
+ * Covers the curated visualiser catalogue: distinctive production designs stay
+ * customer-facing while repeated bar racks, pulse rings and radial spikes keep
+ * their renderers only for backwards compatibility. Also covers the option
+ * plumbing behind them:
  * colour themes, band count, reactivity, full-width geometry, the transparent
  * overlay contract and the body/footprint maths that hit-testing and dragging
  * depend on.
@@ -16,7 +16,14 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHarness, createStubContext } from "./harness";
-import { CATALOG_ITEMS, STUDIO_CATEGORIES } from "../src/lib/video-studio-catalog";
+import {
+  CATALOG_ITEMS,
+  PIXABAY_CATALOG_ITEMS,
+  RETIRED_VISUALIZER_TYPES,
+  STUDIO_CATEGORIES,
+  VIDEO_STUDIO_CATEGORIES,
+} from "../src/lib/video-studio-catalog";
+import { createCatalogInsert } from "../src/lib/catalog-insert";
 import {
   CENTRE_VISUALIZER_TYPES,
   IMMERSIVE_VISUALIZER_TYPES,
@@ -33,6 +40,7 @@ import {
   visualizerBodyHeight,
   getVisualizerFootprint,
   renderAudioVisualizer,
+  stretchFullVideoMedia,
 } from "../src/lib/render-visualizers";
 import {
   PIXABAY_FAMILIES,
@@ -51,8 +59,10 @@ const read = (rel: string) => readFileSync(join(here, "..", rel), "utf8");
 const VISUALISERS = CATALOG_ITEMS.audio_visualizers;
 
 function makeInsert(type: string, overrides: Partial<TimelineInsert> = {}): TimelineInsert {
-  const source = VISUALISERS.find((v) => v.type === type);
-  if (!source) throw new Error(`no catalogue entry for visualiser type ${type}`);
+  const source =
+    VISUALISERS.find((v) => v.type === type) ||
+    PIXABAY_CATALOG_ITEMS.find((v) => v.type === type);
+  if (!source) throw new Error(`no catalogue or legacy entry for visualiser type ${type}`);
   return {
     id: `test-${type}`,
     category: "audio_visualizers",
@@ -74,7 +84,18 @@ function makeInsert(type: string, overrides: Partial<TimelineInsert> = {}): Time
 }
 
 // ------------------------------------------------------------------ catalogue
-h.ok(VISUALISERS.length === 52, `expected 52 visualisers, got ${VISUALISERS.length}`);
+h.eq(VISUALISERS.length, 42, `curated catalogue contains 42 distinct visualisers`);
+h.eq(RETIRED_VISUALIZER_TYPES.length, 10, "ten visually repeated designs are retired from the picker");
+for (const type of RETIRED_VISUALIZER_TYPES) {
+  h.ok(!VISUALISERS.some((item) => item.type === type), `${type} is not offered as a duplicate card`);
+}
+h.eq(VISUALISERS[0]?.type, "audio_orb", "the catalogue still begins with its centrepiece ring");
+h.eq(VISUALISERS[1]?.type, "spectrum", "the duplicate second ring is gone; a distinct rack follows");
+h.ok(VISUALISERS.some((item) => item.type === "glow_pills"), "Glow Pills remains in the curated catalogue");
+h.ok(
+  !(RETIRED_VISUALIZER_TYPES as readonly string[]).includes("glow_pills"),
+  "Glow Pills is never treated as a repeated design"
+);
 
 const bySub = new Map<string, number>();
 const seenTypes = new Set<string>();
@@ -99,24 +120,32 @@ for (const v of VISUALISERS) {
   }
 }
 
-h.eq(bySub.get("immersive") || 0, 7, `immersive scene count (${bySub.get("immersive")})`);
-h.eq(bySub.get("centre") || 0, 2, `centre stage count (${bySub.get("centre")})`);
-h.eq(
-  bySub.get("waves") || 0,
-  9,
-  `audio waves & bars count (${bySub.get("waves")})`
-);
-h.eq(bySub.get("speech") || 0, 4, `speech reactive count (${bySub.get("speech")})`);
-// one sub-category per Pixabay family, six looks each
+h.eq(bySub.get("immersive") || 0, 6, `six non-repeating immersive scenes`);
+h.eq(bySub.get("centre") || 0, 1, `one distinctive centre-stage ring`);
+h.eq(bySub.get("waves") || 0, 8, `eight distinct audio waves and bar racks`);
+h.eq(bySub.get("speech") || 0, 3, `three distinct speech-reactive designs`);
+const curatedPixabayCounts: Record<string, number> = {
+  bass: 6,
+  spectrum: 3,
+  flow: 6,
+  grid: 6,
+  circular: 3,
+};
 for (const family of PIXABAY_FAMILIES) {
-  h.eq(bySub.get(family.id) || 0, 6, `${family.name} offers six looks (${bySub.get(family.id)})`);
+  h.eq(
+    bySub.get(family.id) || 0,
+    curatedPixabayCounts[family.id],
+    `${family.name} exposes only its distinct silhouettes`
+  );
 }
 
-// every immersive type in the code has a catalogue card
+// Every immersive renderer is either a distinctive card or an explicitly
+// retired legacy design—nothing disappears accidentally from old projects.
 for (const type of IMMERSIVE_VISUALIZER_TYPES) {
   h.ok(
-    VISUALISERS.some((v) => v.type === type),
-    `immersive type ${type} is offered in the studio`
+    VISUALISERS.some((v) => v.type === type) ||
+      (RETIRED_VISUALIZER_TYPES as readonly string[]).includes(type),
+    `immersive type ${type} is offered or intentionally retired`
   );
 }
 
@@ -318,7 +347,8 @@ for (const v of VISUALISERS) {
 }
 
 // The spoken-word scenes react to the voice bus rather than the music bus.
-for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
+const speechVisualisers = VISUALISERS.filter((x) => x.subCategory === "speech");
+for (const v of speechVisualisers) {
   const item = makeInsert(v.type, { audioSource: "voice" });
   const { ctx } = createStubContext(1280, 720);
   renderAudioVisualizer({
@@ -334,12 +364,48 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
   h.ok(true, `${v.type} renders from the voice bus`);
 }
 
+// All four Voiceover-picker styles must change with real analyser data. Rings
+// and talking dots once moved only to their internal sample clock, which made a
+// "live" preview look disconnected from the words being spoken.
+for (const v of speechVisualisers) {
+  const drawAtLevel = (level: number) => {
+    const value = Math.round(level * 255);
+    const item = makeInsert(v.type, {
+      id: `live-${v.type}-${value}`,
+      audioSource: "voice",
+    });
+    const frame = {
+      voice: {
+        level,
+        freq: new Uint8Array(256).fill(value),
+        wave: new Uint8Array(512).fill(128 + Math.round(level * 80)),
+      },
+      music: { level: 0, freq: null, wave: null },
+    };
+    const { ctx, opsWithArgs } = createStubContext(1280, 720);
+    renderAudioVisualizer({
+      ctx,
+      item,
+      x: 640,
+      y: 576,
+      canvasWidth: 1280,
+      canvasHeight: 720,
+      elapsed: 2.1,
+      frame,
+    });
+    return opsWithArgs.join("|");
+  };
+  const quiet = drawAtLevel(0.08);
+  const loud = drawAtLevel(0.82);
+  h.ok(quiet !== loud, `${v.type} visibly reacts to quiet versus loud narration`);
+}
+
 // ------------------------------------------------------------------ centre stage
-// The two centrepiece styles (the audio orb and the orbit disc) are built around
-// the middle of the frame and can carry the user's own logo there.
+// One strongest centrepiece remains: the Audio Orb is built around the middle
+// of the frame and can carry the user's own logo there.
 {
   const centreItems = VISUALISERS.filter((v) => v.subCategory === "centre");
-  h.eq(centreItems.length, 2, "two centre-stage visualisers are offered");
+  h.eq(centreItems.length, 1, "one non-duplicated centre-stage visualiser is offered");
   for (const v of centreItems) {
     h.ok(
       (CENTRE_VISUALIZER_TYPES as readonly string[]).includes(v.type),
@@ -438,10 +504,10 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
 
   // Round badges can carry the logo too — but only when asked (old projects are
   // untouched), and never on the rack styles.
-  h.eq(wantsCentreLogo(makeInsert("circular_wave")), false, "a circular analyser stays clean by default");
+  h.eq(wantsCentreLogo(makeInsert("px_ring_bars")), false, "a circular analyser stays clean by default");
   h.eq(
     wantsCentreLogo(
-      makeInsert("circular_wave", { visualOptions: { centreLogo: true } })
+      makeInsert("px_ring_bars", { visualOptions: { centreLogo: true } })
     ),
     true,
     "a circular analyser can show the logo when asked"
@@ -468,8 +534,10 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
 
 // ------------------------------------------------------------------ Pixabay families
 /**
- * The 30 Pixabay-inspired looks. Pixabay's free library sorted by likes keeps
- * repeating the same five ideas, so those are the families that were rebuilt:
+ * All 30 Pixabay-inspired renderers stay available for existing projects, while
+ * the customer catalogue removes six that repeat stronger built-in designs.
+ * Pixabay's free library sorted by likes keeps repeating the same five ideas:
+
  * a speaker with EQ bars (559 likes, 82,200 downloads, Editor's Choice), bars
  * with peak caps (390/341), flowing ribbons (334/200), 3D grids (293/219) and
  * circular analysers (341). Two things every one of them must keep:
@@ -500,11 +568,13 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
     h.ok(familyLikes(family) > 700, `${family.id} is built from well-liked clips (${familyLikes(family)} likes)`);
   }
 
-  // every style has a card, and the card carries the researched defaults
+  // Every style still has a renderer; only visually repeated styles lose their
+  // customer-facing card. Distinct cards retain all researched defaults.
   for (const family of PIXABAY_FAMILIES) {
     for (const style of family.styles) {
       const card = VISUALISERS.find((v) => v.type === style.id);
-      h.ok(Boolean(card), `${style.id} has a studio card`);
+      const retired = (RETIRED_VISUALIZER_TYPES as readonly string[]).includes(style.id);
+      h.ok(Boolean(card) !== retired, `${style.id} is either a distinct card or explicitly retired`);
       if (!card) continue;
       h.eq(card.subCategory, family.id, `${style.id} is filed under ${family.id}`);
       h.eq(card.defaultSize, style.size, `${style.id} keeps its researched size`);
@@ -749,14 +819,36 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
   );
 }
 
+// The remaining centre ring uses real filled bars that begin at one thin zero
+// line; it must not regress to stroked spokes under different names.
+{
+  const renderer = read("src/lib/render-visualizers.ts");
+  const radialHelper = renderer.slice(
+    renderer.indexOf("function drawRadialBarSpectrum"),
+    renderer.indexOf("/* ================================================================== *", renderer.indexOf("function drawRadialBarSpectrum"))
+  );
+  const audioOrb = renderer.slice(
+    renderer.indexOf('case "audio_orb"'),
+    renderer.indexOf('case "orbit_disc"')
+  );
+  h.ok(
+    radialHelper.includes("roundRectPath") && radialHelper.includes("ringRadius + ringWidth") &&
+      radialHelper.includes("ctx.fill()"),
+    "radial frequencies are filled rounded bars growing outward from the ring"
+  );
+  h.ok(
+    audioOrb.includes("drawRadialBarSpectrum(") && audioOrb.includes("mirroredValues"),
+    "Centre Audio Orb uses the true radial bar rack"
+  );
+}
+
 /* ---------------------------------------------------------------------
  * The live voice monitor
  *
- * The Voiceover step draws the narration while you listen to it. Three things
- * have to stay true for that panel to be honest: it must use the render engine
- * rather than a drawing of one, it must only ever move when real audio has
- * reached the analyser, and the voice player must leave its audio completely
- * alone until something is actually watching.
+ * The Voiceover step always shows a useful sample and switches to narration
+ * while readable audio is playing. The sample and live states must both use
+ * the render engine, must be labelled honestly, and the voice player must
+ * leave its audio alone until something is actually watching.
  * ------------------------------------------------------------------- */
 {
   const monitor = read("src/components/LiveVoiceVisualizer.tsx");
@@ -773,12 +865,15 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
     "…driven by the live analyser"
   );
   h.ok(
-    monitor.includes("if (!signal) return;"),
-    "with no signal to read, the monitor holds still instead of inventing movement"
+    monitor.includes("signal ? { voice: bus, music: EMPTY_BUS } : null") &&
+      !monitor.includes("if (!signal) return;"),
+    "without readable audio, the monitor sends the render engine its sample bus instead of going blank"
   );
   h.ok(
-    monitor.includes("No signal to read from this voice"),
-    "…and says why"
+    monitor.includes("Animated style sample · Plays with the narration") &&
+      monitor.includes("Style sample · No signal to read from this voice") &&
+      monitor.includes("Live narration · same engine as render"),
+    "sample and real narration states are labelled honestly"
   );
   h.ok(
     studio.includes("tapVoiceElement(audioRef.current)"),
@@ -794,6 +889,14 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
     "a voice with no echo and nobody watching is played exactly as before — no Web Audio at all"
   );
   h.ok(
+    player.includes("prepareVoiceMonitor();") && lib.includes("export function prepareVoiceMonitor"),
+    "the analyser is resumed inside the play-button gesture, before the asynchronous TTS fetch"
+  );
+  h.ok(
+    player.includes('res.headers.get("X-TTS-Source") === "silent"'),
+    "a silent server placeholder falls back to an audible browser preview instead of looking broken"
+  );
+  h.ok(
     lib.includes("source.connect(getEchoAudioContext().destination)"),
     "if the tap cannot be attached the voice is put back on the speakers"
   );
@@ -801,14 +904,14 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
   // The styles offered are real catalogue entries, and the default is the one
   // the website shows.
   const speech = (CATALOG_ITEMS.audio_visualizers || []).filter((i) => i.subCategory === "speech");
-  h.ok(speech.length >= 4, "there are voice-shaped visualisers to offer");
+  h.eq(speech.length, 3, "three visually distinct voice-shaped visualisers are offered");
   h.ok(
     monitor.includes('subCategory === "speech"'),
     "the picker is the catalogue's own speech family, not a hand-written list"
   );
   h.ok(
     monitor.includes('DEFAULT_VOICE_VISUALIZER = "minimal_voice"'),
-    "it opens on Minimal Talking Dots — the visualiser the website shows"
+    "it opens on Talking Dot Wave — the visualiser the website shows"
   );
   h.ok(
     Boolean(speech.find((i) => i.type === "minimal_voice")),
@@ -819,26 +922,118 @@ for (const v of VISUALISERS.filter((x) => x.subCategory === "speech")) {
     "the Voiceover step shows it, live while anything on the page is playing"
   );
   h.ok(
-    studio.includes("opt-btn") && studio.includes("saveVoiceVisualizerChoice"),
-    "the style picker follows the studio's option-button convention and is remembered"
+    studio.includes("<VisualizerLibrary") &&
+      studio.includes("saveVoiceVisualizerChoice(type)") &&
+      studio.includes('id="voice-visualizer-preview"'),
+    "the full visualiser library targets the preview and remembers the chosen style"
   );
 
-  // The four dot colours the website echoes in CSS must be the renderer's own.
+  // Talking Dot Wave is a genuine 20-band visualiser: editable palette colours,
+  // varied widths and per-band lengths rather than four canned bounces.
   const renderer = read("src/lib/render-visualizers.ts");
   const dots = renderer.slice(renderer.indexOf('case "minimal_voice"'));
-  const colours = dots.slice(0, 260).match(/#[0-9a-f]{6}/g) || [];
-  for (const colour of ["#ef4444", "#f59e0b", "#10b981"]) {
-    h.ok(colours.includes(colour), `Minimal Talking Dots still uses ${colour}`);
-  }
+  h.ok(
+    dots.includes("const count = 20") && dots.includes("getBars(key, count") &&
+      dots.includes("widthVariation") && dots.includes("Math.pow(v, 0.78) * reach"),
+    "Talking Dot Wave draws twenty differently sized, audio-reactive bands"
+  );
+  h.ok(
+    dots.includes("mixColors(primary, secondary") && dots.includes("mixColors(accent, primary"),
+    "Talking Dot Wave follows the editable primary, secondary and accent colours"
+  );
   const marketingDots = read("src/marketing/components/Waveform.tsx");
   h.ok(
-    marketingDots.includes('["#38bdf8", "#ef4444", "#f59e0b", "#10b981"]'),
-    "the website's lightweight echo of the dots uses the renderer's colours"
+    marketingDots.includes("{ length: 20 }") && marketingDots.includes("width: `${5 + (index % 4)}px`"),
+    "the website's lightweight echo also shows twenty varied dots"
+  );
+}
+
+/* ---------------------------------------------------------------------
+ * Voiceover media libraries
+ * ------------------------------------------------------------------- */
+{
+  const voiceStudio = read("src/components/VoiceoverStudio.tsx");
+  const mediaLibrary = read("src/components/VoiceMediaLibrary.tsx");
+  const videoStudio = read("src/components/VideoStudio.tsx");
+
+  h.eq(CATALOG_ITEMS.background_music.length, 12, "all 12 background tracks remain in the catalogue");
+  h.ok(
+    STUDIO_CATEGORIES.some(({ id }) => id === "audio_visualizers") &&
+      STUDIO_CATEGORIES.some(({ id }) => id === "background_music"),
+    "relocated media retains its shared catalogue metadata"
   );
   h.ok(
-    read("src/lib/visualizer-palettes.ts").includes('"#38bdf8"'),
-    "…including the renderer's default primary"
+    !VIDEO_STUDIO_CATEGORIES.some(({ id }) => id === "audio_visualizers") &&
+      !VIDEO_STUDIO_CATEGORIES.some(({ id }) => id === "background_music") &&
+      videoStudio.includes("VIDEO_STUDIO_CATEGORIES.map"),
+    "Video Studio's rendered tabs omit the two Voiceover media libraries"
   );
+  h.ok(
+    mediaLibrary.includes("CATALOG_ITEMS.audio_visualizers") &&
+      mediaLibrary.includes("CATALOG_ITEMS.background_music"),
+    "Voiceover reads every visualiser and music card from the canonical catalogue"
+  );
+  h.ok(
+    mediaLibrary.includes("items.slice(0, COLLAPSED_ROW_SIZE)") &&
+      mediaLibrary.includes("Show all ${total}") &&
+      mediaLibrary.includes('expanded ? "Hide"') &&
+      !mediaLibrary.includes("LibraryFooter"),
+    "both libraries begin with one responsive row and keep Show all / Hide controls at the top"
+  );
+  h.ok(
+    voiceStudio.indexOf("aria-expanded={showAllVisualizers}") <
+      voiceStudio.indexOf("<VisualizerLibrary") &&
+      mediaLibrary.indexOf("<LibraryToggle", mediaLibrary.indexOf("BackgroundMusicLibrary")) <
+        mediaLibrary.indexOf('className="grid grid-cols-1', mediaLibrary.indexOf("BackgroundMusicLibrary")),
+    "the visualiser and music toggles are reachable before their card grids"
+  );
+  h.ok(
+    !mediaLibrary.includes("aspect-video") && !mediaLibrary.includes("animationDelay"),
+    "music cards no longer reserve space for decorative waveform images"
+  );
+  const visualCard = read("src/components/EffectVisualPreview.tsx");
+  h.ok(
+    visualCard.includes("Still · same engine as render") &&
+      !visualCard.includes("startPreviewLoop") &&
+      !visualCard.includes("requestAnimationFrame"),
+    "visualiser cards use still production-renderer examples instead of dozens of animation loops"
+  );
+  h.ok(
+    !mediaLibrary.includes("overflow-y-auto") && !mediaLibrary.includes("max-h-"),
+    "expanded libraries grow in normal page flow rather than using an internal scroller"
+  );
+  h.ok(
+    voiceStudio.indexOf("<VisualizerLibrary") < voiceStudio.indexOf("<BackgroundMusicLibrary") &&
+      voiceStudio.indexOf("<BackgroundMusicLibrary") < voiceStudio.indexOf("Voice tools tabs"),
+    "Background Music sits immediately after the visualiser window in Voiceover"
+  );
+
+  const musicCard = CATALOG_ITEMS.background_music[0];
+  const fullVideoMusic = createCatalogInsert(musicCard, {
+    totalDuration: 94,
+    forceFullVideo: true,
+    volume: 0.35,
+  });
+  h.eq(fullVideoMusic.startTime, 0, "Voiceover music starts at frame zero");
+  h.eq(fullVideoMusic.duration, 94, "Voiceover music initially spans the complete video");
+  h.eq(fullVideoMusic.scope, "entire_video", "Voiceover music carries the entire-video audio scope");
+  h.eq(fullVideoMusic.audioSettings?.volume, 0.35, "the card volume reaches the timeline insert");
+  h.eq(fullVideoMusic.audioSettings?.loop, true, "background music loops throughout the video");
+
+  const visualizerCard = CATALOG_ITEMS.audio_visualizers[0];
+  const fullVideoVisualizer = createCatalogInsert(visualizerCard, {
+    totalDuration: 94,
+    forceFullVideo: true,
+  });
+  const stretched = stretchFullVideoMedia(
+    [
+      { ...fullVideoMusic, duration: 10 },
+      { ...fullVideoVisualizer, duration: 10 },
+    ],
+    137
+  );
+  h.eq(stretched[0].duration, 137, "whole-video music follows later duration changes");
+  h.eq(stretched[1].duration, 137, "whole-video visualisers follow later duration changes");
 }
 
 h.done("visualizers");

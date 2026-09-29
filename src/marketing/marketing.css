@@ -79,9 +79,10 @@
 }
 
 /* ---- standalone reset ----
-   Tailwind's preflight travels with the studio chunk, so the website brings
-   the handful of resets it actually depends on. Keeping them scoped to
-   [data-mkt] / .mkt-root means nothing here can reach the studio. */
+   The studio chunk is prepared beside this page and can bring Tailwind's
+   preflight in at any moment. The website therefore owns the handful of
+   resets it depends on at higher, scoped specificity. Keeping them inside
+   [data-mkt] / .mkt-root also means nothing here can reach the studio. */
 html[data-mkt="1"] {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
@@ -931,15 +932,15 @@ html[data-mkt="1"][data-theme] body {
 }
 
 /* ---- talking dots ----
-   The CSS echo of the app's Minimal Talking Dots visualiser: four glossy
-   spheres that stretch into pills while the voice speaks. The real renderer
-   draws the same thing, on a canvas, further down the page. */
+   The CSS echo of the app's Talking Dot Wave: twenty varied glossy bands that
+   stretch into different-length pills while the voice speaks. The real
+   renderer draws the same thing, on a canvas, further down the page. */
 
 .mkt-dots {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 3px;
   height: 30px;
   width: 100%;
   min-width: 0;
@@ -947,8 +948,8 @@ html[data-mkt="1"][data-theme] body {
 
 .mkt-dot {
   position: relative;
-  width: 9px;
-  min-height: 9px;
+  width: 6px;
+  min-height: 6px;
   border-radius: 999px;
   box-shadow:
     0 2px 5px rgb(15 18 30 / 0.4),
@@ -960,10 +961,10 @@ html[data-mkt="1"][data-theme] body {
 .mkt-dot::after {
   content: "";
   position: absolute;
-  left: 2px;
-  top: 2px;
-  width: 3.5px;
-  height: 3.5px;
+  left: 1.5px;
+  top: 1.5px;
+  width: 2px;
+  height: 2px;
   border-radius: 999px;
   background: rgb(255 255 255 / 0.8);
 }

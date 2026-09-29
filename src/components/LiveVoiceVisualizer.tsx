@@ -21,10 +21,12 @@ import Icon from "./icons/Icon";
  * auditioning a line is what the same visualiser puts on the video, which is
  * why the picker below it is the real catalogue rather than a list of names.
  *
- * Honesty: server voices go through Web Audio and can be measured, so the
- * badge says "Live". Browser speech-synthesis voices expose no audio node at
- * all — nothing in any browser can read them — so the panel says so and keeps
- * still rather than inventing movement.
+ * Server voices go through Web Audio and can be measured, so the badge says
+ * "Live" while one is playing. The panel still needs to be useful before the
+ * first line is played (and when a browser speech-synthesis voice exposes no
+ * readable audio node), so in that state it runs the render engine's built-in
+ * deterministic speech sample. The badge calls that state "Sample" — it never
+ * pretends that generated sample data came from the narration.
  */
 
 /** The voice-shaped visualisers, in catalogue order. */
@@ -55,6 +57,7 @@ export default function LiveVoiceVisualizer({
   playing,
   height = 92,
   className = "",
+  id,
 }: {
   /** Which visualiser to draw — a real `audio_visualizers` catalogue type. */
   type?: string;
@@ -62,6 +65,8 @@ export default function LiveVoiceVisualizer({
   playing: boolean;
   height?: number;
   className?: string;
+  /** Optional accessible target for the style-picker buttons. */
+  id?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [live, setLive] = useState(false);
@@ -135,28 +140,28 @@ export default function LiveVoiceVisualizer({
       const h = canvas.height;
       paintStage(w, h);
 
-      if (!playing) return;
-
-      const bus = readVoiceBus();
-      const signal = hasVoiceSignal();
+      // Prefer the real analyser whenever it has a readable voice. Browser
+      // speech synthesis deliberately exposes no audio node, and a server can
+      // temporarily return a silent placeholder. In either case, draw the
+      // renderer's own deterministic *sample* bus instead of leaving a blank
+      // panel. That is the same fallback used by the Video Studio catalogue.
+      const bus = playing ? readVoiceBus() : EMPTY_BUS;
+      const signal = playing && hasVoiceSignal();
       if (signal !== wasLive) {
         wasLive = signal;
         setLive(signal);
       }
 
-      // With a real signal the visualiser is driven by the voice. Without one
-      // (browser speech synthesis) there is nothing to draw, so nothing moves.
-      if (!signal) return;
-
-      const frame: AudioFrame = { voice: bus, music: EMPTY_BUS };
+      const frame: AudioFrame | null = signal ? { voice: bus, music: EMPTY_BUS } : null;
+      const elapsed = 0.4 + ((now - startedAt) / 1000) % 12;
       renderTimelineInsert(
         ctx,
         insert,
-        (now - startedAt) / 1000,
+        elapsed,
         w,
         h,
-        Math.max(0.05, bus.level),
-        bus.freq,
+        signal ? Math.max(0.05, bus.level) : 0,
+        signal ? bus.freq : null,
         frame
       );
     };
@@ -168,29 +173,36 @@ export default function LiveVoiceVisualizer({
 
   return (
     <div
+      id={id}
       className={`relative rounded-xl overflow-hidden border border-hairline bg-gray-950 shadow-inner ${className}`}
       style={{ height }}
+      aria-label={`${item.name} ${live ? "live narration" : "animated style sample"}`}
     >
       <canvas ref={canvasRef} width={768} height={220} className="w-full h-full object-cover" />
 
       <div className="absolute top-1.5 left-2 flex items-center gap-1.5">
-        <span className="text-[10px] font-medium text-gray-300/90 bg-black/40 rounded-md px-1.5 py-0.5 backdrop-blur-sm">
+        <span className="text-[10px] font-medium text-gray-300/90 bg-black/60 rounded-md px-1.5 py-0.5 backdrop-blur-sm">
           <Icon glyph={item.icon} /> {item.name}
         </span>
       </div>
 
-      <div className="absolute bottom-1.5 right-2 flex items-center gap-1.5">
-        {playing && live ? (
+      <div className="absolute bottom-1.5 right-2 flex items-center gap-1.5 rounded-md bg-black/60 px-1.5 py-0.5 backdrop-blur-sm">
+        {live ? (
           <>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-            <span className="text-[9px] font-mono text-gray-400 uppercase tracking-wider">
-              Live · same engine as render
+            <span className="text-[9px] font-mono text-gray-300 uppercase tracking-wider">
+              Live narration · same engine as render
             </span>
           </>
         ) : (
-          <span className="text-[9px] font-mono text-gray-500 uppercase tracking-wider">
-            {playing ? "No signal to read from this voice" : "Plays with the narration"}
-          </span>
+          <>
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+            <span className="text-[9px] font-mono text-gray-300 uppercase tracking-wider">
+              {playing
+                ? "Style sample · No signal to read from this voice"
+                : "Animated style sample · Plays with the narration"}
+            </span>
+          </>
         )}
       </div>
     </div>

@@ -711,7 +711,22 @@ export function describeRenderFailure(rawMessage: string): RenderFailureReport {
       canAutoRetry: true,
     };
   }
-  if (lower.includes("memory") || lower.includes("alloc") || lower.includes("quota")) {
+  if (
+    lower.includes("quota") ||
+    lower.includes("browser storage") ||
+    lower.includes("storage filled") ||
+    lower.includes("disk full")
+  ) {
+    return {
+      title: "Not enough browser storage for this render",
+      explanation:
+        "Scenering stopped before the final file could fill the browser's protected disk space. The project is unchanged and no partial video was presented as complete.",
+      retryHint: "Free browser/site storage, or let Scenering retry at 720p Standard quality to create a smaller file.",
+      technical: raw,
+      canAutoRetry: true,
+    };
+  }
+  if (lower.includes("memory") || lower.includes("alloc")) {
     return {
       title: "The browser ran out of memory",
       explanation: "The render needed more memory than the browser would give it — long videos at high resolutions are the usual cause.",
@@ -762,7 +777,7 @@ export function buildCompatibilityFallback(current: {
   if (resolveFrameRate(current.fps) !== 30) changes.push(`Frame rate reset to 30 fps CFR (was ${resolveFrameRate(current.fps)})`);
   if (current.quality === "custom") changes.push("Custom encoding values replaced by the High preset");
 
-  const memoryPressure = failure ? /memory/i.test(failure.title) : false;
+  const memoryPressure = failure ? /memory|storage/i.test(failure.title) : false;
   if (memoryPressure && current.resolution !== "720p") {
     patch.resolution = "720p";
     patch.quality = "standard";

@@ -56,6 +56,25 @@ export function voiceMonitorWanted(): boolean {
 }
 
 /**
+ * Create/resume the monitor while the user's click is still an active browser
+ * gesture. Voice files are fetched asynchronously; waiting until that fetch is
+ * finished before touching AudioContext can make Chromium reject `resume()`
+ * and leave an otherwise valid analyser silent.
+ */
+export function prepareVoiceMonitor(): boolean {
+  if (!voiceMonitorWanted()) return false;
+  const node = getVoiceAnalyser();
+  if (!node) return false;
+  try {
+    const ctx = getEchoAudioContext();
+    if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The shared analyser, created on the same AudioContext the voice echo uses so
  * a voice is never split across two contexts. Returns null where Web Audio is
  * unavailable.

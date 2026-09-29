@@ -13,8 +13,9 @@
  *   4. 3D Grids — cube waves, city skylines and wire tunnels (293 / 219 likes).
  *   5. Circular — radial spectrums, sunbursts and halo rings (341 likes).
  *
- * Each family ships six looks, so the studio gains 30 visualisers, filed under
- * their own sub-category each so the catalogue stays readable.
+ * Each family keeps six renderers for old projects (30 total). The customer
+ * catalogue curates out repeated silhouettes and files the distinct looks under
+ * their family sub-category.
  *
  * Two things every style here shares, both deliberate:
  *

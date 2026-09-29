@@ -279,6 +279,19 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     "src/marketing/sections/IdeaToVideo.tsx",
     new Set(["case", "return", "studio"]),
   ],
+  [
+    // The sentence still reads "pick the new destination". Moving the render
+    // result controls around the expanded health dashboard changes the tag
+    // span harvested by prose(), so this one unchanged word falls out of the
+    // extractor even though it remains visible at the bottom of RenderView.
+    "src/components/RenderView.tsx",
+    // "vault" / "waiting" were previously used by a success status before
+    // the IndexedDB transaction was verified. The new status only says Vault
+    // when a durable read-back succeeded; on failure it truthfully asks for a
+    // download. The remaining tokens are progress-bar CSS classes prose()
+    // mistakes for words after the dashboard moved that bar into new markup.
+    new Set(["new", "vault", "waiting", "overflow-hidden", "w-", "h-", "rounded-full"]),
+  ],
 ]);
 
 let guarded = 0;

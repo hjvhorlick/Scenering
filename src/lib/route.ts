@@ -9,9 +9,9 @@ import { useEffect, useState } from "react";
  *            the real workflow (src/marketing/**)
  *   /app     the studio itself — the application (src/App.tsx)
  *
- * Both are lazy-loaded in main.tsx, so a visitor reading the website never
- * downloads the renderer, and someone opening the studio never downloads the
- * marketing artwork.
+ * They remain separate render surfaces, but main.tsx starts both downloads on
+ * the public page. The website stays in front while the studio is prepared in
+ * the background, making the hand-off after sign-in immediate.
  *
  * There is deliberately no router dependency: the site is a single scrolling
  * page, so "routing" is one path check plus a popstate listener.

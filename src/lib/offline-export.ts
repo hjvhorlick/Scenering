@@ -1,6 +1,13 @@
 import { Muxer as Mp4Muxer, StreamTarget as Mp4Target } from "mp4-muxer";
 import { Muxer as WebMMuxer, StreamTarget as WebMTarget } from "webm-muxer";
 import { createFrameBudget, yieldToBrowser } from "./yield-to-browser";
+import {
+  createOpfsOutputStore,
+  estimateMuxedOutputBytes,
+  RenderStorageCapacityError,
+  type RenderOutputStorageMode,
+  type RenderOutputStore,
+} from "./render-output-store";
 
 export type OfflineContainer = "mp4" | "webm";
 
@@ -243,6 +250,27 @@ export class ChunkStore {
     this.parts = [];
     return blob;
   }
+
+  clear(): void {
+    this.parts = [];
+    this.size = 0;
+  }
+}
+
+/** Memory fallback for browsers without OPFS. Long Chromium renders use the
+ * disk-backed store below; this adapter preserves compatibility elsewhere. */
+class MemoryOutputStore implements RenderOutputStore {
+  readonly mode = "memory" as const;
+  private readonly chunks = new ChunkStore();
+
+  get byteLength(): number { return this.chunks.byteLength; }
+  get pendingBytes(): number { return 0; }
+  write(data: Uint8Array, position: number): void { this.chunks.write(data, position); }
+  async flush(): Promise<void> {}
+  async toBlob(type: string): Promise<Blob> { return this.chunks.toBlob(type); }
+  async dispose(): Promise<void> {
+    this.chunks.clear();
+  }
 }
 
 type MuxerLike = {
@@ -258,14 +286,26 @@ export class OfflineExporter {
   private readonly video: VideoEncoder;
   private readonly audio: AudioEncoder;
   private readonly muxer: MuxerLike;
-  private readonly store = new ChunkStore();
+  private readonly store: RenderOutputStore;
   private readonly mime: string;
   private failure: Error | null = null;
+  /** Where the growing muxed file lives during the encode. */
+  readonly outputStorage: RenderOutputStorageMode;
+  /** Human-readable detail shown in the render health panel/report. */
+  readonly outputStorageDetail: string;
 
-  private constructor(config: OfflineExportConfig, probe: OfflineSupport & { videoCodec: string; audioCodec: string }) {
+  private constructor(
+    config: OfflineExportConfig,
+    probe: OfflineSupport & { videoCodec: string; audioCodec: string },
+    store: RenderOutputStore,
+    outputStorageDetail: string,
+  ) {
     const api = browserCodecs();
     if (!api) throw new Error("WebCodecs disappeared after capability probing");
     this.config = { ...config, sampleRate: config.sampleRate ?? 48_000, channels: config.channels ?? 2 };
+    this.store = store;
+    this.outputStorage = store.mode;
+    this.outputStorageDetail = outputStorageDetail;
     const fail = (error: DOMException) => { this.failure = new Error(error.message || "WebCodecs encoding failed"); };
 
     const onData = (data: Uint8Array, position: number) => this.store.write(data, position);
@@ -313,7 +353,38 @@ export class OfflineExporter {
   static async create(config: OfflineExportConfig): Promise<OfflineExporter> {
     const probe = await supported(config);
     if (!probe.supported || !probe.videoCodec || !probe.audioCodec) throw new Error(probe.reason || "Offline export is unsupported");
-    return new OfflineExporter(config, { ...probe, videoCodec: probe.videoCodec, audioCodec: probe.audioCodec });
+
+    let store: RenderOutputStore = new MemoryOutputStore();
+    let storageDetail = "Compatibility memory store (OPFS unavailable)";
+    try {
+      const expectedBytes = estimateMuxedOutputBytes(config);
+      const opfs = await createOpfsOutputStore(expectedBytes);
+      if (opfs) {
+        store = opfs.store;
+        storageDetail = opfs.persistent
+          ? "Protected disk stream (persistent OPFS)"
+          : "Protected disk stream (temporary OPFS)";
+      }
+    } catch (error) {
+      // A real capacity failure is actionable and must stop before the costly
+      // encode. Other OPFS failures fall back for browser compatibility.
+      if (error instanceof RenderStorageCapacityError) throw error;
+      storageDetail = `Compatibility memory store (disk stream unavailable: ${
+        error instanceof Error ? error.message : String(error)
+      })`;
+    }
+
+    try {
+      return new OfflineExporter(
+        config,
+        { ...probe, videoCodec: probe.videoCodec, audioCodec: probe.audioCodec },
+        store,
+        storageDetail,
+      );
+    } catch (error) {
+      void store.dispose();
+      throw error;
+    }
   }
 
   private throwIfFailed(): void { if (this.failure) throw this.failure; }
@@ -321,8 +392,12 @@ export class OfflineExporter {
   async encodeCanvas(canvas: HTMLCanvasElement, frameIndex: number): Promise<void> {
     while (this.video.encodeQueueSize > 6) {
       this.throwIfFailed();
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await yieldToBrowser();
     }
+    // The muxer callback is synchronous while OPFS is asynchronous. Bound its
+    // queued copies so encode speed can never outrun disk for the length of a
+    // nine- or fifteen-minute video.
+    if (this.store.pendingBytes > 16 * 1024 * 1024) await this.store.flush();
     const timestamp = Math.round(frameIndex * 1_000_000 / this.config.fps);
     const next = Math.round((frameIndex + 1) * 1_000_000 / this.config.fps);
     const frame = new VideoFrame(canvas, { timestamp, duration: next - timestamp });
@@ -359,6 +434,7 @@ export class OfflineExporter {
         this.throwIfFailed();
         await yieldToBrowser();
       }
+      if (this.store.pendingBytes > 16 * 1024 * 1024) await this.store.flush();
       await budget.maybeYield();
       onProgress?.(Math.min(1, offset / Math.max(1, buffer.length)));
       const frames = Math.min(chunkFrames, buffer.length - offset);
@@ -384,20 +460,35 @@ export class OfflineExporter {
     return this.store.byteLength;
   }
 
+  /** Encoded bytes copied from muxer callbacks but not yet committed to disk. */
+  get queuedOutputBytes(): number {
+    return this.store.pendingBytes;
+  }
+
   async finalize(): Promise<Blob> {
     // Both encoders still have work queued at this point; flushing is where
     // the last of the video actually gets encoded, and on a long render that
     // is not instant.
     await Promise.all([this.video.flush(), this.audio.flush()]);
     this.throwIfFailed();
+    // Encoder flush only guarantees output callbacks have run. Disk writes
+    // triggered by those callbacks are asynchronous and need their own drain.
+    await this.store.flush();
     this.video.close();
     this.audio.close();
     this.muxer.finalize();
-    return this.store.toBlob(this.mime);
+    await this.store.flush();
+    return await this.store.toBlob(this.mime);
+  }
+
+  /** Remove the OPFS staging file after the Vault has verified its own Blob. */
+  async releaseOutputStorage(): Promise<void> {
+    await this.store.dispose();
   }
 
   close(): void {
     try { if (this.video.state !== "closed") this.video.close(); } catch {}
     try { if (this.audio.state !== "closed") this.audio.close(); } catch {}
+    void this.store.dispose();
   }
 }

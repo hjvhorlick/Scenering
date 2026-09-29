@@ -98,8 +98,10 @@ export const PIXABAY_CATALOG_ITEMS: CatalogItem[] = PIXABAY_FAMILIES.flatMap((fa
   }))
 );
 
-// ---------------- 10 MAIN STUDIO CATEGORIES IN EXACT REQUIRED ORDER ----------------
-// 1. Logo, 2. Intro, 3. Outro, 4. Call to Action, 5. Stickers, 6. Text Templates, 7. Audio Visualisers, 8. Background Music, 9. Filters, 10. Sound Effects
+// ---------------- COMPLETE CREATIVE-LIBRARY CATEGORY METADATA ----------------
+// Audio Visualisers and Background Music are displayed in Voiceover, while the
+// remaining categories are displayed in Video Studio. Keep the metadata in one
+// registry: visualiser validation and catalogue facts intentionally use it.
 export interface StudioCategoryDef {
   id: InsertCategory;
   name: string;
@@ -216,6 +218,31 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
     ],
   },
 ];
+
+/** Categories that still belong in Video Studio's rendered tab bar. */
+export const VIDEO_STUDIO_CATEGORIES: StudioCategoryDef[] = STUDIO_CATEGORIES.filter(
+  ({ id }) => id !== "audio_visualizers" && id !== "background_music"
+);
+
+/**
+ * Designs retired from the picker after a visual—not name—comparison found
+ * that they repeated an existing bar rack, pulse ring or radial spike. Their
+ * renderers stay in place so that old projects using one still open and export.
+ */
+export const RETIRED_VISUALIZER_TYPES = [
+  "orbit_disc", // same centre-ring silhouette as Centre Audio Orb
+  "circular_wave", // another radial spike ring
+  "energy_ring", // same geometry as Voice Dialogue Pulse
+  "ring_of_fire", // another radial spike ring
+  "px_bars_green", // repeats the solid equaliser rack
+  "px_bars_blocks", // repeats LED Meter Wall
+  "px_bars_dots", // repeats Dot Matrix Equalizer
+  "px_ring_neon", // repeats Centre Audio Orb
+  "px_ring_sunburst", // repeats the radial spike treatment
+  "px_ring_halo", // repeats Voice Dialogue Pulse
+] as const;
+
+const RETIRED_VISUALIZER_SET = new Set<string>(RETIRED_VISUALIZER_TYPES);
 
 // ---------------- COMPLETE CATALOG ITEMS ----------------
 export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
@@ -454,7 +481,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
     },
   ],
 
-  audio_visualizers: [
+  audio_visualizers: ([
     // Subcategory: centre — the round centrepiece styles, with room for your own logo
     {
       type: "audio_orb",
@@ -770,20 +797,22 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       type: "minimal_voice",
       category: "audio_visualizers",
       subCategory: "speech",
-      name: "Minimal Talking Dots",
+      name: "Minimal Talking Dots — 20-Band Wave",
       icon: "🗣️",
-      description: "Four modern AI talking dots — glossy 3D spheres that bounce and stretch into pills while the voice speaks",
+      description: "Four became twenty: modern colour-blended talking AI dots become glossy 3D spheres with varied widths and heights that bounce in a shallow wave; every frequency makes its dot stretch into different-length glowing pills while the voice speaks",
       defaultDuration: 6.0,
-      defaultPosition: "bottom-right",
-      defaultSize: 0.8,
+      defaultPosition: "bottom",
+      defaultSize: 0.9,
       defaultAudioSource: "voice",
       spansFullVideo: true,
-      defaultVisualOptions: { fullWidth: false, glowIntensity: 0.7, has3DLook: true, floatShadow: true },
+      defaultVisualOptions: { fullWidth: false, colorTheme: "synthwave", bandCount: 20, reactivity: 1.25, glowIntensity: 0.75, has3DLook: true, floatShadow: true },
     },
 
-    // Subcategories: the five Pixabay families — six transparent looks each
+    // Subcategories: the five Pixabay-inspired families. The source registry
+    // keeps every renderer for backwards compatibility; repeated silhouettes
+    // are filtered out of the customer-facing picker here.
     ...PIXABAY_CATALOG_ITEMS,
-  ],
+  ] satisfies CatalogItem[]).filter((item) => !RETIRED_VISUALIZER_SET.has(item.type)),
 
   // Text templates are generated from the template library so the catalog,
   // the renderer and the properties panel can never drift apart. Lower thirds

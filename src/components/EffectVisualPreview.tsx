@@ -12,7 +12,6 @@ import StickerPreviewCanvas from "./StickerPreviewCanvas";
 import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
 import { wantsCentreLogo } from "../lib/render-visualizers";
 import { MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
-import { startPreviewLoop } from "../lib/preview-loop";
 import Icon from "./icons/Icon";
 
 interface EffectVisualPreviewProps {
@@ -76,7 +75,6 @@ function getCentreLogoPlaceholder(width = 256, height = 256): HTMLCanvasElement 
 
 export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animRef = useRef<number>(0);
 
   // Audio visualisers are drawn by the very same renderer the video preview and
   // the final render use, so the card can never show something the video won't.
@@ -115,10 +113,15 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       audioSettings: {},
     } as unknown as TimelineInsert;
 
-    const startedAt = performance.now();
-
-    const renderLoop = (now: number) => {
-      const elapsed = (now - startedAt) / 1000;
+    // Paint one deterministic frame from the production renderer. A grid of 40+
+    // simultaneous animation loops was wasteful and made the library hard to
+    // scan; the large monitor above remains the place for live animation.
+    const elapsed =
+      1.6 +
+      (Array.from(item.type).reduce((sum, character) => sum + character.charCodeAt(0), 0) % 47) /
+        10;
+    const renderStill = () => {
+      // Canvas dimensions stay in px; CSS only scales the finished still.
       const w = canvas.width;
       const h = canvas.height;
 
@@ -143,7 +146,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       renderTimelineInsert(
         ctx,
         previewInsert,
-        0.4 + (elapsed % 12),
+        elapsed,
         w,
         h,
         0,
@@ -155,9 +158,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       );
     };
 
-    // ~30fps is plenty for a thumbnail, and skip painting entirely while the
-    // card is scrolled off-screen so a full catalogue grid can't stall scrolling
-    return startPreviewLoop(canvas, renderLoop, { fps: 30 });
+    renderStill();
   }, [item]);
 
 
@@ -223,7 +224,8 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     }
   }, [item]);
 
-  // If this is an audio visualizer, return the live animated canvas
+  // Audio catalogue cards are still frames from the production renderer. Only
+  // the large monitor animates, keeping a fully expanded library inexpensive.
   if (item.category === "audio_visualizers") {
     return (
       <div className="w-full h-24 rounded-lg bg-gray-950 border border-hairline overflow-hidden relative shadow-inner flex items-center justify-center">
@@ -234,9 +236,12 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
           className="w-full h-full object-cover"
         />
         <div className="absolute bottom-1 right-2 flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-          <span className="text-[9px] font-mono text-gray-400 uppercase tracking-wider">
-            Live · same engine as render
+          <span className="w-1.5 h-1.5 rounded-full bg-gray-500" aria-hidden="true" />
+          <span
+            className="text-[9px] font-mono text-gray-400 uppercase tracking-wider"
+            title="Still 512 px example; use the Live preview above to see it move"
+          >
+            Still · same engine as render
           </span>
         </div>
       </div>
