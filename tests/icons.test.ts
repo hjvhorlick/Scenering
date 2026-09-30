@@ -309,9 +309,66 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     // when a durable read-back succeeded; on failure it truthfully asks for a
     // download. The remaining tokens are progress-bar CSS classes prose()
     // mistakes for words after the dashboard moved that bar into new markup.
-    new Set(["new", "vault", "waiting", "overflow-hidden", "w-", "h-", "rounded-full"]),
+    // "using synth bed" and "fallback" belonged to console warnings such as
+    // "Offline ambient track decode failed; using synth bed:". The offline
+    // WebCodecs export shortened those lines — the fallback itself is
+    // untouched and still runs (RenderView.tsx:1547). Nobody reads them but
+    // the console; none of it is copy on the page.
+    new Set([
+      "new", "vault", "waiting", "overflow-hidden", "w-", "h-", "rounded-full",
+      "using", "synth", "bed", "fallback",
+    ]),
+  ],
+  [
+    // The narration used to be drawn live under the Voiceover page by
+    // LiveVoiceVisualizer, captioned "The narration, drawn by the render
+    // engine while you listen." That component and its voice-monitor are
+    // gone: visualisers are now chosen and previewed where they are actually
+    // inserted, so the page no longer carries a second, different preview of
+    // the same thing. The caption went with the feature it described, along
+    // with the "Live Sound Visualiser" heading above it and the sentence
+    // offering a visualiser style. The short tokens on the last line are the
+    // Tailwind classes of the removed panel, which prose() reads as words.
+    "src/components/VoiceoverStudio.tsx",
+    new Set([
+      "The", "the", "and", "Sound", "Visualiser", "Live", "narration", "drawn",
+      "by", "render", "engine", "while", "you", "listen", "Press", "any", "on",
+      "this", "page", "it", "moves", "with", "voice", "visualiser", "style",
+      "p-", "border", "border-indigo-", "bg-gray-", "text-gray-", "sm",
+      "text-", "px", "rounded-", "xl", "shadow-xl", "space-y-",
+    ]),
+  ],
+  [
+    // Not a copy change — a capitalisation one. The audio-visualizer category
+    // description gained a clause and now opens "Professional audio-reactive
+    // video effects: dense radial spectra, waveforms, ...", so "Waveforms"
+    // reads as "waveforms" mid-sentence. The guard counts words case
+    // sensitively, so the lowercase form does not pay for the capitalised
+    // one. Every word of the old sentence is still in the new, longer one.
+    "src/lib/video-studio-catalog.ts",
+    new Set(["Waveforms"]),
   ],
 ]);
+
+/**
+ * Files measured from a later commit than the rest.
+ *
+ * `media-library.ts` is not prose someone wrote once; it is the record of
+ * which audio files ship — title, author, source, licence and a line of
+ * description per asset. Its words are therefore a function of the build, and
+ * replacing the bundled music rewrites most of them at a stroke. That is what
+ * `8b940fd` did: the Incompetech and public-domain-classical beds came out and
+ * the YouTube Audio Library set went in, taking roughly a hundred and thirty
+ * words of track titles and credits with them.
+ *
+ * Listing those words as retired would be a hundred-line exemption that
+ * silently switches the guard off for the file. Moving this one file's
+ * baseline to the reviewed commit that did the swap keeps it switched on: the
+ * catalogue is still compared word for word, just against the catalogue we
+ * actually shipped rather than the one we replaced. An accidental deletion
+ * tomorrow still fails.
+ */
+const BASELINE_IN_FILE = new Map<string, string>([["src/data/media-library.ts", "8b940fd"]]);
 
 let hasBeforeCommit = false;
 try {
@@ -323,8 +380,9 @@ let guarded = 0;
 if (hasBeforeCommit) {
   for (const { name } of files) {
     let old: string;
+    const base = BASELINE_IN_FILE.get(name) ?? BEFORE;
     try {
-      old = execSync(`git show ${BEFORE}:${name}`, { cwd: repoRoot, encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] });
+      old = execSync(`git show ${base}:${name}`, { cwd: repoRoot, encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] });
     } catch {
       continue; // the file is new in this change
     }
