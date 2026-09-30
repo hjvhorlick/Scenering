@@ -194,6 +194,19 @@ export default function VideoPreview({
 
   const animFrameRef = useRef<number>(0);
   const playingRef = useRef(false);
+  /**
+   * Playback generation token.
+   *
+   * playPreview() awaits several slow things (image decode, narration
+   * synthesis, music decode) before it starts anything. Stopping — or
+   * pressing play twice — during that window used to leave the finished
+   * async run free to start a music bed that nothing was tracking any more,
+   * so the soundtrack kept playing after pause. Every start claims the next
+   * epoch; a run whose epoch is stale cleans up and returns instead.
+   */
+  const playEpochRef = useRef(0);
+  /** True once playPreview() has begun preparing, before playingRef is set. */
+  const startingRef = useRef(false);
   /** Hidden <video> elements for scenes that use a short clip instead of a still. */
   const clipPoolRef = useRef<ClipPool>(new ClipPool());
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -1021,6 +1034,12 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
   const playPreview = useCallback(async (seekTime?: number) => {
     if (scenesWithImages.length === 0) return;
 
+    // Claim this playback. Anything already running or still preparing is
+    // superseded, so a second press cannot end up with two soundtracks.
+    const epoch = ++playEpochRef.current;
+    const stale = () => playEpochRef.current !== epoch;
+    startingRef.current = true;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -1029,6 +1048,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     const images = await Promise.all(
       scenesWithImages.map((s, i) => loadImage(s.image_url || "", i))
     );
+    if (stale()) return;
 
     // Pre-render each scene's expensive static layers (graded copy, blurred
     // backdrop) before playback — the same caches the export uses. Without
@@ -1091,6 +1111,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     if (audioCtx && audioCtx.state === "suspended") {
       await audioCtx.resume();
     }
+    if (stale()) return;
 
     if (audioCtx && !analyserRef.current) {
       // Master limiter node: prevents digital clipping/crackling when voice + music + sfx sum together
@@ -1188,9 +1209,18 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         console.warn("Insert audio setup warning:", err);
       }
     }
+    // The decode above is the longest await in the whole function, and it is
+    // the one that used to strand a music bed. If the user stopped while it
+    // ran, throw the mixer away instead of handing it the timeline.
+    if (stale()) {
+      try { insertMixer?.dispose(); } catch {}
+      return;
+    }
+
     insertMixerRef.current = insertMixer;
     if (insertMixer) insertMixer.startFrom(safeStartTime);
 
+    startingRef.current = false;
     setIsPlaying(true);
     setProgress(totalDur > 0 ? safeStartTime / totalDur : 0);
     playingRef.current = true;
@@ -1218,6 +1248,12 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         } else {
           source.connect(audioCtx.destination);
         }
+        // Release the node when the line finishes. Without this every scene
+        // left its source connected to the voice bus for the whole preview,
+        // so a long project ran with a steadily growing audio graph.
+        source.onended = () => {
+          try { source.disconnect(); } catch {}
+        };
         const safeOffset = Math.max(0, Math.min(sceneAudio.buffer.duration - 0.05, offset));
         source.start(0, safeOffset);
         currentAudioSource = source;
@@ -1259,8 +1295,29 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       }
     }
 
+    /**
+     * Scratch buffers for the analyser reads.
+     *
+     * Reading the two buses used to allocate four typed arrays per frame.
+     * At 60fps that is ~240 short-lived allocations a second, and the
+     * garbage collector pauses it caused on the main thread were long enough
+     * to starve the Web Audio callback — heard as gritty, stuttering sound.
+     * The analysers now read into buffers allocated once per playback.
+     */
+    type BusScratch = { freq: Uint8Array<ArrayBuffer>; wave: Uint8Array<ArrayBuffer> };
+    const busScratch = new WeakMap<AnalyserNode, BusScratch>();
+    const scratchFor = (node: AnalyserNode): BusScratch => {
+      let s = busScratch.get(node);
+      if (!s || s.freq.length !== node.frequencyBinCount || s.wave.length !== node.fftSize) {
+        s = { freq: new Uint8Array(node.frequencyBinCount), wave: new Uint8Array(node.fftSize) };
+        busScratch.set(node, s);
+      }
+      return s;
+    };
+
     const animate = () => {
-      if (!playingRef.current) {
+      // A superseded playback must not keep drawing or driving audio.
+      if (!playingRef.current || stale()) {
         if (currentAudioSource) try { currentAudioSource.stop(); } catch {}
         return;
       }
@@ -1295,9 +1352,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       if (analyserRef.current) {
         const readBus = (node: AnalyserNode | null) => {
           if (!node) return makeBus(0, null, null);
-          const freq = new Uint8Array(node.frequencyBinCount);
+          const { freq, wave } = scratchFor(node);
           node.getByteFrequencyData(freq);
-          const wave = new Uint8Array(node.fftSize);
           node.getByteTimeDomainData(wave);
           let sum = 0;
           for (let i = 0; i < freq.length; i++) sum += freq[i];
@@ -1417,6 +1473,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
   }, [scenesWithImages, drawScene, generateAllAudio, onSeek, pacingMode]);
 
   const stopPreview = useCallback(() => {
+    // Invalidate any playback still preparing in the background, so a decode
+    // that finishes after this point cannot start the music.
+    playEpochRef.current++;
+    startingRef.current = false;
     playingRef.current = false;
     setIsPlaying(false);
     clipPoolRef.current.pauseAll();
@@ -1424,7 +1484,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     if (currentSourceRef.current) {
       try { currentSourceRef.current.stop(); } catch {}
     }
-    insertMixerRef.current?.stop();
+    // dispose() stops every slot *and* unhooks the mixer's master gain from
+    // the music bus, so nothing of this playback stays wired to the graph.
+    try { insertMixerRef.current?.dispose(); } catch {}
     insertMixerRef.current = null;
   }, []);
 
@@ -1556,7 +1618,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
   const togglePlayRef = useRef<() => void>(() => {});
   togglePlayRef.current = () => {
-    if (playingRef.current) {
+    if (playingRef.current || startingRef.current) {
       // stopping mid-capture still yields a usable file
       if (isRecording) finishRecordingEarly();
       else stopPreview();

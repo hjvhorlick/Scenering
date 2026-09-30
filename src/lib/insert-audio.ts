@@ -368,9 +368,19 @@ export class InsertAudioMixer {
     this.prescheduled = false;
     for (const slot of this.slots) {
       if (slot.source) {
-        try {
-          slot.source.stop();
-        } catch {}
+        const s = slot.source;
+        // Drop onended first: it checks `slot.source === source`, and we are
+        // about to reassign that field. Clearing it keeps the callback from
+        // firing against a slot that has already been reset.
+        try { s.onended = null; } catch {}
+        try { s.stop(); } catch {}
+        // A stopped source still holds its connection to the master gain
+        // until it is collected; unhook it now so a paused preview leaves
+        // nothing behind on the music bus.
+        try { s.disconnect(); } catch {}
+      }
+      if (slot.gain) {
+        try { slot.gain.disconnect(); } catch {}
       }
       slot.source = null;
       slot.gain = null;
