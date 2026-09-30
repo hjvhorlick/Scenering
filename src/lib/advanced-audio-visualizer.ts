@@ -79,6 +79,8 @@ export interface AdvancedFineRadialSettings {
   centreLogo: boolean;
   centreScale: number;
   centreOpacity: number;
+  barRoundness: number;
+  barShine: number;
 }
 
 export interface AdvancedBandSnapshot {
@@ -131,6 +133,8 @@ export const FINE_RADIAL_PROFESSIONAL_DEFAULTS: AdvancedFineRadialSettings = {
   centreLogo: true,
   centreScale: 1,
   centreOpacity: 1,
+  barRoundness: 1,
+  barShine: 0.55,
 };
 
 export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOptions>> = {
@@ -163,6 +167,8 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     centreLogo: true,
     centreScale: 1,
     centreOpacity: 1,
+    barRoundness: 1,
+    barShine: 0.68,
     fullWidth: false,
     has3DLook: false,
     floatShadow: true,
@@ -230,6 +236,8 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     glowIntensity: 0.56,
     bloomIntensity: 0.28,
     beatResponse: true,
+    barRoundness: 1,
+    barShine: 0.86,
     has3DLook: true,
     fullWidth: false,
   },
@@ -286,40 +294,52 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
   advanced_spectrum_bars: {
     visualizerStyle: "advanced_spectrum_bars",
     visualizerPreset: "advanced_spectrum_bars",
-    colorTheme: "arctic",
-    bandCount: 96,
-    elementCount: 96,
-    barThickness: 10,
-    barGap: 0.24,
-    maxBarHeight: 0.22,
+    colorTheme: "molten_gold",
+    bandCount: 56,
+    elementCount: 56,
+    barThickness: 18,
+    barGap: 0.14,
+    maxBarHeight: 0.27,
     frequencyMapping: "logarithmic",
     fftSize: 2048,
-    reactivity: 1.05,
-    smoothing: 0.34,
+    reactivity: 1.36,
+    smoothing: 0.22,
+    attack: 0.9,
+    release: 0.42,
     spectrumBalance: 0,
-    spectrumStretch: 1.35,
+    spectrumStretch: 1.2,
     spectrumWidth: 1,
-    glowIntensity: 0.42,
+    barRoundness: 1,
+    barShine: 0.85,
+    glowIntensity: 0.28,
+    bloomIntensity: 0.18,
     fullWidth: true,
+    has3DLook: true,
   },
   advanced_mirror_spectrum: {
     visualizerStyle: "advanced_mirror_spectrum",
     visualizerPreset: "advanced_mirror_spectrum",
-    colorTheme: "vaporwave",
-    bandCount: 128,
-    elementCount: 128,
-    barThickness: 8,
-    barGap: 0.28,
-    maxBarHeight: 0.19,
+    colorTheme: "silver_chrome",
+    bandCount: 64,
+    elementCount: 64,
+    barThickness: 16,
+    barGap: 0.18,
+    maxBarHeight: 0.24,
     frequencyMapping: "musical",
     fftSize: 2048,
-    reactivity: 1.08,
-    smoothing: 0.4,
+    reactivity: 1.32,
+    smoothing: 0.26,
+    attack: 0.88,
+    release: 0.4,
     spectrumBalance: 0,
-    spectrumStretch: 1.25,
+    spectrumStretch: 1.15,
     spectrumWidth: 1,
-    glowIntensity: 0.5,
+    barRoundness: 1,
+    barShine: 0.9,
+    glowIntensity: 0.3,
+    bloomIntensity: 0.2,
     fullWidth: true,
+    has3DLook: true,
   },
   advanced_waveform: {
     visualizerStyle: "advanced_waveform",
@@ -379,8 +399,8 @@ export function advancedVisualizerSettings(vo: InsertVisualOptions | undefined):
   const d = FINE_RADIAL_PROFESSIONAL_DEFAULTS;
   const count = Math.round(Number(vo?.elementCount ?? vo?.bandCount ?? d.barCount));
   return {
-    barCount: clampInt(count, 64, 512),
-    barThickness: clamp(Number(vo?.barThickness ?? d.barThickness), 0.75, 12),
+    barCount: clampInt(count, 16, 512),
+    barThickness: clamp(Number(vo?.barThickness ?? d.barThickness), 0.75, 36),
     barGap: clamp(Number(vo?.barGap ?? d.barGap), 0, 0.86),
     radiusRatio: clamp(Number(vo?.radialRadius ?? d.radiusRatio), 0.08, 0.42),
     maxHeightRatio: clamp(Number(vo?.maxBarHeight ?? d.maxHeightRatio), 0.035, 0.38),
@@ -405,6 +425,8 @@ export function advancedVisualizerSettings(vo: InsertVisualOptions | undefined):
     centreLogo: vo?.centreLogo === undefined ? d.centreLogo : Boolean(vo.centreLogo),
     centreScale: clamp(Number(vo?.centreScale ?? d.centreScale), 0.35, 1.8),
     centreOpacity: clamp(Number(vo?.centreOpacity ?? d.centreOpacity), 0, 1),
+    barRoundness: clamp(Number(vo?.barRoundness ?? d.barRoundness), 0, 1),
+    barShine: clamp(Number(vo?.barShine ?? (vo?.has3DLook ? Math.max(d.barShine, 0.72) : d.barShine)), 0, 1),
   };
 }
 
@@ -604,7 +626,7 @@ function renderFineRadialBars({ ctx, item, canvasWidth, canvasHeight, elapsed, f
       outerR = radius + length;
     }
 
-    drawRadialLine(ctx, angle, innerR, outerR, barWidth, colour, palette.accent, glow, shaped, bands.beat, settings.beatGlow);
+    drawRadialLine(ctx, angle, innerR, outerR, barWidth, colour, palette.accent, glow, shaped, bands.beat, settings.beatGlow, settings.barRoundness, settings.barShine);
   }
 
   drawFineRadialCentre(ctx, {
@@ -662,7 +684,7 @@ function renderFineRadialBars3D(opts: AdvancedVisualizerRenderOptions) {
     const v = clamp(bands.values[i] || 0, 0, 1.6);
     const len = settings.minHeightRatio * minDim + Math.pow(v, 0.78) * maxHeight;
     const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, v, vo.frequencyColorMode || "gradient");
-    drawRadialPrism(ctx, angle, radius, radius + len, barWidth, depth, color, palette.accent, glow, v);
+    drawRadialPrism(ctx, angle, radius, radius + len, barWidth, depth, color, palette.accent, glow, v, settings.barRoundness, settings.barShine);
   }
 
   drawFineRadialCentre(ctx, {
@@ -806,7 +828,7 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
   const palette = resolveVisualizerPalette(vo);
   const source: ReactionSource = (item.audioSource as ReactionSource) || "music";
   const bus = pickBus(frame || EMPTY_FRAME, source);
-  const count = Math.max(32, Math.min(192, settings.barCount));
+  const count = Math.max(16, Math.min(192, settings.barCount));
   const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:linear`, { ...settings, barCount: count }, elapsed, bus, source);
   const minDim = Math.min(canvasWidth, canvasHeight);
   const size = clamp(Number(item.size || 1), 0.35, 2.4);
@@ -815,8 +837,8 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
   const width = Math.min(canvasWidth * 1.6, baseWidth * widthScale);
   const maxH = minDim * settings.maxHeightRatio * size;
   const slot = width / count;
-  const thicknessGain = clamp(settings.barThickness / 8, 0.22, 1.6);
-  const barW = clamp(slot * (1 - settings.barGap * 0.92) * thicknessGain, 1, slot * 0.95);
+  const thicknessGain = clamp(settings.barThickness / 12, 0.18, 3.2);
+  const barW = clamp(slot * (1 - settings.barGap * 0.88) * thicknessGain, 1.5, slot * 0.97);
   const gap = Math.max(0, slot - barW);
   const glow = compact ? settings.glow * 0.35 : settings.glow;
   const balance = clamp(Number(vo.spectrumBalance ?? 0), -1, 1);
@@ -841,16 +863,16 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
     const direct = sampleBandValue(bands.values, shifted);
     const nearby = (sampleBandValue(bands.values, shifted - 0.035) + sampleBandValue(bands.values, shifted + 0.035)) * 0.5;
     const centreWeight = clamp(1 - Math.abs(p - activityCentre) / 0.62, 0, 1);
-    const bassWash = bands.bass * (0.12 + 0.22 * centreWeight);
+    const bassWash = bands.bass * (0.1 + 0.2 * centreWeight);
     const midTexture = bands.mid * (0.08 + 0.1 * Math.pow(0.5 + 0.5 * Math.sin(p * TAU * 2.15 + elapsed * 1.7), 2));
-    const trebleSpark = bands.treble * (0.04 + 0.08 * Math.pow(0.5 + 0.5 * Math.sin(p * TAU * 7.3 - elapsed * 5.2), 4));
-    const liveEnergy = (bands.energy * 0.1 + bands.beat * 0.12) * (0.72 + 0.28 * Math.sin(i * 2.399 + elapsed * 4.1));
-    const v = clamp(direct * 0.5 + nearby * 0.16 + bassWash + midTexture + trebleSpark + liveEnergy, 0, 1.6);
-    const h = Math.max(2, Math.pow(v, 0.78) * maxH);
+    const trebleSpark = bands.treble * (0.05 + 0.09 * Math.pow(0.5 + 0.5 * Math.sin(p * TAU * 7.3 - elapsed * 5.2), 4));
+    const liveEnergy = (bands.energy * 0.12 + bands.beat * 0.16) * (0.68 + 0.32 * Math.sin(i * 2.399 + elapsed * 4.1));
+    const v = clamp((direct * 0.72 + nearby * 0.18 + bassWash + midTexture + trebleSpark + liveEnergy) * settings.reactivity, 0, 1.9);
+    const h = Math.max(3, Math.pow(v, 0.64) * maxH);
     const x = -width / 2 + i * slot + gap / 2;
     const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, v, vo.frequencyColorMode || "gradient");
-    drawVerticalBar(ctx, x, 0, barW, h, color, palette.accent, glow, v, false);
-    if (mirror) drawVerticalBar(ctx, x, 0, barW, h * 0.88, mixColors(color, palette.secondary, 0.35), palette.accent, glow * 0.75, v, true);
+    drawVerticalBar(ctx, x, 0, barW, h, color, palette.accent, glow, v, false, settings.barRoundness, settings.barShine);
+    if (mirror) drawVerticalBar(ctx, x, 0, barW, h * 0.88, mixColors(color, palette.secondary, 0.35), palette.accent, glow * 0.75, v, true, settings.barRoundness, settings.barShine);
   }
   ctx.restore();
 }
@@ -1076,7 +1098,9 @@ function drawRadialPrism(
   color: string,
   accent: string,
   glow: number,
-  value: number
+  value: number,
+  roundness: number,
+  shine: number
 ) {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
@@ -1090,14 +1114,15 @@ function drawRadialPrism(
   const p3 = { x: c * outerR - tx * half, y: s * outerR - ty * half };
   const p4 = { x: c * innerR - tx * half, y: s * innerR - ty * half };
   ctx.save();
+  const glossy = clamp(shine, 0, 1);
   if (glow > 0.02) {
-    ctx.shadowColor = rgba(color, 0.58);
-    ctx.shadowBlur = (4 + value * 16) * glow;
+    ctx.shadowColor = rgba(color, 0.54);
+    ctx.shadowBlur = (2 + value * 10) * glow * (1 - glossy * 0.32);
   }
   const grad = ctx.createLinearGradient(p1.x, p1.y, p2.x, p2.y);
-  grad.addColorStop(0, rgba(color, 0.5));
-  grad.addColorStop(0.62, rgba(mixColors(color, accent, value * 0.35), 0.9));
-  grad.addColorStop(1, rgba(mixColors(accent, "#ffffff", 0.34), 0.98));
+  grad.addColorStop(0, rgba(color, 0.56));
+  grad.addColorStop(0.48, rgba(mixColors(color, accent, value * 0.4), 0.92));
+  grad.addColorStop(1, rgba(mixColors(accent, "#ffffff", 0.34 + glossy * 0.24), 0.99));
   ctx.beginPath();
   ctx.moveTo(p1.x, p1.y);
   ctx.lineTo(p2.x, p2.y);
@@ -1107,6 +1132,15 @@ function drawRadialPrism(
   ctx.fillStyle = grad;
   ctx.fill();
   ctx.shadowBlur = 0;
+  if (roundness >= 0.5 && width > 1.5) {
+    ctx.beginPath();
+    ctx.moveTo(c * innerR, s * innerR);
+    ctx.lineTo(c * outerR, s * outerR);
+    ctx.strokeStyle = rgba("#ffffff", 0.18 + glossy * 0.3);
+    ctx.lineWidth = Math.max(0.7, width * 0.18);
+    ctx.lineCap = "round";
+    ctx.stroke();
+  }
   ctx.beginPath();
   ctx.moveTo(p2.x, p2.y);
   ctx.lineTo(p2.x + dx, p2.y + dy);
@@ -1171,23 +1205,58 @@ function drawVerticalBar(
   accent: string,
   glow: number,
   value: number,
-  mirror: boolean
+  mirror: boolean,
+  roundness: number,
+  shine: number
 ) {
-  const top = mirror ? y : y - height;
-  const bottom = mirror ? y + height : y;
-  const grad = ctx.createLinearGradient(0, top, 0, bottom);
-  grad.addColorStop(0, rgba(mixColors(color, accent, 0.25), 0.96));
-  grad.addColorStop(0.62, rgba(color, 0.82));
-  grad.addColorStop(1, rgba(color, 0.28));
+  const rawTop = mirror ? y : y - height;
+  const rawBottom = mirror ? y + height : y;
+  const top = Math.round(Math.min(rawTop, rawBottom));
+  const h = Math.max(2, Math.round(Math.abs(rawBottom - rawTop)));
+  const sx = Math.round(x);
+  const sw = Math.max(2, Math.round(width));
+  const radius = Math.min(sw * 0.5, h * 0.5, Math.max(0, roundness) * sw * 0.52);
+  const glossy = clamp(shine, 0, 1);
+  const outerGlow = glow * (1 - glossy * 0.38);
+  const grad = ctx.createLinearGradient(0, top, 0, top + h);
+  grad.addColorStop(0, rgba(mixColors(accent, "#ffffff", 0.5 + glossy * 0.34), 0.98));
+  grad.addColorStop(0.18, rgba(mixColors(color, "#ffffff", glossy * 0.28), 0.98));
+  grad.addColorStop(0.64, rgba(color, 0.92));
+  grad.addColorStop(1, rgba(mixColors(color, "#000000", 0.2 + glossy * 0.18), 0.74));
   ctx.save();
-  if (glow > 0.02) {
-    ctx.shadowColor = rgba(color, 0.72);
-    ctx.shadowBlur = (3 + value * 12) * glow;
+  if (outerGlow > 0.02) {
+    ctx.shadowColor = rgba(color, 0.62);
+    ctx.shadowBlur = (1.4 + value * 7) * outerGlow;
   }
-  const radius = Math.min(width * 0.48, Math.max(1, width));
-  roundedRect(ctx, x, top, width, Math.abs(bottom - top), radius);
+  roundedRect(ctx, sx, top, sw, h, radius);
   ctx.fillStyle = grad;
   ctx.fill();
+  ctx.shadowBlur = 0;
+
+  if (glossy > 0.02) {
+    ctx.save();
+    roundedRect(ctx, sx, top, sw, h, radius);
+    ctx.clip();
+    const bevel = ctx.createLinearGradient(sx, 0, sx + sw, 0);
+    bevel.addColorStop(0, rgba("#ffffff", 0.5 * glossy));
+    bevel.addColorStop(0.16, rgba("#ffffff", 0.18 * glossy));
+    bevel.addColorStop(0.48, "rgba(255,255,255,0)");
+    bevel.addColorStop(0.78, rgba("#000000", 0.22 * glossy));
+    bevel.addColorStop(1, rgba("#ffffff", 0.28 * glossy));
+    ctx.fillStyle = bevel;
+    ctx.fillRect(sx, top, sw, h);
+    const hot = ctx.createLinearGradient(0, top, 0, top + Math.max(4, h * 0.32));
+    hot.addColorStop(0, rgba("#ffffff", 0.65 * glossy));
+    hot.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = hot;
+    ctx.fillRect(sx + Math.max(1, sw * 0.08), top + 1, Math.max(1, sw * 0.84), Math.max(2, h * 0.28));
+    ctx.restore();
+  }
+
+  roundedRect(ctx, sx + 0.5, top + 0.5, Math.max(1, sw - 1), Math.max(1, h - 1), Math.max(0, radius - 0.5));
+  ctx.strokeStyle = rgba(mixColors(accent, "#ffffff", 0.46), 0.42 + glossy * 0.34);
+  ctx.lineWidth = 1;
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -1251,7 +1320,9 @@ function drawRadialLine(
   glow: number,
   value: number,
   beat: number,
-  beatGlow: number
+  beatGlow: number,
+  roundness: number,
+  shine: number
 ) {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
@@ -1259,21 +1330,42 @@ function drawRadialLine(
   const y1 = s * innerR;
   const x2 = c * outerR;
   const y2 = s * outerR;
+  const glossy = clamp(shine, 0, 1);
   const grad = ctx.createLinearGradient(x1, y1, x2, y2);
-  grad.addColorStop(0, rgba(color, 0.54));
-  grad.addColorStop(0.62, rgba(mixColors(color, accent, value * 0.38), 0.92));
-  grad.addColorStop(1, rgba(mixColors(accent, "#ffffff", Math.min(0.55, value * 0.4)), 0.98));
+  grad.addColorStop(0, rgba(color, 0.64));
+  grad.addColorStop(0.52, rgba(mixColors(color, accent, value * 0.42), 0.95));
+  grad.addColorStop(1, rgba(mixColors(accent, "#ffffff", 0.28 + Math.min(0.55, value * 0.44 + glossy * 0.25)), 0.99));
+  ctx.save();
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.lineTo(x2, y2);
   ctx.strokeStyle = grad;
-  ctx.lineWidth = width;
-  if (glow > 0.02) {
-    ctx.shadowColor = rgba(color, 0.68);
-    ctx.shadowBlur = (2.5 + value * 13 + beat * beatGlow * 14) * glow;
+  ctx.lineWidth = Math.max(1, width);
+  ctx.lineCap = roundness >= 0.5 ? "round" : "butt";
+  ctx.lineJoin = roundness >= 0.5 ? "round" : "miter";
+  const crispGlow = glow * (1 - glossy * 0.34);
+  if (crispGlow > 0.02) {
+    ctx.shadowColor = rgba(color, 0.6);
+    ctx.shadowBlur = (1.5 + value * 8 + beat * beatGlow * 9) * crispGlow;
   }
   ctx.stroke();
   ctx.shadowBlur = 0;
+  if (glossy > 0.04 && width > 1.4) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = rgba("#ffffff", 0.22 + glossy * 0.38);
+    ctx.lineWidth = Math.max(0.7, width * 0.22);
+    ctx.lineCap = roundness >= 0.5 ? "round" : "butt";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x1 - s * width * 0.34, y1 + c * width * 0.34);
+    ctx.lineTo(x2 - s * width * 0.34, y2 + c * width * 0.34);
+    ctx.strokeStyle = rgba(mixColors(accent, "#ffffff", 0.55), 0.2 + glossy * 0.24);
+    ctx.lineWidth = Math.max(0.6, width * 0.12);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawFineRadialCentre(

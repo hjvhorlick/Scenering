@@ -96,6 +96,9 @@ const SLIDER_HINTS = {
   spectrumBalance: "Moves the busiest part of full-width spectrum bars left or right. Keep it centred for a balanced graph, or nudge it when the song feels lopsided.",
   spectrumStretch: "Stretches or compresses the reactive frequency movement across the bar rack, like zooming/cropping the graph sideways.",
   spectrumWidth: "Changes the visual length of the bar rack itself. Wider can run past the frame edges like an image crop; narrower leaves side space.",
+  equalizerBars: "Changes the real number of bars in the equalizer. Fewer bars are wider and bolder; more bars are finer and more detailed.",
+  barRoundness: "Changes the bar ends from flat square cuts to rounded pill shapes.",
+  barShine: "Adds polished metallic edges and bright 3D highlights without blurring the bars.",
   radius: "Moves circular styles closer to or farther from the centre/logo. Higher creates a larger empty middle.",
   maxHeight: "Controls how far circular bars, waves or particles can grow outward from the centre.",
   gap: "Controls the empty space between bars. Higher separates the bars; lower makes a dense ring or wall.",
@@ -201,14 +204,16 @@ function InsertEditPreview({
   aspectRatio = "16:9",
   backgroundImage,
   showSpectrumFramingControls = false,
-  onSpectrumFramingChange,
+  showEqualizerBarControls = false,
+  onVisualOptionChange,
   onSpectrumFramingReset,
 }: {
   item: TimelineInsert;
   aspectRatio?: AspectRatioType;
   backgroundImage?: string;
   showSpectrumFramingControls?: boolean;
-  onSpectrumFramingChange?: (field: SpectrumFramingField, value: number) => void;
+  showEqualizerBarControls?: boolean;
+  onVisualOptionChange?: (field: string, value: any) => void;
   onSpectrumFramingReset?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -395,28 +400,52 @@ function InsertEditPreview({
         <div className="w-full overflow-hidden rounded-xl border border-hairline bg-black flex items-center justify-center">
           <canvas ref={canvasRef} className="block max-w-full" style={previewCanvasStyle} />
         </div>
-        {showSpectrumFramingControls && onSpectrumFramingChange && (
-          <div className="mt-3 border-t border-indigo-500/25 pt-3 space-y-3 rounded-b-xl">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h5 className="text-[11px] font-bold text-white flex items-center gap-2">
-                  <Icon glyph="↔️" /> Preview crop / move controls
-                </h5>
-                <p className="text-[10px] text-gray-400">
-                  These controls are part of the edit preview; use them to move the busy bars into the centre, stretch the frequency area, or widen the rack like cropping an image sideways.
-                </p>
+        {(showSpectrumFramingControls || showEqualizerBarControls) && onVisualOptionChange && (
+          <div className="mt-3 border-t border-indigo-500/25 pt-3 space-y-4 rounded-b-xl">
+            {showEqualizerBarControls && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h5 className="text-[11px] font-bold text-white flex items-center gap-2">
+                      <Icon glyph="🎛" /> Real equalizer bar setup
+                    </h5>
+                    <p className="text-[10px] text-gray-400">
+                      These change the actual bars drawn by the renderer: count, width, gap, sensitivity, pill/flat ends and polished 3D shine.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button type="button" onClick={() => applyBarLookPreset(onVisualOptionChange, "gold")} className="px-2 py-1 rounded-lg border border-amber-400/60 bg-amber-950/50 text-[10px] font-semibold text-amber-100 hover:bg-amber-900/70">Gold</button>
+                    <button type="button" onClick={() => applyBarLookPreset(onVisualOptionChange, "silver")} className="px-2 py-1 rounded-lg border border-slate-300/60 bg-slate-800/70 text-[10px] font-semibold text-slate-100 hover:bg-slate-700">Silver</button>
+                    <button type="button" onClick={() => applyBarLookPreset(onVisualOptionChange, "bright")} className="px-2 py-1 rounded-lg border border-cyan-300/60 bg-cyan-950/50 text-[10px] font-semibold text-cyan-100 hover:bg-cyan-900/70">Bright</button>
+                  </div>
+                </div>
+                <EqualizerBarSliders item={item} onChange={onVisualOptionChange} />
               </div>
-              {onSpectrumFramingReset && (
-                <button
-                  type="button"
-                  onClick={onSpectrumFramingReset}
-                  className="px-2.5 py-1 rounded-lg border border-indigo-500/50 bg-gray-900/80 text-[10px] font-semibold text-indigo-100 hover:bg-indigo-950 transition-colors"
-                >
-                  Reset crop
-                </button>
-              )}
-            </div>
-            <SpectrumFramingSliders visualOptions={item.visualOptions} onChange={onSpectrumFramingChange} />
+            )}
+            {showSpectrumFramingControls && (
+              <div className="space-y-3 border-t border-hairline pt-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h5 className="text-[11px] font-bold text-white flex items-center gap-2">
+                      <Icon glyph="↔️" /> Spectrum crop / move controls
+                    </h5>
+                    <p className="text-[10px] text-gray-400">
+                      Use these after the real bar setup to move the busy frequency area into the centre or widen the rack like cropping an image sideways.
+                    </p>
+                  </div>
+                  {onSpectrumFramingReset && (
+                    <button
+                      type="button"
+                      onClick={onSpectrumFramingReset}
+                      className="px-2.5 py-1 rounded-lg border border-indigo-500/50 bg-gray-900/80 text-[10px] font-semibold text-indigo-100 hover:bg-indigo-950 transition-colors"
+                    >
+                      Reset crop
+                    </button>
+                  )}
+                </div>
+                <SpectrumFramingSliders visualOptions={item.visualOptions} onChange={onVisualOptionChange} />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -424,7 +453,7 @@ function InsertEditPreview({
   );
 }
 
-type SpectrumFramingField = "spectrumBalance" | "spectrumStretch" | "spectrumWidth";
+type PreviewVisualOptionChange = (field: string, value: any) => void;
 
 function formatSpectrumBalance(value: number): string {
   if (Math.abs(value) < 0.025) return "Centre";
@@ -436,7 +465,7 @@ function SpectrumFramingSliders({
   onChange,
 }: {
   visualOptions?: TimelineInsert["visualOptions"];
-  onChange: (field: SpectrumFramingField, value: number) => void;
+  onChange: PreviewVisualOptionChange;
 }) {
   const balance = visualOptions?.spectrumBalance ?? 0;
   const stretch = visualOptions?.spectrumStretch ?? 1.25;
@@ -467,6 +496,109 @@ function SpectrumFramingSliders({
       </label>
     </div>
   );
+}
+
+function EqualizerBarSliders({ item, onChange }: { item: TimelineInsert; onChange: PreviewVisualOptionChange }) {
+  const vo = item.visualOptions || {};
+  const style = String(vo.visualizerStyle || item.type);
+  const isLinear = style === "advanced_spectrum_bars" || style === "advanced_mirror_spectrum";
+  const bars = Math.round(Number(vo.elementCount ?? vo.bandCount ?? (isLinear ? 56 : 192)));
+  const width = Number(vo.barThickness ?? (isLinear ? 18 : 3));
+  const gap = Number(vo.barGap ?? (isLinear ? 0.14 : 0.42));
+  const height = Number(vo.maxBarHeight ?? 0.22);
+  const reactivity = Number(vo.reactivity ?? 1.2);
+  const minFrequency = Number(vo.minFrequency ?? (isLinear ? 32 : 36));
+  const maxFrequency = Number(vo.maxFrequency ?? (isLinear ? 18000 : 16000));
+  const roundness = Number(vo.barRoundness ?? 1);
+  const shine = Number(vo.barShine ?? (vo.has3DLook ? 0.85 : 0.55));
+  const barMin = isLinear ? 16 : 48;
+  const barMax = isLinear ? 192 : 512;
+
+  const setBarCount = (value: number) => {
+    onChange("elementCount", value);
+    onChange("bandCount", value);
+  };
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Bars: {bars}</span>
+        <SliderWithHelp hint={SLIDER_HINTS.equalizerBars}>
+          <input type="range" min={barMin} max={barMax} step={isLinear ? 4 : 16} value={bars} onChange={(e) => setBarCount(parseInt(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Wide</span><span>Detailed</span></div>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Bar Width: {Math.round(width)}px</span>
+        <SliderWithHelp hint={SLIDER_HINTS.thickness}>
+          <input type="range" min={1} max={36} step={1} value={width} onChange={(e) => onChange("barThickness", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Fine</span><span>Wide</span></div>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Gap: {Math.round(gap * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.gap}>
+          <input type="range" min={0} max={0.75} step={0.01} value={gap} onChange={(e) => onChange("barGap", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Touching</span><span>Spaced</span></div>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Height: {Math.round(height * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.linearHeight}>
+          <input type="range" min={0.04} max={0.4} step={0.005} value={height} onChange={(e) => onChange("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Reaction: {Math.round(reactivity * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.reaction}>
+          <input type="range" min={0.4} max={2.4} step={0.05} value={reactivity} onChange={(e) => onChange("reactivity", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Low Freq: {Math.round(minFrequency)} Hz</span>
+        <SliderWithHelp hint={SLIDER_HINTS.minFrequency}>
+          <input type="range" min={20} max={800} step={5} value={minFrequency} onChange={(e) => onChange("minFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">High Freq: {Math.round(maxFrequency)} Hz</span>
+        <SliderWithHelp hint={SLIDER_HINTS.maxFrequency}>
+          <input type="range" min={2000} max={22000} step={250} value={maxFrequency} onChange={(e) => onChange("maxFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Bar Ends: {roundness < 0.2 ? "Flat" : roundness > 0.8 ? "Pill" : "Rounded"}</span>
+        <SliderWithHelp hint={SLIDER_HINTS.barRoundness}>
+          <input type="range" min={0} max={1} step={0.05} value={roundness} onChange={(e) => onChange("barRoundness", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Flat</span><span>Pill</span></div>
+      </label>
+      <label className="space-y-1 sm:col-span-3">
+        <span className="text-[10px] text-gray-400">3D Shine / Crisp Edge: {Math.round(shine * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.barShine}>
+          <input type="range" min={0} max={1} step={0.05} value={shine} onChange={(e) => {
+            const next = parseFloat(e.target.value);
+            onChange("barShine", next);
+            onChange("has3DLook", next > 0.12);
+          }} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Flat colour</span><span>Chrome edge</span></div>
+      </label>
+    </div>
+  );
+}
+
+function applyBarLookPreset(onChange: PreviewVisualOptionChange, preset: "gold" | "silver" | "bright") {
+  const swatches = {
+    gold: { colorTheme: "molten_gold", primaryColor: "#ffd166", secondaryColor: "#c08412", accentColor: "#fff7cc" },
+    silver: { colorTheme: "silver_chrome", primaryColor: "#f8fafc", secondaryColor: "#94a3b8", accentColor: "#ffffff" },
+    bright: { colorTheme: "diamond_bright", primaryColor: "#ffffff", secondaryColor: "#67e8f9", accentColor: "#fef3c7" },
+  }[preset];
+  Object.entries(swatches).forEach(([field, value]) => onChange(field, value));
+  onChange("barRoundness", 1);
+  onChange("barShine", 0.92);
+  onChange("has3DLook", true);
+  onChange("glowIntensity", 0.26);
 }
 
 /** A section jump button: every section is already rendered below, so the
@@ -627,6 +759,8 @@ function InsertPropertiesContent({
   const isAdvancedLinearVisualizer = isAdvancedLinearVisualizerType(insert.type);
   const advancedStyle = String(insert.visualOptions?.visualizerStyle || insert.type);
   const isAdvancedSpectrumBars = advancedStyle === "advanced_spectrum_bars" || advancedStyle === "advanced_mirror_spectrum";
+  const isAdvancedBarVisualizer =
+    isAdvancedSpectrumBars || advancedStyle === "fine_radial_bars" || advancedStyle === "fine_radial_bars_3d";
   const advancedPresetKey =
     advancedStyle === "fine_radial_bars"
       ? "professional"
@@ -1110,7 +1244,8 @@ function InsertPropertiesContent({
             aspectRatio={aspectRatio}
             backgroundImage={backgroundImage}
             showSpectrumFramingControls={isAdvancedSpectrumBars}
-            onSpectrumFramingChange={updateVisualOptions}
+            showEqualizerBarControls={isAdvancedBarVisualizer}
+            onVisualOptionChange={updateVisualOptions}
             onSpectrumFramingReset={() => {
               updateVisualOptions("spectrumBalance", 0);
               updateVisualOptions("spectrumStretch", advancedPresetPatch.spectrumStretch ?? 1.25);
@@ -1742,10 +1877,10 @@ function InsertPropertiesContent({
                     <SliderWithHelp hint={SLIDER_HINTS.detail}>
                       <input
                         type="range"
-                        min={isAdvancedVisualizer ? 64 : 16}
-                        max={isAdvancedVisualizer ? 512 : 128}
-                        step={isAdvancedVisualizer ? 64 : 8}
-                        value={data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedVisualizer ? 256 : 64)}
+                        min={isAdvancedLinearVisualizer ? 16 : isAdvancedVisualizer ? 48 : 16}
+                        max={isAdvancedLinearVisualizer ? 192 : isAdvancedVisualizer ? 512 : 128}
+                        step={isAdvancedLinearVisualizer ? 4 : isAdvancedVisualizer ? 16 : 8}
+                        value={data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedLinearVisualizer ? 56 : isAdvancedVisualizer ? 256 : 64)}
                         onChange={(e) => {
                           const next = parseInt(e.target.value);
                           updateVisual({ bandCount: next, elementCount: next });
@@ -1754,14 +1889,14 @@ function InsertPropertiesContent({
                       />
                     </SliderWithHelp>
                     {isAdvancedVisualizer ? (
-                      <div className="grid grid-cols-4 gap-1.5 pt-1">
-                        {[64, 128, 256, 512].map((count) => (
+                      <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5 pt-1">
+                        {(isAdvancedLinearVisualizer ? [16, 32, 56, 96, 128, 192] : [64, 128, 256, 512]).map((count) => (
                           <button
                             key={count}
                             type="button"
                             onClick={() => updateVisual({ bandCount: count, elementCount: count })}
                             className={`px-2 py-1 rounded-lg border text-[10px] font-semibold ${
-                              (data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? 256) === count
+                              (data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedLinearVisualizer ? 56 : 256)) === count
                                 ? "bg-indigo-600 border-indigo-500 text-white"
                                 : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
                             }`}
@@ -1816,7 +1951,7 @@ function InsertPropertiesContent({
                       <input
                         type="range"
                         min={2}
-                        max={24}
+                        max={36}
                         step={1}
                         value={data.visualOptions?.barThickness ?? 8}
                         onChange={(e) => updateVisualOptions("barThickness", parseInt(e.target.value))}

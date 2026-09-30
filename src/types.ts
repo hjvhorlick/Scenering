@@ -252,6 +252,10 @@ export interface InsertVisualOptions {
   spectrumStretch?: number;
   /** Visual width/length of full-width spectrum racks (0.45..1.6). */
   spectrumWidth?: number;
+  /** 0 = square/flat bar ends, 1 = pill-shaped rounded bar ends. */
+  barRoundness?: number;
+  /** 0 = flat colour, 1 = polished metallic/3D bevel highlights. */
+  barShine?: number;
   /**
    * Draw the user's own logo in the middle of a centre visualiser (audio orb,
    * orbit disc, circular analysers). Defaults to on for the orb and the disc,

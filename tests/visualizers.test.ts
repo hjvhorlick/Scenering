@@ -172,8 +172,11 @@ for (const type of ADVANCED_VISUALIZER_TYPES) {
       advancedRenderer.includes("spectrumBalance") &&
       advancedRenderer.includes("spectrumStretch") &&
       advancedRenderer.includes("spectrumWidth") &&
+      advancedRenderer.includes("barRoundness") &&
+      advancedRenderer.includes("barShine") &&
+      advancedRenderer.includes("roundedRect(ctx, sx") &&
       !advancedRenderer.includes("freqPos = Math.abs"),
-    "linear spectrum bars fill the graph without becoming a strict mirror, and expose left/right, stretch and width controls"
+    "linear spectrum bars fill the graph without becoming a strict mirror, and expose left/right, stretch, width, pill and shine controls"
   );
 }
 
@@ -189,6 +192,8 @@ for (const type of IMMERSIVE_VISUALIZER_TYPES) {
 
 // ------------------------------------------------------------------ palettes
 h.ok(VISUALIZER_PALETTES.length >= 16, `expected 16+ colour themes, got ${VISUALIZER_PALETTES.length}`);
+h.ok(VISUALIZER_PALETTES.some((p) => p.id === "molten_gold"), "visualisers include a bright gold/chrome theme");
+h.ok(VISUALIZER_PALETTES.some((p) => p.id === "silver_chrome"), "visualisers include a polished silver/chrome theme");
 const paletteIds = new Set<string>();
 for (const p of VISUALIZER_PALETTES) {
   h.ok(!paletteIds.has(p.id), `duplicate palette id ${p.id}`);
@@ -850,7 +855,9 @@ for (const v of speechVisualisers) {
       modal.includes("SLIDER_HINTS.reaction") &&
       modal.includes("SLIDER_HINTS.spectrumBalance") &&
       modal.includes("SLIDER_HINTS.spectrumStretch") &&
-      modal.includes("SLIDER_HINTS.spectrumWidth"),
+      modal.includes("SLIDER_HINTS.spectrumWidth") &&
+      modal.includes("SLIDER_HINTS.barRoundness") &&
+      modal.includes("SLIDER_HINTS.barShine"),
     "the edit panel explains slider changes in plain language on hover/focus"
   );
   h.ok(
@@ -865,11 +872,13 @@ for (const v of speechVisualisers) {
     "the edit preview has its own clear sample motion instead of waiting for the timeline playhead"
   );
   h.ok(
-    modal.includes("Preview crop / move controls") &&
+    modal.includes("Real equalizer bar setup") &&
+      modal.includes("Spectrum crop / move controls") &&
+      modal.includes("EqualizerBarSliders") &&
       modal.includes("SpectrumFramingSliders") &&
       modal.includes("Reset crop") &&
-      modal.includes("move the busy bars into the centre"),
-    "the spectrum bar crop/move controls are available beside the edit preview"
+      modal.includes("move the busy frequency area into the centre"),
+    "the real equalizer bars and spectrum crop/move controls are available inside the edit preview"
   );
   h.ok(
     modal.includes("previewCanvasStyle") &&
