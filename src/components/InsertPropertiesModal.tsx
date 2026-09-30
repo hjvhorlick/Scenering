@@ -394,6 +394,51 @@ function InsertEditPreview({
   );
 }
 
+type SpectrumFramingField = "spectrumBalance" | "spectrumStretch" | "spectrumWidth";
+
+function formatSpectrumBalance(value: number): string {
+  if (Math.abs(value) < 0.025) return "Centre";
+  return `${value < 0 ? "Left" : "Right"} ${Math.round(Math.abs(value) * 100)}%`;
+}
+
+function SpectrumFramingSliders({
+  visualOptions,
+  onChange,
+}: {
+  visualOptions?: TimelineInsert["visualOptions"];
+  onChange: (field: SpectrumFramingField, value: number) => void;
+}) {
+  const balance = visualOptions?.spectrumBalance ?? 0;
+  const stretch = visualOptions?.spectrumStretch ?? 1.25;
+  const width = visualOptions?.spectrumWidth ?? 1;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Move Active Part: {formatSpectrumBalance(balance)}</span>
+        <SliderWithHelp hint={SLIDER_HINTS.spectrumBalance}>
+          <input type="range" min={-1} max={1} step={0.05} value={balance} onChange={(e) => onChange("spectrumBalance", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Left</span><span>Centre</span><span>Right</span></div>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Stretch Frequencies: {Math.round(stretch * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.spectrumStretch}>
+          <input type="range" min={0.5} max={2} step={0.05} value={stretch} onChange={(e) => onChange("spectrumStretch", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Compress</span><span>Normal</span><span>Stretch</span></div>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Rack Width: {Math.round(width * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.spectrumWidth}>
+          <input type="range" min={0.45} max={1.6} step={0.05} value={width} onChange={(e) => onChange("spectrumWidth", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Short</span><span>Normal</span><span>Wide</span></div>
+      </label>
+    </div>
+  );
+}
+
 /** A section jump button: every section is already rendered below, so the
  *  header row scrolls the chosen one into view instead of hiding the rest. */
 interface SectionTab {
@@ -1029,7 +1074,37 @@ function InsertPropertiesContent({
         )}
 
         {!isCallToAction && !isSoundEffect && (
-          <InsertEditPreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
+          <>
+            <InsertEditPreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
+            {isAdvancedSpectrumBars && (
+              <div className="px-6 pt-3">
+                <div className="rounded-2xl border border-indigo-500/30 bg-indigo-950/20 p-3 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                        <Icon glyph="↔️" /> Preview crop / move controls
+                      </h4>
+                      <p className="text-[10px] text-gray-400">
+                        Drag these while watching the edit preview, like cropping an image sideways: move the busy bars into the centre, stretch the frequency area, or widen the rack to fill the frame.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateVisualOptions("spectrumBalance", 0);
+                        updateVisualOptions("spectrumStretch", advancedPresetPatch.spectrumStretch ?? 1.25);
+                        updateVisualOptions("spectrumWidth", 1);
+                      }}
+                      className="px-2.5 py-1 rounded-lg border border-indigo-500/50 bg-gray-950/70 text-[10px] font-semibold text-indigo-100 hover:bg-indigo-950 transition-colors"
+                    >
+                      Reset crop
+                    </button>
+                  </div>
+                  <SpectrumFramingSliders visualOptions={data.visualOptions} onChange={updateVisualOptions} />
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Section jump row — every section is stacked below; the buttons
@@ -1829,36 +1904,8 @@ function InsertPropertiesContent({
                                 <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                               </SliderWithHelp>
                             </label>
-                            {isAdvancedSpectrumBars && (
-                              <label className="space-y-1">
-                                <span className="text-[10px] text-gray-400">Rack Width: {Math.round((data.visualOptions?.spectrumWidth ?? 1) * 100)}%</span>
-                                <SliderWithHelp hint={SLIDER_HINTS.spectrumWidth}>
-                                  <input type="range" min={0.45} max={1.6} step={0.05} value={data.visualOptions?.spectrumWidth ?? 1} onChange={(e) => updateVisualOptions("spectrumWidth", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
-                                </SliderWithHelp>
-                                <div className="flex justify-between text-[10px] text-gray-500"><span>Short</span><span>Normal</span><span>Wide</span></div>
-                              </label>
-                            )}
                           </div>
-                          {isAdvancedSpectrumBars && (
-                            <div className="grid grid-cols-2 gap-3">
-                              <label className="space-y-1">
-                                <span className="text-[10px] text-gray-400">
-                                  Movement Position: {Math.abs(data.visualOptions?.spectrumBalance ?? 0) < 0.025 ? "Centre" : `${(data.visualOptions?.spectrumBalance ?? 0) < 0 ? "Left" : "Right"} ${Math.round(Math.abs(data.visualOptions?.spectrumBalance ?? 0) * 100)}%`}
-                                </span>
-                                <SliderWithHelp hint={SLIDER_HINTS.spectrumBalance}>
-                                  <input type="range" min={-1} max={1} step={0.05} value={data.visualOptions?.spectrumBalance ?? 0} onChange={(e) => updateVisualOptions("spectrumBalance", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
-                                </SliderWithHelp>
-                                <div className="flex justify-between text-[10px] text-gray-500"><span>Left</span><span>Centre</span><span>Right</span></div>
-                              </label>
-                              <label className="space-y-1">
-                                <span className="text-[10px] text-gray-400">Frequency Stretch: {Math.round((data.visualOptions?.spectrumStretch ?? 1.25) * 100)}%</span>
-                                <SliderWithHelp hint={SLIDER_HINTS.spectrumStretch}>
-                                  <input type="range" min={0.5} max={2} step={0.05} value={data.visualOptions?.spectrumStretch ?? 1.25} onChange={(e) => updateVisualOptions("spectrumStretch", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
-                                </SliderWithHelp>
-                                <div className="flex justify-between text-[10px] text-gray-500"><span>Compress</span><span>Normal</span><span>Stretch</span></div>
-                              </label>
-                            </div>
-                          )}
+                          {isAdvancedSpectrumBars && <SpectrumFramingSliders visualOptions={data.visualOptions} onChange={updateVisualOptions} />}
                         </div>
                       ) : (
                         <div className="grid grid-cols-2 gap-3">

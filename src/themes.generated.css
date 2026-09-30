@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 520 utility
+   Colour matrix for every non-classic theme. 521 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -326,6 +326,9 @@ html[data-theme="apple"] .bg-indigo-900\/60 {
 }
 html[data-theme="apple"] .bg-indigo-950 {
   background-color: rgb(227 240 255 / 1);
+}
+html[data-theme="apple"] .bg-indigo-950\/20 {
+  background-color: rgb(227 240 255 / 0.2);
 }
 html[data-theme="apple"] .bg-indigo-950\/30 {
   background-color: rgb(227 240 255 / 0.3);
@@ -1933,6 +1936,9 @@ html[data-theme="windows"] .bg-indigo-900\/60 {
 html[data-theme="windows"] .bg-indigo-950 {
   background-color: rgb(76 194 255 / 0.14);
 }
+html[data-theme="windows"] .bg-indigo-950\/20 {
+  background-color: rgb(76 194 255 / 0.028);
+}
 html[data-theme="windows"] .bg-indigo-950\/30 {
   background-color: rgb(76 194 255 / 0.042);
 }
@@ -3538,6 +3544,9 @@ html[data-theme="playful"] .bg-indigo-900\/60 {
 }
 html[data-theme="playful"] .bg-indigo-950 {
   background-color: rgb(244 63 142 / 0.16);
+}
+html[data-theme="playful"] .bg-indigo-950\/20 {
+  background-color: rgb(244 63 142 / 0.032);
 }
 html[data-theme="playful"] .bg-indigo-950\/30 {
   background-color: rgb(244 63 142 / 0.048);
@@ -5145,6 +5154,9 @@ html[data-theme="glass"] .bg-indigo-900\/60 {
 html[data-theme="glass"] .bg-indigo-950 {
   background-color: rgb(183 158 230 / 0.2);
 }
+html[data-theme="glass"] .bg-indigo-950\/20 {
+  background-color: rgb(183 158 230 / 0.04);
+}
 html[data-theme="glass"] .bg-indigo-950\/30 {
   background-color: rgb(183 158 230 / 0.06);
 }
@@ -6750,6 +6762,9 @@ html[data-theme="porcelain"] .bg-indigo-900\/60 {
 }
 html[data-theme="porcelain"] .bg-indigo-950 {
   background-color: rgb(231 238 251 / 1);
+}
+html[data-theme="porcelain"] .bg-indigo-950\/20 {
+  background-color: rgb(231 238 251 / 0.2);
 }
 html[data-theme="porcelain"] .bg-indigo-950\/30 {
   background-color: rgb(231 238 251 / 0.3);

@@ -865,6 +865,13 @@ for (const v of speechVisualisers) {
     "the edit preview has its own clear sample motion instead of waiting for the timeline playhead"
   );
   h.ok(
+    modal.includes("Preview crop / move controls") &&
+      modal.includes("SpectrumFramingSliders") &&
+      modal.includes("Reset crop") &&
+      modal.includes("move the busy bars into the centre"),
+    "the spectrum bar crop/move controls are available beside the edit preview"
+  );
+  h.ok(
     modal.includes("previewCanvasStyle") &&
       modal.includes('className="block max-w-full"') &&
       !modal.includes('className="block h-full w-full"'),
