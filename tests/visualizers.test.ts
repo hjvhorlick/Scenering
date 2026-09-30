@@ -84,13 +84,14 @@ function makeInsert(type: string, overrides: Partial<TimelineInsert> = {}): Time
 }
 
 // ------------------------------------------------------------------ catalogue
-h.eq(VISUALISERS.length, 42, `curated catalogue contains 42 distinct visualisers`);
+h.eq(VISUALISERS.length, 43, `curated catalogue contains 43 distinct visualisers`);
 h.eq(RETIRED_VISUALIZER_TYPES.length, 10, "ten visually repeated designs are retired from the picker");
 for (const type of RETIRED_VISUALIZER_TYPES) {
   h.ok(!VISUALISERS.some((item) => item.type === type), `${type} is not offered as a duplicate card`);
 }
-h.eq(VISUALISERS[0]?.type, "audio_orb", "the catalogue still begins with its centrepiece ring");
-h.eq(VISUALISERS[1]?.type, "spectrum", "the duplicate second ring is gone; a distinct rack follows");
+h.eq(VISUALISERS[0]?.type, "fine_radial_bars", "the catalogue begins with the advanced fine radial spectrum");
+h.eq(VISUALISERS[1]?.type, "audio_orb", "the original centrepiece ring remains directly after the advanced radial engine");
+h.eq(VISUALISERS[2]?.type, "spectrum", "the duplicate second ring is gone; a distinct rack follows");
 h.ok(VISUALISERS.some((item) => item.type === "glow_pills"), "Glow Pills remains in the curated catalogue");
 h.ok(
   !(RETIRED_VISUALIZER_TYPES as readonly string[]).includes("glow_pills"),
@@ -963,10 +964,10 @@ for (const v of speechVisualisers) {
     "relocated media retains its shared catalogue metadata"
   );
   h.ok(
-    !VIDEO_STUDIO_CATEGORIES.some(({ id }) => id === "audio_visualizers") &&
+    VIDEO_STUDIO_CATEGORIES.some(({ id }) => id === "audio_visualizers") &&
       !VIDEO_STUDIO_CATEGORIES.some(({ id }) => id === "background_music") &&
       videoStudio.includes("VIDEO_STUDIO_CATEGORIES.map"),
-    "Video Studio's rendered tabs omit the two Voiceover media libraries"
+    "Video Studio's rendered tabs include Audio Visualisers while Background Music stays in Voiceover"
   );
   h.ok(
     mediaLibrary.includes("CATALOG_ITEMS.audio_visualizers") &&

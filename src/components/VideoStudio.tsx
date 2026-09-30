@@ -157,7 +157,7 @@ export default function VideoStudio({
             Add overlays and callouts at playhead timestamp{" "}
             <span className="font-mono text-amber-300 bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-800/40">
               {formattedTime}
-            </span>. Audio waves and full-video music now live together in Voiceover
+            </span>. Add visual overlays here; background music stays in Voiceover
           </p>
         </div>
 
@@ -224,7 +224,7 @@ export default function VideoStudio({
         </div>
       </div>
 
-      {/* Audio Visualisers and Background Music are now grouped with Voiceover. */}
+      {/* Video effects, including the Audio Visualiser section, live here; Background Music remains in Voiceover. */}
       <div className="t-studio-tabbar bg-gray-900/60 border-b border-hairline px-4 pt-2.5 flex gap-1.5 overflow-x-auto scrollbar-thin" role="tablist" aria-label="Video Studio sections">
         {VIDEO_STUDIO_CATEGORIES.map((cat, idx) => {
           const isSelected = selectedCategory === cat.id;

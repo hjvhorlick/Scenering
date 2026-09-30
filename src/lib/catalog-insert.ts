@@ -14,9 +14,10 @@ export interface CatalogInsertOptions {
  * Turn one catalogue card into the exact timeline insert used by previews,
  * renders and the properties editor.
  *
- * This used to live inside VideoStudio. Visualisers and music now also live in
- * Voiceover, so keeping the construction here prevents the two screens from
- * producing subtly different versions of the same item.
+ * This used to live inside VideoStudio. Visualisers can be inserted from both
+ * Video Studio and Voiceover, while music lives in Voiceover, so keeping the
+ * construction here prevents the screens from producing subtly different
+ * versions of the same item.
  */
 export function createCatalogInsert(
   item: CatalogItem,

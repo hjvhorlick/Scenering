@@ -24,6 +24,7 @@ import {
 import { resolveArtStyle } from "../lib/render-text-template";
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { VISUALIZER_PALETTES } from "../lib/visualizer-palettes";
+import { FINE_RADIAL_PRESET_PATCHES } from "../lib/advanced-audio-visualizer";
 import { isRoundVisualizer, supportsCentreLogo, wantsCentreLogo } from "../lib/render-visualizers";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
@@ -286,6 +287,7 @@ function InsertPropertiesContent({
     insert.type.includes("bars") ||
     insert.type.includes("spectrum");
 
+  const isFineRadialVisualizer = insert.type === "fine_radial_bars";
   const isSoundEffect = insert.category === "sound_effects" || insert.category === "background_music";
   const isBackgroundMusic = insert.category === "background_music";
   const isContentCard =
@@ -1348,32 +1350,56 @@ function InsertPropertiesContent({
                     </div>
                   )}
 
-                  {/* Sound detail — how many frequency bands the analyser splits */}
+                  {/* Sound detail — how many frequency bands / radial elements the analyser splits */}
                   <div className="space-y-1.5 pt-3 border-t border-hairline">
                     <div className="flex justify-between text-xs text-gray-300">
-                      <span className="text-xs font-medium text-white">Sound Detail (Bands):</span>
+                      <span className="text-xs font-medium text-white">
+                        {isFineRadialVisualizer ? "Fine Radial Elements:" : "Sound Detail (Bands):"}
+                      </span>
                       <span className="font-mono text-indigo-400 font-semibold">
-                        {data.visualOptions?.bandCount ?? 64} bands
+                        {data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isFineRadialVisualizer ? 256 : 64)} {isFineRadialVisualizer ? "bars" : "bands"}
                       </span>
                     </div>
                     <input
                       type="range"
-                      min={16}
-                      max={128}
-                      step={8}
-                      value={data.visualOptions?.bandCount ?? 64}
-                      onChange={(e) => updateVisualOptions("bandCount", parseInt(e.target.value))}
+                      min={isFineRadialVisualizer ? 64 : 16}
+                      max={isFineRadialVisualizer ? 512 : 128}
+                      step={isFineRadialVisualizer ? 64 : 8}
+                      value={data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isFineRadialVisualizer ? 256 : 64)}
+                      onChange={(e) => {
+                        const next = parseInt(e.target.value);
+                        updateVisual({ bandCount: next, elementCount: next });
+                      }}
                       className="w-full accent-indigo-500 cursor-pointer"
                     />
-                    <div className="flex justify-between text-[10px] text-gray-500">
-                      <span>16 · chunky</span>
-                      <span>64 · balanced</span>
-                      <span>128 · very detailed</span>
-                    </div>
+                    {isFineRadialVisualizer ? (
+                      <div className="grid grid-cols-4 gap-1.5 pt-1">
+                        {[64, 128, 256, 512].map((count) => (
+                          <button
+                            key={count}
+                            type="button"
+                            onClick={() => updateVisual({ bandCount: count, elementCount: count })}
+                            className={`px-2 py-1 rounded-lg border text-[10px] font-semibold ${
+                              (data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? 256) === count
+                                ? "bg-indigo-600 border-indigo-500 text-white"
+                                : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
+                            }`}
+                          >
+                            {count}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex justify-between text-[10px] text-gray-500">
+                        <span>16 · chunky</span>
+                        <span>64 · balanced</span>
+                        <span>128 · very detailed</span>
+                      </div>
+                    )}
                     <p className="text-[11px] text-gray-400">
-                      The scenes (terrain, starfield, plasma, jellyfish, ring of fire) use this many
-                      frequency bands for their detail, so every part of the music has its own place
-                      in the picture.
+                      {isFineRadialVisualizer
+                        ? "The professional radial preset uses 256 thin bars. 512 adds detail but costs more at high resolutions."
+                        : "The scenes (terrain, starfield, plasma, jellyfish, ring of fire) use this many frequency bands for their detail, so every part of the music has its own place in the picture."}
                     </p>
                   </div>
 
@@ -1415,6 +1441,132 @@ function InsertPropertiesContent({
                       className="w-full accent-indigo-500 cursor-pointer"
                     />
                   </div>
+
+                  {isFineRadialVisualizer && (
+                    <div className="space-y-4 pt-3 border-t border-hairline">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <span className="text-xs font-semibold text-white block">Professional Fine Ring Engine</span>
+                          <span className="text-[11px] text-gray-400">Log/musical mapping, attack/release ballistics and transparent radial rendering.</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => updateVisual({ ...FINE_RADIAL_PRESET_PATCHES.professional })}
+                          className="px-2.5 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white text-[10px] font-bold"
+                        >
+                          Reset Professional
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          ["outward", "Out"],
+                          ["inward", "In"],
+                          ["both", "Both"],
+                        ].map(([id, label]) => (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => updateVisualOptions("radialDirection", id)}
+                            className={`px-2 py-1.5 rounded-lg border text-xs font-semibold ${
+                              (data.visualOptions?.radialDirection || "outward") === id
+                                ? "bg-indigo-600 border-indigo-500 text-white"
+                                : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400 uppercase tracking-wide">Frequency Mapping</span>
+                          <select
+                            value={data.visualOptions?.frequencyMapping || "logarithmic"}
+                            onChange={(e) => updateVisualOptions("frequencyMapping", e.target.value)}
+                            className="w-full bg-gray-900 border border-hairline rounded-lg px-2 py-1.5 text-xs text-white"
+                          >
+                            <option value="linear">Linear</option>
+                            <option value="logarithmic">Logarithmic</option>
+                            <option value="musical">Musical</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400 uppercase tracking-wide">FFT Resolution</span>
+                          <select
+                            value={data.visualOptions?.fftSize ?? 2048}
+                            onChange={(e) => updateVisualOptions("fftSize", parseInt(e.target.value))}
+                            className="w-full bg-gray-900 border border-hairline rounded-lg px-2 py-1.5 text-xs text-white"
+                          >
+                            <option value={512}>512 · light</option>
+                            <option value={1024}>1024 · balanced</option>
+                            <option value={2048}>2048 · detailed</option>
+                            <option value={4096}>4096 · maximum</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Min Frequency: {data.visualOptions?.minFrequency ?? 36} Hz</span>
+                          <input type="range" min={20} max={500} step={5} value={data.visualOptions?.minFrequency ?? 36} onChange={(e) => updateVisualOptions("minFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Max Frequency: {data.visualOptions?.maxFrequency ?? 16000} Hz</span>
+                          <input type="range" min={4000} max={22000} step={250} value={data.visualOptions?.maxFrequency ?? 16000} onChange={(e) => updateVisualOptions("maxFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Inner Radius: {Math.round((data.visualOptions?.radialRadius ?? 0.245) * 100)}%</span>
+                          <input type="range" min={0.08} max={0.42} step={0.005} value={data.visualOptions?.radialRadius ?? 0.245} onChange={(e) => updateVisualOptions("radialRadius", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Max Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
+                          <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Gap: {Math.round((data.visualOptions?.barGap ?? 0.42) * 100)}%</span>
+                          <input type="range" min={0} max={0.86} step={0.01} value={data.visualOptions?.barGap ?? 0.42} onChange={(e) => updateVisualOptions("barGap", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Attack: {Math.round((data.visualOptions?.attack ?? 0.72) * 100)}%</span>
+                          <input type="range" min={0.04} max={1} step={0.01} value={data.visualOptions?.attack ?? 0.72} onChange={(e) => updateVisualOptions("attack", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Release: {Math.round((data.visualOptions?.release ?? 0.28) * 100)}%</span>
+                          <input type="range" min={0.03} max={1} step={0.01} value={data.visualOptions?.release ?? 0.28} onChange={(e) => updateVisualOptions("release", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Smoothing: {Math.round((data.visualOptions?.smoothing ?? 0.38) * 100)}%</span>
+                          <input type="range" min={0} max={0.95} step={0.01} value={data.visualOptions?.smoothing ?? 0.38} onChange={(e) => updateVisualOptions("smoothing", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Bloom: {Math.round((data.visualOptions?.bloomIntensity ?? 0.32) * 100)}%</span>
+                          <input type="range" min={0} max={1} step={0.01} value={data.visualOptions?.bloomIntensity ?? 0.32} onChange={(e) => updateVisualOptions("bloomIntensity", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="flex items-center justify-between gap-2 bg-gray-900 rounded-lg border border-hairline px-3 py-2">
+                          <span className="text-xs text-gray-200">Voice Mode</span>
+                          <input type="checkbox" checked={Boolean(data.visualOptions?.voiceMode)} onChange={(e) => updateVisualOptions("voiceMode", e.target.checked)} className="accent-indigo-500" />
+                        </label>
+                        <label className="flex items-center justify-between gap-2 bg-gray-900 rounded-lg border border-hairline px-3 py-2">
+                          <span className="text-xs text-gray-200">Beat Pulse</span>
+                          <input type="checkbox" checked={data.visualOptions?.beatResponse !== false} onChange={(e) => updateVisualOptions("beatResponse", e.target.checked)} className="accent-indigo-500" />
+                        </label>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Reaction Strength */}
                   <div className="space-y-1.5 pt-2 border-t border-hairline">

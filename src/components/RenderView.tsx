@@ -12,6 +12,7 @@ import {
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { PackedAudioTelemetry } from "../lib/audio-telemetry";
+import { requiredVisualizerFftSize } from "../lib/advanced-audio-visualizer";
 import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import type { WordTiming } from "../lib/word-sync";
 import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
@@ -1493,17 +1494,18 @@ export default function RenderView({
           reportStage(`3/4: Frame-exact ${offlineProbe.videoCodec} + ${offlineProbe.audioCodec} — rendering audio…`);
           renderTimer.stage("audio graph");
           const offlineCtx = new OfflineAudioContext(2, Math.ceil(estimatedTotalDuration * 48_000), 48_000);
+          const visualizerFftSize = requiredVisualizerFftSize(inserts);
           const offlineMastering = createMasteringChain(offlineCtx, settings.audioMastering);
           offlineMastering.output.connect(offlineCtx.destination);
 
           const voiceAnalyser = offlineCtx.createAnalyser();
-          voiceAnalyser.fftSize = 512;
+          voiceAnalyser.fftSize = visualizerFftSize;
           voiceAnalyser.smoothingTimeConstant = 0.72;
           voiceAnalyser.minDecibels = -92;
           voiceAnalyser.maxDecibels = -12;
           voiceAnalyser.connect(offlineMastering.voiceInput);
           const offlineMusicAnalyser = offlineCtx.createAnalyser();
-          offlineMusicAnalyser.fftSize = 512;
+          offlineMusicAnalyser.fftSize = visualizerFftSize;
           offlineMusicAnalyser.smoothingTimeConstant = 0.72;
           offlineMusicAnalyser.minDecibels = -92;
           offlineMusicAnalyser.maxDecibels = -12;
@@ -1968,9 +1970,11 @@ export default function RenderView({
         }, Math.max(15, estimatedTotalDuration + 15) * 1000);
       });
 
+      const visualizerFftSize = requiredVisualizerFftSize(inserts);
+
       // Voice bus → mastering voice input (never ducked, always intelligible)
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 512;
+      analyser.fftSize = visualizerFftSize;
       analyser.smoothingTimeConstant = 0.72;
       analyser.minDecibels = -92;
       analyser.maxDecibels = -12;
@@ -1979,7 +1983,7 @@ export default function RenderView({
       // Music bus: background track / SFX analysed separately, then through
       // the mastering stage's ducking path (music steps aside for speech)
       const musicAnalyser = audioCtx.createAnalyser();
-      musicAnalyser.fftSize = 512;
+      musicAnalyser.fftSize = visualizerFftSize;
       musicAnalyser.smoothingTimeConstant = 0.72;
       musicAnalyser.minDecibels = -92;
       musicAnalyser.maxDecibels = -12;

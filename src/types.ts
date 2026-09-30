@@ -215,10 +215,37 @@ export interface InsertVisualOptions {
   spanFullVideo?: boolean; // run for the whole video, not a fixed 8s window (default true for visualisers)
   /** id from VISUALIZER_PALETTES — the colour theme the visualiser is drawn in */
   colorTheme?: string;
-  /** how many frequency bands the analyser splits the sound into (16 chunky - 128 detailed) */
+  /** how many frequency bands the analyser splits the sound into (legacy: 16 chunky - 128 detailed; advanced radial: 64 - 512 fine elements) */
   bandCount?: number;
+  /** advanced visualiser element count; kept separate so legacy racks can still call the value bands */
+  elementCount?: number;
   /** accent colour (hot cores, spike tips, flashes) used by the immersive styles */
   accentColor?: string;
+  /** ---- Advanced Audio Visualiser Engine ---- */
+  visualizerStyle?: "fine_radial_bars" | "fine_radial_bars_3d" | "flat_circular_spectrum" | "circular_waveform" | "circular_pulse" | "spectrum_bars" | "mirror_spectrum" | "waveform" | "particle_ring" | "particle_ring_3d" | string;
+  visualizerPreset?: string;
+  frequencyMapping?: "linear" | "logarithmic" | "musical";
+  minFrequency?: number;
+  maxFrequency?: number;
+  fftSize?: 512 | 1024 | 2048 | 4096 | number;
+  smoothing?: number;
+  attack?: number;
+  release?: number;
+  radialDirection?: "outward" | "inward" | "both";
+  radialRadius?: number;
+  maxBarHeight?: number;
+  minBarHeight?: number;
+  barGap?: number;
+  visualizerOpacity?: number;
+  bloomIntensity?: number;
+  beatResponse?: boolean;
+  beatExpansion?: number;
+  beatGlow?: number;
+  voiceMode?: boolean;
+  centreScale?: number;
+  centreOpacity?: number;
+  centreContentType?: "none" | "image" | "logo" | "text" | "media";
+  frequencyColorMode?: "gradient" | "frequency" | "amplitude";
   /**
    * Draw the user's own logo in the middle of a centre visualiser (audio orb,
    * orbit disc, circular analysers). Defaults to on for the orb and the disc,

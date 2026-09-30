@@ -5,6 +5,7 @@ import { STICKER_LIBRARY, STICKER_GROUPS } from "./sticker-3d";
 import { TEXT_TEMPLATES } from "../data/text-templates";
 import { VIDEO_FILTERS, FILTER_GROUPS } from "../data/video-filters";
 import { PIXABAY_FAMILIES } from "./pixabay-styles";
+import { FINE_RADIAL_PRESET_PATCHES } from "./advanced-audio-visualizer";
 
 export interface CatalogItem {
   type: string;
@@ -99,9 +100,9 @@ export const PIXABAY_CATALOG_ITEMS: CatalogItem[] = PIXABAY_FAMILIES.flatMap((fa
 );
 
 // ---------------- COMPLETE CREATIVE-LIBRARY CATEGORY METADATA ----------------
-// Audio Visualisers and Background Music are displayed in Voiceover, while the
-// remaining categories are displayed in Video Studio. Keep the metadata in one
-// registry: visualiser validation and catalogue facts intentionally use it.
+// Background Music is displayed in Voiceover, while Audio Visualisers are also
+// available directly in Video Studio for video-effect placement. Keep the
+// metadata in one registry: visualiser validation and catalogue facts use it.
 export interface StudioCategoryDef {
   id: InsertCategory;
   name: string;
@@ -172,9 +173,10 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
     id: "audio_visualizers",
     name: "Audio Visualisers",
     icon: "📊",
-    description: "Waveforms, real-time oscilloscopes, frequency bars, and speech-reactive meters",
+    description: "Professional audio-reactive video effects: dense radial spectra, waveforms, real-time oscilloscopes, frequency bars, and speech-reactive meters",
     subcategories: [
       { id: "all", name: "All Visualisers", icon: "📊" },
+      { id: "advanced", name: "Advanced Rings", icon: "◎" },
       { id: "waves", name: "Audio Waves & Bars", icon: "〰️" },
       { id: "centre", name: "Centre Stage", icon: "🎯" },
       { id: "immersive", name: "Immersive Scenes", icon: "🌌" },
@@ -219,9 +221,9 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
   },
 ];
 
-/** Categories that still belong in Video Studio's rendered tab bar. */
+/** Categories that belong in Video Studio's rendered tab bar. */
 export const VIDEO_STUDIO_CATEGORIES: StudioCategoryDef[] = STUDIO_CATEGORIES.filter(
-  ({ id }) => id !== "audio_visualizers" && id !== "background_music"
+  ({ id }) => id !== "background_music"
 );
 
 /**
@@ -482,6 +484,28 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
   ],
 
   audio_visualizers: ([
+    // Subcategory: advanced — Scenering-native production visualisers built for final video output
+    {
+      type: "fine_radial_bars",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Fine Radial Bars",
+      icon: "◎",
+      description:
+        "Professional dense circular spectrum with 256 very fine independent bars, logarithmic frequency mapping, attack/release smoothing, transparent background and optional centre logo. Designed for music videos, podcasts and narration overlays.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.18,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.professional,
+        primaryColor: "#facc15",
+        secondaryColor: "#38bdf8",
+        accentColor: "#ffffff",
+      },
+    },
+
     // Subcategory: centre — the round centrepiece styles, with room for your own logo
     {
       type: "audio_orb",

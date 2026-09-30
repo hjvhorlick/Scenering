@@ -21,6 +21,11 @@ import {
 } from "./audio-reactive";
 import { resolveVisualizerPalette } from "./visualizer-palettes";
 import {
+  advancedVisualizerFootprint,
+  isAdvancedAudioVisualizerType,
+  renderAdvancedAudioVisualizer,
+} from "./advanced-audio-visualizer";
+import {
   PIXABAY_STYLE_IDS,
   PixabayScene,
   PixabayShape,
@@ -73,6 +78,7 @@ export function pixabayVisualizerShape(type: string): PixabayShape {
 /** Compact visualisers: circular/radial shapes and the small talking-dot cluster.
  *  They are never stretched across the frame and can be dragged anywhere. */
 const ROUND_TYPES = new Set([
+  "fine_radial_bars",
   "circular_wave",
   "voice_pulse",
   "energy_ring",
@@ -85,9 +91,10 @@ const ROUND_TYPES = new Set([
 
 /** Centre visualisers: a ring / disc built around the middle of the frame.
  *  They can carry the user's own logo in the middle. */
-export const CENTRE_VISUALIZER_TYPES = ["audio_orb", "orbit_disc", "circular_wave", "voice_pulse", "energy_ring", "pulse_circle"] as const;
+export const CENTRE_VISUALIZER_TYPES = ["fine_radial_bars", "audio_orb", "orbit_disc", "circular_wave", "voice_pulse", "energy_ring", "pulse_circle"] as const;
 
 const CENTRE_LOGO_TYPES = new Set<string>([
+  "fine_radial_bars",
   "audio_orb",
   "orbit_disc",
   "circular_wave",
@@ -220,6 +227,7 @@ export function visualizerBodyHeight(item: TimelineInsert, canvasHeight: number)
   // in a 720p render and in a small studio thumbnail (just smaller).
   const ofFrame = (ratio: number) =>
     Math.max(canvasHeight * ratio * Math.max(0.32, size), canvasHeight * 0.055);
+  if (isAdvancedAudioVisualizerType(type)) return ofFrame(0.58);
   if (PIXABAY_TYPES.has(type)) {
     // Pixabay looks size themselves from the frame and their own shape
     const shape = pixabayVisualizerShape(type);
@@ -255,6 +263,9 @@ export function getVisualizerFootprint(
   canvasHeight: number
 ): { w: number; h: number } {
   const body = visualizerBodyHeight(item, canvasHeight);
+  if (isAdvancedAudioVisualizerType(item.type)) {
+    return advancedVisualizerFootprint(item, canvasWidth, canvasHeight);
+  }
   if (PIXABAY_TYPES.has(item.type)) {
     const box = pixabayBoxOf(item, canvasWidth, canvasHeight);
     return { w: box.footW, h: box.footH };
@@ -1536,6 +1547,33 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         glow,
       });
     }
+    ctx.restore();
+    return;
+  }
+
+  /* ------------------------------------------------------------------
+   * Advanced Scenering visualiser engine. These styles use their own explicit
+   * frequency mapping, ballistics and geometry but still draw into the same
+   * canvas pass as the preview and export.
+   * ------------------------------------------------------------------ */
+  if (isAdvancedAudioVisualizerType(item.type)) {
+    const foot = advancedVisualizerFootprint(item, canvasWidth, canvasHeight);
+    const cx = foot.w >= canvasWidth ? canvasWidth / 2 : Math.max(foot.w / 2, Math.min(canvasWidth - foot.w / 2, x));
+    const cy = foot.h >= canvasHeight ? canvasHeight / 2 : Math.max(foot.h / 2, Math.min(canvasHeight - foot.h / 2, y));
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    renderAdvancedAudioVisualizer({
+      ctx,
+      item,
+      canvasWidth,
+      canvasHeight,
+      elapsed,
+      frame,
+      compact,
+      logo,
+    });
     ctx.restore();
     return;
   }

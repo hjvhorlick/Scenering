@@ -656,12 +656,12 @@ export default function VoiceoverStudio({
         />
 
         <p className="text-[10px] text-gray-500">
-          The original four voice-shaped sound visualisers remain supported by the render catalogue.
+          The original voice-shaped sound visualisers remain supported by the render catalogue.
           The {(CATALOG_ITEMS.audio_visualizers || []).length} choices here remove repeated designs
           rather than put every other style alongside them. Each still sample uses the same drawing
           code as the final video; a green “Live narration” badge means the large preview is reading
-          the actual voice signal. They have moved here from Video Studio → Sound Visualisers; put
-          any style on the video itself with Add to video, or open Edit here.
+          the actual voice signal. You can add a style here or use the dedicated Video Studio → Audio
+          Visualisers tab to build the effect while watching the main preview.
         </p>
 
         <VisualizerLibrary
