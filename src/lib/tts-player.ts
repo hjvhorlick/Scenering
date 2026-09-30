@@ -8,12 +8,6 @@ import {
 } from "./voice-echo";
 import { LEGACY_VOICE_IDS } from "../data/voice-presets";
 import { sanitizeTextForSpeech } from "./speech-sanitizer";
-import {
-  getVoiceAnalyser,
-  prepareVoiceMonitor,
-  tapVoiceElement,
-  voiceMonitorWanted,
-} from "./voice-monitor";
 // Provides high-fidelity MP3/WAV playback via /api/tts and full support for over 300+ Web Speech API voices with gender-aware matching
 
 export interface BrowserVoiceInfo {
@@ -186,28 +180,17 @@ class TTSAudioPlayer {
   }
 
   /**
-   * Routes one freshly created audio element through the echo chain, and —
-   * only while something on screen is drawing the voice — through the shared
-   * analyser as well.
-   *
-   * When neither is wanted the element is left exactly as it was: plain
-   * playback, no Web Audio, nothing that can go wrong.
+   * Routes one freshly created audio element through the selected echo chain.
+   * When no echo is enabled, playback stays plain HTML audio — no extra Web
+   * Audio graph and nothing that can alter the voice preview.
    */
   private attachEcho(audio: HTMLAudioElement) {
     this.disposeEchoRoute();
     const echoOn = !!this.voiceEcho && voiceEchoIsActive(this.voiceEcho);
-    const tap = voiceMonitorWanted() ? getVoiceAnalyser() : null;
-    if (!echoOn && !tap) return;
+    if (!echoOn) return;
 
-    if (echoOn) {
-      const route = routeElementThroughEcho(audio, this.voiceEcho!, getEchoAudioContext, tap);
-      if (route) {
-        this.activeEchoRoute = route;
-        return;
-      }
-      // The echo could not be built; fall through and at least try to listen.
-    }
-    if (tap) tapVoiceElement(audio);
+    const route = routeElementThroughEcho(audio, this.voiceEcho!, getEchoAudioContext, null);
+    if (route) this.activeEchoRoute = route;
   }
 
   private disposeEchoRoute() {
@@ -275,11 +258,6 @@ class TTSAudioPlayer {
       return;
     }
 
-    // Do this before the first await. Browsers only allow a suspended Web Audio
-    // context to resume during a user gesture; creating it after the TTS fetch
-    // completed made the monitor randomly receive digital silence.
-    prepareVoiceMonitor();
-
     // Case 0: Direct Audio URL or Imported Real Voice Track
     if (
       voice.startsWith("url:") ||
@@ -322,8 +300,7 @@ class TTSAudioPlayer {
 
         // The server deliberately returns a correctly-sized silent WAV when
         // every network speech provider is unavailable. That is useful while
-        // building a render timeline, but it is a terrible audition: it used
-        // to look as if both the play button and visualiser were broken. For a
+        // building a render timeline, but it is a terrible audition. For a
         // preview, fall through to the audible browser voice instead, and do
         // not poison the in-memory audio cache with silence.
         if (res.headers.get("X-TTS-Source") === "silent") {
