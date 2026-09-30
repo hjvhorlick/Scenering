@@ -131,7 +131,7 @@ export default function VideoStudio({
 
   const visibleSubcategories =
     selectedCategory === "audio_visualizers"
-      ? [{ id: "advanced", name: "Advanced Rings", icon: "◎" }]
+      ? [{ id: "advanced", name: "Advanced Engine", icon: "◎" }]
       : currentCategoryDef?.subcategories;
 
   // Filter catalog items. Video Studio shows the new production visualiser
@@ -334,11 +334,11 @@ export default function VideoStudio({
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="text-sm font-bold text-teal-100">Advanced Audio Visualiser Engine</h3>
                       <span className="text-[10px] bg-amber-950 border border-amber-600/50 text-amber-200 px-2 py-0.5 rounded-full font-mono font-semibold">
-                        New · Fine Radial Bars
+                        New · Bars · Waves · Rings · Particles
                       </span>
                     </div>
                     <p className="text-xs text-gray-300 mt-0.5">
-                      This tab is intentionally filtered to the new professional engine so it does not look like the old visualiser library. Add Fine Radial Bars, then open Edit to change bar count, direction, radius, mapping, attack/release, colour and glow.
+                      This tab is intentionally filtered to the new professional engine so it does not look like the old visualiser library. Add radial bars, 3D rings, circular waves, pulse rings, spectrum bars, mirrored bars, waveform scopes or particle rings, then open Edit to tune mapping, attack/release, colour and glow.
                     </p>
                   </div>
                 </div>

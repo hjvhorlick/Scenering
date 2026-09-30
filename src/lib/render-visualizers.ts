@@ -23,6 +23,7 @@ import { resolveVisualizerPalette } from "./visualizer-palettes";
 import {
   advancedVisualizerFootprint,
   isAdvancedAudioVisualizerType,
+  isAdvancedLinearVisualizerType,
   renderAdvancedAudioVisualizer,
 } from "./advanced-audio-visualizer";
 import {
@@ -79,6 +80,12 @@ export function pixabayVisualizerShape(type: string): PixabayShape {
  *  They are never stretched across the frame and can be dragged anywhere. */
 const ROUND_TYPES = new Set([
   "fine_radial_bars",
+  "fine_radial_bars_3d",
+  "flat_circular_spectrum",
+  "circular_waveform",
+  "circular_pulse",
+  "particle_ring",
+  "particle_ring_3d",
   "circular_wave",
   "voice_pulse",
   "energy_ring",
@@ -91,10 +98,30 @@ const ROUND_TYPES = new Set([
 
 /** Centre visualisers: a ring / disc built around the middle of the frame.
  *  They can carry the user's own logo in the middle. */
-export const CENTRE_VISUALIZER_TYPES = ["fine_radial_bars", "audio_orb", "orbit_disc", "circular_wave", "voice_pulse", "energy_ring", "pulse_circle"] as const;
+export const CENTRE_VISUALIZER_TYPES = [
+  "fine_radial_bars",
+  "fine_radial_bars_3d",
+  "flat_circular_spectrum",
+  "circular_waveform",
+  "circular_pulse",
+  "particle_ring",
+  "particle_ring_3d",
+  "audio_orb",
+  "orbit_disc",
+  "circular_wave",
+  "voice_pulse",
+  "energy_ring",
+  "pulse_circle",
+] as const;
 
 const CENTRE_LOGO_TYPES = new Set<string>([
   "fine_radial_bars",
+  "fine_radial_bars_3d",
+  "flat_circular_spectrum",
+  "circular_waveform",
+  "circular_pulse",
+  "particle_ring",
+  "particle_ring_3d",
   "audio_orb",
   "orbit_disc",
   "circular_wave",
@@ -128,6 +155,9 @@ export function wantsCentreLogo(item: TimelineInsert): boolean {
 
 /** Types that stretch across the full frame width */
 const LINEAR_TYPES = new Set([
+  "advanced_spectrum_bars",
+  "advanced_mirror_spectrum",
+  "advanced_waveform",
   "waveform",
   "voice_wave",
   "neon_ribbon",
@@ -153,6 +183,9 @@ export function isLinearVisualizer(type: string): boolean {
 export function isVisualizerFullWidth(item: TimelineInsert): boolean {
   // Scenes always fill the frame: they are the picture, not an overlay on it.
   if (IMMERSIVE_TYPES.has(item.type)) return true;
+  if (isAdvancedAudioVisualizerType(item.type)) {
+    return isAdvancedLinearVisualizerType(item.type) && item.visualOptions?.fullWidth !== false;
+  }
   // Pixabay shapes: a 3D grid scene fills the frame, a bar/ribbon band spans it
   // edge to edge (unless switched off), an object or a disc never stretches.
   if (PIXABAY_TYPES.has(item.type)) {

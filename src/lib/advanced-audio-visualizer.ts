@@ -5,6 +5,7 @@ import {
   type ReactionSource,
   EMPTY_FRAME,
   getBars,
+  getWaveform,
   hasSignal,
   pickBus,
   reactiveBeat,
@@ -21,8 +22,29 @@ import { resolveVisualizerPalette } from "./visualizer-palettes";
  * thumbnails and final export can therefore call the same renderer.
  */
 
-export const ADVANCED_VISUALIZER_TYPES = ["fine_radial_bars"] as const;
+export const ADVANCED_VISUALIZER_TYPES = [
+  "fine_radial_bars",
+  "fine_radial_bars_3d",
+  "flat_circular_spectrum",
+  "circular_waveform",
+  "circular_pulse",
+  "advanced_spectrum_bars",
+  "advanced_mirror_spectrum",
+  "advanced_waveform",
+  "particle_ring",
+  "particle_ring_3d",
+] as const;
 export type AdvancedVisualizerType = (typeof ADVANCED_VISUALIZER_TYPES)[number];
+
+export const ADVANCED_LINEAR_VISUALIZER_TYPES = [
+  "advanced_spectrum_bars",
+  "advanced_mirror_spectrum",
+  "advanced_waveform",
+] as const;
+
+export function isAdvancedLinearVisualizerType(type: string): boolean {
+  return (ADVANCED_LINEAR_VISUALIZER_TYPES as readonly string[]).includes(type);
+}
 
 export type AdvancedFrequencyMapping = "linear" | "logarithmic" | "musical";
 export type AdvancedRadialDirection = "outward" | "inward" | "both";
@@ -192,6 +214,155 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     beatExpansion: 0.07,
     beatGlow: 0.55,
   },
+  fine_radial_3d: {
+    visualizerStyle: "fine_radial_bars_3d",
+    visualizerPreset: "fine_radial_3d",
+    colorTheme: "arctic",
+    bandCount: 192,
+    elementCount: 192,
+    barThickness: 3,
+    barGap: 0.34,
+    radialRadius: 0.225,
+    maxBarHeight: 0.18,
+    frequencyMapping: "logarithmic",
+    fftSize: 2048,
+    reactivity: 1.12,
+    glowIntensity: 0.56,
+    bloomIntensity: 0.28,
+    beatResponse: true,
+    has3DLook: true,
+    fullWidth: false,
+  },
+  flat_circular_spectrum: {
+    visualizerStyle: "flat_circular_spectrum",
+    visualizerPreset: "flat_circular_spectrum",
+    colorTheme: "ocean",
+    bandCount: 192,
+    elementCount: 192,
+    barThickness: 3,
+    radialRadius: 0.23,
+    maxBarHeight: 0.14,
+    frequencyMapping: "logarithmic",
+    fftSize: 2048,
+    reactivity: 1,
+    smoothing: 0.45,
+    glowIntensity: 0.36,
+    bloomIntensity: 0.16,
+    fullWidth: false,
+  },
+  circular_waveform: {
+    visualizerStyle: "circular_waveform",
+    visualizerPreset: "circular_waveform",
+    colorTheme: "vaporwave",
+    bandCount: 192,
+    elementCount: 192,
+    barThickness: 3,
+    radialRadius: 0.24,
+    maxBarHeight: 0.13,
+    fftSize: 1024,
+    reactivity: 0.95,
+    smoothing: 0.55,
+    glowIntensity: 0.42,
+    bloomIntensity: 0.18,
+    voiceMode: true,
+    fullWidth: false,
+  },
+  circular_pulse: {
+    visualizerStyle: "circular_pulse",
+    visualizerPreset: "circular_pulse",
+    colorTheme: "fire",
+    bandCount: 128,
+    elementCount: 128,
+    radialRadius: 0.22,
+    maxBarHeight: 0.16,
+    fftSize: 1024,
+    reactivity: 1.15,
+    smoothing: 0.52,
+    glowIntensity: 0.58,
+    bloomIntensity: 0.24,
+    beatResponse: true,
+    fullWidth: false,
+  },
+  advanced_spectrum_bars: {
+    visualizerStyle: "advanced_spectrum_bars",
+    visualizerPreset: "advanced_spectrum_bars",
+    colorTheme: "arctic",
+    bandCount: 96,
+    elementCount: 96,
+    barThickness: 8,
+    barGap: 0.32,
+    maxBarHeight: 0.22,
+    frequencyMapping: "logarithmic",
+    fftSize: 2048,
+    reactivity: 1.05,
+    smoothing: 0.34,
+    glowIntensity: 0.42,
+    fullWidth: true,
+  },
+  advanced_mirror_spectrum: {
+    visualizerStyle: "advanced_mirror_spectrum",
+    visualizerPreset: "advanced_mirror_spectrum",
+    colorTheme: "vaporwave",
+    bandCount: 128,
+    elementCount: 128,
+    barThickness: 5,
+    barGap: 0.42,
+    maxBarHeight: 0.19,
+    frequencyMapping: "musical",
+    fftSize: 2048,
+    reactivity: 1.08,
+    smoothing: 0.4,
+    glowIntensity: 0.5,
+    fullWidth: true,
+  },
+  advanced_waveform: {
+    visualizerStyle: "advanced_waveform",
+    visualizerPreset: "advanced_waveform",
+    colorTheme: "glacial",
+    bandCount: 160,
+    elementCount: 160,
+    barThickness: 5,
+    maxBarHeight: 0.16,
+    fftSize: 1024,
+    reactivity: 1,
+    smoothing: 0.58,
+    glowIntensity: 0.52,
+    voiceMode: true,
+    fullWidth: true,
+  },
+  particle_ring: {
+    visualizerStyle: "particle_ring",
+    visualizerPreset: "particle_ring",
+    colorTheme: "aurora",
+    bandCount: 192,
+    elementCount: 192,
+    radialRadius: 0.23,
+    maxBarHeight: 0.16,
+    fftSize: 2048,
+    reactivity: 1.08,
+    smoothing: 0.42,
+    glowIntensity: 0.55,
+    bloomIntensity: 0.28,
+    beatResponse: true,
+    fullWidth: false,
+  },
+  particle_ring_3d: {
+    visualizerStyle: "particle_ring_3d",
+    visualizerPreset: "particle_ring_3d",
+    colorTheme: "synthwave",
+    bandCount: 224,
+    elementCount: 224,
+    radialRadius: 0.22,
+    maxBarHeight: 0.17,
+    fftSize: 2048,
+    reactivity: 1.12,
+    smoothing: 0.38,
+    glowIntensity: 0.62,
+    bloomIntensity: 0.32,
+    beatResponse: true,
+    has3DLook: true,
+    fullWidth: false,
+  },
 };
 
 export function isAdvancedAudioVisualizerType(type: string): type is AdvancedVisualizerType {
@@ -239,6 +410,12 @@ export function advancedVisualizerFootprint(
   const minDim = Math.min(canvasWidth, canvasHeight);
   const s = advancedVisualizerSettings(item.visualOptions);
   const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  if (isAdvancedLinearVisualizerType(item.type)) {
+    return {
+      w: item.visualOptions?.fullWidth === false ? Math.min(canvasWidth, minDim * 1.35 * size) : canvasWidth,
+      h: Math.max(minDim * 0.18, minDim * (s.maxHeightRatio * 2.4 + 0.08) * size),
+    };
+  }
   const radius = minDim * s.radiusRatio * size;
   const maxH = minDim * s.maxHeightRatio * size;
   const glowPad = minDim * (0.03 + s.glow * 0.035 + s.bloom * 0.025);
@@ -282,7 +459,37 @@ export interface AdvancedVisualizerRenderOptions {
 
 export function renderAdvancedAudioVisualizer(opts: AdvancedVisualizerRenderOptions) {
   if (!isAdvancedAudioVisualizerType(opts.item.type)) return;
-  renderFineRadialBars(opts);
+  switch (opts.item.type) {
+    case "fine_radial_bars_3d":
+      renderFineRadialBars3D(opts);
+      return;
+    case "flat_circular_spectrum":
+      renderFlatCircularSpectrum(opts);
+      return;
+    case "circular_waveform":
+      renderCircularWaveform(opts);
+      return;
+    case "circular_pulse":
+      renderCircularPulse(opts);
+      return;
+    case "advanced_spectrum_bars":
+      renderAdvancedSpectrumBars(opts, false);
+      return;
+    case "advanced_mirror_spectrum":
+      renderAdvancedSpectrumBars(opts, true);
+      return;
+    case "advanced_waveform":
+      renderAdvancedWaveform(opts);
+      return;
+    case "particle_ring":
+      renderParticleRing(opts, false);
+      return;
+    case "particle_ring_3d":
+      renderParticleRing(opts, true);
+      return;
+    default:
+      renderFineRadialBars(opts);
+  }
 }
 
 function renderFineRadialBars({ ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact, logo }: AdvancedVisualizerRenderOptions) {
@@ -383,6 +590,315 @@ function renderFineRadialBars({ ctx, item, canvasWidth, canvasHeight, elapsed, f
     low: bands.bass,
   });
 
+  ctx.restore();
+}
+
+function renderFineRadialBars3D(opts: AdvancedVisualizerRenderOptions) {
+  const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact, logo } = opts;
+  const vo = item.visualOptions || {};
+  const settings = advancedVisualizerSettings(vo);
+  const palette = resolveVisualizerPalette(vo);
+  const source: ReactionSource = (item.audioSource as ReactionSource) || "music";
+  const bus = pickBus(frame || EMPTY_FRAME, source);
+  const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:3d`, settings, elapsed, bus, source);
+  const minDim = Math.min(canvasWidth, canvasHeight);
+  const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  const radius = minDim * settings.radiusRatio * size * (1 + bands.beat * settings.beatExpansion);
+  const maxHeight = minDim * settings.maxHeightRatio * size;
+  const rotation = (settings.rotationDeg * Math.PI) / 180 + elapsed * 0.04;
+  const count = settings.barCount;
+  const slot = (TAU * Math.max(1, radius)) / count;
+  const barWidth = clamp(Math.min(settings.barThickness * frameScale(canvasHeight) * 1.15, slot * (1 - settings.barGap)), 0.7, slot * 0.92);
+  const depth = minDim * 0.018 * size * (1 + bands.beat * 0.8);
+  const glow = compact ? settings.glow * 0.35 : settings.glow;
+
+  ctx.save();
+  ctx.globalAlpha *= settings.opacity;
+  if (!compact) {
+    ctx.save();
+    ctx.scale(1, 0.28);
+    ctx.beginPath();
+    ctx.arc(0, radius * 0.18, radius + maxHeight * 0.92, 0, TAU);
+    ctx.fillStyle = rgba(palette.primary, 0.05 + bands.bass * 0.04);
+    ctx.shadowColor = rgba(palette.secondary, 0.45);
+    ctx.shadowBlur = 22 * glow;
+    ctx.fill();
+    ctx.restore();
+  }
+  softGlow(ctx, 0, 0, radius + maxHeight * 1.7, rgba(palette.accent, 0.08), rgba(palette.primary, 0.06), 0.75 * glow);
+
+  const order = Array.from({ length: count }, (_, i) => i).sort((a, b) => Math.sin((a / count) * TAU + rotation) - Math.sin((b / count) * TAU + rotation));
+  for (const i of order) {
+    const t = i / count;
+    const angle = t * TAU + rotation;
+    const v = clamp(bands.values[i] || 0, 0, 1.6);
+    const len = settings.minHeightRatio * minDim + Math.pow(v, 0.78) * maxHeight;
+    const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, v, vo.frequencyColorMode || "gradient");
+    drawRadialPrism(ctx, angle, radius, radius + len, barWidth, depth, color, palette.accent, glow, v);
+  }
+
+  drawFineRadialCentre(ctx, {
+    radius,
+    minDim,
+    settings,
+    palette,
+    logo: settings.centreLogo ? logo || null : null,
+    beat: bands.beat,
+    energy: bands.energy,
+    low: bands.bass,
+  });
+  ctx.restore();
+}
+
+function renderFlatCircularSpectrum(opts: AdvancedVisualizerRenderOptions) {
+  const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact, logo } = opts;
+  const vo = item.visualOptions || {};
+  const settings = advancedVisualizerSettings(vo);
+  const palette = resolveVisualizerPalette(vo);
+  const source: ReactionSource = (item.audioSource as ReactionSource) || "music";
+  const bus = pickBus(frame || EMPTY_FRAME, source);
+  const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:flat`, settings, elapsed, bus, source);
+  const minDim = Math.min(canvasWidth, canvasHeight);
+  const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  const radius = minDim * settings.radiusRatio * size * (1 + bands.beat * settings.beatExpansion * 0.6);
+  const maxHeight = minDim * settings.maxHeightRatio * size;
+  const rotation = (settings.rotationDeg * Math.PI) / 180 - Math.PI / 2;
+  const count = settings.barCount;
+  const glow = compact ? settings.glow * 0.45 : settings.glow;
+
+  ctx.save();
+  ctx.globalAlpha *= settings.opacity;
+  softGlow(ctx, 0, 0, radius + maxHeight * 1.8, rgba(palette.primary, 0.08), rgba(palette.secondary, 0.06), glow);
+
+  ctx.beginPath();
+  for (let i = 0; i <= count; i++) {
+    const idx = i % count;
+    const t = idx / count;
+    const v = clamp(bands.values[idx] || 0, 0, 1.4);
+    const r = radius + Math.pow(v, 0.85) * maxHeight;
+    const a = t * TAU + rotation;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  const fill = ctx.createRadialGradient(0, 0, radius * 0.35, 0, 0, radius + maxHeight);
+  fill.addColorStop(0, rgba(palette.primary, 0.02));
+  fill.addColorStop(0.62, rgba(palette.primary, 0.2));
+  fill.addColorStop(1, rgba(palette.secondary, 0.5));
+  ctx.fillStyle = fill;
+  ctx.fill();
+
+  ctx.beginPath();
+  for (let i = 0; i <= count; i++) {
+    const idx = i % count;
+    const t = idx / count;
+    const v = clamp(bands.values[idx] || 0, 0, 1.4);
+    const r = radius + Math.pow(v, 0.85) * maxHeight;
+    const a = t * TAU + rotation;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = rgba(palette.accent, 0.78);
+  ctx.lineWidth = Math.max(1.2, settings.barThickness * frameScale(canvasHeight) * 0.55);
+  ctx.shadowColor = rgba(palette.primary, 0.8);
+  ctx.shadowBlur = 14 * glow;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  drawFineRadialCentre(ctx, { radius, minDim, settings, palette, logo: settings.centreLogo ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
+  ctx.restore();
+}
+
+function renderCircularWaveform(opts: AdvancedVisualizerRenderOptions) {
+  const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact, logo } = opts;
+  const vo = item.visualOptions || {};
+  const settings = advancedVisualizerSettings(vo);
+  const palette = resolveVisualizerPalette(vo);
+  const source: ReactionSource = (item.audioSource as ReactionSource) || "voice";
+  const bus = pickBus(frame || EMPTY_FRAME, source);
+  const count = settings.barCount;
+  const wave = getWaveform(count, elapsed, bus, source, settings.reactivity);
+  const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:wave-ring`, settings, elapsed, bus, source);
+  const minDim = Math.min(canvasWidth, canvasHeight);
+  const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  const radius = minDim * settings.radiusRatio * size;
+  const maxHeight = minDim * settings.maxHeightRatio * size;
+  const rotation = (settings.rotationDeg * Math.PI) / 180 - Math.PI / 2;
+  const glow = compact ? settings.glow * 0.45 : settings.glow;
+
+  ctx.save();
+  ctx.globalAlpha *= settings.opacity;
+  softGlow(ctx, 0, 0, radius + maxHeight * 1.6, rgba(palette.secondary, 0.08), rgba(palette.primary, 0.04), glow);
+  drawCircularTrace(ctx, wave, radius, maxHeight, rotation, rgba(palette.primary, 0.25), Math.max(4, settings.barThickness * 2.2), 22 * glow);
+  drawCircularTrace(ctx, wave, radius, maxHeight, rotation, mixColors(palette.primary, palette.secondary, 0.45), Math.max(1.6, settings.barThickness * 0.75), 10 * glow);
+  drawCircularTrace(ctx, wave, radius, maxHeight * 0.9, rotation, "#ffffff", Math.max(0.9, settings.barThickness * 0.22), 4 * glow);
+  drawFineRadialCentre(ctx, { radius, minDim, settings, palette, logo: settings.centreLogo ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
+  ctx.restore();
+}
+
+function renderCircularPulse(opts: AdvancedVisualizerRenderOptions) {
+  const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact, logo } = opts;
+  const vo = item.visualOptions || {};
+  const settings = advancedVisualizerSettings(vo);
+  const palette = resolveVisualizerPalette(vo);
+  const source: ReactionSource = (item.audioSource as ReactionSource) || "music";
+  const bus = pickBus(frame || EMPTY_FRAME, source);
+  const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:pulse`, settings, elapsed, bus, source);
+  const minDim = Math.min(canvasWidth, canvasHeight);
+  const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  const base = minDim * settings.radiusRatio * size;
+  const maxHeight = minDim * settings.maxHeightRatio * size;
+  const glow = compact ? settings.glow * 0.45 : settings.glow;
+  ctx.save();
+  ctx.globalAlpha *= settings.opacity;
+  softGlow(ctx, 0, 0, base + maxHeight * 2.2, rgba(palette.accent, 0.14 + bands.bass * 0.08), rgba(palette.primary, 0.08), glow);
+  for (let r = 0; r < 6; r++) {
+    const phase = ((elapsed * (0.32 + r * 0.04) + r / 6) % 1);
+    const rr = base * (0.62 + r * 0.12) + phase * maxHeight * (0.7 + bands.beat * 0.8);
+    ctx.beginPath();
+    ctx.arc(0, 0, rr, 0, TAU);
+    ctx.strokeStyle = rgba(mixColors(palette.primary, palette.secondary, r / 6), (0.44 - r * 0.045) * (1 - phase * 0.55) + bands.beat * 0.12);
+    ctx.lineWidth = Math.max(1, settings.barThickness * frameScale(canvasHeight) * (1.3 - r * 0.08));
+    ctx.shadowColor = rgba(palette.accent, 0.75);
+    ctx.shadowBlur = (10 + bands.beat * 22) * glow;
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+  drawFineRadialCentre(ctx, { radius: base, minDim, settings, palette, logo: settings.centreLogo ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
+  ctx.restore();
+}
+
+function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirror: boolean) {
+  const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact } = opts;
+  const vo = item.visualOptions || {};
+  const settings = advancedVisualizerSettings(vo);
+  const palette = resolveVisualizerPalette(vo);
+  const source: ReactionSource = (item.audioSource as ReactionSource) || "music";
+  const bus = pickBus(frame || EMPTY_FRAME, source);
+  const count = Math.max(32, Math.min(192, settings.barCount));
+  const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:linear`, { ...settings, barCount: count }, elapsed, bus, source);
+  const minDim = Math.min(canvasWidth, canvasHeight);
+  const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  const width = item.visualOptions?.fullWidth === false ? Math.min(canvasWidth * 0.82, minDim * 1.35 * size) : canvasWidth * 0.92;
+  const maxH = minDim * settings.maxHeightRatio * size;
+  const barW = clamp(settings.barThickness * frameScale(canvasHeight), 1, width / count * 0.86);
+  const gap = Math.max(1, (width - count * barW) / Math.max(1, count - 1));
+  const glow = compact ? settings.glow * 0.35 : settings.glow;
+
+  ctx.save();
+  ctx.globalAlpha *= settings.opacity;
+  ctx.beginPath();
+  ctx.moveTo(-width / 2, 0);
+  ctx.lineTo(width / 2, 0);
+  ctx.strokeStyle = rgba(palette.accent, 0.42);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  for (let i = 0; i < count; i++) {
+    const t = i / Math.max(1, count - 1);
+    const v = clamp(bands.values[i] || 0, 0, 1.5);
+    const h = Math.max(2, Math.pow(v, 0.78) * maxH);
+    const x = -width / 2 + i * (barW + gap);
+    const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, v, vo.frequencyColorMode || "gradient");
+    drawVerticalBar(ctx, x, 0, barW, h, color, palette.accent, glow, v, false);
+    if (mirror) drawVerticalBar(ctx, x, 0, barW, h * 0.88, mixColors(color, palette.secondary, 0.35), palette.accent, glow * 0.75, v, true);
+  }
+  ctx.restore();
+}
+
+function renderAdvancedWaveform(opts: AdvancedVisualizerRenderOptions) {
+  const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact } = opts;
+  const vo = item.visualOptions || {};
+  const settings = advancedVisualizerSettings(vo);
+  const palette = resolveVisualizerPalette(vo);
+  const source: ReactionSource = (item.audioSource as ReactionSource) || "voice";
+  const bus = pickBus(frame || EMPTY_FRAME, source);
+  const minDim = Math.min(canvasWidth, canvasHeight);
+  const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  const width = item.visualOptions?.fullWidth === false ? Math.min(canvasWidth * 0.82, minDim * 1.35 * size) : canvasWidth * 0.92;
+  const points = Math.max(96, Math.min(384, settings.barCount * 2));
+  const wave = getWaveform(points, elapsed, bus, source, settings.reactivity);
+  const amp = minDim * settings.maxHeightRatio * size;
+  const glow = compact ? settings.glow * 0.35 : settings.glow;
+  ctx.save();
+  ctx.globalAlpha *= settings.opacity;
+  ctx.beginPath();
+  ctx.moveTo(-width / 2, 0);
+  for (let i = 0; i < points; i++) {
+    const x = -width / 2 + (i / (points - 1)) * width;
+    const y = wave[i] * amp;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(width / 2, 0);
+  ctx.closePath();
+  const fill = ctx.createLinearGradient(0, -amp, 0, amp);
+  fill.addColorStop(0, rgba(palette.primary, 0.28));
+  fill.addColorStop(0.5, rgba(palette.secondary, 0.22));
+  fill.addColorStop(1, rgba(palette.primary, 0.24));
+  ctx.fillStyle = fill;
+  ctx.fill();
+  drawLinearWaveTrace(ctx, wave, width, amp, rgba(palette.primary, 0.35), Math.max(4, settings.barThickness * 2.1), 24 * glow);
+  drawLinearWaveTrace(ctx, wave, width, amp, mixColors(palette.primary, palette.secondary, 0.45), Math.max(1.6, settings.barThickness * 0.75), 10 * glow);
+  drawLinearWaveTrace(ctx, wave, width, amp, "#ffffff", Math.max(0.9, settings.barThickness * 0.22), 4 * glow);
+  ctx.restore();
+}
+
+function renderParticleRing(opts: AdvancedVisualizerRenderOptions, threeD: boolean) {
+  const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact, logo } = opts;
+  const vo = item.visualOptions || {};
+  const settings = advancedVisualizerSettings(vo);
+  const palette = resolveVisualizerPalette(vo);
+  const source: ReactionSource = (item.audioSource as ReactionSource) || "music";
+  const bus = pickBus(frame || EMPTY_FRAME, source);
+  const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:particles`, settings, elapsed, bus, source);
+  const minDim = Math.min(canvasWidth, canvasHeight);
+  const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  const base = minDim * settings.radiusRatio * size * (1 + bands.beat * settings.beatExpansion);
+  const spread = minDim * settings.maxHeightRatio * size;
+  const count = compact ? Math.min(128, settings.barCount) : settings.barCount;
+  const glow = compact ? settings.glow * 0.45 : settings.glow;
+  const spin = elapsed * (threeD ? 0.36 : 0.12);
+
+  ctx.save();
+  ctx.globalAlpha *= settings.opacity;
+  softGlow(ctx, 0, 0, base + spread * 1.8, rgba(palette.primary, 0.08 + bands.bass * 0.06), rgba(palette.secondary, 0.05), glow);
+  const particles = Array.from({ length: count }, (_, i) => {
+    const band = bands.values[i % bands.values.length] || 0;
+    const a = (i / count) * TAU + spin * (0.7 + hash01(i) * 0.4);
+    const jitter = (hash01(i * 17) - 0.5) * spread * 0.28;
+    const r = base + Math.pow(band, 0.78) * spread + jitter;
+    const z = threeD ? Math.sin(a * 1.1 + elapsed * 0.45 + hash01(i) * TAU) * base * 0.45 : 0;
+    const perspective = threeD ? 1 / (1 + z / (base * 3.2)) : 1;
+    return { i, a, r, z, perspective, band };
+  }).sort((a, b) => a.z - b.z);
+
+  for (const p of particles) {
+    const x = Math.cos(p.a) * p.r * p.perspective;
+    const y = Math.sin(p.a) * p.r * (threeD ? 0.72 : 1) * p.perspective;
+    const t = p.i / count;
+    const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, p.band, vo.frequencyColorMode || "gradient");
+    const dot = Math.max(1.2, (settings.barThickness * 0.8 + p.band * 4.5) * frameScale(canvasHeight) * p.perspective);
+    ctx.beginPath();
+    ctx.arc(x, y, dot, 0, TAU);
+    ctx.fillStyle = rgba(color, 0.46 + p.band * 0.44);
+    ctx.shadowColor = rgba(color, 0.8);
+    ctx.shadowBlur = (4 + p.band * 14) * glow;
+    ctx.fill();
+    if (!compact && p.i % 5 === 0) {
+      const x2 = Math.cos(p.a + 0.025) * (base + p.band * spread) * p.perspective;
+      const y2 = Math.sin(p.a + 0.025) * (base + p.band * spread) * (threeD ? 0.72 : 1) * p.perspective;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = rgba(color, 0.2 + p.band * 0.18);
+      ctx.lineWidth = Math.max(0.6, dot * 0.22);
+      ctx.stroke();
+    }
+  }
+  ctx.shadowBlur = 0;
+  drawFineRadialCentre(ctx, { radius: base, minDim, settings, palette, logo: settings.centreLogo ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
   ctx.restore();
 }
 
@@ -501,6 +1017,180 @@ function mappedFrequency(t: number, minHz: number, maxHz: number, mapping: Advan
     return 440 * Math.pow(2, (midi - 69) / 12);
   }
   return safeMin * Math.pow(Math.max(safeMin + 1, maxHz) / safeMin, p);
+}
+
+function drawRadialPrism(
+  ctx: CanvasRenderingContext2D,
+  angle: number,
+  innerR: number,
+  outerR: number,
+  width: number,
+  depth: number,
+  color: string,
+  accent: string,
+  glow: number,
+  value: number
+) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const tx = -s;
+  const ty = c;
+  const dx = Math.cos(angle - Math.PI / 4) * depth;
+  const dy = Math.sin(angle - Math.PI / 4) * depth;
+  const half = width / 2;
+  const p1 = { x: c * innerR + tx * half, y: s * innerR + ty * half };
+  const p2 = { x: c * outerR + tx * half, y: s * outerR + ty * half };
+  const p3 = { x: c * outerR - tx * half, y: s * outerR - ty * half };
+  const p4 = { x: c * innerR - tx * half, y: s * innerR - ty * half };
+  ctx.save();
+  if (glow > 0.02) {
+    ctx.shadowColor = rgba(color, 0.58);
+    ctx.shadowBlur = (4 + value * 16) * glow;
+  }
+  const grad = ctx.createLinearGradient(p1.x, p1.y, p2.x, p2.y);
+  grad.addColorStop(0, rgba(color, 0.5));
+  grad.addColorStop(0.62, rgba(mixColors(color, accent, value * 0.35), 0.9));
+  grad.addColorStop(1, rgba(mixColors(accent, "#ffffff", 0.34), 0.98));
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.lineTo(p3.x, p3.y);
+  ctx.lineTo(p4.x, p4.y);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.moveTo(p2.x, p2.y);
+  ctx.lineTo(p2.x + dx, p2.y + dy);
+  ctx.lineTo(p3.x + dx, p3.y + dy);
+  ctx.lineTo(p3.x, p3.y);
+  ctx.closePath();
+  ctx.fillStyle = rgba(mixColors(color, "#000000", 0.28), 0.6);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.lineTo(p2.x + dx, p2.y + dy);
+  ctx.lineTo(p1.x + dx, p1.y + dy);
+  ctx.closePath();
+  ctx.fillStyle = rgba(mixColors(color, "#ffffff", 0.2), 0.22);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawCircularTrace(
+  ctx: CanvasRenderingContext2D,
+  wave: Float32Array,
+  radius: number,
+  amplitude: number,
+  rotation: number,
+  color: string,
+  width: number,
+  glow: number
+) {
+  const n = wave.length;
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i <= n; i++) {
+    const idx = i % n;
+    const a = (idx / n) * TAU + rotation;
+    const r = radius + (wave[idx] || 0) * amplitude;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  if (glow > 0.02) {
+    ctx.shadowColor = color;
+    ctx.shadowBlur = glow;
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawVerticalBar(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  color: string,
+  accent: string,
+  glow: number,
+  value: number,
+  mirror: boolean
+) {
+  const top = mirror ? y : y - height;
+  const bottom = mirror ? y + height : y;
+  const grad = ctx.createLinearGradient(0, top, 0, bottom);
+  grad.addColorStop(0, rgba(mixColors(color, accent, 0.25), 0.96));
+  grad.addColorStop(0.62, rgba(color, 0.82));
+  grad.addColorStop(1, rgba(color, 0.28));
+  ctx.save();
+  if (glow > 0.02) {
+    ctx.shadowColor = rgba(color, 0.72);
+    ctx.shadowBlur = (3 + value * 12) * glow;
+  }
+  const radius = Math.min(width * 0.48, Math.max(1, width));
+  roundedRect(ctx, x, top, width, Math.abs(bottom - top), radius);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawLinearWaveTrace(
+  ctx: CanvasRenderingContext2D,
+  wave: Float32Array,
+  width: number,
+  amp: number,
+  color: string,
+  lineWidth: number,
+  glow: number
+) {
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i < wave.length; i++) {
+    const x = -width / 2 + (i / Math.max(1, wave.length - 1)) * width;
+    const y = (wave[i] || 0) * amp;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  if (glow > 0.02) {
+    ctx.shadowColor = color;
+    ctx.shadowBlur = glow;
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function hash01(n: number): number {
+  const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
+  return x - Math.floor(x);
 }
 
 function drawRadialLine(

@@ -49,6 +49,10 @@ import {
   isPixabayStyle,
   pixabayStyleOf,
 } from "../src/lib/pixabay-styles";
+import {
+  ADVANCED_VISUALIZER_TYPES,
+  isAdvancedLinearVisualizerType,
+} from "../src/lib/advanced-audio-visualizer";
 import { VISUALIZER_PALETTES, resolveVisualizerPalette } from "../src/lib/visualizer-palettes";
 import type { TimelineInsert } from "../src/types";
 
@@ -84,14 +88,16 @@ function makeInsert(type: string, overrides: Partial<TimelineInsert> = {}): Time
 }
 
 // ------------------------------------------------------------------ catalogue
-h.eq(VISUALISERS.length, 43, `curated catalogue contains 43 distinct visualisers`);
+h.eq(VISUALISERS.length, 52, `curated catalogue contains 52 distinct visualisers`);
 h.eq(RETIRED_VISUALIZER_TYPES.length, 10, "ten visually repeated designs are retired from the picker");
 for (const type of RETIRED_VISUALIZER_TYPES) {
   h.ok(!VISUALISERS.some((item) => item.type === type), `${type} is not offered as a duplicate card`);
 }
 h.eq(VISUALISERS[0]?.type, "fine_radial_bars", "the catalogue begins with the advanced fine radial spectrum");
-h.eq(VISUALISERS[1]?.type, "audio_orb", "the original centrepiece ring remains directly after the advanced radial engine");
-h.eq(VISUALISERS[2]?.type, "spectrum", "the duplicate second ring is gone; a distinct rack follows");
+h.eq(VISUALISERS[1]?.type, "fine_radial_bars_3d", "the 3D radial variation sits beside the original advanced ring");
+h.eq(VISUALISERS[9]?.type, "particle_ring_3d", "the advanced engine block includes particle, bar and wave variations");
+h.eq(VISUALISERS[10]?.type, "audio_orb", "the original centrepiece ring remains directly after the advanced engine block");
+h.eq(VISUALISERS[11]?.type, "spectrum", "the duplicate second ring is gone; a distinct rack follows");
 h.ok(VISUALISERS.some((item) => item.type === "glow_pills"), "Glow Pills remains in the curated catalogue");
 h.ok(
   !(RETIRED_VISUALIZER_TYPES as readonly string[]).includes("glow_pills"),
@@ -121,6 +127,7 @@ for (const v of VISUALISERS) {
   }
 }
 
+h.eq(bySub.get("advanced") || 0, 10, `ten native advanced engine visualiser variations`);
 h.eq(bySub.get("immersive") || 0, 6, `six non-repeating immersive scenes`);
 h.eq(bySub.get("centre") || 0, 1, `one distinctive centre-stage ring`);
 h.eq(bySub.get("waves") || 0, 8, `eight distinct audio waves and bar racks`);
@@ -138,6 +145,18 @@ for (const family of PIXABAY_FAMILIES) {
     curatedPixabayCounts[family.id],
     `${family.name} exposes only its distinct silhouettes`
   );
+}
+
+for (const type of ADVANCED_VISUALIZER_TYPES) {
+  const card = VISUALISERS.find((v) => v.type === type);
+  h.ok(Boolean(card), `${type} has a customer-facing advanced card`);
+  h.eq(card?.subCategory, "advanced", `${type} stays in the focused advanced tab`);
+  h.eq(card?.spansFullVideo, true, `${type} runs through the whole video by default`);
+  if (isAdvancedLinearVisualizerType(type)) {
+    h.eq(card?.defaultVisualOptions?.fullWidth, true, `${type} is a full-width bar/wave style`);
+  } else {
+    h.eq(card?.defaultVisualOptions?.fullWidth, false, `${type} is a compact circular/ring style`);
+  }
 }
 
 // Every immersive renderer is either a distinctive card or an explicitly

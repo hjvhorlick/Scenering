@@ -25,7 +25,7 @@ import { resolveArtStyle } from "../lib/render-text-template";
 import { renderTimelineInsert } from "../lib/render-effects";
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { VISUALIZER_PALETTES } from "../lib/visualizer-palettes";
-import { FINE_RADIAL_PRESET_PATCHES } from "../lib/advanced-audio-visualizer";
+import { FINE_RADIAL_PRESET_PATCHES, isAdvancedAudioVisualizerType, isAdvancedLinearVisualizerType } from "../lib/advanced-audio-visualizer";
 import { isRoundVisualizer, supportsCentreLogo, wantsCentreLogo } from "../lib/render-visualizers";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
@@ -455,7 +455,15 @@ function InsertPropertiesContent({
     insert.type.includes("bars") ||
     insert.type.includes("spectrum");
 
-  const isFineRadialVisualizer = insert.type === "fine_radial_bars";
+  const isAdvancedVisualizer = isAdvancedAudioVisualizerType(insert.type);
+  const isAdvancedLinearVisualizer = isAdvancedLinearVisualizerType(insert.type);
+  const advancedPresetKey =
+    insert.type === "fine_radial_bars"
+      ? "professional"
+      : insert.type === "fine_radial_bars_3d"
+      ? "fine_radial_3d"
+      : insert.type;
+  const advancedPresetPatch = FINE_RADIAL_PRESET_PATCHES[advancedPresetKey] || FINE_RADIAL_PRESET_PATCHES.professional;
   const isSoundEffect = insert.category === "sound_effects" || insert.category === "background_music";
   const isBackgroundMusic = insert.category === "background_music";
   const isContentCard =
@@ -1526,25 +1534,25 @@ function InsertPropertiesContent({
                   <div className="space-y-1.5 pt-3 border-t border-hairline">
                     <div className="flex justify-between text-xs text-gray-300">
                       <span className="text-xs font-medium text-white">
-                        {isFineRadialVisualizer ? "Fine Radial Elements:" : "Sound Detail (Bands):"}
+                        {isAdvancedVisualizer ? "Advanced Engine Detail:" : "Sound Detail (Bands):"}
                       </span>
                       <span className="font-mono text-indigo-400 font-semibold">
-                        {data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isFineRadialVisualizer ? 256 : 64)} {isFineRadialVisualizer ? "bars" : "bands"}
+                        {data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedVisualizer ? 256 : 64)} {isAdvancedVisualizer ? "bars" : "bands"}
                       </span>
                     </div>
                     <input
                       type="range"
-                      min={isFineRadialVisualizer ? 64 : 16}
-                      max={isFineRadialVisualizer ? 512 : 128}
-                      step={isFineRadialVisualizer ? 64 : 8}
-                      value={data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isFineRadialVisualizer ? 256 : 64)}
+                      min={isAdvancedVisualizer ? 64 : 16}
+                      max={isAdvancedVisualizer ? 512 : 128}
+                      step={isAdvancedVisualizer ? 64 : 8}
+                      value={data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedVisualizer ? 256 : 64)}
                       onChange={(e) => {
                         const next = parseInt(e.target.value);
                         updateVisual({ bandCount: next, elementCount: next });
                       }}
                       className="w-full accent-indigo-500 cursor-pointer"
                     />
-                    {isFineRadialVisualizer ? (
+                    {isAdvancedVisualizer ? (
                       <div className="grid grid-cols-4 gap-1.5 pt-1">
                         {[64, 128, 256, 512].map((count) => (
                           <button
@@ -1569,8 +1577,8 @@ function InsertPropertiesContent({
                       </div>
                     )}
                     <p className="text-[11px] text-gray-400">
-                      {isFineRadialVisualizer
-                        ? "The professional radial preset uses 256 thin bars. 512 adds detail but costs more at high resolutions."
+                      {isAdvancedVisualizer
+                        ? "The advanced engine can drive bars, waves, pulse rings and particle rings. 256 is a strong default; 512 adds detail but costs more at high resolutions."
                         : "The scenes (terrain, starfield, plasma, jellyfish, ring of fire) use this many frequency bands for their detail, so every part of the music has its own place in the picture."}
                     </p>
                   </div>
@@ -1614,42 +1622,44 @@ function InsertPropertiesContent({
                     />
                   </div>
 
-                  {isFineRadialVisualizer && (
+                  {isAdvancedVisualizer && (
                     <div className="space-y-4 pt-3 border-t border-hairline">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <span className="text-xs font-semibold text-white block">Professional Fine Ring Engine</span>
-                          <span className="text-[11px] text-gray-400">Log/musical mapping, attack/release ballistics and transparent radial rendering.</span>
+                          <span className="text-xs font-semibold text-white block">Advanced Scenering Visualiser Engine</span>
+                          <span className="text-[11px] text-gray-400">Log/musical mapping, attack/release ballistics and transparent bars, waves, rings and particles.</span>
                         </div>
                         <button
                           type="button"
-                          onClick={() => updateVisual({ ...FINE_RADIAL_PRESET_PATCHES.professional })}
+                          onClick={() => updateVisual({ ...advancedPresetPatch })}
                           className="px-2.5 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white text-[10px] font-bold"
                         >
-                          Reset Professional
+                          Reset Style
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          ["outward", "Out"],
-                          ["inward", "In"],
-                          ["both", "Both"],
-                        ].map(([id, label]) => (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() => updateVisualOptions("radialDirection", id)}
-                            className={`px-2 py-1.5 rounded-lg border text-xs font-semibold ${
-                              (data.visualOptions?.radialDirection || "outward") === id
-                                ? "bg-indigo-600 border-indigo-500 text-white"
-                                : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
+                      {!isAdvancedLinearVisualizer && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            ["outward", "Out"],
+                            ["inward", "In"],
+                            ["both", "Both"],
+                          ].map(([id, label]) => (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => updateVisualOptions("radialDirection", id)}
+                              className={`px-2 py-1.5 rounded-lg border text-xs font-semibold ${
+                                (data.visualOptions?.radialDirection || "outward") === id
+                                  ? "bg-indigo-600 border-indigo-500 text-white"
+                                  : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label className="space-y-1">
@@ -1690,16 +1700,23 @@ function InsertPropertiesContent({
                         </label>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <label className="space-y-1">
-                          <span className="text-[10px] text-gray-400">Inner Radius: {Math.round((data.visualOptions?.radialRadius ?? 0.245) * 100)}%</span>
-                          <input type="range" min={0.08} max={0.42} step={0.005} value={data.visualOptions?.radialRadius ?? 0.245} onChange={(e) => updateVisualOptions("radialRadius", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[10px] text-gray-400">Max Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
+                      {isAdvancedLinearVisualizer ? (
+                        <label className="space-y-1 block">
+                          <span className="text-[10px] text-gray-400">Band / Wave Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
                           <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                         </label>
-                      </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-gray-400">Inner Radius: {Math.round((data.visualOptions?.radialRadius ?? 0.245) * 100)}%</span>
+                            <input type="range" min={0.08} max={0.42} step={0.005} value={data.visualOptions?.radialRadius ?? 0.245} onChange={(e) => updateVisualOptions("radialRadius", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-gray-400">Max Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
+                            <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </label>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-3 gap-3">
                         <label className="space-y-1">
