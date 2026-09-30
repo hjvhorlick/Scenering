@@ -129,11 +129,21 @@ export default function VideoStudio({
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [selectedCategory]);
 
-  // Filter catalog items
-  const itemsForCategory = CATALOG_ITEMS[selectedCategory] || [];
+  const visibleSubcategories =
+    selectedCategory === "audio_visualizers"
+      ? [{ id: "advanced", name: "Advanced Rings", icon: "◎" }]
+      : currentCategoryDef?.subcategories;
+
+  // Filter catalog items. Video Studio shows the new production visualiser
+  // engine only; the legacy catalogue remains available in Voiceover for old
+  // projects and backwards-compatible styles.
+  const itemsForCategory =
+    selectedCategory === "audio_visualizers"
+      ? (CATALOG_ITEMS.audio_visualizers || []).filter((item) => item.subCategory === "advanced")
+      : CATALOG_ITEMS[selectedCategory] || [];
   const filteredItems = itemsForCategory.filter((item) => {
     const matchesSubcategory =
-      selectedSubcategory === "all" || item.subCategory === selectedSubcategory;
+      selectedCategory === "audio_visualizers" || selectedSubcategory === "all" || item.subCategory === selectedSubcategory;
     const matchesQuery =
       searchQuery === "" ||
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -234,7 +244,7 @@ export default function VideoStudio({
               type="button"
               onClick={() => {
                 setSelectedCategory(cat.id);
-                setSelectedSubcategory("all");
+                setSelectedSubcategory(cat.id === "audio_visualizers" ? "advanced" : "all");
               }}
               className={`t-stab opt-btn px-4 py-2.5 rounded-t-lg font-semibold text-sm whitespace-nowrap transition-all flex items-center gap-2 ${cat.id === "intro" ? "opt-btn-amber" : cat.id === "outro" ? "opt-btn-rose" : ""} ${
                 isSelected
@@ -256,10 +266,10 @@ export default function VideoStudio({
       </div>
 
       {/* Subcategory Filter Pills (if category has subcategories) */}
-      {!isCustomTab && currentCategoryDef?.subcategories && (
+      {!isCustomTab && visibleSubcategories && (
         <div className="t-studio-subbar bg-gray-950/70 px-5 py-2 border-b border-hairline flex items-center gap-2 overflow-x-auto no-scrollbar">
           <span className="text-[11px] text-gray-400 font-medium mr-1">Section:</span>
-          {currentCategoryDef.subcategories.map((sub) => {
+          {visibleSubcategories.map((sub) => {
             const isSubSelected = selectedSubcategory === sub.id;
             return (
               <button
@@ -315,6 +325,26 @@ export default function VideoStudio({
         {/* 2 - 10: CALL TO ACTION, INTRO, OUTRO, STICKERS, TEXT CONTENT, AUDIO VISUALISERS, ETC */}
         {!isCustomTab && (
           <div className="space-y-4">
+            {/* Contextual Guidance Banner for the new Audio Visualiser engine */}
+            {selectedCategory === "audio_visualizers" && (
+              <div className="bg-gradient-to-r from-teal-950/90 via-gray-900 to-amber-950/90 border border-teal-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl p-2 bg-teal-500/20 border border-teal-500/40 rounded-lg text-teal-200" aria-hidden="true"><Icon glyph="◎" /></span>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-bold text-teal-100">Advanced Audio Visualiser Engine</h3>
+                      <span className="text-[10px] bg-amber-950 border border-amber-600/50 text-amber-200 px-2 py-0.5 rounded-full font-mono font-semibold">
+                        New · Fine Radial Bars
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-300 mt-0.5">
+                      This tab is intentionally filtered to the new professional engine so it does not look like the old visualiser library. Add Fine Radial Bars, then open Edit to change bar count, direction, radius, mapping, attack/release, colour and glow.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Contextual Guidance Banner for Background Music */}
             {selectedCategory === "background_music" && (
               <div className="bg-gradient-to-r from-indigo-950/90 via-gray-900 to-purple-950/90 border border-indigo-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
