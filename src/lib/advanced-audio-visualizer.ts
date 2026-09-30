@@ -289,8 +289,8 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     colorTheme: "arctic",
     bandCount: 96,
     elementCount: 96,
-    barThickness: 8,
-    barGap: 0.32,
+    barThickness: 10,
+    barGap: 0.24,
     maxBarHeight: 0.22,
     frequencyMapping: "logarithmic",
     fftSize: 2048,
@@ -305,8 +305,8 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     colorTheme: "vaporwave",
     bandCount: 128,
     elementCount: 128,
-    barThickness: 5,
-    barGap: 0.42,
+    barThickness: 8,
+    barGap: 0.28,
     maxBarHeight: 0.19,
     frequencyMapping: "musical",
     fftSize: 2048,
@@ -806,8 +806,10 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
   const size = clamp(Number(item.size || 1), 0.35, 2.4);
   const width = item.visualOptions?.fullWidth === false ? Math.min(canvasWidth * 0.82, minDim * 1.35 * size) : canvasWidth * 0.92;
   const maxH = minDim * settings.maxHeightRatio * size;
-  const barW = clamp(settings.barThickness * frameScale(canvasHeight), 1, width / count * 0.86);
-  const gap = Math.max(1, (width - count * barW) / Math.max(1, count - 1));
+  const slot = width / count;
+  const thicknessGain = clamp(settings.barThickness / 8, 0.22, 1.6);
+  const barW = clamp(slot * (1 - settings.barGap * 0.92) * thicknessGain, 1, slot * 0.95);
+  const gap = Math.max(0, slot - barW);
   const glow = compact ? settings.glow * 0.35 : settings.glow;
 
   ctx.save();
@@ -820,9 +822,21 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
   ctx.stroke();
   for (let i = 0; i < count; i++) {
     const t = i / Math.max(1, count - 1);
-    const v = clamp(bands.values[i] || 0, 0, 1.5);
+    // Linear bars are a visual effect, not a lab analyser. Mirror the frequency
+    // layout around the centre so both left and right sides move with bass,
+    // voice and beat instead of leaving one side looking dead.
+    const freqPos = Math.abs((i + 0.5) / count - 0.5) * 2;
+    const exact = freqPos * (count - 1);
+    const lo = Math.max(0, Math.min(count - 1, Math.floor(exact)));
+    const hi = Math.max(0, Math.min(count - 1, lo + 1));
+    const frac = exact - lo;
+    const mirroredValue = (bands.values[lo] || 0) * (1 - frac) + (bands.values[hi] || 0) * frac;
+    const direct = bands.values[i] || 0;
+    const opposite = bands.values[count - 1 - i] || 0;
+    const livelyFloor = (bands.energy * 0.07 + bands.beat * 0.05) * (0.75 + 0.25 * Math.sin(i * 2.399 + elapsed * 4.1));
+    const v = clamp(mirroredValue * 0.74 + direct * 0.18 + opposite * 0.08 + livelyFloor, 0, 1.5);
     const h = Math.max(2, Math.pow(v, 0.78) * maxH);
-    const x = -width / 2 + i * (barW + gap);
+    const x = -width / 2 + i * slot + gap / 2;
     const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, v, vo.frequencyColorMode || "gradient");
     drawVerticalBar(ctx, x, 0, barW, h, color, palette.accent, glow, v, false);
     if (mirror) drawVerticalBar(ctx, x, 0, barW, h * 0.88, mixColors(color, palette.secondary, 0.35), palette.accent, glow * 0.75, v, true);
@@ -898,7 +912,7 @@ function renderParticleRing(opts: AdvancedVisualizerRenderOptions, threeD: boole
 
   for (const p of particles) {
     const x = Math.cos(p.a) * p.r * p.perspective;
-    const y = Math.sin(p.a) * p.r * (threeD ? 0.72 : 1) * p.perspective;
+    const y = Math.sin(p.a) * p.r * p.perspective;
     const t = p.i / count;
     const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, p.band, vo.frequencyColorMode || "gradient");
     const dot = Math.max(1.2, (settings.barThickness * 0.8 + p.band * 4.5) * frameScale(canvasHeight) * p.perspective);
@@ -910,7 +924,7 @@ function renderParticleRing(opts: AdvancedVisualizerRenderOptions, threeD: boole
     ctx.fill();
     if (!compact && p.i % 5 === 0) {
       const x2 = Math.cos(p.a + 0.025) * (base + p.band * spread) * p.perspective;
-      const y2 = Math.sin(p.a + 0.025) * (base + p.band * spread) * (threeD ? 0.72 : 1) * p.perspective;
+      const y2 = Math.sin(p.a + 0.025) * (base + p.band * spread) * p.perspective;
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.lineTo(x2, y2);

@@ -337,14 +337,12 @@ function InsertEditPreview({
     };
   }, [item, aspectRatio, backgroundImage, isAnimated, previewPlaying, restartKey]);
 
-  const aspectClass =
+  const previewCanvasStyle =
     aspectRatio === "9:16"
-      ? "aspect-[9/16] max-h-[420px] mx-auto"
+      ? { height: "min(420px, 68vh)", width: "auto", maxWidth: "100%" }
       : aspectRatio === "1:1"
-      ? "aspect-square max-h-[380px] mx-auto"
-      : aspectRatio === "4:3"
-      ? "aspect-[4/3]"
-      : "aspect-video";
+      ? { width: "min(100%, 380px)", height: "auto" }
+      : { width: "100%", height: "auto" };
 
   return (
     <div id="ipm-edit-preview" className="px-6 pt-4">
@@ -385,8 +383,8 @@ function InsertEditPreview({
             <span className="text-[10px] font-mono text-gray-500">{aspectRatio}</span>
           </div>
         </div>
-        <div className={`w-full overflow-hidden rounded-xl border border-hairline bg-black ${aspectClass}`}>
-          <canvas ref={canvasRef} className="block h-full w-full" />
+        <div className="w-full overflow-hidden rounded-xl border border-hairline bg-black flex items-center justify-center">
+          <canvas ref={canvasRef} className="block max-w-full" style={previewCanvasStyle} />
         </div>
       </div>
     </div>
@@ -787,6 +785,19 @@ function InsertPropertiesContent({
     setIsTestingClipAudio(true);
   };
 
+  const dataForUpdate = (value: TimelineInsert): TimelineInsert => {
+    const fullVideo =
+      (value.category === "audio_visualizers" || value.category === "speech_reactive" || value.category === "meditation") &&
+      value.visualOptions?.spanFullVideo !== false;
+    if (!fullVideo) return value;
+    return {
+      ...value,
+      startTime: 0,
+      duration: Math.max(1, totalDuration),
+      visualOptions: { ...(value.visualOptions || {}), spanFullVideo: true },
+    };
+  };
+
   const handleSave = () => {
     if (audioRef.current) audioRef.current.pause();
     if (clipAudioTestRef.current) {
@@ -794,7 +805,7 @@ function InsertPropertiesContent({
       clipAudioTestRef.current = null;
       setIsTestingClipAudio(false);
     }
-    onUpdate(data);
+    onUpdate(dataForUpdate(data));
     onClose();
   };
 
@@ -893,9 +904,9 @@ function InsertPropertiesContent({
       firstSyncRef.current = false;
       return;
     }
-    const timer = window.setTimeout(() => onUpdate(data), 120);
+    const timer = window.setTimeout(() => onUpdate(dataForUpdate(data)), 120);
     return () => window.clearTimeout(timer);
-  }, [data]);
+  }, [data, totalDuration]);
 
   useEffect(() => {
     return () => {
@@ -1458,7 +1469,6 @@ function InsertPropertiesContent({
                     max={isAudioVisualizer ? 3.0 : 2.5}
                     step={0.05}
                     value={data.size}
-                    title={SLIDER_HINTS.visualScale}
                     onChange={(e) => setData({ ...data, size: parseFloat(e.target.value) })}
                     className="w-full accent-indigo-500 cursor-pointer"
                   />
@@ -1645,7 +1655,6 @@ function InsertPropertiesContent({
                         max={isAdvancedVisualizer ? 512 : 128}
                         step={isAdvancedVisualizer ? 64 : 8}
                         value={data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedVisualizer ? 256 : 64)}
-                        title={SLIDER_HINTS.detail}
                         onChange={(e) => {
                           const next = parseInt(e.target.value);
                           updateVisual({ bandCount: next, elementCount: next });
@@ -1719,7 +1728,6 @@ function InsertPropertiesContent({
                         max={24}
                         step={1}
                         value={data.visualOptions?.barThickness ?? 8}
-                        title={SLIDER_HINTS.thickness}
                         onChange={(e) => updateVisualOptions("barThickness", parseInt(e.target.value))}
                         className="w-full accent-indigo-500 cursor-pointer"
                       />
@@ -1797,13 +1805,13 @@ function InsertPropertiesContent({
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Min Frequency: {data.visualOptions?.minFrequency ?? 36} Hz</span>
                           <SliderWithHelp hint={SLIDER_HINTS.minFrequency}>
-                            <input type="range" min={20} max={500} step={5} value={data.visualOptions?.minFrequency ?? 36} title={SLIDER_HINTS.minFrequency} onChange={(e) => updateVisualOptions("minFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                            <input type="range" min={20} max={500} step={5} value={data.visualOptions?.minFrequency ?? 36} onChange={(e) => updateVisualOptions("minFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
                           </SliderWithHelp>
                         </label>
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Max Frequency: {data.visualOptions?.maxFrequency ?? 16000} Hz</span>
                           <SliderWithHelp hint={SLIDER_HINTS.maxFrequency}>
-                            <input type="range" min={4000} max={22000} step={250} value={data.visualOptions?.maxFrequency ?? 16000} title={SLIDER_HINTS.maxFrequency} onChange={(e) => updateVisualOptions("maxFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                            <input type="range" min={4000} max={22000} step={250} value={data.visualOptions?.maxFrequency ?? 16000} onChange={(e) => updateVisualOptions("maxFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
                           </SliderWithHelp>
                         </label>
                       </div>
@@ -1812,7 +1820,7 @@ function InsertPropertiesContent({
                         <label className="space-y-1 block">
                           <span className="text-[10px] text-gray-400">Band / Wave Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
                           <SliderWithHelp hint={SLIDER_HINTS.linearHeight}>
-                            <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} title={SLIDER_HINTS.linearHeight} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                           </SliderWithHelp>
                         </label>
                       ) : (
@@ -1820,13 +1828,13 @@ function InsertPropertiesContent({
                           <label className="space-y-1">
                             <span className="text-[10px] text-gray-400">Inner Radius: {Math.round((data.visualOptions?.radialRadius ?? 0.245) * 100)}%</span>
                             <SliderWithHelp hint={SLIDER_HINTS.radius}>
-                              <input type="range" min={0.08} max={0.42} step={0.005} value={data.visualOptions?.radialRadius ?? 0.245} title={SLIDER_HINTS.radius} onChange={(e) => updateVisualOptions("radialRadius", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                              <input type="range" min={0.08} max={0.42} step={0.005} value={data.visualOptions?.radialRadius ?? 0.245} onChange={(e) => updateVisualOptions("radialRadius", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                             </SliderWithHelp>
                           </label>
                           <label className="space-y-1">
                             <span className="text-[10px] text-gray-400">Max Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
                             <SliderWithHelp hint={SLIDER_HINTS.maxHeight}>
-                              <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} title={SLIDER_HINTS.maxHeight} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                              <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                             </SliderWithHelp>
                           </label>
                         </div>
@@ -1836,19 +1844,19 @@ function InsertPropertiesContent({
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Gap: {Math.round((data.visualOptions?.barGap ?? 0.42) * 100)}%</span>
                           <SliderWithHelp hint={SLIDER_HINTS.gap}>
-                            <input type="range" min={0} max={0.86} step={0.01} value={data.visualOptions?.barGap ?? 0.42} title={SLIDER_HINTS.gap} onChange={(e) => updateVisualOptions("barGap", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            <input type="range" min={0} max={0.86} step={0.01} value={data.visualOptions?.barGap ?? 0.42} onChange={(e) => updateVisualOptions("barGap", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                           </SliderWithHelp>
                         </label>
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Attack: {Math.round((data.visualOptions?.attack ?? 0.72) * 100)}%</span>
                           <SliderWithHelp hint={SLIDER_HINTS.attack}>
-                            <input type="range" min={0.04} max={1} step={0.01} value={data.visualOptions?.attack ?? 0.72} title={SLIDER_HINTS.attack} onChange={(e) => updateVisualOptions("attack", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            <input type="range" min={0.04} max={1} step={0.01} value={data.visualOptions?.attack ?? 0.72} onChange={(e) => updateVisualOptions("attack", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                           </SliderWithHelp>
                         </label>
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Release: {Math.round((data.visualOptions?.release ?? 0.28) * 100)}%</span>
                           <SliderWithHelp hint={SLIDER_HINTS.release}>
-                            <input type="range" min={0.03} max={1} step={0.01} value={data.visualOptions?.release ?? 0.28} title={SLIDER_HINTS.release} onChange={(e) => updateVisualOptions("release", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            <input type="range" min={0.03} max={1} step={0.01} value={data.visualOptions?.release ?? 0.28} onChange={(e) => updateVisualOptions("release", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                           </SliderWithHelp>
                         </label>
                       </div>
@@ -1857,13 +1865,13 @@ function InsertPropertiesContent({
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Smoothing: {Math.round((data.visualOptions?.smoothing ?? 0.38) * 100)}%</span>
                           <SliderWithHelp hint={SLIDER_HINTS.smoothing}>
-                            <input type="range" min={0} max={0.95} step={0.01} value={data.visualOptions?.smoothing ?? 0.38} title={SLIDER_HINTS.smoothing} onChange={(e) => updateVisualOptions("smoothing", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            <input type="range" min={0} max={0.95} step={0.01} value={data.visualOptions?.smoothing ?? 0.38} onChange={(e) => updateVisualOptions("smoothing", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                           </SliderWithHelp>
                         </label>
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Bloom: {Math.round((data.visualOptions?.bloomIntensity ?? 0.32) * 100)}%</span>
                           <SliderWithHelp hint={SLIDER_HINTS.bloom}>
-                            <input type="range" min={0} max={1} step={0.01} value={data.visualOptions?.bloomIntensity ?? 0.32} title={SLIDER_HINTS.bloom} onChange={(e) => updateVisualOptions("bloomIntensity", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            <input type="range" min={0} max={1} step={0.01} value={data.visualOptions?.bloomIntensity ?? 0.32} onChange={(e) => updateVisualOptions("bloomIntensity", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                           </SliderWithHelp>
                         </label>
                       </div>
@@ -1896,7 +1904,6 @@ function InsertPropertiesContent({
                         max={2.4}
                         step={0.05}
                         value={data.visualOptions?.reactivity ?? 1}
-                        title={SLIDER_HINTS.reaction}
                         onChange={(e) => updateVisualOptions("reactivity", parseFloat(e.target.value))}
                         className="w-full accent-indigo-500 cursor-pointer"
                       />
@@ -1952,7 +1959,6 @@ function InsertPropertiesContent({
                         max={1}
                         step={0.05}
                         value={data.visualOptions?.glowIntensity ?? 0.85}
-                        title={SLIDER_HINTS.glow}
                         onChange={(e) => updateVisualOptions("glowIntensity", parseFloat(e.target.value))}
                         className="w-full accent-indigo-500 cursor-pointer"
                       />

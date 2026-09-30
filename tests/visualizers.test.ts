@@ -160,6 +160,17 @@ for (const type of ADVANCED_VISUALIZER_TYPES) {
     h.ok(foot.w <= 1280 * 0.95 && foot.h <= 720 * 0.95, `${type} fits inside a 16:9 preview without clipping its round shape`);
   }
 }
+{
+  const advancedRenderer = read("src/lib/advanced-audio-visualizer.ts");
+  h.ok(
+    !advancedRenderer.includes("threeD ? 0.72 : 1") && advancedRenderer.includes("slot * (1 - settings.barGap"),
+    "advanced circular previews stay round, and linear bar gap settings visibly affect the drawn bar width"
+  );
+  h.ok(
+    advancedRenderer.includes("freqPos = Math.abs") && advancedRenderer.includes("livelyFloor"),
+    "linear spectrum bars distribute movement across both left and right sides"
+  );
+}
 
 // Every immersive renderer is either a distinctive card or an explicitly
 // retired legacy design—nothing disappears accidentally from old projects.
@@ -835,11 +846,28 @@ for (const v of speechVisualisers) {
     "the edit panel explains slider changes in plain language on hover/focus"
   );
   h.ok(
+    !modal.includes("title={SLIDER_HINTS") && modal.includes("<SliderWithHelp"),
+    "the edit panel shows one custom slider explanation, not a second native browser tooltip"
+  );
+  h.ok(
     modal.includes("makeEditPreviewAudioFrame") &&
       modal.includes("SAMPLE AUDIO") &&
       modal.includes("Play sample") &&
       modal.includes("timeline Play uses your real voice/music"),
     "the edit preview has its own clear sample motion instead of waiting for the timeline playhead"
+  );
+  h.ok(
+    modal.includes("previewCanvasStyle") &&
+      modal.includes('className="block max-w-full"') &&
+      !modal.includes('className="block h-full w-full"'),
+    "the edit preview preserves the canvas aspect ratio so round visualisers and intro/outro videos are not stretched"
+  );
+  h.ok(
+    modal.includes("dataForUpdate") &&
+      modal.includes("startTime: 0") &&
+      modal.includes("duration: Math.max(1, totalDuration)") &&
+      modal.includes("spanFullVideo: true"),
+    "full-video visualisers keep correct start/end values when edited"
   );
 
   const card = read("src/components/EffectVisualPreview.tsx");
