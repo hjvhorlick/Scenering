@@ -21,6 +21,7 @@ import {
 } from "./audio-reactive";
 import { resolveVisualizerPalette } from "./visualizer-palettes";
 import {
+  advancedVisualizerFitScale,
   advancedVisualizerFootprint,
   isAdvancedAudioVisualizerType,
   isAdvancedLinearVisualizerType,
@@ -1595,6 +1596,8 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
     const cy = foot.h >= canvasHeight ? canvasHeight / 2 : Math.max(foot.h / 2, Math.min(canvasHeight - foot.h / 2, y));
     ctx.save();
     ctx.translate(cx, cy);
+    const fit = advancedVisualizerFitScale(item, canvasWidth, canvasHeight);
+    if (fit !== 1) ctx.scale(fit, fit);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     renderAdvancedAudioVisualizer({

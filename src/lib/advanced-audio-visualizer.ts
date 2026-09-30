@@ -402,7 +402,7 @@ export function advancedVisualizerSettings(vo: InsertVisualOptions | undefined):
   };
 }
 
-export function advancedVisualizerFootprint(
+function rawAdvancedVisualizerFootprint(
   item: TimelineInsert,
   canvasWidth: number,
   canvasHeight: number
@@ -421,6 +421,28 @@ export function advancedVisualizerFootprint(
   const glowPad = minDim * (0.03 + s.glow * 0.035 + s.bloom * 0.025);
   const outer = radius + maxH + glowPad + s.barThickness * 2;
   return { w: outer * 2, h: outer * 2 };
+}
+
+export function advancedVisualizerFitScale(
+  item: TimelineInsert,
+  canvasWidth: number,
+  canvasHeight: number
+): number {
+  if (isAdvancedLinearVisualizerType(item.type)) return 1;
+  const raw = rawAdvancedVisualizerFootprint(item, canvasWidth, canvasHeight);
+  const safeW = canvasWidth * 0.94;
+  const safeH = canvasHeight * 0.94;
+  return clamp(Math.min(1, safeW / Math.max(1, raw.w), safeH / Math.max(1, raw.h)), 0.1, 1);
+}
+
+export function advancedVisualizerFootprint(
+  item: TimelineInsert,
+  canvasWidth: number,
+  canvasHeight: number
+): { w: number; h: number } {
+  const raw = rawAdvancedVisualizerFootprint(item, canvasWidth, canvasHeight);
+  const fit = advancedVisualizerFitScale(item, canvasWidth, canvasHeight);
+  return { w: raw.w * fit, h: raw.h * fit };
 }
 
 export function requiredVisualizerFftSize(inserts: TimelineInsert[] | undefined): AdvancedFftSize {

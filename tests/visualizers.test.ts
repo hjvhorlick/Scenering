@@ -156,6 +156,8 @@ for (const type of ADVANCED_VISUALIZER_TYPES) {
     h.eq(card?.defaultVisualOptions?.fullWidth, true, `${type} is a full-width bar/wave style`);
   } else {
     h.eq(card?.defaultVisualOptions?.fullWidth, false, `${type} is a compact circular/ring style`);
+    const foot = getVisualizerFootprint(makeInsert(type), 1280, 720);
+    h.ok(foot.w <= 1280 * 0.95 && foot.h <= 720 * 0.95, `${type} fits inside a 16:9 preview without clipping its round shape`);
   }
 }
 
@@ -831,6 +833,13 @@ for (const v of speechVisualisers) {
       modal.includes("SLIDER_HINTS.attack") &&
       modal.includes("SLIDER_HINTS.reaction"),
     "the edit panel explains slider changes in plain language on hover/focus"
+  );
+  h.ok(
+    modal.includes("makeEditPreviewAudioFrame") &&
+      modal.includes("SAMPLE AUDIO") &&
+      modal.includes("Play sample") &&
+      modal.includes("timeline Play uses your real voice/music"),
+    "the edit preview has its own clear sample motion instead of waiting for the timeline playhead"
   );
 
   const card = read("src/components/EffectVisualPreview.tsx");

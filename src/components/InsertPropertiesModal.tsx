@@ -23,6 +23,7 @@ import {
 } from "../lib/text-art";
 import { resolveArtStyle } from "../lib/render-text-template";
 import { renderTimelineInsert } from "../lib/render-effects";
+import { makeBus, type AudioFrame, type ReactionSource } from "../lib/audio-reactive";
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { VISUALIZER_PALETTES } from "../lib/visualizer-palettes";
 import { FINE_RADIAL_PRESET_PATCHES, isAdvancedAudioVisualizerType, isAdvancedLinearVisualizerType } from "../lib/advanced-audio-visualizer";
@@ -103,6 +104,34 @@ const SLIDER_HINTS = {
   glow: "Changes the brightness of neon edges and highlights in the preview.",
 } as const;
 
+function makeEditPreviewAudioFrame(t: number, source: ReactionSource): AudioFrame {
+  const mode: ReactionSource = source === "voice" ? "voice" : "music";
+  const freq = new Uint8Array(1024);
+  const wave = new Uint8Array(2048);
+  const kick = mode === "music" ? Math.pow(Math.max(0, Math.sin(t * Math.PI * 2)), 7) : 0;
+  const syllable = Math.pow(Math.max(0, Math.sin(t * Math.PI * 3.6)), mode === "voice" ? 0.75 : 2);
+  const phrase = 0.65 + 0.35 * Math.sin(t * 0.9 + 0.4) * Math.sin(t * 0.31 + 1.1);
+  const level = Math.max(0.08, Math.min(1, (mode === "voice" ? syllable * phrase : kick * 0.8 + syllable * 0.25 + 0.22)));
+
+  for (let i = 0; i < freq.length; i++) {
+    const p = i / Math.max(1, freq.length - 1);
+    const bass = Math.exp(-Math.pow(p / 0.11, 2)) * (mode === "music" ? 130 * (0.45 + kick) : 70 * level);
+    const presence = Math.exp(-Math.pow((p - 0.23) / 0.13, 2)) * (mode === "voice" ? 170 * level : 95 * syllable);
+    const air = Math.exp(-Math.pow((p - 0.66) / 0.18, 2)) * (45 + 45 * Math.abs(Math.sin(t * 8 + p * 16)));
+    const ripple = (0.5 + 0.5 * Math.sin(t * 7.5 + p * 44)) * 38;
+    freq[i] = Math.max(0, Math.min(255, Math.round(bass + presence + air + ripple)));
+  }
+  for (let i = 0; i < wave.length; i++) {
+    const p = i / wave.length;
+    const carrier = mode === "voice" ? Math.sin(p * Math.PI * 9 + t * 24) : Math.sin(p * Math.PI * 5 - t * 10);
+    const detail = Math.sin(p * Math.PI * 31 + t * 17) * 0.26 + Math.sin(p * Math.PI * 71 - t * 9) * 0.11;
+    wave[i] = Math.max(0, Math.min(255, Math.round(128 + (carrier + detail) * 44 * (0.35 + level))));
+  }
+
+  const bus = makeBus(level, freq, wave);
+  return { voice: bus, music: bus };
+}
+
 /**
  * Floating mini replica of the call-to-action badge preview.
  *
@@ -174,10 +203,16 @@ function InsertEditPreview({
   backgroundImage?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [previewPlaying, setPreviewPlaying] = useState(true);
+  const [restartKey, setRestartKey] = useState(0);
   const isAnimated =
     item.category === "audio_visualizers" ||
     item.category === "speech_reactive" ||
     item.category === "meditation";
+
+  useEffect(() => {
+    if (isAnimated) setPreviewPlaying(true);
+  }, [item.id, isAnimated]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -202,6 +237,7 @@ function InsertEditPreview({
     let raf = 0;
     let bg: HTMLImageElement | null = null;
     let bgReady = false;
+    const effectStart = performance.now();
 
     if (backgroundImage) {
       bg = new Image();
@@ -264,16 +300,20 @@ function InsertEditPreview({
       drawBackground(w, h);
 
       const duration = Math.max(8, item.duration || 8);
-      const t = isAnimated ? (now / 1000) % duration : Math.min(duration - 0.1, Math.max(1, duration * 0.35));
+      const sampleT = ((now - effectStart) / 1000) % duration;
+      const t = isAnimated && previewPlaying ? sampleT : Math.min(duration - 0.1, Math.max(1, duration * 0.35));
       const previewItem: TimelineInsert = {
         ...item,
         startTime: 0,
         duration,
         opacity: item.opacity ?? 1,
       };
+      const previewFrame = isAnimated
+        ? makeEditPreviewAudioFrame(t, ((previewItem.audioSource as ReactionSource) || "music"))
+        : null;
 
       try {
-        renderTimelineInsert(ctx, previewItem, t, w, h, 0.65, null, null, undefined);
+        renderTimelineInsert(ctx, previewItem, t, w, h, 0.65, null, previewFrame, undefined);
       } catch (error) {
         console.warn("Insert edit preview failed:", error);
       }
@@ -284,10 +324,10 @@ function InsertEditPreview({
       ctx.fillRect(12, h - 34, Math.min(w - 24, 360), 22);
       ctx.fillStyle = "rgba(226, 232, 240, 0.9)";
       ctx.font = `${Math.max(11, Math.round(w / 96))}px Inter, system-ui, sans-serif`;
-      ctx.fillText(isAnimated ? "Live edit preview · same renderer as export" : "Edit preview · same renderer as export", 22, h - 19);
+      ctx.fillText(isAnimated ? "Edit preview sample · press timeline Play for real audio" : "Edit preview · same renderer as export", 22, h - 19);
       ctx.restore();
 
-      if (isAnimated) raf = requestAnimationFrame(paint);
+      if (isAnimated && previewPlaying) raf = requestAnimationFrame(paint);
     };
 
     raf = requestAnimationFrame(paint);
@@ -295,7 +335,7 @@ function InsertEditPreview({
       cancelled = true;
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [item, aspectRatio, backgroundImage, isAnimated]);
+  }, [item, aspectRatio, backgroundImage, isAnimated, previewPlaying, restartKey]);
 
   const aspectClass =
     aspectRatio === "9:16"
@@ -315,13 +355,35 @@ function InsertEditPreview({
               <Icon glyph="👁" /> Edit Preview
               {isAnimated && (
                 <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full border border-teal-700/70 bg-teal-950/60 text-teal-200">
-                  LIVE
+                  SAMPLE AUDIO
                 </span>
               )}
             </h4>
-            <p className="text-[10px] text-gray-400">Updates as you change this item; final render uses the same drawing engine.</p>
+            <p className="text-[10px] text-gray-400">
+              {isAnimated
+                ? "This uses sample audio so the visualiser reacts here; timeline Play uses your real voice/music."
+                : "Updates as you change this item; final render uses the same drawing engine."}
+            </p>
           </div>
-          <span className="text-[10px] font-mono text-gray-500">{aspectRatio}</span>
+          <div className="flex items-center gap-2">
+            {isAnimated && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (previewPlaying) setPreviewPlaying(false);
+                  else {
+                    setRestartKey((n) => n + 1);
+                    setPreviewPlaying(true);
+                  }
+                }}
+                className="px-2.5 py-1 rounded-lg border border-teal-600/60 bg-teal-950/70 text-[10px] font-semibold text-teal-100 hover:bg-teal-900 transition-colors"
+                title="Play or pause the edit preview sample motion"
+              >
+                {previewPlaying ? "Pause sample" : "Play sample"}
+              </button>
+            )}
+            <span className="text-[10px] font-mono text-gray-500">{aspectRatio}</span>
+          </div>
         </div>
         <div className={`w-full overflow-hidden rounded-xl border border-hairline bg-black ${aspectClass}`}>
           <canvas ref={canvasRef} className="block h-full w-full" />
