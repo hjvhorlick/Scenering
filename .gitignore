@@ -15,3 +15,6 @@ assets-src/
 
 # Generated preview bundle for public/brand-check.html (npm run brand:check)
 public/brand-mark.mjs
+
+# npm lockfile — this project uses bun.lock
+package-lock.json
