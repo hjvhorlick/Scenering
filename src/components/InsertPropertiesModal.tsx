@@ -94,6 +94,8 @@ const SLIDER_HINTS = {
   maxFrequency: "Sets the highest sound the visualiser listens to. Lower it for voice and mids; raise it to include cymbals, hiss and bright detail.",
   linearHeight: "Controls how high full-width bars or waves can jump above the line in the preview.",
   spectrumBalance: "Moves the busiest part of full-width spectrum bars left or right. Keep it centred for a balanced graph, or nudge it when the song feels lopsided.",
+  spectrumStretch: "Stretches or compresses the reactive frequency movement across the bar rack, like zooming/cropping the graph sideways.",
+  spectrumWidth: "Changes the visual length of the bar rack itself. Wider can run past the frame edges like an image crop; narrower leaves side space.",
   radius: "Moves circular styles closer to or farther from the centre/logo. Higher creates a larger empty middle.",
   maxHeight: "Controls how far circular bars, waves or particles can grow outward from the centre.",
   gap: "Controls the empty space between bars. Higher separates the bars; lower makes a dense ring or wall.",
@@ -548,6 +550,7 @@ function InsertPropertiesContent({
 
   const isAdvancedVisualizer = isAdvancedAudioVisualizerType(insert.type);
   const isAdvancedLinearVisualizer = isAdvancedLinearVisualizerType(insert.type);
+  const isAdvancedSpectrumBars = insert.type === "advanced_spectrum_bars" || insert.type === "advanced_mirror_spectrum";
   const advancedPresetKey =
     insert.type === "fine_radial_bars"
       ? "professional"
@@ -1818,22 +1821,44 @@ function InsertPropertiesContent({
                       </div>
 
                       {isAdvancedLinearVisualizer ? (
-                        <div className="grid grid-cols-2 gap-3">
-                          <label className="space-y-1">
-                            <span className="text-[10px] text-gray-400">Band / Wave Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
-                            <SliderWithHelp hint={SLIDER_HINTS.linearHeight}>
-                              <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
-                            </SliderWithHelp>
-                          </label>
-                          <label className="space-y-1">
-                            <span className="text-[10px] text-gray-400">
-                              Movement Position: {Math.abs(data.visualOptions?.spectrumBalance ?? 0) < 0.025 ? "Centre" : `${(data.visualOptions?.spectrumBalance ?? 0) < 0 ? "Left" : "Right"} ${Math.round(Math.abs(data.visualOptions?.spectrumBalance ?? 0) * 100)}%`}
-                            </span>
-                            <SliderWithHelp hint={SLIDER_HINTS.spectrumBalance}>
-                              <input type="range" min={-1} max={1} step={0.05} value={data.visualOptions?.spectrumBalance ?? 0} onChange={(e) => updateVisualOptions("spectrumBalance", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
-                            </SliderWithHelp>
-                            <div className="flex justify-between text-[10px] text-gray-500"><span>Left</span><span>Centre</span><span>Right</span></div>
-                          </label>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="space-y-1">
+                              <span className="text-[10px] text-gray-400">Band / Wave Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
+                              <SliderWithHelp hint={SLIDER_HINTS.linearHeight}>
+                                <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                              </SliderWithHelp>
+                            </label>
+                            {isAdvancedSpectrumBars && (
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-gray-400">Rack Width: {Math.round((data.visualOptions?.spectrumWidth ?? 1) * 100)}%</span>
+                                <SliderWithHelp hint={SLIDER_HINTS.spectrumWidth}>
+                                  <input type="range" min={0.45} max={1.6} step={0.05} value={data.visualOptions?.spectrumWidth ?? 1} onChange={(e) => updateVisualOptions("spectrumWidth", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                                </SliderWithHelp>
+                                <div className="flex justify-between text-[10px] text-gray-500"><span>Short</span><span>Normal</span><span>Wide</span></div>
+                              </label>
+                            )}
+                          </div>
+                          {isAdvancedSpectrumBars && (
+                            <div className="grid grid-cols-2 gap-3">
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-gray-400">
+                                  Movement Position: {Math.abs(data.visualOptions?.spectrumBalance ?? 0) < 0.025 ? "Centre" : `${(data.visualOptions?.spectrumBalance ?? 0) < 0 ? "Left" : "Right"} ${Math.round(Math.abs(data.visualOptions?.spectrumBalance ?? 0) * 100)}%`}
+                                </span>
+                                <SliderWithHelp hint={SLIDER_HINTS.spectrumBalance}>
+                                  <input type="range" min={-1} max={1} step={0.05} value={data.visualOptions?.spectrumBalance ?? 0} onChange={(e) => updateVisualOptions("spectrumBalance", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                                </SliderWithHelp>
+                                <div className="flex justify-between text-[10px] text-gray-500"><span>Left</span><span>Centre</span><span>Right</span></div>
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-gray-400">Frequency Stretch: {Math.round((data.visualOptions?.spectrumStretch ?? 1.25) * 100)}%</span>
+                                <SliderWithHelp hint={SLIDER_HINTS.spectrumStretch}>
+                                  <input type="range" min={0.5} max={2} step={0.05} value={data.visualOptions?.spectrumStretch ?? 1.25} onChange={(e) => updateVisualOptions("spectrumStretch", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                                </SliderWithHelp>
+                                <div className="flex justify-between text-[10px] text-gray-500"><span>Compress</span><span>Normal</span><span>Stretch</span></div>
+                              </label>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="grid grid-cols-2 gap-3">

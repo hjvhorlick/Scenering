@@ -170,8 +170,10 @@ for (const type of ADVANCED_VISUALIZER_TYPES) {
     advancedRenderer.includes("activityCentre") &&
       advancedRenderer.includes("sampleBandValue") &&
       advancedRenderer.includes("spectrumBalance") &&
+      advancedRenderer.includes("spectrumStretch") &&
+      advancedRenderer.includes("spectrumWidth") &&
       !advancedRenderer.includes("freqPos = Math.abs"),
-    "linear spectrum bars fill the graph without becoming a strict mirror, and expose a left/right movement balance"
+    "linear spectrum bars fill the graph without becoming a strict mirror, and expose left/right, stretch and width controls"
   );
 }
 
@@ -846,7 +848,9 @@ for (const v of speechVisualisers) {
       modal.includes("hover or focus any slider") &&
       modal.includes("SLIDER_HINTS.attack") &&
       modal.includes("SLIDER_HINTS.reaction") &&
-      modal.includes("SLIDER_HINTS.spectrumBalance"),
+      modal.includes("SLIDER_HINTS.spectrumBalance") &&
+      modal.includes("SLIDER_HINTS.spectrumStretch") &&
+      modal.includes("SLIDER_HINTS.spectrumWidth"),
     "the edit panel explains slider changes in plain language on hover/focus"
   );
   h.ok(

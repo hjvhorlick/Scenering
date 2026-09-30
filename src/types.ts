@@ -248,6 +248,10 @@ export interface InsertVisualOptions {
   frequencyColorMode?: "gradient" | "frequency" | "amplitude";
   /** Move linear spectrum activity left/right without changing timing (-1..1). */
   spectrumBalance?: number;
+  /** Stretch/compress the visible spectrum activity across the bar rack (0.5..2). */
+  spectrumStretch?: number;
+  /** Visual width/length of full-width spectrum racks (0.45..1.6). */
+  spectrumWidth?: number;
   /**
    * Draw the user's own logo in the middle of a centre visualiser (audio orb,
    * orbit disc, circular analysers). Defaults to on for the orb and the disc,

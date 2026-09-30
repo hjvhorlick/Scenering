@@ -297,6 +297,8 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     reactivity: 1.05,
     smoothing: 0.34,
     spectrumBalance: 0,
+    spectrumStretch: 1.35,
+    spectrumWidth: 1,
     glowIntensity: 0.42,
     fullWidth: true,
   },
@@ -314,6 +316,8 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     reactivity: 1.08,
     smoothing: 0.4,
     spectrumBalance: 0,
+    spectrumStretch: 1.25,
+    spectrumWidth: 1,
     glowIntensity: 0.5,
     fullWidth: true,
   },
@@ -806,7 +810,9 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
   const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:linear`, { ...settings, barCount: count }, elapsed, bus, source);
   const minDim = Math.min(canvasWidth, canvasHeight);
   const size = clamp(Number(item.size || 1), 0.35, 2.4);
-  const width = item.visualOptions?.fullWidth === false ? Math.min(canvasWidth * 0.82, minDim * 1.35 * size) : canvasWidth * 0.92;
+  const widthScale = clamp(Number(vo.spectrumWidth ?? 1), 0.45, 1.6);
+  const baseWidth = item.visualOptions?.fullWidth === false ? Math.min(canvasWidth * 0.82, minDim * 1.35 * size) : canvasWidth * 0.92;
+  const width = Math.min(canvasWidth * 1.6, baseWidth * widthScale);
   const maxH = minDim * settings.maxHeightRatio * size;
   const slot = width / count;
   const thicknessGain = clamp(settings.barThickness / 8, 0.22, 1.6);
@@ -814,6 +820,7 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
   const gap = Math.max(0, slot - barW);
   const glow = compact ? settings.glow * 0.35 : settings.glow;
   const balance = clamp(Number(vo.spectrumBalance ?? 0), -1, 1);
+  const spectrumStretch = clamp(Number(vo.spectrumStretch ?? 1.25), 0.5, 2);
   const activityCentre = 0.5 + balance * 0.34;
 
   ctx.save();
@@ -830,7 +837,7 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
     // Keep the rack visually full without making it a mirror image. The direct
     // spectrum still decides which bars are tallest, while a broad energy wash
     // makes quiet sides participate so the whole graph feels alive.
-    const shifted = clamp(p - balance * 0.38, 0, 1);
+    const shifted = clamp(0.5 + (p - 0.5) / spectrumStretch - balance * 0.38, 0, 1);
     const direct = sampleBandValue(bands.values, shifted);
     const nearby = (sampleBandValue(bands.values, shifted - 0.035) + sampleBandValue(bands.values, shifted + 0.035)) * 0.5;
     const centreWeight = clamp(1 - Math.abs(p - activityCentre) / 0.62, 0, 1);
