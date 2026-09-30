@@ -93,6 +93,7 @@ const SLIDER_HINTS = {
   minFrequency: "Sets the lowest sound the visualiser listens to. Raise it to ignore deep bass rumble; lower it so bass makes the preview move.",
   maxFrequency: "Sets the highest sound the visualiser listens to. Lower it for voice and mids; raise it to include cymbals, hiss and bright detail.",
   linearHeight: "Controls how high full-width bars or waves can jump above the line in the preview.",
+  spectrumBalance: "Moves the busiest part of full-width spectrum bars left or right. Keep it centred for a balanced graph, or nudge it when the song feels lopsided.",
   radius: "Moves circular styles closer to or farther from the centre/logo. Higher creates a larger empty middle.",
   maxHeight: "Controls how far circular bars, waves or particles can grow outward from the centre.",
   gap: "Controls the empty space between bars. Higher separates the bars; lower makes a dense ring or wall.",
@@ -359,7 +360,7 @@ function InsertEditPreview({
             </h4>
             <p className="text-[10px] text-gray-400">
               {isAnimated
-                ? "This uses sample audio so the visualiser reacts here; timeline Play uses your real voice/music."
+                ? `This uses sample ${item.audioSource === "voice" ? "voice" : "music"} so the visualiser reacts here; timeline Play uses your real voice/music.`
                 : "Updates as you change this item; final render uses the same drawing engine."}
             </p>
           </div>
@@ -1817,12 +1818,23 @@ function InsertPropertiesContent({
                       </div>
 
                       {isAdvancedLinearVisualizer ? (
-                        <label className="space-y-1 block">
-                          <span className="text-[10px] text-gray-400">Band / Wave Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
-                          <SliderWithHelp hint={SLIDER_HINTS.linearHeight}>
-                            <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
-                          </SliderWithHelp>
-                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-gray-400">Band / Wave Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
+                            <SliderWithHelp hint={SLIDER_HINTS.linearHeight}>
+                              <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            </SliderWithHelp>
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-gray-400">
+                              Movement Position: {Math.abs(data.visualOptions?.spectrumBalance ?? 0) < 0.025 ? "Centre" : `${(data.visualOptions?.spectrumBalance ?? 0) < 0 ? "Left" : "Right"} ${Math.round(Math.abs(data.visualOptions?.spectrumBalance ?? 0) * 100)}%`}
+                            </span>
+                            <SliderWithHelp hint={SLIDER_HINTS.spectrumBalance}>
+                              <input type="range" min={-1} max={1} step={0.05} value={data.visualOptions?.spectrumBalance ?? 0} onChange={(e) => updateVisualOptions("spectrumBalance", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            </SliderWithHelp>
+                            <div className="flex justify-between text-[10px] text-gray-500"><span>Left</span><span>Centre</span><span>Right</span></div>
+                          </label>
+                        </div>
                       ) : (
                         <div className="grid grid-cols-2 gap-3">
                           <label className="space-y-1">

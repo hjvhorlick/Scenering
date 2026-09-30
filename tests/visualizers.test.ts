@@ -167,8 +167,11 @@ for (const type of ADVANCED_VISUALIZER_TYPES) {
     "advanced circular previews stay round, and linear bar gap settings visibly affect the drawn bar width"
   );
   h.ok(
-    advancedRenderer.includes("freqPos = Math.abs") && advancedRenderer.includes("livelyFloor"),
-    "linear spectrum bars distribute movement across both left and right sides"
+    advancedRenderer.includes("activityCentre") &&
+      advancedRenderer.includes("sampleBandValue") &&
+      advancedRenderer.includes("spectrumBalance") &&
+      !advancedRenderer.includes("freqPos = Math.abs"),
+    "linear spectrum bars fill the graph without becoming a strict mirror, and expose a left/right movement balance"
   );
 }
 
@@ -842,7 +845,8 @@ for (const v of speechVisualisers) {
     modal.includes("Preview effect:") &&
       modal.includes("hover or focus any slider") &&
       modal.includes("SLIDER_HINTS.attack") &&
-      modal.includes("SLIDER_HINTS.reaction"),
+      modal.includes("SLIDER_HINTS.reaction") &&
+      modal.includes("SLIDER_HINTS.spectrumBalance"),
     "the edit panel explains slider changes in plain language on hover/focus"
   );
   h.ok(

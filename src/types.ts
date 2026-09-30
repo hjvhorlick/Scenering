@@ -246,6 +246,8 @@ export interface InsertVisualOptions {
   centreOpacity?: number;
   centreContentType?: "none" | "image" | "logo" | "text" | "media";
   frequencyColorMode?: "gradient" | "frequency" | "amplitude";
+  /** Move linear spectrum activity left/right without changing timing (-1..1). */
+  spectrumBalance?: number;
   /**
    * Draw the user's own logo in the middle of a centre visualiser (audio orb,
    * orbit disc, circular analysers). Defaults to on for the orb and the disc,

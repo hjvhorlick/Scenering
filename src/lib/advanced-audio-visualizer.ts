@@ -296,6 +296,7 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     fftSize: 2048,
     reactivity: 1.05,
     smoothing: 0.34,
+    spectrumBalance: 0,
     glowIntensity: 0.42,
     fullWidth: true,
   },
@@ -312,6 +313,7 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     fftSize: 2048,
     reactivity: 1.08,
     smoothing: 0.4,
+    spectrumBalance: 0,
     glowIntensity: 0.5,
     fullWidth: true,
   },
@@ -811,6 +813,8 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
   const barW = clamp(slot * (1 - settings.barGap * 0.92) * thicknessGain, 1, slot * 0.95);
   const gap = Math.max(0, slot - barW);
   const glow = compact ? settings.glow * 0.35 : settings.glow;
+  const balance = clamp(Number(vo.spectrumBalance ?? 0), -1, 1);
+  const activityCentre = 0.5 + balance * 0.34;
 
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
@@ -822,19 +826,19 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
   ctx.stroke();
   for (let i = 0; i < count; i++) {
     const t = i / Math.max(1, count - 1);
-    // Linear bars are a visual effect, not a lab analyser. Mirror the frequency
-    // layout around the centre so both left and right sides move with bass,
-    // voice and beat instead of leaving one side looking dead.
-    const freqPos = Math.abs((i + 0.5) / count - 0.5) * 2;
-    const exact = freqPos * (count - 1);
-    const lo = Math.max(0, Math.min(count - 1, Math.floor(exact)));
-    const hi = Math.max(0, Math.min(count - 1, lo + 1));
-    const frac = exact - lo;
-    const mirroredValue = (bands.values[lo] || 0) * (1 - frac) + (bands.values[hi] || 0) * frac;
-    const direct = bands.values[i] || 0;
-    const opposite = bands.values[count - 1 - i] || 0;
-    const livelyFloor = (bands.energy * 0.07 + bands.beat * 0.05) * (0.75 + 0.25 * Math.sin(i * 2.399 + elapsed * 4.1));
-    const v = clamp(mirroredValue * 0.74 + direct * 0.18 + opposite * 0.08 + livelyFloor, 0, 1.5);
+    const p = (i + 0.5) / count;
+    // Keep the rack visually full without making it a mirror image. The direct
+    // spectrum still decides which bars are tallest, while a broad energy wash
+    // makes quiet sides participate so the whole graph feels alive.
+    const shifted = clamp(p - balance * 0.38, 0, 1);
+    const direct = sampleBandValue(bands.values, shifted);
+    const nearby = (sampleBandValue(bands.values, shifted - 0.035) + sampleBandValue(bands.values, shifted + 0.035)) * 0.5;
+    const centreWeight = clamp(1 - Math.abs(p - activityCentre) / 0.62, 0, 1);
+    const bassWash = bands.bass * (0.12 + 0.22 * centreWeight);
+    const midTexture = bands.mid * (0.08 + 0.1 * Math.pow(0.5 + 0.5 * Math.sin(p * TAU * 2.15 + elapsed * 1.7), 2));
+    const trebleSpark = bands.treble * (0.04 + 0.08 * Math.pow(0.5 + 0.5 * Math.sin(p * TAU * 7.3 - elapsed * 5.2), 4));
+    const liveEnergy = (bands.energy * 0.1 + bands.beat * 0.12) * (0.72 + 0.28 * Math.sin(i * 2.399 + elapsed * 4.1));
+    const v = clamp(direct * 0.5 + nearby * 0.16 + bassWash + midTexture + trebleSpark + liveEnergy, 0, 1.6);
     const h = Math.max(2, Math.pow(v, 0.78) * maxH);
     const x = -width / 2 + i * slot + gap / 2;
     const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, v, vo.frequencyColorMode || "gradient");
@@ -1315,6 +1319,16 @@ function drawFineRadialCentre(
     }
   }
   ctx.restore();
+}
+
+function sampleBandValue(values: Float32Array, position: number): number {
+  const n = values.length;
+  if (n <= 0) return 0;
+  const exact = clamp(position, 0, 1) * (n - 1);
+  const lo = clampInt(Math.floor(exact), 0, n - 1);
+  const hi = clampInt(Math.ceil(exact), 0, n - 1);
+  const f = exact - lo;
+  return (values[lo] || 0) * (1 - f) + (values[hi] || 0) * f;
 }
 
 function colourForBand(primary: string, secondary: string, accent: string, t: number, value: number, mode: unknown): string {
