@@ -200,10 +200,16 @@ function InsertEditPreview({
   item,
   aspectRatio = "16:9",
   backgroundImage,
+  showSpectrumFramingControls = false,
+  onSpectrumFramingChange,
+  onSpectrumFramingReset,
 }: {
   item: TimelineInsert;
   aspectRatio?: AspectRatioType;
   backgroundImage?: string;
+  showSpectrumFramingControls?: boolean;
+  onSpectrumFramingChange?: (field: SpectrumFramingField, value: number) => void;
+  onSpectrumFramingReset?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(true);
@@ -389,6 +395,30 @@ function InsertEditPreview({
         <div className="w-full overflow-hidden rounded-xl border border-hairline bg-black flex items-center justify-center">
           <canvas ref={canvasRef} className="block max-w-full" style={previewCanvasStyle} />
         </div>
+        {showSpectrumFramingControls && onSpectrumFramingChange && (
+          <div className="mt-3 border-t border-indigo-500/25 pt-3 space-y-3 rounded-b-xl">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h5 className="text-[11px] font-bold text-white flex items-center gap-2">
+                  <Icon glyph="↔️" /> Preview crop / move controls
+                </h5>
+                <p className="text-[10px] text-gray-400">
+                  These controls are part of the edit preview; use them to move the busy bars into the centre, stretch the frequency area, or widen the rack like cropping an image sideways.
+                </p>
+              </div>
+              {onSpectrumFramingReset && (
+                <button
+                  type="button"
+                  onClick={onSpectrumFramingReset}
+                  className="px-2.5 py-1 rounded-lg border border-indigo-500/50 bg-gray-900/80 text-[10px] font-semibold text-indigo-100 hover:bg-indigo-950 transition-colors"
+                >
+                  Reset crop
+                </button>
+              )}
+            </div>
+            <SpectrumFramingSliders visualOptions={item.visualOptions} onChange={onSpectrumFramingChange} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -595,13 +625,14 @@ function InsertPropertiesContent({
 
   const isAdvancedVisualizer = isAdvancedAudioVisualizerType(insert.type);
   const isAdvancedLinearVisualizer = isAdvancedLinearVisualizerType(insert.type);
-  const isAdvancedSpectrumBars = insert.type === "advanced_spectrum_bars" || insert.type === "advanced_mirror_spectrum";
+  const advancedStyle = String(insert.visualOptions?.visualizerStyle || insert.type);
+  const isAdvancedSpectrumBars = advancedStyle === "advanced_spectrum_bars" || advancedStyle === "advanced_mirror_spectrum";
   const advancedPresetKey =
-    insert.type === "fine_radial_bars"
+    advancedStyle === "fine_radial_bars"
       ? "professional"
-      : insert.type === "fine_radial_bars_3d"
+      : advancedStyle === "fine_radial_bars_3d"
       ? "fine_radial_3d"
-      : insert.type;
+      : advancedStyle;
   const advancedPresetPatch = FINE_RADIAL_PRESET_PATCHES[advancedPresetKey] || FINE_RADIAL_PRESET_PATCHES.professional;
   const isSoundEffect = insert.category === "sound_effects" || insert.category === "background_music";
   const isBackgroundMusic = insert.category === "background_music";
@@ -1074,37 +1105,18 @@ function InsertPropertiesContent({
         )}
 
         {!isCallToAction && !isSoundEffect && (
-          <>
-            <InsertEditPreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
-            {isAdvancedSpectrumBars && (
-              <div className="px-6 pt-3">
-                <div className="rounded-2xl border border-indigo-500/30 bg-indigo-950/20 p-3 space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <h4 className="text-xs font-bold text-white flex items-center gap-2">
-                        <Icon glyph="↔️" /> Preview crop / move controls
-                      </h4>
-                      <p className="text-[10px] text-gray-400">
-                        Drag these while watching the edit preview, like cropping an image sideways: move the busy bars into the centre, stretch the frequency area, or widen the rack to fill the frame.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updateVisualOptions("spectrumBalance", 0);
-                        updateVisualOptions("spectrumStretch", advancedPresetPatch.spectrumStretch ?? 1.25);
-                        updateVisualOptions("spectrumWidth", 1);
-                      }}
-                      className="px-2.5 py-1 rounded-lg border border-indigo-500/50 bg-gray-950/70 text-[10px] font-semibold text-indigo-100 hover:bg-indigo-950 transition-colors"
-                    >
-                      Reset crop
-                    </button>
-                  </div>
-                  <SpectrumFramingSliders visualOptions={data.visualOptions} onChange={updateVisualOptions} />
-                </div>
-              </div>
-            )}
-          </>
+          <InsertEditPreview
+            item={data}
+            aspectRatio={aspectRatio}
+            backgroundImage={backgroundImage}
+            showSpectrumFramingControls={isAdvancedSpectrumBars}
+            onSpectrumFramingChange={updateVisualOptions}
+            onSpectrumFramingReset={() => {
+              updateVisualOptions("spectrumBalance", 0);
+              updateVisualOptions("spectrumStretch", advancedPresetPatch.spectrumStretch ?? 1.25);
+              updateVisualOptions("spectrumWidth", 1);
+            }}
+          />
         )}
 
         {/* Section jump row — every section is stacked below; the buttons
