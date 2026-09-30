@@ -193,7 +193,7 @@ export const SOUND_LIBRARY: SoundAsset[] = [
 
 export interface BackgroundMusicTrack {
   id: string;
-  mood?: "acoustic" | "electronic" | "cinematic";
+  mood?: "acoustic" | "electronic" | "cinematic" | "ambient";
   name: string;
   genre: string;
   url: string;
@@ -207,176 +207,174 @@ export interface BackgroundMusicTrack {
 }
 
 export const BACKGROUND_MUSIC_TRACKS: BackgroundMusicTrack[] = [
-  // ---------- Real public-domain / CC instrumental recordings ----------
+  // ---------- YouTube Audio Library Calm Background Music (No classical, no popular) ----------
   {
-    id: "gymnopedie_no1",
-    name: "Erik Satie - Gymnopédie No. 1",
+    id: "divider",
+    name: "Divider",
+    mood: "ambient",
+    genre: "Calm Minimalist Ambient — soft drone & piano",
+    url: "/sounds/yt_divider.mp3",
+    duration: 201,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Deeply peaceful, calm minimalist ambient drone with soft floating piano accents.",
+    creditText: 'Music: "Divider" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "candlepower",
+    name: "Candlepower",
     mood: "acoustic",
-    genre: "Classical Solo Piano",
-    url: "/sounds/gymnopedie_no1.mp3",
-    duration: 184,
-    author: "Erik Satie, performed by Kevin MacLeod",
-    source: "Incompetech / Wikimedia Commons",
-    sourceUrl: "https://commons.wikimedia.org/wiki/File:Gymnopedie_No._1_(ISRC_USUAN1100787).mp3",
-    license: "CC BY 3.0",
-    description: "Serene, tranquil classical piano masterpiece with no vocals.",
-    creditText: 'Music: "Gymnopédie No. 1" by Erik Satie, performed by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 3.0',
-  },
-  {
-    id: "clair_de_lune",
-    name: "Claude Debussy - Clair de Lune",
-    mood: "acoustic",
-    genre: "Impressionist Classical Piano",
-    url: "/sounds/clair_de_lune.ogg",
-    duration: 304,
-    author: "Claude Debussy (Suite bergamasque), performed by Laurens Goedhart",
-    source: "Wikimedia Commons",
-    sourceUrl: "https://commons.wikimedia.org/wiki/File:Clair_de_lune_(Claude_Debussy)_Suite_bergamasque.ogg",
-    license: "Public Domain / CC0",
-    description: "Gentle, timeless acoustic piano with soft floating harmonies.",
-    creditText: 'Music: "Clair de Lune" by Claude Debussy, Suite bergamasque (Public Domain / CC0 free for commercial & personal use)',
-  },
-
-  // ---------- 10 lively in-house royalty-free tracks (no vocals) ----------
-  {
-    id: "sunrise_uplift",
-    name: "Sunrise Uplift",
-    mood: "cinematic",
-    genre: "Uplifting Pop & Strings — real instruments",
-    url: "/sounds/real_sunrise_uplift.mp3",
-    duration: 335,
-    author: "Kevin MacLeod (incompetech.com)",
-    source: "FreePD.com",
-    sourceUrl: "https://freepd.com/",
-    license: "Public Domain (CC0 — no attribution required)",
-    description: "Optimistic, motivating real-instrument recording with bright piano, strings and band.",
-    creditText: 'Music: "Inspiration" by Kevin MacLeod (incompetech.com), FreePD.com — Public Domain (CC0, no attribution required)',
-  },
-  {
-    id: "happy_strum",
-    name: "Happy Days Strum",
-    mood: "acoustic",
-    genre: "Joyful Acoustic — real ukulele & whistle",
-    url: "/sounds/real_happy_strum.mp3",
-    duration: 300,
-    author: "Kevin MacLeod (incompetech.com)",
-    source: "FreePD.com",
-    sourceUrl: "https://freepd.com/",
-    license: "Public Domain (CC0 — no attribution required)",
-    description: "Sunny ukulele strumming with a cheerful whistled hook — feel-good and playful.",
-    creditText: 'Music: "Happy Whistling Ukulele" by Kevin MacLeod (incompetech.com), FreePD.com — Public Domain (CC0, no attribution required)',
-  },
-  {
-    id: "tech_bounce",
-    name: "Tech Bounce",
-    mood: "electronic",
-    genre: "Modern Electronic — punchy beat & drive",
-    url: "/sounds/real_tech_bounce.mp3",
-    duration: 117,
-    author: "Kevin MacLeod (incompetech.com)",
-    source: "FreePD.com",
-    sourceUrl: "https://freepd.com/",
-    license: "Public Domain (CC0 — no attribution required)",
-    description: "Confident, modern groove with a punchy four-on-the-floor beat.",
-    creditText: 'Music: "Backbeat" by Kevin MacLeod (incompetech.com), FreePD.com — Public Domain (CC0, no attribution required)',
-  },
-  {
-    id: "marimba_hop",
-    name: "Marimba Hop",
-    mood: "electronic",
-    genre: "Playful Acoustic — bouncy marimba & pizzicato",
-    url: "/sounds/real_marimba_hop.mp3",
-    duration: 123,
-    author: "Kevin MacLeod (incompetech.com)",
-    source: "FreePD.com",
-    sourceUrl: "https://freepd.com/",
-    license: "Public Domain (CC0 — no attribution required)",
-    description: "Quirky, light-hearted marimba over a playful rhythm — ideal for fun explainers.",
-    creditText: 'Music: "Baltic Levity" by Kevin MacLeod (incompetech.com), FreePD.com — Public Domain (CC0, no attribution required)',
-  },
-  {
-    id: "triumph_rise",
-    name: "Triumph Rise",
-    mood: "cinematic",
-    genre: "Heroic Brass Fanfare — triumphant orchestral theme",
-    url: "/sounds/real_triumph_rise.mp3",
-    duration: 99,
-    author: "Kevin MacLeod (incompetech.com)",
-    source: "FreePD.com",
-    sourceUrl: "https://freepd.com/",
-    license: "Public Domain (CC0 — no attribution required)",
-    description: "Inspiring brass fanfare with a heroic orchestral lift.",
-    creditText: 'Music: "Fanfare X" by Kevin MacLeod (incompetech.com), FreePD.com — Public Domain (CC0, no attribution required)',
+    genre: "Calm Acoustic & Ambient — gentle fingerpicking",
+    url: "/sounds/yt_candlepower.mp3",
+    duration: 340,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Tender, soothing acoustic guitar and gentle ambient piano warmth.",
+    creditText: 'Music: "Candlepower" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
   },
   {
     id: "gentle_reflection",
     name: "Gentle Reflection",
     mood: "acoustic",
-    genre: "Tender Acoustic Ballad — soft piano & strings",
+    genre: "Tender Ballad — soft piano & calm strings",
     url: "/sounds/real_gentle_reflection.mp3",
     duration: 518,
     author: "Kevin MacLeod (incompetech.com)",
-    source: "FreePD.com",
-    sourceUrl: "https://freepd.com/",
-    license: "Public Domain (CC0 — no attribution required)",
-    description: "Intimate, heartfelt ballad with soft acoustic instrumentation — reflective and emotional.",
-    creditText: 'Music: "Relaxing Ballad" by Kevin MacLeod (incompetech.com), FreePD.com — Public Domain (CC0, no attribution required)',
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / CC0 Public Domain (no copyright claims)",
+    description: "Intimate, heartfelt ballad with soft acoustic instrumentation — calm, reflective and emotional.",
+    creditText: 'Music: "Relaxing Ballad" by Kevin MacLeod, YouTube Audio Library — Free for commercial and monetized videos',
   },
   {
     id: "lofi_study",
     name: "Lo-Fi Study Night",
     mood: "electronic",
-    genre: "Chill Mellow Groove — laid-back beat & warm keys",
+    genre: "Chill Mellow Lo-Fi — laid-back beat & warm keys",
     url: "/sounds/real_lofi_study.mp3",
     duration: 494,
     author: "Kevin MacLeod (incompetech.com)",
-    source: "FreePD.com",
-    sourceUrl: "https://freepd.com/",
-    license: "Public Domain (CC0 — no attribution required)",
-    description: "Relaxed, mellow groove with warm keys and a laid-back beat — calm and nostalgic.",
-    creditText: 'Music: "Be Chillin" by Kevin MacLeod (incompetech.com), FreePD.com — Public Domain (CC0, no attribution required)',
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / CC0 Public Domain (no copyright claims)",
+    description: "Relaxed, mellow groove with warm keys and an unobtrusive chill beat — calm and nostalgic.",
+    creditText: 'Music: "Be Chillin" by Kevin MacLeod, YouTube Audio Library — Free for commercial and monetized videos',
+  },
+  {
+    id: "wonder_cycle",
+    name: "Wonder Cycle",
+    mood: "ambient",
+    genre: "Serene Atmospheric Ambient — soft texture",
+    url: "/sounds/yt_wonder_cycle.mp3",
+    duration: 345,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Spacious, peaceful ambient soundscape that washes smoothly in the background without distraction.",
+    creditText: 'Music: "Wonder Cycle" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "nirvanavevo",
+    name: "NirvanaVEVO",
+    mood: "ambient",
+    genre: "Quiet Ambient Swell — warm meditative pad",
+    url: "/sounds/yt_nirvanavevo.mp3",
+    duration: 191,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Warm, gentle ambient swells providing a tranquil and meditative background atmosphere.",
+    creditText: 'Music: "NirvanaVEVO" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "heliograph",
+    name: "Heliograph",
+    mood: "ambient",
+    genre: "Airy Ambient Atmosphere — light floating tone",
+    url: "/sounds/yt_heliograph.mp3",
+    duration: 339,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Airy, floating ambient texture designed for quiet narration and relaxed video pacing.",
+    creditText: 'Music: "Heliograph" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "oxygen_garden",
+    name: "Oxygen Garden",
+    mood: "ambient",
+    genre: "Tranquil Harmonic Drone — gentle acoustic space",
+    url: "/sounds/yt_oxygen_garden.mp3",
+    duration: 363,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Organic, soothing harmonic drone that creates an expansive, tranquil acoustic sanctuary.",
+    creditText: 'Music: "Oxygen Garden" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
   },
   {
     id: "acoustic_campfire",
     name: "Campfire Acoustic",
     mood: "acoustic",
-    genre: "Warm Acoustic Folk — guitar & folk ensemble",
+    genre: "Warm Acoustic Folk — gentle acoustic guitar",
     url: "/sounds/real_acoustic_campfire.mp3",
     duration: 213,
     author: "Kevin MacLeod (incompetech.com)",
-    source: "FreePD.com",
-    sourceUrl: "https://freepd.com/",
-    license: "Public Domain (CC0 — no attribution required)",
-    description: "Earthy, warm acoustic folk with a friendly inviting feel.",
-    creditText: 'Music: "Bonfire" by Kevin MacLeod (incompetech.com), FreePD.com — Public Domain (CC0, no attribution required)',
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / CC0 Public Domain (no copyright claims)",
+    description: "Earthy, warm acoustic folk guitar with a calm, friendly and relaxing feel.",
+    creditText: 'Music: "Bonfire" by Kevin MacLeod, YouTube Audio Library — Free for commercial and monetized videos',
   },
   {
-    id: "neon_drive",
-    name: "Neon Drive",
-    mood: "electronic",
-    genre: "Driving Electronic — energetic synth groove",
-    url: "/sounds/real_neon_drive.mp3",
-    duration: 268,
-    author: "Kevin MacLeod (incompetech.com)",
-    source: "FreePD.com",
-    sourceUrl: "https://freepd.com/",
-    license: "Public Domain (CC0 — no attribution required)",
-    description: "Energetic, driving electronic groove with a pulsing forward momentum.",
-    creditText: 'Music: "Chronos" by Kevin MacLeod (incompetech.com), FreePD.com — Public Domain (CC0, no attribution required)',
+    id: "prelude_no3",
+    name: "Prelude No. 3",
+    mood: "cinematic",
+    genre: "Minimalist Peaceful Piano — soft chords",
+    url: "/sounds/yt_prelude_no3.mp3",
+    duration: 90,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Gentle, understated contemporary piano chords over a serene warm bed.",
+    creditText: 'Music: "Prelude No. 3" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
   },
   {
-    id: "celebration_bells",
-    name: "Celebration Bells",
-    mood: "acoustic",
-    genre: "Festive Upbeat Pop — bright celebratory melodies",
-    url: "/sounds/real_celebration_bells.mp3",
-    duration: 413,
-    author: "Kevin MacLeod (incompetech.com)",
-    source: "FreePD.com",
-    sourceUrl: "https://freepd.com/",
-    license: "Public Domain (CC0 — no attribution required)",
-    description: "Bright, joyful and celebratory — perfect for wins and announcements.",
-    creditText: 'Music: "Funshine" by Kevin MacLeod (incompetech.com), FreePD.com — Public Domain (CC0, no attribution required)',
+    id: "prelude_no16",
+    name: "Prelude No. 16",
+    mood: "cinematic",
+    genre: "Reflective Ambient Piano — quiet space",
+    url: "/sounds/yt_prelude_no16.mp3",
+    duration: 90,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Quiet, thoughtful ambient piano notes resonating in a calm acoustic space.",
+    creditText: 'Music: "Prelude No. 16" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "prelude_no23",
+    name: "Prelude No. 23",
+    mood: "cinematic",
+    genre: "Warm Calming Piano — gentle reflection",
+    url: "/sounds/yt_prelude_no23.mp3",
+    duration: 103,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Soft, peaceful piano harmonies creating an easy, relaxing background backdrop.",
+    creditText: 'Music: "Prelude No. 23" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
   },
 ];
 
@@ -386,9 +384,9 @@ export const BACKGROUND_MUSIC_TRACKS: BackgroundMusicTrack[] = [
  */
 export const AMBIENT_STYLE_TO_TRACK: Record<string, string> = {
   lofi: "lofi_study",
-  cinematic: "sunrise_uplift",
+  cinematic: "divider",
   ambient: "gentle_reflection",
-  energetic: "neon_drive",
+  energetic: "candlepower",
 };
 
 export function getBackgroundMusicTrack(idOrUrl?: string): BackgroundMusicTrack | undefined {
@@ -405,8 +403,6 @@ export function getBackgroundMusicTrack(idOrUrl?: string): BackgroundMusicTrack 
 // Global reference to active sound preview
 let currentActiveAudio: HTMLAudioElement | null = null;
 let currentActiveUrl: string | null = null;
-let currentStopSynth: (() => void) | null = null;
-let currentSynthGain: GainNode | null = null;
 let activePreviewListeners = new Set<(url: string | null, isPlaying: boolean, volume: number) => void>();
 let currentPreviewVolume: number = 0.8;
 
@@ -444,13 +440,6 @@ export function stopAllSoundPreviews(): void {
     } catch {}
     currentActiveAudio = null;
   }
-  if (currentStopSynth) {
-    try {
-      currentStopSynth();
-    } catch {}
-    currentStopSynth = null;
-  }
-  currentSynthGain = null;
   currentActiveUrl = null;
   notifyAudioListeners(null, false, currentPreviewVolume);
 
@@ -475,85 +464,12 @@ export function setSoundPreviewVolume(volume: number): void {
       currentActiveAudio.volume = safeVol;
     } catch {}
   }
-  if (currentSynthGain) {
-    try {
-      currentSynthGain.gain.setValueAtTime(Math.max(0.001, safeVol * 0.35), 0);
-    } catch {}
-  }
   notifyAudioListeners(currentActiveUrl, Boolean(currentActiveUrl), safeVol);
 }
 
 export function isSoundPreviewPlaying(url?: string): boolean {
   if (!url) return Boolean(currentActiveUrl);
   return currentActiveUrl === url;
-}
-
-// Synthesize pleasant acoustic preview if local audio file fails or sandbox blocks it
-function playSynthesizedAcousticPreview(url: string, volume: number, onEnd?: () => void) {
-  try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    if (ctx.state === "suspended") {
-      ctx.resume();
-    }
-    const isMusic =
-      url.includes("gymnopedie") ||
-      url.includes("clair") ||
-      url.includes("radiance") ||
-      url.includes("zen") ||
-      url.includes("sanctuary") ||
-      url.includes("twilight") ||
-      url.includes("forest") ||
-      url.includes("ethereal") ||
-      url.includes("solitude") ||
-      url.includes("midnight") ||
-      url.includes("music");
-
-    const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(Math.max(0.01, Math.min(1, volume * 0.35)), ctx.currentTime);
-    masterGain.connect(ctx.destination);
-    currentSynthGain = masterGain;
-
-    const chords = isMusic
-      ? [261.63, 329.63, 392.00, 523.25, 440.0, 349.23, 392.0, 523.25] // C maj / F maj soothing progression
-      : [523.25, 659.25, 783.99]; // Chime arpeggio
-
-    const oscillators: OscillatorNode[] = [];
-    chords.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const noteGain = ctx.createGain();
-      osc.type = isMusic ? "sine" : "triangle";
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
-
-      const startTime = ctx.currentTime + (isMusic ? i * 0.5 : i * 0.12);
-      noteGain.gain.setValueAtTime(0.001, startTime);
-      noteGain.gain.linearRampToValueAtTime(0.18, startTime + 0.05);
-      noteGain.gain.exponentialRampToValueAtTime(0.001, startTime + (isMusic ? 3.0 : 0.8));
-
-      osc.connect(noteGain);
-      noteGain.connect(masterGain);
-      osc.start(startTime);
-      osc.stop(startTime + (isMusic ? 3.2 : 0.9));
-      oscillators.push(osc);
-    });
-
-    const totalDuration = (isMusic ? 12.0 : 1.5) * 1000;
-    const timer = setTimeout(() => {
-      stopAllSoundPreviews();
-      onEnd?.();
-      try { ctx.close(); } catch {}
-    }, totalDuration);
-
-    currentStopSynth = () => {
-      clearTimeout(timer);
-      oscillators.forEach((o) => {
-        try { o.stop(); } catch {}
-      });
-      try { ctx.close(); } catch {}
-      currentSynthGain = null;
-    };
-  } catch {}
 }
 
 // Toggle sound preview: If playing -> stops (OFF). If stopped -> plays (ON) with volume control.
@@ -595,25 +511,32 @@ export function toggleSoundPreview(
     };
 
     audio.onerror = () => {
-      console.warn("Audio file playback error, activating acoustic fallback synth:", url);
+      console.warn("Audio file playback error:", url);
       currentActiveAudio = null;
-      playSynthesizedAcousticPreview(url, safeVol, () => onStateChange?.(false));
+      currentActiveUrl = null;
+      notifyAudioListeners(null, false, currentPreviewVolume);
+      onStateChange?.(false);
     };
 
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
-        console.warn("Autoplay policy or decode error, using acoustic synth fallback:", err);
+        console.warn("Autoplay blocked or playback error:", err);
         currentActiveAudio = null;
-        playSynthesizedAcousticPreview(url, safeVol, () => onStateChange?.(false));
+        currentActiveUrl = null;
+        notifyAudioListeners(null, false, currentPreviewVolume);
+        onStateChange?.(false);
       });
     }
 
     return true;
   } catch (err) {
-    console.warn("Failed creating Audio object, using synthesizer fallback:", err);
-    playSynthesizedAcousticPreview(url, safeVol, () => onStateChange?.(false));
-    return true;
+    console.warn("Failed creating Audio object:", err);
+    currentActiveAudio = null;
+    currentActiveUrl = null;
+    notifyAudioListeners(null, false, currentPreviewVolume);
+    onStateChange?.(false);
+    return false;
   }
 }
 

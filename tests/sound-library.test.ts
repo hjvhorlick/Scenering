@@ -24,10 +24,10 @@ h.eq(
   "no classical track is filed under Foley"
 );
 
-// ---- the classical tracks are still available as music -----------------------
-for (const id of ["gymnopedie_no1", "clair_de_lune"]) {
+// ---- calm YouTube Audio Library tracks are available as music ----------------
+for (const id of ["divider", "candlepower", "gentle_reflection"]) {
   const track = BACKGROUND_MUSIC_TRACKS.find((t) => t.id === id);
-  h.ok(Boolean(track), `${id} is still in the background music library`);
+  h.ok(Boolean(track), `${id} is in the background music library`);
   h.ok((track?.duration ?? 0) > 60, `${id} keeps its full length`);
 }
 
@@ -44,7 +44,7 @@ for (const item of EFFECTS) {
 
   const url: string = item.defaultAudioSettings?.soundUrl ?? "";
   h.ok(url.startsWith("/sounds/"), `${item.type} points at the sound library (${url})`);
-  h.ok(!/gymnopedie|clair_de_lune|real_/.test(url), `${item.type} is not a music file (${url})`);
+  h.ok(!/gymnopedie|clair_de_lune|real_|yt_/.test(url), `${item.type} is not a music file (${url})`);
 
   // the file has to exist in the build, or the card plays nothing
   const file = `public${url}`;

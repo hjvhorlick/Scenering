@@ -188,7 +188,8 @@ export class InsertAudioMixer {
   constructor(ctx: BaseAudioContext, dest: AudioNode) {
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = 1;
+    // 0.85 gain headroom prevents harsh digital clipping when multiple sounds sum together
+    this.master.gain.value = 0.85;
     this.master.connect(dest);
   }
 
@@ -218,6 +219,14 @@ export class InsertAudioMixer {
 
       const gain = this.ctx.createGain();
       gain.gain.value = slot.plan.volume;
+      // Gentle 25ms micro-fade prevents hard DC-offset clicks/crackles at buffer start
+      if (typeof gain.gain.setValueAtTime === "function" && typeof gain.gain.exponentialRampToValueAtTime === "function") {
+        try {
+          const now = this.ctx.currentTime;
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.exponentialRampToValueAtTime(Math.max(0.001, slot.plan.volume), now + 0.025);
+        } catch {}
+      }
       source.connect(gain);
       gain.connect(this.master);
 
@@ -267,6 +276,22 @@ export class InsertAudioMixer {
 
         const gain = this.ctx.createGain();
         gain.gain.value = volume;
+
+        if (typeof gain.gain.setValueAtTime === "function" && typeof gain.gain.exponentialRampToValueAtTime === "function") {
+          try {
+            const start = Math.max(0, startTime);
+            const end = Math.max(0, endTime);
+            const targetVol = Math.max(0.001, volume);
+            const fadeSec = Math.min(0.04, (end - start) * 0.1);
+            if (fadeSec > 0.005) {
+              gain.gain.setValueAtTime(0.001, start);
+              gain.gain.exponentialRampToValueAtTime(targetVol, start + fadeSec);
+              gain.gain.setValueAtTime(targetVol, end - fadeSec);
+              gain.gain.exponentialRampToValueAtTime(0.001, end);
+            }
+          } catch {}
+        }
+
         source.connect(gain);
         gain.connect(this.master);
 
@@ -310,9 +335,20 @@ export class InsertAudioMixer {
       if (slot.started) {
         // Stop at the planned end — also for looping beds (music that fills the video)
         if (time >= slot.plan.endTime && slot.source) {
-          try {
-            slot.source.stop();
-          } catch {}
+          const s = slot.source;
+          const g = slot.gain;
+          if (g && typeof g.gain.setValueAtTime === "function" && typeof g.gain.linearRampToValueAtTime === "function") {
+            try {
+              const now = this.ctx.currentTime;
+              g.gain.setValueAtTime(g.gain.value, now);
+              g.gain.linearRampToValueAtTime(0.001, now + 0.03);
+            } catch {}
+          }
+          setTimeout(() => {
+            try {
+              s.stop();
+            } catch {}
+          }, 35);
           slot.source = null;
           slot.finished = true;
         }

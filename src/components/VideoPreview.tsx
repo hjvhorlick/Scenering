@@ -1093,6 +1093,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     }
 
     if (audioCtx && !analyserRef.current) {
+      // Master limiter node: prevents digital clipping/crackling when voice + music + sfx sum together
+      const masterLimiter = audioCtx.createDynamicsCompressor();
+      masterLimiter.threshold.setValueAtTime(-1.5, audioCtx.currentTime);
+      masterLimiter.knee.setValueAtTime(6.0, audioCtx.currentTime);
+      masterLimiter.ratio.setValueAtTime(16.0, audioCtx.currentTime);
+      masterLimiter.attack.setValueAtTime(0.003, audioCtx.currentTime);
+      masterLimiter.release.setValueAtTime(0.15, audioCtx.currentTime);
+      masterLimiter.connect(audioCtx.destination);
+
       const an = audioCtx.createAnalyser();
       // 512 samples => 256 frequency bins: enough resolution for a full-width
       // rack without adjacent bars mirroring each other.
@@ -1101,11 +1110,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       an.minDecibels = -92;
       an.maxDecibels = -12;
       analyserRef.current = an;
-      an.connect(audioCtx.destination);
-      if (!recordDestRef.current) {
-        try { recordDestRef.current = audioCtx.createMediaStreamDestination(); } catch {}
-      }
-      if (recordDestRef.current) an.connect(recordDestRef.current);
+      an.connect(masterLimiter);
 
       const music = audioCtx.createAnalyser();
       music.fftSize = 512;
@@ -1113,8 +1118,14 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       music.minDecibels = -92;
       music.maxDecibels = -12;
       musicAnalyserRef.current = music;
-      music.connect(audioCtx.destination);
-      if (recordDestRef.current) music.connect(recordDestRef.current);
+      music.connect(masterLimiter);
+
+      if (!recordDestRef.current) {
+        try { recordDestRef.current = audioCtx.createMediaStreamDestination(); } catch {}
+      }
+      if (recordDestRef.current) {
+        masterLimiter.connect(recordDestRef.current);
+      }
     }
 
     // ---- Narration echo (set in the Voiceover step) ---------------------

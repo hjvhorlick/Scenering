@@ -624,65 +624,21 @@ export default function RenderView({
   const loadImage = (url: string): Promise<HTMLImageElement | null> =>
     loadSceneImage(url, 0, { fallback: "none" }).then((r) => r?.img ?? null);
 
-  // Synthesize ambient music loop using Web Audio API (fast 3-second seamless loop to avoid UI thread blocking)
-  const createAmbientMusicNode = (
+  // Load real background music buffer from library track
+  const loadRealAmbientTrackBuffer = async (
     ctx: BaseAudioContext,
-    style: RenderSettings["backgroundMusic"],
-    _duration: number,
-    volume: number
-  ): AudioNode | null => {
-    if (style === "none" || volume <= 0) return null;
-
+    style: RenderSettings["backgroundMusic"]
+  ): Promise<AudioBuffer | null> => {
+    if (style === "none") return null;
+    const trackId = AMBIENT_STYLE_TO_TRACK[style];
+    const track = trackId ? getBackgroundMusicTrack(trackId) : undefined;
+    if (!track?.url) return null;
     try {
-      const sampleRate = ctx.sampleRate || 44100;
-      const loopSec = 3.0; // 3 seconds loop is seamless and generates in under 5ms
-      const buffer = ctx.createBuffer(2, Math.round(sampleRate * loopSec), sampleRate);
-      const left = buffer.getChannelData(0);
-      const right = buffer.getChannelData(1);
-
-      // Chords based on mood style
-      let baseFreqs = [261.63, 329.63, 392.0, 523.25]; // C major
-      if (style === "lofi") {
-        baseFreqs = [220.0, 261.63, 329.63, 392.0]; // Am7
-      } else if (style === "cinematic") {
-        baseFreqs = [174.61, 220.0, 261.63, 349.23]; // Fmaj7 low
-      } else if (style === "energetic") {
-        baseFreqs = [293.66, 369.99, 440.0, 587.33]; // D major
-      }
-
-      for (let i = 0; i < left.length; i++) {
-        const t = i / sampleRate;
-        let sample = 0;
-        for (let b = 0; b < baseFreqs.length; b++) {
-          const freq = baseFreqs[b];
-          const osc = Math.sin(2 * Math.PI * freq * t);
-          const sub = Math.sin(Math.PI * (freq / 2) * t) * 0.4;
-          const slowLfo = 0.6 + 0.4 * Math.sin(2 * Math.PI * 0.33 * t + b);
-          sample += (osc + sub) * 0.15 * slowLfo;
-        }
-
-        // Soft stereo spread
-        left[i] = sample * (0.8 + 0.2 * Math.sin(t * 1.5));
-        right[i] = sample * (0.8 + 0.2 * Math.cos(t * 1.5));
-      }
-
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.loop = true;
-
-      const gain = ctx.createGain();
-      gain.gain.value = volume;
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = style === "lofi" ? 900 : style === "ambient" ? 1400 : 2500;
-
-      source.connect(filter);
-      filter.connect(gain);
-      source.start();
-
-      return gain;
-    } catch {
+      const res = await fetch(track.url);
+      if (!res.ok) return null;
+      return await ctx.decodeAudioData(await res.arrayBuffer());
+    } catch (err) {
+      console.warn("Failed loading real ambient music track:", err);
       return null;
     }
   };
@@ -1570,27 +1526,25 @@ export default function RenderView({
 
           // Legacy render-page ambient bed (normally timeline inserts now).
           if (settings.backgroundMusic !== "none" && settings.musicVolume > 0) {
-            let ambient: AudioNode | null = null;
             const styleTrackId = AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic];
             const track = styleTrackId ? getBackgroundMusicTrack(styleTrackId) : undefined;
             if (track) {
               try {
                 const response = await fetch(track.url);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const source = offlineCtx.createBufferSource();
-                source.buffer = await offlineCtx.decodeAudioData(await response.arrayBuffer());
-                source.loop = true;
-                const gain = offlineCtx.createGain();
-                gain.gain.value = Math.max(0, Math.min(1, settings.musicVolume)) * 0.85;
-                source.connect(gain);
-                source.start(0);
-                ambient = gain;
+                if (response.ok) {
+                  const source = offlineCtx.createBufferSource();
+                  source.buffer = await offlineCtx.decodeAudioData(await response.arrayBuffer());
+                  source.loop = true;
+                  const gain = offlineCtx.createGain();
+                  gain.gain.value = Math.max(0, Math.min(1, settings.musicVolume)) * 0.85;
+                  source.connect(gain);
+                  source.start(0);
+                  gain.connect(offlineMusicAnalyser);
+                }
               } catch (error) {
-                console.warn("Offline ambient track decode failed; using synth bed:", error);
+                console.warn("Offline ambient track decode failed:", error);
               }
             }
-            if (!ambient) ambient = createAmbientMusicNode(offlineCtx, settings.backgroundMusic, estimatedTotalDuration, settings.musicVolume);
-            ambient?.connect(offlineMusicAnalyser);
           }
 
           const insertPlans = [
@@ -1861,41 +1815,30 @@ export default function RenderView({
       }
 
       // Ambient background music: REAL instrumental recordings from the
-      // library (no synthetic tones). Falls back to the old Web Audio loop
-      // only if the file can't be fetched/decoded.
+      // library (no synthetic tones).
       let ambientGainNode: AudioNode | null = null;
       if (settings.backgroundMusic !== "none" && settings.musicVolume > 0) {
         const styleTrackId = AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic];
         const track = styleTrackId ? getBackgroundMusicTrack(styleTrackId) : undefined;
-        let ambientGain: AudioNode | null = null;
         if (track) {
           try {
             const res = await fetch(track.url);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const musicBuf = await audioCtx.decodeAudioData(await res.arrayBuffer());
-            const src = audioCtx.createBufferSource();
-            src.buffer = musicBuf;
-            src.loop = true; // real tracks loop to fill the whole video
-            const g = audioCtx.createGain();
-            g.gain.value = Math.max(0, Math.min(1, settings.musicVolume)) * 0.85;
-            src.connect(g);
-            g.connect(dest);
-            src.start();
-            ambientGain = g;
+            if (res.ok) {
+              const musicBuf = await audioCtx.decodeAudioData(await res.arrayBuffer());
+              const src = audioCtx.createBufferSource();
+              src.buffer = musicBuf;
+              src.loop = true; // real tracks loop to fill the whole video
+              const g = audioCtx.createGain();
+              g.gain.value = Math.max(0, Math.min(1, settings.musicVolume)) * 0.85;
+              src.connect(g);
+              g.connect(mastering.musicInput || dest);
+              src.start();
+              ambientGainNode = g;
+            }
           } catch (musicErr) {
-            console.warn("Real background track failed to load — synth fallback used:", musicErr);
+            console.warn("Real background track failed to load:", musicErr);
           }
         }
-        if (!ambientGain) {
-          ambientGain = createAmbientMusicNode(
-            audioCtx,
-            settings.backgroundMusic,
-            totalDuration + 5,
-            settings.musicVolume
-          );
-          if (ambientGain) ambientGain.connect(dest);
-        }
-        ambientGainNode = ambientGain;
       }
 
       // Paint initial background on canvas so captureStream receives valid dimensions & non-empty buffer immediately

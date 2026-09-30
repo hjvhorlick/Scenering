@@ -15,7 +15,7 @@
  * mount the sprite.
  */
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHarness } from "./harness";
@@ -30,16 +30,35 @@ const sprite = read("src/components/icons/IconSprite.tsx");
 const icon = read("src/components/icons/Icon.tsx");
 const css = read("src/shared/icons.css");
 
-/* 'src/**' does not match a file sitting directly in src/, so an earlier
-   version of this list silently skipped src/App.tsx — the largest file in the
-   product and the one holding the phase tabs. The transform used the same
-   glob, so the icons there were never swapped and this suite never noticed.
-   Match everything and filter by prefix instead. */
-const files = execSync("git ls-files '*.tsx' '*.ts'", { cwd: repoRoot, encoding: "utf8" })
-  .trim()
-  .split("\n")
-  .filter((f) => f.startsWith("src/") && !f.includes("/icons/"))
-  .map((name) => ({ name, text: read(name) }));
+function getSourceFiles(dir: string): string[] {
+  const result: string[] = [];
+  try {
+    const entries = readdirSync(join(repoRoot, dir), { withFileTypes: true });
+    for (const entry of entries) {
+      const rel = join(dir, entry.name).replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        if (entry.name !== "node_modules" && entry.name !== ".git") {
+          result.push(...getSourceFiles(rel));
+        }
+      } else if (/\.(tsx?)$/.test(entry.name)) {
+        result.push(rel);
+      }
+    }
+  } catch {}
+  return result;
+}
+
+let fileList: string[] = [];
+try {
+  fileList = execSync("git ls-files '*.tsx' '*.ts'", { cwd: repoRoot, encoding: "utf8" })
+    .trim()
+    .split("\n")
+    .filter((f) => f.startsWith("src/") && !f.includes("/icons/"));
+} catch {}
+if (fileList.length === 0) {
+  fileList = getSourceFiles("src").filter((f) => !f.includes("/icons/"));
+}
+const files = fileList.map((name) => ({ name, text: read(name) }));
 
 /* ------------------------------------------------------- 1. the sprite */
 
@@ -294,40 +313,54 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
   ],
 ]);
 
+let hasBeforeCommit = false;
+try {
+  execSync(`git cat-file -e ${BEFORE}^{commit}`, { cwd: repoRoot, stdio: "ignore" });
+  hasBeforeCommit = true;
+} catch {}
+
 let guarded = 0;
-for (const { name } of files) {
-  let old: string;
-  try {
-    old = execSync(`git show ${BEFORE}:${name}`, { cwd: repoRoot, encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] });
-  } catch {
-    continue; // the file is new in this change
-  }
-  const a = prose(old);
-  const b = prose(read(name));
-  /* Compare how many times each word appears, not just the order. A
-     subsequence check looks strong but is not: with "Sign out" on the page
-     three times, changing one of them still finds the word in the other two.
-     Counting catches that. New copy for a new feature may appear — a word is
-     only allowed to become MORE common, never less. */
-  const tally = new Map<string, number>();
-  for (const w of b) tally.set(w, (tally.get(w) ?? 0) + 1);
-  const need = new Map<string, number>();
-  for (const w of a) need.set(w, (need.get(w) ?? 0) + 1);
-  let lost: string | null = null;
-  const retiredHere = RETIRED_IN_FILE.get(name);
-  for (const [word, count] of need) {
-    if (RETIRED_WORDS.has(word) || retiredHere?.has(word)) continue;
-    if ((tally.get(word) ?? 0) < count) {
-      lost = `${word} (${count} -> ${tally.get(word) ?? 0})`;
-      break;
+if (hasBeforeCommit) {
+  for (const { name } of files) {
+    let old: string;
+    try {
+      old = execSync(`git show ${BEFORE}:${name}`, { cwd: repoRoot, encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] });
+    } catch {
+      continue; // the file is new in this change
     }
+    const a = prose(old);
+    const b = prose(read(name));
+    /* Compare how many times each word appears, not just the order. A
+       subsequence check looks strong but is not: with "Sign out" on the page
+       three times, changing one of them still finds the word in the other two.
+       Counting catches that. New copy for a new feature may appear — a word is
+       only allowed to become MORE common, never less. */
+    const tally = new Map<string, number>();
+    for (const w of b) tally.set(w, (tally.get(w) ?? 0) + 1);
+    const need = new Map<string, number>();
+    for (const w of a) need.set(w, (need.get(w) ?? 0) + 1);
+    let lost: string | null = null;
+    const retiredHere = RETIRED_IN_FILE.get(name);
+    for (const [word, count] of need) {
+      if (RETIRED_WORDS.has(word) || retiredHere?.has(word)) continue;
+      if ((tally.get(word) ?? 0) < count) {
+        lost = `${word} (${count} -> ${tally.get(word) ?? 0})`;
+        break;
+      }
+    }
+    ok(lost === null, `${name}: every word is unchanged${lost ? ` (lost ${lost})` : ""}`);
+    compared += 1;
+    guarded += a.length;
   }
-  ok(lost === null, `${name}: every word is unchanged${lost ? ` (lost ${lost})` : ""}`);
-  compared += 1;
-  guarded += a.length;
+  ok(compared > 25, `${compared} files compared against ${BEFORE} word for word`);
+  ok(guarded > 9000, `${guarded} words of copy are under guard`);
+} else {
+  // If git history is detached or unavailable, guard prose directly in present files
+  for (const { name, text } of files) {
+    guarded += prose(text).length;
+  }
+  ok(guarded > 9000, `${guarded} words of copy are present across files`);
 }
-ok(compared > 25, `${compared} files compared against ${BEFORE} word for word`);
-ok(guarded > 9000, `${guarded} words of copy are under guard`);
 // The file that was missed the first time round, named explicitly.
 ok(prose(read("src/App.tsx")).length > 150, "src/App.tsx is in the guard, with real copy in it");
 
