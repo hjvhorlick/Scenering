@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { TimelineInsert, AspectRatioType } from "../types";
 import StickerPreviewCanvas from "./StickerPreviewCanvas";
 import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
@@ -72,6 +72,36 @@ function BlockTitle({ id, icon, title, hint }: { id: string; icon: string; title
     </h4>
   );
 }
+
+function SliderWithHelp({ hint, children }: { hint: string; children: ReactNode }) {
+  return (
+    <div className="group relative">
+      {children}
+      <div className="pointer-events-none absolute left-0 right-0 top-full z-40 mt-1 translate-y-1 rounded-lg border border-indigo-500/40 bg-gray-950/95 px-2.5 py-1.5 text-[11px] leading-snug text-indigo-100 opacity-0 shadow-xl transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
+        <span className="font-semibold text-white">Preview effect: </span>
+        {hint}
+      </div>
+    </div>
+  );
+}
+
+const SLIDER_HINTS = {
+  visualScale: "Makes this item bigger or smaller in the preview. For visualisers it changes the ring size, bar height or waveform height.",
+  detail: "Changes how many bars, particles or wave points are drawn. Higher looks smoother in the preview; lower looks chunkier and renders lighter.",
+  thickness: "Changes how thick the bars or waveform line look. Higher makes the visualiser bolder; lower makes it finer and more delicate.",
+  minFrequency: "Sets the lowest sound the visualiser listens to. Raise it to ignore deep bass rumble; lower it so bass makes the preview move.",
+  maxFrequency: "Sets the highest sound the visualiser listens to. Lower it for voice and mids; raise it to include cymbals, hiss and bright detail.",
+  linearHeight: "Controls how high full-width bars or waves can jump above the line in the preview.",
+  radius: "Moves circular styles closer to or farther from the centre/logo. Higher creates a larger empty middle.",
+  maxHeight: "Controls how far circular bars, waves or particles can grow outward from the centre.",
+  gap: "Controls the empty space between bars. Higher separates the bars; lower makes a dense ring or wall.",
+  attack: "Controls how quickly the preview jumps up on a loud beat or word. Higher snaps faster; lower moves more gently.",
+  release: "Controls how quickly the preview settles after the sound. Higher drops back fast; lower leaves a smoother trail.",
+  smoothing: "Smooths sudden jumps between neighbouring bands. Higher is steadier; lower is more twitchy and energetic.",
+  bloom: "Adds soft light around the visualiser. Higher makes the preview glow more; lower keeps it cleaner.",
+  reaction: "Overall sensitivity. Higher makes bars, waves and particles move more for the same audio; lower calms them down.",
+  glow: "Changes the brightness of neon edges and highlights in the preview.",
+} as const;
 
 /**
  * Floating mini replica of the call-to-action badge preview.
@@ -1359,15 +1389,18 @@ function InsertPropertiesContent({
                     {data.size.toFixed(2)}x
                   </span>
                 </div>
-                <input
-                  type="range"
-                  min={isAudioVisualizer ? 0.4 : 0.5}
-                  max={isAudioVisualizer ? 3.0 : 2.5}
-                  step={0.05}
-                  value={data.size}
-                  onChange={(e) => setData({ ...data, size: parseFloat(e.target.value) })}
-                  className="w-full accent-indigo-500 cursor-pointer"
-                />
+                <SliderWithHelp hint={SLIDER_HINTS.visualScale}>
+                  <input
+                    type="range"
+                    min={isAudioVisualizer ? 0.4 : 0.5}
+                    max={isAudioVisualizer ? 3.0 : 2.5}
+                    step={0.05}
+                    value={data.size}
+                    title={SLIDER_HINTS.visualScale}
+                    onChange={(e) => setData({ ...data, size: parseFloat(e.target.value) })}
+                    className="w-full accent-indigo-500 cursor-pointer"
+                  />
+                </SliderWithHelp>
                 <div className="flex justify-between text-[10px] text-gray-500">
                   <span>Small ({isAudioVisualizer ? "0.4x" : "0.5x"})</span>
                   <span>Normal (1.0x)</span>
@@ -1378,6 +1411,9 @@ function InsertPropertiesContent({
               {/* Visualizer Dimensions, Full-Width & Thickness */}
               {isAudioVisualizer && (
                 <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
+                  <div className="rounded-lg border border-indigo-500/30 bg-indigo-950/30 px-3 py-2 text-[11px] text-indigo-100">
+                    <span className="font-semibold text-white">Tip:</span> hover or focus any slider for a plain-English note about what will change in the preview.
+                  </div>
                   {/* Headline choice, kept on the tab users land on: what drives the motion */}
                   <div className="space-y-2 pb-3 border-b border-hairline">
                     <div className="flex items-center justify-between">
@@ -1540,18 +1576,21 @@ function InsertPropertiesContent({
                         {data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedVisualizer ? 256 : 64)} {isAdvancedVisualizer ? "bars" : "bands"}
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min={isAdvancedVisualizer ? 64 : 16}
-                      max={isAdvancedVisualizer ? 512 : 128}
-                      step={isAdvancedVisualizer ? 64 : 8}
-                      value={data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedVisualizer ? 256 : 64)}
-                      onChange={(e) => {
-                        const next = parseInt(e.target.value);
-                        updateVisual({ bandCount: next, elementCount: next });
-                      }}
-                      className="w-full accent-indigo-500 cursor-pointer"
-                    />
+                    <SliderWithHelp hint={SLIDER_HINTS.detail}>
+                      <input
+                        type="range"
+                        min={isAdvancedVisualizer ? 64 : 16}
+                        max={isAdvancedVisualizer ? 512 : 128}
+                        step={isAdvancedVisualizer ? 64 : 8}
+                        value={data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedVisualizer ? 256 : 64)}
+                        title={SLIDER_HINTS.detail}
+                        onChange={(e) => {
+                          const next = parseInt(e.target.value);
+                          updateVisual({ bandCount: next, elementCount: next });
+                        }}
+                        className="w-full accent-indigo-500 cursor-pointer"
+                      />
+                    </SliderWithHelp>
                     {isAdvancedVisualizer ? (
                       <div className="grid grid-cols-4 gap-1.5 pt-1">
                         {[64, 128, 256, 512].map((count) => (
@@ -1611,15 +1650,18 @@ function InsertPropertiesContent({
                         {data.visualOptions?.barThickness ?? 8}px
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min={2}
-                      max={24}
-                      step={1}
-                      value={data.visualOptions?.barThickness ?? 8}
-                      onChange={(e) => updateVisualOptions("barThickness", parseInt(e.target.value))}
-                      className="w-full accent-indigo-500 cursor-pointer"
-                    />
+                    <SliderWithHelp hint={SLIDER_HINTS.thickness}>
+                      <input
+                        type="range"
+                        min={2}
+                        max={24}
+                        step={1}
+                        value={data.visualOptions?.barThickness ?? 8}
+                        title={SLIDER_HINTS.thickness}
+                        onChange={(e) => updateVisualOptions("barThickness", parseInt(e.target.value))}
+                        className="w-full accent-indigo-500 cursor-pointer"
+                      />
+                    </SliderWithHelp>
                   </div>
 
                   {isAdvancedVisualizer && (
@@ -1692,28 +1734,38 @@ function InsertPropertiesContent({
                       <div className="grid grid-cols-2 gap-3">
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Min Frequency: {data.visualOptions?.minFrequency ?? 36} Hz</span>
-                          <input type="range" min={20} max={500} step={5} value={data.visualOptions?.minFrequency ?? 36} onChange={(e) => updateVisualOptions("minFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                          <SliderWithHelp hint={SLIDER_HINTS.minFrequency}>
+                            <input type="range" min={20} max={500} step={5} value={data.visualOptions?.minFrequency ?? 36} title={SLIDER_HINTS.minFrequency} onChange={(e) => updateVisualOptions("minFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
                         </label>
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Max Frequency: {data.visualOptions?.maxFrequency ?? 16000} Hz</span>
-                          <input type="range" min={4000} max={22000} step={250} value={data.visualOptions?.maxFrequency ?? 16000} onChange={(e) => updateVisualOptions("maxFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                          <SliderWithHelp hint={SLIDER_HINTS.maxFrequency}>
+                            <input type="range" min={4000} max={22000} step={250} value={data.visualOptions?.maxFrequency ?? 16000} title={SLIDER_HINTS.maxFrequency} onChange={(e) => updateVisualOptions("maxFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
                         </label>
                       </div>
 
                       {isAdvancedLinearVisualizer ? (
                         <label className="space-y-1 block">
                           <span className="text-[10px] text-gray-400">Band / Wave Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
-                          <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          <SliderWithHelp hint={SLIDER_HINTS.linearHeight}>
+                            <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} title={SLIDER_HINTS.linearHeight} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
                         </label>
                       ) : (
                         <div className="grid grid-cols-2 gap-3">
                           <label className="space-y-1">
                             <span className="text-[10px] text-gray-400">Inner Radius: {Math.round((data.visualOptions?.radialRadius ?? 0.245) * 100)}%</span>
-                            <input type="range" min={0.08} max={0.42} step={0.005} value={data.visualOptions?.radialRadius ?? 0.245} onChange={(e) => updateVisualOptions("radialRadius", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            <SliderWithHelp hint={SLIDER_HINTS.radius}>
+                              <input type="range" min={0.08} max={0.42} step={0.005} value={data.visualOptions?.radialRadius ?? 0.245} title={SLIDER_HINTS.radius} onChange={(e) => updateVisualOptions("radialRadius", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            </SliderWithHelp>
                           </label>
                           <label className="space-y-1">
                             <span className="text-[10px] text-gray-400">Max Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
-                            <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            <SliderWithHelp hint={SLIDER_HINTS.maxHeight}>
+                              <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} title={SLIDER_HINTS.maxHeight} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            </SliderWithHelp>
                           </label>
                         </div>
                       )}
@@ -1721,26 +1773,36 @@ function InsertPropertiesContent({
                       <div className="grid grid-cols-3 gap-3">
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Gap: {Math.round((data.visualOptions?.barGap ?? 0.42) * 100)}%</span>
-                          <input type="range" min={0} max={0.86} step={0.01} value={data.visualOptions?.barGap ?? 0.42} onChange={(e) => updateVisualOptions("barGap", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          <SliderWithHelp hint={SLIDER_HINTS.gap}>
+                            <input type="range" min={0} max={0.86} step={0.01} value={data.visualOptions?.barGap ?? 0.42} title={SLIDER_HINTS.gap} onChange={(e) => updateVisualOptions("barGap", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
                         </label>
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Attack: {Math.round((data.visualOptions?.attack ?? 0.72) * 100)}%</span>
-                          <input type="range" min={0.04} max={1} step={0.01} value={data.visualOptions?.attack ?? 0.72} onChange={(e) => updateVisualOptions("attack", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          <SliderWithHelp hint={SLIDER_HINTS.attack}>
+                            <input type="range" min={0.04} max={1} step={0.01} value={data.visualOptions?.attack ?? 0.72} title={SLIDER_HINTS.attack} onChange={(e) => updateVisualOptions("attack", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
                         </label>
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Release: {Math.round((data.visualOptions?.release ?? 0.28) * 100)}%</span>
-                          <input type="range" min={0.03} max={1} step={0.01} value={data.visualOptions?.release ?? 0.28} onChange={(e) => updateVisualOptions("release", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          <SliderWithHelp hint={SLIDER_HINTS.release}>
+                            <input type="range" min={0.03} max={1} step={0.01} value={data.visualOptions?.release ?? 0.28} title={SLIDER_HINTS.release} onChange={(e) => updateVisualOptions("release", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
                         </label>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Smoothing: {Math.round((data.visualOptions?.smoothing ?? 0.38) * 100)}%</span>
-                          <input type="range" min={0} max={0.95} step={0.01} value={data.visualOptions?.smoothing ?? 0.38} onChange={(e) => updateVisualOptions("smoothing", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          <SliderWithHelp hint={SLIDER_HINTS.smoothing}>
+                            <input type="range" min={0} max={0.95} step={0.01} value={data.visualOptions?.smoothing ?? 0.38} title={SLIDER_HINTS.smoothing} onChange={(e) => updateVisualOptions("smoothing", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
                         </label>
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Bloom: {Math.round((data.visualOptions?.bloomIntensity ?? 0.32) * 100)}%</span>
-                          <input type="range" min={0} max={1} step={0.01} value={data.visualOptions?.bloomIntensity ?? 0.32} onChange={(e) => updateVisualOptions("bloomIntensity", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          <SliderWithHelp hint={SLIDER_HINTS.bloom}>
+                            <input type="range" min={0} max={1} step={0.01} value={data.visualOptions?.bloomIntensity ?? 0.32} title={SLIDER_HINTS.bloom} onChange={(e) => updateVisualOptions("bloomIntensity", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
                         </label>
                       </div>
 
@@ -1765,15 +1827,18 @@ function InsertPropertiesContent({
                         {Math.round((data.visualOptions?.reactivity ?? 1) * 100)}%
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min={0.2}
-                      max={2.4}
-                      step={0.05}
-                      value={data.visualOptions?.reactivity ?? 1}
-                      onChange={(e) => updateVisualOptions("reactivity", parseFloat(e.target.value))}
-                      className="w-full accent-indigo-500 cursor-pointer"
-                    />
+                    <SliderWithHelp hint={SLIDER_HINTS.reaction}>
+                      <input
+                        type="range"
+                        min={0.2}
+                        max={2.4}
+                        step={0.05}
+                        value={data.visualOptions?.reactivity ?? 1}
+                        title={SLIDER_HINTS.reaction}
+                        onChange={(e) => updateVisualOptions("reactivity", parseFloat(e.target.value))}
+                        className="w-full accent-indigo-500 cursor-pointer"
+                      />
+                    </SliderWithHelp>
                     <p className="text-[11px] text-gray-400">
                       How hard the elements hit on loud moments. Higher = the bars leap further and
                       the pulses thump harder.
@@ -1818,15 +1883,18 @@ function InsertPropertiesContent({
                         {Math.round((data.visualOptions?.glowIntensity ?? 0.85) * 100)}%
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={data.visualOptions?.glowIntensity ?? 0.85}
-                      onChange={(e) => updateVisualOptions("glowIntensity", parseFloat(e.target.value))}
-                      className="w-full accent-indigo-500 cursor-pointer"
-                    />
+                    <SliderWithHelp hint={SLIDER_HINTS.glow}>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={data.visualOptions?.glowIntensity ?? 0.85}
+                        title={SLIDER_HINTS.glow}
+                        onChange={(e) => updateVisualOptions("glowIntensity", parseFloat(e.target.value))}
+                        className="w-full accent-indigo-500 cursor-pointer"
+                      />
+                    </SliderWithHelp>
                   </div>
 
                   {/* 3D Extruded Depth Toggle */}

@@ -825,6 +825,13 @@ for (const v of speechVisualisers) {
     modal.includes("Studio → 🏷️ Logo"),
     "the centre-logo switch says where the logo comes from"
   );
+  h.ok(
+    modal.includes("Preview effect:") &&
+      modal.includes("hover or focus any slider") &&
+      modal.includes("SLIDER_HINTS.attack") &&
+      modal.includes("SLIDER_HINTS.reaction"),
+    "the edit panel explains slider changes in plain language on hover/focus"
+  );
 
   const card = read("src/components/EffectVisualPreview.tsx");
   h.ok(
