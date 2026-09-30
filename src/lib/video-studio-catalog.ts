@@ -5,6 +5,7 @@ import { STICKER_LIBRARY, STICKER_GROUPS } from "./sticker-3d";
 import { TEXT_TEMPLATES } from "../data/text-templates";
 import { VIDEO_FILTERS, FILTER_GROUPS } from "../data/video-filters";
 import { PIXABAY_FAMILIES } from "./pixabay-styles";
+import { FINE_RADIAL_PRESET_PATCHES } from "./advanced-audio-visualizer";
 
 export interface CatalogItem {
   type: string;
@@ -99,9 +100,9 @@ export const PIXABAY_CATALOG_ITEMS: CatalogItem[] = PIXABAY_FAMILIES.flatMap((fa
 );
 
 // ---------------- COMPLETE CREATIVE-LIBRARY CATEGORY METADATA ----------------
-// Audio Visualisers and Background Music are displayed in Voiceover, while the
-// remaining categories are displayed in Video Studio. Keep the metadata in one
-// registry: visualiser validation and catalogue facts intentionally use it.
+// Background Music is displayed in Voiceover, while Audio Visualisers are also
+// available directly in Video Studio for video-effect placement. Keep the
+// metadata in one registry: visualiser validation and catalogue facts use it.
 export interface StudioCategoryDef {
   id: InsertCategory;
   name: string;
@@ -172,9 +173,10 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
     id: "audio_visualizers",
     name: "Audio Visualisers",
     icon: "📊",
-    description: "Waveforms, real-time oscilloscopes, frequency bars, and speech-reactive meters",
+    description: "Professional audio-reactive video effects: dense radial spectra, waveforms, real-time oscilloscopes, frequency bars, and speech-reactive meters",
     subcategories: [
       { id: "all", name: "All Visualisers", icon: "📊" },
+      { id: "advanced", name: "Advanced Engine", icon: "◎" },
       { id: "waves", name: "Audio Waves & Bars", icon: "〰️" },
       { id: "centre", name: "Centre Stage", icon: "🎯" },
       { id: "immersive", name: "Immersive Scenes", icon: "🌌" },
@@ -219,9 +221,9 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
   },
 ];
 
-/** Categories that still belong in Video Studio's rendered tab bar. */
+/** Categories that belong in Video Studio's rendered tab bar. */
 export const VIDEO_STUDIO_CATEGORIES: StudioCategoryDef[] = STUDIO_CATEGORIES.filter(
-  ({ id }) => id !== "audio_visualizers" && id !== "background_music"
+  ({ id }) => id !== "background_music"
 );
 
 /**
@@ -482,6 +484,181 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
   ],
 
   audio_visualizers: ([
+    // Subcategory: advanced — Scenering-native production visualisers built for final video output
+    {
+      type: "fine_radial_bars",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Fine Radial Bars",
+      icon: "◎",
+      description:
+        "Professional dense circular spectrum with 256 very fine independent bars, logarithmic frequency mapping, attack/release smoothing, transparent background and optional centre logo. Designed for music videos, podcasts and narration overlays.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.18,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.professional,
+        primaryColor: "#facc15",
+        secondaryColor: "#38bdf8",
+        accentColor: "#ffffff",
+      },
+    },
+    {
+      type: "fine_radial_bars_3d",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "3D Radial Bars",
+      icon: "◉",
+      description:
+        "Extruded radial spectrum with depth, sorted 3D lighting and the same deterministic audio mapping as final export.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.16,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.fine_radial_3d,
+      },
+    },
+    {
+      type: "flat_circular_spectrum",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Flat Circular Spectrum",
+      icon: "◌",
+      description:
+        "Smooth filled spectrum disc for clean podcast and brand overlays, with transparent background and optional centre logo.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.12,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.flat_circular_spectrum,
+      },
+    },
+    {
+      type: "circular_waveform",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Circular Waveform",
+      icon: "〰",
+      description:
+        "A circular oscilloscope trace wrapped around the centre, ideal for spoken-word voice mode and logo-driven shows.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.14,
+      defaultAudioSource: "voice",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.circular_waveform,
+      },
+    },
+    {
+      type: "circular_pulse",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Circular Pulse",
+      icon: "◍",
+      description:
+        "Beat-synced circular pulse rings that expand from a transparent branded hub without covering the footage.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.08,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.circular_pulse,
+      },
+    },
+    {
+      type: "advanced_spectrum_bars",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Advanced Spectrum Bars",
+      icon: "▥",
+      description:
+        "Full-width transparent bar spectrum with the advanced engine's frequency mapping, smoothing, attack and release controls.",
+      defaultDuration: 8.0,
+      defaultPosition: "bottom",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.advanced_spectrum_bars,
+      },
+    },
+    {
+      type: "advanced_mirror_spectrum",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Mirrored Spectrum Bars",
+      icon: "▤",
+      description:
+        "A two-sided bar rack for music beds and beat-heavy edits, mirrored around the timeline anchor and export-safe.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.advanced_mirror_spectrum,
+      },
+    },
+    {
+      type: "advanced_waveform",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Waveform Scope",
+      icon: "≋",
+      description:
+        "Transparent waveform/scope line using the same analyser data in catalogue previews, edit preview and rendered video.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.0,
+      defaultAudioSource: "voice",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.advanced_waveform,
+      },
+    },
+    {
+      type: "particle_ring",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Particle Ring",
+      icon: "✦",
+      description:
+        "A reactive particle halo that keeps the video transparent while using bass, mids and highs to push the ring outward.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.12,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.particle_ring,
+      },
+    },
+    {
+      type: "particle_ring_3d",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "3D Particle Ring",
+      icon: "✺",
+      description:
+        "Depth-sorted particle orbit with pseudo-3D perspective for premium music videos and livestream overlays.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.12,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.particle_ring_3d,
+      },
+    },
+
     // Subcategory: centre — the round centrepiece styles, with room for your own logo
     {
       type: "audio_orb",

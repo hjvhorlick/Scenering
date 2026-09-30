@@ -11,7 +11,6 @@ import {
   subscribeToAudioPreview,
   toggleSoundPreview,
 } from "../data/media-library";
-import EffectVisualPreview from "./EffectVisualPreview";
 import Icon, { iconify } from "./icons/Icon";
 
 const COLLAPSED_ROW_SIZE = 4;
@@ -22,12 +21,6 @@ interface LibraryActions {
   inserts: TimelineInsert[];
   onInsertItem: (insert: TimelineInsert) => void;
   onConfigureItem?: (insert: TimelineInsert) => void;
-}
-
-interface VisualizerLibraryProps extends LibraryActions {
-  selectedVisualizer: string;
-  onSelectVisualizer: (type: string) => void;
-  expanded: boolean;
 }
 
 function rowVisibility(index: number, expanded: boolean): string {
@@ -73,89 +66,7 @@ function makeFullVideoInsert(
   });
 }
 
-/** The complete production visualiser catalogue, directly under the live monitor. */
-export function VisualizerLibrary({
-  selectedVisualizer,
-  onSelectVisualizer,
-  expanded,
-  ...actions
-}: VisualizerLibraryProps) {
-  const items = CATALOG_ITEMS.audio_visualizers || [];
-  const shownItems = expanded ? items : items.slice(0, COLLAPSED_ROW_SIZE);
-
-  const add = (item: CatalogItem, configure = false) => {
-    const insert = makeFullVideoInsert(item, actions);
-    actions.onInsertItem(insert);
-    if (configure) actions.onConfigureItem?.(insert);
-  };
-
-  return (
-    <div className="mt-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {shownItems.map((item, index) => {
-          const selected = selectedVisualizer === item.type;
-          return (
-            <article
-              key={item.type}
-              className={`${rowVisibility(index, expanded)} group bg-gray-950/75 border border-hairline hover:border-teal-500/50 rounded-xl p-3 flex-col shadow-sm transition-colors`}
-            >
-              <EffectVisualPreview item={item} />
-              <div className="flex items-center justify-between gap-2 mt-3 mb-2">
-                <span className="text-[10px] text-teal-300 font-semibold tracking-wide uppercase">
-                  {(item.subCategory || "visualiser").replace("_", " ")}
-                </span>
-                <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/60 border border-emerald-800/60 px-1.5 py-0.5 rounded">
-                  Full video
-                </span>
-              </div>
-              <h4 className="text-sm font-semibold text-white group-hover:text-teal-200 transition-colors">
-                {item.name}
-              </h4>
-              <p className="text-xs text-gray-400 mt-1 line-clamp-2 leading-relaxed min-h-[2.5rem]">
-                {item.description}
-              </p>
-
-              <div className="mt-3 pt-3 border-t border-hairline space-y-2">
-                <button
-                  type="button"
-                  onClick={() => onSelectVisualizer(item.type)}
-                  aria-pressed={selected}
-                  aria-controls="voice-visualizer-preview"
-                  className={`w-full px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                    selected
-                      ? "bg-teal-950 border-teal-500 text-teal-200"
-                      : "bg-gray-800 hover:bg-gray-700 border-hairline text-gray-200"
-                  }`}
-                >
-                  {selected ? "Previewing above" : "Preview above"}
-                </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => add(item)}
-                    className="flex-1 px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-600 text-white text-xs font-semibold transition-colors"
-                  >
-                    {iconify("➕ Add to video")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => add(item, true)}
-                    className="px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-200 text-xs transition-colors"
-                    title="Add and customise this visualiser"
-                  >
-                    <Icon glyph="⚙" /> Edit
-                  </button>
-                </div>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/** Full-video background tracks, immediately below the visualiser window. */
+/** Full-video background tracks for the Voiceover step. */
 export function BackgroundMusicLibrary({
   totalDuration,
   customerLogo,

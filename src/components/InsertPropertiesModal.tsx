@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { TimelineInsert, AspectRatioType } from "../types";
 import StickerPreviewCanvas from "./StickerPreviewCanvas";
 import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
@@ -22,8 +22,11 @@ import {
   type TextArtStyle,
 } from "../lib/text-art";
 import { resolveArtStyle } from "../lib/render-text-template";
+import { renderTimelineInsert } from "../lib/render-effects";
+import { makeBus, type AudioFrame, type ReactionSource } from "../lib/audio-reactive";
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { VISUALIZER_PALETTES } from "../lib/visualizer-palettes";
+import { FINE_RADIAL_PRESET_PATCHES, isAdvancedAudioVisualizerType, isAdvancedLinearVisualizerType } from "../lib/advanced-audio-visualizer";
 import { isRoundVisualizer, supportsCentreLogo, wantsCentreLogo } from "../lib/render-visualizers";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
@@ -69,6 +72,70 @@ function BlockTitle({ id, icon, title, hint }: { id: string; icon: string; title
       {hint && <span className="text-[10px] font-normal text-gray-400">{hint}</span>}
     </h4>
   );
+}
+
+function SliderWithHelp({ hint, children }: { hint: string; children: ReactNode }) {
+  return (
+    <div className="group relative">
+      {children}
+      <div className="pointer-events-none absolute left-0 right-0 top-full z-40 mt-1 translate-y-1 rounded-lg border border-indigo-500/40 bg-gray-950/95 px-2.5 py-1.5 text-[11px] leading-snug text-indigo-100 opacity-0 shadow-xl transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
+        <span className="font-semibold text-white">Preview effect: </span>
+        {hint}
+      </div>
+    </div>
+  );
+}
+
+const SLIDER_HINTS = {
+  visualScale: "Makes this item bigger or smaller in the preview. For visualisers it changes the ring size, bar height or waveform height.",
+  detail: "Changes how many bars, particles or wave points are drawn. Higher looks smoother in the preview; lower looks chunkier and renders lighter.",
+  thickness: "Changes how thick the bars or waveform line look. Higher makes the visualiser bolder; lower makes it finer and more delicate.",
+  minFrequency: "Sets the lowest sound the visualiser listens to. Raise it to ignore deep bass rumble; lower it so bass makes the preview move.",
+  maxFrequency: "Sets the highest sound the visualiser listens to. Lower it for voice and mids; raise it to include cymbals, hiss and bright detail.",
+  linearHeight: "Controls how high full-width bars or waves can jump above the line in the preview.",
+  spectrumBalance: "Moves the busiest part of full-width spectrum bars left or right. Keep it centred for a balanced graph, or nudge it when the song feels lopsided.",
+  spectrumStretch: "Stretches or compresses the reactive frequency movement across the bar rack, like zooming/cropping the graph sideways.",
+  spectrumWidth: "Changes the visual length of the bar rack itself. Wider can run past the frame edges like an image crop; narrower leaves side space.",
+  equalizerBars: "Changes the real number of bars in the equalizer. Fewer bars are wider and bolder; more bars are finer and more detailed.",
+  barRoundness: "Changes the bar ends from flat square cuts to rounded pill shapes.",
+  barShine: "Adds polished metallic edges and bright 3D highlights without blurring the bars.",
+  radius: "Moves circular styles closer to or farther from the centre/logo. Higher creates a larger empty middle.",
+  maxHeight: "Controls how far circular bars, waves or particles can grow outward from the centre.",
+  gap: "Controls the empty space between bars. Higher separates the bars; lower makes a dense ring or wall.",
+  attack: "Controls how quickly the preview jumps up on a loud beat or word. Higher snaps faster; lower moves more gently.",
+  release: "Controls how quickly the preview settles after the sound. Higher drops back fast; lower leaves a smoother trail.",
+  smoothing: "Smooths sudden jumps between neighbouring bands. Higher is steadier; lower is more twitchy and energetic.",
+  bloom: "Adds soft light around the visualiser. Higher makes the preview glow more; lower keeps it cleaner.",
+  reaction: "Overall sensitivity. Higher makes bars, waves and particles move more for the same audio; lower calms them down.",
+  glow: "Changes the brightness of neon edges and highlights in the preview.",
+} as const;
+
+function makeEditPreviewAudioFrame(t: number, source: ReactionSource): AudioFrame {
+  const mode: ReactionSource = source === "voice" ? "voice" : "music";
+  const freq = new Uint8Array(1024);
+  const wave = new Uint8Array(2048);
+  const kick = mode === "music" ? Math.pow(Math.max(0, Math.sin(t * Math.PI * 2)), 7) : 0;
+  const syllable = Math.pow(Math.max(0, Math.sin(t * Math.PI * 3.6)), mode === "voice" ? 0.75 : 2);
+  const phrase = 0.65 + 0.35 * Math.sin(t * 0.9 + 0.4) * Math.sin(t * 0.31 + 1.1);
+  const level = Math.max(0.08, Math.min(1, (mode === "voice" ? syllable * phrase : kick * 0.8 + syllable * 0.25 + 0.22)));
+
+  for (let i = 0; i < freq.length; i++) {
+    const p = i / Math.max(1, freq.length - 1);
+    const bass = Math.exp(-Math.pow(p / 0.11, 2)) * (mode === "music" ? 130 * (0.45 + kick) : 70 * level);
+    const presence = Math.exp(-Math.pow((p - 0.23) / 0.13, 2)) * (mode === "voice" ? 170 * level : 95 * syllable);
+    const air = Math.exp(-Math.pow((p - 0.66) / 0.18, 2)) * (45 + 45 * Math.abs(Math.sin(t * 8 + p * 16)));
+    const ripple = (0.5 + 0.5 * Math.sin(t * 7.5 + p * 44)) * 38;
+    freq[i] = Math.max(0, Math.min(255, Math.round(bass + presence + air + ripple)));
+  }
+  for (let i = 0; i < wave.length; i++) {
+    const p = i / wave.length;
+    const carrier = mode === "voice" ? Math.sin(p * Math.PI * 9 + t * 24) : Math.sin(p * Math.PI * 5 - t * 10);
+    const detail = Math.sin(p * Math.PI * 31 + t * 17) * 0.26 + Math.sin(p * Math.PI * 71 - t * 9) * 0.11;
+    wave[i] = Math.max(0, Math.min(255, Math.round(128 + (carrier + detail) * 44 * (0.35 + level))));
+  }
+
+  const bus = makeBus(level, freq, wave);
+  return { voice: bus, music: bus };
 }
 
 /**
@@ -130,6 +197,408 @@ function CtaFloatingPreview({
       </div>
     </div>
   );
+}
+
+function InsertEditPreview({
+  item,
+  aspectRatio = "16:9",
+  backgroundImage,
+  showSpectrumFramingControls = false,
+  showEqualizerBarControls = false,
+  onVisualOptionChange,
+  onSpectrumFramingReset,
+}: {
+  item: TimelineInsert;
+  aspectRatio?: AspectRatioType;
+  backgroundImage?: string;
+  showSpectrumFramingControls?: boolean;
+  showEqualizerBarControls?: boolean;
+  onVisualOptionChange?: (field: string, value: any) => void;
+  onSpectrumFramingReset?: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [previewPlaying, setPreviewPlaying] = useState(true);
+  const [restartKey, setRestartKey] = useState(0);
+  const isAnimated =
+    item.category === "audio_visualizers" ||
+    item.category === "speech_reactive" ||
+    item.category === "meditation";
+
+  useEffect(() => {
+    if (isAnimated) setPreviewPlaying(true);
+  }, [item.id, isAnimated]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const ratio =
+      aspectRatio === "9:16"
+        ? { w: 720, h: 1280 }
+        : aspectRatio === "1:1"
+        ? { w: 900, h: 900 }
+        : aspectRatio === "4:3"
+        ? { w: 960, h: 720 }
+        : { w: 1280, h: 720 };
+    if (canvas.width !== ratio.w || canvas.height !== ratio.h) {
+      canvas.width = ratio.w;
+      canvas.height = ratio.h;
+    }
+
+    let cancelled = false;
+    let raf = 0;
+    let bg: HTMLImageElement | null = null;
+    let bgReady = false;
+    const effectStart = performance.now();
+
+    if (backgroundImage) {
+      bg = new Image();
+      if (!backgroundImage.startsWith("data:")) bg.crossOrigin = "anonymous";
+      bg.onload = () => {
+        bgReady = true;
+      };
+      bg.onerror = () => {
+        bgReady = false;
+      };
+      bg.src = backgroundImage;
+    }
+
+    const drawBackground = (w: number, h: number) => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = "transparent";
+      ctx.filter = "none";
+      ctx.clearRect(0, 0, w, h);
+
+      if (bg && bgReady && bg.naturalWidth > 0 && bg.naturalHeight > 0) {
+        const scale = Math.max(w / bg.naturalWidth, h / bg.naturalHeight);
+        const dw = bg.naturalWidth * scale;
+        const dh = bg.naturalHeight * scale;
+        try {
+          ctx.drawImage(bg, (w - dw) / 2, (h - dh) / 2, dw, dh);
+          ctx.fillStyle = "rgba(2, 6, 23, 0.36)";
+          ctx.fillRect(0, 0, w, h);
+          return;
+        } catch {}
+      }
+
+      const stage = ctx.createLinearGradient(0, 0, w, h);
+      stage.addColorStop(0, "#111827");
+      stage.addColorStop(0.48, "#0f172a");
+      stage.addColorStop(1, "#020617");
+      ctx.fillStyle = stage;
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.12)";
+      ctx.lineWidth = Math.max(1, w / 960);
+      for (let x = 0; x <= w; x += w / 8) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= h; y += h / 6) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+    };
+
+    const paint = (now: number) => {
+      if (cancelled) return;
+      const w = canvas.width;
+      const h = canvas.height;
+      drawBackground(w, h);
+
+      const duration = Math.max(8, item.duration || 8);
+      const sampleT = ((now - effectStart) / 1000) % duration;
+      const t = isAnimated && previewPlaying ? sampleT : Math.min(duration - 0.1, Math.max(1, duration * 0.35));
+      const previewItem: TimelineInsert = {
+        ...item,
+        startTime: 0,
+        duration,
+        opacity: item.opacity ?? 1,
+      };
+      const previewFrame = isAnimated
+        ? makeEditPreviewAudioFrame(t, ((previewItem.audioSource as ReactionSource) || "music"))
+        : null;
+
+      try {
+        renderTimelineInsert(ctx, previewItem, t, w, h, 0.65, null, previewFrame, undefined);
+      } catch (error) {
+        console.warn("Insert edit preview failed:", error);
+      }
+
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+      ctx.fillRect(12, h - 34, Math.min(w - 24, 360), 22);
+      ctx.fillStyle = "rgba(226, 232, 240, 0.9)";
+      ctx.font = `${Math.max(11, Math.round(w / 96))}px Inter, system-ui, sans-serif`;
+      ctx.fillText(isAnimated ? "Edit preview sample · press timeline Play for real audio" : "Edit preview · same renderer as export", 22, h - 19);
+      ctx.restore();
+
+      if (isAnimated && previewPlaying) raf = requestAnimationFrame(paint);
+    };
+
+    raf = requestAnimationFrame(paint);
+    return () => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [item, aspectRatio, backgroundImage, isAnimated, previewPlaying, restartKey]);
+
+  const previewCanvasStyle =
+    aspectRatio === "9:16"
+      ? { height: "min(420px, 68vh)", width: "auto", maxWidth: "100%" }
+      : aspectRatio === "1:1"
+      ? { width: "min(100%, 380px)", height: "auto" }
+      : { width: "100%", height: "auto" };
+
+  return (
+    <div id="ipm-edit-preview" className="px-6 pt-4">
+      <div className="rounded-2xl border border-hairline bg-gray-950/80 p-3 shadow-inner">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div>
+            <h4 className="text-xs font-bold text-white flex items-center gap-2">
+              <Icon glyph="👁" /> Edit Preview
+              {isAnimated && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full border border-teal-700/70 bg-teal-950/60 text-teal-200">
+                  SAMPLE AUDIO
+                </span>
+              )}
+            </h4>
+            <p className="text-[10px] text-gray-400">
+              {isAnimated
+                ? `This uses sample ${item.audioSource === "voice" ? "voice" : "music"} so the visualiser reacts here; timeline Play uses your real voice/music.`
+                : "Updates as you change this item; final render uses the same drawing engine."}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isAnimated && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (previewPlaying) setPreviewPlaying(false);
+                  else {
+                    setRestartKey((n) => n + 1);
+                    setPreviewPlaying(true);
+                  }
+                }}
+                className="px-2.5 py-1 rounded-lg border border-teal-600/60 bg-teal-950/70 text-[10px] font-semibold text-teal-100 hover:bg-teal-900 transition-colors"
+                title="Play or pause the edit preview sample motion"
+              >
+                {previewPlaying ? "Pause sample" : "Play sample"}
+              </button>
+            )}
+            <span className="text-[10px] font-mono text-gray-500">{aspectRatio}</span>
+          </div>
+        </div>
+        <div className="w-full overflow-hidden rounded-xl border border-hairline bg-black flex items-center justify-center">
+          <canvas ref={canvasRef} className="block max-w-full" style={previewCanvasStyle} />
+        </div>
+        {(showSpectrumFramingControls || showEqualizerBarControls) && onVisualOptionChange && (
+          <div className="mt-3 border-t border-indigo-500/25 pt-3 space-y-4 rounded-b-xl">
+            {showEqualizerBarControls && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h5 className="text-[11px] font-bold text-white flex items-center gap-2">
+                      <Icon glyph="🎛" /> Real equalizer bar setup
+                    </h5>
+                    <p className="text-[10px] text-gray-400">
+                      These change the actual bars drawn by the renderer: count, width, gap, sensitivity, pill/flat ends and polished 3D shine.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button type="button" onClick={() => applyBarLookPreset(onVisualOptionChange, "gold")} className="px-2 py-1 rounded-lg border border-amber-400/60 bg-amber-950/50 text-[10px] font-semibold text-amber-100 hover:bg-amber-900/70">Gold</button>
+                    <button type="button" onClick={() => applyBarLookPreset(onVisualOptionChange, "silver")} className="px-2 py-1 rounded-lg border border-slate-300/60 bg-slate-800/70 text-[10px] font-semibold text-slate-100 hover:bg-slate-700">Silver</button>
+                    <button type="button" onClick={() => applyBarLookPreset(onVisualOptionChange, "bright")} className="px-2 py-1 rounded-lg border border-cyan-300/60 bg-cyan-950/50 text-[10px] font-semibold text-cyan-100 hover:bg-cyan-900/70">Bright</button>
+                  </div>
+                </div>
+                <EqualizerBarSliders item={item} onChange={onVisualOptionChange} />
+              </div>
+            )}
+            {showSpectrumFramingControls && (
+              <div className="space-y-3 border-t border-hairline pt-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h5 className="text-[11px] font-bold text-white flex items-center gap-2">
+                      <Icon glyph="↔️" /> Spectrum crop / move controls
+                    </h5>
+                    <p className="text-[10px] text-gray-400">
+                      Use these after the real bar setup to move the busy frequency area into the centre or widen the rack like cropping an image sideways.
+                    </p>
+                  </div>
+                  {onSpectrumFramingReset && (
+                    <button
+                      type="button"
+                      onClick={onSpectrumFramingReset}
+                      className="px-2.5 py-1 rounded-lg border border-indigo-500/50 bg-gray-900/80 text-[10px] font-semibold text-indigo-100 hover:bg-indigo-950 transition-colors"
+                    >
+                      Reset crop
+                    </button>
+                  )}
+                </div>
+                <SpectrumFramingSliders visualOptions={item.visualOptions} onChange={onVisualOptionChange} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type PreviewVisualOptionChange = (field: string, value: any) => void;
+
+function formatSpectrumBalance(value: number): string {
+  if (Math.abs(value) < 0.025) return "Centre";
+  return `${value < 0 ? "Left" : "Right"} ${Math.round(Math.abs(value) * 100)}%`;
+}
+
+function SpectrumFramingSliders({
+  visualOptions,
+  onChange,
+}: {
+  visualOptions?: TimelineInsert["visualOptions"];
+  onChange: PreviewVisualOptionChange;
+}) {
+  const balance = visualOptions?.spectrumBalance ?? 0;
+  const stretch = visualOptions?.spectrumStretch ?? 1.25;
+  const width = visualOptions?.spectrumWidth ?? 1;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Move Active Part: {formatSpectrumBalance(balance)}</span>
+        <SliderWithHelp hint={SLIDER_HINTS.spectrumBalance}>
+          <input type="range" min={-1} max={1} step={0.05} value={balance} onChange={(e) => onChange("spectrumBalance", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Left</span><span>Centre</span><span>Right</span></div>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Stretch Frequencies: {Math.round(stretch * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.spectrumStretch}>
+          <input type="range" min={0.5} max={2} step={0.05} value={stretch} onChange={(e) => onChange("spectrumStretch", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Compress</span><span>Normal</span><span>Stretch</span></div>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Rack Width: {Math.round(width * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.spectrumWidth}>
+          <input type="range" min={0.45} max={1.6} step={0.05} value={width} onChange={(e) => onChange("spectrumWidth", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Short</span><span>Normal</span><span>Wide</span></div>
+      </label>
+    </div>
+  );
+}
+
+function EqualizerBarSliders({ item, onChange }: { item: TimelineInsert; onChange: PreviewVisualOptionChange }) {
+  const vo = item.visualOptions || {};
+  const style = String(vo.visualizerStyle || item.type);
+  const isLinear = style === "advanced_spectrum_bars" || style === "advanced_mirror_spectrum";
+  const bars = Math.round(Number(vo.elementCount ?? vo.bandCount ?? (isLinear ? 56 : 192)));
+  const width = Number(vo.barThickness ?? (isLinear ? 18 : 3));
+  const gap = Number(vo.barGap ?? (isLinear ? 0.14 : 0.42));
+  const height = Number(vo.maxBarHeight ?? 0.22);
+  const reactivity = Number(vo.reactivity ?? 1.2);
+  const minFrequency = Number(vo.minFrequency ?? (isLinear ? 32 : 36));
+  const maxFrequency = Number(vo.maxFrequency ?? (isLinear ? 18000 : 16000));
+  const roundness = Number(vo.barRoundness ?? 1);
+  const shine = Number(vo.barShine ?? (vo.has3DLook ? 0.85 : 0.55));
+  const barMin = isLinear ? 16 : 48;
+  const barMax = isLinear ? 192 : 512;
+
+  const setBarCount = (value: number) => {
+    onChange("elementCount", value);
+    onChange("bandCount", value);
+  };
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Bars: {bars}</span>
+        <SliderWithHelp hint={SLIDER_HINTS.equalizerBars}>
+          <input type="range" min={barMin} max={barMax} step={isLinear ? 4 : 16} value={bars} onChange={(e) => setBarCount(parseInt(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Wide</span><span>Detailed</span></div>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Bar Width: {Math.round(width)}px</span>
+        <SliderWithHelp hint={SLIDER_HINTS.thickness}>
+          <input type="range" min={1} max={36} step={1} value={width} onChange={(e) => onChange("barThickness", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Fine</span><span>Wide</span></div>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Gap: {Math.round(gap * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.gap}>
+          <input type="range" min={0} max={0.75} step={0.01} value={gap} onChange={(e) => onChange("barGap", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Touching</span><span>Spaced</span></div>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Height: {Math.round(height * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.linearHeight}>
+          <input type="range" min={0.04} max={0.4} step={0.005} value={height} onChange={(e) => onChange("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Reaction: {Math.round(reactivity * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.reaction}>
+          <input type="range" min={0.4} max={2.4} step={0.05} value={reactivity} onChange={(e) => onChange("reactivity", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Low Freq: {Math.round(minFrequency)} Hz</span>
+        <SliderWithHelp hint={SLIDER_HINTS.minFrequency}>
+          <input type="range" min={20} max={800} step={5} value={minFrequency} onChange={(e) => onChange("minFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">High Freq: {Math.round(maxFrequency)} Hz</span>
+        <SliderWithHelp hint={SLIDER_HINTS.maxFrequency}>
+          <input type="range" min={2000} max={22000} step={250} value={maxFrequency} onChange={(e) => onChange("maxFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+      </label>
+      <label className="space-y-1">
+        <span className="text-[10px] text-gray-400">Bar Ends: {roundness < 0.2 ? "Flat" : roundness > 0.8 ? "Pill" : "Rounded"}</span>
+        <SliderWithHelp hint={SLIDER_HINTS.barRoundness}>
+          <input type="range" min={0} max={1} step={0.05} value={roundness} onChange={(e) => onChange("barRoundness", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Flat</span><span>Pill</span></div>
+      </label>
+      <label className="space-y-1 sm:col-span-3">
+        <span className="text-[10px] text-gray-400">3D Shine / Crisp Edge: {Math.round(shine * 100)}%</span>
+        <SliderWithHelp hint={SLIDER_HINTS.barShine}>
+          <input type="range" min={0} max={1} step={0.05} value={shine} onChange={(e) => {
+            const next = parseFloat(e.target.value);
+            onChange("barShine", next);
+            onChange("has3DLook", next > 0.12);
+          }} className="w-full accent-indigo-500" />
+        </SliderWithHelp>
+        <div className="flex justify-between text-[10px] text-gray-500"><span>Flat colour</span><span>Chrome edge</span></div>
+      </label>
+    </div>
+  );
+}
+
+function applyBarLookPreset(onChange: PreviewVisualOptionChange, preset: "gold" | "silver" | "bright") {
+  const swatches = {
+    gold: { colorTheme: "molten_gold", primaryColor: "#ffd166", secondaryColor: "#c08412", accentColor: "#fff7cc" },
+    silver: { colorTheme: "silver_chrome", primaryColor: "#f8fafc", secondaryColor: "#94a3b8", accentColor: "#ffffff" },
+    bright: { colorTheme: "diamond_bright", primaryColor: "#ffffff", secondaryColor: "#67e8f9", accentColor: "#fef3c7" },
+  }[preset];
+  Object.entries(swatches).forEach(([field, value]) => onChange(field, value));
+  onChange("barRoundness", 1);
+  onChange("barShine", 0.92);
+  onChange("has3DLook", true);
+  onChange("glowIntensity", 0.26);
 }
 
 /** A section jump button: every section is already rendered below, so the
@@ -286,6 +755,19 @@ function InsertPropertiesContent({
     insert.type.includes("bars") ||
     insert.type.includes("spectrum");
 
+  const isAdvancedVisualizer = isAdvancedAudioVisualizerType(insert.type);
+  const isAdvancedLinearVisualizer = isAdvancedLinearVisualizerType(insert.type);
+  const advancedStyle = String(insert.visualOptions?.visualizerStyle || insert.type);
+  const isAdvancedSpectrumBars = advancedStyle === "advanced_spectrum_bars" || advancedStyle === "advanced_mirror_spectrum";
+  const isAdvancedBarVisualizer =
+    isAdvancedSpectrumBars || advancedStyle === "fine_radial_bars" || advancedStyle === "fine_radial_bars_3d";
+  const advancedPresetKey =
+    advancedStyle === "fine_radial_bars"
+      ? "professional"
+      : advancedStyle === "fine_radial_bars_3d"
+      ? "fine_radial_3d"
+      : advancedStyle;
+  const advancedPresetPatch = FINE_RADIAL_PRESET_PATCHES[advancedPresetKey] || FINE_RADIAL_PRESET_PATCHES.professional;
   const isSoundEffect = insert.category === "sound_effects" || insert.category === "background_music";
   const isBackgroundMusic = insert.category === "background_music";
   const isContentCard =
@@ -517,6 +999,19 @@ function InsertPropertiesContent({
     setIsTestingClipAudio(true);
   };
 
+  const dataForUpdate = (value: TimelineInsert): TimelineInsert => {
+    const fullVideo =
+      (value.category === "audio_visualizers" || value.category === "speech_reactive" || value.category === "meditation") &&
+      value.visualOptions?.spanFullVideo !== false;
+    if (!fullVideo) return value;
+    return {
+      ...value,
+      startTime: 0,
+      duration: Math.max(1, totalDuration),
+      visualOptions: { ...(value.visualOptions || {}), spanFullVideo: true },
+    };
+  };
+
   const handleSave = () => {
     if (audioRef.current) audioRef.current.pause();
     if (clipAudioTestRef.current) {
@@ -524,7 +1019,7 @@ function InsertPropertiesContent({
       clipAudioTestRef.current = null;
       setIsTestingClipAudio(false);
     }
-    onUpdate(data);
+    onUpdate(dataForUpdate(data));
     onClose();
   };
 
@@ -623,9 +1118,9 @@ function InsertPropertiesContent({
       firstSyncRef.current = false;
       return;
     }
-    const timer = window.setTimeout(() => onUpdate(data), 120);
+    const timer = window.setTimeout(() => onUpdate(dataForUpdate(data)), 120);
     return () => window.clearTimeout(timer);
-  }, [data]);
+  }, [data, totalDuration]);
 
   useEffect(() => {
     return () => {
@@ -741,6 +1236,22 @@ function InsertPropertiesContent({
             </div>
             <CtaFloatingPreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
           </>
+        )}
+
+        {!isCallToAction && !isSoundEffect && (
+          <InsertEditPreview
+            item={data}
+            aspectRatio={aspectRatio}
+            backgroundImage={backgroundImage}
+            showSpectrumFramingControls={isAdvancedSpectrumBars}
+            showEqualizerBarControls={isAdvancedBarVisualizer}
+            onVisualOptionChange={updateVisualOptions}
+            onSpectrumFramingReset={() => {
+              updateVisualOptions("spectrumBalance", 0);
+              updateVisualOptions("spectrumStretch", advancedPresetPatch.spectrumStretch ?? 1.25);
+              updateVisualOptions("spectrumWidth", 1);
+            }}
+          />
         )}
 
         {/* Section jump row — every section is stacked below; the buttons
@@ -1177,15 +1688,17 @@ function InsertPropertiesContent({
                     {data.size.toFixed(2)}x
                   </span>
                 </div>
-                <input
-                  type="range"
-                  min={isAudioVisualizer ? 0.4 : 0.5}
-                  max={isAudioVisualizer ? 3.0 : 2.5}
-                  step={0.05}
-                  value={data.size}
-                  onChange={(e) => setData({ ...data, size: parseFloat(e.target.value) })}
-                  className="w-full accent-indigo-500 cursor-pointer"
-                />
+                <SliderWithHelp hint={SLIDER_HINTS.visualScale}>
+                  <input
+                    type="range"
+                    min={isAudioVisualizer ? 0.4 : 0.5}
+                    max={isAudioVisualizer ? 3.0 : 2.5}
+                    step={0.05}
+                    value={data.size}
+                    onChange={(e) => setData({ ...data, size: parseFloat(e.target.value) })}
+                    className="w-full accent-indigo-500 cursor-pointer"
+                  />
+                </SliderWithHelp>
                 <div className="flex justify-between text-[10px] text-gray-500">
                   <span>Small ({isAudioVisualizer ? "0.4x" : "0.5x"})</span>
                   <span>Normal (1.0x)</span>
@@ -1196,6 +1709,9 @@ function InsertPropertiesContent({
               {/* Visualizer Dimensions, Full-Width & Thickness */}
               {isAudioVisualizer && (
                 <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
+                  <div className="rounded-lg border border-indigo-500/30 bg-indigo-950/30 px-3 py-2 text-[11px] text-indigo-100">
+                    <span className="font-semibold text-white">Tip:</span> hover or focus any slider for a plain-English note about what will change in the preview.
+                  </div>
                   {/* Headline choice, kept on the tab users land on: what drives the motion */}
                   <div className="space-y-2 pb-3 border-b border-hairline">
                     <div className="flex items-center justify-between">
@@ -1348,32 +1864,58 @@ function InsertPropertiesContent({
                     </div>
                   )}
 
-                  {/* Sound detail — how many frequency bands the analyser splits */}
+                  {/* Sound detail — how many frequency bands / radial elements the analyser splits */}
                   <div className="space-y-1.5 pt-3 border-t border-hairline">
                     <div className="flex justify-between text-xs text-gray-300">
-                      <span className="text-xs font-medium text-white">Sound Detail (Bands):</span>
+                      <span className="text-xs font-medium text-white">
+                        {isAdvancedVisualizer ? "Advanced Engine Detail:" : "Sound Detail (Bands):"}
+                      </span>
                       <span className="font-mono text-indigo-400 font-semibold">
-                        {data.visualOptions?.bandCount ?? 64} bands
+                        {data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedVisualizer ? 256 : 64)} {isAdvancedVisualizer ? "bars" : "bands"}
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min={16}
-                      max={128}
-                      step={8}
-                      value={data.visualOptions?.bandCount ?? 64}
-                      onChange={(e) => updateVisualOptions("bandCount", parseInt(e.target.value))}
-                      className="w-full accent-indigo-500 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-gray-500">
-                      <span>16 · chunky</span>
-                      <span>64 · balanced</span>
-                      <span>128 · very detailed</span>
-                    </div>
+                    <SliderWithHelp hint={SLIDER_HINTS.detail}>
+                      <input
+                        type="range"
+                        min={isAdvancedLinearVisualizer ? 16 : isAdvancedVisualizer ? 48 : 16}
+                        max={isAdvancedLinearVisualizer ? 192 : isAdvancedVisualizer ? 512 : 128}
+                        step={isAdvancedLinearVisualizer ? 4 : isAdvancedVisualizer ? 16 : 8}
+                        value={data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedLinearVisualizer ? 56 : isAdvancedVisualizer ? 256 : 64)}
+                        onChange={(e) => {
+                          const next = parseInt(e.target.value);
+                          updateVisual({ bandCount: next, elementCount: next });
+                        }}
+                        className="w-full accent-indigo-500 cursor-pointer"
+                      />
+                    </SliderWithHelp>
+                    {isAdvancedVisualizer ? (
+                      <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5 pt-1">
+                        {(isAdvancedLinearVisualizer ? [16, 32, 56, 96, 128, 192] : [64, 128, 256, 512]).map((count) => (
+                          <button
+                            key={count}
+                            type="button"
+                            onClick={() => updateVisual({ bandCount: count, elementCount: count })}
+                            className={`px-2 py-1 rounded-lg border text-[10px] font-semibold ${
+                              (data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedLinearVisualizer ? 56 : 256)) === count
+                                ? "bg-indigo-600 border-indigo-500 text-white"
+                                : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
+                            }`}
+                          >
+                            {count}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex justify-between text-[10px] text-gray-500">
+                        <span>16 · chunky</span>
+                        <span>64 · balanced</span>
+                        <span>128 · very detailed</span>
+                      </div>
+                    )}
                     <p className="text-[11px] text-gray-400">
-                      The scenes (terrain, starfield, plasma, jellyfish, ring of fire) use this many
-                      frequency bands for their detail, so every part of the music has its own place
-                      in the picture.
+                      {isAdvancedVisualizer
+                        ? "The advanced engine can drive bars, waves, pulse rings and particle rings. 256 is a strong default; 512 adds detail but costs more at high resolutions."
+                        : "The scenes (terrain, starfield, plasma, jellyfish, ring of fire) use this many frequency bands for their detail, so every part of the music has its own place in the picture."}
                     </p>
                   </div>
 
@@ -1405,16 +1947,178 @@ function InsertPropertiesContent({
                         {data.visualOptions?.barThickness ?? 8}px
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min={2}
-                      max={24}
-                      step={1}
-                      value={data.visualOptions?.barThickness ?? 8}
-                      onChange={(e) => updateVisualOptions("barThickness", parseInt(e.target.value))}
-                      className="w-full accent-indigo-500 cursor-pointer"
-                    />
+                    <SliderWithHelp hint={SLIDER_HINTS.thickness}>
+                      <input
+                        type="range"
+                        min={2}
+                        max={36}
+                        step={1}
+                        value={data.visualOptions?.barThickness ?? 8}
+                        onChange={(e) => updateVisualOptions("barThickness", parseInt(e.target.value))}
+                        className="w-full accent-indigo-500 cursor-pointer"
+                      />
+                    </SliderWithHelp>
                   </div>
+
+                  {isAdvancedVisualizer && (
+                    <div className="space-y-4 pt-3 border-t border-hairline">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <span className="text-xs font-semibold text-white block">Advanced Scenering Visualiser Engine</span>
+                          <span className="text-[11px] text-gray-400">Log/musical mapping, attack/release ballistics and transparent bars, waves, rings and particles.</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => updateVisual({ ...advancedPresetPatch })}
+                          className="px-2.5 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white text-[10px] font-bold"
+                        >
+                          Reset Style
+                        </button>
+                      </div>
+
+                      {!isAdvancedLinearVisualizer && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            ["outward", "Out"],
+                            ["inward", "In"],
+                            ["both", "Both"],
+                          ].map(([id, label]) => (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => updateVisualOptions("radialDirection", id)}
+                              className={`px-2 py-1.5 rounded-lg border text-xs font-semibold ${
+                                (data.visualOptions?.radialDirection || "outward") === id
+                                  ? "bg-indigo-600 border-indigo-500 text-white"
+                                  : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400 uppercase tracking-wide">Frequency Mapping</span>
+                          <select
+                            value={data.visualOptions?.frequencyMapping || "logarithmic"}
+                            onChange={(e) => updateVisualOptions("frequencyMapping", e.target.value)}
+                            className="w-full bg-gray-900 border border-hairline rounded-lg px-2 py-1.5 text-xs text-white"
+                          >
+                            <option value="linear">Linear</option>
+                            <option value="logarithmic">Logarithmic</option>
+                            <option value="musical">Musical</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400 uppercase tracking-wide">FFT Resolution</span>
+                          <select
+                            value={data.visualOptions?.fftSize ?? 2048}
+                            onChange={(e) => updateVisualOptions("fftSize", parseInt(e.target.value))}
+                            className="w-full bg-gray-900 border border-hairline rounded-lg px-2 py-1.5 text-xs text-white"
+                          >
+                            <option value={512}>512 · light</option>
+                            <option value={1024}>1024 · balanced</option>
+                            <option value={2048}>2048 · detailed</option>
+                            <option value={4096}>4096 · maximum</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Min Frequency: {data.visualOptions?.minFrequency ?? 36} Hz</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.minFrequency}>
+                            <input type="range" min={20} max={500} step={5} value={data.visualOptions?.minFrequency ?? 36} onChange={(e) => updateVisualOptions("minFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Max Frequency: {data.visualOptions?.maxFrequency ?? 16000} Hz</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.maxFrequency}>
+                            <input type="range" min={4000} max={22000} step={250} value={data.visualOptions?.maxFrequency ?? 16000} onChange={(e) => updateVisualOptions("maxFrequency", parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
+                        </label>
+                      </div>
+
+                      {isAdvancedLinearVisualizer ? (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="space-y-1">
+                              <span className="text-[10px] text-gray-400">Band / Wave Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
+                              <SliderWithHelp hint={SLIDER_HINTS.linearHeight}>
+                                <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                              </SliderWithHelp>
+                            </label>
+                          </div>
+                          {isAdvancedSpectrumBars && <SpectrumFramingSliders visualOptions={data.visualOptions} onChange={updateVisualOptions} />}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-gray-400">Inner Radius: {Math.round((data.visualOptions?.radialRadius ?? 0.245) * 100)}%</span>
+                            <SliderWithHelp hint={SLIDER_HINTS.radius}>
+                              <input type="range" min={0.08} max={0.42} step={0.005} value={data.visualOptions?.radialRadius ?? 0.245} onChange={(e) => updateVisualOptions("radialRadius", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            </SliderWithHelp>
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] text-gray-400">Max Height: {Math.round((data.visualOptions?.maxBarHeight ?? 0.18) * 100)}%</span>
+                            <SliderWithHelp hint={SLIDER_HINTS.maxHeight}>
+                              <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                            </SliderWithHelp>
+                          </label>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Gap: {Math.round((data.visualOptions?.barGap ?? 0.42) * 100)}%</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.gap}>
+                            <input type="range" min={0} max={0.86} step={0.01} value={data.visualOptions?.barGap ?? 0.42} onChange={(e) => updateVisualOptions("barGap", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Attack: {Math.round((data.visualOptions?.attack ?? 0.72) * 100)}%</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.attack}>
+                            <input type="range" min={0.04} max={1} step={0.01} value={data.visualOptions?.attack ?? 0.72} onChange={(e) => updateVisualOptions("attack", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Release: {Math.round((data.visualOptions?.release ?? 0.28) * 100)}%</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.release}>
+                            <input type="range" min={0.03} max={1} step={0.01} value={data.visualOptions?.release ?? 0.28} onChange={(e) => updateVisualOptions("release", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Smoothing: {Math.round((data.visualOptions?.smoothing ?? 0.38) * 100)}%</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.smoothing}>
+                            <input type="range" min={0} max={0.95} step={0.01} value={data.visualOptions?.smoothing ?? 0.38} onChange={(e) => updateVisualOptions("smoothing", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Bloom: {Math.round((data.visualOptions?.bloomIntensity ?? 0.32) * 100)}%</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.bloom}>
+                            <input type="range" min={0} max={1} step={0.01} value={data.visualOptions?.bloomIntensity ?? 0.32} onChange={(e) => updateVisualOptions("bloomIntensity", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          </SliderWithHelp>
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="flex items-center justify-between gap-2 bg-gray-900 rounded-lg border border-hairline px-3 py-2">
+                          <span className="text-xs text-gray-200">Voice Mode</span>
+                          <input type="checkbox" checked={Boolean(data.visualOptions?.voiceMode)} onChange={(e) => updateVisualOptions("voiceMode", e.target.checked)} className="accent-indigo-500" />
+                        </label>
+                        <label className="flex items-center justify-between gap-2 bg-gray-900 rounded-lg border border-hairline px-3 py-2">
+                          <span className="text-xs text-gray-200">Beat Pulse</span>
+                          <input type="checkbox" checked={data.visualOptions?.beatResponse !== false} onChange={(e) => updateVisualOptions("beatResponse", e.target.checked)} className="accent-indigo-500" />
+                        </label>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Reaction Strength */}
                   <div className="space-y-1.5 pt-2 border-t border-hairline">
@@ -1424,15 +2128,17 @@ function InsertPropertiesContent({
                         {Math.round((data.visualOptions?.reactivity ?? 1) * 100)}%
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min={0.2}
-                      max={2.4}
-                      step={0.05}
-                      value={data.visualOptions?.reactivity ?? 1}
-                      onChange={(e) => updateVisualOptions("reactivity", parseFloat(e.target.value))}
-                      className="w-full accent-indigo-500 cursor-pointer"
-                    />
+                    <SliderWithHelp hint={SLIDER_HINTS.reaction}>
+                      <input
+                        type="range"
+                        min={0.2}
+                        max={2.4}
+                        step={0.05}
+                        value={data.visualOptions?.reactivity ?? 1}
+                        onChange={(e) => updateVisualOptions("reactivity", parseFloat(e.target.value))}
+                        className="w-full accent-indigo-500 cursor-pointer"
+                      />
+                    </SliderWithHelp>
                     <p className="text-[11px] text-gray-400">
                       How hard the elements hit on loud moments. Higher = the bars leap further and
                       the pulses thump harder.
@@ -1477,15 +2183,17 @@ function InsertPropertiesContent({
                         {Math.round((data.visualOptions?.glowIntensity ?? 0.85) * 100)}%
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={data.visualOptions?.glowIntensity ?? 0.85}
-                      onChange={(e) => updateVisualOptions("glowIntensity", parseFloat(e.target.value))}
-                      className="w-full accent-indigo-500 cursor-pointer"
-                    />
+                    <SliderWithHelp hint={SLIDER_HINTS.glow}>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={data.visualOptions?.glowIntensity ?? 0.85}
+                        onChange={(e) => updateVisualOptions("glowIntensity", parseFloat(e.target.value))}
+                        className="w-full accent-indigo-500 cursor-pointer"
+                      />
+                    </SliderWithHelp>
                   </div>
 
                   {/* 3D Extruded Depth Toggle */}

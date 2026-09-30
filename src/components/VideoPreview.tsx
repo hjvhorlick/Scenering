@@ -13,6 +13,7 @@ import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
+import { requiredVisualizerFftSize } from "../lib/advanced-audio-visualizer";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { sceneTimelineDuration, NARRATION_LEAD_IN_SECONDS } from "../lib/duration-utils";
 import type { WordTiming } from "../lib/word-sync";
@@ -1113,6 +1114,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     }
     if (stale()) return;
 
+    const visualizerFftSize = requiredVisualizerFftSize(inserts);
+
     if (audioCtx && !analyserRef.current) {
       // Master limiter node: prevents digital clipping/crackling when voice + music + sfx sum together
       const masterLimiter = audioCtx.createDynamicsCompressor();
@@ -1124,9 +1127,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       masterLimiter.connect(audioCtx.destination);
 
       const an = audioCtx.createAnalyser();
-      // 512 samples => 256 frequency bins: enough resolution for a full-width
-      // rack without adjacent bars mirroring each other.
-      an.fftSize = 512;
+      // Advanced dense radial spectra can request finer FFT resolution; legacy
+      // projects remain on the lightweight 512-sample analyser.
+      an.fftSize = visualizerFftSize;
       an.smoothingTimeConstant = 0.72;
       an.minDecibels = -92;
       an.maxDecibels = -12;
@@ -1134,7 +1137,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       an.connect(masterLimiter);
 
       const music = audioCtx.createAnalyser();
-      music.fftSize = 512;
+      music.fftSize = visualizerFftSize;
       music.smoothingTimeConstant = 0.72;
       music.minDecibels = -92;
       music.maxDecibels = -12;
@@ -1147,6 +1150,14 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       if (recordDestRef.current) {
         masterLimiter.connect(recordDestRef.current);
       }
+    } else if (audioCtx) {
+      // If a dense visualiser was added after an earlier preview session, retune
+      // the existing analysers before playback starts. Scratch buffers below
+      // resize themselves from frequencyBinCount/fftSize.
+      try {
+        if (analyserRef.current && analyserRef.current.fftSize !== visualizerFftSize) analyserRef.current.fftSize = visualizerFftSize;
+        if (musicAnalyserRef.current && musicAnalyserRef.current.fftSize !== visualizerFftSize) musicAnalyserRef.current.fftSize = visualizerFftSize;
+      } catch {}
     }
 
     // ---- Narration echo (set in the Voiceover step) ---------------------

@@ -728,8 +728,9 @@ ok(
     );
   }
   ok(
-    read("src/components/LiveVoiceVisualizer.tsx").includes("renderTimelineInsert("),
-    "and the app itself now draws the voice with the render engine"
+    read("src/components/VideoStudio.tsx").includes("Advanced Audio Visualiser Engine") &&
+      read("src/lib/render-visualizers.ts").includes('case "minimal_voice"'),
+    "and the app keeps real voice visualisers in the render engine and dedicated Video Studio section"
   );
 }
 // Only the marketing entry pulls the stylesheet, so the studio never loads it.

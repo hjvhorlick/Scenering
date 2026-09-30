@@ -49,6 +49,10 @@ import {
   isPixabayStyle,
   pixabayStyleOf,
 } from "../src/lib/pixabay-styles";
+import {
+  ADVANCED_VISUALIZER_TYPES,
+  isAdvancedLinearVisualizerType,
+} from "../src/lib/advanced-audio-visualizer";
 import { VISUALIZER_PALETTES, resolveVisualizerPalette } from "../src/lib/visualizer-palettes";
 import type { TimelineInsert } from "../src/types";
 
@@ -84,13 +88,16 @@ function makeInsert(type: string, overrides: Partial<TimelineInsert> = {}): Time
 }
 
 // ------------------------------------------------------------------ catalogue
-h.eq(VISUALISERS.length, 42, `curated catalogue contains 42 distinct visualisers`);
+h.eq(VISUALISERS.length, 52, `curated catalogue contains 52 distinct visualisers`);
 h.eq(RETIRED_VISUALIZER_TYPES.length, 10, "ten visually repeated designs are retired from the picker");
 for (const type of RETIRED_VISUALIZER_TYPES) {
   h.ok(!VISUALISERS.some((item) => item.type === type), `${type} is not offered as a duplicate card`);
 }
-h.eq(VISUALISERS[0]?.type, "audio_orb", "the catalogue still begins with its centrepiece ring");
-h.eq(VISUALISERS[1]?.type, "spectrum", "the duplicate second ring is gone; a distinct rack follows");
+h.eq(VISUALISERS[0]?.type, "fine_radial_bars", "the catalogue begins with the advanced fine radial spectrum");
+h.eq(VISUALISERS[1]?.type, "fine_radial_bars_3d", "the 3D radial variation sits beside the original advanced ring");
+h.eq(VISUALISERS[9]?.type, "particle_ring_3d", "the advanced engine block includes particle, bar and wave variations");
+h.eq(VISUALISERS[10]?.type, "audio_orb", "the original centrepiece ring remains directly after the advanced engine block");
+h.eq(VISUALISERS[11]?.type, "spectrum", "the duplicate second ring is gone; a distinct rack follows");
 h.ok(VISUALISERS.some((item) => item.type === "glow_pills"), "Glow Pills remains in the curated catalogue");
 h.ok(
   !(RETIRED_VISUALIZER_TYPES as readonly string[]).includes("glow_pills"),
@@ -120,6 +127,7 @@ for (const v of VISUALISERS) {
   }
 }
 
+h.eq(bySub.get("advanced") || 0, 10, `ten native advanced engine visualiser variations`);
 h.eq(bySub.get("immersive") || 0, 6, `six non-repeating immersive scenes`);
 h.eq(bySub.get("centre") || 0, 1, `one distinctive centre-stage ring`);
 h.eq(bySub.get("waves") || 0, 8, `eight distinct audio waves and bar racks`);
@@ -139,6 +147,39 @@ for (const family of PIXABAY_FAMILIES) {
   );
 }
 
+for (const type of ADVANCED_VISUALIZER_TYPES) {
+  const card = VISUALISERS.find((v) => v.type === type);
+  h.ok(Boolean(card), `${type} has a customer-facing advanced card`);
+  h.eq(card?.subCategory, "advanced", `${type} stays in the focused advanced tab`);
+  h.eq(card?.spansFullVideo, true, `${type} runs through the whole video by default`);
+  if (isAdvancedLinearVisualizerType(type)) {
+    h.eq(card?.defaultVisualOptions?.fullWidth, true, `${type} is a full-width bar/wave style`);
+  } else {
+    h.eq(card?.defaultVisualOptions?.fullWidth, false, `${type} is a compact circular/ring style`);
+    const foot = getVisualizerFootprint(makeInsert(type), 1280, 720);
+    h.ok(foot.w <= 1280 * 0.95 && foot.h <= 720 * 0.95, `${type} fits inside a 16:9 preview without clipping its round shape`);
+  }
+}
+{
+  const advancedRenderer = read("src/lib/advanced-audio-visualizer.ts");
+  h.ok(
+    !advancedRenderer.includes("threeD ? 0.72 : 1") && advancedRenderer.includes("slot * (1 - settings.barGap"),
+    "advanced circular previews stay round, and linear bar gap settings visibly affect the drawn bar width"
+  );
+  h.ok(
+    advancedRenderer.includes("activityCentre") &&
+      advancedRenderer.includes("sampleBandValue") &&
+      advancedRenderer.includes("spectrumBalance") &&
+      advancedRenderer.includes("spectrumStretch") &&
+      advancedRenderer.includes("spectrumWidth") &&
+      advancedRenderer.includes("barRoundness") &&
+      advancedRenderer.includes("barShine") &&
+      advancedRenderer.includes("roundedRect(ctx, sx") &&
+      !advancedRenderer.includes("freqPos = Math.abs"),
+    "linear spectrum bars fill the graph without becoming a strict mirror, and expose left/right, stretch, width, pill and shine controls"
+  );
+}
+
 // Every immersive renderer is either a distinctive card or an explicitly
 // retired legacy design—nothing disappears accidentally from old projects.
 for (const type of IMMERSIVE_VISUALIZER_TYPES) {
@@ -151,6 +192,8 @@ for (const type of IMMERSIVE_VISUALIZER_TYPES) {
 
 // ------------------------------------------------------------------ palettes
 h.ok(VISUALIZER_PALETTES.length >= 16, `expected 16+ colour themes, got ${VISUALIZER_PALETTES.length}`);
+h.ok(VISUALIZER_PALETTES.some((p) => p.id === "molten_gold"), "visualisers include a bright gold/chrome theme");
+h.ok(VISUALIZER_PALETTES.some((p) => p.id === "silver_chrome"), "visualisers include a polished silver/chrome theme");
 const paletteIds = new Set<string>();
 for (const p of VISUALIZER_PALETTES) {
   h.ok(!paletteIds.has(p.id), `duplicate palette id ${p.id}`);
@@ -805,6 +848,51 @@ for (const v of speechVisualisers) {
     modal.includes("Studio → 🏷️ Logo"),
     "the centre-logo switch says where the logo comes from"
   );
+  h.ok(
+    modal.includes("Preview effect:") &&
+      modal.includes("hover or focus any slider") &&
+      modal.includes("SLIDER_HINTS.attack") &&
+      modal.includes("SLIDER_HINTS.reaction") &&
+      modal.includes("SLIDER_HINTS.spectrumBalance") &&
+      modal.includes("SLIDER_HINTS.spectrumStretch") &&
+      modal.includes("SLIDER_HINTS.spectrumWidth") &&
+      modal.includes("SLIDER_HINTS.barRoundness") &&
+      modal.includes("SLIDER_HINTS.barShine"),
+    "the edit panel explains slider changes in plain language on hover/focus"
+  );
+  h.ok(
+    !modal.includes("title={SLIDER_HINTS") && modal.includes("<SliderWithHelp"),
+    "the edit panel shows one custom slider explanation, not a second native browser tooltip"
+  );
+  h.ok(
+    modal.includes("makeEditPreviewAudioFrame") &&
+      modal.includes("SAMPLE AUDIO") &&
+      modal.includes("Play sample") &&
+      modal.includes("timeline Play uses your real voice/music"),
+    "the edit preview has its own clear sample motion instead of waiting for the timeline playhead"
+  );
+  h.ok(
+    modal.includes("Real equalizer bar setup") &&
+      modal.includes("Spectrum crop / move controls") &&
+      modal.includes("EqualizerBarSliders") &&
+      modal.includes("SpectrumFramingSliders") &&
+      modal.includes("Reset crop") &&
+      modal.includes("move the busy frequency area into the centre"),
+    "the real equalizer bars and spectrum crop/move controls are available inside the edit preview"
+  );
+  h.ok(
+    modal.includes("previewCanvasStyle") &&
+      modal.includes('className="block max-w-full"') &&
+      !modal.includes('className="block h-full w-full"'),
+    "the edit preview preserves the canvas aspect ratio so round visualisers and intro/outro videos are not stretched"
+  );
+  h.ok(
+    modal.includes("dataForUpdate") &&
+      modal.includes("startTime: 0") &&
+      modal.includes("duration: Math.max(1, totalDuration)") &&
+      modal.includes("spanFullVideo: true"),
+    "full-video visualisers keep correct start/end values when edited"
+  );
 
   const card = read("src/components/EffectVisualPreview.tsx");
   h.ok(
@@ -843,108 +931,35 @@ for (const v of speechVisualisers) {
 }
 
 /* ---------------------------------------------------------------------
- * The live voice monitor
+ * Voiceover no longer contains the old visualiser library
  *
- * The Voiceover step always shows a useful sample and switches to narration
- * while readable audio is playing. The sample and live states must both use
- * the render engine, must be labelled honestly, and the voice player must
- * leave its audio alone until something is actually watching.
+ * Audio visualisers now live only in Video Studio's dedicated advanced-engine
+ * tab. Voiceover keeps background music and narration controls, but not the old
+ * monitor/catalogue box that used to duplicate every visualiser.
  * ------------------------------------------------------------------- */
 {
-  const monitor = read("src/components/LiveVoiceVisualizer.tsx");
-  const lib = read("src/lib/voice-monitor.ts");
-  const player = read("src/lib/tts-player.ts");
   const studio = read("src/components/VoiceoverStudio.tsx");
+  const mediaLibrary = read("src/components/VoiceMediaLibrary.tsx");
+  const videoStudio = read("src/components/VideoStudio.tsx");
+  const render = read("src/components/RenderView.tsx");
+  const preview = read("src/components/VideoPreview.tsx");
 
+  h.ok(!studio.includes("LiveVoiceVisualizer"), "Voiceover no longer mounts the old live visualiser monitor");
+  h.ok(!studio.includes("VisualizerLibrary"), "Voiceover no longer mounts the old visualiser catalogue box");
+  h.ok(!studio.includes("voice-visualizer-preview"), "Voiceover has no visualiser preview target left behind");
+  h.ok(!studio.includes("showAllVisualizers") && !studio.includes("voiceVisualizer"), "Voiceover has no visualiser picker state left behind");
+  h.ok(!mediaLibrary.includes("CATALOG_ITEMS.audio_visualizers"), "Voiceover media library does not read visualiser cards anymore");
+  h.ok(!mediaLibrary.includes("EffectVisualPreview"), "Voiceover media library no longer renders visualiser thumbnails");
   h.ok(
-    monitor.includes("renderTimelineInsert("),
-    "the voice monitor is painted by the render engine, not by its own drawing code"
+    videoStudio.includes('subCategory === "advanced"') && videoStudio.includes("Advanced Audio Visualiser Engine"),
+    "the new Video Studio advanced visualiser section remains the visualiser entry point"
   );
   h.ok(
-    monitor.includes("readVoiceBus()") && monitor.includes("hasVoiceSignal()"),
-    "…driven by the live analyser"
-  );
-  h.ok(
-    monitor.includes("signal ? { voice: bus, music: EMPTY_BUS } : null") &&
-      !monitor.includes("if (!signal) return;"),
-    "without readable audio, the monitor sends the render engine its sample bus instead of going blank"
-  );
-  h.ok(
-    monitor.includes("Animated style sample · Plays with the narration") &&
-      monitor.includes("Style sample · No signal to read from this voice") &&
-      monitor.includes("Live narration · same engine as render"),
-    "sample and real narration states are labelled honestly"
-  );
-  h.ok(
-    studio.includes("tapVoiceElement(audioRef.current)"),
-    "imported tracks, which play from their own element, are routed to the monitor too"
-  );
-  h.ok(
-    monitor.includes("addVoiceListener()"),
-    "the monitor announces itself, so the player knows to route the voice"
-  );
-
-  h.ok(
-    player.includes("voiceMonitorWanted()") && player.includes("if (!echoOn && !tap) return;"),
-    "a voice with no echo and nobody watching is played exactly as before — no Web Audio at all"
-  );
-  h.ok(
-    player.includes("prepareVoiceMonitor();") && lib.includes("export function prepareVoiceMonitor"),
-    "the analyser is resumed inside the play-button gesture, before the asynchronous TTS fetch"
-  );
-  h.ok(
-    player.includes('res.headers.get("X-TTS-Source") === "silent"'),
-    "a silent server placeholder falls back to an audible browser preview instead of looking broken"
-  );
-  h.ok(
-    lib.includes("source.connect(getEchoAudioContext().destination)"),
-    "if the tap cannot be attached the voice is put back on the speakers"
-  );
-
-  // The styles offered are real catalogue entries, and the default is the one
-  // the website shows.
-  const speech = (CATALOG_ITEMS.audio_visualizers || []).filter((i) => i.subCategory === "speech");
-  h.eq(speech.length, 3, "three visually distinct voice-shaped visualisers are offered");
-  h.ok(
-    monitor.includes('subCategory === "speech"'),
-    "the picker is the catalogue's own speech family, not a hand-written list"
-  );
-  h.ok(
-    monitor.includes('DEFAULT_VOICE_VISUALIZER = "minimal_voice"'),
-    "it opens on Talking Dot Wave — the visualiser the website shows"
-  );
-  h.ok(
-    Boolean(speech.find((i) => i.type === "minimal_voice")),
-    "…which is a real speech visualiser"
-  );
-  h.ok(
-    studio.includes("<LiveVoiceVisualizer") && studio.includes("playing={playingId !== null || isImportPlaying}"),
-    "the Voiceover step shows it, live while anything on the page is playing"
-  );
-  h.ok(
-    studio.includes("<VisualizerLibrary") &&
-      studio.includes("saveVoiceVisualizerChoice(type)") &&
-      studio.includes('id="voice-visualizer-preview"'),
-    "the full visualiser library targets the preview and remembers the chosen style"
-  );
-
-  // Talking Dot Wave is a genuine 20-band visualiser: editable palette colours,
-  // varied widths and per-band lengths rather than four canned bounces.
-  const renderer = read("src/lib/render-visualizers.ts");
-  const dots = renderer.slice(renderer.indexOf('case "minimal_voice"'));
-  h.ok(
-    dots.includes("const count = 20") && dots.includes("getBars(key, count") &&
-      dots.includes("widthVariation") && dots.includes("Math.pow(v, 0.78) * reach"),
-    "Talking Dot Wave draws twenty differently sized, audio-reactive bands"
-  );
-  h.ok(
-    dots.includes("mixColors(primary, secondary") && dots.includes("mixColors(accent, primary"),
-    "Talking Dot Wave follows the editable primary, secondary and accent colours"
-  );
-  const marketingDots = read("src/marketing/components/Waveform.tsx");
-  h.ok(
-    marketingDots.includes("{ length: 20 }") && marketingDots.includes("width: `${5 + (index % 4)}px`"),
-    "the website's lightweight echo also shows twenty varied dots"
+    preview.includes("renderTimelineInsert(ctx, insert, absoluteTime") &&
+      preview.includes("audioFrame") &&
+      render.includes("renderTimelineInsert(ctx, insert, currentGlobalTime") &&
+      render.includes("insertAudioFrame"),
+    "live preview and final render both feed visualisers through the shared render engine with audio frames"
   );
 }
 
@@ -963,29 +978,29 @@ for (const v of speechVisualisers) {
     "relocated media retains its shared catalogue metadata"
   );
   h.ok(
-    !VIDEO_STUDIO_CATEGORIES.some(({ id }) => id === "audio_visualizers") &&
+    VIDEO_STUDIO_CATEGORIES.some(({ id }) => id === "audio_visualizers") &&
       !VIDEO_STUDIO_CATEGORIES.some(({ id }) => id === "background_music") &&
       videoStudio.includes("VIDEO_STUDIO_CATEGORIES.map"),
-    "Video Studio's rendered tabs omit the two Voiceover media libraries"
+    "Video Studio's rendered tabs include Audio Visualisers while Background Music stays in Voiceover"
   );
   h.ok(
-    mediaLibrary.includes("CATALOG_ITEMS.audio_visualizers") &&
+    !mediaLibrary.includes("CATALOG_ITEMS.audio_visualizers") &&
       mediaLibrary.includes("CATALOG_ITEMS.background_music"),
-    "Voiceover reads every visualiser and music card from the canonical catalogue"
+    "Voiceover reads only background music from the shared media catalogue"
   );
   h.ok(
     mediaLibrary.includes("items.slice(0, COLLAPSED_ROW_SIZE)") &&
       mediaLibrary.includes("Show all ${total}") &&
       mediaLibrary.includes('expanded ? "Hide"') &&
       !mediaLibrary.includes("LibraryFooter"),
-    "both libraries begin with one responsive row and keep Show all / Hide controls at the top"
+    "the music library begins with one responsive row and keeps Show all / Hide controls at the top"
   );
   h.ok(
-    voiceStudio.indexOf("aria-expanded={showAllVisualizers}") <
-      voiceStudio.indexOf("<VisualizerLibrary") &&
+    !voiceStudio.includes("showAllVisualizers") &&
+      !voiceStudio.includes("<VisualizerLibrary") &&
       mediaLibrary.indexOf("<LibraryToggle", mediaLibrary.indexOf("BackgroundMusicLibrary")) <
         mediaLibrary.indexOf('className="grid grid-cols-1', mediaLibrary.indexOf("BackgroundMusicLibrary")),
-    "the visualiser and music toggles are reachable before their card grids"
+    "the old Voiceover visualiser box is gone while the music controls remain reachable"
   );
   h.ok(
     !mediaLibrary.includes("aspect-video") && !mediaLibrary.includes("animationDelay"),
@@ -996,16 +1011,16 @@ for (const v of speechVisualisers) {
     visualCard.includes("Still · same engine as render") &&
       !visualCard.includes("startPreviewLoop") &&
       !visualCard.includes("requestAnimationFrame"),
-    "visualiser cards use still production-renderer examples instead of dozens of animation loops"
+    "Video Studio visualiser cards still use still production-renderer examples instead of dozens of animation loops"
   );
   h.ok(
     !mediaLibrary.includes("overflow-y-auto") && !mediaLibrary.includes("max-h-"),
-    "expanded libraries grow in normal page flow rather than using an internal scroller"
+    "expanded music library grows in normal page flow rather than using an internal scroller"
   );
   h.ok(
-    voiceStudio.indexOf("<VisualizerLibrary") < voiceStudio.indexOf("<BackgroundMusicLibrary") &&
+    voiceStudio.indexOf("<BackgroundMusicLibrary") > -1 &&
       voiceStudio.indexOf("<BackgroundMusicLibrary") < voiceStudio.indexOf("Voice tools tabs"),
-    "Background Music sits immediately after the visualiser window in Voiceover"
+    "Background Music is now the only media box before the Voiceover tools tabs"
   );
 
   const musicCard = CATALOG_ITEMS.background_music[0];

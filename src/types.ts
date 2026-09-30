@@ -215,10 +215,47 @@ export interface InsertVisualOptions {
   spanFullVideo?: boolean; // run for the whole video, not a fixed 8s window (default true for visualisers)
   /** id from VISUALIZER_PALETTES — the colour theme the visualiser is drawn in */
   colorTheme?: string;
-  /** how many frequency bands the analyser splits the sound into (16 chunky - 128 detailed) */
+  /** how many frequency bands the analyser splits the sound into (legacy: 16 chunky - 128 detailed; advanced engine: 64 - 512 fine elements) */
   bandCount?: number;
+  /** advanced visualiser element count; kept separate so legacy racks can still call the value bands */
+  elementCount?: number;
   /** accent colour (hot cores, spike tips, flashes) used by the immersive styles */
   accentColor?: string;
+  /** ---- Advanced Audio Visualiser Engine ---- */
+  visualizerStyle?: "fine_radial_bars" | "fine_radial_bars_3d" | "flat_circular_spectrum" | "circular_waveform" | "circular_pulse" | "advanced_spectrum_bars" | "advanced_mirror_spectrum" | "advanced_waveform" | "particle_ring" | "particle_ring_3d" | string;
+  visualizerPreset?: string;
+  frequencyMapping?: "linear" | "logarithmic" | "musical";
+  minFrequency?: number;
+  maxFrequency?: number;
+  fftSize?: 512 | 1024 | 2048 | 4096 | number;
+  smoothing?: number;
+  attack?: number;
+  release?: number;
+  radialDirection?: "outward" | "inward" | "both";
+  radialRadius?: number;
+  maxBarHeight?: number;
+  minBarHeight?: number;
+  barGap?: number;
+  visualizerOpacity?: number;
+  bloomIntensity?: number;
+  beatResponse?: boolean;
+  beatExpansion?: number;
+  beatGlow?: number;
+  voiceMode?: boolean;
+  centreScale?: number;
+  centreOpacity?: number;
+  centreContentType?: "none" | "image" | "logo" | "text" | "media";
+  frequencyColorMode?: "gradient" | "frequency" | "amplitude";
+  /** Move linear spectrum activity left/right without changing timing (-1..1). */
+  spectrumBalance?: number;
+  /** Stretch/compress the visible spectrum activity across the bar rack (0.5..2). */
+  spectrumStretch?: number;
+  /** Visual width/length of full-width spectrum racks (0.45..1.6). */
+  spectrumWidth?: number;
+  /** 0 = square/flat bar ends, 1 = pill-shaped rounded bar ends. */
+  barRoundness?: number;
+  /** 0 = flat colour, 1 = polished metallic/3D bevel highlights. */
+  barShine?: number;
   /**
    * Draw the user's own logo in the middle of a centre visualiser (audio orb,
    * orbit disc, circular analysers). Defaults to on for the orb and the disc,

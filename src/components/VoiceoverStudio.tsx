@@ -15,16 +15,7 @@ import {
   describeVoiceEcho,
   getVoiceEchoPreset,
 } from "../lib/voice-echo";
-import LiveVoiceVisualizer, {
-  loadVoiceVisualizerChoice,
-  saveVoiceVisualizerChoice,
-} from "./LiveVoiceVisualizer";
-import {
-  BackgroundMusicLibrary,
-  VisualizerLibrary,
-} from "./VoiceMediaLibrary";
-import { CATALOG_ITEMS } from "../lib/video-studio-catalog";
-import { tapVoiceElement } from "../lib/voice-monitor";
+import { BackgroundMusicLibrary } from "./VoiceMediaLibrary";
 import { iconify } from "./icons/Icon";
 import Icon from "./icons/Icon";
 
@@ -119,9 +110,6 @@ export default function VoiceoverStudio({
   const [customVoiceLabel, setCustomVoiceLabel] = useState<string>("My Prepared TTS Voice");
   const [importTargetScene, setImportTargetScene] = useState<string>("all");
   const [isImportPlaying, setIsImportPlaying] = useState<boolean>(false);
-  /** Which sound visualiser the monitor draws. Remembered between visits. */
-  const [voiceVisualizer, setVoiceVisualizer] = useState<string>(loadVoiceVisualizerChoice);
-  const [showAllVisualizers, setShowAllVisualizers] = useState(false);
   const [importSuccessBanner, setImportSuccessBanner] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -422,9 +410,6 @@ export default function VoiceoverStudio({
     } else {
       ttsPlayer.stop();
       setPlayingId(null);
-      // Imported tracks play from their own element, so the visualiser has to
-      // be pointed at it directly — the TTS player never sees this one.
-      tapVoiceElement(audioRef.current);
       audioRef.current.play();
       setIsImportPlaying(true);
     }
@@ -609,74 +594,6 @@ export default function VoiceoverStudio({
             </div>
           </div>
         </div>
-      </div>
-
-      {/* THE VOICE, WHILE YOU LISTEN TO IT
-
-          The panel is painted by renderTimelineInsert() — the same function
-          that draws the finished video. Before playback it uses that engine's
-          deterministic sample signal; while readable audio plays it switches
-          to the shared live analyser. Browser speech synthesis exposes no
-          audio node, so that fallback remains clearly labelled as a sample. */}
-      <div className="bg-gray-900/90 border border-indigo-900/60 rounded-2xl p-4 sm:p-5 shadow-xl space-y-3">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Icon glyph="◎" /> Sound Visualiser
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-700/60 bg-indigo-950/60 text-indigo-300">
-                Live
-              </span>
-            </h3>
-            <p className="text-[11px] text-gray-400 mt-0.5 max-w-lg">
-              The narration is drawn by the render engine while you listen; an animated sample is
-              always visible. Press any narration ▶ on this page and it moves with the voice when
-              the browser can read the signal.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowAllVisualizers((current) => !current)}
-            aria-expanded={showAllVisualizers}
-            aria-label="Sound visualiser style catalogue"
-            className="px-3.5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-hairline text-xs font-semibold text-gray-200 hover:text-white transition-colors flex items-center gap-2"
-          >
-            <Icon glyph={showAllVisualizers ? "▲" : "▾"} />
-            {showAllVisualizers
-              ? "Hide"
-              : `Show all ${(CATALOG_ITEMS.audio_visualizers || []).length}`}
-          </button>
-        </div>
-
-        <LiveVoiceVisualizer
-          id="voice-visualizer-preview"
-          type={voiceVisualizer}
-          playing={playingId !== null || isImportPlaying}
-          height={116}
-        />
-
-        <p className="text-[10px] text-gray-500">
-          The original four voice-shaped sound visualisers remain supported by the render catalogue.
-          The {(CATALOG_ITEMS.audio_visualizers || []).length} choices here remove repeated designs
-          rather than put every other style alongside them. Each still sample uses the same drawing
-          code as the final video; a green “Live narration” badge means the large preview is reading
-          the actual voice signal. They have moved here from Video Studio → Sound Visualisers; put
-          any style on the video itself with Add to video, or open Edit here.
-        </p>
-
-        <VisualizerLibrary
-          selectedVisualizer={voiceVisualizer}
-          expanded={showAllVisualizers}
-          onSelectVisualizer={(type) => {
-            setVoiceVisualizer(type);
-            saveVoiceVisualizerChoice(type);
-          }}
-          inserts={inserts}
-          totalDuration={totalDuration}
-          customerLogo={customerLogo}
-          onInsertItem={onInsertItem}
-          onConfigureItem={onConfigureItem}
-        />
       </div>
 
       <BackgroundMusicLibrary

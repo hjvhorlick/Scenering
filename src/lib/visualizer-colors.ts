@@ -12,6 +12,14 @@ export function hexToRgb(
 ): [number, number, number] {
   if (!color) return fallback;
   let hex = color.trim();
+  const rgbMatch = hex.match(/^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)/i);
+  if (rgbMatch) {
+    return [
+      Math.max(0, Math.min(255, Math.round(Number(rgbMatch[1])))),
+      Math.max(0, Math.min(255, Math.round(Number(rgbMatch[2])))),
+      Math.max(0, Math.min(255, Math.round(Number(rgbMatch[3])))),
+    ];
+  }
   if (hex.startsWith("#")) hex = hex.slice(1);
   if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
   if (hex.length !== 6 || /[^0-9a-fA-F]/.test(hex)) return fallback;
