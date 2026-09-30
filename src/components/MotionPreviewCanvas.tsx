@@ -184,7 +184,11 @@ export default function MotionPreviewCanvas({
 
     const frame = () => {
       const elapsed = (performance.now() - startRef.current) / 1000;
-      const p = (elapsed % cycleSeconds) / cycleSeconds;
+      const phase = (elapsed % cycleSeconds) / cycleSeconds;
+      // Ping-pong instead of snapping from 100% back to 0%. This removes the
+      // false "Ken Burns glitch" in looping option previews and also makes a
+      // complete camera move clearly visible within each preview cycle.
+      const p = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
 
       // Refresh the sample if the real image arrived after first paint.
       if (imgRef.current && imgRef.current.complete) paintSample();

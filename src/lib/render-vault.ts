@@ -31,6 +31,8 @@ export interface VaultRender {
   height: number;
   /** human label such as "1080p · 30fps · MP4" */
   label: string;
+  /** Where this exact Blob was verified after save. */
+  storageKind?: "indexeddb" | "memory";
   blob: Blob;
 }
 
@@ -106,9 +108,21 @@ function tx<T>(
         try {
           const t = db.transaction(STORE, mode);
           const req = run(t.objectStore(STORE));
-          req.onsuccess = () => resolve(req.result as T);
-          req.onerror = () => resolve(null);
-          t.onabort = () => resolve(null);
+          let result: T | null = null;
+          let settled = false;
+          const finish = (value: T | null) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+          };
+          // A write request can succeed before the transaction later aborts
+          // (most importantly on quota exhaustion). Only transaction complete
+          // means a long render is actually safe in the Vault.
+          req.onsuccess = () => { result = req.result as T; };
+          req.onerror = () => finish(null);
+          t.oncomplete = () => finish(result);
+          t.onerror = () => finish(null);
+          t.onabort = () => finish(null);
         } catch {
           resolve(null);
         }
@@ -170,15 +184,27 @@ export async function saveRenderToVault(input: SaveRenderInput): Promise<VaultRe
   };
 
   const db = await openDb();
+  let saved = entry;
   if (db) {
-    await tx("readwrite", (store) => store.put(entry));
+    entry.storageKind = "indexeddb";
+    const key = await tx<IDBValidKey>("readwrite", (store) => store.put(entry));
+    if (key === null) {
+      throw new Error("The finished video could not be committed to the Vault (browser storage may be full).");
+    }
+    // Read it back after transaction completion. This returns the browser's
+    // durable Blob clone rather than the OPFS staging File passed in by the
+    // encoder, allowing that temporary file to be removed safely.
+    const durable = await getVaultRender(entry.id);
+    if (!durable) throw new Error("The finished video could not be verified in the Vault.");
+    saved = durable;
   } else {
+    entry.storageKind = "memory";
     memoryVault.set(entry.id, entry);
   }
 
   await pruneVault();
   emit();
-  return entry;
+  return saved;
 }
 
 /** Everything in the vault, newest first. */

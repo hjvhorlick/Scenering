@@ -52,22 +52,22 @@ const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 function layerGain(spec: LayerSpec, s: VideoFilterSettings): number {
   switch (spec.kind) {
     case "grain":
-      return s.grain * 1.35;
+      return s.grain * 1.5;
     case "vignette":
-      return s.vignette * 1.6;
+      return s.vignette * 1.75;
     case "bloom":
     case "halation":
     case "leak":
     case "sunflare":
     case "godrays":
-      return 0.25 + s.glow * 1.5;
+      return 0.35 + s.glow * 1.5;
     case "particles":
     case "rain":
-      return 0.2 + s.particles * 1.6;
+      return 0.3 + s.particles * 1.6;
     case "fog":
-      return 0.15 + s.mist * 1.7;
+      return 0.25 + s.mist * 1.7;
     case "flicker":
-      return 0.4 + s.glow * 0.8;
+      return 0.5 + s.glow * 0.8;
     default:
       return 1;
   }
@@ -105,8 +105,8 @@ function paintLayer(
         ctx.globalCompositeOperation = "overlay";
         ctx.fillStyle =
           warm > 0
-            ? `rgba(255, 170, 70, ${(warm * 0.22 * k).toFixed(3)})`
-            : `rgba(70, 150, 255, ${(-warm * 0.22 * k).toFixed(3)})`;
+            ? `rgba(255, 170, 70, ${(warm * 0.3 * k).toFixed(3)})`
+            : `rgba(70, 150, 255, ${(-warm * 0.3 * k).toFixed(3)})`;
         ctx.fillRect(0, 0, w, h);
         ctx.restore();
       }
@@ -117,7 +117,7 @@ function paintLayer(
       const inner = spec.inner ?? 0.3;
       const g = ctx.createRadialGradient(w / 2, h / 2, Math.max(w, h) * inner, w / 2, h / 2, Math.max(w, h) * 0.78);
       g.addColorStop(0, "rgba(0,0,0,0)");
-      g.addColorStop(0.65, scaleAlpha(spec.color || "rgba(0,0,0,1)", spec.alpha * k * 0.35));
+      g.addColorStop(0.65, scaleAlpha(spec.color || "rgba(0,0,0,1)", spec.alpha * k * 0.5));
       g.addColorStop(1, scaleAlpha(spec.color || "rgba(0,0,0,1)", spec.alpha * k));
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
@@ -127,16 +127,24 @@ function paintLayer(
     case "grain": {
       const a = spec.alpha * k;
       if (a <= 0.005) break;
-      const density = (spec.density ?? 1) * (w * h) / 5200;
+      // Capped: grain is painted EVERY frame of a real-time recording, so
+      // its cost must stay flat whatever the resolution — at 4K the old
+      // uncapped density was ~1,600 rects/frame. The speck size already
+      // scales with the frame, so a capped count reads identically.
+      const density = Math.min(500, (spec.density ?? 1) * (w * h) / 5200);
       const frame = Math.floor(t * 24);
-      const light = `rgba(255,255,255,${(a * 0.16).toFixed(3)})`;
-      const dark = `rgba(0,0,0,${(a * 0.2).toFixed(3)})`;
+      const light = `rgba(255,255,255,${(a * 0.26).toFixed(3)})`;
+      const dark = `rgba(0,0,0,${(a * 0.32).toFixed(3)})`;
       const px = Math.max(1, 1.7 * unit);
-      for (let i = 0; i < density; i++) {
-        const gx = rnd(i + frame * 0.37, 3) * w;
-        const gy = rnd(i + frame * 0.61, 7) * h;
-        ctx.fillStyle = i % 2 === 0 ? light : spec.mono ? light : dark;
-        ctx.fillRect(gx, gy, px, px);
+      // Two passes (all light, then all dark) instead of alternating the
+      // fillStyle per speck — style churn is the slow part of tiny fills.
+      ctx.fillStyle = light;
+      for (let i = 0; i < density; i += 2) {
+        ctx.fillRect(rnd(i + frame * 0.37, 3) * w, rnd(i + frame * 0.61, 7) * h, px, px);
+      }
+      ctx.fillStyle = spec.mono ? light : dark;
+      for (let i = 1; i < density; i += 2) {
+        ctx.fillRect(rnd(i + frame * 0.37, 3) * w, rnd(i + frame * 0.61, 7) * h, px, px);
       }
       break;
     }
@@ -151,13 +159,13 @@ function paintLayer(
         const r = (1.5 + rnd(i + seed, 31) * 4) * unit;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fillStyle = i % 2 ? `rgba(245,235,215,${(a * 0.4).toFixed(3)})` : `rgba(18,12,6,${(a * 0.5).toFixed(3)})`;
+        ctx.fillStyle = i % 2 ? `rgba(245,235,215,${(a * 0.55).toFixed(3)})` : `rgba(18,12,6,${(a * 0.65).toFixed(3)})`;
         ctx.fill();
         if (i % 3 === 0) {
           ctx.beginPath();
           ctx.moveTo(x, y);
           ctx.quadraticCurveTo(x + 8 * unit, y - 12 * unit, x + 20 * unit, y + 5 * unit);
-          ctx.strokeStyle = `rgba(15,10,5,${(a * 0.5).toFixed(3)})`;
+          ctx.strokeStyle = `rgba(15,10,5,${(a * 0.65).toFixed(3)})`;
           ctx.lineWidth = 1.3 * unit;
           ctx.stroke();
         }
@@ -174,7 +182,7 @@ function paintLayer(
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.bezierCurveTo(x + 3 * unit, h * 0.33, x - 3 * unit, h * 0.66, x + rnd(i + seed, 53) * 4 * unit, h);
-        ctx.strokeStyle = i === 0 ? `rgba(255,255,255,${(a * 0.3).toFixed(3)})` : `rgba(25,18,10,${(a * 0.32).toFixed(3)})`;
+        ctx.strokeStyle = i === 0 ? `rgba(255,255,255,${(a * 0.4).toFixed(3)})` : `rgba(25,18,10,${(a * 0.44).toFixed(3)})`;
         ctx.lineWidth = (i === 0 ? 1 : 1.6) * unit;
         ctx.stroke();
       }
@@ -184,12 +192,12 @@ function paintLayer(
     case "flicker": {
       const rate = (spec.rate ?? 24) * s.speed;
       const f = (Math.sin(t * rate) + Math.sin(t * rate * 1.73)) * 0.5;
-      const a = Math.max(0, f) * spec.alpha * k * 0.09;
+      const a = Math.max(0, f) * spec.alpha * k * 0.14;
       if (a > 0.002) {
         ctx.fillStyle = `rgba(255,243,214,${a.toFixed(4)})`;
         ctx.fillRect(0, 0, w, h);
       }
-      const d = Math.max(0, -f) * spec.alpha * k * 0.07;
+      const d = Math.max(0, -f) * spec.alpha * k * 0.11;
       if (d > 0.002) {
         ctx.fillStyle = `rgba(0,0,0,${d.toFixed(4)})`;
         ctx.fillRect(0, 0, w, h);
@@ -199,7 +207,7 @@ function paintLayer(
 
     case "scanlines": {
       const gap = Math.max(2, Math.round((spec.gap ?? 3) * unit));
-      ctx.fillStyle = `rgba(0,0,0,${(spec.alpha * k * 0.22).toFixed(3)})`;
+      ctx.fillStyle = `rgba(0,0,0,${(spec.alpha * k * 0.34).toFixed(3)})`;
       for (let y = 0; y < h; y += gap) ctx.fillRect(0, y, w, Math.max(1, gap * 0.4));
       break;
     }
@@ -209,14 +217,14 @@ function paintLayer(
       const y = ((t * 90 * s.speed) % (h + 80)) - 40;
       const band = ctx.createLinearGradient(0, y - 14 * unit, 0, y + 14 * unit);
       band.addColorStop(0, "rgba(255,255,255,0)");
-      band.addColorStop(0.5, `rgba(255,255,255,${(a * 0.18).toFixed(3)})`);
+      band.addColorStop(0.5, `rgba(255,255,255,${(a * 0.26).toFixed(3)})`);
       band.addColorStop(1, "rgba(255,255,255,0)");
       ctx.fillStyle = band;
       ctx.fillRect(0, y - 14 * unit, w, 28 * unit);
       // torn noise dashes inside the band
       for (let i = 0; i < 26; i++) {
         const nx = rnd(i, Math.floor(t * 12)) * w;
-        ctx.fillStyle = `rgba(255,255,255,${(a * 0.22).toFixed(3)})`;
+        ctx.fillStyle = `rgba(255,255,255,${(a * 0.3).toFixed(3)})`;
         ctx.fillRect(nx, y - 5 * unit + rnd(i, 9) * 10 * unit, rnd(i, 17) * 42 * unit, 1.6 * unit);
       }
       break;
@@ -227,9 +235,9 @@ function paintLayer(
       const off = (2 + Math.sin(t * 3 * s.speed) * 1.6) * unit;
       ctx.save();
       ctx.globalCompositeOperation = "screen";
-      ctx.fillStyle = `rgba(255,0,70,${(a * 0.055).toFixed(3)})`;
+      ctx.fillStyle = `rgba(255,0,70,${(a * 0.1).toFixed(3)})`;
       ctx.fillRect(-off, 0, w, h);
-      ctx.fillStyle = `rgba(0,220,255,${(a * 0.055).toFixed(3)})`;
+      ctx.fillStyle = `rgba(0,220,255,${(a * 0.1).toFixed(3)})`;
       ctx.fillRect(off, 0, w, h);
       ctx.restore();
       break;
@@ -241,8 +249,8 @@ function paintLayer(
       const r = (spec.radius ?? 0.7) * Math.max(w, h);
       const pulse = 1 + Math.sin(t * 0.8 * s.speed) * 0.06;
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * pulse);
-      g.addColorStop(0, scaleAlpha(spec.color, spec.alpha * k * 0.85));
-      g.addColorStop(0.45, scaleAlpha(spec.color, spec.alpha * k * 0.3));
+      g.addColorStop(0, scaleAlpha(spec.color, spec.alpha * k * 1.0));
+      g.addColorStop(0.45, scaleAlpha(spec.color, spec.alpha * k * 0.4));
       g.addColorStop(1, scaleAlpha(spec.color, 0));
       ctx.save();
       ctx.globalCompositeOperation = "screen";
@@ -258,8 +266,8 @@ function paintLayer(
       ctx.save();
       ctx.globalCompositeOperation = "screen";
       const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.max(w, h) * 0.8);
-      g.addColorStop(0, scaleAlpha(spec.color, a * 0.05));
-      g.addColorStop(1, scaleAlpha(spec.color, a * 0.3));
+      g.addColorStop(0, scaleAlpha(spec.color, a * 0.09));
+      g.addColorStop(1, scaleAlpha(spec.color, a * 0.44));
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
       ctx.restore();
@@ -275,8 +283,8 @@ function paintLayer(
           : side === "top"
           ? ctx.createLinearGradient(0, 0, w * 0.2, h * 0.7)
           : ctx.createLinearGradient(w, 0, w * 0.4, h * 0.6);
-      g.addColorStop(0, scaleAlpha(spec.color, a * 0.55));
-      g.addColorStop(0.35, scaleAlpha(spec.color, a * 0.2));
+      g.addColorStop(0, scaleAlpha(spec.color, a * 0.7));
+      g.addColorStop(0.35, scaleAlpha(spec.color, a * 0.3));
       g.addColorStop(1, scaleAlpha(spec.color, 0));
       ctx.save();
       ctx.globalCompositeOperation = "screen";
@@ -297,8 +305,8 @@ function paintLayer(
 
       // core
       const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, w * 0.32 * breathe);
-      core.addColorStop(0, scaleAlpha(col, a * 0.9));
-      core.addColorStop(0.25, scaleAlpha(col, a * 0.32));
+      core.addColorStop(0, scaleAlpha(col, a * 1.0));
+      core.addColorStop(0.25, scaleAlpha(col, a * 0.44));
       core.addColorStop(1, scaleAlpha(col, 0));
       ctx.fillStyle = core;
       ctx.fillRect(0, 0, w, h);
@@ -306,7 +314,7 @@ function paintLayer(
       // horizontal anamorphic streak
       const streak = ctx.createLinearGradient(0, cy, w, cy);
       streak.addColorStop(0, scaleAlpha(col, 0));
-      streak.addColorStop(0.5, scaleAlpha(col, a * 0.3));
+      streak.addColorStop(0.5, scaleAlpha(col, a * 0.42));
       streak.addColorStop(1, scaleAlpha(col, 0));
       ctx.fillStyle = streak;
       ctx.fillRect(0, cy - 9 * unit * breathe, w, 18 * unit * breathe);
@@ -320,7 +328,7 @@ function paintLayer(
           const ang = (Math.PI * 2 * i) / rays;
           const len = w * (0.18 + rnd(i, 5) * 0.2) * breathe;
           const grad = ctx.createLinearGradient(0, 0, Math.cos(ang) * len, Math.sin(ang) * len);
-          grad.addColorStop(0, scaleAlpha(col, a * 0.35));
+          grad.addColorStop(0, scaleAlpha(col, a * 0.5));
           grad.addColorStop(1, scaleAlpha(col, 0));
           ctx.strokeStyle = grad;
           ctx.lineWidth = (2 + rnd(i, 13) * 3) * unit;
@@ -342,8 +350,8 @@ function paintLayer(
         const r = (16 + i * 11) * unit * breathe;
         const gg = ctx.createRadialGradient(px, py, 0, px, py, r);
         const tint = i % 2 ? "rgba(255,200,130,1)" : "rgba(160,220,255,1)";
-        gg.addColorStop(0, scaleAlpha(tint, a * 0.16));
-        gg.addColorStop(0.7, scaleAlpha(tint, a * 0.07));
+        gg.addColorStop(0, scaleAlpha(tint, a * 0.22));
+        gg.addColorStop(0.7, scaleAlpha(tint, a * 0.1));
         gg.addColorStop(1, scaleAlpha(tint, 0));
         ctx.fillStyle = gg;
         ctx.beginPath();
@@ -372,7 +380,7 @@ function paintLayer(
         const ex = originX + Math.cos(ang) * len;
         const ey = originY + Math.sin(ang) * len;
         const g = ctx.createLinearGradient(originX, originY, ex, ey);
-        const beamA = a * (0.16 + rnd(i, 9) * 0.12) * (0.75 + 0.25 * Math.sin(t * 0.6 + i));
+        const beamA = a * (0.24 + rnd(i, 9) * 0.16) * (0.75 + 0.25 * Math.sin(t * 0.6 + i));
         g.addColorStop(0, `rgba(${col},${(beamA * 1.1).toFixed(3)})`);
         g.addColorStop(0.55, `rgba(${col},${(beamA * 0.5).toFixed(3)})`);
         g.addColorStop(1, `rgba(${col},0)`);
@@ -421,7 +429,7 @@ function paintLayer(
           spec.style === "pollen" || spec.style === "ember"
             ? 0.55 + 0.45 * Math.sin(t * (1.6 + rnd(i, 18) * 2.4) + i)
             : 0.7 + 0.3 * Math.sin(t * 1.1 + i);
-        const alpha = a * (spec.style === "bokeh" ? 0.16 : 0.5) * twinkle;
+        const alpha = a * (spec.style === "bokeh" ? 0.22 : 0.62) * twinkle;
         if (alpha <= 0.003) continue;
 
         const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(1, r));
@@ -450,7 +458,7 @@ function paintLayer(
       const a = spec.alpha * k;
       const count = Math.round(spec.count * (0.4 + s.particles * 1.2));
       ctx.save();
-      ctx.strokeStyle = `rgba(210,232,255,${(a * 0.3).toFixed(3)})`;
+      ctx.strokeStyle = `rgba(210,232,255,${(a * 0.42).toFixed(3)})`;
       for (let i = 0; i < count; i++) {
         const speed = 700 + rnd(i, 21) * 900;
         const x = (rnd(i, 2) * w + Math.sin(t * 0.3 + i) * 20 * unit + w) % w;
@@ -479,9 +487,9 @@ function paintLayer(
         const rx = w * (0.75 + b * 0.16);
         const cy = baseY + Math.sin(phase * 1.4) * h * 0.035;
         const g = ctx.createRadialGradient(cx + w * 0.5, cy, 0, cx + w * 0.5, cy, Math.max(rx, ry));
-        const bandA = a * (0.3 - b * 0.055);
+        const bandA = a * (0.38 - b * 0.065);
         g.addColorStop(0, `rgba(${spec.color},${Math.max(0, bandA).toFixed(3)})`);
-        g.addColorStop(0.55, `rgba(${spec.color},${Math.max(0, bandA * 0.45).toFixed(3)})`);
+        g.addColorStop(0.55, `rgba(${spec.color},${Math.max(0, bandA * 0.5).toFixed(3)})`);
         g.addColorStop(1, `rgba(${spec.color},0)`);
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, w, h);
@@ -489,7 +497,7 @@ function paintLayer(
       if (spec.from === "bottom") {
         const g2 = ctx.createLinearGradient(0, h * 0.45, 0, h);
         g2.addColorStop(0, `rgba(${spec.color},0)`);
-        g2.addColorStop(1, `rgba(${spec.color},${(a * 0.32).toFixed(3)})`);
+        g2.addColorStop(1, `rgba(${spec.color},${(a * 0.42).toFixed(3)})`);
         ctx.fillStyle = g2;
         ctx.fillRect(0, h * 0.45, w, h * 0.55);
       }
@@ -498,8 +506,15 @@ function paintLayer(
     }
 
     case "letterbox": {
-      const bar = h * (spec.ratio ?? 0.1);
-      ctx.fillStyle = `rgba(0,0,0,${(spec.alpha * clamp01(s.strength)).toFixed(3)})`;
+      // Cinema bars are governed by their OWN slider, never by Look
+      // Strength, and default to 0: a filter must never letterbox the
+      // video unless the user explicitly asks for bars. (They used to be
+      // hardcoded on, which looked like black-bar render corruption in
+      // the studio preview and every export.)
+      const lb = clamp01(s.letterbox ?? 0);
+      if (lb < 0.01) break;
+      const bar = h * (spec.ratio ?? 0.1) * lb;
+      ctx.fillStyle = `rgba(0,0,0,${spec.alpha.toFixed(3)})`;
       ctx.fillRect(0, 0, w, bar);
       ctx.fillRect(0, h - bar, w, bar);
       break;

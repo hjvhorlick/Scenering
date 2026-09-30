@@ -1,6 +1,12 @@
 import { useState, useEffect } from "react";
 import { TimelineInsert, CustomerLogoConfig, AspectRatioType } from "../types";
-import { CATALOG_ITEMS, CatalogItem, STUDIO_CATEGORIES, StudioCategoryDef } from "../lib/video-studio-catalog";
+import {
+  CATALOG_ITEMS,
+  CatalogItem,
+  VIDEO_STUDIO_CATEGORIES,
+  StudioCategoryDef,
+} from "../lib/video-studio-catalog";
+import { createCatalogInsert } from "../lib/catalog-insert";
 import {
   toggleSoundPreview,
   stopAllSoundPreviews,
@@ -13,6 +19,7 @@ import FiltersStudio from "./FiltersStudio";
 import SectionStudio from "./SectionStudio";
 import type { VideoFilterConfig } from "../data/video-filters";
 import type { SectionConfig } from "../data/intro-outro";
+import Icon, { iconify } from "./icons/Icon";
 
 interface VideoStudioProps {
   currentPlayheadTime: number;
@@ -74,72 +81,13 @@ export default function VideoStudio({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${ms}`;
   })();
 
-  const createTimelineInsert = (item: CatalogItem): TimelineInsert => {
-    // Intros are inserted before script (0.0s), Outros after script (end of timeline)
-    let startTime = currentPlayheadTime;
-    if (item.category === "intro") {
-      startTime = 0.0;
-    } else if (item.category === "outro") {
-      startTime = Math.max(0, (totalDuration || 60) - item.defaultDuration);
-    }
-
-    // Audio visualisers run across the whole video by default: they start at 0
-    // and stretch to the end of the timeline instead of a fixed 6-8s window.
-    const spansWholeVideo = Boolean(item.spansFullVideo);
-    if (spansWholeVideo) {
-      startTime = 0;
-    }
-
-    const defaultContent = item.defaultContent ? { ...item.defaultContent } : {};
-    const logoUrlToUse = defaultContent.logoUrl || (customerLogo?.enabled && customerLogo.url ? customerLogo.url : "/scenering-logo.png");
-    const itemVol = itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? studioVolume;
-    const soundUrl = item.defaultAudioSettings?.soundUrl || (defaultContent as any)?.soundUrl;
-
-    return {
-      id: `${item.type}-${Date.now()}`,
-      category: item.category,
-      type: item.type,
-      title: item.name,
-      startTime,
-      duration: spansWholeVideo
-        ? Math.max(1, totalDuration || 60)
-        : item.defaultDuration,
-      videoUrl: item.videoUrl || defaultContent.videoUrl,
-      position: { x: 0.5, y: 0.5 },
-      presetPosition: item.defaultPosition || "center",
-      size: item.defaultSize || 1.0,
-      opacity: 1.0,
-      intensity: 1.0,
-      audioSource: item.defaultAudioSource || "voice",
-      content: {
-        ...defaultContent,
-        videoUrl: item.videoUrl || defaultContent.videoUrl,
-        showLogo: defaultContent.showLogo ?? true,
-        includeLogo: defaultContent.includeLogo ?? true,
-        logoUrl: logoUrlToUse,
-        tensionStyle: defaultContent.tensionStyle || "flare",
-        soundUrl: soundUrl || defaultContent.soundUrl,
-        soundVolume: itemVol,
-      },
-      visualOptions: item.defaultVisualOptions
-        ? { ...item.defaultVisualOptions, spanFullVideo: spansWholeVideo || undefined }
-        : spansWholeVideo
-        ? { spanFullVideo: true }
-        : undefined,
-      audioSettings: item.defaultAudioSettings
-        ? {
-            ...item.defaultAudioSettings,
-            volume: itemVol,
-            soundUrl: soundUrl || item.defaultAudioSettings.soundUrl,
-            // Normalize legacy loopAudio alias so the loop control + players read one field
-            loop:
-              item.defaultAudioSettings.loop !== undefined
-                ? item.defaultAudioSettings.loop
-                : Boolean((item.defaultAudioSettings as { loopAudio?: boolean }).loopAudio),
-          }
-        : { volume: itemVol, soundUrl },
-    };
-  };
+  const createTimelineInsert = (item: CatalogItem): TimelineInsert =>
+    createCatalogInsert(item, {
+      currentPlayheadTime,
+      totalDuration,
+      customerLogo,
+      volume: itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? studioVolume,
+    });
 
   const handleAdd = (item: CatalogItem) => {
     const newInsert = createTimelineInsert(item);
@@ -162,13 +110,24 @@ export default function VideoStudio({
     setCurrentlyPlayingAudio(isPlaying ? soundUrl : null);
   };
 
-  const currentCategoryDef: StudioCategoryDef | undefined = STUDIO_CATEGORIES.find(
+  const currentCategoryDef: StudioCategoryDef | undefined = VIDEO_STUDIO_CATEGORIES.find(
     (c) => c.id === selectedCategory
   );
 
   /** Tabs with their own bespoke editor instead of the generic catalog grid */
   const CUSTOM_TABS = ["logo", "filters", "intro", "outro"];
   const isCustomTab = CUSTOM_TABS.includes(selectedCategory);
+
+  /**
+   * Bring the newly selected section to the top of the page.
+   *
+   * The studio's section tabs sit on a long scrolling page, so switching
+   * section used to leave the viewport where it was and the new section
+   * opened part-way down, below its own heading.
+   */
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [selectedCategory]);
 
   // Filter catalog items
   const itemsForCategory = CATALOG_ITEMS[selectedCategory] || [];
@@ -188,17 +147,17 @@ export default function VideoStudio({
       <div className="px-5 py-3.5 bg-gray-900/90 border-b border-hairline flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <span>🎬</span>
+            <Icon glyph="🎬" />
             <span>Video Studio</span>
             <span className="text-xs font-normal text-indigo-300 bg-indigo-950/80 px-2 py-0.5 rounded-full border border-indigo-800/60">
               Creative Effects & Branding
             </span>
           </h2>
           <p className="text-xs text-gray-400 mt-0.5">
-            Add overlays, callouts, and audio waves at playhead timestamp{" "}
+            Add overlays and callouts at playhead timestamp{" "}
             <span className="font-mono text-amber-300 bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-800/40">
               {formattedTime}
-            </span>
+            </span>. Audio waves and full-video music now live together in Voiceover
           </p>
         </div>
 
@@ -206,7 +165,7 @@ export default function VideoStudio({
           {/* Studio Audio Master Volume Control */}
           <div className="flex items-center gap-2 bg-gray-850 border border-hairline px-3 py-1.5 rounded-xl">
             <span className="text-xs text-gray-300 flex items-center gap-1.5 flex-shrink-0">
-              <span>🔊</span>
+              <Icon glyph="🔊" />
               <span className="hidden sm:inline text-[11px] font-medium text-gray-300">Audio Vol:</span>
             </span>
             <input
@@ -236,7 +195,7 @@ export default function VideoStudio({
                 className="ml-1 px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold animate-pulse flex items-center gap-1"
                 title="Stop all playing audio previews"
               >
-                <span>⏹️</span>
+                <Icon glyph="⏹" />
                 <span>Off</span>
               </button>
             )}
@@ -265,9 +224,9 @@ export default function VideoStudio({
         </div>
       </div>
 
-      {/* 5 Ordered Main Tabs: 1. Logo, 2. Call to action, 3. Stickers, 4. Text Content, 5. Audio visualisers */}
-      <div className="t-studio-tabbar bg-gray-900/60 border-b border-hairline px-4 pt-2.5 flex gap-1.5 overflow-x-auto no-scrollbar" role="tablist" aria-label="Video Studio sections">
-        {STUDIO_CATEGORIES.map((cat, idx) => {
+      {/* Audio Visualisers and Background Music are now grouped with Voiceover. */}
+      <div className="t-studio-tabbar bg-gray-900/60 border-b border-hairline px-4 pt-2.5 flex gap-1.5 overflow-x-auto scrollbar-thin" role="tablist" aria-label="Video Studio sections">
+        {VIDEO_STUDIO_CATEGORIES.map((cat, idx) => {
           const isSelected = selectedCategory === cat.id;
           return (
             <button
@@ -283,7 +242,7 @@ export default function VideoStudio({
                   : "bg-gray-900/30 text-gray-400 hover:text-gray-200 hover:bg-gray-800/40"
               }`}
             >
-              <span className="t-ico text-base">{cat.icon}</span>
+              <span className="t-ico text-base"><Icon glyph={cat.icon} /></span>
               <span>
                 {idx + 1}. {cat.name}
               </span>
@@ -291,7 +250,7 @@ export default function VideoStudio({
           );
         })}
         <span className="opt-hint ml-auto shrink-0 hidden sm:inline-flex">
-          <span>👆</span>
+          <Icon glyph="👆" />
           <span>pick a section — all its options are listed below</span>
         </span>
       </div>
@@ -309,7 +268,7 @@ export default function VideoStudio({
                 onClick={() => setSelectedSubcategory(sub.id)}
                 className={`t-spill opt-btn ${isSubSelected ? "t-spill-active opt-btn-on bg-indigo-600 text-white shadow-md" : "bg-gray-800/70 text-gray-300 hover:bg-gray-700/80 hover:text-white"}`}
               >
-                <span className="t-ico">{sub.icon}</span>
+                <Icon glyph={sub.icon} />
                 <span>{sub.name}</span>
               </button>
             );
@@ -360,9 +319,7 @@ export default function VideoStudio({
             {selectedCategory === "background_music" && (
               <div className="bg-gradient-to-r from-indigo-950/90 via-gray-900 to-purple-950/90 border border-indigo-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl p-2 bg-indigo-500/20 border border-indigo-500/40 rounded-lg text-indigo-300">
-                    🎵
-                  </span>
+                  <span className="text-2xl p-2 bg-indigo-500/20 border border-indigo-500/40 rounded-lg text-indigo-300" aria-hidden="true"><Icon glyph="🎵" /></span>
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-bold text-indigo-200">Calming Royalty-Free Background Music</h3>
@@ -382,9 +339,7 @@ export default function VideoStudio({
             {selectedCategory === "sound_effects" && (
               <div className="bg-gradient-to-r from-cyan-950/90 via-gray-900 to-cyan-950/90 border border-cyan-500/50 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl p-2 bg-cyan-500/20 border border-cyan-500/40 rounded-lg text-cyan-300">
-                    🔊
-                  </span>
+                  <span className="text-2xl p-2 bg-cyan-500/20 border border-cyan-500/40 rounded-lg text-cyan-300" aria-hidden="true"><Icon glyph="🔊" /></span>
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-bold text-cyan-200">Studio Sound Effects & Foley</h3>
@@ -402,7 +357,7 @@ export default function VideoStudio({
 
             {filteredItems.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
-                <span className="text-3xl block mb-2">🔍</span>
+                <span className="text-3xl block mb-2"><Icon glyph="🔍" /></span>
                 <p className="text-sm">No items found for &quot;{searchQuery}&quot;</p>
                 <button
                   type="button"
@@ -456,7 +411,7 @@ export default function VideoStudio({
                                     : "bg-gray-800 hover:bg-indigo-950 border-hairline hover:border-indigo-500 text-emerald-400 hover:text-emerald-300"
                                 }`}
                               >
-                                <span>{isPlaying ? "⏹️" : "▶️"}</span>
+                                <span>{iconify(isPlaying ? "⏹️" : "▶️")}</span>
                                 <span>
                                   {isPlaying ? "Off" : "Test"}
                                 </span>
@@ -483,7 +438,7 @@ export default function VideoStudio({
                         {hasSound && soundUrl && (
                           <div className="mb-2 px-2.5 py-1.5 bg-gray-950/90 rounded-lg border border-hairline flex items-center justify-between gap-2 shadow-inner">
                             <span className="text-[10px] text-gray-400 flex items-center gap-1">
-                              <span>🔉</span>
+                              <Icon glyph="🔉" />
                               <span className="text-[10px] font-medium text-gray-300">Volume:</span>
                             </span>
                             <div className="flex items-center gap-1.5">
@@ -533,11 +488,13 @@ export default function VideoStudio({
                           }`}
                         >
                           <span>
-                            {item.category === "intro"
-                              ? "➕ Insert Before Script"
-                              : item.category === "outro"
-                              ? "➕ Insert After Script"
-                              : "➕ Add"}
+                            {iconify(
+                              item.category === "intro"
+                                ? "➕ Insert Before Script"
+                                : item.category === "outro"
+                                ? "➕ Insert After Script"
+                                : "➕ Add",
+                            )}
                           </span>
                         </button>
                         <button
@@ -546,7 +503,7 @@ export default function VideoStudio({
                           className="t-card-cta-ghost px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-hairline rounded-lg text-xs transition-colors"
                           title="Customise before placing"
                         >
-                          ⚙️ Edit
+                          <Icon glyph="⚙" /> Edit
                         </button>
                       </div>
                     </div>

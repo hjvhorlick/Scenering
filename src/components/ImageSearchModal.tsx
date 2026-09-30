@@ -1,16 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "../lib/api-keys";
-import { IMAGE_SEARCH_COUNT, pickRandomSample } from "../lib/image-picker";
+import { pickRandomSample } from "../lib/image-picker";
+import { searchImagePool, type ImageCandidate } from "../lib/image-search";
 import ApiKeysModal from "./ApiKeysModal";
-
-interface ImageResult {
-  url: string;
-  thumbnail: string;
-  source: string;
-  width: number;
-  height: number;
-}
+import Icon, { iconify } from "./icons/Icon";
 
 interface ImageSearchModalProps {
   initialQuery: string;
@@ -24,7 +18,7 @@ export default function ImageSearchModal({
   onSelect,
 }: ImageSearchModalProps) {
   const [query, setQuery] = useState(initialQuery);
-  const [images, setImages] = useState<ImageResult[]>([]);
+  const [images, setImages] = useState<ImageCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [source, setSource] = useState("");
@@ -43,22 +37,14 @@ export default function ImageSearchModal({
     try {
       const headers = getApiKeysHeaders();
       const queryParams = getApiKeysQueryParams();
-      const res = await fetch(
-        `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(q)}&count=${IMAGE_SEARCH_COUNT}${queryParams}`,
-        { headers }
-      );
-      if (!res.ok) {
-        throw new Error(`Search failed (${res.status})`);
-      }
-      const data = await res.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      // Show a random dozen out of the ~100 ranked candidates: repeating the
+      // The shared search keeps only photo-like images (the server has
+      // already enforced 16:9 and ≥1920×1080) before anything is shown.
+      const pool = await searchImagePool(q, { headers, queryParams });
+      // Show a random dozen out of the verified candidates: repeating the
       // same search must not serve the identical grid every time.
-      setImages(pickRandomSample((data.images || []) as ImageResult[], 12));
-      setSource(data.source || "");
-      if (!data.images || data.images.length === 0) {
+      setImages(pickRandomSample(pool, 12));
+      setSource(pool[0]?.source || "");
+      if (pool.length === 0) {
         setError("No images found. Try a different search term or add your Pexels/Pixabay API key.");
       }
     } catch (err) {
@@ -84,8 +70,9 @@ export default function ImageSearchModal({
     search(query);
   };
 
+  // Same-origin paths (bundled nature library) skip the proxy entirely.
   const proxyUrl = (url: string) =>
-    `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(url)}`;
+    url.startsWith("/") ? url : `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(url)}`;
 
   return (
     <div
@@ -144,7 +131,7 @@ export default function ImageSearchModal({
             className="px-2.5 py-1.5 rounded-lg border border-hairline bg-gray-800 hover:bg-gray-750 text-xs text-gray-300 hover:text-white flex items-center gap-1.5 flex-shrink-0"
             title="Configure personal Pexels & Pixabay API keys"
           >
-            <span>🔑</span>
+            <Icon glyph="🔑" />
             <span className="hidden sm:inline">API Keys</span>
             {hasKeys && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
           </button>
@@ -175,7 +162,7 @@ export default function ImageSearchModal({
             onClick={() => setKeysModalOpen(true)}
             className="text-[11px] text-gray-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
           >
-            <span>{hasKeys ? "✓ Using Customer API Key" : "⚡ Want higher resolution photos?"}</span>
+            <span>{iconify(hasKeys ? "✓ Using Customer API Key" : "⚡ Want higher resolution photos?")}</span>
             <span className="text-indigo-400 underline">{hasKeys ? "Edit Keys" : "Insert Pexels/Pixabay Key"}</span>
           </button>
         </div>
@@ -192,7 +179,7 @@ export default function ImageSearchModal({
             </div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center py-16 text-center max-w-md mx-auto">
-              <div className="text-4xl mb-3">🔍</div>
+              <div className="text-4xl mb-3"><Icon glyph="🔍" /></div>
               <p className="text-gray-300 text-sm font-medium mb-1">{error}</p>
               <p className="text-xs text-gray-500 mb-5">
                 Pexels and Pixabay offer millions of free stock photos. You can insert your customer API key to unlock them.
@@ -203,7 +190,7 @@ export default function ImageSearchModal({
                   onClick={() => setKeysModalOpen(true)}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white text-xs font-medium flex items-center gap-1.5"
                 >
-                  <span>🔑</span> Insert Pexels / Pixabay Key
+                  <Icon glyph="🔑" /> Insert Pexels / Pixabay Key
                 </button>
               </div>
               <form onSubmit={handleSubmit} className="w-full flex gap-2">

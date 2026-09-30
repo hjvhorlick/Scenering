@@ -177,6 +177,19 @@ h.eq(
   "blur",
   "an explicitly stored style still wins"
 );
+// Regression: a landscape photo dropped into a 9:16 project auto-suggests
+// blur_fill but stored NO backdrop — the default must then be the blurred
+// fill, not transparent, or the video renders black bars top and bottom.
+h.eq(
+  resolveFraming({ image_fit: "blur_fill" }).backdrop,
+  "blur",
+  "blur_fill without a stored backdrop defaults to blurred bars, never black"
+);
+h.eq(
+  resolveFraming({ image_fit: "blur_fill", image_backdrop: "black" }).backdrop,
+  "black",
+  "an explicit backdrop on a blur_fill scene is still honoured"
+);
 
 /** Draws a tall photo into a wide frame and reports what the context was asked to do. */
 function paintTallPhoto(backdrop: "transparent" | "blur" | "black" | "colour", fit: "contain" | "blur_fill" | "cover") {

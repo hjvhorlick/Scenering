@@ -5,7 +5,9 @@ import {
   resolveFraming,
   frameSizeFor,
   placeImage,
+  sceneIsBlankColor,
 } from "../lib/scene-framing";
+import { loadSceneImage } from "../lib/scene-image-loader";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 
 interface Props {
@@ -56,20 +58,16 @@ export default function SceneFramePreview({
       imgRef.current = null;
       return;
     }
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      imgRef.current = img;
-      setLoaded(true);
-    };
-    img.onerror = () => {
-      imgRef.current = null;
-      setLoaded(false);
-    };
-    img.src = url;
+    let cancelled = false;
+    // Same shared loader as the preview and the render, so this thumbnail
+    // shows exactly the image those two will show.
+    loadSceneImage(url, 0, { fallback: "none" }).then((res) => {
+      if (cancelled) return;
+      imgRef.current = res?.img ?? null;
+      setLoaded(Boolean(res));
+    });
     return () => {
-      img.onload = null;
-      img.onerror = null;
+      cancelled = true;
     };
   }, [url]);
 
@@ -89,6 +87,14 @@ export default function SceneFramePreview({
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "#05070C";
     ctx.fillRect(0, 0, w, h);
+
+    // A plain-colour scene has no photo to load, so paint its colour instead
+    // of leaving the dark placeholder. Without this the scene looked empty in
+    // every preview even though the colour was set and would render.
+    if (sceneIsBlankColor(scene) && scene.blank_color) {
+      ctx.fillStyle = scene.blank_color;
+      ctx.fillRect(0, 0, w, h);
+    }
 
     const img = imgRef.current;
     if (img && img.naturalWidth > 0) {

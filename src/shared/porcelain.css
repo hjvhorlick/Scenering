@@ -1,0 +1,90 @@
+/**
+ * Porcelain — the shared design language.
+ *
+ * Scenering is one product with two front doors: the website at "/" and the
+ * studio at "/app". They used to be styled independently, which made signing
+ * in feel like arriving somewhere else. These tokens are the fix: the exact
+ * palette of the studio's Porcelain theme (the app default, see
+ * src/lib/themes.ts) expressed as custom properties that the website, the
+ * sign-in screen and anything else outside the Tailwind build can use.
+ *
+ * The values are copied from the porcelain block of scripts/generate-theme-css.mjs
+ * and src/themes.css. If a colour changes there, change it here.
+ *
+ * Nothing in this file selects an element, so importing it cannot restyle
+ * anything by accident — it only defines variables.
+ */
+
+:root {
+  /* ---- surfaces: warm china white over a biscuit ground ---- */
+  --pc-page: #faf7f2;
+  --pc-page-2: #f4f0e9;
+  --pc-page-3: #eef1f6;
+  --pc-well: #f7f4ef; /* bg-gray-950 in the studio */
+  --pc-panel: #fffdfa; /* bg-gray-900 / bg-gray-800 */
+  --pc-panel-2: #f3efe8; /* bg-gray-750 */
+  --pc-panel-3: #eae4da; /* bg-gray-700 */
+  --pc-rim: #ded6c8; /* bg-gray-600 */
+  --pc-rim-2: #c3b8a6; /* bg-gray-500 */
+
+  /* ---- hairlines: biscuit, solid, never grey ---- */
+  --pc-line: #ece6dc;
+  --pc-line-2: #e4dccf;
+  --pc-line-3: #d8cec0;
+  --pc-line-4: #cdc2b2;
+
+  /* ---- ink ---- */
+  --pc-ink: #33302c;
+  --pc-ink-2: #43403a;
+  --pc-ink-3: #524d45;
+  --pc-ink-4: #6d675d;
+  --pc-ink-5: #867f74;
+  --pc-ink-6: #9a9287;
+
+  /* ---- cobalt: the single accent, from the china-blue tradition ---- */
+  --pc-accent: #2f6fb5;
+  --pc-accent-2: #3f83cc;
+  --pc-accent-3: #3b7cc4;
+  --pc-accent-ink: #245a99;
+  --pc-accent-soft: #e7eefb;
+  --pc-accent-line: #cddff7;
+  --pc-accent-mid: #9dbdea;
+  --pc-accent-edge: #2a63a4;
+  --pc-accent-grad: linear-gradient(90deg, #2f6fb5, #3f83cc);
+  --pc-accent-grad-hover: linear-gradient(90deg, #3579c2, #4a8dd6);
+
+  /* ---- supporting colours, muted to sit beside the cobalt ---- */
+  --pc-green: #3f7d57;
+  --pc-green-soft: #e8f1ea;
+  --pc-amber: #96692a;
+  --pc-amber-soft: #f6efe3;
+  --pc-rose: #a9546b;
+  --pc-rose-soft: #f7ebee;
+
+  /* ---- glazed corners ---- */
+  --pc-r-sm: 12px;
+  --pc-r: 16px;
+  --pc-r-lg: 22px;
+  --pc-r-xl: 26px;
+
+  /* ---- warm, shallow shadows: glazed, not floating ---- */
+  --pc-sh-1: 0 2px 6px rgb(126 110 86 / 0.12);
+  --pc-sh-2: 0 6px 16px rgb(126 110 86 / 0.14);
+  --pc-sh-3: 0 10px 26px rgb(126 110 86 / 0.16);
+  --pc-sh-4: 0 14px 34px rgb(126 110 86 / 0.18);
+  --pc-sh-5: 0 20px 48px rgb(126 110 86 / 0.2);
+  --pc-sh-raised: inset 0 1px 0 rgb(255 255 255 / 0.85), 0 2px 6px rgb(126 110 86 / 0.12);
+  --pc-sh-cobalt: 0 8px 20px rgb(47 111 181 / 0.32), inset 0 1px 0 rgb(255 255 255 / 0.35);
+
+  /* ---- type: fine serif headings, clean sans body ---- */
+  --pc-serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
+  --pc-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* ---- the page itself: the studio's porcelain body, exactly ---- */
+  --pc-backdrop: radial-gradient(760px 520px at 12% 8%, rgb(255 255 255 / 0.9), transparent 60%),
+    radial-gradient(900px 620px at 88% 12%, rgb(214 226 244 / 0.55), transparent 62%),
+    radial-gradient(900px 700px at 50% 108%, rgb(240 233 222 / 0.85), transparent 62%),
+    linear-gradient(168deg, #faf7f2, #f4f0e9 48%, #eef1f6);
+
+  --pc-focus: 2px solid rgb(47 111 181 / 0.55);
+}

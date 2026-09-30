@@ -53,8 +53,9 @@ export function getPresetCoords(preset?: TimelineInsert["presetPosition"]): { x:
  */
 
 /** Smooth start and end so moves feel like a camera, not a slide projector. */
-function easeInOutSine(p: number): number {
-  return -(Math.cos(Math.PI * p) - 1) / 2;
+function smoothstep(p: number): number {
+  const c = Math.max(0, Math.min(1, p));
+  return c * c * (3 - 2 * c);
 }
 
 /**
@@ -62,13 +63,26 @@ function easeInOutSine(p: number): number {
  * A small safety margin absorbs rounding in the framing engine.
  */
 function driftHeadroom(size: number, scale: number): number {
-  return Math.max(0, (size * (scale - 1)) / 2 - 1);
+  return Math.max(0, (size * (scale - 1)) / 2 - 2);
 }
 
-/** Clamp a desired drift to what the current zoom can cover. */
+/** Soft-clamp a desired drift to what the current zoom can cover without hard stops. */
 function safeDrift(desired: number, size: number, scale: number): number {
   const limit = driftHeadroom(size, scale);
-  return Math.max(-limit, Math.min(limit, desired));
+  if (limit <= 0.001) return 0;
+  const magnitude = Math.abs(desired);
+  const sign = desired < 0 ? -1 : 1;
+
+  // Preserve the requested move while it is safely inside the crop. Once it
+  // approaches the edge, ease the remaining distance asymptotically toward
+  // the limit. The old implementation switched from 95% directly to ~72%
+  // at this boundary, which made Ken Burns visibly move and then jump back.
+  const knee = limit * 0.82;
+  if (magnitude <= knee) return desired;
+  const span = Math.max(0.001, limit - knee);
+  const excess = magnitude - knee;
+  const softened = knee + span * (1 - Math.exp(-excess / span));
+  return sign * Math.min(limit * 0.995, softened);
 }
 
 // Compute transform for scene movement
@@ -76,13 +90,14 @@ export function getMotionTransform(
   motion: SceneMotionType | undefined,
   progress: number,
   w: number,
-  h: number
+  h: number,
+  sceneIndex: number = 0
 ): { scale: number; dx: number; dy: number } {
   // A non-finite progress (a zero-length scene divides by zero upstream) would
   // otherwise propagate NaN into the canvas transform and blank the frame.
   const safeProgress = Number.isFinite(progress) ? progress : 0;
   const p = Math.max(0, Math.min(1, safeProgress));
-  const e = easeInOutSine(p);
+  const e = smoothstep(p);
   // Signed -1..+1 ramp, for moves that travel through centre.
   const centred = e - 0.5;
 
@@ -94,40 +109,38 @@ export function getMotionTransform(
 
   switch (motion) {
     case "slow_zoom": {
-      // Gentle but perceptible push: 12% over the scene.
-      const s = 1 + e * 0.12;
+      // Clear, perceptible cinematic push: 22% scale over the scene.
+      const s = 1.08 + e * 0.22;
       return centre(s);
     }
     case "zoom_in": {
-      // Decisive cinematic push.
-      const s = 1 + e * 0.32;
+      // Decisive cinematic push with ample edge headroom.
+      const s = 1.08 + e * 0.36;
       return centre(s);
     }
     case "zoom_out": {
-      // Wide reveal, pulling back from a tight framing.
-      const s = 1.34 - e * 0.30;
+      // Dynamic reveal, pulling back gracefully across the scene.
+      const s = 1.44 - e * 0.36;
       return centre(s);
     }
     case "pan_left": {
-      // Travel 60% of the available headroom so the move is obvious while
-      // the frame stays covered from first frame to last.
-      const s = 1.24;
-      const travel = driftHeadroom(w, s) * 1.2;
+      const s = 1.28;
+      const travel = w * 0.12;
       const base = centre(s);
       return { ...base, dx: base.dx + safeDrift(-centred * travel, w, s) };
     }
     case "pan_right": {
-      const s = 1.24;
-      const travel = driftHeadroom(w, s) * 1.2;
+      const s = 1.28;
+      const travel = w * 0.12;
       const base = centre(s);
       return { ...base, dx: base.dx + safeDrift(centred * travel, w, s) };
     }
     case "subtle_camera": {
-      // Slow breathing drift — restrained, but no longer invisible.
-      const s = 1.12;
+      // Smooth breathing drift — dynamic, smooth and cinematic.
+      const s = 1.20;
       const base = centre(s);
-      const driftX = Math.sin(p * Math.PI * 2) * w * 0.022;
-      const driftY = Math.cos(p * Math.PI * 1.5) * h * 0.018;
+      const driftX = Math.sin(p * Math.PI * 2) * w * 0.055;
+      const driftY = Math.cos(p * Math.PI * 1.5) * h * 0.042;
       return {
         ...base,
         dx: base.dx + safeDrift(driftX, w, s),
@@ -136,10 +149,10 @@ export function getMotionTransform(
     }
     case "shake": {
       // Handheld tremor that settles as the scene goes on.
-      const s = 1.14;
+      const s = 1.18;
       const base = centre(s);
       const decay = 1 - p * 0.55;
-      const amp = w * 0.011 * decay;
+      const amp = w * 0.022 * decay;
       const sx = (Math.sin(p * 190) + Math.cos(p * 143) * 0.6) * amp;
       const sy = (Math.cos(p * 167) + Math.sin(p * 121) * 0.6) * amp * 0.8;
       return {
@@ -149,19 +162,16 @@ export function getMotionTransform(
       };
     }
     case "pulse": {
-      // Rhythmic beat, roughly four pulses per scene. The phase is offset so
-      // the very first frames are already moving — sampling exactly on a zero
-      // crossing made the effect look dead at the start of a scene.
       const beat = Math.sin(p * Math.PI * 8 + Math.PI * 0.25);
-      const s = 1.06 + (beat * 0.5 + 0.5) * 0.10;
+      const s = 1.10 + (beat * 0.5 + 0.5) * 0.14;
       return centre(s);
     }
     case "floating": {
-      // Slow weightless drift in a shallow figure of eight.
-      const s = 1.16;
+      // Weightless drift in a graceful figure of eight.
+      const s = 1.22;
       const base = centre(s);
-      const floatX = Math.cos(p * Math.PI * 2) * w * 0.028;
-      const floatY = Math.sin(p * Math.PI * 4) * h * 0.022;
+      const floatX = Math.cos(p * Math.PI * 2) * w * 0.062;
+      const floatY = Math.sin(p * Math.PI * 4) * h * 0.048;
       return {
         ...base,
         dx: base.dx + safeDrift(floatX, w, s),
@@ -172,13 +182,39 @@ export function getMotionTransform(
       return { scale: 1, dx: 0, dy: 0 };
     case "ken_burns":
     default: {
-      // The classic: a steady push combined with a clearly visible diagonal
-      // drift. Starts at 1.10 so there is plenty of headroom to move smoothly
-      // from the first frame with pure continuous easing and zero clamp jumps.
-      const s = 1.10 + e * 0.16;
+      // Distinctly noticeable documentary Ken Burns: alternating angles and vectors across scenes
+      // with a deliberately visible 32% zoom and broad pan. Even on long scenes this
+      // must read as camera movement, not an almost-static photograph.
+      const pattern = Math.abs(sceneIndex || 0) % 4;
+      let s: number;
+      let dirX: number;
+      let dirY: number;
+
+      if (pattern === 0) {
+        // Dynamic push-in drifting right & down
+        s = 1.12 + e * 0.32;
+        dirX = 1;
+        dirY = 0.7;
+      } else if (pattern === 1) {
+        // Dynamic pull-out drifting left & up
+        s = 1.44 - e * 0.32;
+        dirX = -1;
+        dirY = -0.7;
+      } else if (pattern === 2) {
+        // Dynamic push-in drifting left & down
+        s = 1.12 + e * 0.32;
+        dirX = -1;
+        dirY = 0.7;
+      } else {
+        // Dynamic pull-out drifting right & up
+        s = 1.44 - e * 0.32;
+        dirX = 1;
+        dirY = -0.7;
+      }
+
       const base = centre(s);
-      const driftX = centred * w * 0.08;
-      const driftY = centred * h * 0.045;
+      const driftX = centred * w * 0.12 * dirX;
+      const driftY = centred * h * 0.085 * dirY;
       return {
         ...base,
         dx: base.dx + safeDrift(driftX, w, s),
@@ -2160,6 +2196,93 @@ function renderSpecialEffect(
 }
 
 // ---------------- BRANDING ----------------
+
+/** The product name, spelled once, so it cannot drift. */
+export const BRAND_NAME = "Scenering";
+/** Where the silver half ends and the gold half begins: Scene | ring. */
+const BRAND_SPLIT = 5;
+
+/**
+ * Paints a wordmark in the Scenering house style, centred on the origin.
+ *
+ * The same treatment as the logo file and the key art on the website: a
+ * polished silver-to-white face with a deep blue outline, a gold second half,
+ * a soft drop shadow and the gold swoosh beneath. Drawn rather than blitted
+ * from the PNG because this runs inside the frame loop — it has to be sharp
+ * at any export resolution, it has to scale with the frame, and it cannot
+ * wait on an image decode.
+ *
+ * Text that is not the product name is drawn in the same treatment but in one
+ * colour. The silver/gold split is the Scenering mark specifically; applying
+ * it to somebody else's brand would be putting our logo on their video.
+ */
+export function drawBrandWordmark(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  size: number
+): void {
+  const isBrand = text.trim().toLowerCase() === BRAND_NAME.toLowerCase();
+  const head = isBrand ? text.slice(0, BRAND_SPLIT) : text;
+  const tail = isBrand ? text.slice(BRAND_SPLIT) : "";
+
+  ctx.save();
+  ctx.font = `900 ${size}px "Segoe UI", system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  const headWidth = ctx.measureText(head).width;
+  const tailWidth = tail ? ctx.measureText(tail).width : 0;
+  const total = headWidth + tailWidth;
+  const left = -total / 2;
+
+  const silver = ctx.createLinearGradient(0, -size * 0.78, 0, size * 0.18);
+  silver.addColorStop(0, "#ffffff");
+  silver.addColorStop(0.5, "#eef4fd");
+  silver.addColorStop(1, "#b7c9e4");
+
+  const gold = ctx.createLinearGradient(0, -size * 0.78, 0, size * 0.18);
+  gold.addColorStop(0, "#fff2bd");
+  gold.addColorStop(0.45, "#ffc83f");
+  gold.addColorStop(1, "#df8a0b");
+
+  // 1. Outline, carrying the shadow, so the mark holds on any footage.
+  ctx.save();
+  ctx.shadowColor = "rgba(4, 16, 40, 0.55)";
+  ctx.shadowBlur = size * 0.34;
+  ctx.shadowOffsetY = size * 0.1;
+  ctx.lineWidth = size * 0.3;
+  ctx.strokeStyle = "#0e4fa8";
+  ctx.strokeText(head, left, 0);
+  if (tail) {
+    ctx.strokeStyle = "#8a5609";
+    ctx.strokeText(tail, left + headWidth, 0);
+  }
+  ctx.restore();
+
+  // 2. Faces.
+  ctx.fillStyle = isBrand ? silver : gold;
+  ctx.fillText(head, left, 0);
+  if (tail) {
+    ctx.fillStyle = gold;
+    ctx.fillText(tail, left + headWidth, 0);
+  }
+
+  // 3. The swoosh, which is what makes it read as the mark rather than
+  //    as bold text.
+  ctx.beginPath();
+  ctx.moveTo(left - size * 0.16, size * 0.44);
+  ctx.quadraticCurveTo(0, size * 0.95, left + total + size * 0.16, size * 0.3);
+  ctx.lineWidth = size * 0.12;
+  ctx.strokeStyle = gold;
+  ctx.shadowColor = "rgba(4, 16, 40, 0.4)";
+  ctx.shadowBlur = size * 0.2;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 function renderBranding(
   ctx: CanvasRenderingContext2D,
   item: TimelineInsert,
@@ -2170,16 +2293,7 @@ function renderBranding(
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(size, size);
-
-  const text = item.content?.primaryText || "SCENERINGS";
-  ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-  ctx.font = "bold 15px system-ui";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.shadowColor = "rgba(0,0,0,0.8)";
-  ctx.shadowBlur = 8;
-  ctx.fillText(text, 0, 0);
-
+  drawBrandWordmark(ctx, item.content?.primaryText || BRAND_NAME, 15);
   ctx.restore();
 }
 

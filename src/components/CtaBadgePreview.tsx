@@ -6,6 +6,7 @@ import {
   paintCtaWithFloatShadow,
   renderCallToAction,
 } from "../lib/render-effects";
+import Icon from "./icons/Icon";
 
 /**
  * Compact WYSIWYG preview of a call-to-action badge.
@@ -202,7 +203,7 @@ export default function CtaBadgePreview({ item, aspectRatio = "16:9", background
       {/* Controls + live numbers */}
       <div className="min-w-0 w-full sm:flex-1 space-y-1.5">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[11px] font-bold text-indigo-300">👁️ Live preview</span>
+          <span className="text-[11px] font-bold text-indigo-300"><Icon glyph="👁" /> Live preview</span>
           <span className="text-[10px] text-gray-500">as it appears in the video</span>
         </div>
         <div className="flex items-center gap-1 flex-wrap">

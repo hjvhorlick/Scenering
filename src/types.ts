@@ -2,6 +2,35 @@ export type AspectRatioType = "16:9" | "9:16" | "1:1" | "4:3";
 export type ResolutionType = "720p" | "1080p" | "2k" | "4k";
 export type PacingModeType = "fixed" | "auto_speech";
 
+/* ---------------- Render profile choices (made in Project Setup) --------
+ * The user picks these ONCE in the setup section — the render screen only
+ * displays them. Literal unions live here (not imported from lib) so the
+ * types module stays dependency-free; src/lib/render-profile.ts consumes
+ * them and owns all the technical meaning behind each value. */
+export type RenderQualityType = "draft" | "standard" | "high" | "maximum";
+export type RenderFpsType = "auto" | 24 | 25 | 30 | 50 | 60;
+export type RenderFormatType = "mp4" | "webm";
+export type AudioMasteringType = "automatic" | "manual";
+/** Where the finished video is going. Picking a platform preset sets the
+ *  canvas + encoding automatically; "custom" means the user overrode them. */
+export type PublishDestinationType =
+  | "youtube"
+  | "youtube_shorts"
+  | "tiktok"
+  | "instagram_reels"
+  | "facebook"
+  | "linkedin"
+  | "pinterest"
+  | "custom";
+
+export interface RenderProfileSettings {
+  destination: PublishDestinationType;
+  quality: RenderQualityType;
+  fps: RenderFpsType;
+  format: RenderFormatType;
+  audio_mastering: AudioMasteringType;
+}
+
 export interface Project {
   id: number;
   title: string;
@@ -86,6 +115,23 @@ export interface Scene {
   audio_url?: string | null;
   audio_name?: string | null;
   audio_duration?: number;
+
+  // --- Plain colour backdrop ------------------------------------------
+  /**
+   * A flat colour used as this scene's visual instead of a photo or clip.
+   *
+   * Some narration wants nothing behind it — a title card, a breather between
+   * dense scenes, or a scene the user will caption over later. Set this and
+   * the renderer paints the frame with it.
+   *
+   * Deliberately a separate field from `image_backdrop_color`, which colours
+   * the *area around* a photo that does not fill the frame. This one means
+   * "there is no photo"; setting it clears image_url and video_url.
+   *
+   * Stored as a hex string (`#101828`) so it survives a JSON round-trip
+   * through local storage and Supabase unchanged.
+   */
+  blank_color?: string | null;
 
   // --- Short video clip attached to this scene -------------------------
   /** Object URL or remote URL of a short clip used instead of a still image. */

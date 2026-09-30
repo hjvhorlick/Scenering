@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { createHarness } from "./harness";
 import { BACKGROUND_MUSIC_TRACKS, SOUND_LIBRARY } from "../src/data/media-library";
+import { generateAttributionDocument } from "../src/data/media-library";
 import { CATALOG_ITEMS } from "../src/lib/video-studio-catalog";
 
 /**
@@ -23,10 +24,10 @@ h.eq(
   "no classical track is filed under Foley"
 );
 
-// ---- the classical tracks are still available as music -----------------------
-for (const id of ["gymnopedie_no1", "clair_de_lune"]) {
+// ---- calm YouTube Audio Library tracks are available as music ----------------
+for (const id of ["divider", "candlepower", "gentle_reflection"]) {
   const track = BACKGROUND_MUSIC_TRACKS.find((t) => t.id === id);
-  h.ok(Boolean(track), `${id} is still in the background music library`);
+  h.ok(Boolean(track), `${id} is in the background music library`);
   h.ok((track?.duration ?? 0) > 60, `${id} keeps its full length`);
 }
 
@@ -43,7 +44,7 @@ for (const item of EFFECTS) {
 
   const url: string = item.defaultAudioSettings?.soundUrl ?? "";
   h.ok(url.startsWith("/sounds/"), `${item.type} points at the sound library (${url})`);
-  h.ok(!/gymnopedie|clair_de_lune|real_/.test(url), `${item.type} is not a music file (${url})`);
+  h.ok(!/gymnopedie|clair_de_lune|real_|yt_/.test(url), `${item.type} is not a music file (${url})`);
 
   // the file has to exist in the build, or the card plays nothing
   const file = `public${url}`;
@@ -61,6 +62,50 @@ for (const item of foley) {
     /camera|shutter|applause|click/i.test(item.name),
     `${item.type} is a camera/applause sound (${item.name})`
   );
+}
+
+// ---------------------------------------------------------------------------
+// The credits document must follow the project through the whole creation
+// process: every element that is USED goes into the list, anything unused
+// stays out.
+{
+  const base = {
+    projectTitle: "Credits Test",
+    includeBackgroundMusic: false,
+    imageSources: [],
+    graphicsUsed: [],
+    voiceName: undefined as string | undefined,
+  };
+
+  // Nothing used -> no sound, graphic, image or voice sections at all.
+  const empty = generateAttributionDocument(base);
+  h.ok(!empty.includes("SOUND EFFECTS"), "no sound effects are credited when none are used");
+  h.ok(!empty.includes("3D GRAPHICS"), "no 3D graphics are credited when none are used");
+  h.ok(!empty.includes("STOCK IMAGES"), "no image sources are credited when none are used");
+  h.ok(!empty.includes("VOICEOVER & SPEECH SYNTHESIS"), "no voice is credited when none is used");
+
+  // A sound effect used -> exactly that one is credited.
+  const one = generateAttributionDocument({ ...base, soundsUsed: ["ting"] });
+  h.ok(one.includes("SOUND EFFECTS"), "a used sound effect is credited");
+  const creditedSounds = SOUND_LIBRARY.filter((s) => one.includes(`"${s.name}"`));
+  h.eq(creditedSounds.length, 1, "only the used sound effect is credited");
+  h.eq(creditedSounds[0]?.id, "ting", "the credited sound effect is the used one");
+
+  // A 3D sticker used -> the section appears and names only that sticker.
+  const gfx = generateAttributionDocument({ ...base, graphicsUsed: ["Gold Star"] });
+  h.ok(gfx.includes("3D GRAPHICS"), "used 3D stickers are credited");
+  h.ok(gfx.includes("Included assets: Gold Star"), "only the used sticker is listed");
+
+  // An image source used -> that source alone is credited.
+  const img = generateAttributionDocument({ ...base, imageSources: ["Unsplash (Unsplash License)"] });
+  h.ok(img.includes("STOCK IMAGES"), "used image sources are credited");
+  h.ok(img.includes("Sourced via Unsplash (Unsplash License)"), "the used image source is listed");
+  h.ok(!img.includes("Pexels"), "unused image sources stay out of the document");
+
+  // A voice used -> the voice section names it.
+  const voiced = generateAttributionDocument({ ...base, voiceName: "The Storyteller (Male • American (US))" });
+  h.ok(voiced.includes("VOICEOVER & SPEECH SYNTHESIS"), "the narration voice is credited");
+  h.ok(voiced.includes("Voice Profile: The Storyteller"), "the voice profile name is in the credits");
 }
 
 h.done("sound-library");

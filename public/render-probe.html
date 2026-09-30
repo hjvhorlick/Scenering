@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Render probe — audio telemetry cost</title>
+    <style>
+      :root {
+        --ink: #23201c;
+        --ink-2: #5d574e;
+        --line: #e4ded3;
+        --paper: #fffdfa;
+        --cobalt: #2f6fb5;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 28px 20px 60px;
+        background: #f6f3ed;
+        color: var(--ink);
+        font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { max-width: 760px; margin: 0 auto; }
+      h1 { font-size: 21px; margin: 0 0 6px; letter-spacing: -0.01em; }
+      p.lede { margin: 0 0 22px; color: var(--ink-2); }
+      section {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 18px 20px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 2px rgba(35, 32, 28, 0.05);
+      }
+      h2 { font-size: 14px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); }
+      label { display: inline-flex; align-items: center; gap: 8px; margin-right: 18px; font-size: 14px; }
+      input[type="number"] {
+        width: 76px; padding: 6px 8px; font: inherit;
+        border: 1px solid var(--line); border-radius: 8px; background: #fff;
+      }
+      button {
+        appearance: none; border: 1px solid #2a63a4; cursor: pointer;
+        background: linear-gradient(90deg, #2f6fb5, #3f83cc); color: #fff;
+        font: 600 15px/1 system-ui, sans-serif; padding: 11px 18px;
+        border-radius: 10px; margin-top: 14px;
+      }
+      button:disabled { opacity: 0.55; cursor: progress; }
+      table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+      th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+      th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2); font-weight: 600; }
+      td.num { text-align: right; }
+      .verdict { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #f0f5fc; border: 1px solid #cddff7; }
+      .verdict strong { color: var(--cobalt); }
+      #log { white-space: pre-wrap; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--ink-2); margin-top: 10px; }
+      .muted { color: var(--ink-2); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Render probe — what the per-frame audio telemetry costs</h1>
+      <p class="lede">
+        The render stops the audio engine once per video frame to read the voice and music
+        analysers. This measures what that actually costs, on this computer, before deciding
+        whether it is worth redesigning. Nothing here touches your projects.
+      </p>
+
+      <section>
+        <h2>Settings</h2>
+        <label>Test length <input id="secs" type="number" value="30" min="5" max="120" step="5" /> s</label>
+        <label>Frame rate <input id="fps" type="number" value="30" min="15" max="60" step="1" /> fps</label>
+        <label>Extrapolate to <input id="target" type="number" value="9" min="1" max="30" step="1" /> min</label>
+        <br />
+        <button id="run">Run the probe</button>
+        <div id="log"></div>
+      </section>
+
+      <section id="results" hidden>
+        <h2>Results</h2>
+        <table>
+          <thead>
+            <tr><th>Pass</th><th class="num">This test</th><th class="num">Scaled to target</th></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div class="verdict" id="verdict"></div>
+        <p class="muted" id="mem"></p>
+      </section>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const ms = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + " s" : Math.round(n) + " ms");
+      const log = (line) => { $("log").textContent += line + "\n"; };
+
+      /** Builds a graph shaped like the real render: two analysed buses into a mix. */
+      function buildGraph(ctx, seconds) {
+        const rate = ctx.sampleRate;
+        const mk = (freqHz) => {
+          const buf = ctx.createBuffer(2, Math.ceil(rate * seconds), rate);
+          for (let ch = 0; ch < 2; ch++) {
+            const d = buf.getChannelData(ch);
+            for (let i = 0; i < d.length; i++) {
+              const t = i / rate;
+              d[i] = Math.sin(2 * Math.PI * freqHz * t) * 0.3 * (0.6 + 0.4 * Math.sin(t * 2.1));
+            }
+          }
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          return src;
+        };
+        const analyse = (src) => {
+          const a = ctx.createAnalyser();
+          a.fftSize = 512;
+          src.connect(a);
+          a.connect(ctx.destination);
+          return a;
+        };
+        const voice = mk(180);
+        const music = mk(440);
+        const va = analyse(voice);
+        const ma = analyse(music);
+        voice.start(0);
+        music.start(0);
+        return { va, ma };
+      }
+
+      function readBus(node) {
+        const freq = new Uint8Array(node.frequencyBinCount);
+        const wave = new Uint8Array(node.fftSize);
+        node.getByteFrequencyData(freq);
+        node.getByteTimeDomainData(wave);
+        let sum = 0;
+        for (let n = 0; n < freq.length; n++) sum += freq[n];
+        return { level: sum / (freq.length * 255), freq, wave };
+      }
+
+      /** Pass A: render straight through, no interruptions. */
+      async function passPlain(seconds) {
+        const ctx = new OfflineAudioContext(2, Math.ceil(48000 * seconds), 48000);
+        buildGraph(ctx, seconds);
+        const t0 = performance.now();
+        await ctx.startRendering();
+        return performance.now() - t0;
+      }
+
+      /** Pass B: stop once per frame and read both analysers — what ships today. */
+      async function passSuspended(seconds, fps) {
+        const ctx = new OfflineAudioContext(2, Math.ceil(48000 * seconds), 48000);
+        const { va, ma } = buildGraph(ctx, seconds);
+        const totalFrames = Math.ceil(seconds * fps);
+        const telemetry = new Array(totalFrames);
+        const tasks = [];
+        const t0 = performance.now();
+        for (let frame = 1; frame < totalFrames; frame++) {
+          const time = frame / fps;
+          tasks.push(
+            ctx.suspend(time).then(() => {
+              telemetry[frame] = { voice: readBus(va), music: readBus(ma) };
+              return ctx.resume();
+            })
+          );
+        }
+        const [buf] = await Promise.all([ctx.startRendering(), ...tasks]);
+        const elapsed = performance.now() - t0;
+        return { elapsed, frames: totalFrames, samples: buf.length, telemetry };
+      }
+
+      $("run").addEventListener("click", async () => {
+        const btn = $("run");
+        btn.disabled = true;
+        $("log").textContent = "";
+        $("results").hidden = true;
+        $("rows").innerHTML = "";
+
+        const seconds = Math.max(5, Number($("secs").value) || 30);
+        const fps = Math.max(15, Number($("fps").value) || 30);
+        const targetMin = Math.max(1, Number($("target").value) || 9);
+        const scale = (targetMin * 60) / seconds;
+
+        try {
+          log(`Rendering ${seconds}s of audio with no interruptions…`);
+          const plain = await passPlain(seconds);
+          log(`  ${ms(plain)}`);
+
+          log(`Rendering ${seconds}s again, stopping ${fps} times a second to read the analysers…`);
+          const susp = await passSuspended(seconds, fps);
+          log(`  ${ms(susp.elapsed)} over ${susp.frames.toLocaleString()} frames`);
+
+          const overhead = susp.elapsed - plain;
+          const perFrame = overhead / Math.max(1, susp.frames - 1);
+
+          const row = (name, a, b) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${name}</td><td class="num">${a}</td><td class="num">${b}</td>`;
+            $("rows").appendChild(tr);
+          };
+          row("Audio render, uninterrupted", ms(plain), ms(plain * scale));
+          row("Audio render, stopping every frame", ms(susp.elapsed), ms(susp.elapsed * scale));
+          row("Cost of the interruptions", ms(overhead), ms(overhead * scale));
+          row("Cost per frame", perFrame.toFixed(3) + " ms", "—");
+
+          const targetFrames = Math.round(targetMin * 60 * fps);
+          const telemetryMb = (targetFrames * (256 + 512) * 2) / 1024 / 1024;
+          const factor = plain > 0 ? susp.elapsed / plain : 0;
+
+          $("verdict").innerHTML =
+            `Stopping every frame makes the audio stage <strong>${factor.toFixed(1)}× slower</strong>. ` +
+            `For a ${targetMin}-minute video that is about <strong>${ms(overhead * scale)}</strong> ` +
+            `of pure overhead across ${targetFrames.toLocaleString()} frames, ` +
+            `and roughly <strong>${telemetryMb.toFixed(1)} MB</strong> of telemetry held in memory ` +
+            `until the last frame is drawn.`;
+
+          const mem = performance.memory;
+          $("mem").textContent = mem
+            ? `Heap after the run: ${(mem.usedJSHeapSize / 1048576).toFixed(0)} MB used of ` +
+              `${(mem.jsHeapSizeLimit / 1048576).toFixed(0)} MB available to this tab.`
+            : "This browser does not expose heap figures, so memory was not measured.";
+
+          $("results").hidden = false;
+          log("Done.");
+        } catch (err) {
+          log("Failed: " + (err && err.message ? err.message : String(err)));
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

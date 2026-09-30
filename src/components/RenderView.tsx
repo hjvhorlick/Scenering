@@ -1,9 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, EditorStep, ResolutionType, PacingModeType } from "../types";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
-import { createProjectZip } from "../lib/zip-download";
-import { drawSceneImage } from "../lib/scene-framing";
+import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import {
@@ -12,7 +11,15 @@ import {
 } from "../lib/render-effects";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
-import { resolveSceneAudioBuffer, setCachedSceneAudio } from "../lib/tts-cache";
+import { PackedAudioTelemetry } from "../lib/audio-telemetry";
+import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
+import type { WordTiming } from "../lib/word-sync";
+import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
+import { loadSceneImage } from "../lib/scene-image-loader";
+import { resolveLegacyLocalImage } from "../lib/nature-library-compat";
+import { STICKER_LIBRARY } from "../lib/sticker-3d";
+import { isMaleVoiceIdentifier } from "../lib/tts-player";
+import { formatDuration, sceneTimelineDuration, NARRATION_LEAD_IN_SECONDS } from "../lib/duration-utils";
 import { loadCaptionFonts } from "../data/caption-styles";
 import { generateAttributionDocument, getBackgroundMusicTrack, AMBIENT_STYLE_TO_TRACK } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
@@ -46,12 +53,52 @@ import {
   subscribeRenderStatus,
   type RenderJobStatus,
 } from "../lib/render-status";
+import {
+  MASTER_RENDER_PROFILE,
+  DEFAULT_RENDER_PROFILE_SETTINGS,
+  resolveFrameRate,
+  resolveRenderDimensions,
+  resolveRenderPlan,
+  computeVideoBitrateKbps,
+  computeAudioBitrateKbps,
+  estimateFileSizeMB,
+  getQualityLevel,
+  getPlatformProfile,
+  buildRenderFilename,
+  checkPlatformCompatibility,
+  describeRenderFailure,
+  buildCompatibilityFallback,
+  resolutionToken,
+  totalFrameCount,
+  destinationLabel,
+  destinationFileToken,
+  type FrameRateChoice,
+  type EncodingQuality,
+  type MasteringMode,
+  type RenderPlan,
+  type RenderFailureReport,
+} from "../lib/render-profile";
+import type { RenderProfileSettings } from "../types";
+import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
+import { OfflineExporter, supported as offlineExportSupported, type OfflineExportConfig } from "../lib/offline-export";
+import { createFrameBudget } from "../lib/yield-to-browser";
+import { RenderTimer, formatMs } from "../lib/render-timing";
+import { holdRenderWakeLock, type RenderWakeLockState } from "../lib/render-wake-lock";
+import { formatStorageBytes, type RenderOutputStorageMode } from "../lib/render-output-store";
+import Icon, { iconify } from "./icons/Icon";
 
+/**
+ * The render screen's live settings. Every one of them is DECIDED in
+ * Project Setup (the render screen only displays and executes them), and
+ * the technical values behind them (bitrate ladder, codec, pixel format,
+ * keyframe interval, audio spec…) come from the Master Render Profile in
+ * src/lib/render-profile.ts — one source, no duplicated choices.
+ */
 export interface RenderSettings {
   format: "mp4" | "webm";
   resolution: "720p" | "1080p" | "2k" | "4k" | "shorts_9_16" | "square_1_1" | "4:3";
-  fps: 30 | 60;
-  quality: "standard" | "high" | "ultra";
+  fps: FrameRateChoice;
+  quality: EncodingQuality;
   includeWatermark: boolean;
   watermarkOpacity: number;
   watermarkScale: number;
@@ -59,8 +106,38 @@ export interface RenderSettings {
   subtitleStyle: "karaoke" | "normal";
   backgroundMusic: "none" | "lofi" | "cinematic" | "ambient" | "energetic";
   musicVolume: number;
-  normalizeAudio: boolean;
+  /** "automatic" = the optional mastering stage (no clipping, voice-priority
+   *  music ducking). "manual" = the user's mix passes through untouched. */
+  audioMastering: MasteringMode;
 }
+
+interface RenderHealthState {
+  startedAt: number | null;
+  elapsedMs: number;
+  framesDone: number;
+  totalFrames: number;
+  outputBytes: number;
+  queuedOutputBytes: number;
+  outputStorage: RenderOutputStorageMode | "checking";
+  outputStorageDetail: string;
+  telemetryBytes: number;
+  tabHidden: boolean;
+  wakeLock: RenderWakeLockState;
+}
+
+const EMPTY_RENDER_HEALTH: RenderHealthState = {
+  startedAt: null,
+  elapsedMs: 0,
+  framesDone: 0,
+  totalFrames: 0,
+  outputBytes: 0,
+  queuedOutputBytes: 0,
+  outputStorage: "checking",
+  outputStorageDetail: "Checking protected browser storage…",
+  telemetryBytes: 0,
+  tabHidden: false,
+  wakeLock: "released",
+};
 
 interface RenderViewProps {
   project: Project | null;
@@ -88,6 +165,9 @@ interface RenderViewProps {
   outroSection?: SectionConfig | null;
   /** echo / ambience on the narration, set in the Voiceover step */
   voiceEcho?: VoiceEchoConfig;
+  /** The render profile chosen in Project Setup — displayed and executed
+   *  here, never edited here. */
+  renderProfile?: RenderProfileSettings;
   onOpenSetup?: () => void;
   onNavigatePhase?: (phase: ProjectPhase) => void;
 }
@@ -107,7 +187,7 @@ function SummaryRow({
   return (
     <div className="flex items-start justify-between gap-3">
       <span className="text-[11px] text-gray-400 flex items-center gap-1.5 shrink-0">
-        <span>{icon}</span>
+        <Icon glyph={icon} />
         {label}
       </span>
       <span className="text-[11px] font-medium text-white text-right break-words min-w-0">
@@ -128,9 +208,11 @@ export function generateSrtSubtitles(scenes: Scene[]): string {
     return `${pad(hrs)}:${pad(mins)}:${pad(secs)},${pad(ms, 3)}`;
   };
 
-  let acc = 0;
+  // The video opens with the first image held for the narration lead-in
+  // before the first words are spoken, so the subtitle clock starts there.
+  let acc = NARRATION_LEAD_IN_SECONDS;
   return scenes
-    .filter((s) => s.image_url || s.video_url)
+    .filter(sceneHasVisual)
     .map((s, i) => {
       const start = acc;
       const end = acc + s.duration;
@@ -163,21 +245,24 @@ export default function RenderView({
   introSection = null,
   outroSection = null,
   voiceEcho,
+  renderProfile = DEFAULT_RENDER_PROFILE_SETTINGS,
   onOpenSetup,
   onNavigatePhase,
 }: RenderViewProps) {
   // Scenes with a short video clip are renderable even without a still image.
-  const scenesWithImages = scenes.filter((s) => s.image_url || s.video_url);
+  const scenesWithImages = scenes.filter(sceneHasVisual);
   const activeLook = getPreset(videoFilter?.id);
   const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
   const totalDuration = scenesWithImages.reduce((sum, s) => sum + getSceneDuration(s), 0);
 
-  // Render settings state
+  // Render settings state — every value here was CHOSEN in Project Setup
+  // (destination preset, quality, fps, format, mastering). This screen only
+  // mirrors those choices and runs the render; there are no controls here.
   const [settings, setSettings] = useState<RenderSettings>({
-    format: "mp4",
+    format: renderProfile.format,
     resolution: propResolution || "1080p",
-    fps: 30,
-    quality: "high",
+    fps: renderProfile.fps,
+    quality: renderProfile.quality,
     includeWatermark: true,
     watermarkOpacity: 1.0,
     watermarkScale: 1.0,
@@ -186,7 +271,7 @@ export default function RenderView({
     // Music is added in Video Studio as timeline inserts, so this page stays free of settings
     backgroundMusic: "none",
     musicVolume: 0.3,
-    normalizeAudio: true,
+    audioMastering: renderProfile.audio_mastering,
   });
 
   // Keep the read-only summary and the render in sync with the setup choices
@@ -196,16 +281,55 @@ export default function RenderView({
       resolution: propResolution || prev.resolution,
       includeSubtitles: captionsConfig?.enabled ?? prev.includeSubtitles,
       subtitleStyle: captionsConfig?.mode ?? prev.subtitleStyle,
+      format: renderProfile.format,
+      fps: renderProfile.fps,
+      quality: renderProfile.quality,
+      audioMastering: renderProfile.audio_mastering,
     }));
-  }, [propResolution, captionsConfig?.enabled, captionsConfig?.mode]);
+  }, [
+    propResolution,
+    captionsConfig?.enabled,
+    captionsConfig?.mode,
+    renderProfile.format,
+    renderProfile.fps,
+    renderProfile.quality,
+    renderProfile.audio_mastering,
+  ]);
 
   // Render execution state
   const [isRendering, setIsRendering] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderStage, setRenderStage] = useState("");
+  /** Where the last render spent its time, shown on screen when it finishes. */
+  const [renderTiming, setRenderTiming] = useState<string | null>(null);
+  const [timingCopied, setTimingCopied] = useState(false);
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(propRenderedBlob || null);
   const [renderedUrl, setRenderedUrl] = useState<string | null>(propRenderedUrl || null);
+  /** The container the finished render was ACTUALLY recorded in. The download
+   *  extension always matches this — a mislabelled file is what made the
+   *  download "not work" before. */
+  const [renderedContainer, setRenderedContainer] = useState<"mp4" | "webm">("webm");
   const [renderError, setRenderError] = useState<string | null>(null);
+  /** Never hide which pipeline made the file. During diagnosis, frame-exact
+   * is required by default so a silent MediaRecorder fallback cannot be
+   * mistaken for a successful fix. */
+  const [renderEngine, setRenderEngine] = useState<"checking" | "frame-exact" | "compatibility" | null>(null);
+  const [offlineFailureReason, setOfflineFailureReason] = useState<string | null>(null);
+  const [requireFrameExact, setRequireFrameExact] = useState(true);
+  /** How many scene photos had to be replaced by placeholder cards in the
+   *  last render — surfaced so a dead image URL is never silent again. */
+  const [imageFallbackCount, setImageFallbackCount] = useState(0);
+  /** Live safety/throughput facts for the stronger long-render dashboard. */
+  const [renderHealth, setRenderHealth] = useState<RenderHealthState>(EMPTY_RENDER_HEALTH);
+
+  // ---- Master Render Profile UI state ---------------------------------
+  /** Technical details panel (read-only — normal users never need it). */
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  /** Human-readable failure report; the raw log stays under Advanced Details. */
+  const [failureReport, setFailureReport] = useState<RenderFailureReport | null>(null);
+  const [showFailureDetail, setShowFailureDetail] = useState(false);
+  /** What the automatic-fallback retry changed — never silent. */
+  const [fallbackNotes, setFallbackNotes] = useState<string[]>([]);
 
   // ---- The Vault: finished renders waiting to be downloaded -----------
   const [vaultRenders, setVaultRenders] = useState<VaultRender[]>([]);
@@ -266,16 +390,167 @@ export default function RenderView({
     setRenderStatus({ stage });
   }, []);
 
+  // Keep the dashboard clock alive, reflect background-tab state, and warn
+  // before a reload/navigation destroys a local encoder that cannot survive a
+  // document unload.
+  useEffect(() => {
+    if (!isRendering) return;
+    const update = () => {
+      setRenderHealth((health) => ({
+        ...health,
+        elapsedMs: health.startedAt ? Date.now() - health.startedAt : health.elapsedMs,
+        tabHidden: typeof document !== "undefined" ? document.hidden : false,
+      }));
+    };
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "A video render is still running.";
+    };
+    const timer = window.setInterval(update, 1000);
+    document.addEventListener("visibilitychange", update);
+    window.addEventListener("beforeunload", beforeUnload);
+    update();
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", update);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, [isRendering]);
+
   // Sync with prop when returning to render tab
   useEffect(() => {
     if (propRenderedBlob) setRenderedBlob(propRenderedBlob);
     if (propRenderedUrl) setRenderedUrl(propRenderedUrl);
   }, [propRenderedBlob, propRenderedUrl]);
 
-  // ZIP export state
-  const [isZipping, setIsZipping] = useState(false);
-  const [zipProgress, setZipProgress] = useState(0);
-  const [zipStatus, setZipStatus] = useState("");
+  /**
+   * Idle canvas painter — the render screen shows the project's own imagery.
+   *
+   * The canvas used to stay black until "Start Video Render" was pressed,
+   * which read as "no images in the render". It now plays the first scene
+   * with the same framing, motion, filter and caption engine the export uses
+   * (all the shared modules), looping gently like the live preview. It stops
+   * the moment a real render starts — the render loop owns the canvas then.
+   */
+  useEffect(() => {
+    if (isRendering || renderedUrl) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const { width, height } = getDimensions(settings.resolution);
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const first = scenesWithImages[0];
+    if (!first) {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, width, height);
+      return;
+    }
+
+    let cancelled = false;
+    let rafId = 0;
+    let startedAt = 0;
+    const LOOP_SECONDS = 14;
+
+    const paint = (progress: number) => {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, width, height);
+
+      if (sceneIsBlankColor(first) && first.blank_color) {
+        ctx.save();
+        try { ctx.filter = "none"; } catch {}
+        ctx.fillStyle = first.blank_color;
+        ctx.fillRect(0, 0, width, height);
+        ctx.restore();
+      } else if (idleImgRef.current && idleImgRef.current.naturalWidth > 0) {
+        const { scale, dx, dy } = getMotionTransform(
+          first.motion_effect,
+          progress,
+          width,
+          height,
+          0
+        );
+        const safeScale = isNaN(scale) ? 1 : scale;
+        const safeDx = isNaN(dx) ? 0 : dx;
+        const safeDy = isNaN(dy) ? 0 : dy;
+        try {
+          drawSceneImage(ctx, idleImgRef.current, first, width, height, {
+            motionScale: safeScale,
+            motionDx: safeDx + (width * safeScale - width) / 2,
+            motionDy: safeDy + (height * safeScale - height) / 2,
+            filter: getFilterCanvas(videoFilter, width),
+          });
+        } catch {}
+        try { ctx.filter = "none"; } catch {}
+      }
+
+      try {
+        paintVideoFilter(ctx, videoFilter, width, height, progress * LOOP_SECONDS);
+      } catch {}
+
+      // Watermark + brand logo, same placement as the export
+      if (watermarkImgRef.current && watermarkImgRef.current.naturalWidth > 0) {
+        ctx.save();
+        const scaleRatio = width / 1280;
+        const wmWidth = Math.max(20, Math.round(180 * scaleRatio));
+        const wmHeight = Math.max(
+          10,
+          Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth))
+        );
+        ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+        ctx.shadowBlur = 8 * scaleRatio;
+        ctx.shadowOffsetY = 2 * scaleRatio;
+        ctx.drawImage(watermarkImgRef.current, Math.round(24 * scaleRatio), Math.round(20 * (height / 720)), wmWidth, wmHeight);
+        ctx.restore();
+      }
+
+      if (settings.includeSubtitles && first.text) {
+        try {
+          renderCanvasCaptions(
+            ctx,
+            first.text,
+            progress,
+            captionsConfig || DEFAULT_CAPTIONS_CONFIG,
+            width,
+            height
+          );
+        } catch {}
+      }
+    };
+
+    const tick = (now: number) => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+      if (!startedAt) startedAt = now;
+      const progress = ((now - startedAt) / 1000 / LOOP_SECONDS) % 1;
+      paint(progress);
+      rafId = requestAnimationFrame(tick);
+    };
+
+    void loadCaptionFonts().then(() => {
+      if (cancelled) return;
+      // Load through the shared loader: a failed photo shows the gradient
+      // card exactly like the preview, never a black canvas.
+      loadSceneImage(first.image_url || "", 0).then((res) => {
+        if (cancelled) return;
+        idleImgRef.current = res ? res.img : null;
+        paint(0.35);
+        rafId = requestAnimationFrame(tick);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (rafId && typeof cancelAnimationFrame === "function") cancelAnimationFrame(rafId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRendering, renderedUrl, scenesWithImages, videoFilter, settings.resolution, settings.includeSubtitles, captionsConfig, aspectRatio, propResolution]);
 
   // Attribution state - default collapsed ("do not open it yet")
   const [copiedAttribution, setCopiedAttribution] = useState(false);
@@ -287,6 +562,13 @@ export default function RenderView({
   const watermarkImgRef = useRef<HTMLImageElement | null>(null);
   const customerLogoImgRef = useRef<HTMLImageElement | null>(null);
   const abortControllerRef = useRef<boolean>(false);
+  /** Frame pacing for the export — vsync-locked, worker-driven when hidden. */
+  const frameTickerRef = useRef<FrameTicker | null>(null);
+  /** Image behind the idle render-canvas painter. */
+  const idleImgRef = useRef<HTMLImageElement | null>(null);
+  /** Why the last render failed — read synchronously by the platform queue
+   *  so a failed row can say what went wrong (state updates are async). */
+  const lastRenderErrorRef = useRef<string>("");
 
   // Pre-load watermark logo image
   useEffect(() => {
@@ -301,7 +583,7 @@ export default function RenderView({
   useEffect(() => {
     const logoUrl = customerLogo?.url;
     if (logoUrl) {
-      loadImage(logoUrl, 6000).then((img) => {
+      loadImage(logoUrl).then((img) => {
         customerLogoImgRef.current = img;
       });
     } else {
@@ -309,154 +591,54 @@ export default function RenderView({
     }
   }, [customerLogo?.url]);
 
-  // Resolution dimensions helper supporting resolution settings and aspect ratio
+  // Resolution dimensions helper supporting resolution settings and aspect
+  // ratio. The actual table lives in the Master Render Profile
+  // (src/lib/render-profile.ts) — this only resolves which row to ask for.
   const getDimensions = (resOrRatio?: RenderSettings["resolution"] | AspectRatioType) => {
-    const targetRes = (resOrRatio === "720p" || resOrRatio === "1080p" || resOrRatio === "2k" || resOrRatio === "4k")
+    const targetRes: ResolutionType = (resOrRatio === "720p" || resOrRatio === "1080p" || resOrRatio === "2k" || resOrRatio === "4k")
       ? resOrRatio
       : (settings?.resolution === "720p" || settings?.resolution === "2k" || settings?.resolution === "4k" ? settings.resolution : (propResolution || "1080p"));
     const currentRatio = aspectRatio || "16:9";
-
-    if (resOrRatio === "shorts_9_16" || resOrRatio === "9:16" || (!resOrRatio && currentRatio === "9:16") || currentRatio === "9:16") {
-      if (targetRes === "720p") return { width: 720, height: 1280, label: "720 × 1280 (720p HD)", aspectClass: "aspect-[9/16] max-h-[520px]" };
-      if (targetRes === "2k") return { width: 1440, height: 2560, label: "1440 × 2560 (2K QHD)", aspectClass: "aspect-[9/16] max-h-[520px]" };
-      if (targetRes === "4k") return { width: 2160, height: 3840, label: "2160 × 3840 (4K UHD)", aspectClass: "aspect-[9/16] max-h-[520px]" };
-      return { width: 1080, height: 1920, label: "1080 × 1920 (1080p Full HD)", aspectClass: "aspect-[9/16] max-h-[520px]" };
-    }
-    if (resOrRatio === "square_1_1" || resOrRatio === "1:1" || (!resOrRatio && currentRatio === "1:1") || currentRatio === "1:1") {
-      if (targetRes === "720p") return { width: 720, height: 720, label: "720 × 720 (720p HD)", aspectClass: "aspect-square max-h-[520px]" };
-      if (targetRes === "2k") return { width: 1440, height: 1440, label: "1440 × 1440 (2K QHD)", aspectClass: "aspect-square max-h-[520px]" };
-      if (targetRes === "4k") return { width: 2160, height: 2160, label: "2160 × 2160 (4K UHD)", aspectClass: "aspect-square max-h-[520px]" };
-      return { width: 1080, height: 1080, label: "1080 × 1080 (1080p Full HD)", aspectClass: "aspect-square max-h-[520px]" };
-    }
-    if (resOrRatio === "4:3" || (!resOrRatio && currentRatio === "4:3") || currentRatio === "4:3") {
-      if (targetRes === "720p") return { width: 960, height: 720, label: "960 × 720 (720p HD)", aspectClass: "aspect-[4/3] max-h-[520px]" };
-      if (targetRes === "2k") return { width: 1920, height: 1440, label: "1920 × 1440 (2K QHD)", aspectClass: "aspect-[4/3] max-h-[520px]" };
-      if (targetRes === "4k") return { width: 2880, height: 2160, label: "2880 × 2160 (4K UHD)", aspectClass: "aspect-[4/3] max-h-[520px]" };
-      return { width: 1440, height: 1080, label: "1440 × 1080 (1080p Full HD)", aspectClass: "aspect-[4/3] max-h-[520px]" };
-    }
-
-    // Default 16:9
-    if (targetRes === "720p") return { width: 1280, height: 720, label: "1280 × 720 (720p HD)", aspectClass: "aspect-video" };
-    if (targetRes === "2k") return { width: 2560, height: 1440, label: "2560 × 1440 (2K QHD)", aspectClass: "aspect-video" };
-    if (targetRes === "4k") return { width: 3840, height: 2160, label: "3840 × 2160 (4K UHD)", aspectClass: "aspect-video" };
-    return { width: 1920, height: 1080, label: "1920 × 1080 (1080p Full HD)", aspectClass: "aspect-video" };
+    const aspect: AspectRatioType =
+      resOrRatio === "shorts_9_16" || resOrRatio === "9:16" || currentRatio === "9:16"
+        ? "9:16"
+        : resOrRatio === "square_1_1" || resOrRatio === "1:1" || currentRatio === "1:1"
+        ? "1:1"
+        : resOrRatio === "4:3" || currentRatio === "4:3"
+        ? "4:3"
+        : "16:9";
+    return resolveRenderDimensions(aspect, targetRes);
   };
 
-  // Safe image URL resolver - routes external images through server proxy to ensure clean CORS & prevent canvas tainting
-  const getSafeImageUrl = (url: string): string => {
-    if (!url) return "";
-    if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("/")) {
-      return url;
-    }
-    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
-  };
+  /** The frame rate the export really runs at ("auto" → Scenering picks 30). */
+  const effectiveFps = resolveFrameRate(settings.fps);
 
-  // Image preloader helper with timeout and proxy fallback
-  const loadImage = (url: string, timeoutMs: number = 8000): Promise<HTMLImageElement | null> => {
-    return new Promise((resolve) => {
-      if (!url) return resolve(null);
-      const safeUrl = getSafeImageUrl(url);
-      const img = new Image();
-      if (!safeUrl.startsWith("data:") && !safeUrl.startsWith("blob:")) {
-        img.crossOrigin = "anonymous";
-      }
-      let settled = false;
+  /**
+   * Scene images and logos load through the ONE shared loader
+   * (src/lib/scene-image-loader.ts) — the same loader the live preview uses.
+   * A scene photo that cannot be loaded resolves the preview's gradient
+   * "Scene N" card instead of null, so the exported video can never show a
+   * black frame where the preview showed a picture. Logos opt out of the
+   * fallback (a missing watermark should simply not be drawn).
+   */
+  const loadImage = (url: string): Promise<HTMLImageElement | null> =>
+    loadSceneImage(url, 0, { fallback: "none" }).then((r) => r?.img ?? null);
 
-      const timer = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          resolve(null);
-        }
-      }, timeoutMs);
-
-      img.onload = () => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          resolve(img);
-        }
-      };
-
-      img.onerror = () => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          // If safeUrl wasn't proxied yet, try proxy once
-          if (!safeUrl.startsWith("/api/proxy-image") && !safeUrl.startsWith("data:") && !safeUrl.startsWith("blob:")) {
-            const proxyImg = new Image();
-            proxyImg.crossOrigin = "anonymous";
-            proxyImg.onload = () => resolve(proxyImg);
-            proxyImg.onerror = () => resolve(null);
-            proxyImg.src = `/api/proxy-image?url=${encodeURIComponent(url)}`;
-          } else {
-            resolve(null);
-          }
-        }
-      };
-
-      img.src = safeUrl;
-    });
-  };
-
-  // Synthesize ambient music loop using Web Audio API (fast 3-second seamless loop to avoid UI thread blocking)
-  const createAmbientMusicNode = (
-    ctx: AudioContext,
-    style: RenderSettings["backgroundMusic"],
-    _duration: number,
-    volume: number
-  ): AudioNode | null => {
-    if (style === "none" || volume <= 0) return null;
-
+  // Load real background music buffer from library track
+  const loadRealAmbientTrackBuffer = async (
+    ctx: BaseAudioContext,
+    style: RenderSettings["backgroundMusic"]
+  ): Promise<AudioBuffer | null> => {
+    if (style === "none") return null;
+    const trackId = AMBIENT_STYLE_TO_TRACK[style];
+    const track = trackId ? getBackgroundMusicTrack(trackId) : undefined;
+    if (!track?.url) return null;
     try {
-      const sampleRate = ctx.sampleRate || 44100;
-      const loopSec = 3.0; // 3 seconds loop is seamless and generates in under 5ms
-      const buffer = ctx.createBuffer(2, Math.round(sampleRate * loopSec), sampleRate);
-      const left = buffer.getChannelData(0);
-      const right = buffer.getChannelData(1);
-
-      // Chords based on mood style
-      let baseFreqs = [261.63, 329.63, 392.0, 523.25]; // C major
-      if (style === "lofi") {
-        baseFreqs = [220.0, 261.63, 329.63, 392.0]; // Am7
-      } else if (style === "cinematic") {
-        baseFreqs = [174.61, 220.0, 261.63, 349.23]; // Fmaj7 low
-      } else if (style === "energetic") {
-        baseFreqs = [293.66, 369.99, 440.0, 587.33]; // D major
-      }
-
-      for (let i = 0; i < left.length; i++) {
-        const t = i / sampleRate;
-        let sample = 0;
-        for (let b = 0; b < baseFreqs.length; b++) {
-          const freq = baseFreqs[b];
-          const osc = Math.sin(2 * Math.PI * freq * t);
-          const sub = Math.sin(Math.PI * (freq / 2) * t) * 0.4;
-          const slowLfo = 0.6 + 0.4 * Math.sin(2 * Math.PI * 0.33 * t + b);
-          sample += (osc + sub) * 0.15 * slowLfo;
-        }
-
-        // Soft stereo spread
-        left[i] = sample * (0.8 + 0.2 * Math.sin(t * 1.5));
-        right[i] = sample * (0.8 + 0.2 * Math.cos(t * 1.5));
-      }
-
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.loop = true;
-
-      const gain = ctx.createGain();
-      gain.gain.value = volume;
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = style === "lofi" ? 900 : style === "ambient" ? 1400 : 2500;
-
-      source.connect(filter);
-      filter.connect(gain);
-      source.start();
-
-      return gain;
-    } catch {
+      const res = await fetch(track.url);
+      if (!res.ok) return null;
+      return await ctx.decodeAudioData(await res.arrayBuffer());
+    } catch (err) {
+      console.warn("Failed loading real ambient music track:", err);
       return null;
     }
   };
@@ -473,13 +655,39 @@ export default function RenderView({
   };
 
   // ------ RENDER VIDEO HANDLER ------
-  const handleStartRender = async () => {
-    if (scenesWithImages.length === 0 || isRendering) return;
+  // targetFormat records into that container: "mp4" (H.264 + AAC — the social
+  // standard), "webm" (VP9/VP8 + Opus), or "mov" (the same H.264/AAC stream
+  // saved with the QuickTime .mov extension). Omitted → the configured format.
+  //
+  // `plan` (optional) is a fully-resolved Master Render Profile recipe — the
+  // multi-platform queue passes one per master encode (a vertical TikTok
+  // master can be produced from a landscape project this way). Without a
+  // plan the current settings are resolved through the same profile module.
+  //
+  // Returns the finished encode so callers (the queue) can reuse it; null on
+  // failure or cancellation.
+  const handleStartRender = async (
+    targetFormat?: "mp4" | "webm" | "mov",
+    plan?: RenderPlan & { label?: string }
+  ): Promise<{ blob: Blob; container: "mp4" | "webm" } | null> => {
+    if (scenesWithImages.length === 0 || isRendering) return null;
 
     setIsRendering(true);
+    setRenderTiming(null);
+    setTimingCopied(false);
     reportProgress(0);
     setRenderError(null);
+    setFailureReport(null);
+    setShowFailureDetail(false);
+    setRenderEngine("checking");
+    setOfflineFailureReason(null);
     abortControllerRef.current = false;
+    const renderStartedAt = Date.now();
+    setRenderHealth({
+      ...EMPTY_RENDER_HEALTH,
+      startedAt: renderStartedAt,
+      tabHidden: typeof document !== "undefined" ? document.hidden : false,
+    });
     // Publish the job so the header can follow it even if the user leaves
     // this screen — the render itself keeps running either way.
     setRenderStatus({
@@ -487,49 +695,71 @@ export default function RenderView({
       progress: 0,
       stage: "1/4: Preparing narration, visuals and audio…",
       title: project?.title || "Untitled render",
-      startedAt: Date.now(),
+      startedAt: renderStartedAt,
       finishedAt: null,
       error: null,
       lastVaultId: null,
     });
 
-    const { width, height } = getDimensions(settings.resolution);
+    // Preview vs final render (§18 of the profile spec): the Draft preset is
+    // a fast preview — 720p-class dimensions and a light bitrate — while
+    // every other preset is a full platform-quality final encode.
+    const dims = plan
+      ? { width: plan.width, height: plan.height }
+      : settings.quality === "draft"
+      ? getDimensions("720p")
+      : getDimensions(settings.resolution);
+    const { width, height } = dims;
+    // Constant frame rate: the canvas is captured at exactly this rate and
+    // the frame ticker paces the loop to match — total frames = duration × FPS.
+    const fpsUsed = plan ? plan.fps : effectiveFps;
+    const videoKbps = plan
+      ? plan.videoBitrateKbps
+      : computeVideoBitrateKbps(width, height, fpsUsed, settings.quality);
+    const audioKbps = plan ? plan.audioBitrateKbps : computeAudioBitrateKbps(settings.quality);
+
+    lastRenderErrorRef.current = "";
     const canvas = canvasRef.current;
     if (!canvas) {
+      lastRenderErrorRef.current = "The render canvas is not on screen (try staying on this page while rendering)";
       setRenderError("Canvas element not available");
+      setRenderStatus({ active: false, error: "Canvas element not available", stage: "Render failed" });
       setIsRendering(false);
-      return;
+      return null;
     }
 
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
+      lastRenderErrorRef.current = "The browser refused a 2D drawing context";
       setRenderError("2D Context unavailable");
+      setRenderStatus({ active: false, error: "2D Context unavailable", stage: "Render failed" });
       setIsRendering(false);
-      return;
+      return null;
     }
 
-    // Make sure the caption faces are ready before the first frame is captured
-    await loadCaptionFonts();
-
-    if (typeof MediaRecorder === "undefined") {
-      setRenderError("Your browser does not support in-browser video recording.");
-      setIsRendering(false);
-      return;
-    }
+    let releaseWakeLock: () => Promise<void> = async () => {};
+    let renderAudioContext: AudioContext | null = null;
 
     try {
+      releaseWakeLock = await holdRenderWakeLock((wakeLock) => {
+        setRenderHealth((health) => ({ ...health, wakeLock }));
+      });
+      // Make sure the caption faces are ready before the first frame is captured
+      await loadCaptionFonts();
+
       // 1. Synthesizing audio & sound effects
       reportStage("1/4: Synthesizing narration voices & sound effects...");
       reportProgress(0.08);
 
       const audioCtx = new AudioContext();
+      renderAudioContext = audioCtx;
       if (audioCtx.state === "suspended") {
         await audioCtx.resume();
       }
 
-      const audioBuffers = new Map<number, { buffer: AudioBuffer; duration: number }>();
+      const audioBuffers = new Map<number, { buffer: AudioBuffer; duration: number; words?: WordTiming[] }>();
       for (let i = 0; i < scenesWithImages.length; i++) {
         if (abortControllerRef.current) throw new Error("Render cancelled");
         const s = scenesWithImages[i];
@@ -538,23 +768,15 @@ export default function RenderView({
         // 1. Resolve directly from the saved voiceover section (memory, IndexedDB, or audio_url)
         let resolved = await resolveSceneAudioBuffer(s, audioCtx);
 
-        // 2. Only if the scene was never generated, synthesize via /api/tts
+        // 2. Only if the scene was never generated, synthesize via /api/tts.
+        //    The timeline variant carries the per-word spoken timings, which is
+        //    what locks the karaoke captions to the voice word-for-word.
         if (!resolved) {
           try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 12000);
-            const res = await fetch("/api/tts", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: s.text, voice: sceneVoice }),
-              signal: controller.signal,
-            });
-            clearTimeout(timeoutId);
-
-            if (res.ok) {
-              const arrayBuf = await res.arrayBuffer();
-              const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-              const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+            const withTimeline = await fetchSceneAudioWithTimeline(s.text || "", sceneVoice, { timeoutMs: 20000 });
+            if (withTimeline) {
+              const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
+              const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
               const blobUrl = URL.createObjectURL(blob);
               setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
                 audioBuffer,
@@ -562,18 +784,60 @@ export default function RenderView({
                 duration: audioBuffer.duration,
                 voiceId: sceneVoice,
                 text: (s.text || "").trim(),
-                rawBuffer: arrayBuf,
+                rawBuffer: withTimeline.rawBuffer,
                 blob,
+                words: withTimeline.words,
               });
-              resolved = { buffer: audioBuffer, duration: audioBuffer.duration, url: blobUrl };
+              resolved = {
+                buffer: audioBuffer,
+                duration: audioBuffer.duration,
+                url: blobUrl,
+                words: withTimeline.words,
+              };
             }
           } catch (e) {
             console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
           }
+          if (!resolved) {
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 12000);
+              const res = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: s.text, voice: sceneVoice }),
+                signal: controller.signal,
+              });
+              clearTimeout(timeoutId);
+
+              if (res.ok) {
+                const arrayBuf = await res.arrayBuffer();
+                const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+                const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
+                const blobUrl = URL.createObjectURL(blob);
+                setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
+                  audioBuffer,
+                  blobUrl,
+                  duration: audioBuffer.duration,
+                  voiceId: sceneVoice,
+                  text: (s.text || "").trim(),
+                  rawBuffer: arrayBuf,
+                  blob,
+                });
+                resolved = { buffer: audioBuffer, duration: audioBuffer.duration, url: blobUrl };
+              }
+            } catch (e) {
+              console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
+            }
+          }
         }
 
         if (resolved) {
-          audioBuffers.set(s.id, { buffer: resolved.buffer, duration: resolved.duration });
+          audioBuffers.set(s.id, {
+            buffer: resolved.buffer,
+            duration: resolved.duration,
+            words: resolved.words && resolved.words.length > 0 ? resolved.words : undefined,
+          });
         } else {
           const sampleRate = audioCtx.sampleRate || 44100;
           const fallbackDur = getEffectiveSceneDuration(s);
@@ -585,32 +849,197 @@ export default function RenderView({
         reportProgress(0.08 + (i / scenesWithImages.length) * 0.18);
       }
 
+      // Build the immutable timeline before constructing either audio graph. Both
+      // the offline and real-time paths consume this exact schedule.
+      const introSec = introSection?.enabled ? introSection : null;
+      const outroSec = outroSection?.enabled ? outroSection : null;
+      const introDuration = introSec ? Math.max(0.5, introSec.duration) : 0;
+      const outroDuration = outroSec ? Math.max(0.5, outroSec.duration) : 0;
+
+      // When the video opens directly on a scene (no intro section), the
+      // first image holds for a short lead-in before the first words are
+      // spoken — the narration used to begin ~0.1s in, too soon to take in
+      // the opening. An enabled intro section is its own opening, so the
+      // lead-in only applies without one.
+      const narrationLeadIn = introSec ? 0 : NARRATION_LEAD_IN_SECONDS;
+
+      let timelineOffset = introDuration;
+      const sceneSchedule = scenesWithImages.map((s, idx) => {
+        const item = audioBuffers.get(s.id);
+        const speechDur =
+          item && item.duration > 0.3
+            ? item.duration
+            : calculateDynamicDuration(s.text, s.audio_duration);
+        // The exact same scene-length formula the live preview uses
+        // (src/lib/duration-utils.ts → sceneTimelineDuration): one number for
+        // both, so the cut, the audio start and the caption flip all land on
+        // the same moment in the preview and in the exported file.
+        const sceneDur = sceneTimelineDuration(s, item ? item.duration : undefined);
+        // The first scene's window includes the lead-in; its narration (and
+        // captions) begin speechOffset seconds into that window.
+        const speechOffset = idx === 0 ? narrationLeadIn : 0;
+        const windowDur = sceneDur + speechOffset;
+        const entry = {
+          scene: s,
+          index: idx,
+          startTime: timelineOffset,
+          duration: windowDur,
+          endTime: timelineOffset + windowDur,
+          speechDuration: speechDur,
+          speechOffset,
+        };
+        timelineOffset += windowDur;
+        return entry;
+      });
+
+      const scriptTotalDuration = timelineOffset - introDuration;
+      const outroStartTime = timelineOffset;
+      const estimatedTotalDuration = Math.max(1, timelineOffset + outroDuration);
+
+      const finishSuccessfulExport = async (
+        finalBlob: Blob,
+        recordedContainer: "mp4" | "webm",
+        fallbackMime: string
+      ): Promise<{ blob: Blob; container: "mp4" | "webm"; durableVaultCopy: boolean }> => {
+        let finishedBlob = finalBlob;
+        let durableVaultCopy = false;
+        let lastVaultId: string | null = null;
+        reportProgress(0.99);
+        reportStage("4/4: Securing the finished video in the Vault…");
+        try {
+          const entry = await saveRenderToVault({
+            blob: finalBlob,
+            title: plan?.label
+              ? `${project?.title || "Untitled render"} — ${plan.label}`
+              : project?.title || "Untitled render",
+            mimeType: finalBlob.type || fallbackMime,
+            durationSec: estimatedTotalDuration,
+            width,
+            height,
+            label: `${resolutionToken(width, height)} · ${fpsUsed}fps CFR · ${recordedContainer.toUpperCase()} · ${getQualityLevel(settings.quality).name}`,
+          });
+          // IndexedDB returns its verified clone. Use that Blob for preview,
+          // download and App state, then the OPFS staging file may be removed.
+          finishedBlob = entry.blob;
+          durableVaultCopy = entry.storageKind === "indexeddb";
+          lastVaultId = entry.id;
+          setVaultMessage(
+            `Render finished — ${vaultRenders.length >= MAX_VAULT_RENDERS ? "oldest vault slot cleared, " : ""}waiting in the vault to download.`
+          );
+          void refreshVault();
+        } catch (vaultErr) {
+          console.warn("Vault save notice:", vaultErr);
+          setVaultMessage("Render finished, but the Vault could not verify a copy. Download this video before closing the tab.");
+        }
+
+        const url = URL.createObjectURL(finishedBlob);
+        setRenderedBlob(finishedBlob);
+        setRenderedUrl(url);
+        setRenderedContainer(recordedContainer);
+        setSettings((current) => ({ ...current, format: recordedContainer }));
+        reportProgress(1);
+        reportStage("Render Complete! 🎉");
+        onRenderSuccess?.(finishedBlob, url);
+        setRenderStatus({
+          active: false,
+          progress: 1,
+          stage: durableVaultCopy ? "Render finished — verified in the Vault" : "Render finished — download before closing",
+          finishedAt: Date.now(),
+          lastVaultId,
+        });
+        return { blob: finishedBlob, container: recordedContainer, durableVaultCopy };
+      };
+
       // 2. Loading High-Resolution Visual Assets & Watermark
       reportStage("2/4: Loading high-resolution visuals & watermark...");
       reportProgress(0.28);
 
-      const images = await Promise.all(
-        scenesWithImages.map((s) => loadImage(s.image_url || ""))
-      );
-
-      // Prepare any short video clips so their frames are decodable while the
-      // canvas is being captured.
+      /**
+       * Bounded visual window.
+       *
+       * The old preparation step decoded every scene photo, built every
+       * full-size graded canvas and opened every video decoder at once. A long
+       * project can easily turn that into several gigabytes before frame one.
+       * Sequential export only needs previous/current/next (the previous one
+       * is retained for transitions), so keep exactly that three-scene window.
+       */
+      type RenderImage = (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null;
+      const images: RenderImage[] = new Array(scenesWithImages.length).fill(null);
+      const imageLoads = new Map<number, Promise<void>>();
+      const fallbackScenes = new Set<number>();
+      const gradeForCache = getFilterCanvas(videoFilter, width);
       const clipPool = new ClipPool();
       clipPoolRef.current = clipPool;
-      await Promise.all(
-        scenesWithImages.filter(sceneHasClip).map(
-          (s) =>
-            new Promise<void>((resolve) => {
-              const el = clipPool.get(s);
-              if (!el) return resolve();
-              if (el.readyState >= 2) return resolve();
-              const done = () => resolve();
-              el.addEventListener("loadeddata", done, { once: true });
-              el.addEventListener("error", done, { once: true });
-              setTimeout(done, 8000);
-            })
-        )
-      );
+
+      const loadWindowImage = (index: number): Promise<void> => {
+        if (index < 0 || index >= scenesWithImages.length || images[index]) return Promise.resolve();
+        const inFlight = imageLoads.get(index);
+        if (inFlight) return inFlight;
+        const task = loadSceneImage(scenesWithImages[index].image_url || "", index)
+          .then((result) => {
+            if (!result) return;
+            images[index] = result.img as RenderImage;
+            if (result.usedFallback) fallbackScenes.add(index);
+            setImageFallbackCount(fallbackScenes.size);
+            try {
+              prewarmSceneFrame(result.img, scenesWithImages[index], width, height, gradeForCache);
+            } catch {}
+          })
+          .finally(() => imageLoads.delete(index));
+        imageLoads.set(index, task);
+        return task;
+      };
+
+      const loadWindowClip = async (index: number): Promise<void> => {
+        const scene = scenesWithImages[index];
+        if (!scene || !sceneHasClip(scene)) return;
+        const el = clipPool.get(scene);
+        if (!el || el.readyState >= 2) return;
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+          };
+          el.addEventListener("loadeddata", done, { once: true });
+          el.addEventListener("error", done, { once: true });
+          setTimeout(done, 8000);
+        });
+      };
+
+      let visualWindowCenter = -1;
+      let visualWindowTask: Promise<void> = Promise.resolve();
+      const ensureVisualWindow = (center: number): Promise<void> => {
+        const safeCenter = Math.max(0, Math.min(scenesWithImages.length - 1, center));
+        if (safeCenter === visualWindowCenter) return visualWindowTask;
+        visualWindowCenter = safeCenter;
+        visualWindowTask = (async () => {
+          const keep = [safeCenter - 1, safeCenter, safeCenter + 1].filter(
+            (index) => index >= 0 && index < scenesWithImages.length,
+          );
+          await Promise.all(keep.flatMap((index) => [loadWindowImage(index), loadWindowClip(index)]));
+
+          // Do not release the old window until the new one is ready: a slow
+          // network image can never create a black gap at a scene boundary.
+          const keepSet = new Set(keep);
+          for (let index = 0; index < images.length; index++) {
+            if (keepSet.has(index) || !images[index]) continue;
+            const old = images[index] as HTMLImageElement;
+            images[index] = null;
+            try {
+              if ("src" in old) old.src = "";
+            } catch {}
+          }
+          clipPool.retain(keep.map((index) => scenesWithImages[index].id));
+        })();
+        return visualWindowTask;
+      };
+
+      // Frame zero and the next scene are decoded and prewarmed before any
+      // encoder starts. Later windows are prepared as the sequential loop
+      // reaches them.
+      await ensureVisualWindow(0);
 
       // Watermark image
       if (!watermarkImgRef.current) {
@@ -630,6 +1059,730 @@ export default function RenderView({
         }
       }
 
+      const sceneIndexAt = (time: number): number => {
+        if (sceneSchedule.length === 0) return 0;
+        for (const entry of sceneSchedule) {
+          if (time < entry.endTime) return entry.index;
+        }
+        return sceneSchedule[sceneSchedule.length - 1].index;
+      };
+
+      // Pure canvas pass: timeline time and analyser telemetry are explicit
+      // inputs, so this produces the same pixels in real time or frame-by-frame.
+      const drawFrameAt = (currentGlobalTime: number, audioFrame: AudioFrame | null): void => {
+        try {
+          const frameTelemetry = audioFrame || EMPTY_FRAME;
+          const loudestFrameBus = frameTelemetry.voice.level >= frameTelemetry.music.level
+            ? frameTelemetry.voice
+            : frameTelemetry.music;
+          const frameAudioLevel = audioFrame ? Math.min(1, 0.15 + loudestFrameBus.level * 2.6) : 0.4;
+          const frameFreqData = audioFrame ? (loudestFrameBus.freq as Uint8Array) || null : null;
+        // ==========================================
+        // PHASE 1: INTRO SEGMENT
+        // ==========================================
+        if (introSec && currentGlobalTime < introDuration) {
+          const progressInIntro = Math.min(1, currentGlobalTime / Math.max(0.1, introDuration));
+          ctx.fillStyle = "#000";
+          ctx.fillRect(0, 0, width, height);
+
+          try {
+            renderSection(ctx, introSec, width, height, currentGlobalTime, progressInIntro);
+          } catch (e) {
+            console.warn("Intro section render notice:", e);
+          }
+
+          if (inserts && inserts.length > 0) {
+            inserts
+              .filter((i) => i.category !== "intro" && i.category !== "outro")
+              .forEach((ins) => {
+                try {
+                  renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, frameAudioLevel, frameFreqData, frameTelemetry);
+                } catch {}
+              });
+          }
+
+          return;
+        }
+
+        // ==========================================
+        // PHASE 3: OUTRO SEGMENT
+        // ==========================================
+        if (outroSec && currentGlobalTime >= outroStartTime) {
+          const elapsedInOutro = currentGlobalTime - outroStartTime;
+          const progressInOutro = Math.min(1, elapsedInOutro / Math.max(0.1, outroDuration));
+          ctx.fillStyle = "#000";
+          ctx.fillRect(0, 0, width, height);
+
+          try {
+            renderSection(ctx, outroSec, width, height, elapsedInOutro, progressInOutro);
+          } catch (e) {
+            console.warn("Outro section render notice:", e);
+          }
+
+          if (inserts && inserts.length > 0) {
+            inserts
+              .filter((i) => i.category !== "intro" && i.category !== "outro")
+              .forEach((ins) => {
+                try {
+                  renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, frameAudioLevel, frameFreqData, frameTelemetry);
+                } catch {}
+              });
+          }
+
+          return;
+        }
+
+        // ==========================================
+        // PHASE 2: SCRIPT SCENES (Exact Schedule Match)
+        // ==========================================
+        let activeEntry = sceneSchedule[sceneSchedule.length - 1];
+        for (let i = 0; i < sceneSchedule.length; i++) {
+          const entry = sceneSchedule[i];
+          if (currentGlobalTime >= entry.startTime && currentGlobalTime < entry.endTime) {
+            activeEntry = entry;
+            break;
+          }
+          if (i === 0 && currentGlobalTime < entry.startTime) {
+            activeEntry = entry;
+            break;
+          }
+        }
+
+        const currentScene = activeEntry.scene;
+        const currentSceneIdx = activeEntry.index;
+        const elapsedInScene = Math.max(0, currentGlobalTime - activeEntry.startTime);
+        const progressInScene = Math.min(1, elapsedInScene / Math.max(0.1, activeEntry.duration));
+        // speechProgress reaches 1.0 at the exact moment spoken narration
+        // completes. The first scene's speech begins speechOffset seconds
+        // in (the opening lead-in), so both the progress and the
+        // word-locked timing are measured from that moment.
+        const activeSpokenDuration = Math.max(0.4, activeEntry.speechDuration);
+        const speechElapsed = Math.max(0, elapsedInScene - activeEntry.speechOffset);
+        const speechProgress = Math.min(
+          1,
+          Math.max(0, speechElapsed / Math.max(0.1, activeSpokenDuration))
+        );
+
+        // --- Draw background ---
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, width, height);
+
+        // --- Draw image (or video clip) ---
+        let img: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
+          images[currentSceneIdx] as any;
+        if (sceneHasClip(currentScene)) {
+          const el = clipPool.get(currentScene);
+          if (el) {
+            clipPool.seekToProgress(currentScene, progressInScene, activeEntry.duration);
+            if (el.readyState >= 2 && el.videoWidth > 0) {
+              img = asDrawableClip(el) as any;
+            }
+          }
+        }
+
+        const prevEntry = currentSceneIdx > 0 ? sceneSchedule[currentSceneIdx - 1] : null;
+        const prevScene = prevEntry ? prevEntry.scene : null;
+        let prevImg: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
+          currentSceneIdx > 0 ? (images[currentSceneIdx - 1] as any) : null;
+        if (prevScene && sceneHasClip(prevScene)) {
+          const el = clipPool.get(prevScene);
+          if (el && el.readyState >= 2 && el.videoWidth > 0) {
+            prevImg = asDrawableClip(el) as any;
+          }
+        }
+
+        const { scale, dx, dy } = getMotionTransform(
+          currentScene.motion_effect,
+          progressInScene,
+          width,
+          height,
+          currentSceneIdx
+        );
+        const safeScale = isNaN(scale) ? 1 : scale;
+        const safeDx = isNaN(dx) ? 0 : dx;
+        const safeDy = isNaN(dy) ? 0 : dy;
+
+        /**
+         * A scene using a plain colour has no image to draw, so fill the
+         * frame first. Painting it here — before the transition and before
+         * the project filter — means a fade still darkens into the colour
+         * and the filter still tints it, exactly as it would a photo.
+         */
+        if (sceneIsBlankColor(currentScene) && currentScene.blank_color) {
+          ctx.save();
+          try {
+            ctx.filter = "none";
+          } catch {}
+          ctx.fillStyle = currentScene.blank_color;
+          ctx.fillRect(0, 0, width, height);
+          ctx.restore();
+        }
+
+        let handledTransition = false;
+        if (
+          currentScene.transition &&
+          currentScene.transition !== "none"
+        ) {
+          const transDur = getTransitionDuration(activeEntry.duration);
+          if (elapsedInScene < transDur) {
+            const { scale: prevScale, dx: prevDx, dy: prevDy } = getMotionTransform(
+              prevScene?.motion_effect,
+              1,
+              width,
+              height,
+              Math.max(0, currentSceneIdx - 1)
+            );
+            const safePrevScale = isNaN(prevScale) ? 1 : prevScale;
+            const safePrevDx = isNaN(prevDx) ? 0 : prevDx;
+            const safePrevDy = isNaN(prevDy) ? 0 : prevDy;
+
+            handledTransition = drawSceneTransition(
+              ctx,
+              currentScene,
+              img && img.naturalWidth > 0 ? img : null,
+              prevScene || null,
+              prevImg && prevImg.naturalWidth > 0 ? prevImg : null,
+              elapsedInScene,
+              activeEntry.duration,
+              width,
+              height,
+              {
+                motionScale: safeScale,
+                motionDx: safeDx + (width * safeScale - width) / 2,
+                motionDy: safeDy + (height * safeScale - height) / 2,
+                filter: getFilterCanvas(videoFilter, width),
+              },
+              prevScene ? {
+                motionScale: safePrevScale,
+                motionDx: safePrevDx + (width * safePrevScale - width) / 2,
+                motionDy: safePrevDy + (height * safePrevScale - height) / 2,
+                filter: getFilterCanvas(videoFilter, width),
+              } : undefined
+            );
+          }
+        }
+
+        if (!handledTransition && img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+          try {
+            drawSceneImage(ctx, img, currentScene, width, height, {
+              motionScale: safeScale,
+              motionDx: safeDx + (width * safeScale - width) / 2,
+              motionDy: safeDy + (height * safeScale - height) / 2,
+              filter: getFilterCanvas(videoFilter, width),
+            });
+          } catch (drawErr) {
+            console.warn("Scene draw notice:", drawErr);
+          }
+
+          try {
+            ctx.filter = "none";
+          } catch {}
+        }
+
+        // --- Animated atmosphere of the project-wide filter ---
+        try {
+          paintVideoFilter(ctx, videoFilter, width, height, currentGlobalTime);
+        } catch (filterErr) {
+          console.warn("Video filter notice:", filterErr);
+        }
+
+        // --- Crisp Logo Watermark in Top-Left Corner ---
+        if (
+          settings.includeWatermark &&
+          watermarkImgRef.current &&
+          watermarkImgRef.current.naturalWidth > 0 &&
+          watermarkImgRef.current.naturalHeight > 0
+        ) {
+          ctx.save();
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+
+          const scaleRatio = width / 1280;
+          const wmScale = Math.max(0.4, Math.min(2.0, settings.watermarkScale ?? 1.0));
+          const wmOpacity = Math.max(0.1, Math.min(1.0, settings.watermarkOpacity ?? 1.0));
+          ctx.globalAlpha = wmOpacity;
+
+          const wmWidth = Math.max(20, Math.round(180 * wmScale * scaleRatio));
+          const wmHeight = Math.max(10, Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth)));
+          const posX = Math.round(24 * scaleRatio);
+          const posY = Math.round(20 * (height / 720));
+
+          // Subtle soft shadow so transparent logo stands out cleanly on any video scene (matches preview 1:1)
+          ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+          ctx.shadowBlur = 8 * scaleRatio;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 2 * scaleRatio;
+
+          // Draw crisp transparent watermark logo
+          try {
+            ctx.drawImage(watermarkImgRef.current, posX, posY, wmWidth, wmHeight);
+          } catch (wmDrawErr) {
+            console.warn("Watermark draw notice:", wmDrawErr);
+          }
+          ctx.restore();
+        }
+
+        // --- Customer Brand Logo in Top-Right Corner (if enabled) ---
+        if (
+          customerLogo?.enabled &&
+          customerLogo.url &&
+          customerLogoImgRef.current &&
+          customerLogoImgRef.current.naturalWidth > 0 &&
+          customerLogoImgRef.current.naturalHeight > 0
+        ) {
+          ctx.save();
+          const logoOpacity = Math.max(0.1, Math.min(1.0, customerLogo.opacity ?? 1.0));
+          ctx.globalAlpha = logoOpacity;
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+
+          const scaleRatio = width / 1280;
+          const cScale = Math.max(0.2, Math.min(3.0, customerLogo.scale ?? 1.0));
+          const cMarginX = (customerLogo.margin ?? 20) * scaleRatio;
+          const cMarginY = (customerLogo.margin ?? 20) * (height / 720);
+          const cWidth = Math.max(20, Math.round(200 * cScale * scaleRatio));
+          const cHeight = Math.max(10, Math.round((cWidth * customerLogoImgRef.current.naturalHeight) / Math.max(1, customerLogoImgRef.current.naturalWidth)));
+          const cX = Math.max(0, width - cWidth - cMarginX);
+          const cY = Math.max(0, cMarginY);
+
+          ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+          ctx.shadowBlur = 8 * scaleRatio;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 2 * scaleRatio;
+
+          try {
+            ctx.drawImage(customerLogoImgRef.current, cX, cY, cWidth, cHeight);
+          } catch (logoDrawErr) {
+            console.warn("Logo draw notice:", logoDrawErr);
+          }
+          ctx.restore();
+        }
+
+        // --- Subtitle & Caption Rendering (Speech Synchronized) ---
+        // Held back through the opening lead-in so the captions appear
+        // exactly when the voice starts speaking.
+        if (settings.includeSubtitles && currentScene.text && elapsedInScene >= activeEntry.speechOffset) {
+          try {
+            const activeCaptionsConfig: CaptionsConfig = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
+
+            renderCanvasCaptions(
+              ctx,
+              currentScene.text,
+              speechProgress,
+              activeCaptionsConfig,
+              width,
+              height,
+              {
+                // Real per-word spoken timings: the highlight follows the
+                // voice itself, not an estimate of it.
+                wordTimings: audioBuffers.get(currentScene.id)?.words,
+                audioTimeSec: speechElapsed,
+              }
+            );
+          } catch (capErr) {
+            console.warn("Captions render notice:", capErr);
+          }
+        }
+
+        // --- Timeline Inserts & Overlays ---
+        if (inserts && inserts.length > 0) {
+          try {
+            let audioLevel = 0.4;
+            let freqData: Uint8Array | null = null;
+            const insertAudioFrame = audioFrame || EMPTY_FRAME;
+            const loudest = insertAudioFrame.voice.level >= insertAudioFrame.music.level
+              ? insertAudioFrame.voice
+              : insertAudioFrame.music;
+            if (audioFrame) {
+              audioLevel = Math.min(1, 0.15 + loudest.level * 2.6);
+              freqData = (loudest.freq as Uint8Array) || null;
+            }
+
+            inserts.forEach((insert) => {
+              try {
+                renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData, insertAudioFrame, {
+                  logo: customerLogo?.enabled ? customerLogoImgRef.current : null,
+                });
+              } catch (insErr) {
+                console.warn("Insert notice:", insErr);
+              }
+            });
+          } catch (insertsErr) {
+            console.warn("Timeline inserts notice:", insertsErr);
+          }
+        }
+        } catch (frameErr) {
+          console.error("Frame render recoverable error:", frameErr);
+        }
+      };
+
+      // Prefer a deterministic two-pass export. Nothing here is paced by wall
+      // time: Web Audio renders the mix sample-exactly, then WebCodecs receives
+      // one canvas snapshot for every timestamp in the CFR timeline.
+      const requestedContainer: "mp4" | "webm" =
+        targetFormat === "webm" ? "webm" : targetFormat === "mp4" || targetFormat === "mov"
+          ? "mp4"
+          : (plan ? plan.container : settings.format) === "webm" ? "webm" : "mp4";
+      let offlineContainer: "mp4" | "webm" = requestedContainer;
+      let offlineConfig: OfflineExportConfig = {
+        container: offlineContainer,
+        width,
+        height,
+        fps: fpsUsed,
+        videoKbps,
+        audioKbps,
+        sampleRate: 48_000,
+        channels: 2,
+        /**
+         * Upper bounds on how many chunks each track will produce, so the
+         * muxer can reserve room for the index at the front of the file
+         * instead of keeping the whole video in memory and rearranging it at
+         * the end. One chunk per frame for video; AAC works in 1024-sample
+         * frames, so the audio count follows from the duration. Rounded up
+         * generously — reserving slightly too much space costs a few unused
+         * bytes, reserving too little would fail the export.
+         */
+        expectedVideoChunks: Math.ceil(estimatedTotalDuration * fpsUsed) + 2,
+        expectedAudioChunks: Math.ceil((estimatedTotalDuration * 48_000) / 1024) + 8,
+      };
+      let offlineProbe = await offlineExportSupported(offlineConfig);
+
+      // Many Chromium builds expose VP9/Opus WebCodecs but not AAC or H.264
+      // (especially Linux and embedded preview browsers). Preserve the
+      // frame-exact timeline by switching container rather than falling all
+      // the way back to real-time MediaRecorder.
+      if (!offlineProbe.supported && requestedContainer === "mp4") {
+        const mp4Reason = offlineProbe.reason;
+        const webmConfig: OfflineExportConfig = { ...offlineConfig, container: "webm" };
+        const webmProbe = await offlineExportSupported(webmConfig);
+        if (webmProbe.supported) {
+          offlineContainer = "webm";
+          offlineConfig = webmConfig;
+          offlineProbe = webmProbe;
+          reportStage("MP4 WebCodecs unavailable — using frame-exact VP9/Opus WebM…");
+          console.info("MP4 frame-exact codecs unavailable; preserving offline rendering with WebM:", mp4Reason);
+        } else {
+          offlineProbe = {
+            ...webmProbe,
+            reason: `MP4 failed: ${mp4Reason || "unsupported"}. WebM failed: ${webmProbe.reason || "unsupported"}`,
+          };
+        }
+      }
+
+      if (offlineProbe.supported && typeof OfflineAudioContext !== "undefined") {
+        let offlineEncoder: OfflineExporter | null = null;
+        try {
+          reportStage("3/4: Rendering sample-exact audio mix…");
+          reportProgress(0.32);
+          // Times itself, because the renders that go wrong are the long ones
+          // and nobody can be asked to sit and watch a nine-minute export to
+          // tell me which part was slow.
+          const renderTimer = new RenderTimer();
+          renderTimer.stage("encoder setup");
+          const totalFrames = Math.ceil(estimatedTotalDuration * fpsUsed);
+          setRenderHealth((health) => ({ ...health, totalFrames }));
+          // Configure real encoder instances before spending time on the audio
+          // pass. A driver/configuration rejection is reported immediately.
+          offlineEncoder = await OfflineExporter.create(offlineConfig);
+          setRenderHealth((health) => ({
+            ...health,
+            outputStorage: offlineEncoder!.outputStorage,
+            outputStorageDetail: offlineEncoder!.outputStorageDetail,
+          }));
+          setRenderEngine("frame-exact");
+          reportStage(`3/4: Frame-exact ${offlineProbe.videoCodec} + ${offlineProbe.audioCodec} — rendering audio…`);
+          renderTimer.stage("audio graph");
+          const offlineCtx = new OfflineAudioContext(2, Math.ceil(estimatedTotalDuration * 48_000), 48_000);
+          const offlineMastering = createMasteringChain(offlineCtx, settings.audioMastering);
+          offlineMastering.output.connect(offlineCtx.destination);
+
+          const voiceAnalyser = offlineCtx.createAnalyser();
+          voiceAnalyser.fftSize = 512;
+          voiceAnalyser.smoothingTimeConstant = 0.72;
+          voiceAnalyser.minDecibels = -92;
+          voiceAnalyser.maxDecibels = -12;
+          voiceAnalyser.connect(offlineMastering.voiceInput);
+          const offlineMusicAnalyser = offlineCtx.createAnalyser();
+          offlineMusicAnalyser.fftSize = 512;
+          offlineMusicAnalyser.smoothingTimeConstant = 0.72;
+          offlineMusicAnalyser.minDecibels = -92;
+          offlineMusicAnalyser.maxDecibels = -12;
+          offlineMusicAnalyser.connect(offlineMastering.musicInput);
+
+          let offlineEcho: VoiceEchoGraph | null = null;
+          const offlineEchoConfig = resolveVoiceEcho(voiceEcho);
+          if (voiceEchoIsActive(offlineEchoConfig)) {
+            offlineEcho = createVoiceEchoGraph(offlineCtx, offlineEchoConfig);
+            offlineEcho.output.connect(voiceAnalyser);
+          }
+          for (const entry of sceneSchedule) {
+            const item = audioBuffers.get(entry.scene.id);
+            if (!item) continue;
+            const source = offlineCtx.createBufferSource();
+            source.buffer = item.buffer;
+            source.connect(offlineEcho ? offlineEcho.input : voiceAnalyser);
+            source.start(entry.startTime + entry.speechOffset);
+          }
+
+          // Legacy render-page ambient bed (normally timeline inserts now).
+          if (settings.backgroundMusic !== "none" && settings.musicVolume > 0) {
+            const styleTrackId = AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic];
+            const track = styleTrackId ? getBackgroundMusicTrack(styleTrackId) : undefined;
+            if (track) {
+              try {
+                const response = await fetch(track.url);
+                if (response.ok) {
+                  const source = offlineCtx.createBufferSource();
+                  source.buffer = await offlineCtx.decodeAudioData(await response.arrayBuffer());
+                  source.loop = true;
+                  const gain = offlineCtx.createGain();
+                  gain.gain.value = Math.max(0, Math.min(1, settings.musicVolume)) * 0.85;
+                  source.connect(gain);
+                  source.start(0);
+                  gain.connect(offlineMusicAnalyser);
+                }
+              } catch (error) {
+                console.warn("Offline ambient track decode failed:", error);
+              }
+            }
+          }
+
+          const insertPlans = [
+            ...buildInsertAudioPlan(inserts, estimatedTotalDuration),
+            ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
+          ];
+          const offlineInsertMixer = new InsertAudioMixer(offlineCtx, offlineMusicAnalyser);
+          await offlineInsertMixer.load(insertPlans);
+          // Placed on the timeline up front, to the sample, so the render does
+          // not have to stop once per frame to ask whether a sound is due.
+          offlineInsertMixer.scheduleAll();
+
+          // One packed allocation replaces tens of thousands of retained
+          // AudioFrame objects/ArrayBuffers on a long render. Scratch arrays
+          // are reused at every suspension point and copied into a fixed row.
+          const telemetry = new PackedAudioTelemetry(
+            totalFrames,
+            voiceAnalyser.frequencyBinCount,
+            voiceAnalyser.fftSize,
+          );
+          setRenderHealth((health) => ({ ...health, telemetryBytes: telemetry.byteLength }));
+          const voiceFreq = new Uint8Array(voiceAnalyser.frequencyBinCount);
+          const voiceWave = new Uint8Array(voiceAnalyser.fftSize);
+          const musicFreq = new Uint8Array(offlineMusicAnalyser.frequencyBinCount);
+          const musicWave = new Uint8Array(offlineMusicAnalyser.fftSize);
+          const readLevel = (
+            node: AnalyserNode,
+            freq: Uint8Array<ArrayBuffer>,
+            wave: Uint8Array<ArrayBuffer>,
+          ) => {
+            node.getByteFrequencyData(freq);
+            node.getByteTimeDomainData(wave);
+            let sum = 0;
+            for (let n = 0; n < freq.length; n++) sum += freq[n];
+            return sum / Math.max(1, freq.length * 255);
+          };
+
+          /**
+           * Register a small look-ahead window of suspension points. A purely
+           * sequential suspend can lose a race with the very fast offline
+           * audio thread; registering all 27,000 points up front avoids that
+           * race but retains 27,000 promises. At the last suspended frame of
+           * each window the next window is registered *before* resume(), so
+           * the renderer can never pass it and only a few seconds of promises
+           * are live at once.
+           */
+          const captureTelemetry = () => new Promise<void>((resolve, reject) => {
+            const WINDOW_FRAMES = Math.max(30, Math.round(fpsUsed * 4));
+            let settled = false;
+            const fail = (error: unknown) => {
+              if (settled) return;
+              settled = true;
+              reject(error);
+            };
+            const scheduleWindow = (start: number) => {
+              const end = Math.min(totalFrames, start + WINDOW_FRAMES);
+              for (let frame = start; frame < end; frame++) {
+                offlineCtx.suspend(frame / fpsUsed).then(async () => {
+                  if (abortControllerRef.current) throw new Error("Render cancelled");
+                  const voiceLevel = readLevel(voiceAnalyser, voiceFreq, voiceWave);
+                  const musicLevel = readLevel(offlineMusicAnalyser, musicFreq, musicWave);
+                  telemetry.setAnalyserFrame(
+                    frame,
+                    voiceLevel,
+                    voiceFreq,
+                    voiceWave,
+                    musicLevel,
+                    musicFreq,
+                    musicWave,
+                  );
+                  offlineMastering.updateVoiceLevel(voiceLevel, offlineCtx.currentTime);
+
+                  // Extend the runway while the context is safely suspended.
+                  if (frame === end - 1 && end < totalFrames) scheduleWindow(end);
+                  await offlineCtx.resume();
+                  if (frame === totalFrames - 1 && !settled) {
+                    settled = true;
+                    resolve();
+                  }
+                }).catch(fail);
+              }
+            };
+            if (totalFrames <= 1) {
+              settled = true;
+              resolve();
+            } else {
+              scheduleWindow(1);
+            }
+          });
+          // The first look-ahead window is registered synchronously before
+          // startRendering begins.
+          renderTimer.stage("audio render + telemetry");
+          const telemetryCapture = captureTelemetry();
+          const rendering = offlineCtx.startRendering();
+          const [mixedAudio] = await Promise.all([rendering, telemetryCapture]);
+          if (abortControllerRef.current) throw new Error("Render cancelled");
+
+          renderTimer.stage("video frames");
+          const encodeBudget = createFrameBudget();
+          let assetScene = -1;
+          let lastOfflineProgressAt = 0;
+          for (let frame = 0; frame < totalFrames; frame++) {
+            if (abortControllerRef.current) throw new Error("Render cancelled");
+            const time = frame / fpsUsed;
+            const nextAssetScene = sceneIndexAt(time);
+            if (nextAssetScene !== assetScene) {
+              await ensureVisualWindow(nextAssetScene);
+              assetScene = nextAssetScene;
+            }
+            let active = sceneSchedule[sceneSchedule.length - 1];
+            for (const entry of sceneSchedule) {
+              if (time >= entry.startTime && time < entry.endTime) { active = entry; break; }
+              if (time < entry.startTime) { active = entry; break; }
+            }
+            if (active && sceneHasClip(active.scene) && time >= active.startTime && time < active.endTime) {
+              const elapsed = Math.max(0, time - active.startTime);
+              await clipPool.seekExact(active.scene, Math.min(1, elapsed / Math.max(0.1, active.duration)), active.duration);
+            }
+            drawFrameAt(time, telemetry.frame(frame));
+            await offlineEncoder.encodeCanvas(canvas, frame);
+            const progressNow = performance.now();
+            if (frame === totalFrames - 1 || progressNow - lastOfflineProgressAt >= 250) {
+              lastOfflineProgressAt = progressNow;
+              const progress = 0.35 + ((frame + 1) / totalFrames) * 0.5;
+              reportProgress(Math.min(0.85, progress));
+              reportStage(`3/4: Encoding frame ${frame + 1} of ${totalFrames} (frame-exact)…`);
+              setRenderHealth((health) => ({
+                ...health,
+                framesDone: frame + 1,
+                outputBytes: offlineEncoder!.bytesWritten,
+                queuedOutputBytes: offlineEncoder!.queuedOutputBytes,
+              }));
+            }
+            // Hand the browser a turn on a time budget rather than every
+            // fourth frame, and through a message rather than a timer —
+            // timers are clamped to a second once the tab is in the
+            // background, which is what made a long render crawl the moment
+            // you looked at something else.
+            await encodeBudget.maybeYield();
+          }
+
+          /**
+           * Everything past this point used to sit behind a single 94% and a
+           * frozen window: the soundtrack was encoded in one unbroken loop,
+           * then the container was assembled in another. On a nine-minute
+           * video that is a long time to look at a bar that is not moving,
+           * and long enough to look like a crash. Both now yield, and both
+           * report where they are.
+           */
+          renderTimer.stage("audio encode");
+          reportStage("4/4: Encoding sample-exact audio…");
+          reportProgress(0.86);
+          await offlineEncoder.encodeAudio(mixedAudio, 4_800, (fraction) => {
+            reportProgress(0.86 + fraction * 0.08);
+          });
+          setRenderHealth((health) => ({
+            ...health,
+            outputBytes: offlineEncoder!.bytesWritten,
+            queuedOutputBytes: offlineEncoder!.queuedOutputBytes,
+          }));
+
+          renderTimer.stage("finalise container");
+          reportStage("4/4: Finalising the container…");
+          reportProgress(0.95);
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          const offlineBlob = await offlineEncoder.finalize();
+          setRenderHealth((health) => ({
+            ...health,
+            framesDone: totalFrames,
+            outputBytes: offlineBlob.size,
+            queuedOutputBytes: 0,
+          }));
+          renderTimer.stop();
+          renderTimer.note(
+            "video",
+            `${Math.round(estimatedTotalDuration)}s at ${fpsUsed}fps (${totalFrames} frames), ${offlineConfig.width}x${offlineConfig.height}`
+          );
+          renderTimer.note(
+            "file",
+            `${(offlineBlob.size / 1_048_576).toFixed(0)} MB ${offlineContainer.toUpperCase()}`
+          );
+          renderTimer.note("output storage", offlineEncoder.outputStorageDetail);
+          renderTimer.note("audio telemetry", `${(telemetry.byteLength / 1_048_576).toFixed(1)} MB packed`);
+          renderTimer.note("visual assets", "bounded 3-scene decode window");
+          const timingReport = renderTimer.format();
+          console.log(timingReport);
+          setRenderTiming(timingReport);
+          reportProgress(0.98);
+          offlineMastering.dispose();
+          offlineEcho?.dispose();
+          offlineInsertMixer.dispose();
+          setRenderEngine("frame-exact");
+          setOfflineFailureReason(null);
+          const finished = await finishSuccessfulExport(offlineBlob, offlineContainer, offlineBlob.type);
+          if (finished.durableVaultCopy) {
+            await offlineEncoder.releaseOutputStorage();
+          }
+          return { blob: finished.blob, container: finished.container };
+        } catch (offlineError) {
+          offlineEncoder?.close();
+          if (abortControllerRef.current) throw offlineError;
+          const reason = offlineError instanceof Error
+            ? `${offlineError.name}: ${offlineError.message}`
+            : String(offlineError);
+          setOfflineFailureReason(reason);
+          console.error("Frame-exact offline export failed:", offlineError);
+          if (requireFrameExact) {
+            throw new Error(`Frame-exact export failed. ${reason}`);
+          }
+          setRenderEngine("compatibility");
+          reportStage(`Compatibility fallback: ${reason}`);
+          reportProgress(0.34);
+        }
+      } else {
+        const reason = typeof OfflineAudioContext === "undefined"
+          ? "OfflineAudioContext is unavailable in this browser"
+          : offlineProbe.reason || "WebCodecs configuration is unsupported";
+        setOfflineFailureReason(reason);
+        console.error("Frame-exact offline export unsupported:", reason);
+        if (requireFrameExact) {
+          throw new Error(`Frame-exact export is required but unavailable. ${reason}`);
+        }
+        setRenderEngine("compatibility");
+        reportStage(`Compatibility fallback: ${reason}`);
+      }
+
+      // Automatic compatibility fallback remains available only when the
+      // user explicitly unticks "Require frame-exact rendering".
+      setRenderEngine("compatibility");
+      setRenderHealth((health) => ({
+        ...health,
+        outputStorage: "memory",
+        outputStorageDetail: "Compatibility recorder chunks in memory",
+      }));
+      if (typeof MediaRecorder === "undefined") {
+        throw new Error("This browser supports neither WebCodecs offline export nor MediaRecorder");
+      }
+
       // Ensure AudioContext is active and running
       if (audioCtx.state === "suspended") {
         try {
@@ -641,6 +1794,13 @@ export default function RenderView({
 
       // Setup audio destination mixer
       const dest = audioCtx.createMediaStreamDestination();
+
+      // Optional audio mastering stage (Master Render Profile §12/§13):
+      // Automatic (default) protects the final mix — no clipping, no runaway
+      // loudness, and voice-priority ducking so music never buries speech.
+      // Manual passes the user's own mix through completely untouched.
+      const mastering: MasteringChain = createMasteringChain(audioCtx, settings.audioMastering);
+      mastering.output.connect(dest);
 
       // Inaudible continuous carrier tone to guarantee AudioContext destination stream clock never stalls in Chrome/Safari
       try {
@@ -655,51 +1815,40 @@ export default function RenderView({
       }
 
       // Ambient background music: REAL instrumental recordings from the
-      // library (no synthetic tones). Falls back to the old Web Audio loop
-      // only if the file can't be fetched/decoded.
+      // library (no synthetic tones).
       let ambientGainNode: AudioNode | null = null;
       if (settings.backgroundMusic !== "none" && settings.musicVolume > 0) {
         const styleTrackId = AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic];
         const track = styleTrackId ? getBackgroundMusicTrack(styleTrackId) : undefined;
-        let ambientGain: AudioNode | null = null;
         if (track) {
           try {
             const res = await fetch(track.url);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const musicBuf = await audioCtx.decodeAudioData(await res.arrayBuffer());
-            const src = audioCtx.createBufferSource();
-            src.buffer = musicBuf;
-            src.loop = true; // real tracks loop to fill the whole video
-            const g = audioCtx.createGain();
-            g.gain.value = Math.max(0, Math.min(1, settings.musicVolume)) * 0.85;
-            src.connect(g);
-            g.connect(dest);
-            src.start();
-            ambientGain = g;
+            if (res.ok) {
+              const musicBuf = await audioCtx.decodeAudioData(await res.arrayBuffer());
+              const src = audioCtx.createBufferSource();
+              src.buffer = musicBuf;
+              src.loop = true; // real tracks loop to fill the whole video
+              const g = audioCtx.createGain();
+              g.gain.value = Math.max(0, Math.min(1, settings.musicVolume)) * 0.85;
+              src.connect(g);
+              g.connect(mastering.musicInput || dest);
+              src.start();
+              ambientGainNode = g;
+            }
           } catch (musicErr) {
-            console.warn("Real background track failed to load — synth fallback used:", musicErr);
+            console.warn("Real background track failed to load:", musicErr);
           }
         }
-        if (!ambientGain) {
-          ambientGain = createAmbientMusicNode(
-            audioCtx,
-            settings.backgroundMusic,
-            totalDuration + 5,
-            settings.musicVolume
-          );
-          if (ambientGain) ambientGain.connect(dest);
-        }
-        ambientGainNode = ambientGain;
       }
 
       // Paint initial background on canvas so captureStream receives valid dimensions & non-empty buffer immediately
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, width, height);
 
-      // Video recording stream
+      // Video recording stream — captured at the profile's constant rate
       let videoStream: MediaStream;
       try {
-        videoStream = canvas.captureStream(settings.fps);
+        videoStream = canvas.captureStream(fpsUsed);
       } catch {
         videoStream = (canvas as any).captureStream ? (canvas as any).captureStream() : (canvas as any).mozCaptureStream();
       }
@@ -714,32 +1863,56 @@ export default function RenderView({
         combinedStream = videoStream;
       }
 
-      // Select reliable recording MIME type: WebM VP9/VP8 with Opus audio is 100% stable
-      // across all browsers with WebAudio streams, whereas native MP4 recorder in Chromium fails with Opus
+      // Recording container. The requested format is honoured when the browser
+      // can record it, and the fallback is always HONEST: the download
+      // extension matches whatever was actually recorded. (Before, the
+      // recorder always produced WebM while the file was named .mp4 — the
+      // mislabelled file is why the download "did not work" in players.)
+      const MP4_MIMES = [
+        "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+        "video/mp4;codecs=avc1,mp4a.40.2",
+        "video/mp4",
+      ];
+      const WEBM_MIMES = [
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+        "video/webm",
+      ];
+      const wantedContainer: "mp4" | "webm" =
+        targetFormat === "webm"
+          ? "webm"
+          : targetFormat === "mp4" || targetFormat === "mov"
+          ? "mp4"
+          : (plan ? plan.container : settings.format) === "webm"
+          ? "webm"
+          : "mp4";
       let mimeType = "";
-      if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")) {
-        mimeType = "video/webm;codecs=vp9,opus";
-      } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")) {
-        mimeType = "video/webm;codecs=vp8,opus";
-      } else if (MediaRecorder.isTypeSupported("video/webm")) {
-        mimeType = "video/webm";
-      } else if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1,mp4a.40.2")) {
-        mimeType = "video/mp4;codecs=avc1,mp4a.40.2";
-      } else if (MediaRecorder.isTypeSupported("video/mp4")) {
-        mimeType = "video/mp4";
+      for (const candidate of wantedContainer === "mp4" ? MP4_MIMES : WEBM_MIMES) {
+        if (MediaRecorder.isTypeSupported(candidate)) {
+          mimeType = candidate;
+          break;
+        }
+      }
+      if (!mimeType) {
+        // Browser cannot record the wanted container → use the other one and
+        // say so through the file extension (never a mislabelled file).
+        for (const candidate of wantedContainer === "mp4" ? WEBM_MIMES : MP4_MIMES) {
+          if (MediaRecorder.isTypeSupported(candidate)) {
+            mimeType = candidate;
+            break;
+          }
+        }
       }
 
-      const bitrateMap = {
-        standard: 4000000,
-        high: 8000000,
-        ultra: 12000000,
-      };
-
+      // Bitrates come from the Master Render Profile's platform-aware ladder
+      // (src/lib/render-profile.ts) — scaled to the real frame size and rate,
+      // never one arbitrary number for every video.
       let recorder: MediaRecorder;
       try {
         recorder = new MediaRecorder(combinedStream, {
           ...(mimeType ? { mimeType } : {}),
-          videoBitsPerSecond: bitrateMap[settings.quality] || 8000000,
+          videoBitsPerSecond: videoKbps * 1000,
+          audioBitsPerSecond: audioKbps * 1000,
         });
       } catch (recErr) {
         console.warn("MediaRecorder creation with mimeType failed, falling back to default:", recErr);
@@ -751,6 +1924,10 @@ export default function RenderView({
         }
       }
 
+      const recordedContainer: "mp4" | "webm" = (recorder.mimeType || mimeType || "video/webm").includes("mp4")
+        ? "mp4"
+        : "webm";
+
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -761,38 +1938,8 @@ export default function RenderView({
       };
 
       // 3. Render frames & play audio in real time with exact timeline synchronization
-      reportStage(`3/4: Preparing video & audio timeline...`);
+      reportStage(`3/4: Preparing real-time compatibility timeline...`);
       reportProgress(0.35);
-
-      const introSec = introSection?.enabled ? introSection : null;
-      const outroSec = outroSection?.enabled ? outroSection : null;
-      const introDuration = introSec ? Math.max(0.5, introSec.duration) : 0;
-      const outroDuration = outroSec ? Math.max(0.5, outroSec.duration) : 0;
-
-      let timelineOffset = introDuration;
-      const sceneSchedule = scenesWithImages.map((s, idx) => {
-        const item = audioBuffers.get(s.id);
-        const speechDur =
-          item && item.duration > 0.3
-            ? item.duration
-            : calculateDynamicDuration(s.text, s.audio_duration);
-        // Clean 0.25s breathing space after spoken voice narration before scene cut / transition
-        const sceneDur = Math.max(1.5, Math.round((speechDur + 0.25) * 10) / 10);
-        const entry = {
-          scene: s,
-          index: idx,
-          startTime: timelineOffset,
-          duration: sceneDur,
-          endTime: timelineOffset + sceneDur,
-          speechDuration: speechDur,
-        };
-        timelineOffset += sceneDur;
-        return entry;
-      });
-
-      const scriptTotalDuration = timelineOffset - introDuration;
-      const outroStartTime = timelineOffset;
-      const estimatedTotalDuration = Math.max(1, timelineOffset + outroDuration);
 
       const videoPromise = new Promise<Blob>((resolve) => {
         let isResolved = false;
@@ -821,20 +1968,22 @@ export default function RenderView({
         }, Math.max(15, estimatedTotalDuration + 15) * 1000);
       });
 
+      // Voice bus → mastering voice input (never ducked, always intelligible)
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 512;
       analyser.smoothingTimeConstant = 0.72;
       analyser.minDecibels = -92;
       analyser.maxDecibels = -12;
-      analyser.connect(dest);
+      analyser.connect(mastering.voiceInput);
 
-      // Music bus: background track / SFX analysed separately
+      // Music bus: background track / SFX analysed separately, then through
+      // the mastering stage's ducking path (music steps aside for speech)
       const musicAnalyser = audioCtx.createAnalyser();
       musicAnalyser.fftSize = 512;
       musicAnalyser.smoothingTimeConstant = 0.72;
       musicAnalyser.minDecibels = -92;
       musicAnalyser.maxDecibels = -12;
-      musicAnalyser.connect(dest);
+      musicAnalyser.connect(mastering.musicInput);
 
       if (ambientGainNode) {
         try {
@@ -891,7 +2040,7 @@ export default function RenderView({
             const source = audioCtx.createBufferSource();
             source.buffer = item.buffer;
             source.connect(voiceEchoGraph ? voiceEchoGraph.input : analyser);
-            source.start(renderAudioT0 + entry.startTime);
+            source.start(renderAudioT0 + entry.startTime + entry.speechOffset);
             scheduledSources.push(source);
           } catch (audioErr) {
             console.warn("Error scheduling scene audio:", audioErr);
@@ -935,21 +2084,35 @@ export default function RenderView({
       let lastProgressUiUpdate = 0;
       let lastProgressVal = 0.35;
       let lastResumeAttempt = 0;
+      let realTimeAssetScene = 0;
 
-      // Frame drawing loop with robust error boundaries and background tab resilience
+      // Frame drawing loop with robust error boundaries and background tab resilience.
+      //
+      // Pacing comes from the shared frame ticker: requestAnimationFrame while
+      // the tab is visible (true vsync cadence — the exported motion glides),
+      // a Web Worker timer while it is hidden (page timers would be throttled
+      // to ~1Hz and the video would judder), and a watchdog if both stall.
+      // The previous loop raced a 16ms setTimeout against every rAF, and the
+      // resulting jitter was captured straight into the file: the Ken Burns
+      // read as choppy, jumping frames instead of a camera move.
       await new Promise<void>((resolveLoop) => {
         let isLoopFinished = false;
-        let backgroundTimerId: any = null;
+        const ticker = createFrameTicker(() => renderFrame());
+        frameTickerRef.current = ticker;
 
         const cleanupAndFinish = () => {
           if (isLoopFinished) return;
           isLoopFinished = true;
-          if (backgroundTimerId) clearTimeout(backgroundTimerId);
+          ticker.stop();
+          if (frameTickerRef.current === ticker) frameTickerRef.current = null;
           try {
             insertMixer?.stop();
           } catch {}
           try {
             voiceEchoGraph?.dispose();
+          } catch {}
+          try {
+            mastering.dispose();
           } catch {}
           try {
             if (recorder && recorder.state !== "inactive") {
@@ -961,23 +2124,8 @@ export default function RenderView({
           resolveLoop();
         };
 
-        const scheduleNextFrame = () => {
-          if (isLoopFinished) return;
-          const animId = requestAnimationFrame(renderFrame);
-          // Backup timer so if user switches tabs and requestAnimationFrame throttles, the render never freezes
-          if (backgroundTimerId) clearTimeout(backgroundTimerId);
-          backgroundTimerId = setTimeout(() => {
-            cancelAnimationFrame(animId);
-            renderFrame();
-          }, 40);
-        };
-
         const renderFrame = () => {
           if (isLoopFinished) return;
-          if (backgroundTimerId) {
-            clearTimeout(backgroundTimerId);
-            backgroundTimerId = null;
-          }
 
           if (abortControllerRef.current) {
             cleanupAndFinish();
@@ -989,17 +2137,25 @@ export default function RenderView({
             const dt = Math.max(0, Math.min(0.1, (now - lastFrameWallTime) / 1000));
             lastFrameWallTime = now;
 
-            // Direct phase-lock to Web Audio hardware clock with continuous monotonic easing (zero jagged jumps!)
+            // Direct phase-lock to Web Audio hardware clock: zero lag, zero drift
             const targetAudioTime = audioCtx.state === "running"
               ? Math.max(0, audioCtx.currentTime - renderAudioT0)
               : smoothedGlobalTime + dt;
 
-            smoothedGlobalTime += dt;
             if (audioCtx.state === "running") {
-              // Smoothly converge to audio time without abrupt jumps
-              smoothedGlobalTime += (targetAudioTime - smoothedGlobalTime) * 0.18;
+              smoothedGlobalTime = targetAudioTime;
+            } else {
+              smoothedGlobalTime += dt;
             }
             const currentGlobalTime = smoothedGlobalTime;
+
+            const nextAssetScene = sceneIndexAt(currentGlobalTime);
+            if (nextAssetScene !== realTimeAssetScene) {
+              realTimeAssetScene = nextAssetScene;
+              // The previous scene preloaded this one; now prefetch one more.
+              // Real-time fallback cannot pause its audio clock to await I/O.
+              void ensureVisualWindow(nextAssetScene);
+            }
 
             if (audioCtx.state !== "running" && now - renderStartTime - lastResumeAttempt > 2000) {
               lastResumeAttempt = now - renderStartTime;
@@ -1024,371 +2180,39 @@ export default function RenderView({
               lastProgressVal = clampedProgress;
               reportProgress(clampedProgress);
               reportStage(
-                `3/4: Rendering Video (${Math.round(currentGlobalTime)}s / ${Math.round(estimatedTotalDuration)}s)`
+                `3/4: Compatibility render (${formatDuration(currentGlobalTime)} / ${formatDuration(estimatedTotalDuration)})`
               );
             }
 
-            // ==========================================
-            // PHASE 1: INTRO SEGMENT
-            // ==========================================
-            if (introSec && currentGlobalTime < introDuration) {
-              const progressInIntro = Math.min(1, currentGlobalTime / Math.max(0.1, introDuration));
-              ctx.fillStyle = "#000";
-              ctx.fillRect(0, 0, width, height);
-
-              try {
-                renderSection(ctx, introSec, width, height, currentGlobalTime, progressInIntro);
-              } catch (e) {
-                console.warn("Intro section render notice:", e);
-              }
-
-              if (inserts && inserts.length > 0) {
-                inserts
-                  .filter((i) => i.category !== "intro" && i.category !== "outro")
-                  .forEach((ins) => {
-                    try {
-                      renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, 0.4, null);
-                    } catch {}
-                  });
-              }
-
-              scheduleNextFrame();
-              return;
+            const readBus = (node: AnalyserNode | null) => {
+              if (!node) return makeBus(0, null, null);
+              const freq = new Uint8Array(node.frequencyBinCount);
+              node.getByteFrequencyData(freq);
+              const wave = new Uint8Array(node.fftSize);
+              node.getByteTimeDomainData(wave);
+              let sum = 0;
+              for (let i = 0; i < freq.length; i++) sum += freq[i];
+              return makeBus(sum / (freq.length * 255), freq, wave);
+            };
+            const audioFrame: AudioFrame = { voice: readBus(analyser), music: readBus(musicAnalyser) };
+            try { mastering.updateVoiceLevel(audioFrame.voice.level, audioCtx.currentTime); } catch {}
+            // Seeking is clock/mixer work, not canvas work; keep drawFrameAt pure.
+            let clipEntry = sceneSchedule[sceneSchedule.length - 1];
+            for (const entry of sceneSchedule) {
+              if (currentGlobalTime >= entry.startTime && currentGlobalTime < entry.endTime) { clipEntry = entry; break; }
+              if (currentGlobalTime < entry.startTime) { clipEntry = entry; break; }
             }
-
-            // ==========================================
-            // PHASE 3: OUTRO SEGMENT
-            // ==========================================
-            if (outroSec && currentGlobalTime >= outroStartTime) {
-              const elapsedInOutro = currentGlobalTime - outroStartTime;
-              const progressInOutro = Math.min(1, elapsedInOutro / Math.max(0.1, outroDuration));
-              ctx.fillStyle = "#000";
-              ctx.fillRect(0, 0, width, height);
-
-              try {
-                renderSection(ctx, outroSec, width, height, elapsedInOutro, progressInOutro);
-              } catch (e) {
-                console.warn("Outro section render notice:", e);
-              }
-
-              if (inserts && inserts.length > 0) {
-                inserts
-                  .filter((i) => i.category !== "intro" && i.category !== "outro")
-                  .forEach((ins) => {
-                    try {
-                      renderTimelineInsert(ctx, ins, currentGlobalTime, width, height, 0.4, null);
-                    } catch {}
-                  });
-              }
-
-              if (progressInOutro >= 1) {
-                cleanupAndFinish();
-                return;
-              }
-
-              scheduleNextFrame();
-              return;
+            if (clipEntry && sceneHasClip(clipEntry.scene)) {
+              const elapsed = Math.max(0, currentGlobalTime - clipEntry.startTime);
+              clipPool.seekToProgress(clipEntry.scene, Math.min(1, elapsed / Math.max(0.1, clipEntry.duration)), clipEntry.duration);
             }
-
-            // ==========================================
-            // PHASE 2: SCRIPT SCENES (Exact Schedule Match)
-            // ==========================================
-            let activeEntry = sceneSchedule[sceneSchedule.length - 1];
-            for (let i = 0; i < sceneSchedule.length; i++) {
-              const entry = sceneSchedule[i];
-              if (currentGlobalTime >= entry.startTime && currentGlobalTime < entry.endTime) {
-                activeEntry = entry;
-                break;
-              }
-              if (i === 0 && currentGlobalTime < entry.startTime) {
-                activeEntry = entry;
-                break;
-              }
-            }
-
-            const currentScene = activeEntry.scene;
-            const currentSceneIdx = activeEntry.index;
-            const elapsedInScene = Math.max(0, currentGlobalTime - activeEntry.startTime);
-            const progressInScene = Math.min(1, elapsedInScene / Math.max(0.1, activeEntry.duration));
-            // speechProgress reaches 1.0 at the exact moment spoken narration completes.
-            // TTS voice recordings include trailing breath/room tone after the last word (~0.28s).
-            // Calibrating against activeSpokenDuration keeps captions 100% in sync with the spoken voice syllables!
-            const activeSpokenDuration = Math.max(0.4, activeEntry.speechDuration - 0.28);
-            const speechProgress = Math.min(
-              1,
-              Math.max(0, elapsedInScene / Math.max(0.2, activeSpokenDuration))
-            );
-
-            // --- Draw background ---
-            ctx.fillStyle = "#000";
-            ctx.fillRect(0, 0, width, height);
-
-            // --- Draw image (or video clip) ---
-            let img: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
-              images[currentSceneIdx] as any;
-            if (sceneHasClip(currentScene)) {
-              const el = clipPool.get(currentScene);
-              if (el) {
-                clipPool.seekToProgress(currentScene, progressInScene, activeEntry.duration);
-                if (el.readyState >= 2 && el.videoWidth > 0) {
-                  img = asDrawableClip(el) as any;
-                }
-              }
-            }
-
-            const prevEntry = currentSceneIdx > 0 ? sceneSchedule[currentSceneIdx - 1] : null;
-            const prevScene = prevEntry ? prevEntry.scene : null;
-            let prevImg: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
-              currentSceneIdx > 0 ? (images[currentSceneIdx - 1] as any) : null;
-            if (prevScene && sceneHasClip(prevScene)) {
-              const el = clipPool.get(prevScene);
-              if (el && el.readyState >= 2 && el.videoWidth > 0) {
-                prevImg = asDrawableClip(el) as any;
-              }
-            }
-
-            const { scale, dx, dy } = getMotionTransform(
-              currentScene.motion_effect,
-              progressInScene,
-              width,
-              height
-            );
-            const safeScale = isNaN(scale) ? 1 : scale;
-            const safeDx = isNaN(dx) ? 0 : dx;
-            const safeDy = isNaN(dy) ? 0 : dy;
-
-            let handledTransition = false;
-            if (
-              currentScene.transition &&
-              currentScene.transition !== "none"
-            ) {
-              const transDur = getTransitionDuration(activeEntry.duration);
-              if (elapsedInScene < transDur) {
-                const { scale: prevScale, dx: prevDx, dy: prevDy } = getMotionTransform(
-                  prevScene?.motion_effect,
-                  1,
-                  width,
-                  height
-                );
-                const safePrevScale = isNaN(prevScale) ? 1 : prevScale;
-                const safePrevDx = isNaN(prevDx) ? 0 : prevDx;
-                const safePrevDy = isNaN(prevDy) ? 0 : prevDy;
-
-                handledTransition = drawSceneTransition(
-                  ctx,
-                  currentScene,
-                  img && img.naturalWidth > 0 ? img : null,
-                  prevScene || null,
-                  prevImg && prevImg.naturalWidth > 0 ? prevImg : null,
-                  elapsedInScene,
-                  activeEntry.duration,
-                  width,
-                  height,
-                  {
-                    motionScale: safeScale,
-                    motionDx: safeDx + (width * safeScale - width) / 2,
-                    motionDy: safeDy + (height * safeScale - height) / 2,
-                    filter: getFilterCanvas(videoFilter, width),
-                  },
-                  prevScene ? {
-                    motionScale: safePrevScale,
-                    motionDx: safePrevDx + (width * safePrevScale - width) / 2,
-                    motionDy: safePrevDy + (height * safePrevScale - height) / 2,
-                    filter: getFilterCanvas(videoFilter, width),
-                  } : undefined
-                );
-              }
-            }
-
-            if (!handledTransition && img && img.naturalWidth > 0 && img.naturalHeight > 0) {
-              try {
-                drawSceneImage(ctx, img, currentScene, width, height, {
-                  motionScale: safeScale,
-                  motionDx: safeDx + (width * safeScale - width) / 2,
-                  motionDy: safeDy + (height * safeScale - height) / 2,
-                  filter: getFilterCanvas(videoFilter, width),
-                });
-              } catch (drawErr) {
-                console.warn("Scene draw notice:", drawErr);
-              }
-
-              try {
-                ctx.filter = "none";
-              } catch {}
-            }
-
-            // --- Animated atmosphere of the project-wide filter ---
-            try {
-              paintVideoFilter(ctx, videoFilter, width, height, currentGlobalTime);
-            } catch (filterErr) {
-              console.warn("Video filter notice:", filterErr);
-            }
-
-            // --- Crisp Logo Watermark in Top-Left Corner ---
-            if (
-              settings.includeWatermark &&
-              watermarkImgRef.current &&
-              watermarkImgRef.current.naturalWidth > 0 &&
-              watermarkImgRef.current.naturalHeight > 0
-            ) {
-              ctx.save();
-              ctx.imageSmoothingEnabled = true;
-              ctx.imageSmoothingQuality = "high";
-
-              const scaleRatio = width / 1280;
-              const wmScale = Math.max(0.4, Math.min(2.0, settings.watermarkScale ?? 1.0));
-              const wmOpacity = Math.max(0.1, Math.min(1.0, settings.watermarkOpacity ?? 1.0));
-              ctx.globalAlpha = wmOpacity;
-
-              const wmWidth = Math.max(20, Math.round(200 * wmScale * scaleRatio));
-              const wmHeight = Math.max(10, Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth)));
-              const posX = Math.round(24 * scaleRatio);
-              const posY = Math.round(20 * scaleRatio);
-              const padX = Math.round(10 * scaleRatio);
-              const padY = Math.round(6 * scaleRatio);
-              const rad = Math.round(10 * scaleRatio);
-
-              // Protective high-contrast backing pill
-              ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-              ctx.shadowBlur = 10 * scaleRatio;
-              ctx.shadowOffsetX = 0;
-              ctx.shadowOffsetY = 2 * scaleRatio;
-              ctx.fillStyle = "rgba(10, 12, 22, 0.78)";
-              ctx.beginPath();
-              if (typeof ctx.roundRect === "function") {
-                ctx.roundRect(posX - padX, posY - padY, wmWidth + padX * 2, wmHeight + padY * 2, rad);
-              } else {
-                ctx.rect(posX - padX, posY - padY, wmWidth + padX * 2, wmHeight + padY * 2);
-              }
-              ctx.fill();
-
-              ctx.shadowColor = "transparent";
-              ctx.shadowBlur = 0;
-              ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-              ctx.lineWidth = Math.max(1, 1 * scaleRatio);
-              ctx.stroke();
-
-              // Draw crisp watermark logo
-              try {
-                ctx.drawImage(watermarkImgRef.current, posX, posY, wmWidth, wmHeight);
-              } catch (wmDrawErr) {
-                console.warn("Watermark draw notice:", wmDrawErr);
-              }
-              ctx.restore();
-            }
-
-            // --- Customer Brand Logo in Top-Right Corner (if enabled) ---
-            if (
-              customerLogo?.enabled &&
-              customerLogo.url &&
-              customerLogoImgRef.current &&
-              customerLogoImgRef.current.naturalWidth > 0 &&
-              customerLogoImgRef.current.naturalHeight > 0
-            ) {
-              ctx.save();
-              const logoOpacity = Math.max(0.1, Math.min(1.0, customerLogo.opacity ?? 1.0));
-              ctx.globalAlpha = logoOpacity;
-              ctx.imageSmoothingEnabled = true;
-              ctx.imageSmoothingQuality = "high";
-
-              const scaleRatio = width / 1280;
-              const cScale = Math.max(0.2, Math.min(3.0, customerLogo.scale ?? 1.0));
-              const cMarginX = (customerLogo.margin ?? 20) * scaleRatio;
-              const cMarginY = (customerLogo.margin ?? 20) * (height / 720);
-              const cWidth = Math.max(20, Math.round(200 * cScale * scaleRatio));
-              const cHeight = Math.max(10, Math.round((cWidth * customerLogoImgRef.current.naturalHeight) / Math.max(1, customerLogoImgRef.current.naturalWidth)));
-              const cX = Math.max(0, width - cWidth - cMarginX);
-              const cY = Math.max(0, cMarginY);
-
-              ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-              ctx.shadowBlur = 8 * scaleRatio;
-              ctx.shadowOffsetX = 0;
-              ctx.shadowOffsetY = 2 * scaleRatio;
-
-              try {
-                ctx.drawImage(customerLogoImgRef.current, cX, cY, cWidth, cHeight);
-              } catch (logoDrawErr) {
-                console.warn("Logo draw notice:", logoDrawErr);
-              }
-              ctx.restore();
-            }
-
-            // --- Subtitle & Caption Rendering (Speech Synchronized) ---
-            if (settings.includeSubtitles && currentScene.text) {
-              try {
-                const activeCaptionsConfig: CaptionsConfig = captionsConfig || {
-                  enabled: true,
-                  mode: settings.subtitleStyle === "normal" ? "normal" : "karaoke",
-                  backgroundStyle: "blocked",
-                  preset: "word_pop",
-                  fontSize: "medium",
-                  position: "bottom",
-                  uppercase: true,
-                  textColor: "#ffffff",
-                  highlightColor: "#facc15",
-                  bgColor: "rgba(0, 0, 0, 0.75)",
-                };
-
-                renderCanvasCaptions(
-                  ctx,
-                  currentScene.text,
-                  speechProgress,
-                  activeCaptionsConfig,
-                  width,
-                  height
-                );
-              } catch (capErr) {
-                console.warn("Captions render notice:", capErr);
-              }
-            }
-
-            // --- Timeline Inserts & Overlays ---
-            if (inserts && inserts.length > 0) {
-              try {
-                let audioLevel = 0.4;
-                let freqData: Uint8Array | null = null;
-                let audioFrame: AudioFrame = EMPTY_FRAME;
-                if (analyser) {
-                  const readBus = (node: AnalyserNode | null) => {
-                    if (!node) return makeBus(0, null, null);
-                    const freq = new Uint8Array(node.frequencyBinCount);
-                    node.getByteFrequencyData(freq);
-                    const wave = new Uint8Array(node.fftSize);
-                    node.getByteTimeDomainData(wave);
-                    let sum = 0;
-                    for (let i = 0; i < freq.length; i++) sum += freq[i];
-                    return makeBus(sum / (freq.length * 255), freq, wave);
-                  };
-                  const voiceBus = readBus(analyser);
-                  const musicBus = readBus(musicAnalyser);
-                  audioFrame = { voice: voiceBus, music: musicBus };
-                  const loudest = voiceBus.level >= musicBus.level ? voiceBus : musicBus;
-                  audioLevel = Math.min(1, 0.15 + loudest.level * 2.6);
-                  freqData = (loudest.freq as Uint8Array) || null;
-                }
-
-                inserts.forEach((insert) => {
-                  try {
-                    renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData, audioFrame, {
-                      logo: customerLogo?.enabled ? customerLogoImgRef.current : null,
-                    });
-                  } catch (insErr) {
-                    console.warn("Insert notice:", insErr);
-                  }
-                });
-              } catch (insertsErr) {
-                console.warn("Timeline inserts notice:", insertsErr);
-              }
-            }
-
-            scheduleNextFrame();
+            drawFrameAt(currentGlobalTime, audioFrame);
           } catch (frameErr) {
             console.error("Frame render recoverable error:", frameErr);
-            scheduleNextFrame();
           }
         };
 
-        scheduleNextFrame();
+        ticker.start(fpsUsed);
       });
 
       // 4. Encoding stream & packaging
@@ -1398,64 +2222,56 @@ export default function RenderView({
       const finalBlob = await videoPromise;
       stopScheduledAudio();
 
-      const url = URL.createObjectURL(finalBlob);
-      setRenderedBlob(finalBlob);
-      setRenderedUrl(url);
-      reportProgress(1);
-      reportStage("Render Complete! 🎉");
-      onRenderSuccess?.(finalBlob, url);
-
-      // Park the finished video in the vault before anything else can go
-      // wrong: it survives leaving this screen, switching phase or reloading.
-      try {
-        const entry = await saveRenderToVault({
-          blob: finalBlob,
-          title: project?.title || "Untitled render",
-          mimeType: finalBlob.type || mimeType || "video/webm",
-          durationSec: estimatedTotalDuration,
-          width,
-          height,
-          label: `${settings.resolution} · ${settings.fps}fps · ${settings.format.toUpperCase()}`,
-        });
-        setVaultMessage(
-          `Render finished — ${vaultRenders.length >= MAX_VAULT_RENDERS ? "oldest vault slot cleared, " : ""}waiting in the vault to download.`
-        );
-        setRenderStatus({
-          active: false,
-          progress: 1,
-          stage: "Render finished — waiting in the vault",
-          finishedAt: Date.now(),
-          lastVaultId: entry.id,
-        });
-        void refreshVault();
-      } catch (vaultErr) {
-        console.warn("Vault save notice:", vaultErr);
-        setRenderStatus({
-          active: false,
-          progress: 1,
-          stage: "Render finished",
-          finishedAt: Date.now(),
-        });
-      }
+      return await finishSuccessfulExport(finalBlob, recordedContainer, mimeType || "video/webm");
     } catch (err: any) {
       console.error("Render failed:", err);
       const message = err?.message || "Failed to render video";
+      // Never show a bare "Rendering failed": translate the failure into a
+      // human explanation, keep the raw log under Advanced Details, and
+      // offer an automatic retry with a compatible profile.
+      const report = describeRenderFailure(String(err?.stack || message));
+      lastRenderErrorRef.current = report.title;
+      setFailureReport(report);
       setRenderError(message);
       setRenderStatus({ active: false, error: message, stage: "Render failed" });
+      return null;
     } finally {
       setIsRendering(false);
+      await releaseWakeLock();
+      setRenderHealth((health) => ({
+        ...health,
+        elapsedMs: health.startedAt ? Date.now() - health.startedAt : health.elapsedMs,
+        wakeLock: "released",
+      }));
+      // Belt and braces: the loop stops its own ticker on cleanup, but an
+      // exception between start and cleanup must not leave it ticking.
+      try {
+        frameTickerRef.current?.stop();
+        frameTickerRef.current = null;
+      } catch {}
       // Release every clip decoder used during the export.
       try {
         clipPoolRef.current?.dispose();
         clipPoolRef.current = null;
       } catch {}
+      try {
+        if (renderAudioContext && renderAudioContext.state !== "closed") {
+          await renderAudioContext.close();
+        }
+      } catch {}
+      renderAudioContext = null;
     }
   };
 
   // ------ DOWNLOAD HANDLERS ------
-  const renderFileName = (title: string, ext: string) => {
-    const safeTitle = (title || "scenering_video").replace(/[^a-zA-Z0-9]/g, "_");
-    return `${safeTitle}_${settings.resolution}.${ext}`;
+  // Automatic useful filenames from the Master Render Profile:
+  // ProjectName_YouTube_1080p_30fps.mp4 — the middle token is the
+  // destination chosen in Project Setup ("Master" for custom output).
+  // No spaces or problem characters, ever.
+  const renderFileName = (title: string, ext: string, targetLabel?: string) => {
+    const d = getDimensions(settings.resolution);
+    const token = targetLabel || destinationFileToken(renderProfile.destination);
+    return buildRenderFilename(title || "Scenering_Video", token, d.width, d.height, effectiveFps, ext);
   };
 
   /**
@@ -1493,7 +2309,10 @@ export default function RenderView({
       setVaultMessage("Nothing rendered yet — press Start Video Render first.");
       return;
     }
-    const ext = settings.format === "mp4" ? "mp4" : "webm";
+    // The extension ALWAYS matches the container that was really recorded —
+    // the old code named every file by the configured format, so a WebM
+    // recording downloaded as .mp4 and players rejected it.
+    const ext = renderedContainer === "mp4" ? "mp4" : "webm";
     await saveRenderBlob(blob, renderFileName(project?.title || "", ext), job.lastVaultId);
   };
 
@@ -1510,20 +2329,6 @@ export default function RenderView({
     void refreshVault();
   };
 
-  const downloadSrtSubtitles = () => {
-    const srtText = generateSrtSubtitles(scenes);
-    const blob = new Blob([srtText], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const safeTitle = (project?.title || "scenering").replace(/[^a-zA-Z0-9]/g, "_");
-    a.download = `${safeTitle}_subtitles.srt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  };
-
   const getAttributionText = () => {
     const soundUrlsUsed = inserts
       .map((ins) => ins.audioSettings?.soundUrl)
@@ -1532,17 +2337,36 @@ export default function RenderView({
     const currentVoice = availableVoices?.find((v) => v.id === selectedVoice);
     const voiceDisplay = currentVoice ? currentVoice.name : (selectedVoice || "Studio AI Voice");
     const isBrowserVoice = selectedVoice?.startsWith("browser:");
-    const isMale =
-      (selectedVoice || "").toLowerCase().includes("guy") ||
-      (selectedVoice || "").toLowerCase().includes("christopher") ||
-      (selectedVoice || "").toLowerCase().includes("ryan") ||
-      (selectedVoice || "").toLowerCase().includes("william") ||
-      (selectedVoice || "").toLowerCase().includes("brian") ||
-      (selectedVoice || "").toLowerCase().includes("david") ||
-      (selectedVoice || "").toLowerCase().includes("mark") ||
-      (selectedVoice || "").toLowerCase().includes("male");
+    const isMale = isMaleVoiceIdentifier(selectedVoice || "");
 
     const isCustomImport = selectedVoice?.startsWith("custom:") || selectedVoice?.startsWith("import:");
+
+    // Persona presets are named after the narrator whose delivery they evoke.
+    // The credits must say so honestly: an AI neural voice in that style —
+    // never the named actor.
+    const isPersonaStyle = / style/i.test(voiceDisplay);
+
+    // Only the image sources this project's scenes actually use are credited;
+    // anything unused stays out of the document.
+    const usedImageSources = new Set<string>();
+    for (const s of scenes) {
+      const url = resolveLegacyLocalImage((s.image_url || "").trim());
+      if (!url) continue;
+      if (/^data:|^blob:/i.test(url)) usedImageSources.add("Creator's own uploaded imagery");
+      else if (url.includes("images.unsplash.com")) usedImageSources.add("Unsplash (Unsplash License)");
+      else if (url.includes("pexels.com")) usedImageSources.add("Pexels (CC0 / Free License)");
+      else if (url.includes("pixabay")) usedImageSources.add("Pixabay (Content License)");
+      else if (url.includes("wikimedia.org")) usedImageSources.add("Wikimedia Commons (Creative Commons)");
+      else if (/^https?:/i.test(url)) usedImageSources.add("Third-party image URL (credited to its source)");
+    }
+
+    // Only the 3D stickers actually placed on the timeline are credited.
+    const usedGraphics = new Set<string>();
+    for (const ins of inserts) {
+      if (ins.category !== "stickers") continue;
+      const stickerId = ins.visualOptions?.stickerId || ins.type;
+      usedGraphics.add(STICKER_LIBRARY.find((st) => st.id === stickerId)?.name || ins.title);
+    }
 
     return generateAttributionDocument({
       projectTitle: project?.title || "My Video Project",
@@ -1550,18 +2374,23 @@ export default function RenderView({
       includeBackgroundMusic: settings.backgroundMusic !== "none",
       // report the REAL track used for the chosen style in the credits doc
       musicType: AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic] || settings.backgroundMusic,
-      imageSources: ["Pexels (CC0 / Free License)", "Pixabay (Content License)"],
+      imageSources: [...usedImageSources],
+      graphicsUsed: [...usedGraphics],
       voiceName: voiceDisplay,
       voiceGender: isCustomImport ? "User Prepared Voice" : isMale ? "Male Narrator" : "Female Narrator",
       voiceAccent: isCustomImport
         ? "Custom Imported TTS Audio File"
         : isBrowserVoice
         ? "Browser / Web Speech Voice"
+        : isPersonaStyle
+        ? "Style-Inspired AI Narration Profile"
         : "Natural Neural Voice Profile",
       voiceEngine: isCustomImport
         ? "User-Prepared Custom TTS Audio File (Imported Track)"
         : isBrowserVoice
         ? "W3C Web Speech API Standards"
+        : isPersonaStyle
+        ? "AI Neural Speech Synthesis — narrator style preset (not the named actor)"
         : "Natural Human Neural Speech Engine (Free Attribution Cleared License)",
     });
   };
@@ -1591,30 +2420,19 @@ export default function RenderView({
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
-  const downloadFullPackageZip = async () => {
-    if (isZipping || !project) return;
-    setIsZipping(true);
-    setZipProgress(0);
-    setZipStatus("Preparing project package...");
-
+  /**
+   * Puts the timing report on the clipboard. One button beats asking anyone
+   * to open developer tools and copy a line out of a console.
+   */
+  const copyTimingReport = async () => {
+    if (!renderTiming) return;
     try {
-      await createProjectZip({
-        title: project.title || "Scenering Project",
-        scenes,
-        voice: selectedVoice,
-        includeVideo: Boolean(renderedBlob),
-        videoBlob: renderedBlob,
-        onProgress: (status, pct) => {
-          setZipStatus(status);
-          setZipProgress(pct);
-        },
-      });
-      setZipStatus("Package downloaded successfully!");
-    } catch (err) {
-      console.error("ZIP package export failed:", err);
-      setZipStatus("Failed to create ZIP package");
-    } finally {
-      setIsZipping(false);
+      await navigator.clipboard.writeText(renderTiming);
+      setTimingCopied(true);
+      window.setTimeout(() => setTimingCopied(false), 2000);
+    } catch {
+      // Clipboard access can be refused; selecting the text by hand still works.
+      setTimingCopied(false);
     }
   };
 
@@ -1625,6 +2443,94 @@ export default function RenderView({
     setRenderStatus({ active: false, progress: 0, stage: "Render cancelled" });
   };
 
+  // ==================== MASTER RENDER PROFILE ==========================
+
+  /** The 4-step resolution ladder value behind the current setting. */
+  const ladderResolution: ResolutionType =
+    settings.resolution === "720p" || settings.resolution === "2k" || settings.resolution === "4k"
+      ? settings.resolution
+      : "1080p";
+
+  /** The Master Render Profile with this screen's live choices applied —
+   *  the single source every encode (and every platform child) inherits. */
+  const masterProfile = useMemo(
+    () => ({
+      ...MASTER_RENDER_PROFILE,
+      container: settings.format,
+      frameRate: settings.fps,
+      // Platform exports are always final quality — Draft is only the
+      // fast preview path of the main render button.
+      quality: (settings.quality === "draft" ? "standard" : settings.quality) as EncodingQuality,
+      audioMastering: settings.audioMastering,
+    }),
+    [settings.format, settings.fps, settings.quality, settings.audioMastering]
+  );
+
+  /** Advanced-panel numbers for the CURRENT single render. */
+  const currentDims = getDimensions(settings.quality === "draft" ? "720p" : settings.resolution);
+  const currentVideoKbps = computeVideoBitrateKbps(currentDims.width, currentDims.height, effectiveFps, settings.quality);
+  const currentAudioKbps = computeAudioBitrateKbps(settings.quality);
+  const estSizeMB = estimateFileSizeMB(currentVideoKbps, currentAudioKbps, totalDuration);
+  const currentFrames = totalFrameCount(totalDuration, effectiveFps);
+  /** Non-default choices that could reduce platform compatibility — the
+   *  advanced panel warns before the user commits to them. */
+  const compatibilityWarnings: string[] = [];
+  if (settings.format === "webm") compatibilityWarnings.push("WebM (VP9/Opus) is not accepted natively by TikTok or Instagram — MP4 (H.264/AAC) is the platform standard.");
+  if (effectiveFps > 30) compatibilityWarnings.push(`${effectiveFps} fps doubles the encode work for footage that is mostly still imagery — 30 fps is the recommended setting.`);
+  if (effectiveFps === 24 || effectiveFps === 25) compatibilityWarnings.push(`${effectiveFps} fps is a film/broadcast rate; social platforms accept it, but 30 fps is their native cadence.`);
+
+  /**
+   * The compatibility report for the ONE destination chosen in Project
+   * Setup ("custom" has no platform rules to check). Read-only — if the
+   * user wants a different destination they go back to Setup, pick it, and
+   * render again; the previous video stays in the Vault.
+   */
+  const destinationCheck = useMemo(() => {
+    if (renderProfile.destination === "custom") return null;
+    const platform = getPlatformProfile(renderProfile.destination);
+    if (!platform) return null;
+    return checkPlatformCompatibility(masterProfile, platform, aspectRatio || "16:9", totalDuration, ladderResolution);
+  }, [renderProfile.destination, masterProfile, aspectRatio, totalDuration, ladderResolution]);
+
+  /**
+   * §23 Automatic fallback: identify what to relax, retry with a compatible
+   * Scenering profile, preserve as much quality as possible — and report
+   * exactly what changed. Never a silent downgrade.
+   */
+  const retryWithFallback = () => {
+    if (isRendering) return;
+    const fallback = buildCompatibilityFallback(
+      {
+        format: settings.format,
+        fps: settings.fps,
+        quality: settings.quality,
+        resolution: ladderResolution,
+      },
+      failureReport || undefined
+    );
+    setFallbackNotes(fallback.changes);
+    setFailureReport(null);
+    setRenderError(null);
+    setSettings((s) => ({
+      ...s,
+      format: fallback.patch.format,
+      fps: fallback.patch.fps,
+      quality: fallback.patch.quality,
+      ...(fallback.patch.resolution ? { resolution: fallback.patch.resolution } : {}),
+    }));
+    // Run with an explicit plan so the retry uses the fallback values NOW —
+    // not the pre-update settings still captured in this closure.
+    const retryMaster = {
+      ...masterProfile,
+      container: fallback.patch.format,
+      frameRate: fallback.patch.fps,
+      quality: fallback.patch.quality,
+    };
+    const retryRes = fallback.patch.resolution || ladderResolution;
+    const plan = resolveRenderPlan(retryMaster, aspectRatio || "16:9", retryRes);
+    void handleStartRender(undefined, { ...plan, label: "Automatic retry" });
+  };
+
   const { width: renderW, height: renderH, label: resLabel, aspectClass } = getDimensions(settings.resolution);
 
   const getPhaseStep = (phase: ProjectPhase): EditorStep =>
@@ -1633,11 +2539,17 @@ export default function RenderView({
   // ---- Read-only summary values (the results of the setup choices) ----
   const MOTION_LABELS: Record<string, string> = {
     dynamic: "Dynamic Variety",
-    ken_burns: "Gentle Ken Burns",
+    ken_burns: "Documentary Ken Burns",
+    slow_zoom: "Slow Cinematic Zoom",
     zoom_in: "Cinematic Zoom In",
     zoom_out: "Dramatic Zoom Out",
+    pan_left: "Smooth Camera Pan (left)",
+    pan_right: "Smooth Camera Pan (right)",
     pan: "Smooth Camera Pan",
+    subtle_camera: "Subtle Camera Drift",
     shake: "Handheld Shake",
+    pulse: "Heartbeat Pulse",
+    floating: "Weightless Float",
     none: "Static (no motion)",
   };
   const voiceDisplayName =
@@ -1653,7 +2565,7 @@ export default function RenderView({
     musicInserts.length === 0
       ? {
           value: "None added",
-          hint: "Add music in Video Studio → Background Music",
+          hint: "Add music in Voiceover → Background Music (formerly in Video Studio)",
         }
       : {
           value: musicInserts.map((i) => i.title || i.audioSettings?.soundName || "Music track").join(", "),
@@ -1679,11 +2591,11 @@ export default function RenderView({
                 Step 3 of 3
               </span>
               <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-                <span>🎬</span> Render & Export Video
+                <Icon glyph="🎬" /> Render & Export Video
               </h2>
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Project: <span className="text-white font-medium">{project?.title || "Untitled Video"}</span> · {scenesWithImages.length} scenes · ~{totalDuration}s duration
+              Project: <span className="text-white font-medium">{project?.title || "Untitled Video"}</span> · {scenesWithImages.length} scenes · ~{formatDuration(totalDuration)} duration
             </p>
           </div>
 
@@ -1710,7 +2622,7 @@ export default function RenderView({
           <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between border-b border-hairline pb-2 gap-2">
               <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <span>📋</span> Your Choices
+                <Icon glyph="📋" /> Your Choices
               </h3>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-900 border border-hairline text-gray-400 font-semibold shrink-0">
                 Read-only
@@ -1727,8 +2639,8 @@ export default function RenderView({
               <SummaryRow
                 icon="🎞️"
                 label="Story"
-                value={`${scenesWithImages.length} scene${scenesWithImages.length === 1 ? "" : "s"} · ~${Math.round(totalDuration)}s`}
-                hint={`${sceneDuration}s target per scene`}
+                value={`${scenesWithImages.length} scene${scenesWithImages.length === 1 ? "" : "s"} · ~${formatDuration(totalDuration)}`}
+                hint={`${formatDuration(sceneDuration)} target per scene`}
               />
               <SummaryRow
                 icon="📐"
@@ -1740,7 +2652,13 @@ export default function RenderView({
                 icon="📺"
                 label="Output"
                 value={resLabel}
-                hint={`${settings.format.toUpperCase()} · ${settings.fps} fps · ${settings.quality} quality`}
+                hint={`${renderedContainer.toUpperCase()} · ${effectiveFps} fps CFR · ${getQualityLevel(settings.quality).name} quality`}
+              />
+              <SummaryRow
+                icon="⚡"
+                label="Frame rate"
+                value={`${effectiveFps} FPS · Constant`}
+                hint={settings.fps === "auto" ? "Auto — Scenering chose 30" : "Change under Advanced Render Settings"}
               />
               <SummaryRow
                 icon="🎥"
@@ -1802,14 +2720,14 @@ export default function RenderView({
                 onClick={onOpenSetup}
                 className="w-full mt-1 py-2 px-3 bg-gray-900 hover:bg-gray-750 border border-hairline rounded-xl text-[11px] font-semibold text-gray-200 hover:text-white transition-all flex items-center justify-center gap-1.5"
               >
-                <span>⚙️</span>
+                <Icon glyph="⚙" />
                 <span>Change these in Project Setup</span>
               </button>
             )}
           </div>
 
           <div className="bg-gray-800/30 border border-hairline rounded-xl p-3 flex items-start gap-2">
-            <span className="text-sm">🔒</span>
+            <span className="text-sm"><Icon glyph="🔒" /></span>
             <p className="text-[10px] text-gray-400 leading-relaxed">
               The render screen does not allow any changes. Go back to Scenes, Voiceover, Captions or Studio
               to edit your video — then render again.
@@ -1819,6 +2737,157 @@ export default function RenderView({
 
         <div className="order-1 lg:order-2 lg:col-span-8 space-y-4">
 
+          {/* ---------- RENDER PROFILE (read-only) ---------------------------
+              Every choice below was made in Project Setup — this screen only
+              shows it and carries it out. No controls here on purpose: one
+              render at a time; to render another version (say vertical for
+              TikTok), go back to Setup, pick that destination, and render
+              again. Finished videos wait in the Vault. */}
+          <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 shadow-lg space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Icon glyph="🎛" /> Render Profile
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-900 border border-hairline text-gray-400">
+                  Read-only — set in Project Setup
+                </span>
+              </h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950 border border-emerald-700/60 text-emerald-300">
+                <Icon glyph="✓" /> Optimized for social platforms
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Plain-English summary of what will be rendered */}
+              <div className="bg-gray-900/70 border border-hairline rounded-lg p-3 space-y-1.5 text-[11px]">
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Destination</span>
+                  <span className="text-white font-medium text-right">
+                    {renderProfile.destination === "custom"
+                      ? "Custom output"
+                      : `${getPlatformProfile(renderProfile.destination)?.icon || ""} ${destinationLabel(renderProfile.destination)}`}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Video</span>
+                  <span className="text-white font-medium text-right">
+                    {currentDims.width} × {currentDims.height} · {effectiveFps} FPS
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Quality</span>
+                  <span className="text-white font-medium text-right">{getQualityLevel(settings.quality).name}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Audio</span>
+                  <span className="text-white font-medium text-right">
+                    {settings.format === "webm" ? "Opus" : "AAC"} · 48 kHz · Stereo
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Format</span>
+                  <span className="text-white font-medium text-right">
+                    {settings.format.toUpperCase()} {settings.format === "mp4" ? "· web optimized" : ""}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Audio mastering</span>
+                  <span className="text-white font-medium text-right">
+                    {settings.audioMastering === "automatic" ? "Automatic" : "Manual"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Estimated size</span>
+                  <span className="text-white font-medium text-right">
+                    ~{estSizeMB < 1000 ? `${Math.max(1, Math.round(estSizeMB))} MB` : `${(estSizeMB / 1000).toFixed(1)} GB`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Platform check for the chosen destination */}
+              <div className="bg-gray-900/70 border border-hairline rounded-lg p-3">
+                {destinationCheck ? (
+                  <>
+                    <p className="text-[11px] font-bold text-white mb-1.5">
+                      Platform check — {destinationCheck.platform.icon} {destinationCheck.platform.name}{" "}
+                      {destinationCheck.allOk ? (
+                        <span className="text-emerald-400 font-semibold">· ready</span>
+                      ) : (
+                        <span className="text-amber-400 font-semibold">· needs attention</span>
+                      )}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {destinationCheck.checks.map((c) => (
+                        <li
+                          key={c.id}
+                          className={`text-[10px] leading-snug ${c.ok ? "text-gray-400" : "text-amber-300"}`}
+                        >
+                          {iconify(c.ok ? "✓" : "⚠")} <span className="font-medium">{c.label}</span> — {c.detail}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    <span className="font-bold text-white">Custom output</span> — no platform rules to check.
+                    The video renders exactly as configured in Project Setup's Advanced overrides.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {settings.quality === "draft" && (
+              <p className="text-[10px] text-amber-300/90 leading-relaxed">
+                <Icon glyph="⚡" /> Draft is a fast preview render at 720p — perfect while editing. Switch to High in Project
+                Setup for the final platform-quality export.
+              </p>
+            )}
+            {compatibilityWarnings.length > 0 && (
+              <div className="p-2.5 bg-amber-950/50 border border-amber-800/70 rounded-lg space-y-1">
+                {compatibilityWarnings.map((w, i) => (
+                  <p key={i} className="text-[10px] text-amber-300 leading-relaxed"><Icon glyph="⚠" /> {w}</p>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {onOpenSetup && (
+                <button
+                  type="button"
+                  onClick={onOpenSetup}
+                  className="px-3 py-2 bg-gray-900 hover:bg-gray-750 border border-hairline rounded-xl text-[11px] font-semibold text-gray-200 hover:text-white transition-all flex items-center gap-1.5"
+                >
+                  <Icon glyph="⚙" /> Change these in Project Setup
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="px-3 py-2 bg-gray-900 hover:bg-gray-750 border border-hairline rounded-xl text-[11px] font-semibold text-gray-300 hover:text-white transition-all flex items-center gap-1.5"
+              >
+                <Icon glyph="🔧" /> {showAdvanced ? "Hide" : "Show"} technical details
+              </button>
+            </div>
+
+            {showAdvanced && (
+              /* Read-only master values — one source of truth, shown honestly */
+              <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-[10px] bg-gray-900/60 border border-hairline rounded-lg p-3">
+                <div><dt className="text-gray-500">Codec</dt><dd className="text-gray-200 font-medium">{settings.format === "webm" ? "VP9" : "H.264 / AVC"}</dd></div>
+                <div><dt className="text-gray-500">Profile</dt><dd className="text-gray-200 font-medium">{settings.format === "webm" ? "—" : "High"}</dd></div>
+                <div><dt className="text-gray-500">Pixel format</dt><dd className="text-gray-200 font-medium">yuv420p · SDR (BT.709)</dd></div>
+                <div><dt className="text-gray-500">Frame rate mode</dt><dd className="text-gray-200 font-medium">Constant (CFR)</dd></div>
+                <div><dt className="text-gray-500">Video bitrate</dt><dd className="text-gray-200 font-medium">{(currentVideoKbps / 1000).toFixed(1)} Mbps (auto)</dd></div>
+                <div><dt className="text-gray-500">Quality target</dt><dd className="text-gray-200 font-medium">≈ CRF {getQualityLevel(settings.quality).crfEquivalent}</dd></div>
+                <div><dt className="text-gray-500">Keyframe interval</dt><dd className="text-gray-200 font-medium">{MASTER_RENDER_PROFILE.keyframeIntervalSeconds} s</dd></div>
+                <div><dt className="text-gray-500">Audio codec</dt><dd className="text-gray-200 font-medium">{settings.format === "webm" ? "Opus" : "AAC"} · 48 kHz · stereo</dd></div>
+                <div><dt className="text-gray-500">Audio bitrate</dt><dd className="text-gray-200 font-medium">{currentAudioKbps} kbps</dd></div>
+                <div><dt className="text-gray-500">Total frames</dt><dd className="text-gray-200 font-medium">{currentFrames.toLocaleString()} ({Math.round(totalDuration)}s × {effectiveFps})</dd></div>
+                <div><dt className="text-gray-500">Container</dt><dd className="text-gray-200 font-medium">{settings.format.toUpperCase()}{settings.format === "mp4" ? " · fast-start" : ""}</dd></div>
+                <div><dt className="text-gray-500">Mastering</dt><dd className="text-gray-200 font-medium">{settings.audioMastering === "automatic" ? "Automatic" : "Manual"}</dd></div>
+              </dl>
+            )}
+          </div>
+
+
           {/* ---------- THE VAULT -------------------------------------------
               Finished renders wait here until they are downloaded. The slot
               frees itself the moment a download lands, and only the newest
@@ -1826,9 +2895,7 @@ export default function RenderView({
           <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 shadow-lg">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="p-1.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-lg text-sm shrink-0">
-                  🗄️
-                </span>
+                <span className="p-1.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-lg text-sm shrink-0" aria-hidden="true"><Icon glyph="🗄️" /></span>
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     The Vault
@@ -1844,8 +2911,8 @@ export default function RenderView({
                 </div>
               </div>
               {job.active && (
-                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-950/90 text-indigo-200 border border-indigo-600/60">
-                  ⏳ Rendering {Math.round(job.progress * 100)}%
+                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-950/90 text-indigo-200">
+                  <Icon glyph="⏳" /> Rendering {Math.round(job.progress * 100)}%
                 </span>
               )}
             </div>
@@ -1880,14 +2947,14 @@ export default function RenderView({
                           onClick={() => setVaultPreviewId(vaultPreviewId === row.id ? null : row.id)}
                           className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 border border-hairline transition-colors"
                         >
-                          {vaultPreviewId === row.id ? "▾ Hide" : "▶ Preview"}
+                          {iconify(vaultPreviewId === row.id ? "▾ Hide" : "▶ Preview")}
                         </button>
                         <button
                           onClick={() => void downloadVaultRender(row)}
                           disabled={vaultBusyId === row.id}
                           className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 text-white transition-colors"
                         >
-                          {vaultBusyId === row.id ? "Saving…" : "⬇ Download"}
+                          {iconify(vaultBusyId === row.id ? "Saving…" : "⬇ Download")}
                         </button>
                         <button
                           onClick={() => void removeVaultRender(row)}
@@ -1916,38 +2983,40 @@ export default function RenderView({
             )}
           </div>
           <div className="bg-gray-800/50 border border-hairline rounded-xl overflow-hidden shadow-2xl">
-            {/* Viewport: Live Render Canvas OR Finished HTML5 Video Player */}
+            {/* Viewport: Live Render Canvas, with the finished player overlaid.
+                The canvas STAYS MOUNTED even while a finished video is being
+                previewed — the multi-platform queue renders several masters
+                back-to-back, and unmounting the canvas between them is what
+                made every master after the first fail with "canvas not
+                available". */}
             <div className={`relative ${aspectClass || "aspect-video"} bg-black flex items-center justify-center overflow-hidden mx-auto`}>
-              {renderedUrl && !isRendering ? (
+              <canvas
+                ref={canvasRef}
+                className={`w-full h-full object-contain bg-black ${
+                  isRendering ? "opacity-100" : "opacity-40"
+                } ${renderedUrl && !isRendering ? "invisible" : ""}`}
+              />
+              {renderedUrl && !isRendering && (
                 <video
                   src={renderedUrl}
                   controls
                   autoPlay={false}
                   preload="metadata"
-                  className="w-full h-full object-contain"
+                  className="absolute inset-0 w-full h-full object-contain bg-black"
                 />
-              ) : (
-                <>
-                  <canvas
-                    ref={canvasRef}
-                    className={`w-full h-full object-contain bg-black ${
-                      isRendering ? "opacity-100" : "opacity-40"
-                    }`}
-                  />
-                  {!isRendering && !renderedUrl && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/50 backdrop-blur-[2px]">
-                      <div className="w-16 h-16 rounded-full bg-indigo-600/90 text-white flex items-center justify-center text-3xl shadow-lg mb-3">
-                        ⚡
-                      </div>
-                      <h4 className="text-lg font-bold text-white mb-1">
-                        Ready to Render
-                      </h4>
-                      <p className="text-xs text-gray-300 max-w-sm">
-                        Click "Start Video Render" to compile audio narration, camera motion, cinematic filters, overlays, and crisp watermark into a polished video file.
-                      </p>
-                    </div>
-                  )}
-                </>
+              )}
+              {!isRendering && !renderedUrl && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/50 backdrop-blur-[2px]">
+                  <div className="w-16 h-16 rounded-full bg-indigo-600/90 text-white flex items-center justify-center text-3xl shadow-lg mb-3">
+                    ⚡
+                  </div>
+                  <h4 className="text-lg font-bold text-white mb-1">
+                    Ready to Render
+                  </h4>
+                  <p className="text-xs text-gray-300 max-w-sm">
+                    Click "Start Video Render" to compile audio narration, camera motion, cinematic filters, overlays, and crisp watermark into a polished video file.
+                  </p>
+                </div>
               )}
 
               {/* Rendering Overlay */}
@@ -1975,16 +3044,127 @@ export default function RenderView({
                     </span>
                   </div>
 
-                  <h4 className="text-base font-semibold text-white mb-1">
+                  <h4 className="text-base font-semibold text-white mb-2">
                     Rendering Video in {resLabel}
                   </h4>
+                  <div className="mb-2 grid w-full max-w-md grid-cols-4 gap-1" aria-label="Render stages">
+                    {[
+                      { label: "Prepare", at: 0 },
+                      { label: "Audio mix", at: 0.32 },
+                      { label: "Frames", at: 0.35 },
+                      { label: "Package", at: 0.86 },
+                    ].map((stage, index) => {
+                      const active = renderProgress >= stage.at;
+                      const complete = index < 3 && renderProgress >= [0.32, 0.35, 0.86][index];
+                      return (
+                        <div
+                          key={stage.label}
+                          className={`rounded-md border px-1.5 py-1 text-[9px] font-bold ${
+                            complete
+                              ? "border-emerald-700/70 bg-emerald-950/70 text-emerald-300"
+                              : active
+                                ? "border-indigo-500/80 bg-indigo-950/80 text-indigo-200"
+                                : "border-hairline bg-gray-900/80 text-gray-500"
+                          }`}
+                        >
+                          {complete ? "✓ " : `${index + 1}. `}{stage.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className={`mb-2 px-2.5 py-1 rounded-full border text-[10px] font-bold ${
+                    renderEngine === "frame-exact"
+                      ? "bg-emerald-950 border-emerald-600 text-emerald-300"
+                      : renderEngine === "compatibility"
+                      ? "bg-amber-950 border-amber-600 text-amber-300"
+                      : "bg-indigo-950 border-indigo-600 text-indigo-300"
+                  }`}>
+                    {iconify(
+                      renderEngine === "frame-exact"
+                        ? "✓ FRAME-EXACT WEBCODECS"
+                        : renderEngine === "compatibility"
+                        ? "⚠ REAL-TIME COMPATIBILITY FALLBACK"
+                        : "CHECKING FRAME-EXACT SUPPORT…",
+                    )}
+                  </div>
                   <p className="text-xs text-indigo-300 font-medium mb-3">{renderStage}</p>
 
-                  <div className="w-64 bg-gray-800 rounded-full h-2 overflow-hidden border border-hairline">
+                  <div className="w-full max-w-md bg-gray-800 rounded-full h-2 overflow-hidden border border-hairline">
                     <div
                       className="bg-indigo-500 h-full rounded-full transition-all duration-150"
                       style={{ width: `${Math.round(renderProgress * 100)}%` }}
                     />
+                  </div>
+
+                  {/* Long-render safety dashboard: visible proof of what the
+                      engine is doing instead of one opaque percentage at 94%. */}
+                  <div className="mt-4 w-full max-w-xl rounded-xl border border-hairline bg-gray-950/80 p-3 text-left shadow-2xl">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="rounded-lg bg-white/5 px-2.5 py-2">
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">Elapsed</p>
+                        <p className="text-[11px] font-bold text-white">{formatMs(renderHealth.elapsedMs)}</p>
+                      </div>
+                      <div className="rounded-lg bg-white/5 px-2.5 py-2">
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">Approx. left</p>
+                        <p className="text-[11px] font-bold text-white">
+                          {renderProgress > 0.03 && renderProgress < 0.99
+                            ? formatMs((renderHealth.elapsedMs / renderProgress) * (1 - renderProgress))
+                            : "Calculating…"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-white/5 px-2.5 py-2">
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">Frames</p>
+                        <p className="text-[11px] font-bold text-white">
+                          {renderHealth.totalFrames > 0
+                            ? `${renderHealth.framesDone.toLocaleString()} / ${renderHealth.totalFrames.toLocaleString()}`
+                            : "Preparing…"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-white/5 px-2.5 py-2">
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">Output written</p>
+                        <p className="text-[11px] font-bold text-white">{formatStorageBytes(renderHealth.outputBytes)}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <span
+                        title={renderHealth.outputStorageDetail}
+                        className={`rounded-full border px-2 py-1 text-[9px] font-bold ${
+                          renderHealth.outputStorage === "disk"
+                            ? "border-emerald-600/70 bg-emerald-950/80 text-emerald-200"
+                            : renderHealth.outputStorage === "memory"
+                              ? "border-amber-600/70 bg-amber-950/80 text-amber-200"
+                              : "border-indigo-600/70 bg-indigo-950/80 text-indigo-200"
+                        }`}
+                      >
+                        {renderHealth.outputStorage === "disk"
+                          ? "✓ OUTPUT STREAMING TO DISK"
+                          : renderHealth.outputStorage === "memory"
+                            ? "⚠ MEMORY OUTPUT FALLBACK"
+                            : "… CHECKING OUTPUT STORAGE"}
+                      </span>
+                      <span className="rounded-full border border-emerald-700/60 bg-emerald-950/60 px-2 py-1 text-[9px] font-bold text-emerald-200">
+                        ✓ 3-SCENE ASSET WINDOW
+                      </span>
+                      <span className="rounded-full border border-emerald-700/60 bg-emerald-950/60 px-2 py-1 text-[9px] font-bold text-emerald-200">
+                        ✓ PACKED AUDIO ANALYSIS
+                      </span>
+                      <span className={`rounded-full border px-2 py-1 text-[9px] font-bold ${
+                        renderHealth.wakeLock === "active"
+                          ? "border-emerald-700/60 bg-emerald-950/60 text-emerald-200"
+                          : "border-hairline bg-gray-900 text-gray-400"
+                      }`}>
+                        {renderHealth.wakeLock === "active" ? "✓ DEVICE KEPT AWAKE" : "BROWSER MANAGES WAKE"}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[9px] leading-relaxed text-gray-400">
+                      {renderHealth.tabHidden
+                        ? "This tab is in the background. Message-channel yielding keeps the encode moving without timer throttling."
+                        : renderHealth.outputStorageDetail}
+                      {renderHealth.queuedOutputBytes > 0
+                        ? ` · ${formatStorageBytes(renderHealth.queuedOutputBytes)} waiting for disk`
+                        : ""}
+                    </p>
                   </div>
 
                   <button
@@ -1999,94 +3179,213 @@ export default function RenderView({
 
             {/* Controls / Progress / Download Area */}
             <div className="p-4 space-y-4">
-              {renderError && (
+              {renderError && failureReport ? (
+                /* §22: never a bare "Rendering failed" — a human explanation,
+                   an automatic retry, and the raw log under Advanced Details */
+                <div className="p-3.5 bg-red-950/60 border border-red-800/80 rounded-xl space-y-2">
+                  <p className="text-red-200 text-xs font-bold flex items-center gap-2">
+                    <Icon glyph="⚠" /> {failureReport.title}
+                  </p>
+                  <p className="text-red-300/90 text-[11px] leading-relaxed">{failureReport.explanation}</p>
+                  <p className="text-red-300/70 text-[11px] leading-relaxed">{failureReport.retryHint}</p>
+                  <div className="flex items-center gap-2 flex-wrap pt-1">
+                    {failureReport.canAutoRetry && (
+                      <button
+                        type="button"
+                        onClick={retryWithFallback}
+                        disabled={isRendering}
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white transition-colors"
+                      >
+                        <Icon glyph="🔄" /> Retry Automatically
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowFailureDetail((v) => !v)}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 border border-hairline transition-colors"
+                    >
+                      {showFailureDetail ? "Hide" : "Advanced"} Details
+                    </button>
+                  </div>
+                  {showFailureDetail && (
+                    <pre className="mt-1 p-2.5 bg-black/70 border border-hairline rounded-lg text-[10px] font-mono text-gray-400 whitespace-pre-wrap break-words">
+                      {failureReport.technical}
+                    </pre>
+                  )}
+                </div>
+              ) : renderError ? (
                 <div className="p-3 bg-red-950/60 border border-red-800/80 rounded-lg text-red-300 text-xs flex items-center gap-2">
-                  <span>⚠️</span>
+                  <Icon glyph="⚠" />
                   <span>{renderError}</span>
+                </div>
+              ) : null}
+
+              {fallbackNotes.length > 0 && !renderError && (
+                /* §23: an automatic fallback is never silent — what changed
+                   is spelled out right here. */
+                <div className="p-3 bg-indigo-950/50 border border-indigo-800/70 rounded-lg space-y-1">
+                  <p className="text-indigo-200 text-[11px] font-bold">Automatic retry — what changed:</p>
+                  {fallbackNotes.map((n, i) => (
+                    <p key={i} className="text-indigo-300/90 text-[10px] leading-relaxed">• {n}</p>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setFallbackNotes([])}
+                    className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {imageFallbackCount > 0 && (
+                <div className="p-3 bg-amber-950/60 border border-amber-800/80 rounded-lg text-amber-300 text-xs flex items-start gap-2">
+                  <Icon glyph="🖼" />
+                  <span>
+                    {imageFallbackCount} scene image{imageFallbackCount === 1 ? "" : "s"} could not be loaded and rendered as
+                    placeholder card{imageFallbackCount === 1 ? "" : "s"}. Re-search those scenes in the Scenes step to get
+                    real photos into the export.
+                  </span>
+                </div>
+              )}
+
+              {/* During diagnosis, never silently accept the old real-time path. */}
+              {!isRendering && !renderedUrl && (
+                <label className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-950/40 border border-emerald-800/70 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={requireFrameExact}
+                    onChange={(event) => setRequireFrameExact(event.target.checked)}
+                    className="mt-0.5 accent-emerald-500"
+                  />
+                  <span>
+                    <span className="block text-[11px] font-bold text-emerald-200">Require frame-exact rendering</span>
+                    <span className="block text-[10px] text-emerald-300/75 leading-relaxed">
+                      Recommended. If WebCodecs fails, show the exact reason instead of silently creating a jittery real-time recording.
+                    </span>
+                  </span>
+                </label>
+              )}
+
+              {offlineFailureReason && !isRendering && (
+                <div className="p-3 rounded-lg bg-amber-950/50 border border-amber-800/70">
+                  <p className="text-[11px] font-bold text-amber-200">Frame-exact diagnostic</p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-amber-300 break-words">{offlineFailureReason}</p>
                 </div>
               )}
 
               {/* Primary Action Button: Render or Re-Render */}
               {!renderedUrl ? (
-                <button
-                  onClick={handleStartRender}
-                  disabled={isRendering || scenesWithImages.length === 0}
-                  className="t-btn-hero w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 text-sm"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>Start Video Render ({resLabel.split(" ")[0]})</span>
-                </button>
+                <div className="space-y-1.5">
+                  <button
+                    onClick={() => void handleStartRender()}
+                    disabled={isRendering || scenesWithImages.length === 0}
+                    className="t-btn-hero w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 text-sm"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>
+                      {settings.quality === "draft"
+                        ? `Quick Preview Render (${getDimensions("720p").width} × ${getDimensions("720p").height})`
+                        : `Start Video Render (${resLabel.split(" ")[0]})`}
+                    </span>
+                  </button>
+                  <p className="text-[10px] text-gray-500 text-center leading-relaxed">
+                    {getQualityLevel(settings.quality).name} quality · {effectiveFps} FPS constant · {settings.format === "webm" ? "VP9 WebM" : "H.264 · AAC · MP4 · web optimized"}
+                  </p>
+                </div>
               ) : (
                 <div className="space-y-3">
-                  <div className="p-3 bg-green-950/50 border border-green-800/80 rounded-xl text-green-300 text-xs flex items-center justify-between">
+                  <div className="p-3 bg-green-950/50 border border-green-800/80 rounded-xl text-green-300 text-xs flex items-center justify-between gap-2 flex-wrap">
                     <span className="flex items-center gap-2 font-medium">
-                      <span>✅</span> Video rendered successfully! Format: {settings.format.toUpperCase()} · {resLabel}
+                      <Icon glyph="✅" /> Video rendered successfully! Format: {renderedContainer.toUpperCase()} · {resLabel}
+                      <span className={`ml-1 px-2 py-0.5 rounded-full border text-[9px] font-bold ${
+                        renderEngine === "frame-exact"
+                          ? "bg-emerald-900 border-emerald-600 text-emerald-100"
+                          : "bg-amber-900 border-amber-600 text-amber-100"
+                      }`}>
+                        {renderEngine === "frame-exact" ? "FRAME-EXACT WEBCODECS" : "REAL-TIME FALLBACK"}
+                      </span>
                     </span>
                     <button
-                      onClick={handleStartRender}
-                      className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs border border-hairline transition-colors"
+                      onClick={() => void handleStartRender()}
+                      disabled={isRendering}
+                      className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-xs border border-hairline transition-colors"
                     >
-                      🔄 Re-render
+                      <Icon glyph="🔄" /> Re-render
                     </button>
                   </div>
 
-                  {/* Complete Download Suite */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {/* Download Video */}
+                  {/* One honest download of this render; every finished
+                      render ALSO waits in the Vault above, where multiple
+                      videos can be downloaded or deleted individually. */}
+                  <div className="flex items-center gap-3 flex-wrap">
                     <button
-                      onClick={downloadVideo}
-                      className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all shadow flex items-center justify-center gap-2"
+                      onClick={() => void downloadVideo()}
+                      disabled={isRendering}
+                      className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all shadow flex items-center gap-2"
                     >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Download Video ({settings.format.toUpperCase()})
+                      <Icon glyph="⬇" />
+                      <span>Download video (.{renderedContainer})</span>
                     </button>
-
-                    {/* Download Full Project ZIP */}
-                    <button
-                      onClick={downloadFullPackageZip}
-                      disabled={isZipping}
-                      className="px-4 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 text-white text-xs font-bold rounded-xl transition-all shadow flex items-center justify-center gap-2"
-                    >
-                      {isZipping ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                          <span>{zipStatus || "Zipping..."}</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                          </svg>
-                          <span>Full Project ZIP Package</span>
-                        </>
-                      )}
-                    </button>
+                    <p className="text-[10px] text-gray-400 leading-relaxed flex-1 min-w-[200px]">
+                      <Icon glyph="🗄" /> This render is also parked in <span className="font-semibold text-gray-300">The Vault</span> above —
+                      every finished video waits there until you download it, so nothing gets lost between renders.
+                    </p>
                   </div>
 
-                  {/* Secondary Downloads */}
-                  <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
-                    <button
-                      onClick={downloadSrtSubtitles}
-                      className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-hairline transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <span>📄</span> Download Subtitles (.srt)
-                    </button>
+                  {/* How long the render took, on screen rather than hidden
+                      in the browser console. Nobody should need developer
+                      tools to answer "why was that slow", and the one button
+                      copies the whole thing for pasting into a bug report. */}
+                  {renderTiming && (
+                    <div className="p-3 bg-gray-900/70 border border-hairline rounded-xl space-y-2">
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <p className="text-[11px] font-bold text-gray-200">
+                          <Icon glyph="⏱" /> How long this render took
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void copyTimingReport()}
+                          className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 text-[11px] border border-hairline transition-colors"
+                        >
+                          {timingCopied ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                      <pre className="text-[10px] leading-relaxed text-gray-300 font-mono whitespace-pre overflow-x-auto m-0">
+{renderTiming}
+                      </pre>
+                      <p className="text-[10px] text-gray-500 leading-relaxed">
+                        Each line is one part of the job and how much of the total it used.
+                      </p>
+                    </div>
+                  )}
 
-                    <button
-                      onClick={downloadFullPackageZip}
-                      className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-hairline transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <span>📦</span> Download Assets & Scripts
-                    </button>
+                  {/* One render at a time, by design: another platform =
+                      back to Setup, pick that destination, render again. */}
+                  <div className="p-3 bg-indigo-950/40 border border-indigo-800/60 rounded-xl text-[11px] text-indigo-200 leading-relaxed">
+                    <span className="font-bold">Need this video for another platform?</span>{" "}
+                    Go back to <span className="font-semibold">Project Setup</span>, pick the new destination
+                    (say, TikTok for a vertical cut), and render again — this finished video stays safe in the
+                    Vault while the next one renders.
+                    {onOpenSetup && (
+                      <button
+                        type="button"
+                        onClick={onOpenSetup}
+                        className="ml-2 px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-semibold transition-colors"
+                      >
+                        Open Project Setup →
+                      </button>
+                    )}
                   </div>
+                  {renderedContainer !== "mp4" && (
+                    <p className="text-[10px] text-gray-500 leading-relaxed">
+                      This browser records WebM instead of MP4 (Firefox is the usual case) — the file plays
+                      everywhere and every platform and editor accepts or converts it.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -2099,9 +3398,7 @@ export default function RenderView({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="p-1.5 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg text-sm">
-                📜
-              </span>
+              <span className="p-1.5 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg text-sm" aria-hidden="true"><Icon glyph="📜" /></span>
               <h3 className="text-base font-bold text-white">
                 Video Description Attribution & License Credits
               </h3>
@@ -2120,7 +3417,7 @@ export default function RenderView({
               onClick={() => setShowAttributionPreview(!showAttributionPreview)}
               className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-hairline transition-colors flex items-center gap-1.5 shadow"
             >
-              <span>👁️</span>
+              <Icon glyph="👁" />
               <span>{showAttributionPreview ? "Hide Credits" : "View Credits"}</span>
             </button>
 
@@ -2129,7 +3426,7 @@ export default function RenderView({
               onClick={downloadAttributionDoc}
               className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-hairline transition-colors flex items-center gap-1.5 shadow"
             >
-              <span>⬇️</span>
+              <Icon glyph="⬇" />
               <span>Download (.txt)</span>
             </button>
 
@@ -2142,7 +3439,7 @@ export default function RenderView({
                   : "bg-indigo-600 hover:bg-indigo-500 text-white"
               }`}
             >
-              <span>{copiedAttribution ? "✅" : "📋"}</span>
+              <span>{iconify(copiedAttribution ? "✅" : "📋")}</span>
               <span>{copiedAttribution ? "Copied!" : "Copy"}</span>
             </button>
           </div>
@@ -2172,7 +3469,7 @@ export default function RenderView({
                   onClick={copyAttributionDoc}
                   className="px-2.5 py-1 rounded bg-gray-800/90 hover:bg-gray-700 border border-hairline text-gray-200 text-[10px] font-medium transition-colors"
                 >
-                  {copiedAttribution ? "✓ Copied" : "Copy"}
+                  {iconify(copiedAttribution ? "✓ Copied" : "Copy")}
                 </button>
               </div>
             </div>

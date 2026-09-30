@@ -16,7 +16,7 @@ import {
   EMPTY_FRAME,
   getBars,
   getWaveform,
-  beatPulse,
+  reactiveBeat,
   pickBus,
 } from "./audio-reactive";
 import { resolveVisualizerPalette } from "./visualizer-palettes";
@@ -263,10 +263,14 @@ export function getVisualizerFootprint(
     const size = item.size || 1;
     // the talking-dot cluster is far smaller than the circular analysers, and
     // the centre stages are the largest of all
+    if (item.type === "minimal_voice") {
+      return {
+        w: Math.max(260, Math.min(canvasWidth * 0.72, 620 * size)),
+        h: Math.max(90, 180 * size),
+      };
+    }
     const d = CENTRE_STAGE_TYPES.has(item.type)
       ? Math.max(200, canvasHeight * 0.92 * Math.max(0.45, Math.min(1.6, size)))
-      : item.type === "minimal_voice"
-      ? Math.max(120, 190 * size)
       : Math.max(150, 300 * size);
     return { w: d, h: d };
   }
@@ -284,26 +288,36 @@ function frameScale(canvasHeight: number): number {
 }
 
 /**
- * Keeps "runs through the entire video" visualisers pinned to the full length.
- * Called whenever the video gets longer or shorter so a rack added early stays
- * on screen from the first frame to the last. Returns the same array reference
- * when nothing changed, so React can skip the update.
+ * Keeps "runs through the entire video" media pinned to the full length.
+ * Called whenever the video gets longer or shorter so a visualiser or music bed
+ * added early stays active from the first frame to the last. Returns the same
+ * array reference when nothing changed, so React can skip the update.
  */
-export function stretchFullVideoVisualisers(
+export function stretchFullVideoMedia(
   inserts: TimelineInsert[],
   totalDuration: number
 ): TimelineInsert[] {
   if (!inserts.length || !(totalDuration > 0)) return inserts;
   let changed = false;
   const next = inserts.map((ins) => {
-    if (ins.category !== "audio_visualizers" && ins.category !== "speech_reactive") return ins;
-    if (ins.visualOptions?.spanFullVideo !== true) return ins;
+    const isVisualiser =
+      (ins.category === "audio_visualizers" || ins.category === "speech_reactive") &&
+      ins.visualOptions?.spanFullVideo === true;
+    // New Voiceover music carries both markers. Treat legacy music without a
+    // scope as whole-video too: that is how its audio engine already plays it.
+    const isWholeVideoMusic =
+      ins.category === "background_music" &&
+      (ins.scope === "entire_video" || ins.scope === undefined);
+    if (!isVisualiser && !isWholeVideoMusic) return ins;
     if (Math.abs(ins.startTime) < 0.01 && Math.abs(ins.duration - totalDuration) < 0.15) return ins;
     changed = true;
     return { ...ins, startTime: 0, duration: totalDuration };
   });
   return changed ? next : inserts;
 }
+
+/** @deprecated Use stretchFullVideoMedia; retained for saved integrations. */
+export const stretchFullVideoVisualisers = stretchFullVideoMedia;
 
 /* ------------------------------------------------------------------ *
  * Colour utilities
@@ -696,6 +710,65 @@ function drawCentreCore(
   ctx.beginPath();
   ctx.arc(0, 0, coreR, 0, Math.PI * 2);
   ctx.fill();
+}
+
+/**
+ * A true radial bar rack: one thin ring is the zero line and each filled,
+ * rounded bar begins on that line and grows outward with its frequency band.
+ * Using filled bars (rather than thick stroked spokes) keeps the ring readable
+ * and makes quiet/loud differences obvious at a glance.
+ */
+function drawRadialBarSpectrum(
+  ctx: CanvasRenderingContext2D,
+  values: number[],
+  ringRadius: number,
+  maxLength: number,
+  colours: { primary: string; secondary: string; accent: string },
+  options: { glow: number; rotation?: number; beat?: number; minLength?: number }
+) {
+  const count = Math.max(12, values.length);
+  const rotation = options.rotation || 0;
+  const ringWidth = Math.max(0.9, ringRadius * 0.014);
+
+  // The unbroken zero line remains visible between the bars.
+  ctx.beginPath();
+  ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+  ctx.strokeStyle = rgba(mixColors(colours.primary, "#ffffff", 0.48), 0.82);
+  ctx.lineWidth = ringWidth;
+  if (options.glow > 0.05) {
+    ctx.shadowColor = rgba(colours.primary, 0.75);
+    ctx.shadowBlur = (5 + (options.beat || 0) * 8) * options.glow;
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  const circumferenceSlot = (Math.PI * 2 * ringRadius) / count;
+  const barWidth = Math.max(1.8, circumferenceSlot * 0.54);
+  const minimum = Math.max(barWidth * 0.75, options.minLength || 0);
+
+  for (let i = 0; i < count; i++) {
+    const v = Math.max(0, Math.min(1.45, values[i % values.length] || 0));
+    const length = minimum + Math.pow(v, 0.82) * maxLength;
+    const t = i / count;
+    const color = mixColors(colours.primary, colours.secondary, t);
+
+    ctx.save();
+    ctx.rotate(t * Math.PI * 2 + rotation);
+    const start = ringRadius + ringWidth * 0.65;
+    const gradient = ctx.createLinearGradient(0, start, 0, start + length);
+    gradient.addColorStop(0, rgba(color, 0.92));
+    gradient.addColorStop(0.68, rgba(mixColors(color, colours.accent, v * 0.55), 0.96));
+    gradient.addColorStop(1, rgba(colours.accent, 0.98));
+    ctx.fillStyle = gradient;
+    if (options.glow > 0.05) {
+      ctx.shadowColor = rgba(color, 0.82);
+      ctx.shadowBlur = (5 + v * 18 + (options.beat || 0) * 8) * options.glow;
+    }
+    roundRectPath(ctx, -barWidth / 2, start, barWidth, length, barWidth / 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.shadowBlur = 0;
 }
 
 /* ================================================================== *
@@ -1367,7 +1440,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
   const thickness = Math.max(2, Math.min(24, opts3d.barThickness ?? 8));
   const fullWidth = isVisualizerFullWidth(item);
   const body = visualizerBodyHeight(item, canvasHeight);
-  const beat = beatPulse(elapsed, source);
+  const beat = reactiveBeat(elapsed, bus, source);
   const key = `${item.id || item.type}:${item.type}`;
 
   // How many frequency bands the analyser splits the sound into. 64 is the
@@ -1836,62 +1909,22 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       // ambience behind the whole orb
       softGlow(ctx, 0, 0, ringR * 3.4, rgba(accent, 0.12 + orbBars.low * 0.16), rgba(primary, 0.08), 1);
 
-      // spectrum: every spoke reads one band, mirrored so the orb is symmetric
-      for (let i = 0; i < spokes; i++) {
-        const band = orbBars.values[i % orbBars.values.length] || 0;
+      // A thin zero ring with filled spectrum bars growing outward. The mirror
+      // mapping makes neighbouring sides of the circle rise as a wave together.
+      const mirroredValues = Array.from({ length: spokes }, (_, i) => {
         const mirror = Math.floor(i / 2);
-        const v = i % 2 === 0 ? band : orbBars.values[(spokes - mirror - 1 + spokes) % spokes] || band;
-        const angle = (i / spokes) * Math.PI * 2 - Math.PI / 2 + spin;
-        const len = ringR * 0.12 + Math.pow(v, 0.86) * maxLen;
-        const x0 = Math.cos(angle) * ringR;
-        const y0 = Math.sin(angle) * ringR;
-        const x1 = Math.cos(angle) * (ringR + len);
-        const y1 = Math.sin(angle) * (ringR + len);
-
-        const grad = ctx.createLinearGradient(x0, y0, x1, y1);
-        grad.addColorStop(0, rgba(primary, 0.9));
-        grad.addColorStop(0.55, rgba(secondary, 0.92));
-        grad.addColorStop(1, rgba(accent, 0.95));
-        ctx.beginPath();
-        ctx.moveTo(x0, y0);
-        ctx.lineTo(x1, y1);
-        ctx.strokeStyle = grad;
-        ctx.lineWidth = Math.max(1.4, (Math.PI * 2 * ringR) / spokes * 0.55);
-        if (glow > 0.05) {
-          ctx.shadowColor = rgba(secondary, 0.85);
-          ctx.shadowBlur = (8 + v * 22 + beat * 14) * glow;
-        }
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        // hot tip on the loud bands
-        if (v > 0.55) {
-          ctx.fillStyle = rgba(accent, Math.min(1, (v - 0.55) * 2));
-          ctx.beginPath();
-          ctx.arc(x1, y1, Math.max(1.1, 2.4 * scale * stage), 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // the ring the spikes sit on, plus three sweeping arcs
-      ctx.beginPath();
-      ctx.arc(0, 0, ringR, 0, Math.PI * 2);
-      ctx.strokeStyle = rgba(mixColors(primary, "#ffffff", 0.3), 0.75);
-      ctx.lineWidth = Math.max(1.2, 3 * scale * stage);
-      if (glow > 0.05) {
-        ctx.shadowColor = primary;
-        ctx.shadowBlur = 16 * glow;
-      }
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      for (let a = 0; a < 3; a++) {
-        ctx.beginPath();
-        ctx.arc(0, 0, ringR * 1.16, spin * 2 + (a * Math.PI * 2) / 3, spin * 2 + (a * Math.PI * 2) / 3 + 0.5);
-        ctx.strokeStyle = rgba(accent, 0.45 - a * 0.08);
-        ctx.lineWidth = Math.max(1, 2.2 * scale * stage);
-        ctx.stroke();
-      }
+        return i % 2 === 0
+          ? orbBars.values[i % orbBars.values.length] || 0
+          : orbBars.values[(spokes - mirror - 1 + spokes) % spokes] || 0;
+      });
+      drawRadialBarSpectrum(
+        ctx,
+        mirroredValues,
+        ringR,
+        maxLen,
+        { primary, secondary, accent },
+        { glow, beat, rotation: -Math.PI / 2 + spin, minLength: ringR * 0.04 }
+      );
 
       // beat shockwave
       if (beat > 0.18) {
@@ -2061,46 +2094,76 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       break;
     }
 
-    /* ---------------- MINIMAL AI TALKING DOTS ---------------- */
+    /* ---------------- TWENTY-BAND TALKING DOTS ---------------- */
     case "minimal_voice": {
-      const colors = [primary, "#ef4444", "#f59e0b", "#10b981"];
-      // Sized against the frame (not the 720p reference) so the little cluster
-      // stays clearly visible in the video and in the studio thumbnails.
-      const dotW = Math.max(7, canvasHeight * 0.026 * size);
-      const spacing = dotW * 2.35;
-      const startX = -((colors.length - 1) * spacing) / 2;
+      const count = 20;
+      const dotBars = getBars(key, count, elapsed, bus, source, reactivity);
+      // A wide cluster gives all twenty bands room to read. Every dot has its
+      // own width, colour blend and frequency value instead of repeating four
+      // identical bouncing pills.
+      const span = Math.min(canvasWidth * 0.66, 620 * frameScale(canvasHeight) * size);
+      const slot = span / count;
+      const startX = -span / 2 + slot / 2;
 
-      colors.forEach((color, i) => {
-        const local = Math.max(0, Math.sin(elapsed * 9.5 + i * 1.25)) * (0.35 + beat * 0.9);
-        const h = Math.max(dotW, dotW + local * canvasHeight * 0.14 * size * reactivity);
-        const by = -h / 2;
-        const bx = startX + i * spacing;
+      for (let i = 0; i < count; i++) {
+        const v = Math.max(0, Math.min(1.4, dotBars.values[i] || 0));
+        const widthVariation = 0.52 + hash01(i * 17 + 4) * 0.52;
+        const dotW = Math.max(3.2, slot * 0.56 * widthVariation);
+        const reach = canvasHeight * (0.11 + hash01(i * 23 + 7) * 0.1) * size;
+        const h = Math.max(dotW, dotW * 1.05 + Math.pow(v, 0.78) * reach);
+        const waveY =
+          Math.sin((i / (count - 1)) * Math.PI * 2.4 + elapsed * 1.8) *
+          canvasHeight *
+          0.018 *
+          (0.35 + dotBars.mid);
+        const by = -h / 2 + waveY;
+        const bx = startX + i * slot;
+        const palettePosition = i / (count - 1);
+        const baseColor =
+          i % 5 === 0
+            ? mixColors(accent, primary, palettePosition)
+            : mixColors(primary, secondary, palettePosition);
+        const color = mixColors(baseColor, accent, Math.min(0.55, v * 0.38));
 
-        // floor shadow ellipse
+        // A small grounded shadow makes the changing lengths legible on video.
         ctx.beginPath();
-        ctx.ellipse(bx, h / 2 + 5 * size, dotW * (0.7 + local * 0.2), dotW * 0.3, 0, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+        ctx.ellipse(
+          bx,
+          h / 2 + waveY + 4 * size,
+          dotW * (0.72 + v * 0.18),
+          Math.max(1, dotW * 0.26),
+          0,
+          0,
+          Math.PI * 2
+        );
+        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
         ctx.fill();
 
         const grad = ctx.createLinearGradient(bx - dotW, by, bx + dotW, by + h);
-        grad.addColorStop(0, mixColors(color, "#ffffff", 0.35));
-        grad.addColorStop(0.45, color);
-        grad.addColorStop(1, mixColors(color, "#000000", 0.35));
+        grad.addColorStop(0, mixColors(color, "#ffffff", 0.42));
+        grad.addColorStop(0.42, color);
+        grad.addColorStop(1, mixColors(color, "#000000", 0.4));
         ctx.fillStyle = grad;
         if (glow > 0.05) {
           ctx.shadowColor = color;
-          ctx.shadowBlur = 14 * glow;
+          ctx.shadowBlur = (8 + v * 14) * glow;
         }
         roundRectPath(ctx, bx - dotW / 2, by, dotW, h, dotW / 2);
         ctx.fill();
         ctx.shadowBlur = 0;
 
-        // glossy bulb
+        // Each pill keeps a tiny glass glint even at its quiet dot size.
         ctx.beginPath();
-        ctx.arc(bx - dotW * 0.12, by + dotW * 0.42, dotW * 0.24, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.arc(
+          bx - dotW * 0.12,
+          by + Math.min(dotW * 0.42, h * 0.25),
+          Math.max(0.8, dotW * 0.23),
+          0,
+          Math.PI * 2
+        );
+        ctx.fillStyle = "rgba(255, 255, 255, 0.78)";
         ctx.fill();
-      });
+      }
       break;
     }
 

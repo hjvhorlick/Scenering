@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import StepNav from "./StepNav";
 import type { Scene, CaptionsConfig } from "../types";
 import { generateSrtSubtitles } from "./RenderView";
+import { formatDuration } from "../lib/duration-utils";
 import { renderCanvasCaptions } from "../lib/render-captions";
 import {
   CAPTION_FONTS,
@@ -13,6 +14,7 @@ import {
   resolveCaptionStyleId,
   type CaptionStyleDef,
 } from "../data/caption-styles";
+import Icon, { iconify } from "./icons/Icon";
 
 interface CaptionsStudioProps {
   scenes: Scene[];
@@ -35,7 +37,7 @@ export default function CaptionsStudio({
 }: CaptionsStudioProps) {
   const [mode, setMode] = useState<"karaoke" | "normal">(captionsConfig?.mode || "karaoke");
   const [backgroundStyle, setBackgroundStyle] = useState<"transparent" | "blocked">(
-    captionsConfig?.backgroundStyle || "blocked"
+    captionsConfig?.backgroundStyle || "transparent"
   );
   const [selectedPreset, setSelectedPreset] = useState<CaptionPresetType>(
     resolveCaptionStyleId(captionsConfig?.preset)
@@ -245,9 +247,7 @@ export default function CaptionsStudio({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="p-2 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30 text-xl">
-                💬
-              </span>
+              <span className="p-2 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30 text-xl" aria-hidden="true"><Icon glyph="💬" /></span>
               <h2 className="text-xl font-bold text-white">Captions & Subtitles Studio</h2>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-950 border border-indigo-700/60 text-indigo-300">
                 Word-Sync Ready
@@ -263,7 +263,7 @@ export default function CaptionsStudio({
               onClick={handleDownloadSrt}
               className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-hairline flex items-center gap-2 transition-colors shadow"
             >
-              <span>📄</span>
+              <Icon glyph="📄" />
               <span>Export .SRT File</span>
             </button>
 
@@ -271,7 +271,7 @@ export default function CaptionsStudio({
               onClick={handleApplyToAllScenes}
               className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"
             >
-              <span>✨</span>
+              <Icon glyph="✨" />
               <span>Apply to All {scenes.length} Scenes</span>
             </button>
           </div>
@@ -315,7 +315,7 @@ export default function CaptionsStudio({
         <div className="bg-gray-900/90 border border-hairline rounded-2xl p-4 shadow-xl space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>🎤</span> Caption Playback Style
+              <Icon glyph="🎤" /> Caption Playback Style
             </h3>
             <span className="text-[10px] text-purple-400 font-semibold uppercase">
               {mode === "karaoke" ? "Dynamic Sync" : "Clean Subtitle"}
@@ -332,7 +332,7 @@ export default function CaptionsStudio({
               }`}
             >
               <div className="flex items-center gap-2 font-bold text-xs">
-                <span>✨</span>
+                <Icon glyph="✨" />
                 <span>Karaoke Mode</span>
               </div>
               <p className="text-[11px] text-gray-400 mt-1">
@@ -350,7 +350,7 @@ export default function CaptionsStudio({
               }`}
             >
               <div className="flex items-center gap-2 font-bold text-xs">
-                <span>📝</span>
+                <Icon glyph="📝" />
                 <span>Normal Mode</span>
               </div>
               <p className="text-[11px] text-gray-400 mt-1">
@@ -364,7 +364,7 @@ export default function CaptionsStudio({
         <div className="bg-gray-900/90 border border-hairline rounded-2xl p-4 shadow-xl space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>🖼️</span> Background Framing
+              <Icon glyph="🖼" /> Background Framing
             </h3>
             <span className="text-[10px] text-indigo-400 font-semibold uppercase">
               {backgroundStyle === "transparent" ? "No Box" : "Backdrop Pill"}
@@ -381,7 +381,7 @@ export default function CaptionsStudio({
               }`}
             >
               <div className="flex items-center gap-2 font-bold text-xs">
-                <span>🔲</span>
+                <Icon glyph="🔲" />
                 <span>Transparent</span>
               </div>
               <p className="text-[11px] text-gray-400 mt-1">
@@ -399,7 +399,7 @@ export default function CaptionsStudio({
               }`}
             >
               <div className="flex items-center gap-2 font-bold text-xs">
-                <span>⬛</span>
+                <Icon glyph="⬛" />
                 <span>Blocked Box</span>
               </div>
               <p className="text-[11px] text-gray-400 mt-1">
@@ -414,7 +414,7 @@ export default function CaptionsStudio({
       <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-xl space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <span>👁️</span> Live Caption Preview
+            <Icon glyph="👁" /> Live Caption Preview
           </h3>
           <div className="flex items-center gap-2 text-[10px]">
             <span className="px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-hairline">
@@ -426,7 +426,14 @@ export default function CaptionsStudio({
           </div>
         </div>
 
-        <div className="relative w-full aspect-video max-h-[260px] bg-black rounded-xl overflow-hidden border border-hairline shadow-inner">
+        {/* The stage is centred and holds a true 16:9 at every width.
+            It previously combined `w-full aspect-video` with `max-h-[260px]`:
+            once the max-height clamped, the element kept its full width and
+            the ratio was lost, so the 1280x720 canvas was squashed into a
+            ~3.5:1 box and every letter in the preview looked stretched. Capping
+            the WIDTH instead of the height keeps the shape exact — 460px wide
+            is 259px tall at 16:9 — and mx-auto centres it. */}
+        <div className="mx-auto w-full max-w-[460px] aspect-video relative bg-black rounded-xl overflow-hidden border border-hairline shadow-inner">
           <canvas
             ref={captionPreviewRef}
             width={1280}
@@ -446,7 +453,7 @@ export default function CaptionsStudio({
       <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 space-y-4 shadow-xl">
         <div className="flex items-center justify-between border-b border-hairline pb-3">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <span>🎨</span> Subtitle Visual Style Presets
+            <Icon glyph="🎨" /> Subtitle Visual Style Presets
           </h3>
           <span className="text-xs text-gray-400">Click to preview style</span>
         </div>
@@ -504,7 +511,7 @@ export default function CaptionsStudio({
                       {style.background === "blocked" ? "backdrop" : "no box"}
                     </span>
                   </div>
-                  {isSelected && <span className="text-[10px] font-bold text-purple-400">✓ Active</span>}
+                  {isSelected && <span className="text-[10px] font-bold text-purple-400"><Icon glyph="✓" /> Active</span>}
                 </div>
               </div>
             );
@@ -750,7 +757,7 @@ export default function CaptionsStudio({
         <div className="flex items-center justify-between border-b border-hairline pb-3">
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>📜</span> Scene Subtitles & On/Off Toggles
+              <Icon glyph="📜" /> Scene Subtitles & On/Off Toggles
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
               Enable or disable caption overlays individually per scene.
@@ -773,7 +780,7 @@ export default function CaptionsStudio({
                     "{scene.text}"
                   </p>
                   <span className="text-[10px] text-gray-400">
-                    Duration: {scene.duration}s • {scene.text.split(/\s+/).filter(Boolean).length} words
+                    Duration: {formatDuration(scene.duration)} • {scene.text.split(/\s+/).filter(Boolean).length} words
                   </span>
                 </div>
               </div>
@@ -788,7 +795,7 @@ export default function CaptionsStudio({
                       : "bg-gray-800 border-hairline text-gray-400 hover:text-white"
                   }`}
                 >
-                  <span>{(scene.burn_caption ?? true) ? "✓ Caption Active" : "✕ Disabled"}</span>
+                  <span>{iconify((scene.burn_caption ?? true) ? "✓ Caption Active" : "✕ Disabled")}</span>
                 </button>
               </div>
             </div>

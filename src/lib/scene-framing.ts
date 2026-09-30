@@ -139,6 +139,13 @@ export function resolveFraming(scene: Partial<Scene> | null | undefined): Resolv
       s.image_backdrop === "blur" ||
       s.image_backdrop === "transparent"
         ? (s.image_backdrop as SceneBackdropStyle)
+        : // "Blurred Fill" PROMISES blurred bars — a scene whose fit was
+          // auto-suggested as blur_fill (photo picked, no backdrop stored)
+          // must default to the blur backdrop, not transparent. Transparent
+          // left the raw canvas showing through, which is why 9:16 videos
+          // with landscape photos rendered black bars top and bottom.
+          fit === "blur_fill"
+        ? "blur"
         : "transparent",
     backdropBlur: clamp(Number(s.image_backdrop_blur ?? 42), 0, 120),
     backdropZoom: clamp(Number(s.image_backdrop_zoom ?? 1.25), 1, 2.5),
@@ -246,6 +253,173 @@ export function leavesGap(p: PlacedImage, frameW: number, frameH: number): boole
 
 type Drawable = CanvasImageSource & SourceSize;
 
+/* ------------------------- per-scene render caches -----------------------
+ *
+ * The renderer records the canvas IN REAL TIME, so the smoothness of the
+ * exported video is exactly the speed of each frame's paint. The two things
+ * that used to be recomputed every frame are brutally expensive:
+ *
+ *   1. the colour grade — `ctx.filter = "saturate(…) contrast(…)"` on a
+ *      full-frame drawImage runs on the CPU and can cost 10-40ms per frame;
+ *   2. the blurred backdrop — re-blurring the whole frame (blur(40-75px))
+ *      every frame costs tens to hundreds of ms. One such scene turned the
+ *      Ken Burns glide into a slideshow and starved the audio encoder.
+ *
+ * Neither changes during a scene, so both are rendered ONCE into an
+ * offscreen canvas and every frame becomes a cheap bitmap copy. Caches are
+ * WeakMaps keyed by the image element — dropping the image drops its cache.
+ *
+ * Safety rails:
+ *   - Node/test environments (no DOM) fall back to the direct path.
+ *   - Only CORS-clean images (anonymous / data: / blob:) are cached; a
+ *     tainted cache canvas would taint the recording canvas and kill the
+ *     video capture outright.
+ *   - Browsers without ctx.filter support fall back to the direct path,
+ *     which is what they were drawing anyway.
+ */
+
+const gradeCaches = new WeakMap<object, Map<string, HTMLCanvasElement>>();
+const backdropCaches = new WeakMap<object, Map<string, HTMLCanvasElement>>();
+/** Per-image cap so a scene reused at several sizes cannot hoard memory. */
+const CACHE_ENTRIES_PER_IMAGE = 4;
+/** The blurred backdrop is built at a capped internal resolution — behind a
+ *  40px+ blur, upscaling from ~1024px is visually identical and ~4× faster. */
+const BACKDROP_CACHE_MAX_EDGE = 1024;
+
+function canUseDomCanvas(): boolean {
+  return typeof document !== "undefined" && typeof document.createElement === "function";
+}
+
+function isCacheSafeImage(img: Drawable): img is HTMLImageElement {
+  if (typeof HTMLImageElement === "undefined" || !(img instanceof HTMLImageElement)) return false;
+  if (!img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return false;
+  const src = img.src || "";
+  return img.crossOrigin === "anonymous" || /^(data:|blob:)/i.test(src);
+}
+
+function cacheBucket(store: WeakMap<object, Map<string, HTMLCanvasElement>>, img: object) {
+  let bucket = store.get(img);
+  if (!bucket) {
+    bucket = new Map();
+    store.set(img, bucket);
+  }
+  return bucket;
+}
+
+function rememberInBucket(bucket: Map<string, HTMLCanvasElement>, key: string, canvas: HTMLCanvasElement) {
+  if (bucket.size >= CACHE_ENTRIES_PER_IMAGE) {
+    const oldest = bucket.keys().next().value;
+    if (oldest !== undefined) bucket.delete(oldest);
+  }
+  bucket.set(key, canvas);
+}
+
+/** ctx.filter must really work for a cache built WITH a filter to be
+ *  equivalent — Safari silently keeps "none", so it takes the direct path. */
+function filterWorks(ctx: CanvasRenderingContext2D, filter: string): boolean {
+  try {
+    ctx.filter = filter;
+    const applied = ctx.filter !== "none" && ctx.filter !== "";
+    return applied;
+  } catch {
+    return false;
+  }
+}
+
+/** The scene photo with the project's colour grade baked in — built once,
+ *  so per-frame draws skip the CPU-bound ctx.filter path entirely. */
+function gradedCopy(img: Drawable, grade: string): HTMLCanvasElement | null {
+  if (!canUseDomCanvas() || !isCacheSafeImage(img)) return null;
+  const bucket = cacheBucket(gradeCaches, img);
+  const hit = bucket.get(grade);
+  if (hit) return hit;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const cctx = canvas.getContext("2d");
+    if (!cctx) return null;
+    if (!filterWorks(cctx, grade)) return null;
+    cctx.drawImage(img, 0, 0);
+    cctx.filter = "none";
+    rememberInBucket(bucket, grade, canvas);
+    return canvas;
+  } catch {
+    return null;
+  }
+}
+
+/** The complete blurred backdrop (cover copy → blur → grade → dim) rendered
+ *  once per scene at a capped resolution. Per frame it is ONE drawImage. */
+function blurredBackdrop(
+  img: Drawable,
+  frameW: number,
+  frameH: number,
+  f: ResolvedFraming,
+  grade: string | null
+): HTMLCanvasElement | null {
+  if (!canUseDomCanvas() || !isCacheSafeImage(img)) return null;
+  const scale = Math.min(1, BACKDROP_CACHE_MAX_EDGE / Math.max(frameW, frameH));
+  const cw = Math.max(2, Math.round(frameW * scale));
+  const ch = Math.max(2, Math.round(frameH * scale));
+  const key = [
+    cw, ch, f.backdropBlur, f.backdropZoom, f.backdropDim,
+    f.crop.x, f.crop.y, f.crop.w, f.crop.h, grade || "",
+  ].join("|");
+  const bucket = cacheBucket(backdropCaches, img);
+  const hit = bucket.get(key);
+  if (hit) return hit;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = cw;
+    canvas.height = ch;
+    const cctx = canvas.getContext("2d");
+    if (!cctx) return null;
+    const radius = (f.backdropBlur * cw) / 1080;
+    const blurCss = radius > 0.5 ? `blur(${radius.toFixed(1)}px)` : "";
+    const filter = [grade, blurCss].filter(Boolean).join(" ");
+    if (filter && !filterWorks(cctx, filter)) return null;
+    const bg = placeImage(img, cw, ch, f, {
+      mode: "cover",
+      motionScale: f.backdropZoom,
+      ignoreUserTransform: true,
+    });
+    cctx.drawImage(img, bg.sx, bg.sy, bg.sw, bg.sh, bg.dx, bg.dy, bg.dw, bg.dh);
+    cctx.filter = "none";
+    if (f.backdropDim > 0.001) {
+      cctx.fillStyle = `rgba(0,0,0,${f.backdropDim})`;
+      cctx.fillRect(0, 0, cw, ch);
+    }
+    rememberInBucket(bucket, key, canvas);
+    return canvas;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pre-builds every cache a scene needs BEFORE the recording starts, so the
+ * first frame of a scene costs the same as its hundredth. This is also what
+ * forces the browser to fully decode the photo — image decode used to
+ * happen lazily on a scene's first draw, which is exactly the hitch that
+ * made every effect "jump" at its start.
+ */
+export function prewarmSceneFrame(
+  img: Drawable | null,
+  scene: Partial<Scene> | null | undefined,
+  frameW: number,
+  frameH: number,
+  grade?: string | null
+): void {
+  if (!img) return;
+  const f = resolveFraming(scene);
+  const g = grade && grade !== "none" ? grade : null;
+  if (g) gradedCopy(img, g);
+  if (f.fit !== "cover" && f.backdrop === "blur") {
+    blurredBackdrop(img, frameW, frameH, f, g);
+  }
+}
+
 function drawPlaced(
   ctx: CanvasRenderingContext2D,
   img: Drawable,
@@ -316,32 +490,46 @@ export function drawSceneImage(
   //   colour      → the colour the user picked
   if (gap && f.backdrop !== "transparent") {
     if (f.backdrop === "blur") {
-      // A cover-placed copy of the same photo, pushed out past the frame so the
-      // soft blurred edge never shows a transparent seam, then blurred.
-      const bg = placeImage(img, frameW, frameH, f, {
-        mode: "cover",
-        motionScale: (opts.motionScale ?? 1) * f.backdropZoom,
-        ignoreUserTransform: true,
-      });
-      // blur radius scales with the frame so 1080p and 4K look the same
-      const radius = (f.backdropBlur * frameW) / 1080;
-      const blurCss = radius > 0.5 ? `blur(${radius.toFixed(1)}px)` : "";
-      ctx.save();
-      try {
-        ctx.filter = [grade, blurCss].filter(Boolean).join(" ") || "none";
-      } catch {
-        ctx.filter = "none";
+      // FAST PATH: the finished backdrop (blur + grade + dim) was rendered
+      // once into a cache — one plain drawImage per frame instead of a
+      // full-frame CPU blur. This is what keeps a real-time recording at
+      // its frame rate; the per-frame blur made renders drop frames.
+      const cached = blurredBackdrop(img, frameW, frameH, f, grade);
+      if (cached) {
+        ctx.save();
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(cached, 0, 0, frameW, frameH);
+        ctx.restore();
+      } else {
+        // Direct path (tests, tainted images, no ctx.filter support): a
+        // cover-placed copy of the same photo, pushed out past the frame so
+        // the soft blurred edge never shows a transparent seam, then blurred.
+        const bg = placeImage(img, frameW, frameH, f, {
+          mode: "cover",
+          motionScale: (opts.motionScale ?? 1) * f.backdropZoom,
+          ignoreUserTransform: true,
+        });
+        // blur radius scales with the frame so 1080p and 4K look the same
+        const radius = (f.backdropBlur * frameW) / 1080;
+        const blurCss = radius > 0.5 ? `blur(${radius.toFixed(1)}px)` : "";
+        ctx.save();
+        try {
+          ctx.filter = [grade, blurCss].filter(Boolean).join(" ") || "none";
+        } catch {
+          ctx.filter = "none";
+        }
+        // the backdrop is not rotated or flipped — it is only wallpaper
+        ctx.drawImage(img, bg.sx, bg.sy, bg.sw, bg.sh, bg.dx, bg.dy, bg.dw, bg.dh);
+        try {
+          ctx.filter = "none";
+        } catch {}
+        if (f.backdropDim > 0.001) {
+          ctx.fillStyle = `rgba(0,0,0,${f.backdropDim})`;
+          ctx.fillRect(0, 0, frameW, frameH);
+        }
+        ctx.restore();
       }
-      // the backdrop is not rotated or flipped — it is only wallpaper
-      ctx.drawImage(img, bg.sx, bg.sy, bg.sw, bg.sh, bg.dx, bg.dy, bg.dw, bg.dh);
-      try {
-        ctx.filter = "none";
-      } catch {}
-      if (f.backdropDim > 0.001) {
-        ctx.fillStyle = `rgba(0,0,0,${f.backdropDim})`;
-        ctx.fillRect(0, 0, frameW, frameH);
-      }
-      ctx.restore();
     } else {
       ctx.save();
       ctx.fillStyle = f.backdrop === "colour" ? f.backdropColor : "#000000";
@@ -355,16 +543,25 @@ export function drawSceneImage(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   if (grade) {
-    try {
-      ctx.filter = grade;
-    } catch {
-      ctx.filter = "none";
+    // FAST PATH: draw the pre-graded copy of the photo (grade baked in
+    // once) so the per-frame draw never pays the CPU ctx.filter cost.
+    const graded = gradedCopy(img, grade);
+    if (graded) {
+      drawPlaced(ctx, graded as unknown as Drawable, fg, f);
+    } else {
+      try {
+        ctx.filter = grade;
+      } catch {
+        ctx.filter = "none";
+      }
+      drawPlaced(ctx, img, fg, f);
+      try {
+        ctx.filter = "none";
+      } catch {}
     }
+  } else {
+    drawPlaced(ctx, img, fg, f);
   }
-  drawPlaced(ctx, img, fg, f);
-  try {
-    ctx.filter = "none";
-  } catch {}
   ctx.restore();
 
   return fg;
@@ -491,4 +688,39 @@ export function drawMediaCover(
   ctx.clip();
   ctx.drawImage(el, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
   ctx.restore();
+}
+
+/**
+ * Does this scene have anything to put on screen?
+ *
+ * Three things can fill a frame: a still image, a video clip, or a flat
+ * colour. A scene with none of them is genuinely empty, and the renderer
+ * skips it.
+ *
+ * This exists because that question was previously answered by writing
+ * `s.image_url || s.video_url` inline at seven different call sites. Adding
+ * the colour backdrop meant finding every one of them — and missing one would
+ * silently drop those scenes out of the exported video, which is exactly the
+ * bug this function prevents from recurring.
+ */
+export function sceneHasVisual(scene: {
+  image_url?: string | null;
+  video_url?: string | null;
+  blank_color?: string | null;
+}): boolean {
+  return Boolean(scene.image_url || scene.video_url || scene.blank_color);
+}
+
+/**
+ * Is this scene a plain colour with no photo or clip?
+ *
+ * The renderer branches on this to paint a fill instead of loading and
+ * drawing an image.
+ */
+export function sceneIsBlankColor(scene: {
+  image_url?: string | null;
+  video_url?: string | null;
+  blank_color?: string | null;
+}): boolean {
+  return Boolean(scene.blank_color && !scene.image_url && !scene.video_url);
 }

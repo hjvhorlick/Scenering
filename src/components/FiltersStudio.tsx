@@ -12,6 +12,7 @@ import {
   type VideoFilterSettings,
 } from "../data/video-filters";
 import FilterPreviewCanvas from "./FilterPreviewCanvas";
+import Icon, { iconify } from "./icons/Icon";
 
 interface FiltersStudioProps {
   /** the single filter running across the whole video (null = none) */
@@ -73,9 +74,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
       {/* ---------------- Banner ---------------- */}
       <div className="bg-gradient-to-r from-fuchsia-950/80 via-gray-900 to-amber-950/70 border border-fuchsia-500/40 rounded-xl p-3.5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 shadow-md">
         <div className="flex items-center gap-3">
-          <span className="text-2xl p-2 bg-fuchsia-500/20 border border-fuchsia-500/40 rounded-lg text-fuchsia-200">
-            🎨
-          </span>
+          <span className="text-2xl p-2 bg-fuchsia-500/20 border border-fuchsia-500/40 rounded-lg text-fuchsia-200" aria-hidden="true"><Icon glyph="🎨" /></span>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm font-bold text-fuchsia-100">Video Look & Atmosphere Filters</h3>
@@ -106,14 +105,14 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-hairline text-gray-200 rounded-lg text-xs font-medium select-none"
               title="Hold to see the video without the filter"
             >
-              {compare ? "👁 Showing Original" : "👁 Hold: Original"}
+              {iconify(compare ? "👁 Showing Original" : "👁 Hold: Original")}
             </button>
             <button
               type="button"
               onClick={() => onChange(null)}
               className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold"
             >
-              ✕ Remove Filter
+              <Icon glyph="✕" /> Remove Filter
             </button>
           </div>
         )}
@@ -149,7 +148,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xl">{activePreset.icon}</span>
+                    <span className="text-xl"><Icon glyph={activePreset.icon} /></span>
                     <h4 className="text-base font-bold text-white">{activePreset.name}</h4>
                     <span
                       className="text-[10px] px-2 py-0.5 rounded-full font-semibold border"
@@ -170,14 +169,14 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                     onClick={resetSettings}
                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 rounded-lg text-[11px]"
                   >
-                    ↺ Reset
+                    <Icon glyph="↺" /> Reset
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowSettings((v) => !v)}
                     className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 rounded-lg text-[11px]"
                   >
-                    {showSettings ? "▲ Hide" : "▼ Settings"}
+                    {iconify(showSettings ? "▲ Hide" : "▼ Settings")}
                   </button>
                 </div>
               </div>
@@ -191,7 +190,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                       <div key={key} className="bg-gray-950/60 border border-hairline rounded-lg px-2.5 py-1.5">
                         <div className="flex items-center justify-between text-[11px] mb-1">
                           <span className="text-gray-300 flex items-center gap-1.5" title={meta.hint}>
-                            <span>{meta.icon}</span>
+                            <span><Icon glyph={meta.icon} /></span>
                             <span className="font-medium">{meta.label}</span>
                           </span>
                           <span className="font-mono text-[10px] text-fuchsia-300 font-bold">
@@ -230,7 +229,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
               : "bg-gray-900 border-hairline text-gray-300 hover:text-white hover:bg-gray-800"
           }`}
         >
-          <span>🎞️</span>
+          <Icon glyph="🎞" />
           <span>All Looks ({VIDEO_FILTERS.length})</span>
         </button>
         {FILTER_GROUPS.map((g) => {
@@ -248,7 +247,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                   : "bg-gray-900 border-hairline text-gray-300 hover:text-white hover:bg-gray-800"
               }`}
             >
-              <span>{g.icon}</span>
+              <span><Icon glyph={g.icon} /></span>
               <span>
                 {g.name} ({count})
               </span>
@@ -309,12 +308,12 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                   className="w-full h-auto block"
                 />
                 <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur text-[9px] font-semibold text-white border border-white/10 flex items-center gap-1">
-                  <span>{f.icon}</span>
+                  <span><Icon glyph={f.icon} /></span>
                   <span>{FILTER_GROUPS.find((g) => g.id === f.group)?.name}</span>
                 </div>
                 {isActive && (
                   <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-fuchsia-600 text-[9px] font-bold text-white shadow">
-                    ✓ ACTIVE
+                    <Icon glyph="✓" /> ACTIVE
                   </div>
                 )}
                 <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -345,7 +344,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
                       key={c}
                       className="text-[9px] px-1.5 py-0.5 rounded bg-gray-950/80 border border-hairline text-gray-400"
                     >
-                      {CONTROL_META[c].icon} {CONTROL_META[c].label}
+                      <Icon glyph={CONTROL_META[c].icon} /> {CONTROL_META[c].label}
                     </span>
                   ))}
                   {f.controls.length > 4 && (
@@ -362,7 +361,7 @@ export default function FiltersStudio({ value, onChange, sampleImage }: FiltersS
 
       {visible.length === 0 && (
         <div className="text-center py-14 text-gray-400">
-          <span className="text-3xl block mb-2">🔍</span>
+          <span className="text-3xl block mb-2"><Icon glyph="🔍" /></span>
           <p className="text-sm">No looks match &quot;{query}&quot;</p>
           <button type="button" onClick={() => setQuery("")} className="mt-2 text-xs text-fuchsia-400 hover:underline">
             Clear search

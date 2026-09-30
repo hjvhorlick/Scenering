@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 /**
  * Application theme system.
  *
- * Five drastically different looks, switched at runtime by setting the
+ * Six drastically different looks, switched at runtime by setting the
  * `data-theme` attribute on <html>. Every theme's actual styling lives in
  * `src/themes.css` (hand-crafted design language) and
  * `src/themes.generated.css` (machine-generated utility colour remapping —
@@ -72,7 +72,14 @@ export const THEMES: ThemeDef[] = [
   },
 ];
 
-export const DEFAULT_THEME: ThemeId = "classic";
+/**
+ * Porcelain is the default because it is the shared look: the public website
+ * at "/" is built from the same china-white surfaces, biscuit hairlines and
+ * cobalt ink, so signing in does not feel like arriving at a different
+ * product. Anyone who prefers the dark original can still pick Classic in the
+ * theme switcher, and that choice is remembered.
+ */
+export const DEFAULT_THEME: ThemeId = "porcelain";
 
 const STORAGE_KEY = "scenering_theme";
 const CHANGE_EVENT = "scenering-theme-changed";

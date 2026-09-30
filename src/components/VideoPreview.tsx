@@ -7,14 +7,15 @@ import {
   getPresetCoords,
   renderTimelineInsert,
 } from "../lib/render-effects";
-import { drawSceneImage } from "../lib/scene-framing";
+import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
 import { loadCaptionFonts } from "../data/caption-styles";
-import { calculateDynamicDuration } from "../lib/duration-utils";
+import { sceneTimelineDuration, NARRATION_LEAD_IN_SECONDS } from "../lib/duration-utils";
+import type { WordTiming } from "../lib/word-sync";
 import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
 import { renderSection } from "../lib/render-section";
@@ -26,8 +27,10 @@ import {
   voiceEchoIsActive,
   resolveVoiceEcho,
 } from "../lib/voice-echo";
-import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio } from "../lib/tts-cache";
+import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
+import { loadSceneImage } from "../lib/scene-image-loader";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
+import Icon from "./icons/Icon";
 
 interface VideoPreviewProps {
   scenes: Scene[];
@@ -55,56 +58,51 @@ interface VideoPreviewProps {
   voiceEcho?: VoiceEchoConfig;
 }
 
-// Playback timing helper: respects scene.duration while ensuring audio is never cut short
+/** Seconds of held first image before the first words, when the video opens
+ *  directly on a scene (an intro section is its own opening). Must match the
+ *  export exactly — see NARRATION_LEAD_IN_SECONDS in duration-utils. */
+function sceneSpeechOffset(sceneIdx: number, hasIntro: boolean): number {
+  return sceneIdx === 0 && !hasIntro ? NARRATION_LEAD_IN_SECONDS : 0;
+}
+
+/** A scene's window on the timeline: its speech length plus any lead-in. */
+function sceneWindowDuration(
+  scene: Scene,
+  audioBuf: AudioBuffer | undefined,
+  sceneIdx: number,
+  hasIntro: boolean
+): number {
+  return getSceneSpeechDuration(scene, audioBuf) + sceneSpeechOffset(sceneIdx, hasIntro);
+}
+
+// Playback timing helper: respects scene.duration while ensuring audio is never cut short.
+// The formula itself lives in duration-utils and is shared with the render
+// pipeline, so the preview and the export agree on every scene boundary.
 function getSceneSpeechDuration(scene: Scene, audioBuf?: AudioBuffer): number {
   // The decoded narration is the authority on how long the scene runs, so the
   // video never sits on a still frame in silence. Previously a longer
   // configured `scene.duration` won, which is exactly what produced the quiet
   // stretches at the end of scenes.
-  if (audioBuf && audioBuf.duration > 0.3) {
-    return Math.round((audioBuf.duration + 0.35) * 10) / 10;
-  }
-  if (scene.duration && scene.duration > 0) {
-    return scene.duration;
-  }
-  return calculateDynamicDuration(scene.text, scene.audio_duration, 20);
+  return sceneTimelineDuration(scene, audioBuf?.duration);
 }
 
 interface SceneAudio {
   buffer: AudioBuffer;
   url: string;
   voiceKey?: string;
+  /** Per-word spoken timings — the preview captions lock onto these exactly
+   *  like the exported video does, so what you preview is what you render. */
+  words?: WordTiming[];
 }
 
+// Scene images load through the ONE shared loader (src/lib/scene-image-loader.ts)
+// so the preview and the exported video can never disagree about what a scene
+// looks like: same proxy routing, same retry, same gradient fallback card.
 function loadImage(
   src: string,
   fallbackIndex: number
 ): Promise<HTMLImageElement> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => {
-      const c = document.createElement("canvas");
-      c.width = 1280;
-      c.height = 720;
-      const ctx = c.getContext("2d")!;
-      const hue = (fallbackIndex * 60) % 360;
-      const g = ctx.createLinearGradient(0, 0, 1280, 720);
-      g.addColorStop(0, `hsl(${hue},50%,25%)`);
-      g.addColorStop(1, `hsl(${(hue + 60) % 360},50%,15%)`);
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, 1280, 720);
-      ctx.fillStyle = "rgba(255,255,255,0.15)";
-      ctx.font = "bold 48px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(`Scene ${fallbackIndex + 1}`, 640, 360);
-      const p = new Image();
-      p.onload = () => resolve(p);
-      p.src = c.toDataURL();
-    };
-    img.src = src;
-  });
+  return loadSceneImage(src, fallbackIndex).then((r) => r?.img ?? new Image());
 }
 
 export default function VideoPreview({
@@ -257,7 +255,7 @@ export default function VideoPreview({
   }, [customerLogo?.url]);
 
   // A scene counts as renderable if it has a still OR a short video clip.
-  const scenesWithImages = scenes.filter((s) => s.image_url || s.video_url);
+  const scenesWithImages = scenes.filter(sceneHasVisual);
 
 function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: number): SceneAudio {
   const sampleRate = audioCtx.sampleRate || 44100;
@@ -347,10 +345,35 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           buffer: resolved.buffer,
           url: resolved.url,
           voiceKey,
+          words: resolved.words,
         };
       }
 
-      // 1. Synthesize only if audio was never generated before
+      // 1. Synthesize only if audio was never generated before. The timeline
+      //    variant carries per-word spoken timings so the preview captions
+      //    track the voice exactly like the exported video.
+      try {
+        const withTimeline = await fetchSceneAudioWithTimeline(scene.text || "", voiceToUse, { timeoutMs: 15000 });
+        if (withTimeline) {
+          const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
+          const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
+          const url = URL.createObjectURL(blob);
+          setCachedSceneAudio(scene.id, voiceToUse, text, {
+            audioBuffer,
+            blobUrl: url,
+            duration: audioBuffer.duration,
+            voiceId: voiceToUse,
+            text,
+            rawBuffer: withTimeline.rawBuffer,
+            blob,
+            words: withTimeline.words,
+          });
+          return { buffer: audioBuffer, url, voiceKey, words: withTimeline.words };
+        }
+      } catch (err) {
+        console.warn("TTS timeline synthesis fallback for scene:", scene.id, err);
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
@@ -496,7 +519,20 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         }
       }
 
+      // Plain-colour scene: fill the frame before anything else draws, so the
+      // live preview shows the same flat colour the export will.
+      if (sceneIsBlankColor(scene) && scene.blank_color) {
+        ctx.save();
+        try {
+          ctx.filter = "none";
+        } catch {}
+        ctx.fillStyle = scene.blank_color;
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+      }
+
       let handledTransition = false;
+      const sceneIdx = Math.max(0, scenesWithImages.findIndex((s) => s.id === scene.id));
       if (
         scene.transition &&
         scene.transition !== "none" &&
@@ -508,7 +544,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
             scene.motion_effect,
             sceneProgress,
             w,
-            h
+            h,
+            sceneIdx
           );
           let prevSource: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
             prevImg as any;
@@ -522,7 +559,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
             prevScene?.motion_effect,
             1,
             w,
-            h
+            h,
+            Math.max(0, sceneIdx - 1)
           );
           const safeScale = isNaN(motionScale) ? 1 : motionScale;
           const safeDx = isNaN(motionDx) ? 0 : motionDx;
@@ -563,7 +601,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           scene.motion_effect,
           sceneProgress,
           w,
-          h
+          h,
+          sceneIdx
         );
         // getMotionTransform returns an offset that recentres a canvas-sized
         // draw; the framing engine centres the photo itself, so only the
@@ -585,22 +624,34 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       const outroSec = sectionsRef.current.outro;
       const introDur = introSec ? Math.max(0.5, introSec.duration) : 0;
       const outroDur = outroSec ? Math.max(0.5, outroSec.duration) : 0;
-      const scriptDur = scenesWithImages.reduce((sum, s) => {
+      const scriptDur = scenesWithImages.reduce((sum, s, i) => {
         const sa = audioBuffersRef.current.get(s.id);
-        return sum + getSceneSpeechDuration(s, sa?.buffer);
+        return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
       }, 0);
 
       const isIntroSegment = Boolean(introSec && absoluteTime < introDur);
       const isOutroSegment = Boolean(outroSec && absoluteTime >= introDur + scriptDur);
       const isIntroOrOutro = isIntroSegment || isOutroSegment;
 
-      // Render Subtitles / Captions (Strictly disabled for Intro and Outro segments per user instruction)
-      if (!isIntroOrOutro && captionsConfig?.enabled !== false && scene.text) {
+      // Render Subtitles / Captions (Strictly disabled for Intro and Outro segments per user instruction).
+      // The first scene's speech begins speechOffset seconds into its window
+      // (the opening lead-in); captions are held back until then so they
+      // appear exactly when the voice starts speaking — same as the export.
+      const speechOffsetSec = sceneSpeechOffset(sceneIdx, Boolean(introSec));
+      const speechElapsed =
+        elapsedInScene !== undefined ? Math.max(0, elapsedInScene - speechOffsetSec) : undefined;
+      const speechStarted = elapsedInScene === undefined || elapsedInScene >= speechOffsetSec;
+      if (!isIntroOrOutro && captionsConfig?.enabled !== false && scene.text && speechStarted) {
         const activeCaptions = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
         const sa = audioBuffersRef.current.get(scene.id);
         const speechDur = sa?.buffer.duration && sa.buffer.duration > 0.3 ? sa.buffer.duration : (scene.duration || 4);
-        const speechProgress = elapsedInScene !== undefined ? Math.min(1, Math.max(0, elapsedInScene / Math.max(0.1, speechDur))) : sceneProgress;
-        renderCanvasCaptions(ctx, scene.text, speechProgress, activeCaptions, w, h);
+        const speechProgress = speechElapsed !== undefined ? Math.min(1, Math.max(0, speechElapsed / Math.max(0.1, speechDur))) : sceneProgress;
+        renderCanvasCaptions(ctx, scene.text, speechProgress, activeCaptions, w, h, {
+          // Same real word timings the export uses — the preview highlights
+          // each word at the moment the voice actually says it.
+          wordTimings: sa?.words,
+          audioTimeSec: speechElapsed ?? 0,
+        });
       }
 
       // Crisp Scenering Logo Watermark in Top-Left Corner (Transparent background, no borders)
@@ -609,16 +660,17 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
 
-        const wmWidth = 180;
-        const wmHeight = (wmWidth * watermarkImgRef.current.naturalHeight) / watermarkImgRef.current.naturalWidth;
-        const wmX = 24;
-        const wmY = 20;
+        const scaleRatio = w / 1280;
+        const wmWidth = Math.max(20, Math.round(180 * scaleRatio));
+        const wmHeight = Math.max(10, Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / watermarkImgRef.current.naturalWidth));
+        const wmX = Math.round(24 * scaleRatio);
+        const wmY = Math.round(20 * (h / 720));
 
         // Subtle soft shadow so transparent logo stands out cleanly on any video scene
         ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = 8 * scaleRatio;
         ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 2;
+        ctx.shadowOffsetY = 2 * scaleRatio;
 
         ctx.drawImage(watermarkImgRef.current, wmX, wmY, wmWidth, wmHeight);
         ctx.restore();
@@ -755,9 +807,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     const outroSec = activeOutro;
     const introDur = introDuration;
     const outroDur = outroDuration;
-    const scriptDur = scenesWithImages.reduce((sum, s) => {
+    const scriptDur = scenesWithImages.reduce((sum, s, i) => {
       const sa = audioBuffersRef.current.get(s.id);
-      return sum + getSceneSpeechDuration(s, sa?.buffer);
+      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
     }, 0);
 
     let targetScene = scenesWithImages[0];
@@ -779,7 +831,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = audioBuffersRef.current.get(s.id);
-        const sDur = getSceneSpeechDuration(s, sa?.buffer);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
         if (scriptTime >= acc && scriptTime < acc + sDur) {
           targetScene = s;
           targetIdx = i;
@@ -978,6 +1030,17 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       scenesWithImages.map((s, i) => loadImage(s.image_url || "", i))
     );
 
+    // Pre-render each scene's expensive static layers (graded copy, blurred
+    // backdrop) before playback — the same caches the export uses. Without
+    // this the first frames of every scene paid for grade + blur + decode,
+    // which is the visible "jump" at the start of each motion effect.
+    try {
+      const gradeForCache = getFilterCanvas(videoFilter, canvas.width);
+      images.forEach((img, i) => {
+        prewarmSceneFrame(img, scenesWithImages[i], canvas.width, canvas.height, gradeForCache);
+      });
+    } catch {}
+
     let audioCtx = audioCtxRef.current;
     if (!audioCtx) {
       audioCtx = new AudioContext();
@@ -1030,6 +1093,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     }
 
     if (audioCtx && !analyserRef.current) {
+      // Master limiter node: prevents digital clipping/crackling when voice + music + sfx sum together
+      const masterLimiter = audioCtx.createDynamicsCompressor();
+      masterLimiter.threshold.setValueAtTime(-1.5, audioCtx.currentTime);
+      masterLimiter.knee.setValueAtTime(6.0, audioCtx.currentTime);
+      masterLimiter.ratio.setValueAtTime(16.0, audioCtx.currentTime);
+      masterLimiter.attack.setValueAtTime(0.003, audioCtx.currentTime);
+      masterLimiter.release.setValueAtTime(0.15, audioCtx.currentTime);
+      masterLimiter.connect(audioCtx.destination);
+
       const an = audioCtx.createAnalyser();
       // 512 samples => 256 frequency bins: enough resolution for a full-width
       // rack without adjacent bars mirroring each other.
@@ -1038,11 +1110,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       an.minDecibels = -92;
       an.maxDecibels = -12;
       analyserRef.current = an;
-      an.connect(audioCtx.destination);
-      if (!recordDestRef.current) {
-        try { recordDestRef.current = audioCtx.createMediaStreamDestination(); } catch {}
-      }
-      if (recordDestRef.current) an.connect(recordDestRef.current);
+      an.connect(masterLimiter);
 
       const music = audioCtx.createAnalyser();
       music.fftSize = 512;
@@ -1050,8 +1118,14 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       music.minDecibels = -92;
       music.maxDecibels = -12;
       musicAnalyserRef.current = music;
-      music.connect(audioCtx.destination);
-      if (recordDestRef.current) music.connect(recordDestRef.current);
+      music.connect(masterLimiter);
+
+      if (!recordDestRef.current) {
+        try { recordDestRef.current = audioCtx.createMediaStreamDestination(); } catch {}
+      }
+      if (recordDestRef.current) {
+        masterLimiter.connect(recordDestRef.current);
+      }
     }
 
     // ---- Narration echo (set in the Voiceover step) ---------------------
@@ -1080,9 +1154,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     const introDur = introDuration;
     const outroDur = outroDuration;
 
-    const scriptDur = scenesWithImages.reduce((sum, s) => {
+    const scriptDur = scenesWithImages.reduce((sum, s, i) => {
       const sa = buffers.get(s.id);
-      return sum + getSceneSpeechDuration(s, sa?.buffer);
+      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
     }, 0);
 
     const totalDur = introDur + scriptDur + outroDur;
@@ -1154,6 +1228,10 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     let currentPlayingSceneIdx = -999;
     const playStartWallTime = performance.now();
 
+    // A scene whose speech has not started yet (the opening lead-in) waits
+    // for its offset before the narration begins.
+    let pendingAudioSceneIdx = -999;
+
     // If starting inside script scenes, begin playing scene audio immediately
     if (safeStartTime >= introDur && safeStartTime < introDur + scriptDur) {
       const initialScriptTime = safeStartTime - introDur;
@@ -1161,18 +1239,22 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = buffers.get(s.id);
-        const sDur = getSceneSpeechDuration(s, sa?.buffer);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
         if (initialScriptTime >= acc && initialScriptTime < acc + sDur) {
           currentPlayingSceneIdx = i;
           setCurrentSceneIndex(i);
-          playSceneAudio(i, initialScriptTime - acc);
+          const speechOffset = initialScriptTime - acc - sceneSpeechOffset(i, Boolean(introSec));
+          if (speechOffset >= 0) playSceneAudio(i, speechOffset);
+          else pendingAudioSceneIdx = i;
           break;
         }
         acc += sDur;
         if (i === scenesWithImages.length - 1) {
           currentPlayingSceneIdx = i;
           setCurrentSceneIndex(i);
-          playSceneAudio(i, Math.max(0, initialScriptTime - acc));
+          const speechOffset = Math.max(0, initialScriptTime - acc) - sceneSpeechOffset(i, Boolean(introSec));
+          if (speechOffset >= 0) playSceneAudio(i, speechOffset);
+          else pendingAudioSceneIdx = i;
         }
       }
     }
@@ -1265,7 +1347,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = buffers.get(s.id);
-        const sDur = getSceneSpeechDuration(s, sa?.buffer);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec));
         if (scriptTime >= accum && scriptTime < accum + sDur) {
           activeIdx = i;
           activeOffset = scriptTime - accum;
@@ -1283,7 +1365,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       if (activeIdx !== currentPlayingSceneIdx) {
         currentPlayingSceneIdx = activeIdx;
         setCurrentSceneIndex(activeIdx);
-        playSceneAudio(activeIdx, activeOffset);
+        // Narration starts at the scene's speech offset — during the opening
+        // lead-in it waits, then begins exactly when the export's would.
+        const speechOffset = activeOffset - sceneSpeechOffset(activeIdx, Boolean(introSec));
+        if (speechOffset >= 0) playSceneAudio(activeIdx, speechOffset);
+        else pendingAudioSceneIdx = activeIdx;
 
         // Hand over to the new scene's clip (if it has one) and silence the
         // one we just left, so two clips never overlap.
@@ -1292,6 +1378,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         const entering = scenesWithImages[activeIdx];
         if (entering && sceneHasClip(entering)) {
           void pool.play(entering, activeOffset / Math.max(0.1, activeSceneDur), activeSceneDur);
+        }
+      }
+
+      // The lead-in elapsed: start this scene's narration now.
+      if (pendingAudioSceneIdx === activeIdx && activeIdx === currentPlayingSceneIdx) {
+        const speechOffset = activeOffset - sceneSpeechOffset(activeIdx, Boolean(introSec));
+        if (speechOffset >= 0) {
+          playSceneAudio(activeIdx, speechOffset);
+          pendingAudioSceneIdx = -999;
         }
       }
 
@@ -1392,7 +1487,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     // what creates the recording destination node.
     await playPreview(0);
 
-    const videoStream = canvas.captureStream(30);
+    const videoStream = canvas.captureStream(60);
     const tracks = [...videoStream.getVideoTracks()];
     const audioTracks = recordDestRef.current?.stream.getAudioTracks() ?? [];
     tracks.push(...audioTracks);
@@ -1459,7 +1554,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     stopPreview();
   }, [stopPreview]);
 
-  const togglePlay = useCallback(() => {
+  const togglePlayRef = useRef<() => void>(() => {});
+  togglePlayRef.current = () => {
     if (playingRef.current) {
       // stopping mid-capture still yields a usable file
       if (isRecording) finishRecordingEarly();
@@ -1467,11 +1563,18 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     } else {
       playPreview();
     }
-  }, [stopPreview, playPreview, isRecording, finishRecordingEarly]);
+  };
+
+  const togglePlay = useCallback(() => {
+    togglePlayRef.current();
+  }, []);
+
+  const onPlayStateChangeRef = useRef(onPlayStateChange);
+  onPlayStateChangeRef.current = onPlayStateChange;
 
   useEffect(() => {
-    onPlayStateChange?.(isPlaying, togglePlay);
-  }, [isPlaying, togglePlay, onPlayStateChange]);
+    onPlayStateChangeRef.current?.(isPlaying, togglePlay);
+  }, [isPlaying, togglePlay]);
 
   useEffect(() => {
     return () => {
@@ -1496,7 +1599,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
   if (scenesWithImages.length === 0) {
     return (
       <div className="bg-gray-800/50 border border-hairline rounded-xl p-8 text-center">
-        <div className="text-4xl mb-3">🎬</div>
+        <div className="text-4xl mb-3"><Icon glyph="🎬" /></div>
         <h3 className="text-lg font-semibold mb-1">No Images Yet</h3>
         <p className="text-gray-400 text-sm">
           Search and assign images to your scenes first.
@@ -1527,7 +1630,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
           {/* Hint Overlay when hovering canvas */}
           <div className="absolute bottom-2 right-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur px-2.5 py-1 rounded-md text-[11px] text-gray-300 border border-hairline">
-            🖱️ Drag elements to reposition
+            <Icon glyph="🖱" /> Drag elements to reposition
           </div>
 
           {loadingAudio && (
@@ -1593,7 +1696,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
               </button>
 
               <span className="text-xs text-indigo-300 font-mono font-semibold bg-indigo-950/80 px-2.5 py-1 rounded-md border border-indigo-700/60 flex items-center gap-1.5">
-                <span>🎬</span>
+                <Icon glyph="🎬" />
                 <span>Total: {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}</span>
                 <span className="text-gray-500">·</span>
                 <span>{Math.round(progress * 100)}%</span>
@@ -1646,7 +1749,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
                   className="px-3 py-2 bg-emerald-950/70 hover:bg-emerald-900/70 border border-emerald-700/60 rounded-lg transition-colors text-emerald-200 font-medium text-xs flex items-center gap-2 cursor-pointer"
                   title={`Download ${downloadName} again`}
                 >
-                  <span>💾</span>
+                  <Icon glyph="💾" />
                   <span>
                     Save Video
                     {downloadSize > 0 && (

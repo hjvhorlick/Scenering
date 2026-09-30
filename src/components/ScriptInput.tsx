@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { countWords, countScenesFromScript } from "../lib/duration-utils";
+import { countWords, countScenesFromScript, formatDuration } from "../lib/duration-utils";
+import Icon from "../components/icons/Icon";
 
 interface ScriptInputProps {
   onSubmit: (title: string, script: string) => void;
@@ -37,7 +38,7 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
       {onOpenApiKeys && (
         <div className="p-3.5 bg-gray-900 border border-hairline rounded-xl flex items-center justify-between gap-3 shadow-sm">
           <div className="flex items-center gap-3">
-            <span className="text-xl">🔑</span>
+            <span className="text-xl"><Icon glyph="🔑" /></span>
             <div>
               <p className="text-xs font-semibold text-gray-200">Customer Stock Footage Keys (Optional)</p>
               <p className="text-[11px] text-gray-400">
@@ -80,7 +81,7 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
               </span>
             </label>
             <span className="text-xs font-mono text-gray-400">
-              {wordsCount} words • ~{estimatedReadSec}s total read
+              {wordsCount} words • ~{formatDuration(estimatedReadSec)} total read
             </span>
           </div>
           <textarea

@@ -30,7 +30,17 @@ export function buildInsertAudioPlan(
 
   const plans: InsertAudioPlan[] = [];
 
-  for (const ins of inserts) {
+  // A music selection replaces the previous selection. Keep this defensive
+  // guard in the audio engine as well as the UI so legacy saved projects can
+  // never render two background beds over one another.
+  let lastMusicIndex = -1;
+  for (let i = 0; i < inserts.length; i++) {
+    if (inserts[i].category === "background_music") lastMusicIndex = i;
+  }
+
+  for (let insertIndex = 0; insertIndex < inserts.length; insertIndex++) {
+    const ins = inserts[insertIndex];
+    if (ins.category === "background_music" && insertIndex !== lastMusicIndex) continue;
     const as = ins.audioSettings;
     if (!as || !as.soundUrl) continue;
     if (as.muted) continue;
@@ -137,7 +147,7 @@ const bufferCache = new Map<string, AudioBuffer>();
 
 export async function decodeInsertAudio(
   url: string,
-  ctx: AudioContext
+  ctx: BaseAudioContext
 ): Promise<AudioBuffer | null> {
   const cached = bufferCache.get(url);
   if (cached) return cached;
@@ -169,14 +179,17 @@ interface ActiveSlot {
  * the current absolute timeline time. stop()/dispose() when playback ends.
  */
 export class InsertAudioMixer {
-  private ctx: AudioContext;
+  private ctx: BaseAudioContext;
   private master: GainNode;
   private slots: ActiveSlot[] = [];
+  /** Set by scheduleAll(): the timeline is already placed, so polling must stop. */
+  private prescheduled = false;
 
-  constructor(ctx: AudioContext, dest: AudioNode) {
+  constructor(ctx: BaseAudioContext, dest: AudioNode) {
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = 1;
+    // 0.85 gain headroom prevents harsh digital clipping when multiple sounds sum together
+    this.master.gain.value = 0.85;
     this.master.connect(dest);
   }
 
@@ -206,12 +219,20 @@ export class InsertAudioMixer {
 
       const gain = this.ctx.createGain();
       gain.gain.value = slot.plan.volume;
+      // Gentle 25ms micro-fade prevents hard DC-offset clicks/crackles at buffer start
+      if (typeof gain.gain.setValueAtTime === "function" && typeof gain.gain.exponentialRampToValueAtTime === "function") {
+        try {
+          const now = this.ctx.currentTime;
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.exponentialRampToValueAtTime(Math.max(0.001, slot.plan.volume), now + 0.025);
+        } catch {}
+      }
       source.connect(gain);
       gain.connect(this.master);
 
       const bufDur = Math.max(0.01, slot.buffer.duration);
       const offset = ((at - slot.plan.startTime) % bufDur + bufDur) % bufDur;
-      source.start(0, offset);
+      source.start(this.ctx.currentTime, offset);
 
       source.onended = () => {
         if (slot.source === source) {
@@ -227,6 +248,67 @@ export class InsertAudioMixer {
     } catch (err) {
       console.warn("Insert audio start failed:", err);
     }
+  }
+
+  /**
+   * Offline render path: place every sound on the timeline up front.
+   *
+   * Live playback has to poll, because it cannot know when the user will
+   * pause or scrub. An offline render knows the whole timeline before it
+   * starts, so each sound is scheduled once at its exact start time and
+   * stopped at its exact end time. The Web Audio clock then places it to the
+   * sample, instead of the nearest frame a poll happened to land on, and the
+   * render no longer has to be interrupted once per frame to check.
+   *
+   * Only for an OfflineAudioContext, and only before rendering begins.
+   * Do not call tick() afterwards — the sounds are already placed.
+   */
+  scheduleAll(): number {
+    this.prescheduled = true;
+    let placed = 0;
+    for (const slot of this.slots) {
+      const { startTime, endTime, loop, volume } = slot.plan;
+      if (!(endTime > startTime)) continue;
+      try {
+        const source = this.ctx.createBufferSource();
+        source.buffer = slot.buffer;
+        if (loop) source.loop = true;
+
+        const gain = this.ctx.createGain();
+        gain.gain.value = volume;
+
+        if (typeof gain.gain.setValueAtTime === "function" && typeof gain.gain.exponentialRampToValueAtTime === "function") {
+          try {
+            const start = Math.max(0, startTime);
+            const end = Math.max(0, endTime);
+            const targetVol = Math.max(0.001, volume);
+            const fadeSec = Math.min(0.04, (end - start) * 0.1);
+            if (fadeSec > 0.005) {
+              gain.gain.setValueAtTime(0.001, start);
+              gain.gain.exponentialRampToValueAtTime(targetVol, start + fadeSec);
+              gain.gain.setValueAtTime(targetVol, end - fadeSec);
+              gain.gain.exponentialRampToValueAtTime(0.001, end);
+            }
+          } catch {}
+        }
+
+        source.connect(gain);
+        gain.connect(this.master);
+
+        source.start(Math.max(0, startTime));
+        // Harmless for a one-shot that has already finished; it truncates a
+        // sound that would otherwise outrun its slot, which is what tick() did.
+        source.stop(Math.max(0, endTime));
+
+        slot.source = source;
+        slot.gain = gain;
+        slot.started = true;
+        placed++;
+      } catch (err) {
+        console.warn("Insert audio scheduling failed:", err);
+      }
+    }
+    return placed;
   }
 
   /** Begin everything that is already active at `time`. */
@@ -245,13 +327,28 @@ export class InsertAudioMixer {
 
   /** Per-frame update: start sounds whose start time was crossed, stop ones past their end. */
   tick(time: number) {
+    // Everything is already placed on the clock. Polling now would only do
+    // harm: the stop() below takes no argument, so it would cut a sound off
+    // at the context's current time instead of its planned end.
+    if (this.prescheduled) return;
     for (const slot of this.slots) {
       if (slot.started) {
         // Stop at the planned end — also for looping beds (music that fills the video)
         if (time >= slot.plan.endTime && slot.source) {
-          try {
-            slot.source.stop();
-          } catch {}
+          const s = slot.source;
+          const g = slot.gain;
+          if (g && typeof g.gain.setValueAtTime === "function" && typeof g.gain.linearRampToValueAtTime === "function") {
+            try {
+              const now = this.ctx.currentTime;
+              g.gain.setValueAtTime(g.gain.value, now);
+              g.gain.linearRampToValueAtTime(0.001, now + 0.03);
+            } catch {}
+          }
+          setTimeout(() => {
+            try {
+              s.stop();
+            } catch {}
+          }, 35);
           slot.source = null;
           slot.finished = true;
         }
@@ -268,6 +365,7 @@ export class InsertAudioMixer {
 
   /** Stop everything immediately and reset state. */
   stop() {
+    this.prescheduled = false;
     for (const slot of this.slots) {
       if (slot.source) {
         try {

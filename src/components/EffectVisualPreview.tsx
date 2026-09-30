@@ -12,7 +12,7 @@ import StickerPreviewCanvas from "./StickerPreviewCanvas";
 import TemplatePreviewCanvas from "./TemplatePreviewCanvas";
 import { wantsCentreLogo } from "../lib/render-visualizers";
 import { MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
-import { startPreviewLoop } from "../lib/preview-loop";
+import Icon from "./icons/Icon";
 
 interface EffectVisualPreviewProps {
   item: CatalogItem;
@@ -75,7 +75,6 @@ function getCentreLogoPlaceholder(width = 256, height = 256): HTMLCanvasElement 
 
 export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animRef = useRef<number>(0);
 
   // Audio visualisers are drawn by the very same renderer the video preview and
   // the final render use, so the card can never show something the video won't.
@@ -114,10 +113,15 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       audioSettings: {},
     } as unknown as TimelineInsert;
 
-    const startedAt = performance.now();
-
-    const renderLoop = (now: number) => {
-      const elapsed = (now - startedAt) / 1000;
+    // Paint one deterministic frame from the production renderer. A grid of 40+
+    // simultaneous animation loops was wasteful and made the library hard to
+    // scan; the large monitor above remains the place for live animation.
+    const elapsed =
+      1.6 +
+      (Array.from(item.type).reduce((sum, character) => sum + character.charCodeAt(0), 0) % 47) /
+        10;
+    const renderStill = () => {
+      // Canvas dimensions stay in px; CSS only scales the finished still.
       const w = canvas.width;
       const h = canvas.height;
 
@@ -142,7 +146,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       renderTimelineInsert(
         ctx,
         previewInsert,
-        0.4 + (elapsed % 12),
+        elapsed,
         w,
         h,
         0,
@@ -154,9 +158,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       );
     };
 
-    // ~30fps is plenty for a thumbnail, and skip painting entirely while the
-    // card is scrolled off-screen so a full catalogue grid can't stall scrolling
-    return startPreviewLoop(canvas, renderLoop, { fps: 30 });
+    renderStill();
   }, [item]);
 
 
@@ -222,7 +224,8 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     }
   }, [item]);
 
-  // If this is an audio visualizer, return the live animated canvas
+  // Audio catalogue cards are still frames from the production renderer. Only
+  // the large monitor animates, keeping a fully expanded library inexpensive.
   if (item.category === "audio_visualizers") {
     return (
       <div className="w-full h-24 rounded-lg bg-gray-950 border border-hairline overflow-hidden relative shadow-inner flex items-center justify-center">
@@ -233,9 +236,12 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
           className="w-full h-full object-cover"
         />
         <div className="absolute bottom-1 right-2 flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-          <span className="text-[9px] font-mono text-gray-400 uppercase tracking-wider">
-            Live · same engine as render
+          <span className="w-1.5 h-1.5 rounded-full bg-gray-500" aria-hidden="true" />
+          <span
+            className="text-[9px] font-mono text-gray-400 uppercase tracking-wider"
+            title="Still 512 px example; use the Live preview above to see it move"
+          >
+            Still · same engine as render
           </span>
         </div>
       </div>
@@ -294,13 +300,13 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.25)_0%,transparent_70%)] animate-pulse" />
           <div className="relative z-10 flex flex-col items-center text-center">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.8)] border border-yellow-200/60 mb-1">
-              <span className="text-xs font-black text-gray-950">🏷️</span>
+              <span className="text-xs font-black text-gray-950"><Icon glyph="🏷" /></span>
             </div>
             <span className="text-[10px] font-black text-amber-300 tracking-widest uppercase drop-shadow">YOUR BRAND</span>
             <span className="text-[8px] text-amber-200/80 font-serif italic">Presents An Original Story</span>
           </div>
-          <div className="absolute top-1 left-2 text-[8px] font-mono text-amber-400/80 bg-amber-950/70 px-1.5 py-0.2 rounded border border-amber-700/40">
-            🎬 Intro Video
+          <div className="absolute top-1 left-2 text-[8px] font-mono text-amber-400/80 bg-amber-950/70 px-1.5 py-0.2 rounded">
+            <Icon glyph="🎬" /> Intro Video
           </div>
         </div>
       );
@@ -312,13 +318,13 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
           <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(6,182,212,0.1)_1px,transparent_1px)] bg-[size:100%_4px]" />
           <div className="relative z-10 flex flex-col items-center text-center">
             <div className="w-7 h-7 rounded bg-gray-900 border border-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.6)] flex items-center justify-center mb-1">
-              <span className="text-xs">⚡</span>
+              <span className="text-xs"><Icon glyph="⚡" /></span>
             </div>
             <span className="text-[10px] font-black text-cyan-300 tracking-wider font-mono">CYBERPUNK MEDIA</span>
             <span className="text-[8px] text-pink-400 font-mono">Next-Gen Visuals</span>
           </div>
-          <div className="absolute top-1 left-2 text-[8px] font-mono text-cyan-400 bg-cyan-950/70 px-1.5 py-0.2 rounded border border-cyan-700/40">
-            🎬 Tech Intro
+          <div className="absolute top-1 left-2 text-[8px] font-mono text-cyan-400 bg-cyan-950/70 px-1.5 py-0.2 rounded">
+            <Icon glyph="🎬" /> Tech Intro
           </div>
         </div>
       );
@@ -329,13 +335,13 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
       <div className="w-full h-24 rounded-lg bg-gradient-to-r from-gray-950 via-indigo-950/60 to-gray-950 border border-indigo-500/40 p-2 flex flex-col items-center justify-center relative overflow-hidden group">
         <div className="relative z-10 flex flex-col items-center text-center">
           <div className="w-7 h-7 rounded-lg bg-indigo-600/80 border border-indigo-400 flex items-center justify-center mb-1 shadow-lg">
-            <span className="text-xs">🎬</span>
+            <span className="text-xs"><Icon glyph="🎬" /></span>
           </div>
           <span className="text-[10px] font-bold text-white tracking-wider">{item.name}</span>
           <span className="text-[8px] text-indigo-300">With Logo Reveal</span>
         </div>
-        <div className="absolute top-1 left-2 text-[8px] font-mono text-indigo-400 bg-indigo-950/70 px-1.5 py-0.2 rounded border border-indigo-700/40">
-          🎬 Video Intro
+        <div className="absolute top-1 left-2 text-[8px] font-mono text-indigo-400 bg-indigo-950/70 px-1.5 py-0.2 rounded">
+          <Icon glyph="🎬" /> Video Intro
         </div>
       </div>
     );
@@ -348,7 +354,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
         <div className="w-full h-24 rounded-lg bg-gray-950 border border-red-600/40 p-2 flex items-center justify-between relative overflow-hidden group">
           {/* Watch Next Box 1 */}
           <div className="w-16 h-14 bg-gray-900 border border-hairline rounded flex flex-col items-center justify-center text-[8px] text-gray-400 font-mono">
-            <span>📺</span>
+            <Icon glyph="📺" />
             <span>NEXT VIDEO</span>
           </div>
 
@@ -362,11 +368,11 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
 
           {/* Watch Next Box 2 */}
           <div className="w-16 h-14 bg-gray-900 border border-hairline rounded flex flex-col items-center justify-center text-[8px] text-gray-400 font-mono">
-            <span>▶️</span>
+            <Icon glyph="▶" />
             <span>PLAYLIST</span>
           </div>
-          <div className="absolute top-1 left-2 text-[8px] font-mono text-red-400 bg-red-950/70 px-1.5 py-0.2 rounded border border-red-700/40">
-            🏁 YouTube End-Slate
+          <div className="absolute top-1 left-2 text-[8px] font-mono text-red-400 bg-red-950/70 px-1.5 py-0.2 rounded">
+            <Icon glyph="🏁" /> YouTube End-Slate
           </div>
         </div>
       );
@@ -391,7 +397,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
     return (
       <div className="w-full h-24 rounded-lg bg-gray-950 border border-indigo-500/40 p-2 flex flex-col items-center justify-center relative overflow-hidden group">
         <div className="relative z-10 flex flex-col items-center text-center">
-          <span className="text-sm mb-0.5">🏁</span>
+          <span className="text-sm mb-0.5"><Icon glyph="🏁" /></span>
           <span className="text-[10px] font-bold text-white">{item.name}</span>
           <span className="text-[8px] text-gray-400 mt-0.5">End-Screen with Handles & Logo</span>
         </div>
@@ -435,7 +441,7 @@ export default function EffectVisualPreview({ item }: EffectVisualPreviewProps) 
   return (
     <div className="w-full h-24 rounded-lg bg-gray-950 border border-hairline p-2 flex items-center justify-center relative overflow-hidden group">
       <div className="relative z-10 flex items-center gap-2 bg-gray-900/90 px-3 py-1.5 rounded-lg border border-hairline">
-        <span className="text-base">🏷️</span>
+        <span className="text-base"><Icon glyph="🏷" /></span>
         <span className="text-xs font-semibold text-gray-200">Official Brand Watermark</span>
       </div>
     </div>

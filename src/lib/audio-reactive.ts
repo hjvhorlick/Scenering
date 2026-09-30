@@ -151,7 +151,7 @@ export function rhythmicLevel(t: number, source: ReactionSource): number {
   return source === "music" ? musicRhythm(t).level : voiceRhythm(t).level;
 }
 
-/** Punchy transient (0..1) used for scale/throb effects on icons and rings */
+/** Punchy transient (0..1) used for scale/throb effects on icons and rings. */
 export function beatPulse(t: number, source: ReactionSource): number {
   if (source === "music") {
     const r = musicRhythm(t);
@@ -159,6 +159,40 @@ export function beatPulse(t: number, source: ReactionSource): number {
   }
   const r = voiceRhythm(t);
   return Math.min(1, r.level * 0.9);
+}
+
+/**
+ * Pulse from the real analyser when one is present, otherwise from the sample
+ * rhythm above. Bar and waveform styles already read their bus directly; this
+ * gives ring/dot styles the same behaviour instead of letting them keep
+ * bouncing to a canned clock while somebody is speaking.
+ */
+export function reactiveBeat(
+  t: number,
+  bus: AudioBus | null | undefined,
+  source: ReactionSource
+): number {
+  if (!hasSignal(bus)) return beatPulse(t, source);
+
+  const level = Number.isFinite(bus?.level) ? Math.max(0, bus!.level) : 0;
+  let low = 0;
+  if (bus?.freq && bus.freq.length > 0) {
+    // Speech weight lives mainly in the lower third of the analyser. Average a
+    // small window rather than trusting one noisy FFT bin.
+    const take = Math.max(1, Math.min(32, Math.ceil(bus.freq.length / 3)));
+    let sum = 0;
+    for (let i = 0; i < take; i++) sum += bus.freq[i] || 0;
+    low = sum / (take * 255);
+  }
+
+  let wave = 0;
+  if (bus?.wave && bus.wave.length > 0) {
+    let sum = 0;
+    for (let i = 0; i < bus.wave.length; i++) sum += Math.abs((bus.wave[i] ?? 128) - 128) / 128;
+    wave = sum / bus.wave.length;
+  }
+
+  return Math.min(1, Math.max(level * 2.5, low * 1.6, wave * 2));
 }
 
 /* ------------------------------------------------------------------ *

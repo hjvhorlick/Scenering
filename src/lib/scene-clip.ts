@@ -140,6 +140,34 @@ export class ClipPool {
     }
   }
 
+  /** Seek to the exact source frame needed by offline export. */
+  async seekExact(scene: Scene, sceneProgress: number, sceneDuration: number): Promise<void> {
+    const el = this.get(scene);
+    if (!el) return;
+    if (el.readyState < 1) {
+      await new Promise<void>((resolve) => {
+        const done = () => resolve();
+        el.addEventListener("loadedmetadata", done, { once: true });
+        el.addEventListener("error", done, { once: true });
+        setTimeout(done, 200);
+      });
+    }
+    const target = clipTimeForProgress(scene, sceneProgress, sceneDuration);
+    if (Math.abs(el.currentTime - target) < 0.001 && el.readyState >= 2) return;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        el.removeEventListener("seeked", done);
+        resolve();
+      };
+      el.addEventListener("seeked", done, { once: true });
+      try { el.currentTime = target; } catch { done(); }
+      setTimeout(done, 200);
+    });
+  }
+
   /** Start live playback of a scene's clip from the given progress point. */
   async play(scene: Scene, sceneProgress: number, sceneDuration: number): Promise<void> {
     const el = this.get(scene);
@@ -149,6 +177,24 @@ export class ClipPool {
       await el.play();
     } catch {
       /* autoplay restrictions — the canvas still draws seeked frames */
+    }
+  }
+
+  /**
+   * Keep only the clips around the active scene. Long projects can contain
+   * dozens of source videos; retaining every decoder for the whole export is
+   * an avoidable way to exhaust the browser's media/GPU process.
+   */
+  retain(sceneIds: Iterable<number>): void {
+    const keep = new Set(sceneIds);
+    for (const [id, el] of this.elements) {
+      if (keep.has(id)) continue;
+      try {
+        el.pause();
+        el.removeAttribute("src");
+        el.load();
+      } catch {}
+      this.elements.delete(id);
     }
   }
 

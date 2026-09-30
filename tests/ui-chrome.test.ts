@@ -105,10 +105,6 @@ for (const { name, text } of sources) {
 const css = readFileSync(join(srcDir, "index.css"), "utf8");
 for (const needle of [
   "--hairline",
-  ".opt-btn",
-  ".opt-btn-on",
-  ".opt-group",
-  ".opt-hint",
   ".no-scrollbar",
   ".scrollbar-thin",
   "scrollbar-width",
@@ -116,6 +112,58 @@ for (const needle of [
 ]) {
   ok(css.includes(needle), `index.css: missing ${needle}`);
 }
+
+/**
+ * The option-button family is shared with the public website.
+ *
+ * The website shows pictures of the studio. If it drew its own buttons those
+ * pictures would slowly stop matching the product — so the definition lives
+ * in one file that both front doors import, and a mockup therefore cannot
+ * show a control the app does not have. These checks keep it that way:
+ * defined once, imported twice, never copied back into either stylesheet.
+ */
+const controlsCss = readFileSync(join(srcDir, "shared/controls.css"), "utf8");
+const marketingCss = readFileSync(join(srcDir, "marketing/marketing.css"), "utf8");
+
+for (const needle of [".opt-btn", ".opt-btn-on", ".opt-group", ".opt-hint"]) {
+  ok(controlsCss.includes(needle), `shared/controls.css: missing ${needle}`);
+  ok(!css.includes(`${needle} {`), `index.css: ${needle} must come from shared/controls.css, not a copy`);
+  ok(
+    !marketingCss.includes(`${needle} {`),
+    `marketing.css: ${needle} must come from shared/controls.css, not a copy`,
+  );
+}
+ok(css.includes('@import "./shared/controls.css"'), "index.css imports the shared controls");
+ok(
+  marketingCss.includes('@import "../shared/controls.css"'),
+  "marketing.css imports the shared controls — the website uses the app's buttons",
+);
+
+/**
+ * Porcelain is the app's default theme (src/lib/themes.ts) and the website's
+ * only theme, so the controls must be legible on it. They were not: the
+ * colours were written for the original dark themes and never re-stated for
+ * a china-white panel, which left the label at 1.6:1 against its own face.
+ * Every themed colour is now a variable, and porcelain supplies its own.
+ */
+for (const needle of ['html[data-theme="porcelain"]', ".mkt-root"]) {
+  ok(
+    controlsCss.includes(needle),
+    `shared/controls.css: porcelain values must apply to ${needle}`,
+  );
+}
+// `var(\n  --ctl-face,` is the same declaration as `var(--ctl-face,` — the
+// property lists are long enough that the formatter wraps them.
+const controlsFlat = controlsCss.replace(/\s+/g, " ");
+for (const token of ["--ctl-ink", "--ctl-face", "--ctl-edge", "--ctl-on-face"]) {
+  ok(controlsCss.includes(`${token}:`), `shared/controls.css: ${token} has a porcelain value`);
+  ok(controlsFlat.includes(`var( ${token}`) || controlsFlat.includes(`var(${token}`),
+    `shared/controls.css: ${token} is actually used`);
+}
+ok(
+  !/color:\s*rgb\(185, 193, 212\)/.test(controlsCss.split('data-theme="porcelain"')[1] ?? ""),
+  "shared/controls.css: the old dark-theme ink is not reused under porcelain",
+);
 
 const tailwindCfg = readFileSync(join(repoRoot, "tailwind.config.js"), "utf8");
 ok(/hairline\s*:/.test(tailwindCfg), "tailwind.config.js: hairline color token registered");

@@ -1,4 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+// The studio owns its styling: Tailwind's build, the generated theme colour
+// matrix and the hand-written theme layer. They travel with the studio chunk,
+// which the public front page now prepares in the background (see main.tsx) so
+// signing in does not start a second, slow application load.
+import "./index.css";
+import "./themes.generated.css";
+import "./themes.css";
 import SceneEditor from "./components/SceneEditor";
 import VideoPreview from "./components/VideoPreview";
 import { loadCaptionFonts } from "./data/caption-styles";
@@ -6,7 +13,9 @@ import ProjectList from "./components/ProjectList";
 import ApiKeysModal from "./components/ApiKeysModal";
 import Timeline from "./components/Timeline";
 import VideoStudio from "./components/VideoStudio";
-import { pickRandomImageUrl, rawImageUrl, IMAGE_SEARCH_COUNT } from "./lib/image-picker";
+import { pickRandomImageUrl, rawImageUrl } from "./lib/image-picker";
+import { searchImagePool, proxyImageUrl } from "./lib/image-search";
+import { sceneHasVisual } from "./lib/scene-framing";
 import RenderView from "./components/RenderView";
 import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
 import { listVaultRenders, subscribeVault } from "./lib/render-vault";
@@ -15,10 +24,12 @@ import CaptionsStudio from "./components/CaptionsStudio";
 import SetupStudio from "./components/SetupStudio";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./components/StepNav";
 import ThemeSwitcher from "./components/ThemeSwitcher";
-import { stretchFullVideoVisualisers } from "./lib/render-visualizers";
+import { stretchFullVideoMedia } from "./lib/render-visualizers";
 import InsertPropertiesModal from "./components/InsertPropertiesModal";
 import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
+import { navigate, SITE_PATH } from "./lib/route";
+import { signOut } from "./lib/session";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "./lib/api-keys";
 import {
   calculateDynamicDuration,
@@ -28,10 +39,13 @@ import {
   splitScriptIntoScenes,
 } from "./lib/duration-utils";
 import { TRANSITION_OPTIONS } from "./lib/scene-transition";
-import type { Project, Scene, TimelineInsert, SceneMotionType, SceneTransitionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType } from "./types";
+import type { Project, Scene, TimelineInsert, SceneMotionType, SceneTransitionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType, RenderProfileSettings } from "./types";
+import { DEFAULT_RENDER_PROFILE_SETTINGS, resolveRenderProfileSettings } from "./lib/render-profile";
 import type { VideoFilterConfig } from "./data/video-filters";
 import type { SectionConfig } from "./data/intro-outro";
 import { VoiceEchoConfig, DEFAULT_VOICE_ECHO, resolveVoiceEcho } from "./lib/voice-echo";
+import IconSprite from "./components/icons/IconSprite";
+import Icon, { iconify } from "./components/icons/Icon";
 
 type View = "create" | "editor";
 
@@ -53,6 +67,9 @@ export interface ProjectSettings {
   voice_echo: VoiceEchoConfig;
   /** transition effect applied between scenes across the entire video */
   transition: SceneTransitionType;
+  /** the render profile chosen in Project Setup (destination, quality, fps…)
+   *  — the render screen only displays these, it never edits them */
+  render_profile: RenderProfileSettings;
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -73,7 +90,9 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   captions_config: {
     enabled: true,
     mode: "karaoke",
-    backgroundStyle: "blocked",
+    /** Transparent unless the user asks for a solid box — matches
+     *  DEFAULT_CAPTIONS_CONFIG in lib/render-captions. */
+    backgroundStyle: "transparent",
     preset: "word_pop",
     fontSize: "medium",
     position: "bottom",
@@ -86,6 +105,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   intro_section: null,
   outro_section: null,
   voice_echo: DEFAULT_VOICE_ECHO,
+  render_profile: DEFAULT_RENDER_PROFILE_SETTINGS,
 };
 
 // Split script into scenes and generate image search queries.
@@ -108,11 +128,12 @@ function parseScript(script: string, targetDuration: number = 20): { text: strin
 /**
  * Image search via edge function.
  *
- * Asks for the top ~100 ranked candidates and picks ONE at random (see
- * lib/image-picker), so every search/re-search produces a different photo
- * instead of always serving the identical first-ranked hit. URLs already
- * used by other scenes are excluded via fetchAll images runs so a whole
- * project never ends up with duplicate photos.
+ * Asks for the top ~100 ranked candidates, keeps only the ones that verify as
+ * real photographs (the server has already enforced 16:9 and ≥1920×1080),
+ * and picks ONE at random (see lib/image-picker), so every search/re-search
+ * produces a different photo instead of always serving the identical
+ * first-ranked hit. URLs already used by other scenes are excluded via
+ * fetchAll images runs so a whole project never ends up with duplicate photos.
  *
  * Returns the proxied url plus the raw upstream url (for dedup tracking).
  */
@@ -123,19 +144,11 @@ async function quickImageSearch(
   try {
     const headers = getApiKeysHeaders();
     const queryParams = getApiKeysQueryParams();
-    const res = await fetch(
-      `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(query)}&count=${IMAGE_SEARCH_COUNT}${queryParams}`,
-      { headers }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    const pool: string[] = Array.isArray(data.images)
-      ? data.images.map((img: { url?: string }) => img?.url || "").filter(Boolean)
-      : [];
-    const chosen = pickRandomImageUrl(pool, usedUrls);
+    const pool = await searchImagePool(query, { headers, queryParams });
+    const chosen = pickRandomImageUrl(pool.map((c) => c.url), usedUrls);
     if (!chosen) return null;
     return {
-      proxyUrl: `${EDGE_FUNCTION_BASE}/proxy-image?url=${encodeURIComponent(chosen)}`,
+      proxyUrl: proxyImageUrl(chosen),
       rawUrl: chosen,
     };
   } catch {
@@ -182,6 +195,7 @@ export default function App() {
   const [outroSection, setOutroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.outro_section);
   const [voiceEcho, setVoiceEcho] = useState<VoiceEchoConfig>(DEFAULT_PROJECT_SETTINGS.voice_echo);
   const [videoTransition, setVideoTransition] = useState<SceneTransitionType>(DEFAULT_PROJECT_SETTINGS.transition);
+  const [renderProfile, setRenderProfile] = useState<RenderProfileSettings>(DEFAULT_PROJECT_SETTINGS.render_profile);
 
   // Helper to save per-project settings so each project maintains isolated configuration
   const saveCurrentProjectSettings = useCallback((partial: Partial<ProjectSettings>) => {
@@ -263,6 +277,14 @@ export default function App() {
     setResolution(res);
     saveCurrentProjectSettings({ resolution: res });
     setCurrentProject((prev) => (prev ? { ...prev, resolution: res } : null));
+  }, [saveCurrentProjectSettings]);
+
+  const handleUpdateRenderProfile = useCallback((patch: Partial<RenderProfileSettings>) => {
+    setRenderProfile((prev) => {
+      const next = { ...prev, ...patch };
+      saveCurrentProjectSettings({ render_profile: next });
+      return next;
+    });
   }, [saveCurrentProjectSettings]);
 
   const handleUpdatePacingMode = useCallback((mode: PacingModeType) => {
@@ -601,6 +623,7 @@ export default function App() {
       setSceneDuration(chosenDuration);
       setMotionStyle(freshSettings.motion_style);
       setVideoTransition(freshSettings.transition);
+      setRenderProfile(resolveRenderProfileSettings(freshSettings.render_profile));
 
       setNavNotice(null);
       setCurrentProject(project);
@@ -666,6 +689,7 @@ export default function App() {
     setIntroSection(DEFAULT_PROJECT_SETTINGS.intro_section);
     setOutroSection(DEFAULT_PROJECT_SETTINGS.outro_section);
     setVideoTransition(DEFAULT_PROJECT_SETTINGS.transition);
+    setRenderProfile(DEFAULT_PROJECT_SETTINGS.render_profile);
     setView("create");
   };
 
@@ -701,6 +725,7 @@ export default function App() {
       setOutroSection(projectSettings.outro_section ?? null);
       const projTransition = (projectSettings.transition as SceneTransitionType) || "crossfade";
       setVideoTransition(projTransition);
+      setRenderProfile(resolveRenderProfileSettings(projectSettings.render_profile));
 
       const { data, error } = await supabase
         .from("scenes")
@@ -735,6 +760,17 @@ export default function App() {
           loadedInserts = JSON.parse(storedInserts);
         }
       } catch {}
+
+      // Older projects may contain several music inserts from repeated picks.
+      // Keep only the most recently selected bed so loading a project can
+      // never restore overlapping copies of the same/previous music.
+      let foundMusic = false;
+      loadedInserts = [...loadedInserts].reverse().filter((insert) => {
+        if (insert.category !== "background_music") return true;
+        if (foundMusic) return false;
+        foundMusic = true;
+        return true;
+      }).reverse();
 
       setCurrentProject(project);
       setScenes(loadedScenes);
@@ -814,6 +850,7 @@ export default function App() {
       setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
       setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
       setVideoTransition(DEFAULT_PROJECT_SETTINGS.transition);
+      setRenderProfile(DEFAULT_PROJECT_SETTINGS.render_profile);
       setView("create");
     }
 
@@ -835,6 +872,11 @@ export default function App() {
     "image_backdrop_zoom",
     "image_backdrop_dim",
     "image_backdrop_color",
+    // A plain colour replacing the photo entirely. Belongs with the framing
+    // keys because it describes how the frame is filled, and because this
+    // list is what gets persisted — a field missing from it updates the live
+    // scene but is silently dropped on reload.
+    "blank_color",
   ] as const;
 
   /** Short-video-clip fields, persisted with the scene like the framing keys. */
@@ -973,7 +1015,7 @@ export default function App() {
         scenes.filter((s) => s.image_url).map((s) => rawImageUrl(s.image_url as string))
       );
       // Scenes already carrying a video clip do not need a stock photo.
-      const scenesWithoutImages = scenes.filter((s) => !s.image_url && !s.video_url);
+      const scenesWithoutImages = scenes.filter((s) => !sceneHasVisual(s));
       // Searches ran strictly one after another before, which made a full
       // project wait on a chain of round-trips. They are independent — run
       // them in parallel and the batch is as fast as the slowest search.
@@ -1122,6 +1164,10 @@ export default function App() {
         filtered = prev.filter((i) => i.category !== "intro");
       } else if (insert.category === "outro") {
         filtered = prev.filter((i) => i.category !== "outro");
+      } else if (insert.category === "background_music") {
+        // Selecting another music bed is a replacement, never an additional
+        // layer. This also removes legacy duplicates immediately.
+        filtered = prev.filter((i) => i.category !== "background_music");
       }
       return [...filtered, insert];
     });
@@ -1137,8 +1183,8 @@ export default function App() {
     setCurrentPlayheadTime(mid);
   };
 
-  /** Intro + script + outro. Used to stretch whole-video visualisers and to fill
-   *  the timeline readouts in the studio and the properties editor. */
+  /** Intro + script + outro. Used to stretch whole-video visualisers and music,
+   *  and to fill the timeline readouts in the studio and properties editor. */
   const estimatedTotalDuration = useMemo(() => {
     const intro = introSection?.enabled ? Math.max(0.5, introSection.duration) : 0;
     const outro = outroSection?.enabled ? Math.max(0.5, outroSection.duration) : 0;
@@ -1146,14 +1192,32 @@ export default function App() {
     return Math.max(1, Math.round((intro + script + outro) * 10) / 10);
   }, [scenes, introSection, outroSection]);
 
-  // Visualisers added with "runs for the entire video" stay pinned to the full
+  // Visualisers and music added for the entire video stay pinned to its full
   // length, even after scenes are re-timed or the voiceover changes.
   useEffect(() => {
-    setInserts((prev) => stretchFullVideoVisualisers(prev, estimatedTotalDuration));
+    setInserts((prev) => stretchFullVideoMedia(prev, estimatedTotalDuration));
   }, [estimatedTotalDuration]);
 
+  /**
+   * Start every phase at the top of the page.
+   *
+   * The scroll position used to carry over between tabs, so clicking
+   * "Voiceover" while scrolled down a long Scenes list dropped you into the
+   * middle of the new screen with its heading off the top of the window.
+   * `behavior: "auto"` overrides the app-wide `scroll-behavior: smooth` —
+   * a tab switch should be instant, not a slow animated glide.
+   */
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [view, editorStep]);
+
   const handleUpdateInsert = (updated: TimelineInsert) => {
-    setInserts((prev) => prev.map((ins) => (ins.id === updated.id ? updated : ins)));
+    setInserts((prev) => {
+      const withoutOtherMusic = updated.category === "background_music"
+        ? prev.filter((ins) => ins.id === updated.id || ins.category !== "background_music")
+        : prev;
+      return withoutOtherMusic.map((ins) => (ins.id === updated.id ? updated : ins));
+    });
     if (selectedInsert?.id === updated.id) setSelectedInsert(updated);
     if (editingInsert?.id === updated.id) setEditingInsert(updated);
   };
@@ -1180,10 +1244,14 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen bg-gray-950 text-white font-sans">
+      <IconSprite />
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      {/* min-w-0 is load-bearing: without it this flex child keeps its
+          content's intrinsic width and drags the whole app wider than the
+          window whenever a row inside is too wide to fit. */}
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="t-app-hdr relative z-40 min-h-14 border-b border-hairline flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
+        <div className="t-app-hdr relative z-40 min-h-14 min-w-0 border-b border-hairline flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
           {/* Logo */}
           <button
             onClick={() => setView("create")}
@@ -1193,8 +1261,22 @@ export default function App() {
             <img
               src={sceneringLogo}
               alt="Scenering"
-              className="h-8 w-auto max-w-[120px] sm:max-w-[150px] object-contain filter drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]"
+              className="h-9 w-auto max-w-[130px] sm:max-w-[160px] object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)] select-none"
             />
+          </button>
+
+          {/* Sign out. There is no shortcut back into the studio from the
+              public site — the sign-in screen is the only way in. */}
+          <button
+            onClick={() => {
+              signOut();
+              navigate(SITE_PATH);
+            }}
+            className="opt-btn shrink-0"
+            title="Sign out and return to the website"
+          >
+            <span className="t-ico"><Icon glyph="⎋" /></span>
+            <span className="hidden sm:inline">Sign out</span>
           </button>
 
           <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />
@@ -1204,7 +1286,13 @@ export default function App() {
           </h2>
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
-          <div className="t-tabbar opt-group flex items-center bg-gray-800/80 border border-hairline rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto no-scrollbar order-last w-full sm:order-none sm:w-auto" role="tablist" aria-label="Project phases">
+          {/* Scrolls sideways like the Video Studio tab row rather than
+              wrapping. min-w-0 is what makes that safe: it drops this row's
+              automatic minimum size to zero, so the row shrinks to the space
+              available and the tabs scroll inside it. Without min-w-0 the row
+              kept its full content width and dragged the whole app past the
+              edge of the window. */}
+          <div className="t-tabbar opt-group flex items-center min-w-0 bg-gray-800/80 border border-hairline rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto no-scrollbar order-last w-full sm:order-none sm:w-auto" role="tablist" aria-label="Project phases">
             {(() => {
               const activeIdx = PROJECT_PHASES.findIndex((phase) =>
                 phase.id === "setup" ? view === "create" : view === "editor" && editorStep === phase.editorStep
@@ -1236,9 +1324,9 @@ export default function App() {
                     }`}
                   >
                     <span className="flex items-center gap-1 whitespace-nowrap">
-                      {isLocked && <span className="text-[9px] opacity-90">🔒</span>}
+                      {isLocked && <span className="text-[9px] opacity-90"><Icon glyph="🔒" /></span>}
                       <span className={isActive ? "" : "text-indigo-300/80"}>{i + 1}.</span>
-                      <span className="t-ico">{phase.icon}</span>
+                      <Icon glyph={phase.icon} />
                       {/* The word is dropped on phones; the number and icon still
                           identify the step and the row stops overflowing. */}
                       <span className="hidden xs:inline sm:inline">{phase.tab}</span>
@@ -1252,7 +1340,7 @@ export default function App() {
                 they only light up once a project exists on this screen. */}
             {!currentProject && (
               <span className="opt-hint ml-auto shrink-0 hidden lg:inline-flex pr-1" title="Steps 2–6 edit a project's scenes, voices and video — they unlock as soon as you create or select a project in Setup">
-                <span>🔓</span>
+                <Icon glyph="🔓" />
                 <span>create or select a project to unlock steps 2–6</span>
               </span>
             )}
@@ -1261,7 +1349,7 @@ export default function App() {
           <div className="ml-auto flex items-center gap-2 shrink-0">
             {view === "editor" && (
               <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 shadow-sm hidden lg:flex items-center gap-1.5">
-                <span className="t-ico">🎬</span>
+                <Icon glyph="🎬" />
                 <span>
                   {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
                 </span>
@@ -1283,7 +1371,7 @@ export default function App() {
                   setView("editor");
                   setEditorStep("render");
                 }}
-                title="Open the render page"
+                title={renderJob.active ? `${renderJob.stage} — open the render dashboard` : "Open the render page"}
                 className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
                   renderJob.active
                     ? "bg-indigo-950/90 text-indigo-200 border-indigo-600/70 hover:bg-indigo-900"
@@ -1292,7 +1380,7 @@ export default function App() {
                       : "bg-emerald-950/80 text-emerald-200 border-emerald-700/70 hover:bg-emerald-900"
                 }`}
               >
-                <span className="t-ico">{renderJob.active ? "⏳" : renderJob.error ? "⚠️" : "🗄️"}</span>
+                <Icon glyph={renderJob.active ? "⏳" : renderJob.error ? "⚠️" : "🗄️"} />
                 <span className="hidden sm:inline">
                   {renderJob.active
                     ? `Rendering ${Math.round(renderJob.progress * 100)}%`
@@ -1311,7 +1399,7 @@ export default function App() {
               className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-hairline bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
               title="Image search API keys (Pexels & Pixabay)"
             >
-              <span className="t-ico">🔑</span>
+              <span className="t-ico"><Icon glyph="🔑" /></span>
               <span className="hidden sm:inline">API Keys</span>
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -1329,7 +1417,7 @@ export default function App() {
               {navNotice && (
                 <div className="max-w-4xl mx-auto mb-4 p-3.5 bg-amber-950/80 border border-amber-700/80 rounded-xl text-amber-200 text-xs flex items-center justify-between shadow-lg">
                   <span className="flex items-center gap-2">
-                    <span>ℹ️</span>
+                    <Icon glyph="ℹ" />
                     <span className="font-medium">{navNotice}</span>
                   </span>
                   <button onClick={() => setNavNotice(null)} className="text-amber-400 hover:text-white text-xs">
@@ -1355,6 +1443,8 @@ export default function App() {
                 onUpdateScript={handleUpdateScript}
                 onUpdateAspectRatio={handleUpdateAspectRatio}
                 onUpdateResolution={handleUpdateResolution}
+                renderProfile={renderProfile}
+                onUpdateRenderProfile={handleUpdateRenderProfile}
                 onUpdatePacingMode={handleUpdatePacingMode}
                 onUpdateSceneDuration={handleUpdateSceneDuration}
                 onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
@@ -1391,6 +1481,7 @@ export default function App() {
                 aspectRatio={aspectRatio}
                 resolution={resolution}
                 pacingMode={pacingMode}
+                renderProfile={renderProfile}
                 renderedBlob={renderedBlob}
                 renderedUrl={renderedUrl}
                 onRenderSuccess={(blob, url) => {
@@ -1465,7 +1556,7 @@ export default function App() {
                       className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white text-[11px] font-semibold border border-fuchsia-400/40 shadow flex items-center gap-1.5"
                       title="Filters & video looks are applied to the whole video in the Video Studio"
                     >
-                      <span>🎨 Video Look & Filters</span>
+                      <span><Icon glyph="🎨" /> Video Look & Filters</span>
                       <span className="text-[10px] font-normal opacity-80">in Video Studio</span>
                     </button>
                   </div>
@@ -1504,7 +1595,7 @@ export default function App() {
                             }`}
                             title={opt.description}
                           >
-                            <span>{opt.icon}</span>
+                            <span><Icon glyph={opt.icon} /></span>
                             <span>{opt.label}</span>
                           </button>
                         );
@@ -1518,7 +1609,7 @@ export default function App() {
                       <div>
                         <div className="flex items-center gap-2.5">
                           <h3 className="text-base font-semibold flex items-center gap-2">
-                            <span>📝</span> Scene Editor
+                            <Icon glyph="📝" /> Scene Editor
                           </h3>
                           <span className="px-2.5 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700/60 font-mono text-xs font-semibold">
                             Total: {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
@@ -1534,7 +1625,7 @@ export default function App() {
                           onClick={() => handleAddScene(scenes.length)}
                           className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow transition-colors"
                         >
-                          <span>➕ Add Scene</span>
+                          <span><Icon glyph="➕" /> Add Scene</span>
                         </button>
                       </div>
                     </div>
@@ -1576,7 +1667,7 @@ export default function App() {
                         onClick={() => handleAddScene(scenes.length)}
                         className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-hairline font-semibold text-xs rounded-xl shadow transition-all flex items-center gap-2"
                       >
-                        <span>➕ Add Another Scene</span>
+                        <span><Icon glyph="➕" /> Add Another Scene</span>
                       </button>
                       <span className="text-[11px] text-gray-500">
                         Continue to Voiceover with the button at the top of this page
@@ -1595,6 +1686,11 @@ export default function App() {
                   onSelectVoice={handleSelectVoice}
                   voiceEcho={voiceEcho}
                   onUpdateVoiceEcho={handleUpdateVoiceEcho}
+                  inserts={inserts}
+                  totalDuration={estimatedTotalDuration}
+                  customerLogo={customerLogo}
+                  onInsertItem={handleAddInsert}
+                  onConfigureItem={openInsertEditor}
                 />
               ) : editorStep === "captions" ? (
                 /* Step 3: Captions & Subtitles Studio */
@@ -1617,7 +1713,7 @@ export default function App() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-base font-semibold flex items-center gap-2">
-                        <span>🎬</span> Video Studio & Timeline
+                        <Icon glyph="🎬" /> Video Studio & Timeline
                       </h3>
                       <p className="text-xs text-gray-400 mt-0.5">
                         Preview video with 3D graphics & audio FX, scrub timeline, and insert dynamic studio items with customizable visual/audio settings.

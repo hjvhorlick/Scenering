@@ -195,4 +195,11 @@ h.ok(
   "multi-word place names are kept together"
 );
 
+// The opening lead-in: the first words (and their captions) are delayed by
+// this much while the first image holds — two seconds.
+{
+  const { NARRATION_LEAD_IN_SECONDS } = await import("../src/lib/duration-utils");
+  h.eq(NARRATION_LEAD_IN_SECONDS, 2, "narration lead-in is two seconds");
+}
+
 h.done("scenes");

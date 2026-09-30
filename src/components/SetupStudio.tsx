@@ -1,6 +1,24 @@
 import { useState, useEffect, useRef } from "react";
 import MotionPreviewCanvas from "./MotionPreviewCanvas";
-import type { AspectRatioType, PacingModeType, Project, ResolutionType, Scene, SceneMotionType } from "../types";
+import type {
+  AspectRatioType,
+  PacingModeType,
+  Project,
+  ResolutionType,
+  Scene,
+  SceneMotionType,
+  RenderProfileSettings,
+  PublishDestinationType,
+} from "../types";
+import {
+  PLATFORM_PROFILES,
+  QUALITY_LEVELS,
+  FRAME_RATE_CHOICES,
+  DEFAULT_RENDER_PROFILE_SETTINGS,
+  destinationCanvas,
+  resolveFrameRate,
+  getQualityLevel,
+} from "../lib/render-profile";
 import ProjectList from "./ProjectList";
 import StepNav from "./StepNav";
 import {
@@ -17,7 +35,19 @@ import {
   countScenesFromScript,
   splitScriptIntoScenes,
   countWords,
+  formatDuration,
 } from "../lib/duration-utils";
+import Icon, { iconify } from "./icons/Icon";
+
+/**
+ * How much of a project title fits on the video banner.
+ *
+ * Derived from the title templates: at the banner's type size three wrapped
+ * lines hold roughly 60 characters before the text starts running past the
+ * safe area. Capping here keeps the title inside the frame, and the input
+ * stops accepting characters once the block is full.
+ */
+export const TITLE_MAX_CHARS = 60;
 
 interface SetupStudioProps {
   project: Project | null;
@@ -41,6 +71,9 @@ interface SetupStudioProps {
   onUpdateScript: (script: string, regenerateScenes?: boolean, overrideDuration?: number) => void;
   onUpdateAspectRatio: (ratio: AspectRatioType) => void;
   onUpdateResolution: (resolution: ResolutionType) => void;
+  /** The render profile chosen here in setup — the render screen only reads it */
+  renderProfile?: RenderProfileSettings;
+  onUpdateRenderProfile?: (patch: Partial<RenderProfileSettings>) => void;
   onUpdatePacingMode?: (mode: PacingModeType) => void;
   onUpdateSceneDuration?: (duration: number) => void;
   onCalibrateScenesWordCount?: (targetSeconds: number) => void;
@@ -95,6 +128,8 @@ export default function SetupStudio({
   onUpdateScript,
   onUpdateAspectRatio,
   onUpdateResolution,
+  renderProfile = DEFAULT_RENDER_PROFILE_SETTINGS,
+  onUpdateRenderProfile,
   onUpdateSceneDuration,
   onCalibrateScenesWordCount,
   onUpdateMotionStyle,
@@ -112,6 +147,41 @@ export default function SetupStudio({
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  /** Advanced output overrides (aspect, resolution, FPS, format, mastering)
+   *  stay collapsed — the destination presets cover the normal user. */
+  const [showOutputAdvanced, setShowOutputAdvanced] = useState(false);
+
+  /**
+   * Pick where the video is going and Scenering makes the technical choices:
+   * canvas orientation, resolution, frame rate and container all follow the
+   * Master Render Profile for that platform. "Custom" hands the wheel to the
+   * Advanced overrides below.
+   */
+  const pickDestination = (id: PublishDestinationType) => {
+    onUpdateRenderProfile?.({ destination: id });
+    const canvas = destinationCanvas(id);
+    if (canvas) {
+      onUpdateAspectRatio(canvas.aspect);
+      onUpdateResolution(canvas.resolution);
+      const platform = PLATFORM_PROFILES.find((p) => p.id === id);
+      showNotice(
+        `${platform?.name || id} selected — ${getResolutionDimensions(canvas.aspect, canvas.resolution)} · 30 FPS · MP4, all set automatically`
+      );
+    } else {
+      setShowOutputAdvanced(true);
+      showNotice("Custom output — choose your own canvas and encoding below");
+    }
+  };
+
+  /** Manual aspect override: if it no longer matches the chosen platform's
+   *  orientation, the destination honestly becomes "Custom". */
+  const overrideAspect = (ratio: AspectRatioType) => {
+    onUpdateAspectRatio(ratio);
+    const canvas = destinationCanvas(renderProfile.destination);
+    if (canvas && canvas.aspect !== ratio) {
+      onUpdateRenderProfile?.({ destination: "custom" });
+    }
+  };
 
   useEffect(() => {
     if (sceneDuration && [10, 20, 30].includes(sceneDuration)) {
@@ -190,8 +260,14 @@ export default function SetupStudio({
   };
 
   const handleTitleChange = (newTitle: string) => {
-    setTitle(newTitle);
-    onUpdateTitle(newTitle);
+    // Hard cap: a title longer than the banner can hold wraps onto a third
+    // line and runs past the frame edge, so the input stops accepting
+    // characters past the limit rather than letting the user type a title
+    // that cannot be rendered. Truncating here as well as with `maxLength`
+    // covers paste, which maxLength alone does not always block.
+    const capped = newTitle.slice(0, TITLE_MAX_CHARS);
+    setTitle(capped);
+    onUpdateTitle(capped);
   };
 
   /**
@@ -216,7 +292,7 @@ export default function SetupStudio({
     showNotice(
       `Formatted into ${parts.length} even scene${parts.length === 1 ? "" : "s"} of ${
         lo === hi ? `${lo}` : `${lo}–${hi}`
-      } words (~${activeDuration}s each).`
+      } words (~${formatDuration(activeDuration)} each).`
     );
   };
 
@@ -239,7 +315,7 @@ export default function SetupStudio({
     }
 
     const words = getTargetWordCount(seconds);
-    showNotice(`Scene duration set to ${seconds}s (~${words} target words/scene).`);
+    showNotice(`Scene duration set to ${formatDuration(seconds)} (~${words} target words/scene).`);
   };
 
   /**
@@ -348,6 +424,23 @@ export default function SetupStudio({
     { id: "4k", name: "4K Ultra HD", badge: "Cinema Master", description: "Maximum cinematic fidelity" },
   ];
 
+  /** The destination presets — the 7 platform profiles plus "Custom".
+   *  Picking one is the ONLY output decision a normal user ever makes. */
+  const destinationOptions: {
+    id: PublishDestinationType;
+    icon: string;
+    name: string;
+    tag: string;
+  }[] = [
+    ...PLATFORM_PROFILES.map((p) => ({
+      id: p.id as PublishDestinationType,
+      icon: p.icon,
+      name: p.name,
+      tag: p.aspect === "9:16" ? "Vertical 9:16" : p.aspect === "1:1" ? "Square 1:1" : "Landscape 16:9",
+    })),
+    { id: "custom" as PublishDestinationType, icon: "⚙️", name: "Custom", tag: "Your own setup" },
+  ];
+
   /**
    * Each option carries the actual SceneMotionType it applies, so the little
    * preview beside it animates the very same transform the renderer will use.
@@ -378,9 +471,7 @@ export default function SetupStudio({
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <div className="min-w-0">
             <div className="flex items-center gap-2.5 mb-1.5">
-              <span className="p-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-xl text-lg">
-                🎬
-              </span>
+              <span className="p-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-xl text-lg" aria-hidden="true"><Icon glyph="🎬" /></span>
               <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
                 {isExistingProject ? "Project Setup" : "Start a New Project"}
               </h2>
@@ -427,7 +518,7 @@ export default function SetupStudio({
       {startError && (
         <div className="p-3.5 bg-red-950/80 border border-red-700/80 rounded-xl text-red-200 text-xs flex items-center justify-between shadow-lg">
           <span className="flex items-center gap-2">
-            <span>⚠️</span>
+            <Icon glyph="⚠" />
             <span className="font-medium">{startError}</span>
           </span>
           <button onClick={() => setStartError(null)} className="text-red-400 hover:text-white text-xs">
@@ -439,7 +530,7 @@ export default function SetupStudio({
       {appliedNotice && (
         <div className="p-3.5 bg-emerald-950/80 border border-emerald-700/80 rounded-xl text-emerald-200 text-xs flex items-center justify-between shadow-lg">
           <span className="flex items-center gap-2">
-            <span>✅</span>
+            <Icon glyph="✅" />
             <span className="font-medium">{appliedNotice}</span>
           </span>
           <button onClick={() => setAppliedNotice(null)} className="text-emerald-400 hover:text-white text-xs">
@@ -469,7 +560,7 @@ export default function SetupStudio({
         {isExistingProject && (
           <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-emerald-950/50 border border-emerald-800/60 rounded-xl px-3 py-2.5">
             <span className="text-[11px] text-emerald-200 flex items-center gap-2 min-w-0">
-              <span>📂</span>
+              <Icon glyph="📂" />
               <span className="truncate">
                 Currently editing: <strong className="text-white">{project?.title || "Untitled"}</strong>
                 {project?.script ? ` · ${countWords(project.script)} words` : ""}
@@ -501,12 +592,21 @@ export default function SetupStudio({
           step={2}
           title="Project title"
           subtitle="Used for the video banner, exported filenames and attribution documents."
-          badge={<span className="text-[11px] text-gray-500 shrink-0">{title.length} chars</span>}
+          badge={
+            <span
+              className={`text-[11px] shrink-0 ${title.length >= TITLE_MAX_CHARS ? "text-amber-400 font-semibold" : "text-gray-500"}`}
+            >
+              {title.length >= TITLE_MAX_CHARS
+                ? "Block is full"
+                : `${title.length} / ${TITLE_MAX_CHARS} chars`}
+            </span>
+          }
         />
         <input
           id="project-title"
           type="text"
           value={title}
+          maxLength={TITLE_MAX_CHARS}
           onChange={(e) => handleTitleChange(e.target.value)}
           placeholder="e.g. Wonders of the Deep Ocean"
           className="w-full px-4 py-3 bg-gray-800/90 border border-hairline rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-inner"
@@ -525,7 +625,7 @@ export default function SetupStudio({
               <span className="text-gray-500">•</span>
               <span className="text-gray-300">{wordsCount} Words</span>
               <span className="text-gray-500">•</span>
-              <span className="text-amber-300 font-medium">~{estimatedReadingSec}s</span>
+              <span className="text-amber-300 font-medium">~{formatDuration(estimatedReadingSec)}</span>
             </div>
           }
         />
@@ -549,7 +649,7 @@ export default function SetupStudio({
             className="px-2.5 py-1 bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-300 border border-indigo-700/60 rounded-lg text-[11px] font-semibold transition-colors flex items-center justify-center gap-1 shadow-sm shrink-0"
             title={`Calibrate each paragraph to ~${targetWordsPerScene} words so each scene lasts ${activeDuration}s`}
           >
-            <span>✨</span>
+            <Icon glyph="✨" />
             <span>Calibrate My Script to {activeDuration}s (~{targetWordsPerScene}w)</span>
           </button>
         </div>
@@ -566,7 +666,7 @@ export default function SetupStudio({
         {isExistingProject && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-[11px] text-gray-400 flex items-center gap-1.5">
-              <span>💡</span>
+              <Icon glyph="💡" />
               <span>Each paragraph becomes a scene calibrated for {activeDuration}s (~{targetWordsPerScene} words).</span>
             </div>
             <div className="flex items-center gap-2">
@@ -582,7 +682,7 @@ export default function SetupStudio({
                 onClick={() => handleApplyScript(true)}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
               >
-                <span>⚡</span>
+                <Icon glyph="⚡" />
                 <span>Re-Generate All Scenes</span>
               </button>
             </div>
@@ -642,100 +742,277 @@ export default function SetupStudio({
         </div>
       </div>
 
-      {/* ---------------- 5. Aspect ratio ---------------- */}
+      {/* ---------------- 5. Output & destination ----------------
+          ONE home for every output decision (they used to be split between
+          here and the render screen). The user picks WHERE the video is
+          going; Scenering chooses the canvas, resolution, frame rate and
+          encoding from the Master Render Profile. Advanced users can
+          override everything — collapsed so the section stays simple. */}
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
           step={5}
-          title="Aspect ratio"
-          subtitle="Target display format & canvas orientation for every preview and render."
-        />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
-          {aspectRatios.map((r) => {
-            const isActive = aspectRatio === r.id;
-            return (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => {
-                  onUpdateAspectRatio(r.id);
-                  showNotice(`Aspect ratio set to ${r.label}`);
-                }}
-                className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between min-h-[82px] ${
-                  isActive
-                    ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
-                    : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div
-                    className={`rounded border ${
-                      isActive ? "border-indigo-400 bg-indigo-600/30" : "border-hairline bg-gray-700/40"
-                    } ${r.boxClass}`}
-                  />
-                  {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />}
-                </div>
-                <div>
-                  <div className="text-xs font-bold leading-tight">{r.label}</div>
-                  <div className="text-[9px] text-indigo-400/90 truncate mt-0.5">{r.sublabel}</div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ---------------- 6. Resolution ---------------- */}
-      <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
-        <SectionHeading
-          step={6}
-          title="Video resolution"
-          subtitle="Output pixel density for the finished video."
+          title="Where is this video going?"
+          subtitle="Pick a destination and Scenering sets the canvas, resolution and encoding for you. Rendering is one video at a time — come back here, pick another destination, and render the same script again. Finished videos wait in the Vault."
           badge={
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-hairline shrink-0">
               {getResolutionDimensions(aspectRatio, resolution)}
             </span>
           }
         />
-        <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
-          {resolutions.map((res) => {
-            const isActive = resolution === res.id;
-            const dimension = getResolutionDimensions(aspectRatio, res.id);
+
+        {/* A. Destination presets — the simple path */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
+          {destinationOptions.map((d) => {
+            const isActive = renderProfile.destination === d.id;
             return (
               <button
-                key={res.id}
+                key={d.id}
                 type="button"
-                onClick={() => {
-                  onUpdateResolution(res.id);
-                  showNotice(`Resolution set to ${res.name} (${dimension})`);
-                }}
-                className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                onClick={() => pickDestination(d.id)}
+                className={`p-3 rounded-xl border text-left transition-all min-h-[72px] ${
                   isActive
                     ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
                     : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
                 }`}
               >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-bold text-white">{res.name}</span>
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
-                      isActive ? "bg-indigo-500 text-white" : "bg-gray-700 text-gray-300"
-                    }`}
-                  >
-                    {res.badge}
-                  </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-base leading-none"><Icon glyph={d.icon} /></span>
+                  {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />}
                 </div>
-                <div className="text-[10px] font-mono text-indigo-300 mb-1">{dimension}</div>
-                <div className="text-[9px] text-gray-400 leading-tight">{res.description}</div>
+                <div className="text-xs font-bold leading-tight mt-1.5">{d.name}</div>
+                <div className="text-[9px] text-indigo-400/90 mt-0.5">{d.tag}</div>
               </button>
             );
           })}
         </div>
+
+        {/* What Scenering will deliver — plain words, no jargon needed */}
+        <div className="mt-3 p-3 bg-gray-800/60 border border-hairline rounded-xl text-[11px] leading-relaxed">
+          <span className="text-emerald-300 font-semibold"><Icon glyph="✓" /> Scenering will deliver: </span>
+          <span className="text-white font-medium">
+            {getResolutionDimensions(aspectRatio, resolution)} · {resolveFrameRate(renderProfile.fps)} FPS ·{" "}
+            {getQualityLevel(renderProfile.quality).name} quality ·{" "}
+            {renderProfile.format === "webm" ? "VP9 WebM" : "H.264 · AAC · MP4"}
+          </span>
+          <span className="text-gray-500"> — encoded for social platforms automatically.</span>
+        </div>
+
+        {/* B. Render quality — four presets, High recommended */}
+        <div className="mt-4">
+          <div className="text-xs font-semibold text-gray-300 mb-2">Render quality</div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+            {QUALITY_LEVELS.map((q) => {
+              const isActive = renderProfile.quality === q.id;
+              return (
+                <button
+                  key={q.id}
+                  type="button"
+                  onClick={() => {
+                    onUpdateRenderProfile?.({ quality: q.id });
+                    showNotice(`Render quality set to ${q.name}`);
+                  }}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    isActive
+                      ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
+                      : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-white">{q.name}</span>
+                    {q.id === "high" && (
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                          isActive ? "bg-indigo-500 text-white" : "bg-gray-700 text-gray-300"
+                        }`}
+                      >
+                        Recommended
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[9px] text-gray-400 leading-tight">{q.blurb}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* C. Advanced overrides — collapsed; the presets cover normal use */}
+        <div className="mt-4 border-t border-hairline pt-3">
+          <button
+            type="button"
+            onClick={() => setShowOutputAdvanced((v) => !v)}
+            className="w-full flex items-center justify-between text-xs font-semibold text-gray-300 hover:text-white transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <Icon glyph="🔧" /> Advanced overrides
+              <span className="text-[10px] font-normal text-gray-500">— aspect ratio, resolution, FPS, format</span>
+            </span>
+            <span>{iconify(showOutputAdvanced ? "▾ Hide" : "▸ Show")}</span>
+          </button>
+
+          {showOutputAdvanced && (
+            <div className="mt-3 space-y-4">
+              <p className="text-[10px] text-gray-500 leading-relaxed">
+                The destination presets above already make the right technical choices. Override them only
+                if you need something specific — the render screen will warn you when a choice reduces
+                platform compatibility.
+              </p>
+
+              {/* Aspect ratio override */}
+              <div>
+                <div className="text-[11px] font-semibold text-gray-300 mb-2">Aspect ratio</div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+                  {aspectRatios.map((r) => {
+                    const isActive = aspectRatio === r.id;
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => {
+                          overrideAspect(r.id);
+                          showNotice(`Aspect ratio set to ${r.label}`);
+                        }}
+                        className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between min-h-[82px] ${
+                          isActive
+                            ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
+                            : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div
+                            className={`rounded border ${
+                              isActive ? "border-indigo-400 bg-indigo-600/30" : "border-hairline bg-gray-700/40"
+                            } ${r.boxClass}`}
+                          />
+                          {isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />}
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold leading-tight">{r.label}</div>
+                          <div className="text-[9px] text-indigo-400/90 truncate mt-0.5">{r.sublabel}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Resolution override */}
+              <div>
+                <div className="text-[11px] font-semibold text-gray-300 mb-2 flex items-center justify-between gap-2">
+                  <span>Resolution</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-gray-800 text-indigo-300 border border-hairline">
+                    {getResolutionDimensions(aspectRatio, resolution)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+                  {resolutions.map((res) => {
+                    const isActive = resolution === res.id;
+                    const dimension = getResolutionDimensions(aspectRatio, res.id);
+                    return (
+                      <button
+                        key={res.id}
+                        type="button"
+                        onClick={() => {
+                          onUpdateResolution(res.id);
+                          showNotice(`Resolution set to ${res.name} (${dimension})`);
+                        }}
+                        className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                          isActive
+                            ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
+                            : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-bold text-white">{res.name}</span>
+                          <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                              isActive ? "bg-indigo-500 text-white" : "bg-gray-700 text-gray-300"
+                            }`}
+                          >
+                            {res.badge}
+                          </span>
+                        </div>
+                        <div className="text-[10px] font-mono text-indigo-300 mb-1">{dimension}</div>
+                        <div className="text-[9px] text-gray-400 leading-tight">{res.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Frame rate / format / mastering */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <div className="text-[11px] font-semibold text-gray-300 mb-1.5">Frame rate</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {FRAME_RATE_CHOICES.map((choice) => (
+                      <button
+                        key={String(choice)}
+                        type="button"
+                        onClick={() => onUpdateRenderProfile?.({ fps: choice })}
+                        className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${
+                          renderProfile.fps === choice
+                            ? "bg-indigo-600 border-indigo-500 text-white shadow"
+                            : "bg-gray-800 border-hairline text-gray-300 hover:text-white"
+                        }`}
+                      >
+                        {choice === "auto" ? "Auto" : `${choice} FPS`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-gray-500 mt-1.5 leading-relaxed">30 FPS is recommended for every social platform.</p>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold text-gray-300 mb-1.5">Format</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(["mp4", "webm"] as const).map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => onUpdateRenderProfile?.({ format: f })}
+                        className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${
+                          renderProfile.format === f
+                            ? "bg-indigo-600 border-indigo-500 text-white shadow"
+                            : "bg-gray-800 border-hairline text-gray-300 hover:text-white"
+                        }`}
+                      >
+                        {f === "mp4" ? "MP4 · H.264" : "WebM · VP9"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-gray-500 mt-1.5 leading-relaxed">MP4 is the standard every platform accepts.</p>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold text-gray-300 mb-1.5">Audio mastering</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(["automatic", "manual"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => onUpdateRenderProfile?.({ audio_mastering: m })}
+                        className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${
+                          renderProfile.audio_mastering === m
+                            ? "bg-indigo-600 border-indigo-500 text-white shadow"
+                            : "bg-gray-800 border-hairline text-gray-300 hover:text-white"
+                        }`}
+                      >
+                        {m === "automatic" ? "Automatic" : "Manual"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-gray-500 mt-1.5 leading-relaxed">Automatic keeps narration in front of the music and prevents clipping.</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ---------------- 7. Camera motion ---------------- */}
+
+      {/* ---------------- 6. Camera motion ---------------- */}
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
-          step={7}
+          step={6}
           title="Camera motion (Ken Burns)"
           subtitle="Applies to every scene in the whole video. Previews below are live."
         />
@@ -777,7 +1054,7 @@ export default function SetupStudio({
                 </div>
                 <div className="min-w-0 flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold truncate">{opt.label}</div>
+                    <div className="text-xs font-semibold truncate">{iconify(opt.label)}</div>
                     <div className="text-[10px] text-gray-400 leading-tight">{opt.desc}</div>
                   </div>
                   {isSelected && (
@@ -798,7 +1075,7 @@ export default function SetupStudio({
             }}
             className="w-full mt-3 py-2 px-3 bg-gray-800 hover:bg-gray-700 border border-hairline rounded-xl text-xs font-semibold text-gray-200 hover:text-white transition-all flex items-center justify-center gap-1.5"
           >
-            <span>🔄</span> Apply Motion Style to All Scenes
+            <Icon glyph="🔄" /> Apply Motion Style to All Scenes
           </button>
         )}
       </div>
@@ -808,7 +1085,7 @@ export default function SetupStudio({
       <div className="bg-gray-900/90 border border-hairline rounded-2xl p-6 shadow-xl space-y-6">
         <div className="text-center max-w-xl mx-auto space-y-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-950/80 border border-indigo-700/60 text-indigo-300">
-            <span>💎</span> Pricing & Studio Plans
+            <Icon glyph="💎" /> Pricing & Studio Plans
           </div>
           <h3 className="text-xl font-bold text-white tracking-tight">
             Flexible Plans for Every Video Creator
@@ -837,16 +1114,16 @@ export default function SetupStudio({
 
               <ul className="space-y-2 text-xs text-gray-300 pt-2 border-t border-hairline">
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Unlimited scenes & scripts
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Unlimited scenes & scripts
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> 1080p Full HD rendering
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> 1080p Full HD rendering
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> 10+ Neural voiceover actors
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> 10+ Neural voiceover actors
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Full 3D audio visualizer suite
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Full 3D audio visualizer suite
                 </li>
                 <li className="flex items-center gap-2 text-gray-400">
                   <span className="text-gray-500 font-bold">•</span> Standard Scenering watermark
@@ -889,19 +1166,19 @@ export default function SetupStudio({
 
               <ul className="space-y-2 text-xs text-gray-200 pt-2 border-t border-indigo-800/40">
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Watermark removal included
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Watermark removal included
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Custom customer brand logo embedding
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Custom customer brand logo embedding
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> High-speed priority cloud rendering
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> High-speed priority cloud rendering
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> All 20+ multi-accent neural voices
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> All 20+ multi-accent neural voices
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Commercial monetization rights
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Commercial monetization rights
                 </li>
               </ul>
             </div>
@@ -936,19 +1213,19 @@ export default function SetupStudio({
 
               <ul className="space-y-2 text-xs text-gray-300 pt-2 border-t border-hairline">
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> 4K Ultra-HD 60 FPS exporting
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> 4K Ultra-HD 60 FPS exporting
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Multi-speaker dialogue auto-splitting
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Multi-speaker dialogue auto-splitting
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Unlimited custom audio SFX upload
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Unlimited custom audio SFX upload
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> Dedicated fast rendering queue
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Dedicated fast rendering queue
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold">✓</span> White-label video agency export
+                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> White-label video agency export
                 </li>
               </ul>
             </div>
@@ -980,7 +1257,7 @@ export default function SetupStudio({
         </p>
         {!canStart && (
           <p className="text-[11px] text-amber-300 flex items-center gap-1.5 mt-2">
-            <span>⚠️</span>
+            <Icon glyph="⚠" />
             <span>Add a script in section 3 — every scene is generated from it.</span>
           </p>
         )}
