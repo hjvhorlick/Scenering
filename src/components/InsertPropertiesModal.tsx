@@ -22,6 +22,7 @@ import {
   type TextArtStyle,
 } from "../lib/text-art";
 import { resolveArtStyle } from "../lib/render-text-template";
+import { renderTimelineInsert } from "../lib/render-effects";
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { VISUALIZER_PALETTES } from "../lib/visualizer-palettes";
 import { FINE_RADIAL_PRESET_PATCHES } from "../lib/advanced-audio-visualizer";
@@ -128,6 +129,173 @@ function CtaFloatingPreview({
           </button>
         </div>
         <CtaBadgePreview item={item} aspectRatio={aspectRatio} backgroundImage={backgroundImage} compact />
+      </div>
+    </div>
+  );
+}
+
+function InsertEditPreview({
+  item,
+  aspectRatio = "16:9",
+  backgroundImage,
+}: {
+  item: TimelineInsert;
+  aspectRatio?: AspectRatioType;
+  backgroundImage?: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isAnimated =
+    item.category === "audio_visualizers" ||
+    item.category === "speech_reactive" ||
+    item.category === "meditation";
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const ratio =
+      aspectRatio === "9:16"
+        ? { w: 720, h: 1280 }
+        : aspectRatio === "1:1"
+        ? { w: 900, h: 900 }
+        : aspectRatio === "4:3"
+        ? { w: 960, h: 720 }
+        : { w: 1280, h: 720 };
+    if (canvas.width !== ratio.w || canvas.height !== ratio.h) {
+      canvas.width = ratio.w;
+      canvas.height = ratio.h;
+    }
+
+    let cancelled = false;
+    let raf = 0;
+    let bg: HTMLImageElement | null = null;
+    let bgReady = false;
+
+    if (backgroundImage) {
+      bg = new Image();
+      if (!backgroundImage.startsWith("data:")) bg.crossOrigin = "anonymous";
+      bg.onload = () => {
+        bgReady = true;
+      };
+      bg.onerror = () => {
+        bgReady = false;
+      };
+      bg.src = backgroundImage;
+    }
+
+    const drawBackground = (w: number, h: number) => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = "transparent";
+      ctx.filter = "none";
+      ctx.clearRect(0, 0, w, h);
+
+      if (bg && bgReady && bg.naturalWidth > 0 && bg.naturalHeight > 0) {
+        const scale = Math.max(w / bg.naturalWidth, h / bg.naturalHeight);
+        const dw = bg.naturalWidth * scale;
+        const dh = bg.naturalHeight * scale;
+        try {
+          ctx.drawImage(bg, (w - dw) / 2, (h - dh) / 2, dw, dh);
+          ctx.fillStyle = "rgba(2, 6, 23, 0.36)";
+          ctx.fillRect(0, 0, w, h);
+          return;
+        } catch {}
+      }
+
+      const stage = ctx.createLinearGradient(0, 0, w, h);
+      stage.addColorStop(0, "#111827");
+      stage.addColorStop(0.48, "#0f172a");
+      stage.addColorStop(1, "#020617");
+      ctx.fillStyle = stage;
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.12)";
+      ctx.lineWidth = Math.max(1, w / 960);
+      for (let x = 0; x <= w; x += w / 8) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= h; y += h / 6) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+    };
+
+    const paint = (now: number) => {
+      if (cancelled) return;
+      const w = canvas.width;
+      const h = canvas.height;
+      drawBackground(w, h);
+
+      const duration = Math.max(8, item.duration || 8);
+      const t = isAnimated ? (now / 1000) % duration : Math.min(duration - 0.1, Math.max(1, duration * 0.35));
+      const previewItem: TimelineInsert = {
+        ...item,
+        startTime: 0,
+        duration,
+        opacity: item.opacity ?? 1,
+      };
+
+      try {
+        renderTimelineInsert(ctx, previewItem, t, w, h, 0.65, null, null, undefined);
+      } catch (error) {
+        console.warn("Insert edit preview failed:", error);
+      }
+
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+      ctx.fillRect(12, h - 34, Math.min(w - 24, 360), 22);
+      ctx.fillStyle = "rgba(226, 232, 240, 0.9)";
+      ctx.font = `${Math.max(11, Math.round(w / 96))}px Inter, system-ui, sans-serif`;
+      ctx.fillText(isAnimated ? "Live edit preview · same renderer as export" : "Edit preview · same renderer as export", 22, h - 19);
+      ctx.restore();
+
+      if (isAnimated) raf = requestAnimationFrame(paint);
+    };
+
+    raf = requestAnimationFrame(paint);
+    return () => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [item, aspectRatio, backgroundImage, isAnimated]);
+
+  const aspectClass =
+    aspectRatio === "9:16"
+      ? "aspect-[9/16] max-h-[420px] mx-auto"
+      : aspectRatio === "1:1"
+      ? "aspect-square max-h-[380px] mx-auto"
+      : aspectRatio === "4:3"
+      ? "aspect-[4/3]"
+      : "aspect-video";
+
+  return (
+    <div id="ipm-edit-preview" className="px-6 pt-4">
+      <div className="rounded-2xl border border-hairline bg-gray-950/80 p-3 shadow-inner">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div>
+            <h4 className="text-xs font-bold text-white flex items-center gap-2">
+              <Icon glyph="👁" /> Edit Preview
+              {isAnimated && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full border border-teal-700/70 bg-teal-950/60 text-teal-200">
+                  LIVE
+                </span>
+              )}
+            </h4>
+            <p className="text-[10px] text-gray-400">Updates as you change this item; final render uses the same drawing engine.</p>
+          </div>
+          <span className="text-[10px] font-mono text-gray-500">{aspectRatio}</span>
+        </div>
+        <div className={`w-full overflow-hidden rounded-xl border border-hairline bg-black ${aspectClass}`}>
+          <canvas ref={canvasRef} className="block h-full w-full" />
+        </div>
       </div>
     </div>
   );
@@ -743,6 +911,10 @@ function InsertPropertiesContent({
             </div>
             <CtaFloatingPreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
           </>
+        )}
+
+        {!isCallToAction && !isSoundEffect && (
+          <InsertEditPreview item={data} aspectRatio={aspectRatio} backgroundImage={backgroundImage} />
         )}
 
         {/* Section jump row — every section is stacked below; the buttons
