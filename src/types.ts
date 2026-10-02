@@ -64,7 +64,10 @@ export type SceneTransitionType =
   | "slide"
   | "crossfade"
   | "fade_black"
-  | "zoom";
+  | "zoom"
+  | "fade_white" | "dissolve_blur" | "push_right" | "push_up" | "push_down"
+  | "cover_left" | "cover_right" | "cover_up" | "cover_down"
+  | "wipe_left" | "wipe_right" | "wipe_up" | "wipe_down" | "iris" | "blinds" | "zoom_out" | "whip_pan";
 
 export interface DialogueLine {
   id: string;
@@ -79,6 +82,7 @@ export interface Scene {
   order_index: number;
   text: string;
   image_query: string;
+  image_query_locked?: boolean;
   image_url: string | null;
   duration: number;
   created_at?: string;

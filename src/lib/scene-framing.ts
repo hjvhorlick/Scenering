@@ -572,6 +572,28 @@ export function drawSceneImage(
  * A portrait photo in a landscape frame (or the reverse) would lose most of
  * itself to a crop, so those default to the blurred fill instead.
  */
+export const AUTO_CROP_MAX_MISMATCH = 2.4;
+export function aspectMismatch(img: SourceSize, frameW: number, frameH: number): number {
+  const iw = Number(img?.naturalWidth), ih = Number(img?.naturalHeight);
+  const ir = iw > 0 && ih > 0 ? iw / ih : 1, fr = frameW > 0 && frameH > 0 ? frameW / frameH : 1;
+  return Math.max(ir / fr, fr / ir, 1);
+}
+export function autoCropToFrame(img: SourceSize, frameW: number, frameH: number) {
+  const iw = Number(img?.naturalWidth), ih = Number(img?.naturalHeight), target = frameW > 0 && frameH > 0 ? frameW / frameH : 1;
+  if (!(iw > 0 && ih > 0) || !(target > 0)) return { x: 0, y: 0, w: 1, h: 1 };
+  const ratio = iw / ih;
+  if (ratio > target) { const w = target * ih / iw; return { x: (1-w)/2, y: 0, w, h: 1 }; }
+  const h = iw / target / ih; return { x: 0, y: (1-h)/2, w: 1, h };
+}
+export function autoFrame(img: SourceSize, frameW: number, frameH: number) {
+  const crop = autoCropToFrame(img, frameW, frameH);
+  return { image_fit: aspectMismatch(img, frameW, frameH) > AUTO_CROP_MAX_MISMATCH ? "blur_fill" as const : "cover" as const,
+    image_crop: aspectMismatch(img, frameW, frameH) > AUTO_CROP_MAX_MISMATCH ? {x:0,y:0,w:1,h:1} : crop };
+}
+export function measureImage(url: string): Promise<SourceSize | null> {
+  return new Promise(resolve => { try { const img = new Image(); img.onload = () => resolve(img); img.onerror = () => resolve(null); img.src = url; } catch { resolve(null); } });
+}
+
 export function suggestFit(
   img: SourceSize,
   frameW: number,
