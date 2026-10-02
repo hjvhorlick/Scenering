@@ -1,6 +1,9 @@
 import { createHarness, createStubContext } from "./harness";
 import {
   TRANSITION_OPTIONS,
+  TRANSITION_GROUPS,
+  TRANSITION_IDS,
+  transitionsInGroup,
   getTransitionDuration,
   drawSceneTransition,
 } from "../src/lib/scene-transition";
@@ -55,9 +58,12 @@ function createMockContext(width = 1920, height = 1080) {
     fillRect: (x: number, y: number, w: number, h: number) =>
       calls.push({ method: "fillRect", args: [x, y, w, h, ctx.fillStyle] }),
     drawImage: () => calls.push({ method: "drawImage", args: [] }),
-    beginPath: () => {},
-    rect: () => {},
-    clip: () => {},
+    scale: (x: number, y: number) => calls.push({ method: "scale", args: [x, y] }),
+    beginPath: () => calls.push({ method: "beginPath", args: [] }),
+    rect: (x: number, y: number, w: number, h: number) =>
+      calls.push({ method: "rect", args: [x, y, w, h] }),
+    arc: (x: number, y: number, r: number) => calls.push({ method: "arc", args: [x, y, r] }),
+    clip: () => calls.push({ method: "clip", args: [] }),
   };
   return { ctx: ctx as CanvasRenderingContext2D, calls };
 }
@@ -263,6 +269,216 @@ for (const transType of ["fade", "slide", "crossfade", "none"] as SceneTransitio
     1080
   );
   h.ok(handledWithPrev, "transition between two scenes still runs");
+}
+
+/* ---------------------------------------------------------------------------
+ * The full transition library.
+ *
+ * Twenty-one options reach the picker, so every one of them has to actually
+ * draw something: an id that falls through to "return false" would show a
+ * hard cut while the UI claimed an effect was selected.
+ * ------------------------------------------------------------------------- */
+
+const ALL_IDS = TRANSITION_IDS.filter((id) => id !== "none");
+
+// Catalogue integrity --------------------------------------------------------
+h.eq(new Set(TRANSITION_IDS).size, TRANSITION_IDS.length, "no transition id is listed twice");
+h.ok(TRANSITION_OPTIONS.length >= 20, "the picker offers the full library");
+h.ok(
+  TRANSITION_OPTIONS.every((o) => TRANSITION_GROUPS.includes(o.group)),
+  "every option belongs to a group the picker renders"
+);
+h.eq(
+  TRANSITION_GROUPS.reduce((n, g) => n + transitionsInGroup(g).length, 0),
+  TRANSITION_OPTIONS.length,
+  "grouping the options loses none of them"
+);
+for (const group of TRANSITION_GROUPS) {
+  h.ok(transitionsInGroup(group).length > 0, `group ${group} is not empty`);
+}
+h.eq(
+  new Set(TRANSITION_OPTIONS.map((o) => o.label)).size,
+  TRANSITION_OPTIONS.length,
+  "no two options share a label"
+);
+
+// Every id draws -------------------------------------------------------------
+for (const id of ALL_IDS) {
+  const { ctx, calls } = createMockContext();
+  const scene = { ...nextScene, transition: id };
+  const handled = drawSceneTransition(ctx, scene, mockImg, baseScene, mockImg, 0.2, 10, 1920, 1080);
+  h.eq(handled, true, `'${id}' reports that it drew the frame`);
+  h.ok(calls.length > 0, `'${id}' issued canvas work`);
+  const draws = calls.filter((c) => c.method === "drawImage").length;
+  h.ok(draws > 0, `'${id}' drew at least one image`);
+  const saves = calls.filter((c) => c.method === "save").length;
+  const restores = calls.filter((c) => c.method === "restore").length;
+  h.eq(saves, restores, `'${id}' balances every save with a restore`);
+}
+
+// Behaviour across the whole transition, for every id ------------------------
+for (const id of ALL_IDS) {
+  for (const progress of [0, 0.01, 0.25, 0.5, 0.75, 0.99]) {
+    const { ctx, calls } = createMockContext();
+    const scene = { ...nextScene, transition: id };
+    const elapsed = getTransitionDuration(10) * progress;
+    const handled = drawSceneTransition(ctx, scene, mockImg, baseScene, mockImg, elapsed, 10, 1920, 1080);
+    h.eq(handled, true, `'${id}' is active at ${progress * 100}% of the way through`);
+    // Non-finite geometry is the classic way a transition blanks a frame.
+    for (const call of calls) {
+      h.ok(
+        call.args.every((a) => typeof a !== "number" || Number.isFinite(a)),
+        `'${id}' at ${progress}: no non-finite canvas argument`
+      );
+    }
+  }
+
+  // Past the end, the transition stands aside for the normal scene draw.
+  const { ctx } = createMockContext();
+  h.eq(
+    drawSceneTransition(ctx, { ...nextScene, transition: id }, mockImg, baseScene, mockImg, 5, 10, 1920, 1080),
+    false,
+    `'${id}' stops once the transition duration has elapsed`
+  );
+
+  // The opening scene has nothing to come from, so it is shown at once.
+  const first = createMockContext();
+  h.eq(
+    drawSceneTransition(first.ctx, { ...nextScene, transition: id }, mockImg, null, null, 0.1, 10, 1920, 1080),
+    false,
+    `'${id}' does not run on the first scene of the video`
+  );
+}
+
+// Family behaviour -----------------------------------------------------------
+{
+  // Pushes move BOTH frames; covers move only the incoming one.
+  for (const id of ["slide", "push_right", "push_up", "push_down"] as SceneTransitionType[]) {
+    const { ctx, calls } = createMockContext();
+    drawSceneTransition(ctx, { ...nextScene, transition: id }, mockImg, baseScene, mockImg, 0.3, 10, 1920, 1080);
+    const moves = calls.filter((c) => c.method === "translate");
+    h.eq(moves.length, 2, `'${id}' moves both the outgoing and incoming frames`);
+    h.ok(
+      moves.some((m) => m.args[0] !== 0 || m.args[1] !== 0),
+      `'${id}' actually displaces a frame`
+    );
+  }
+
+  for (const id of ["cover_left", "cover_right", "cover_up", "cover_down"] as SceneTransitionType[]) {
+    const { ctx, calls } = createMockContext();
+    drawSceneTransition(ctx, { ...nextScene, transition: id }, mockImg, baseScene, mockImg, 0.3, 10, 1920, 1080);
+    h.eq(
+      calls.filter((c) => c.method === "translate").length,
+      1,
+      `'${id}' leaves the outgoing frame where it is`
+    );
+  }
+
+  // Wipes and reveals clip; the revealed area only ever grows.
+  for (const id of ["wipe_left", "wipe_right", "wipe_up", "wipe_down", "blinds"] as SceneTransitionType[]) {
+    let previousArea = -1;
+    for (const progress of [0.1, 0.4, 0.7, 0.95]) {
+      const { ctx, calls } = createMockContext();
+      drawSceneTransition(
+        ctx,
+        { ...nextScene, transition: id },
+        mockImg,
+        baseScene,
+        mockImg,
+        getTransitionDuration(10) * progress,
+        10,
+        1920,
+        1080
+      );
+      const rects = calls.filter((c) => c.method === "rect");
+      h.ok(rects.length > 0, `'${id}' clips the reveal with a rectangle`);
+      const area = rects.reduce((sum, r) => sum + r.args[2] * r.args[3], 0);
+      h.ok(area > previousArea, `'${id}' reveals more of the new scene by ${progress}`);
+      h.ok(area <= 1920 * 1080 + 1, `'${id}' never reveals more than the frame`);
+      previousArea = area;
+    }
+  }
+
+  // The iris opens from the centre and clears the corners by the end.
+  {
+    const maxR = Math.hypot(1920, 1080) / 2;
+    let previousR = -1;
+    for (const progress of [0.1, 0.5, 0.999]) {
+      const { ctx, calls } = createMockContext();
+      drawSceneTransition(
+        ctx,
+        { ...nextScene, transition: "iris" },
+        mockImg,
+        baseScene,
+        mockImg,
+        getTransitionDuration(10) * progress,
+        10,
+        1920,
+        1080
+      );
+      const arc = calls.find((c) => c.method === "arc");
+      h.ok(Boolean(arc), `iris at ${progress} clips a circle`);
+      h.eq(arc!.args[0], 960, "the iris is centred horizontally");
+      h.eq(arc!.args[1], 540, "the iris is centred vertically");
+      h.ok(arc!.args[2] > previousR, `the iris is wider at ${progress} than before`);
+      previousR = arc!.args[2];
+    }
+    h.ok(previousR > maxR * 0.95, "the iris reaches the corners before the transition ends");
+  }
+
+  // Zooms scale about the frame centre, and never to zero.
+  for (const id of ["zoom", "zoom_out"] as SceneTransitionType[]) {
+    for (const progress of [0.05, 0.5, 0.95]) {
+      const { ctx, calls } = createMockContext();
+      drawSceneTransition(
+        ctx,
+        { ...nextScene, transition: id },
+        mockImg,
+        baseScene,
+        mockImg,
+        getTransitionDuration(10) * progress,
+        10,
+        1920,
+        1080
+      );
+      const scales = calls.filter((c) => c.method === "scale");
+      h.eq(scales.length, 1, `'${id}' applies exactly one scale`);
+      h.ok(scales[0].args[0] > 0.01, `'${id}' never collapses the frame to nothing`);
+      h.eq(scales[0].args[0], scales[0].args[1], `'${id}' scales evenly, so nothing is mis-shaped`);
+    }
+  }
+
+  // White fade uses white; black fade uses black.
+  {
+    const { ctx, calls } = createMockContext();
+    drawSceneTransition(ctx, { ...nextScene, transition: "fade_white" }, mockImg, baseScene, mockImg, 0.1, 10, 1920, 1080);
+    const fills = calls.filter((c) => c.method === "fillRect");
+    h.ok(fills.length > 0, "the white fade paints a veil");
+    h.ok(String(fills[0].args[4]).includes("255, 255, 255"), "the white fade's veil is white");
+  }
+  {
+    const { ctx, calls } = createMockContext();
+    drawSceneTransition(ctx, { ...nextScene, transition: "fade_black" }, mockImg, baseScene, mockImg, 0.1, 10, 1920, 1080);
+    const fills = calls.filter((c) => c.method === "fillRect");
+    h.ok(String(fills[0].args[4]).includes("rgba(0, 0, 0"), "fade_black still dips through black");
+  }
+}
+
+// An id the renderer does not know cuts cleanly instead of dropping a frame.
+{
+  const { ctx } = createMockContext();
+  const handled = drawSceneTransition(
+    ctx,
+    { ...nextScene, transition: "not_a_real_transition" as SceneTransitionType },
+    mockImg,
+    baseScene,
+    mockImg,
+    0.1,
+    10,
+    1920,
+    1080
+  );
+  h.eq(handled, false, "an unknown transition id falls back to a plain cut");
 }
 
 h.done("transitions");

@@ -38,7 +38,7 @@ import {
   sceneDurationForText,
   splitScriptIntoScenes,
 } from "./lib/duration-utils";
-import { TRANSITION_OPTIONS } from "./lib/scene-transition";
+import { TRANSITION_GROUPS, transitionsInGroup } from "./lib/scene-transition";
 import type { Project, Scene, TimelineInsert, SceneMotionType, SceneTransitionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType, RenderProfileSettings } from "./types";
 import { DEFAULT_RENDER_PROFILE_SETTINGS, resolveRenderProfileSettings } from "./lib/render-profile";
 import type { VideoFilterConfig } from "./data/video-filters";
@@ -460,7 +460,13 @@ export default function App() {
               order_index: idx,
               text: sceneText,
               image_url: existing?.image_url || null,
-              image_query: item.imageQuery || existing?.image_query || "abstract background",
+              // A query the user pinned in the search modal survives a script
+              // regeneration; everything else is re-derived from the new text.
+              image_query:
+                existing?.image_query_locked && existing?.image_query
+                  ? existing.image_query
+                  : item.imageQuery || existing?.image_query || "abstract background",
+              image_query_locked: existing?.image_query_locked,
               // each scene lasts as long as its OWN narration, so no scene
               // holds on a still image in silence
               duration: sceneDurationForText(sceneText, targetDur),
@@ -943,6 +949,14 @@ export default function App() {
         dialogue: updates.dialogue !== undefined ? updates.dialogue : parsed.dialogue,
         audio_url: updates.audio_url !== undefined ? updates.audio_url : parsed.audio_url,
         audio_name: updates.audio_name !== undefined ? updates.audio_name : parsed.audio_name,
+        // A hand-picked search term and its lock live here too. Supabase is
+        // optional in this app, so without the local copy a reload dropped
+        // the lock and the next edit re-derived the query from the script.
+        image_query: updates.image_query !== undefined ? updates.image_query : parsed.image_query,
+        image_query_locked:
+          updates.image_query_locked !== undefined
+            ? updates.image_query_locked
+            : parsed.image_query_locked,
       };
       // Image framing (crop, fit, blurred fill, zoom, rotation...) is persisted
       // here too, so a reloaded project renders exactly as it was framed.
@@ -1580,24 +1594,39 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {TRANSITION_OPTIONS.map((opt) => {
-                        const isSelected = videoTransition === opt.id;
+                    {/* Grouped by family (dissolves, pushes, covers, wipes,
+                        reveals, dynamics). A flat row of twenty-one chips was
+                        unreadable; the family labels make the one you want
+                        findable at a glance. */}
+                    <div className="flex flex-col gap-2 w-full sm:w-auto">
+                      {TRANSITION_GROUPS.map((group) => {
+                        const options = transitionsInGroup(group);
+                        if (options.length === 0) return null;
                         return (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => handleUpdateVideoTransition(opt.id)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
-                              isSelected
-                                ? "bg-indigo-600 border-indigo-400 text-white shadow-md font-semibold ring-1 ring-indigo-400/50"
-                                : "bg-gray-800/90 hover:bg-gray-700/90 border-hairline text-gray-300"
-                            }`}
-                            title={opt.description}
-                          >
-                            <span><Icon glyph={opt.icon} /></span>
-                            <span>{opt.label}</span>
-                          </button>
+                          <div key={group} className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] uppercase tracking-wide text-gray-500 w-16 flex-shrink-0">
+                              {group}
+                            </span>
+                            {options.map((opt) => {
+                              const isSelected = videoTransition === opt.id;
+                              return (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => handleUpdateVideoTransition(opt.id)}
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all flex items-center gap-1.5 ${
+                                    isSelected
+                                      ? "bg-indigo-600 border-indigo-400 text-white shadow-md font-semibold ring-1 ring-indigo-400/50"
+                                      : "bg-gray-800/90 hover:bg-gray-700/90 border-hairline text-gray-300"
+                                  }`}
+                                  title={opt.description}
+                                >
+                                  <span><Icon glyph={opt.icon} /></span>
+                                  <span>{opt.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         );
                       })}
                     </div>

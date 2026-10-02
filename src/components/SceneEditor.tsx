@@ -10,7 +10,8 @@ import {
   resolveFraming,
   frameSizeFor,
   fitFrameInBox,
-  suggestFit,
+  autoFrame,
+  measureImage,
   DEFAULT_FRAMING,
   sceneIsBlankColor,
 } from "../lib/scene-framing";
@@ -112,8 +113,14 @@ export default function SceneEditor({
    * weighted highest (see src/lib/topic-extract.ts), rather than by taking the
    * opening words, which are usually connectives and returned the wrong photo.
    */
-  const deriveImageQuery = (text: string, stored?: string): string =>
-    buildSceneImageQuery(text, { stored, fallback: "abstract background" });
+  const deriveImageQuery = (text: string, stored?: string): string => {
+    // A query the user chose by hand (they typed it into the search modal)
+    // outranks anything derived from the narration. Without this, editing a
+    // word of the script silently threw their search term away and the next
+    // Replace fetched a photo of something else entirely.
+    if (scene.image_query_locked && scene.image_query) return scene.image_query;
+    return buildSceneImageQuery(text, { stored, fallback: "abstract background" });
+  };
   const [searching, setSearching] = useState(false);
   /** Photos from the last research, shown in the block above the scene card. */
   const [candidates, setCandidates] = useState<ImageCandidate[]>([]);
@@ -385,9 +392,15 @@ export default function SceneEditor({
   };
 
   /**
-   * A freshly chosen photo starts unframed. If its shape is a long way from
-   * the video frame's, the blurred fill is picked automatically so the user
-   * never gets a badly cropped subject by default.
+   * A freshly chosen photo is framed automatically.
+   *
+   * The photo is measured first, then `autoFrame` decides: a mild shape
+   * mismatch is cropped to the frame and fills it edge to edge, while a
+   * severe one (a portrait photo in a landscape video) is shown whole over a
+   * blurred copy of itself rather than losing its subject to the crop.
+   *
+   * The reset lands first so the scene never shows the new photo through the
+   * previous one's crop while the measurement is in flight.
    */
   const adoptImage = (url: string) => {
     const frame = frameSizeFor(aspectRatio);
@@ -406,21 +419,25 @@ export default function SceneEditor({
     };
     onUpdate(scene.id, base);
     setShowColorPicker(false);
-    const probe = new Image();
-    probe.onload = () => {
-      const fit = suggestFit(probe, frame.w, frame.h);
-      onUpdate(scene.id, {
-        image_fit: fit,
-        // blur_fill promises blurred bars — store the matching backdrop so
-        // the scene never falls back to black bars in preview or render
-        ...(fit === "blur_fill" ? { image_backdrop: "blur" as const } : {}),
-      });
-    };
-    probe.src = url;
+    void measureImage(url).then((measured) => {
+      // Unmeasurable photo (a blocked or broken URL): the defaults above are
+      // already correct, so leave the scene exactly as it is.
+      if (!measured) return;
+      onUpdate(scene.id, autoFrame(measured, frame.w, frame.h) as Partial<Scene>);
+    });
   };
 
-  const handleSelectFromModal = (url: string) => {
+  /**
+   * A photo chosen from the search modal, together with the query that found
+   * it. That query is pinned to the scene (image_query_locked) so later edits
+   * to the narration cannot overwrite a deliberate choice.
+   */
+  const handleSelectFromModal = (url: string, query: string) => {
     adoptImage(url);
+    const chosen = (query || "").trim();
+    if (chosen) {
+      onUpdate(scene.id, { image_query: chosen, image_query_locked: true });
+    }
     setShowSearchModal(false);
     setImgError(false);
   };

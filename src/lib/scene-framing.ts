@@ -567,33 +567,136 @@ export function drawSceneImage(
   return fg;
 }
 
+/* ---------------------------------------------------------------------------
+ * Automatic framing — what a freshly chosen photo should look like before the
+ * user touches a single control.
+ *
+ * A photo almost never matches the video frame exactly. Left alone, "cover"
+ * crops whatever overflows from the edges, which is right for a mild mismatch
+ * and badly wrong for a severe one: a portrait photo in a 16:9 frame loses
+ * most of its subject. These helpers decide between the two and pre-compute
+ * the centred crop so the scene opens correctly framed.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * How far a photo's shape may differ from the frame's before cropping is
+ * abandoned in favour of the blurred fill.
+ *
+ * 2.4 is just past the worst common pairing a crop still survives (a 4:3
+ * photo in a 9:16 frame, ≈2.37) and comfortably below a portrait photo in a
+ * landscape frame (9:16 in 16:9, ≈3.16), which must never be cropped.
+ */
+export const AUTO_CROP_MAX_MISMATCH = 2.4;
+
+/**
+ * How different two shapes are, as a factor ≥ 1. Equal shapes give exactly 1,
+ * and the result is the same whichever of the two is the wider.
+ *
+ * Unknown or zero dimensions are treated as "same shape as the frame": with
+ * nothing measured, the safest answer is to leave the default framing alone
+ * rather than to guess at a crop.
+ */
+export function aspectMismatch(img: SourceSize, frameW: number, frameH: number): number {
+  const iw = Number(img?.naturalWidth);
+  const ih = Number(img?.naturalHeight);
+  // Nothing measured on either side: report a perfect match so the caller
+  // leaves the default framing alone instead of acting on a guess.
+  if (!(iw > 0) || !(ih > 0) || !(frameW > 0) || !(frameH > 0)) return 1;
+  const imageRatio = iw / ih;
+  const frameRatio = frameW / frameH;
+  return Math.max(imageRatio / frameRatio, frameRatio / imageRatio, 1);
+}
+
+/**
+ * The centred source rectangle that makes a photo exactly the frame's shape.
+ *
+ * Returned in the same normalised 0..1 space as `Scene.image_crop`, so it can
+ * be stored on the scene directly. A photo already the right shape gives the
+ * full rectangle, never a sliver off the edge.
+ */
+export function autoCropToFrame(
+  img: SourceSize,
+  frameW: number,
+  frameH: number
+): SceneCropRect {
+  const iw = Number(img?.naturalWidth);
+  const ih = Number(img?.naturalHeight);
+  const target = frameW > 0 && frameH > 0 ? frameW / frameH : 0;
+  if (!(iw > 0) || !(ih > 0) || !(target > 0)) return { ...DEFAULT_CROP };
+
+  const ratio = iw / ih;
+  if (ratio > target) {
+    // Too wide: keep the full height and trim the sides evenly.
+    const w = (target * ih) / iw;
+    return { x: (1 - w) / 2, y: 0, w, h: 1 };
+  }
+  if (ratio < target) {
+    // Too tall: keep the full width and trim top and bottom evenly.
+    const h = iw / target / ih;
+    return { x: 0, y: (1 - h) / 2, w: 1, h };
+  }
+  return { ...DEFAULT_CROP };
+}
+
+/** Scene fields that frame a newly adopted photo. */
+export interface AutoFraming {
+  image_fit: SceneFitMode;
+  image_crop: SceneCropRect;
+  /** Set only for blur_fill, so the bars are the blurred photo, not black. */
+  image_backdrop?: SceneBackdropStyle;
+}
+
+/**
+ * The framing to apply to a photo the moment it is chosen.
+ *
+ * Within the mismatch limit the photo is cropped to the frame and fills it
+ * edge to edge. Past the limit it is shown whole over a blurred copy of
+ * itself — the crop is reset there, because cropping and then not cropping
+ * would leave a stale rectangle behind if the user later switched back.
+ */
+export function autoFrame(img: SourceSize, frameW: number, frameH: number): AutoFraming {
+  if (aspectMismatch(img, frameW, frameH) > AUTO_CROP_MAX_MISMATCH) {
+    return {
+      image_fit: "blur_fill",
+      image_crop: { ...DEFAULT_CROP },
+      image_backdrop: "blur",
+    };
+  }
+  return {
+    image_fit: "cover",
+    image_crop: autoCropToFrame(img, frameW, frameH),
+  };
+}
+
+/**
+ * Load an image purely to learn its dimensions.
+ *
+ * Resolves null instead of rejecting when the photo cannot be loaded: a
+ * broken URL must leave the scene at its default framing, not break the
+ * selection the user just made.
+ */
+export function measureImage(url: string): Promise<SourceSize | null> {
+  return new Promise((resolve) => {
+    try {
+      if (typeof Image === "undefined" || !url) {
+        resolve(null);
+        return;
+      }
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 /**
  * A sensible fit for a photo the user has just picked, given the frame shape.
  * A portrait photo in a landscape frame (or the reverse) would lose most of
  * itself to a crop, so those default to the blurred fill instead.
  */
-export const AUTO_CROP_MAX_MISMATCH = 2.4;
-export function aspectMismatch(img: SourceSize, frameW: number, frameH: number): number {
-  const iw = Number(img?.naturalWidth), ih = Number(img?.naturalHeight);
-  const ir = iw > 0 && ih > 0 ? iw / ih : 1, fr = frameW > 0 && frameH > 0 ? frameW / frameH : 1;
-  return Math.max(ir / fr, fr / ir, 1);
-}
-export function autoCropToFrame(img: SourceSize, frameW: number, frameH: number) {
-  const iw = Number(img?.naturalWidth), ih = Number(img?.naturalHeight), target = frameW > 0 && frameH > 0 ? frameW / frameH : 1;
-  if (!(iw > 0 && ih > 0) || !(target > 0)) return { x: 0, y: 0, w: 1, h: 1 };
-  const ratio = iw / ih;
-  if (ratio > target) { const w = target * ih / iw; return { x: (1-w)/2, y: 0, w, h: 1 }; }
-  const h = iw / target / ih; return { x: 0, y: (1-h)/2, w: 1, h };
-}
-export function autoFrame(img: SourceSize, frameW: number, frameH: number) {
-  const crop = autoCropToFrame(img, frameW, frameH);
-  return { image_fit: aspectMismatch(img, frameW, frameH) > AUTO_CROP_MAX_MISMATCH ? "blur_fill" as const : "cover" as const,
-    image_crop: aspectMismatch(img, frameW, frameH) > AUTO_CROP_MAX_MISMATCH ? {x:0,y:0,w:1,h:1} : crop };
-}
-export function measureImage(url: string): Promise<SourceSize | null> {
-  return new Promise(resolve => { try { const img = new Image(); img.onload = () => resolve(img); img.onerror = () => resolve(null); img.src = url; } catch { resolve(null); } });
-}
-
 export function suggestFit(
   img: SourceSize,
   frameW: number,
