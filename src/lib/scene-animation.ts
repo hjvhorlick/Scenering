@@ -223,6 +223,8 @@ const lower: SceneAnimationRegion = { x: 0, y: 0.55, w: 1, h: 0.4 };
 const horizon: SceneAnimationRegion = { x: 0, y: 0.42, w: 1, h: 0.35 };
 const mid: SceneAnimationRegion = { x: 0, y: 0.18, w: 1, h: 0.64 };
 const bottom: SceneAnimationRegion = { x: 0, y: 0.62, w: 1, h: 0.36 };
+// A focused column above a cup/mug so vapor doesn't smear across the whole frame.
+const cupSteamRegion: SceneAnimationRegion = { x: 0.26, y: 0.1, w: 0.48, h: 0.74 };
 
 const v = (...labels: string[]): SceneAnimationVariant[] =>
   labels.map((label) => ({
@@ -676,7 +678,7 @@ export const SCENE_ANIMATION_EFFECTS: SceneAnimationEffectDefinition[] = [
     description: "Rising vapor for coffee, tea, hot food or general steam sources.",
     variants: v("Coffee Steam", "Strong Coffee Steam", "Cup Steam Plume", "Tea Steam", "Hot Food Steam", "General Steam", "Mystic Vapor"),
     controls: ["density", "speed", "direction", "opacity", "size", "origin", "region"],
-    defaults: { variant: "coffee_steam", density: 0.58, speed: 0.28, direction: "up-right", opacity: 0.58, size: 0.46, origin: { x: 0.5, y: 0.6 }, region: mid },
+    defaults: { variant: "cup_steam_plume", density: 0.7, speed: 0.28, direction: "up-right", opacity: 0.72, size: 0.6, origin: { x: 0.5, y: 0.6 }, region: cupSteamRegion },
   }),
 
   // Mystical / creative transparent overlays
@@ -960,7 +962,7 @@ export const SCENE_ANIMATION_PRESETS: SceneAnimationPreset[] = [
     description: "Coffee steam, lake mist, water motion, clouds and golden light.",
     camera: { motion: "cinematic_drift", speed: 0.26, intensity: 0.44 },
     effects: [
-      { type: "steam", variant: "coffee_steam", origin: { x: 0.5, y: 0.58 }, opacity: 0.44 },
+      { type: "steam", variant: "coffee_steam", origin: { x: 0.5, y: 0.58 }, opacity: 0.62, density: 0.6 },
       { type: "mist", variant: "lake_mist", opacity: 0.3 },
       { type: "water_ripples", opacity: 0.3 },
       { type: "moving_clouds", opacity: 0.24 },
@@ -997,10 +999,20 @@ export const SCENE_ANIMATION_PRESETS: SceneAnimationPreset[] = [
     id: "steam_cup_magic",
     label: "Steam Cup Magic",
     icon: "☕",
-    description: "Strong cup steam rising into golden signs and glowing particles.",
+    description: "Dense, clearly-visible cup steam rising into golden signs and glowing particles.",
     camera: { motion: "slow_zoom", speed: 0.3, intensity: 0.48 },
     effects: [
-      { type: "steam", variant: "cup_steam_plume", origin: { x: 0.5, y: 0.62 }, opacity: 0.66, density: 0.7 },
+      {
+        type: "steam",
+        variant: "cup_steam_plume",
+        origin: { x: 0.5, y: 0.62 },
+        opacity: 0.9,
+        density: 0.9,
+        size: 0.68,
+        region: { x: 0.26, y: 0.1, w: 0.48, h: 0.74 },
+        bloom: 0.3,
+        afterglow: 0.18,
+      },
       { type: "mystical_golden_signs", amount: 0.36, opacity: 0.72, region: { x: 0.18, y: 0.08, w: 0.64, h: 0.7 } },
       { type: "glowing_particles", variant: "golden_sparks", amount: 0.42, opacity: 0.62 },
       { type: "golden_light", opacity: 0.34 },
@@ -1068,6 +1080,18 @@ export const SCENE_ANIMATION_PRESETS: SceneAnimationPreset[] = [
       { type: "moving_clouds", variant: "thin_cloud_movement", opacity: 0.18 },
       { type: "moonlight", opacity: 0.3 },
       { type: "dust", variant: "light_particles", amount: 0.22, opacity: 0.26 },
+    ],
+  },
+  {
+    id: "neon_energy_surge",
+    label: "Neon Energy Surge",
+    icon: "⚡",
+    description: "Neon-coloured reactive glow, energy waves and glowing orbs with bloom and shine for electric, non-natural scenes.",
+    camera: { motion: "zoom_pan", speed: 0.42, intensity: 0.58 },
+    effects: [
+      { type: "scene_reactive_glow", opacity: 0.68, intensity: 0.8, colorPalette: "neon_cyan", bloom: 0.6, afterglow: 0.4 },
+      { type: "energy_waves", opacity: 0.72, speed: 0.5, colorPalette: "neon_pink", bloom: 0.55, trail: 0.4 },
+      { type: "glowing_orbs", amount: 0.5, opacity: 0.74, colorPalette: "neon_purple", bloom: 0.5, shine: 0.6 },
     ],
   },
 ];
@@ -1148,6 +1172,38 @@ export const SCENE_ANIMATION_LIBRARY_SECTIONS: SceneAnimationLibrarySection[] = 
         description: "Portal rings, magic pulses, reactive aura and shockwaves.",
         effects: ["energy_waves", "scene_reactive_glow", "glowing_orbs", "motivational_starburst"],
         presetIds: ["reactive_energy"],
+      },
+    ],
+  },
+  {
+    id: "energy",
+    label: "Energy",
+    icon: "⚡",
+    description: "Reactive glow, portal energy waves and neon-styled power effects for non-natural, high-energy scenes.",
+    groups: [
+      {
+        id: "reactive_energy",
+        label: "Reactive Energy",
+        icon: "💓",
+        description: "Scene-reactive glow and pulsing light that responds to the mood of the scene.",
+        effects: ["scene_reactive_glow", "glowing_orbs", "glowing_particles"],
+        presetIds: ["reactive_energy"],
+      },
+      {
+        id: "portals_power_waves",
+        label: "Portals & Power Waves",
+        icon: "◎",
+        description: "Expanding energy rings, portal pulses and dramatic power waves.",
+        effects: ["energy_waves", "enchanted_sigil", "constellation_lines", "lightning_illumination"],
+        presetIds: ["reactive_energy"],
+      },
+      {
+        id: "neon_energy",
+        label: "Neon Energy",
+        icon: "🌐",
+        description: "Neon-coloured glow, waves and orbs with bloom, afterglow and shine for electric visuals.",
+        effects: ["scene_reactive_glow", "energy_waves", "glowing_orbs", "glowing_particles"],
+        presetIds: ["neon_energy_surge"],
       },
     ],
   },
@@ -3038,32 +3094,85 @@ function drawParticles(ctx: CanvasRenderingContext2D, e: SceneAnimationEffect, w
 }
 
 function drawSteamSmoke(ctx: CanvasRenderingContext2D, e: SceneAnimationEffect, w: number, h: number, t: number, seed: number, kind: string) {
-  const density = value(e, "density", 0.38);
+  const isSteam = kind === "steam";
+  const density = value(e, "density", isSteam ? 0.68 : 0.38);
   const speed = value(e, "speed", 0.22);
-  const opacity = value(e, "opacity", kind === "steam" ? 0.42 : 0.32);
-  const size = value(e, "size", 0.4);
-  const origin = originOf(e, kind === "steam" ? { x: 0.5, y: 0.6 } : { x: 0.5, y: 0.72 });
+  const opacity = value(e, "opacity", isSteam ? 0.72 : 0.32);
+  const size = value(e, "size", isSteam ? 0.58 : 0.4);
+  const origin = originOf(e, isSteam ? { x: 0.5, y: 0.6 } : { x: 0.5, y: 0.72 });
   const dir = directionVector(e.direction || "up-right");
-  const r = regionOf(e, mid);
+  const r = regionOf(e, isSteam ? cupSteamRegion : mid);
   applyRegionClip(ctx, r, w, h, h * 0.08);
   setBlur(ctx, Math.max(6, w * 0.007));
-  ctx.globalCompositeOperation = kind === "steam" ? "screen" : "source-over";
   const plumes = Math.round(7 + density * 18);
+
+  // A faint grey edge/shadow pass underneath the white highlight keeps the
+  // plume readable even on light backgrounds — plain screen-blended white
+  // disappears over bright skies or pale walls.
+  if (isSteam) {
+    ctx.save();
+    ctx.globalCompositeOperation = "source-over";
+    for (let i = 0; i < plumes; i++) {
+      const p = (t * (0.025 + speed * 0.08) + rand(seed, i)) % 1;
+      const lift = smoothstep(p);
+      const x = origin.x * w + dir.x * lift * w * (0.035 + size * 0.06) + Math.sin(p * 8 + i) * w * 0.018;
+      const y = origin.y * h - lift * h * (0.18 + size * 0.22) + dir.y * lift * h * 0.04;
+      const rr = (22 + rand(seed, i + 3) * 42) * (0.45 + size) * (w / 1280) * (0.4 + lift);
+      const edgeAlpha = opacity * (1 - lift) * 0.22;
+      const edgeGrad = ctx.createRadialGradient(x, y, 0, x, y, rr * 1.2);
+      edgeGrad.addColorStop(0, `rgba(90,92,96,${edgeAlpha})`);
+      edgeGrad.addColorStop(1, "rgba(90,92,96,0)");
+      ctx.fillStyle = edgeGrad;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rr * (0.82 + lift), rr * (0.58 + lift * 0.7), 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  ctx.globalCompositeOperation = isSteam ? "screen" : "source-over";
   for (let i = 0; i < plumes; i++) {
     const p = (t * (0.025 + speed * 0.08) + rand(seed, i)) % 1;
     const lift = smoothstep(p);
     const x = origin.x * w + dir.x * lift * w * (0.035 + size * 0.06) + Math.sin(p * 8 + i) * w * 0.018;
     const y = origin.y * h - lift * h * (0.18 + size * 0.22) + dir.y * lift * h * 0.04;
     const rr = (22 + rand(seed, i + 3) * 42) * (0.45 + size) * (w / 1280) * (0.4 + lift);
-    const a = opacity * (1 - lift) * (kind === "steam" ? 0.24 : 0.18);
-    const color = kind === "fire_smoke" ? "170,160,145" : kind === "smoke" ? "205,205,198" : "235,240,235";
+    const a = opacity * (1 - lift) * (isSteam ? 0.6 : 0.18);
+    const color = kind === "fire_smoke" ? "170,160,145" : kind === "smoke" ? "205,205,198" : isSteam ? "255,255,255" : "235,240,235";
     const grad = ctx.createRadialGradient(x, y, 0, x, y, rr);
     grad.addColorStop(0, `rgba(${color},${a})`);
+    if (isSteam) grad.addColorStop(0.55, `rgba(${color},${a * 0.45})`);
     grad.addColorStop(1, `rgba(${color},0)`);
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.ellipse(x, y, rr * (0.75 + lift), rr * (0.5 + lift * 0.7), 0, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // Thin bright wisps/strokes read as real vapor threads, not just soft fog.
+  if (isSteam) {
+    const wisps = Math.round(3 + density * 6);
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.lineCap = "round";
+    for (let i = 0; i < wisps; i++) {
+      const p = (t * (0.034 + speed * 0.07) + rand(seed, i + 150)) % 1;
+      const baseX = origin.x * w + (rand(seed, i + 151) - 0.5) * w * 0.07;
+      const topY = origin.y * h - h * (0.4 + size * 0.3);
+      const botY = origin.y * h - h * 0.015;
+      const midY = (topY + botY) / 2;
+      const sway = Math.sin(p * Math.PI * 2 + rand(seed, i + 152) * 6) * w * (0.028 + size * 0.03);
+      const wobble = w * (0.018 + size * 0.022) * Math.sin(p * Math.PI * 3 + i);
+      const alpha = opacity * (0.65 - Math.abs(p - 0.5) * 0.7);
+      if (alpha <= 0.01) continue;
+      ctx.strokeStyle = `rgba(255,255,255,${Math.max(0, alpha)})`;
+      ctx.lineWidth = Math.max(1.3, w * 0.0024 * (0.6 + size));
+      ctx.beginPath();
+      ctx.moveTo(baseX, botY);
+      ctx.bezierCurveTo(baseX + wobble, midY + (botY - midY) * 0.4, baseX - wobble + sway, midY - (midY - topY) * 0.4, baseX + sway, topY);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 

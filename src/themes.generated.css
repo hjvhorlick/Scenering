@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 552 utility
+   Colour matrix for every non-classic theme. 551 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -401,9 +401,6 @@ html[data-theme="apple"] .bg-purple-900\/60 {
 }
 html[data-theme="apple"] .bg-purple-950 {
   background-color: rgb(247 239 255 / 1);
-}
-html[data-theme="apple"] .bg-purple-950\/30 {
-  background-color: rgb(247 239 255 / 0.3);
 }
 html[data-theme="apple"] .bg-purple-950\/60 {
   background-color: rgb(247 239 255 / 0.6);
@@ -2111,9 +2108,6 @@ html[data-theme="windows"] .bg-purple-900\/60 {
 html[data-theme="windows"] .bg-purple-950 {
   background-color: rgb(58 13 94 / 1);
 }
-html[data-theme="windows"] .bg-purple-950\/30 {
-  background-color: rgb(58 13 94 / 0.3);
-}
 html[data-theme="windows"] .bg-purple-950\/60 {
   background-color: rgb(58 13 94 / 0.6);
 }
@@ -3819,9 +3813,6 @@ html[data-theme="playful"] .bg-purple-900\/60 {
 }
 html[data-theme="playful"] .bg-purple-950 {
   background-color: rgb(61 0 109 / 1);
-}
-html[data-theme="playful"] .bg-purple-950\/30 {
-  background-color: rgb(61 0 109 / 0.3);
 }
 html[data-theme="playful"] .bg-purple-950\/60 {
   background-color: rgb(61 0 109 / 0.6);
@@ -5529,9 +5520,6 @@ html[data-theme="glass"] .bg-purple-900\/60 {
 html[data-theme="glass"] .bg-purple-950 {
   background-color: rgb(250 244 255 / 1);
 }
-html[data-theme="glass"] .bg-purple-950\/30 {
-  background-color: rgb(250 244 255 / 0.3);
-}
 html[data-theme="glass"] .bg-purple-950\/60 {
   background-color: rgb(250 244 255 / 0.6);
 }
@@ -7237,9 +7225,6 @@ html[data-theme="porcelain"] .bg-purple-900\/60 {
 }
 html[data-theme="porcelain"] .bg-purple-950 {
   background-color: rgb(246 237 255 / 1);
-}
-html[data-theme="porcelain"] .bg-purple-950\/30 {
-  background-color: rgb(246 237 255 / 0.3);
 }
 html[data-theme="porcelain"] .bg-purple-950\/60 {
   background-color: rgb(246 237 255 / 0.6);

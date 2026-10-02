@@ -1506,7 +1506,6 @@ export default function App() {
                 onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
                 onFitScenesToSpeech={handleFitAllScenesDurationToSpeech}
                 onUpdateMotionStyle={handleUpdateMotionStyle}
-                onUpdateSceneAnimationEnabled={handleUpdateSceneAnimationEnabled}
                 onNavigateToStep={(step) => {
                   setEditorStep(step);
                   setView("editor");
