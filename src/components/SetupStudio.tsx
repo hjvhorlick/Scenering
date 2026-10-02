@@ -80,7 +80,6 @@ interface SetupStudioProps {
   onCalibrateScenesWordCount?: (targetSeconds: number) => void;
   onFitScenesToSpeech?: () => void;
   onUpdateMotionStyle?: (style: string) => void;
-  onUpdateSceneAnimationEnabled?: (enabled: boolean) => void;
   onNavigateToStep: (step: "scenes") => void;
 }
 
@@ -136,7 +135,6 @@ export default function SetupStudio({
   onUpdateSceneDuration,
   onCalibrateScenesWordCount,
   onUpdateMotionStyle,
-  onUpdateSceneAnimationEnabled,
   onNavigateToStep,
 }: SetupStudioProps) {
   /** Best-known title/script for a project, preferring anything unsaved. */
@@ -1025,47 +1023,11 @@ export default function SetupStudio({
           }
         />
 
-        <div className="mb-3 rounded-xl border border-purple-800/60 bg-purple-950/30 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="text-xs font-bold text-white flex items-center gap-1.5">
-              <Icon glyph="✨" /> Scene Animation Effects
-            </div>
-            <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
-              Optional per-scene environmental animation stack. Default is OFF so existing projects keep rendering exactly as before.
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {([false, true] as const).map((enabled) => (
-              <button
-                key={String(enabled)}
-                type="button"
-                onClick={() => {
-                  onUpdateSceneAnimationEnabled?.(enabled);
-                  showNotice(
-                    enabled
-                      ? "Scene Animation Effects enabled — camera movement can now be controlled individually for each scene."
-                      : "Scene Animation Effects disabled — the global Ken Burns setting controls scenes again."
-                  );
-                }}
-                className={`px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all ${
-                  sceneAnimationEnabled === enabled
-                    ? enabled
-                      ? "bg-purple-600 border-purple-400 text-white shadow"
-                      : "bg-gray-700 border-hairline text-white shadow"
-                    : "bg-gray-900/80 border-hairline text-gray-400 hover:text-white hover:bg-gray-800"
-                }`}
-              >
-                {enabled ? "ON" : "OFF"}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {sceneAnimationEnabled && (
           <div className="mb-3 rounded-xl border border-indigo-700/70 bg-indigo-950/50 p-3 text-[11px] text-indigo-200 flex items-start gap-2">
             <Icon glyph="ℹ" />
             <span>
-              Scene Animation Effects is enabled. Camera movement can now be controlled individually for each scene.
+              Scene Animation Effects is enabled in the Scene Editor above, so global Ken Burns camera motion is disabled here. Camera movement is now controlled individually for each scene — open <strong>🎬 Animate Scene</strong> on any scene to set it.
             </span>
           </div>
         )}
