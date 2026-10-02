@@ -59,6 +59,7 @@ interface SetupStudioProps {
   pacingMode?: PacingModeType;
   sceneDuration?: number;
   motionStyle?: string;
+  sceneAnimationEnabled?: boolean;
   loading?: boolean;
   /** Project management (this frame is the only place projects are chosen) */
   onSelectProject: (project: Project) => void;
@@ -79,6 +80,7 @@ interface SetupStudioProps {
   onCalibrateScenesWordCount?: (targetSeconds: number) => void;
   onFitScenesToSpeech?: () => void;
   onUpdateMotionStyle?: (style: string) => void;
+  onUpdateSceneAnimationEnabled?: (enabled: boolean) => void;
   onNavigateToStep: (step: "scenes") => void;
 }
 
@@ -119,6 +121,7 @@ export default function SetupStudio({
   pacingMode = "auto_speech",
   sceneDuration = 20,
   motionStyle = "dynamic",
+  sceneAnimationEnabled = false,
   loading = false,
   onSelectProject,
   onDeleteProject,
@@ -133,6 +136,7 @@ export default function SetupStudio({
   onUpdateSceneDuration,
   onCalibrateScenesWordCount,
   onUpdateMotionStyle,
+  onUpdateSceneAnimationEnabled,
   onNavigateToStep,
 }: SetupStudioProps) {
   /** Best-known title/script for a project, preferring anything unsaved. */
@@ -1014,11 +1018,62 @@ export default function SetupStudio({
         <SectionHeading
           step={6}
           title="Camera motion (Ken Burns)"
-          subtitle="Applies to every scene in the whole video. Previews below are live."
+          subtitle={
+            sceneAnimationEnabled
+              ? "Scene Animation Effects is ON, so camera movement is controlled individually inside each scene."
+              : "Applies to every scene in the whole video. Previews below are live."
+          }
         />
+
+        <div className="mb-3 rounded-xl border border-purple-800/60 bg-purple-950/30 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-bold text-white flex items-center gap-1.5">
+              <Icon glyph="✨" /> Scene Animation Effects
+            </div>
+            <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
+              Optional per-scene environmental animation stack. Default is OFF so existing projects keep rendering exactly as before.
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {([false, true] as const).map((enabled) => (
+              <button
+                key={String(enabled)}
+                type="button"
+                onClick={() => {
+                  onUpdateSceneAnimationEnabled?.(enabled);
+                  showNotice(
+                    enabled
+                      ? "Scene Animation Effects enabled — camera movement can now be controlled individually for each scene."
+                      : "Scene Animation Effects disabled — the global Ken Burns setting controls scenes again."
+                  );
+                }}
+                className={`px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all ${
+                  sceneAnimationEnabled === enabled
+                    ? enabled
+                      ? "bg-purple-600 border-purple-400 text-white shadow"
+                      : "bg-gray-700 border-hairline text-white shadow"
+                    : "bg-gray-900/80 border-hairline text-gray-400 hover:text-white hover:bg-gray-800"
+                }`}
+              >
+                {enabled ? "ON" : "OFF"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {sceneAnimationEnabled && (
+          <div className="mb-3 rounded-xl border border-indigo-700/70 bg-indigo-950/50 p-3 text-[11px] text-indigo-200 flex items-start gap-2">
+            <Icon glyph="ℹ" />
+            <span>
+              Scene Animation Effects is enabled. Camera movement can now be controlled individually for each scene.
+            </span>
+          </div>
+        )}
+
         <p className="text-[11px] text-gray-500 mb-2.5">
-          Every tile below is live — the movement you see is the exact transform the
-          rendered video uses.
+          {sceneAnimationEnabled
+            ? "The global Ken Burns setting is preserved for compatibility, but it will not overwrite scenes while Scene Animation Effects is ON. Use the Animate Scene panel on each scene instead."
+            : "Every tile below is live — the movement you see is the exact transform the rendered video uses."}
         </p>
         <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-2 sm:gap-2.5">
           {motionOptions.map((opt) => {
@@ -1027,15 +1082,23 @@ export default function SetupStudio({
               <button
                 key={opt.id}
                 type="button"
+                disabled={sceneAnimationEnabled}
                 onClick={() => {
+                  if (sceneAnimationEnabled) {
+                    showNotice("Scene Animation Effects is ON — set camera motion inside each scene instead.");
+                    return;
+                  }
                   onUpdateMotionStyle?.(opt.id);
                   showNotice(`Global motion style set to ${opt.label}`);
                 }}
                 className={`w-full p-2 rounded-xl border text-left transition-all ${
-                  isSelected
+                  sceneAnimationEnabled
+                    ? "bg-gray-900/60 border-hairline text-gray-500 opacity-70 cursor-not-allowed"
+                    : isSelected
                     ? "bg-indigo-950/80 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-400"
                     : "bg-gray-800/60 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
                 }`}
+                title={sceneAnimationEnabled ? "Use Animate Scene on each scene for camera movement" : opt.desc}
               >
                 <div className="relative overflow-hidden rounded-lg mb-2">
                   <MotionPreviewCanvas
@@ -1066,7 +1129,7 @@ export default function SetupStudio({
           })}
         </div>
 
-        {onUpdateMotionStyle && (
+        {onUpdateMotionStyle && !sceneAnimationEnabled && (
           <button
             type="button"
             onClick={() => {

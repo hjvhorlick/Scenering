@@ -4,6 +4,7 @@ import ImageSearchModal from "./ImageSearchModal";
 import { stopAllSoundPreviews } from "../data/media-library";
 import SceneFramePreview from "./SceneFramePreview";
 import SceneClipPanel from "./SceneClipPanel";
+import SceneAnimationPanel from "./SceneAnimationPanel";
 import {
   FIT_MODES,
   BACKDROP_STYLES,
@@ -30,6 +31,7 @@ import { buildSceneImageQuery, describeSceneTopic } from "../lib/topic-extract";
 import { useViewport } from "../lib/use-breakpoint";
 import { sceneDurationForText, formatDuration } from "../lib/duration-utils";
 import { getFilterCss, getPreset, type VideoFilterConfig } from "../data/video-filters";
+import { countEnabledSceneAnimationItems } from "../lib/scene-animation";
 import {
   countWords,
   getSpokenDurationFromWords,
@@ -79,6 +81,10 @@ interface SceneEditorProps {
   onUpdate: (sceneId: number, updates: Partial<Scene>) => void;
   /** project-wide look (applied in Video Studio → Filters); shown here read-only */
   videoFilter?: VideoFilterConfig | null;
+  /** Project-level Setup toggle for the new living-scene animation system. */
+  sceneAnimationEnabled?: boolean;
+  /** Quick-enable from the scene card so users do not have to hunt through Setup. */
+  onEnableSceneAnimation?: () => void;
   onImageSearch: (sceneId: number, query: string) => Promise<{ imageUrl: string; allImages?: string[] } | undefined>;
   onDelete?: (sceneId: number) => void;
   /** copy this scene's framing to every scene in the project */
@@ -98,6 +104,8 @@ export default function SceneEditor({
   onUpdateTargetDuration,
   onUpdate,
   videoFilter = null,
+  sceneAnimationEnabled = false,
+  onEnableSceneAnimation,
   onImageSearch,
   onDelete,
   onApplyFramingToAll,
@@ -141,6 +149,7 @@ export default function SceneEditor({
     setShowNatureMenu(true);
   };
   const [showCropTools, setShowCropTools] = useState(false);
+  const [showAnimationPanel, setShowAnimationPanel] = useState(false);
   const [compareOriginal, setCompareOriginal] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [showGuides, setShowGuides] = useState(false);
@@ -203,6 +212,15 @@ export default function SceneEditor({
   }, [scene.text]);
 
   const currentSceneDuration = scene.duration || targetDuration;
+  const animationLayerCount = sceneAnimationEnabled ? countEnabledSceneAnimationItems(scene.animation) : 0;
+  const handleOpenSceneAnimation = () => {
+    if (!sceneAnimationEnabled) {
+      onEnableSceneAnimation?.();
+      setShowAnimationPanel(true);
+      return;
+    }
+    setShowAnimationPanel((open) => !open);
+  };
   const targetWordCount = getTargetWordCount(currentSceneDuration);
   const wordsCount = countWords(textValue);
   const spokenSeconds = getSpokenDurationFromWords(textValue);
@@ -669,8 +687,8 @@ export default function SceneEditor({
         <div className="flex-1 min-w-0 p-2.5 space-y-2">
           {/* Header Row: Scene Number + Dialogue Voice + Duration + Delete */}
           <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-hairline pb-1.5">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
+              <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5 shrink-0">
                 <span>Scene {index + 1}</span>
                 {totalScenes !== undefined && (
                   <>
@@ -691,6 +709,21 @@ export default function SceneEditor({
                   {scene.speaker_name}
                 </span>
               )}
+              <button
+                type="button"
+                onClick={handleOpenSceneAnimation}
+                className={`max-w-full text-[11px] px-2 py-0.5 rounded border font-semibold transition-colors whitespace-nowrap ${
+                  !sceneAnimationEnabled
+                    ? "bg-purple-950/80 text-purple-200 border-purple-700/70 hover:bg-purple-900"
+                    : animationLayerCount > 0
+                    ? "bg-emerald-950/80 text-emerald-300 border-emerald-700/70 hover:bg-emerald-900"
+                    : "bg-gray-900/80 text-gray-400 border-hairline hover:text-white hover:bg-gray-800"
+                }`}
+                title={sceneAnimationEnabled ? "Open per-scene animation controls" : "Click to enable Scene Animation Effects for this project"}
+              >
+                <span className="inline sm:hidden">✨ {!sceneAnimationEnabled ? "Enable" : animationLayerCount > 0 ? animationLayerCount : "OFF"}</span>
+                <span className="hidden sm:inline">✨ Animation {!sceneAnimationEnabled ? "— Enable" : animationLayerCount > 0 ? `— ${animationLayerCount}` : ": OFF"}</span>
+              </button>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -830,7 +863,7 @@ export default function SceneEditor({
             its topic from that script automatically. */}
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
           {/* Research Action Buttons */}
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0 max-w-full">
             <button
               type="button"
               onClick={handleReplace}
@@ -884,6 +917,23 @@ export default function SceneEditor({
               <span className="text-[10px]">{iconify(showCropTools ? "▲" : "▼")}</span>
             </button>
 
+            {/* Per-scene living animation. Always visible: when Setup is OFF, clicking quick-enables it for this project. */}
+            <button
+              type="button"
+              onClick={handleOpenSceneAnimation}
+              className={`min-w-0 max-w-full px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap flex items-center gap-1 ${
+                !sceneAnimationEnabled
+                  ? "bg-purple-700 hover:bg-purple-600 border-purple-400 text-white shadow-sm shadow-purple-950/30"
+                  : showAnimationPanel || animationLayerCount > 0
+                  ? "bg-purple-950/80 border-purple-500 text-purple-200"
+                  : "bg-gray-700 hover:bg-gray-600 border-hairline text-gray-200"
+              }`}
+              title={sceneAnimationEnabled ? "Add per-scene camera movement and environmental animation effects" : "Click to enable Scene Animation Effects, then choose Seasons, Mystical, Space, Motivation and more"}
+            >
+              <span className="truncate"><Icon glyph="🎬" /> <span className="hidden xs:inline">Animate Scene</span><span className="xs:hidden">Animate</span></span>
+              <span className="text-[10px] shrink-0">{!sceneAnimationEnabled ? "Enable" : animationLayerCount > 0 ? animationLayerCount : iconify(showAnimationPanel ? "▲" : "▼")}</span>
+            </button>
+
             {/* Blank colour backdrop — the last option, for a scene that
                 wants no photo or clip at all. */}
             <button
@@ -905,6 +955,16 @@ export default function SceneEditor({
             </button>
           </div>
         </div>
+
+        {/* PER-SCENE ANIMATION PANEL */}
+        {sceneAnimationEnabled && showAnimationPanel && (
+          <SceneAnimationPanel
+            scene={scene}
+            aspectRatio={aspectRatio}
+            videoFilter={videoFilter}
+            onUpdate={onUpdate}
+          />
+        )}
 
         {/* BLANK COLOUR PICKER */}
         {showColorPicker && (

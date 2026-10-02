@@ -6,9 +6,9 @@ import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } 
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import {
-  getMotionTransform,
   renderTimelineInsert,
 } from "../lib/render-effects";
+import { getSceneCameraTransform, renderSceneAnimationEffects } from "../lib/scene-animation";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { PackedAudioTelemetry } from "../lib/audio-telemetry";
@@ -160,6 +160,8 @@ interface RenderViewProps {
   /* Setup choices — shown read-only on this screen */
   sceneDuration?: number;
   motionStyle?: string;
+  /** Project-level toggle for per-scene camera/effect stacks. */
+  sceneAnimationEnabled?: boolean;
   /** the single look applied across the whole video */
   videoFilter?: VideoFilterConfig | null;
   introSection?: SectionConfig | null;
@@ -242,6 +244,7 @@ export default function RenderView({
   onRenderSuccess,
   sceneDuration = 20,
   motionStyle = "dynamic",
+  sceneAnimationEnabled = false,
   videoFilter = null,
   introSection = null,
   outroSection = null,
@@ -467,8 +470,9 @@ export default function RenderView({
         ctx.fillRect(0, 0, width, height);
         ctx.restore();
       } else if (idleImgRef.current && idleImgRef.current.naturalWidth > 0) {
-        const { scale, dx, dy } = getMotionTransform(
-          first.motion_effect,
+        const { scale, dx, dy } = getSceneCameraTransform(
+          first,
+          sceneAnimationEnabled,
           progress,
           width,
           height,
@@ -486,6 +490,12 @@ export default function RenderView({
           });
         } catch {}
         try { ctx.filter = "none"; } catch {}
+      }
+
+      if (sceneAnimationEnabled) {
+        try {
+          renderSceneAnimationEffects(ctx, first, width, height, progress * LOOP_SECONDS, progress, { enabled: true });
+        } catch {}
       }
 
       try {
@@ -551,7 +561,7 @@ export default function RenderView({
       if (rafId && typeof cancelAnimationFrame === "function") cancelAnimationFrame(rafId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRendering, renderedUrl, scenesWithImages, videoFilter, settings.resolution, settings.includeSubtitles, captionsConfig, aspectRatio, propResolution]);
+  }, [isRendering, renderedUrl, scenesWithImages, videoFilter, settings.resolution, settings.includeSubtitles, captionsConfig, aspectRatio, propResolution, sceneAnimationEnabled]);
 
   // Attribution state - default collapsed ("do not open it yet")
   const [copiedAttribution, setCopiedAttribution] = useState(false);
@@ -1192,8 +1202,9 @@ export default function RenderView({
           }
         }
 
-        const { scale, dx, dy } = getMotionTransform(
-          currentScene.motion_effect,
+        const { scale, dx, dy } = getSceneCameraTransform(
+          currentScene,
+          sceneAnimationEnabled,
           progressInScene,
           width,
           height,
@@ -1226,13 +1237,16 @@ export default function RenderView({
         ) {
           const transDur = getTransitionDuration(activeEntry.duration);
           if (elapsedInScene < transDur) {
-            const { scale: prevScale, dx: prevDx, dy: prevDy } = getMotionTransform(
-              prevScene?.motion_effect,
-              1,
-              width,
-              height,
-              Math.max(0, currentSceneIdx - 1)
-            );
+            const { scale: prevScale, dx: prevDx, dy: prevDy } = prevScene
+              ? getSceneCameraTransform(
+                  prevScene,
+                  sceneAnimationEnabled,
+                  1,
+                  width,
+                  height,
+                  Math.max(0, currentSceneIdx - 1)
+                )
+              : { scale: 1, dx: 0, dy: 0 };
             const safePrevScale = isNaN(prevScale) ? 1 : prevScale;
             const safePrevDx = isNaN(prevDx) ? 0 : prevDx;
             const safePrevDy = isNaN(prevDy) ? 0 : prevDy;
@@ -1278,6 +1292,23 @@ export default function RenderView({
           try {
             ctx.filter = "none";
           } catch {}
+        }
+
+        // --- Per-scene living-scene animation layers ---
+        if (sceneAnimationEnabled) {
+          try {
+            renderSceneAnimationEffects(
+              ctx,
+              currentScene,
+              width,
+              height,
+              elapsedInScene,
+              progressInScene,
+              { enabled: true, audioLevel: frameAudioLevel }
+            );
+          } catch (animationErr) {
+            console.warn("Scene animation notice:", animationErr);
+          }
         }
 
         // --- Animated atmosphere of the project-wide filter ---
@@ -2667,7 +2698,8 @@ export default function RenderView({
               <SummaryRow
                 icon="🎥"
                 label="Camera motion"
-                value={MOTION_LABELS[motionStyle] || motionStyle}
+                value={sceneAnimationEnabled ? "Per-scene animation controls" : (MOTION_LABELS[motionStyle] || motionStyle)}
+                hint={sceneAnimationEnabled ? "Scene Animation Effects ON" : undefined}
               />
               <SummaryRow
                 icon="🎙️"
