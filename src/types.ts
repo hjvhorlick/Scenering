@@ -53,10 +53,99 @@ export type SceneMotionType =
   | "zoom_out"
   | "pan_left"
   | "pan_right"
+  | "pan_up"
+  | "pan_down"
+  | "zoom_pan"
   | "subtle_camera"
+  | "cinematic_drift"
   | "shake"
   | "pulse"
   | "floating";
+
+export type SceneAnimationDirection =
+  | "down"
+  | "up"
+  | "left"
+  | "right"
+  | "down-left"
+  | "down-right"
+  | "up-left"
+  | "up-right";
+
+export interface SceneAnimationRegion {
+  /** Normalized left edge, 0..1 of the frame width. */
+  x: number;
+  /** Normalized top edge, 0..1 of the frame height. */
+  y: number;
+  /** Normalized width, 0..1 of the frame width. */
+  w: number;
+  /** Normalized height, 0..1 of the frame height. */
+  h: number;
+}
+
+export interface SceneAnimationPoint {
+  /** Normalized X origin, 0..1 of the frame width. */
+  x: number;
+  /** Normalized Y origin, 0..1 of the frame height. */
+  y: number;
+}
+
+export type SceneAnimationColorPalette =
+  | "natural"
+  | "gold"
+  | "silver"
+  | "neon_blue"
+  | "neon_cyan"
+  | "neon_purple"
+  | "neon_pink"
+  | "neon_green"
+  | "neon_orange";
+
+export interface SceneAnimationCameraConfig {
+  motion: SceneMotionType;
+  /** 0..1, mapped to slow → fast by the preview/export renderer. */
+  speed: number;
+  /** 0..1, blends the selected motion from subtle to strong. */
+  intensity: number;
+}
+
+export interface SceneAnimationEffect {
+  id: string;
+  type: string;
+  enabled?: boolean;
+  variant?: string;
+  /** Common effect knobs. Each effect exposes only the controls that make sense. */
+  intensity?: number;
+  speed?: number;
+  opacity?: number;
+  direction?: SceneAnimationDirection;
+  size?: number;
+  density?: number;
+  amount?: number;
+  /** Optional creative recolour/tint applied in the render engine. */
+  colorPalette?: SceneAnimationColorPalette;
+  /** 0..1 soft light bloom around the element. */
+  bloom?: number;
+  /** 0..1 wide halo left around the element after it is drawn. */
+  afterglow?: number;
+  /** 0..1 directional motion tail/echo behind the element. */
+  trail?: number;
+  /** 0..1 specular/chrome-like highlight sweep; gold/silver auto-enable it. */
+  shine?: number;
+  /** Optional normalized area restriction (water, sky, fog banks, etc.). */
+  region?: SceneAnimationRegion;
+  /** Optional normalized source point (steam, smoke, fire, rays). */
+  origin?: SceneAnimationPoint;
+}
+
+export interface SceneAnimationConfig {
+  /** Per-scene switch. The project-level Setup toggle must also be ON. */
+  enabled?: boolean;
+  /** Per-scene camera/Ken Burns motion used when Scene Animation Effects is ON. */
+  camera?: SceneAnimationCameraConfig;
+  /** Independent visual layers that stack simultaneously. */
+  effects?: SceneAnimationEffect[];
+}
 
 export type SceneTransitionType =
   | "none"
@@ -94,6 +183,12 @@ export interface Scene {
   transition?: SceneTransitionType;
   narration_speed?: number;
   burn_caption?: boolean;
+  /**
+   * Optional per-scene living-scene animation stack. It is ignored unless the
+   * project-level Scene Animation Effects toggle is enabled in Setup, which
+   * keeps older projects rendering exactly as before.
+   */
+  animation?: SceneAnimationConfig;
   // Image framing and positioning — see src/lib/scene-framing.ts.
   // Nothing here ever changes the image's aspect ratio; photos are cropped or
   // letterboxed, never stretched.

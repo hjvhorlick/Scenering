@@ -135,6 +135,28 @@ export function getMotionTransform(
       const base = centre(s);
       return { ...base, dx: base.dx + safeDrift(centred * travel, w, s) };
     }
+    case "pan_up": {
+      const s = 1.28;
+      const travel = h * 0.12;
+      const base = centre(s);
+      return { ...base, dy: base.dy + safeDrift(-centred * travel, h, s) };
+    }
+    case "pan_down": {
+      const s = 1.28;
+      const travel = h * 0.12;
+      const base = centre(s);
+      return { ...base, dy: base.dy + safeDrift(centred * travel, h, s) };
+    }
+    case "zoom_pan": {
+      const s = 1.10 + e * 0.28;
+      const base = centre(s);
+      return {
+        ...base,
+        dx: base.dx + safeDrift(centred * w * 0.095, w, s),
+        dy: base.dy + safeDrift(centred * h * 0.055, h, s),
+      };
+    }
+    case "cinematic_drift":
     case "subtle_camera": {
       // Smooth breathing drift — dynamic, smooth and cinematic.
       const s = 1.20;
@@ -222,6 +244,34 @@ export function getMotionTransform(
       };
     }
   }
+}
+
+/**
+ * Blend a camera transform back toward a static frame while preserving the
+ * centering math for the scaled canvas. Used by the per-scene animation panel's
+ * Intensity control; legacy global Ken Burns paths keep calling
+ * getMotionTransform() directly and therefore remain unchanged.
+ */
+export function applyMotionIntensity(
+  transform: { scale: number; dx: number; dy: number },
+  w: number,
+  h: number,
+  intensity: number
+): { scale: number; dx: number; dy: number } {
+  const amount = Math.max(0, Math.min(1.4, Number.isFinite(intensity) ? intensity : 1));
+  const oldScale = Number.isFinite(transform.scale) ? transform.scale : 1;
+  const oldBaseX = -(w * oldScale - w) / 2;
+  const oldBaseY = -(h * oldScale - h) / 2;
+  const driftX = (Number.isFinite(transform.dx) ? transform.dx : 0) - oldBaseX;
+  const driftY = (Number.isFinite(transform.dy) ? transform.dy : 0) - oldBaseY;
+  const scale = 1 + (oldScale - 1) * amount;
+  const baseX = -(w * scale - w) / 2;
+  const baseY = -(h * scale - h) / 2;
+  return {
+    scale,
+    dx: baseX + driftX * amount,
+    dy: baseY + driftY * amount,
+  };
 }
 
 // Apply scene-level filter effects

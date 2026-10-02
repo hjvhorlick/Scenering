@@ -55,6 +55,8 @@ export interface ProjectSettings {
   pacing_mode: PacingModeType;
   scene_duration: number;
   motion_style: string;
+  /** Enables the optional per-scene animation/effect stack. Defaults OFF for backward compatibility. */
+  scene_animation_enabled: boolean;
   selected_voice: string;
   customer_logo: CustomerLogoConfig;
   captions_config: CaptionsConfig;
@@ -78,6 +80,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   pacing_mode: "auto_speech",
   scene_duration: 20,
   motion_style: "dynamic",
+  scene_animation_enabled: false,
   selected_voice: "guy",
   transition: "crossfade",
   customer_logo: {
@@ -190,6 +193,7 @@ export default function App() {
   const [resolution, setResolution] = useState<ResolutionType>(DEFAULT_PROJECT_SETTINGS.resolution);
   const [pacingMode, setPacingMode] = useState<PacingModeType>(DEFAULT_PROJECT_SETTINGS.pacing_mode);
   const [motionStyle, setMotionStyle] = useState<string>(DEFAULT_PROJECT_SETTINGS.motion_style);
+  const [sceneAnimationEnabled, setSceneAnimationEnabled] = useState<boolean>(DEFAULT_PROJECT_SETTINGS.scene_animation_enabled);
   const [videoFilter, setVideoFilter] = useState<VideoFilterConfig | null>(DEFAULT_PROJECT_SETTINGS.video_filter);
   const [introSection, setIntroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.intro_section);
   const [outroSection, setOutroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.outro_section);
@@ -298,6 +302,13 @@ export default function App() {
     saveCurrentProjectSettings({ motion_style: style });
     setCurrentProject((prev) => (prev ? { ...prev, motion_style: style } : null));
 
+    // When the new Scene Animation Effects system is ON, Setup no longer
+    // pushes camera movement onto every scene. The selected global Ken Burns
+    // value is preserved for backwards compatibility and for users who turn
+    // Scene Animation Effects back OFF, but live camera movement is controlled
+    // inside each scene's animation panel.
+    if (sceneAnimationEnabled) return;
+
     const motionMap: Record<string, SceneMotionType> = {
       dynamic: "ken_burns",
       ken_burns: "ken_burns",
@@ -350,7 +361,12 @@ export default function App() {
         })
       );
     }
-  }, []);
+  }, [saveCurrentProjectSettings, sceneAnimationEnabled]);
+
+  const handleUpdateSceneAnimationEnabled = useCallback((enabled: boolean) => {
+    setSceneAnimationEnabled(enabled);
+    saveCurrentProjectSettings({ scene_animation_enabled: enabled });
+  }, [saveCurrentProjectSettings]);
 
   const handleUpdateSceneDuration = useCallback((dur: number) => {
     setSceneDuration(dur);
@@ -472,6 +488,7 @@ export default function App() {
               duration: sceneDurationForText(sceneText, targetDur),
               created_at: existing?.created_at || new Date().toISOString(),
               motion_effect: existing?.motion_effect || "slow_zoom",
+              animation: existing?.animation,
               audio_url: existing?.audio_url || null,
               audio_name: existing?.audio_name || null,
               voice_id: existing?.voice_id,
@@ -484,12 +501,30 @@ export default function App() {
               supabase.from("projects").update({ script: newScript, default_duration: targetDur }).eq("id", currentProject.id).then();
             }
             for (const s of newScenes) {
-              supabase.from("scenes").upsert(s).then();
+              // The Supabase scenes table intentionally stores only the core
+              // script/image/timing fields; studio-only metadata such as
+              // motion, animation stacks, framing and voices live in local
+              // scene meta so older deployments keep working.
+              supabase.from("scenes").upsert({
+                id: s.id,
+                project_id: s.project_id,
+                order_index: s.order_index,
+                text: s.text,
+                image_query: s.image_query,
+                image_url: s.image_url,
+                duration: s.duration,
+              }).then();
               const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
               const parsedMeta = existingMeta ? JSON.parse(existingMeta) : {};
               localStorage.setItem(
                 `scenering_scene_meta_${s.id}`,
-                JSON.stringify({ ...parsedMeta, duration: s.duration, text: s.text })
+                JSON.stringify({
+                  ...parsedMeta,
+                  duration: s.duration,
+                  text: s.text,
+                  motion_effect: s.motion_effect,
+                  animation: s.animation,
+                })
               );
             }
           } catch {}
@@ -592,6 +627,7 @@ export default function App() {
         aspect_ratio: chosenAspect,
         resolution: chosenResolution,
         motion_style: chosenMotion,
+        scene_animation_enabled: sceneAnimationEnabled,
       };
 
       try {
@@ -628,6 +664,7 @@ export default function App() {
       setPacingMode(freshSettings.pacing_mode);
       setSceneDuration(chosenDuration);
       setMotionStyle(freshSettings.motion_style);
+      setSceneAnimationEnabled(freshSettings.scene_animation_enabled);
       setVideoTransition(freshSettings.transition);
       setRenderProfile(resolveRenderProfileSettings(freshSettings.render_profile));
 
@@ -691,6 +728,7 @@ export default function App() {
     setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
     setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
     setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
+    setSceneAnimationEnabled(DEFAULT_PROJECT_SETTINGS.scene_animation_enabled);
     setVideoFilter(DEFAULT_PROJECT_SETTINGS.video_filter);
     setIntroSection(DEFAULT_PROJECT_SETTINGS.intro_section);
     setOutroSection(DEFAULT_PROJECT_SETTINGS.outro_section);
@@ -726,6 +764,7 @@ export default function App() {
       setPacingMode(projectSettings.pacing_mode);
       setSceneDuration(projectSettings.scene_duration);
       setMotionStyle(projectSettings.motion_style);
+      setSceneAnimationEnabled(projectSettings.scene_animation_enabled ?? false);
       setVideoFilter(projectSettings.video_filter ?? null);
       setIntroSection(projectSettings.intro_section ?? null);
       setOutroSection(projectSettings.outro_section ?? null);
@@ -855,6 +894,7 @@ export default function App() {
       setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
       setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
       setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
+      setSceneAnimationEnabled(DEFAULT_PROJECT_SETTINGS.scene_animation_enabled);
       setVideoTransition(DEFAULT_PROJECT_SETTINGS.transition);
       setRenderProfile(DEFAULT_PROJECT_SETTINGS.render_profile);
       setView("create");
@@ -949,6 +989,7 @@ export default function App() {
         dialogue: updates.dialogue !== undefined ? updates.dialogue : parsed.dialogue,
         audio_url: updates.audio_url !== undefined ? updates.audio_url : parsed.audio_url,
         audio_name: updates.audio_name !== undefined ? updates.audio_name : parsed.audio_name,
+        animation: updates.animation !== undefined ? updates.animation : parsed.animation,
         // A hand-picked search term and its lock live here too. Supabase is
         // optional in this app, so without the local copy a reload dropped
         // the lock and the next edit re-derived the query from the script.
@@ -1448,6 +1489,7 @@ export default function App() {
                 pacingMode={pacingMode}
                 sceneDuration={sceneDuration}
                 motionStyle={motionStyle}
+                sceneAnimationEnabled={sceneAnimationEnabled}
                 loading={loading}
                 onSelectProject={handleSelectProject}
                 onDeleteProject={handleDeleteProject}
@@ -1464,6 +1506,7 @@ export default function App() {
                 onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
                 onFitScenesToSpeech={handleFitAllScenesDurationToSpeech}
                 onUpdateMotionStyle={handleUpdateMotionStyle}
+                onUpdateSceneAnimationEnabled={handleUpdateSceneAnimationEnabled}
                 onNavigateToStep={(step) => {
                   setEditorStep(step);
                   setView("editor");
@@ -1507,6 +1550,7 @@ export default function App() {
                 onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
                 sceneDuration={sceneDuration}
                 motionStyle={motionStyle}
+                sceneAnimationEnabled={sceneAnimationEnabled}
                 videoFilter={videoFilter}
                 introSection={introSection}
                 outroSection={outroSection}
@@ -1659,6 +1703,52 @@ export default function App() {
                       </div>
                     </div>
 
+                    <div className="bg-gradient-to-r from-purple-950/60 via-indigo-950/45 to-gray-900/70 border border-purple-800/60 rounded-xl p-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="w-8 h-8 rounded-lg bg-purple-600/20 border border-purple-500/50 flex items-center justify-center shrink-0">
+                            <Icon glyph="🎬" />
+                          </span>
+                          <div>
+                            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                              Scene Animation Effects
+                              <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+                                sceneAnimationEnabled
+                                  ? "bg-emerald-950/80 border-emerald-600 text-emerald-300"
+                                  : "bg-gray-900/80 border-hairline text-gray-400"
+                              }`}>
+                                {sceneAnimationEnabled ? "ON" : "OFF"}
+                              </span>
+                            </h4>
+                            <p className="text-[11px] text-gray-400 leading-relaxed">
+                              Turn still images into living scenes. Enable here, then open <span className="text-purple-200 font-semibold">🎬 Animate Scene</span> on any scene for Seasons, Mystical, Space, Motivation, Meditation and more.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {sceneAnimationEnabled && (
+                          <span className="text-[10px] text-indigo-200 bg-indigo-950/60 border border-indigo-700/60 rounded-lg px-2 py-1">
+                            Per-scene controls active
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateSceneAnimationEnabled(!sceneAnimationEnabled)}
+                          className={`px-3 py-2 rounded-xl border text-xs font-bold transition-colors flex items-center gap-2 ${
+                            sceneAnimationEnabled
+                              ? "bg-emerald-600 hover:bg-emerald-500 border-emerald-400 text-white"
+                              : "bg-purple-600 hover:bg-purple-500 border-purple-400 text-white shadow-sm shadow-purple-950/40"
+                          }`}
+                          aria-pressed={sceneAnimationEnabled}
+                          title={sceneAnimationEnabled ? "Turn Scene Animation Effects off for this project" : "Turn Scene Animation Effects on for this project"}
+                        >
+                          <Icon glyph={sceneAnimationEnabled ? "✓" : "✨"} />
+                          {sceneAnimationEnabled ? "Enabled" : "Enable animations"}
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="space-y-1.5">
                       {scenes.map((scene, index) => (
                         <div
@@ -1682,6 +1772,8 @@ export default function App() {
                             onDelete={handleDeleteScene}
                             onApplyFramingToAll={handleApplyFramingToAll}
                             videoFilter={videoFilter}
+                            sceneAnimationEnabled={sceneAnimationEnabled}
+                            onEnableSceneAnimation={() => handleUpdateSceneAnimationEnabled(true)}
                             onInsertSceneAt={handleAddScene}
                             onReorderScene={handleReorderScene}
                           />
@@ -1771,6 +1863,7 @@ export default function App() {
                     selectedVoice={selectedVoice}
                     aspectRatio={aspectRatio}
                     pacingMode={pacingMode}
+                    sceneAnimationEnabled={sceneAnimationEnabled}
                     videoFilter={videoFilter}
                     introSection={introSection}
                     outroSection={outroSection}

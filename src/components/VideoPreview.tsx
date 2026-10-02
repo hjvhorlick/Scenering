@@ -3,10 +3,10 @@ import type { Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectR
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import {
   getInsertBounds,
-  getMotionTransform,
   getPresetCoords,
   renderTimelineInsert,
 } from "../lib/render-effects";
+import { getSceneCameraTransform, renderSceneAnimationEffects } from "../lib/scene-animation";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
@@ -50,6 +50,8 @@ interface VideoPreviewProps {
   selectedVoice?: string;
   aspectRatio?: AspectRatioType;
   pacingMode?: PacingModeType;
+  /** Project-level toggle for per-scene animation/effect stacks. */
+  sceneAnimationEnabled?: boolean;
   /** one look across the whole video (set in Video Studio → Filters) */
   videoFilter?: VideoFilterConfig | null;
   /** opening / closing sections built in Video Studio → Intro / Outro */
@@ -122,6 +124,7 @@ export default function VideoPreview({
   selectedVoice: propSelectedVoice,
   aspectRatio = "16:9",
   pacingMode = "auto_speech",
+  sceneAnimationEnabled = false,
   videoFilter = null,
   introSection = null,
   outroSection = null,
@@ -554,8 +557,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       ) {
         const transDur = getTransitionDuration(scene.duration || 20);
         if (elapsedInScene < transDur) {
-          const { scale: motionScale, dx: motionDx, dy: motionDy } = getMotionTransform(
-            scene.motion_effect,
+          const { scale: motionScale, dx: motionDx, dy: motionDy } = getSceneCameraTransform(
+            scene,
+            sceneAnimationEnabled,
             sceneProgress,
             w,
             h,
@@ -569,13 +573,16 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
               prevSource = asDrawableClip(el) as any;
             }
           }
-          const { scale: prevScale, dx: prevDx, dy: prevDy } = getMotionTransform(
-            prevScene?.motion_effect,
-            1,
-            w,
-            h,
-            Math.max(0, sceneIdx - 1)
-          );
+          const { scale: prevScale, dx: prevDx, dy: prevDy } = prevScene
+            ? getSceneCameraTransform(
+                prevScene,
+                sceneAnimationEnabled,
+                1,
+                w,
+                h,
+                Math.max(0, sceneIdx - 1)
+              )
+            : { scale: 1, dx: 0, dy: 0 };
           const safeScale = isNaN(motionScale) ? 1 : motionScale;
           const safeDx = isNaN(motionDx) ? 0 : motionDx;
           const safeDy = isNaN(motionDy) ? 0 : motionDy;
@@ -611,8 +618,9 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
       if (!handledTransition && source && (source.complete ?? true) && source.naturalWidth > 0) {
         const img = source;
-        const { scale: motionScale, dx: motionDx, dy: motionDy } = getMotionTransform(
-          scene.motion_effect,
+        const { scale: motionScale, dx: motionDx, dy: motionDy } = getSceneCameraTransform(
+          scene,
+          sceneAnimationEnabled,
           sceneProgress,
           w,
           h,
@@ -627,6 +635,21 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           motionDy: motionDy + (h * motionScale - h) / 2,
           filter: getFilterCanvas(videoFilterRef.current, w),
         });
+      }
+
+      // Per-scene living-scene animation layers (weather, water, particles,
+      // steam, fire, lighting...) are composited after the base image/camera
+      // move and before project-wide video filters, captions and logos.
+      if (sceneAnimationEnabled) {
+        renderSceneAnimationEffects(
+          ctx,
+          scene,
+          w,
+          h,
+          elapsedInScene ?? absoluteTime,
+          sceneProgress,
+          { enabled: true, audioLevel }
+        );
       }
 
       // Animated atmosphere of the project-wide filter (grain, mist, dust,
@@ -805,7 +828,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       ctx.fillStyle = "#6366f1";
       ctx.fillRect(0, h - 4, w * sceneProgress, 4);
     },
-    [scenesWithImages.length, inserts, customerLogo, captionsConfig, selectedInsertId, fontsLoadedCounter]
+    [scenesWithImages.length, inserts, customerLogo, captionsConfig, selectedInsertId, fontsLoadedCounter, sceneAnimationEnabled]
   );
 
   // Redraw when user scrubs playhead while paused OR when logo/captions/scene changes
