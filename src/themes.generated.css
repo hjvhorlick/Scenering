@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 530 utility
+   Colour matrix for every non-classic theme. 531 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -560,6 +560,9 @@ html[data-theme="apple"] .border-amber-800\/70 {
 }
 html[data-theme="apple"] .border-amber-800\/80 {
   border-color: rgb(146 64 14 / 0.8);
+}
+html[data-theme="apple"] .border-amber-900\/50 {
+  border-color: rgb(120 53 15 / 0.5);
 }
 html[data-theme="apple"] .border-black\/40 {
   border-color: rgb(210 210 215 / 0.4);
@@ -2197,6 +2200,9 @@ html[data-theme="windows"] .border-amber-800\/70 {
 html[data-theme="windows"] .border-amber-800\/80 {
   border-color: rgb(138 66 22 / 0.8);
 }
+html[data-theme="windows"] .border-amber-900\/50 {
+  border-color: rgb(114 55 21 / 0.5);
+}
 html[data-theme="windows"] .border-black\/40 {
   border-color: rgb(0 0 0 / 0.2);
 }
@@ -3832,6 +3838,9 @@ html[data-theme="playful"] .border-amber-800\/70 {
 }
 html[data-theme="playful"] .border-amber-800\/80 {
   border-color: rgb(163 62 0 / 0.8);
+}
+html[data-theme="playful"] .border-amber-900\/50 {
+  border-color: rgb(138 50 0 / 0.5);
 }
 html[data-theme="playful"] .border-black\/40 {
   border-color: rgb(10 7 18 / 0.4);
@@ -5469,6 +5478,9 @@ html[data-theme="glass"] .border-amber-800\/70 {
 html[data-theme="glass"] .border-amber-800\/80 {
   border-color: rgb(137 70 42 / 0.8);
 }
+html[data-theme="glass"] .border-amber-900\/50 {
+  border-color: rgb(117 61 43 / 0.5);
+}
 html[data-theme="glass"] .border-black\/40 {
   border-color: rgb(122 101 160 / 0.2);
 }
@@ -7104,6 +7116,9 @@ html[data-theme="porcelain"] .border-amber-800\/70 {
 }
 html[data-theme="porcelain"] .border-amber-800\/80 {
   border-color: rgb(146 64 14 / 0.8);
+}
+html[data-theme="porcelain"] .border-amber-900\/50 {
+  border-color: rgb(120 53 15 / 0.5);
 }
 html[data-theme="porcelain"] .border-black\/40 {
   border-color: rgb(216 206 192 / 0.4);

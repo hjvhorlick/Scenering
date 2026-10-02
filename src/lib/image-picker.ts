@@ -12,6 +12,9 @@
  * showing something beats showing nothing.
  */
 
+import { NATURE_FALLBACKS, type NatureBackground } from "../data/nature-fallbacks";
+import { matchFallbackPhotos } from "./search-query";
+
 /** How many candidates we ask the server for before picking one at random. */
 export const IMAGE_SEARCH_COUNT = 100;
 
@@ -80,6 +83,31 @@ export interface ImageCandidate {
   source: string;
   width?: number;
   height?: number;
+}
+
+/**
+ * The bundled nature deck as search candidates, ranked against a query.
+ *
+ * This is the floor under image research: with no API keys, no network, or a
+ * subject stock libraries simply do not have, the user still gets a usable
+ * grid rather than an empty one. Photos that actually match the query lead;
+ * when nothing matches, the whole deck is offered in a shuffled order so the
+ * fallback does not look like the same frozen nine images every time.
+ */
+export function fallbackCandidates(
+  query: string,
+  deck: readonly NatureBackground[] = NATURE_FALLBACKS,
+  rng: () => number = Math.random
+): ImageCandidate[] {
+  const toCandidate = (bg: NatureBackground): ImageCandidate => ({
+    url: bg.url,
+    thumbnail: bg.thumb,
+    source: "nature",
+  });
+
+  const matched = matchFallbackPhotos(query, deck);
+  if (matched.length > 0) return matched.map(toCandidate);
+  return pickRandomSample(deck, deck.length, rng).map(toCandidate);
 }
 
 /**

@@ -21,9 +21,20 @@ import {
   VISIBLE_CANDIDATES,
   type ImageCandidate,
 } from "./image-picker";
+import { fallbackCandidates } from "./image-picker";
+import { broadenQuery } from "./search-query";
 import { filterPhotoLikeCandidates } from "./image-analysis";
 
+/**
+ * How many progressively wider queries a single search may try.
+ *
+ * Four covers the useful ladder (exact, no filler, no qualifiers, subject
+ * only) while bounding the worst case to four round-trips.
+ */
+export const MAX_BROADENING_STEPS = 4;
+
 export {
+  fallbackCandidates,
   VISIBLE_CANDIDATES,
   selectFreshCandidates,
   pickOneFreshCandidate,
@@ -98,6 +109,53 @@ export async function searchImagePool(
   return filterPhotoLikeCandidates(pool, { proxy: proxyImageUrl });
 }
 
+/** The outcome of a broadened search, including how it was reached. */
+export interface BroadenedPool {
+  /** The candidates found. Empty only when even the deck is empty. */
+  pool: ImageCandidate[];
+  /** The query that actually produced the pool. */
+  query: string;
+  /** True when `query` is a widened form of the one that was asked for. */
+  broadened: boolean;
+  /** True when the bundled nature deck answered instead of the network. */
+  fromFallbackDeck: boolean;
+}
+
+/**
+ * Search, and keep widening the query until something comes back.
+ *
+ * The exact query is always tried first, so a search that works is never
+ * second-guessed. Only when it comes back empty is the ladder from
+ * `broadenQuery` walked — filler words out, qualifiers out, then just the
+ * subject — and if the network has nothing for any of them the bundled
+ * nature deck answers instead. The caller therefore never has to render an
+ * empty grid, and `broadened` / `fromFallbackDeck` let it say honestly which
+ * query the photos on screen actually belong to.
+ */
+export async function searchImagePoolBroadened(
+  query: string,
+  options: ResearchOptions = {}
+): Promise<BroadenedPool> {
+  const asked = (query || "").trim();
+  const ladder = broadenQuery(asked, MAX_BROADENING_STEPS);
+
+  for (const step of ladder) {
+    const pool = await searchImagePool(step, options);
+    if (pool.length > 0) {
+      return { pool, query: step, broadened: step !== asked, fromFallbackDeck: false };
+    }
+    // An aborted search must not cascade into four more requests.
+    if (options.signal?.aborted) break;
+  }
+
+  return {
+    pool: fallbackCandidates(asked),
+    query: asked,
+    broadened: false,
+    fromFallbackDeck: true,
+  };
+}
+
 /**
  * Candidates for the inline research block: a dozen photos, biased hard
  * towards ones never shown before.
@@ -109,7 +167,7 @@ export async function researchImages(
   query: string,
   options: ResearchOptions = {}
 ): Promise<ImageCandidate[]> {
-  const pool = await searchImagePool(query, options);
+  const { pool } = await searchImagePoolBroadened(query, options);
   if (pool.length === 0) return [];
 
   const chosen = selectFreshCandidates(pool, VISIBLE_CANDIDATES);
@@ -126,7 +184,7 @@ export async function replaceImage(
   query: string,
   options: ResearchOptions = {}
 ): Promise<ImageCandidate | null> {
-  const pool = await searchImagePool(query, options);
+  const { pool } = await searchImagePoolBroadened(query, options);
   if (pool.length === 0) return null;
 
   const pick = pickOneFreshCandidate(pool);

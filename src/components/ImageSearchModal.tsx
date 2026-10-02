@@ -2,14 +2,21 @@ import { useState, useEffect, useCallback } from "react";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "../lib/api-keys";
 import { pickRandomSample } from "../lib/image-picker";
-import { searchImagePool, type ImageCandidate } from "../lib/image-search";
+import { searchImagePoolBroadened, type ImageCandidate } from "../lib/image-search";
+import { nextNatureTopics, TOPICS_PER_OPEN } from "../lib/nature-topics";
 import ApiKeysModal from "./ApiKeysModal";
 import Icon, { iconify } from "./icons/Icon";
 
 interface ImageSearchModalProps {
   initialQuery: string;
   onClose: () => void;
-  onSelect: (url: string) => void;
+  /**
+   * The chosen photo, plus the query that found it. The caller needs the
+   * query as well as the URL: a term the user typed here is a deliberate
+   * choice and is pinned to the scene, so re-deriving the query from the
+   * narration can never silently undo it.
+   */
+  onSelect: (url: string, query: string) => void;
 }
 
 export default function ImageSearchModal({
@@ -23,6 +30,20 @@ export default function ImageSearchModal({
   const [error, setError] = useState("");
   const [source, setSource] = useState("");
   const [keysModalOpen, setKeysModalOpen] = useState(false);
+  /**
+   * What the photos on screen actually answer, which is not always what was
+   * typed: an empty result widens the query (see searchImagePoolBroadened),
+   * and the user is told when that happened rather than being left to wonder
+   * why the grid does not match their words.
+   */
+  const [effectiveQuery, setEffectiveQuery] = useState(initialQuery);
+  const [broadened, setBroadened] = useState(false);
+  const [usedFallbackDeck, setUsedFallbackDeck] = useState(false);
+  /**
+   * A few subjects to click instead of typing. Drawn once per open from a
+   * rotating deck, so two consecutive opens never suggest the same three.
+   */
+  const [topics] = useState(() => nextNatureTopics(TOPICS_PER_OPEN));
   const [hasKeys, setHasKeys] = useState(() => {
     const k = getStoredApiKeys();
     return Boolean(k.pexelsKey || k.pixabayKey);
@@ -38,13 +59,18 @@ export default function ImageSearchModal({
       const headers = getApiKeysHeaders();
       const queryParams = getApiKeysQueryParams();
       // The shared search keeps only photo-like images (the server has
-      // already enforced 16:9 and ≥1920×1080) before anything is shown.
-      const pool = await searchImagePool(q, { headers, queryParams });
+      // already enforced 16:9 and ≥1920×1080) before anything is shown, and
+      // widens the query rather than returning nothing: a long scene
+      // sentence rarely matches a stock library word for word.
+      const result = await searchImagePoolBroadened(q, { headers, queryParams });
       // Show a random dozen out of the verified candidates: repeating the
       // same search must not serve the identical grid every time.
-      setImages(pickRandomSample(pool, 12));
-      setSource(pool[0]?.source || "");
-      if (pool.length === 0) {
+      setImages(pickRandomSample(result.pool, 12));
+      setSource(result.pool[0]?.source || "");
+      setEffectiveQuery(result.query);
+      setBroadened(result.broadened);
+      setUsedFallbackDeck(result.fromFallbackDeck);
+      if (result.pool.length === 0) {
         setError("No images found. Try a different search term or add your Pexels/Pixabay API key.");
       }
     } catch (err) {
@@ -62,6 +88,12 @@ export default function ImageSearchModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     search(query);
+  };
+
+  /** A suggestion chip fills the box and searches, in one click. */
+  const handleTopic = (topic: string) => {
+    setQuery(topic);
+    void search(topic);
   };
 
   const handleKeysSaved = () => {
@@ -146,6 +178,25 @@ export default function ImageSearchModal({
           </button>
         </div>
 
+        {/* Suggested subjects — three per open, never the same three twice
+            in a row, so the modal is useful before a single word is typed. */}
+        {topics.length > 0 && (
+          <div className="px-4 py-2 border-b border-hairline flex flex-wrap items-center gap-2 bg-gray-900/20">
+            <span className="text-[11px] text-gray-500 flex-shrink-0">Try:</span>
+            {topics.map((topic) => (
+              <button
+                key={topic}
+                type="button"
+                onClick={() => handleTopic(topic)}
+                disabled={loading}
+                className="px-2.5 py-1 rounded-full text-[11px] border border-hairline bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white capitalize transition-colors disabled:opacity-50"
+              >
+                {topic}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Source badge & Keys notice */}
         <div className="px-4 py-2 border-b border-hairline flex flex-wrap items-center justify-between gap-2 bg-gray-900/40">
           <div className="flex items-center gap-2">
@@ -169,6 +220,15 @@ export default function ImageSearchModal({
 
         {/* Results */}
         <div className="p-4">
+          {/* Said plainly, because the grid would otherwise look wrong: these
+              photos answer a wider query than the one that was typed. */}
+          {!loading && images.length > 0 && (broadened || usedFallbackDeck) && (
+            <p className="mb-3 text-[11px] text-amber-300/90 bg-amber-950/30 border border-amber-900/50 rounded-lg px-3 py-2">
+              {usedFallbackDeck
+                ? "Nothing online matched that — showing the built-in nature library instead."
+                : `No exact matches, so the search was widened to “${effectiveQuery}”.`}
+            </p>
+          )}
           {loading && images.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20">
               <svg className="animate-spin h-10 w-10 text-indigo-400 mb-4" viewBox="0 0 24 24">
@@ -214,7 +274,7 @@ export default function ImageSearchModal({
               {images.map((img, i) => (
                 <button
                   key={i}
-                  onClick={() => onSelect(proxyUrl(img.url))}
+                  onClick={() => onSelect(proxyUrl(img.url), effectiveQuery)}
                   className="group relative aspect-video rounded-lg overflow-hidden border border-transparent hover:border-indigo-500 transition-all bg-gray-800"
                 >
                   <img

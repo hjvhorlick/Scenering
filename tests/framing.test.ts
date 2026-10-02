@@ -7,6 +7,10 @@ import {
   drawSceneImage,
   leavesGap,
   suggestFit,
+  aspectMismatch,
+  autoCropToFrame,
+  autoFrame,
+  AUTO_CROP_MAX_MISMATCH,
 } from "../src/lib/scene-framing";
 import type { Scene } from "../src/types";
 
@@ -222,6 +226,141 @@ for (const fit of ["contain", "blur_fill"] as const) {
   const { ctx, ops } = createStubContext(1920, 1080);
   drawSceneImage(ctx, stubImage(1920, 1080) as never, { image_fit: "cover", image_backdrop: "transparent" }, 1920, 1080);
   h.ok(!ops.includes("fillRect"), "a full-frame photo paints no backdrop");
+}
+
+/* ---------------------------------------------------------------------------
+ * Automatic framing — what a photo looks like the instant it is chosen,
+ * before the user touches a control.
+ * ------------------------------------------------------------------------- */
+
+// ------------------------------------------------------------ aspectMismatch
+h.eq(aspectMismatch(stubImage(1920, 1080) as never, 1920, 1080), 1, "identical shapes mismatch by 1");
+h.eq(aspectMismatch(stubImage(1280, 720) as never, 1920, 1080), 1, "same ratio at another size still 1");
+h.near(aspectMismatch(stubImage(1080, 1920) as never, 1920, 1080), 3.16, 0.01, "portrait in landscape is a severe mismatch");
+h.near(aspectMismatch(stubImage(1920, 1080) as never, 1080, 1920), 3.16, 0.01, "the measure is symmetric");
+h.near(aspectMismatch(stubImage(1440, 1080) as never, 1920, 1080), 1.333, 0.01, "4:3 in 16:9 is a mild mismatch");
+h.eq(aspectMismatch(stubImage(0, 0) as never, 1920, 1080), 1, "an unmeasured photo reports no mismatch");
+h.eq(aspectMismatch(stubImage(1920, 1080) as never, 0, 0), 1, "an unmeasured frame reports no mismatch");
+
+for (const [iw, ih] of [[1920, 1080], [1080, 1920], [1000, 1000], [4000, 900], [900, 4000]]) {
+  for (const ratio of RATIOS) {
+    const frame = frameSizeFor(ratio);
+    const m = aspectMismatch(stubImage(iw, ih) as never, frame.w, frame.h);
+    h.finite(m, `mismatch ${iw}x${ih} in ${ratio} is a number`);
+    h.ok(m >= 1, `mismatch ${iw}x${ih} in ${ratio} is never below 1`);
+  }
+}
+
+// ---------------------------------------------------------- autoCropToFrame
+{
+  const full = autoCropToFrame(stubImage(1920, 1080) as never, 1920, 1080);
+  h.eq(full.x, 0, "a matching photo is not cropped (x)");
+  h.eq(full.y, 0, "a matching photo is not cropped (y)");
+  h.eq(full.w, 1, "a matching photo keeps its full width");
+  h.eq(full.h, 1, "a matching photo keeps its full height");
+
+  // A 1:1 photo in a 16:9 frame must lose height, never width.
+  const square = autoCropToFrame(stubImage(1080, 1080) as never, 1920, 1080);
+  h.eq(square.w, 1, "a square photo in a wide frame keeps its full width");
+  h.near(square.h, 0.5625, 0.001, "a square photo in a wide frame trims to 16:9 of its height");
+  h.near(square.y, (1 - 0.5625) / 2, 0.001, "the surviving band is centred");
+
+  // A wide photo in a square frame must lose width, never height.
+  const wide = autoCropToFrame(stubImage(1920, 1080) as never, 1080, 1080);
+  h.eq(wide.h, 1, "a wide photo in a square frame keeps its full height");
+  h.near(wide.w, 0.5625, 0.001, "a wide photo in a square frame trims its width");
+  h.near(wide.x, (1 - 0.5625) / 2, 0.001, "the surviving column is centred");
+
+  h.eq(autoCropToFrame(stubImage(0, 0) as never, 1920, 1080).w, 1, "an unmeasured photo is not cropped");
+  h.eq(autoCropToFrame(stubImage(1920, 1080) as never, 0, 0).w, 1, "an unmeasured frame crops nothing");
+}
+
+// Whatever the pairing, the crop must stay inside the photo and have the
+// frame's shape — a crop that leaves the source would draw a transparent edge.
+for (const [iw, ih] of [[1920, 1080], [1080, 1920], [1000, 1000], [4000, 900], [900, 4000], [1440, 1080]]) {
+  for (const ratio of RATIOS) {
+    const frame = frameSizeFor(ratio);
+    const crop = autoCropToFrame(stubImage(iw, ih) as never, frame.w, frame.h);
+    const label = `${iw}x${ih} in ${ratio}`;
+    h.ok(crop.x >= -1e-9 && crop.y >= -1e-9, `${label}: crop starts inside the photo`);
+    h.ok(crop.x + crop.w <= 1 + 1e-9, `${label}: crop ends inside the photo (x)`);
+    h.ok(crop.y + crop.h <= 1 + 1e-9, `${label}: crop ends inside the photo (y)`);
+    h.ok(crop.w > 0 && crop.h > 0, `${label}: crop is not empty`);
+    // The cropped region, in pixels, has the frame's aspect ratio.
+    const croppedRatio = (iw * crop.w) / (ih * crop.h);
+    h.near(croppedRatio, frame.w / frame.h, 0.001, `${label}: the crop matches the frame shape`);
+  }
+}
+
+// ------------------------------------------------------------------ autoFrame
+{
+  const mild = autoFrame(stubImage(1440, 1080) as never, 1920, 1080);
+  h.eq(mild.image_fit, "cover", "a mild mismatch is cropped to fill the frame");
+  h.ok(mild.image_crop.w < 1 || mild.image_crop.h < 1, "a mild mismatch gets a real crop");
+  h.eq(mild.image_backdrop, undefined, "a cropped photo needs no backdrop");
+
+  const severe = autoFrame(stubImage(1080, 1920) as never, 1920, 1080);
+  h.eq(severe.image_fit, "blur_fill", "a portrait photo in a landscape frame is never cropped");
+  h.eq(severe.image_backdrop, "blur", "blur_fill promises blurred bars, not black ones");
+  h.eq(severe.image_crop.w, 1, "the blurred fill shows the whole photo (width)");
+  h.eq(severe.image_crop.h, 1, "the blurred fill shows the whole photo (height)");
+
+  const exact = autoFrame(stubImage(1920, 1080) as never, 1920, 1080);
+  h.eq(exact.image_fit, "cover", "a perfectly matching photo just fills the frame");
+
+  // The threshold itself: either side of it must decide differently.
+  const frameRatio = 16 / 9;
+  const justUnder = AUTO_CROP_MAX_MISMATCH - 0.05;
+  const justOver = AUTO_CROP_MAX_MISMATCH + 0.05;
+  h.eq(
+    autoFrame(stubImage(1000, Math.round((1000 / frameRatio) * justUnder)) as never, 1920, 1080).image_fit,
+    "cover",
+    "just inside the limit is still cropped"
+  );
+  h.eq(
+    autoFrame(stubImage(1000, Math.round((1000 / frameRatio) * justOver)) as never, 1920, 1080).image_fit,
+    "blur_fill",
+    "just past the limit switches to the blurred fill"
+  );
+
+  // The common pairings a crop must survive, and the one it must not.
+  // 4:3 in 9:16 is a mismatch of ~2.37 — the worst pairing a centred crop
+  // still survives, and deliberately just inside the limit.
+  h.eq(autoFrame(stubImage(1440, 1080) as never, 1080, 1920).image_fit, "cover", "4:3 photo in a vertical frame is still cropped");
+  h.ok(aspectMismatch(stubImage(1440, 1080) as never, 1080, 1920) < AUTO_CROP_MAX_MISMATCH, "4:3 in 9:16 sits just inside the crop limit");
+  h.eq(autoFrame(stubImage(1080, 1080) as never, 1920, 1080).image_fit, "cover", "a square photo in a wide frame is cropped");
+  h.eq(autoFrame(stubImage(1920, 1080) as never, 1080, 1080).image_fit, "cover", "a wide photo in a square frame is cropped");
+  h.eq(autoFrame(stubImage(0, 0) as never, 1920, 1080).image_fit, "cover", "an unmeasured photo keeps the default fit");
+}
+
+// Whatever autoFrame decides, drawing with it must still preserve the photo's
+// shape — the standing rule at the top of this file.
+for (const [iw, ih] of [[1920, 1080], [1080, 1920], [1000, 1000], [4000, 900], [900, 4000]]) {
+  for (const ratio of RATIOS) {
+    const frame = frameSizeFor(ratio);
+    const framing = autoFrame(stubImage(iw, ih) as never, frame.w, frame.h);
+    const { ctx } = createStubContext(frame.w, frame.h);
+    const placed = drawSceneImage(
+      ctx,
+      stubImage(iw, ih) as never,
+      framing as Partial<Scene>,
+      frame.w,
+      frame.h
+    );
+    h.finite(placed.dw, `auto-framed ${iw}x${ih} in ${ratio} draws a finite width`);
+    h.finite(placed.dh, `auto-framed ${iw}x${ih} in ${ratio} draws a finite height`);
+    const drawnRatio = placed.dw / placed.dh;
+    const sourceRatio = placed.sw / placed.sh;
+    h.near(drawnRatio, sourceRatio, 0.02, `auto-framed ${iw}x${ih} in ${ratio} is not mis-shaped`);
+  }
+}
+
+// autoFrame and suggestFit must never disagree about a severe mismatch: both
+// are consulted by different screens and a split decision would look random.
+for (const [iw, ih] of [[1080, 1920], [900, 4000], [4000, 900]]) {
+  const framing = autoFrame(stubImage(iw, ih) as never, 1920, 1080);
+  const suggested = suggestFit(stubImage(iw, ih) as never, 1920, 1080);
+  h.eq(framing.image_fit, suggested, `${iw}x${ih}: auto framing agrees with the fit suggestion`);
 }
 
 h.done("framing");

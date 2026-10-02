@@ -59,6 +59,20 @@ black-and-white shots, diagrams or flat artwork — thumbnails are analysed
 pixel-by-pixel), and every image that reaches a scene is 16:9 and at least
 1920×1080, so a 1080p render never upscales its footage.
 
+A search never dead-ends. Scene queries come from the narration, so they are
+long and specific and often match nothing; the query is then widened in steps
+(filler words out, photography qualifiers out, then just the subject) and the
+modal says which query the photos on screen actually answer. If nothing online
+matches, the bundled nature library answers instead, ranked against the query.
+The modal also offers three subjects to click, drawn from a rotating deck, so
+no suggestion comes back until every other one has been shown.
+
+Choosing a photo frames it immediately: a mild shape mismatch is cropped to
+the frame, a severe one (a portrait photo in a landscape video) is shown whole
+over a blurred copy of itself rather than losing its subject to the crop. A
+search term typed by hand is pinned to the scene, so later edits to the script
+cannot silently replace it.
+
 ## Themes
 
 The app ships with five switchable looks — click the **🎨 Theme** button in
@@ -84,7 +98,11 @@ classes to components, regenerate the matrix with `npm run theme:css`.
    The script is split into evenly-sized scenes; each scene's length follows
    its own narration, so there are no silent gaps.
 2. **Scenes** — one card per scene. Swap the image, drop in a video clip, crop
-   and reposition (aspect ratio is always preserved), edit the narration.
+   and reposition (aspect ratio is always preserved), edit the narration, and
+   pick the transition between scenes from twenty-one options grouped by
+   family: dissolves (crossfade, fade to black or white, blur dissolve),
+   pushes, covers, wipes, reveals (iris, blinds) and dynamics (zoom in, zoom
+   out, whip pan).
 3. **Voiceover** — pick a voice, generate narration, download the audio, and
    add full-video music or a production visualiser. A live sound visualiser
    draws the narration while you listen to it.
