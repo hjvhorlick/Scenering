@@ -8,6 +8,7 @@
  */
 import type { TimelineInsert } from "../types";
 import { sectionSoundUrl, type SectionConfig } from "../data/intro-outro";
+import { resolveAudioUrl } from "./custom-music";
 
 export interface InsertAudioPlan {
   key: string;
@@ -152,7 +153,11 @@ export async function decodeInsertAudio(
   const cached = bufferCache.get(url);
   if (cached) return cached;
   try {
-    const res = await fetch(url, { cache: "force-cache" });
+    // Uploaded music is stored as `custom-music:<id>` so a saved project keeps
+    // working across reloads; resolve it to this page's object URL to fetch.
+    const playableUrl = resolveAudioUrl(url);
+    if (!playableUrl) return null;
+    const res = await fetch(playableUrl, { cache: "force-cache" });
     if (!res.ok) return null;
     const arrayBuf = await res.arrayBuffer();
     const buffer = await ctx.decodeAudioData(arrayBuf);

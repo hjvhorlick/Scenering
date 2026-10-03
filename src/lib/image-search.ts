@@ -156,23 +156,54 @@ export async function searchImagePoolBroadened(
   };
 }
 
+/** A research run, including which query actually answered it. */
+export interface ResearchResult {
+  /** The dozen photos to show. */
+  candidates: ImageCandidate[];
+  /** The query that actually produced them. */
+  query: string;
+  /** True when `query` is a widened form of the one that was asked for. */
+  broadened: boolean;
+  /** True when the bundled nature deck answered instead of the network. */
+  fromFallbackDeck: boolean;
+}
+
 /**
  * Candidates for the inline research block: a dozen photos, biased hard
  * towards ones never shown before.
  *
  * Everything returned is recorded as shown immediately, so the *next*
  * research — even if the user picks nothing — cannot repeat this set.
+ *
+ * This is the full form, which also reports WHICH query the photos belong to.
+ * The research block needs that: when someone types their own criteria and
+ * the grid quietly answers a widened version of it, saying so is the
+ * difference between "this search is broken" and "there was nothing for that,
+ * so here is the nearest thing".
  */
+export async function researchImagesDetailed(
+  query: string,
+  options: ResearchOptions = {}
+): Promise<ResearchResult> {
+  const asked = (query || "").trim();
+  const { pool, query: answered, broadened, fromFallbackDeck } =
+    await searchImagePoolBroadened(asked, options);
+  if (pool.length === 0) {
+    return { candidates: [], query: asked, broadened: false, fromFallbackDeck: false };
+  }
+
+  const chosen = selectFreshCandidates(pool, VISIBLE_CANDIDATES);
+  rememberShownAll(chosen.map((c) => c.url));
+  return { candidates: chosen, query: answered, broadened, fromFallbackDeck };
+}
+
+/** The same research, for callers that only want the photos. */
 export async function researchImages(
   query: string,
   options: ResearchOptions = {}
 ): Promise<ImageCandidate[]> {
-  const { pool } = await searchImagePoolBroadened(query, options);
-  if (pool.length === 0) return [];
-
-  const chosen = selectFreshCandidates(pool, VISIBLE_CANDIDATES);
-  rememberShownAll(chosen.map((c) => c.url));
-  return chosen;
+  const { candidates } = await researchImagesDetailed(query, options);
+  return candidates;
 }
 
 /**

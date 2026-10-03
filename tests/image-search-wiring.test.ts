@@ -2,6 +2,12 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHarness } from "./harness";
+import {
+  NATURE_CATEGORIES,
+  NATURE_FALLBACKS,
+  natureBackgroundsFor,
+  natureCategoryQuery,
+} from "../src/data/nature-fallbacks";
 
 /**
  * Guards against shipping helpers nobody calls.
@@ -18,10 +24,12 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (name: string) => readFileSync(join(repoRoot, name), "utf8");
 
 const modal = read("src/components/ImageSearchModal.tsx");
+const strip = read("src/components/ImageCandidateStrip.tsx");
 const editor = read("src/components/SceneEditor.tsx");
 const app = read("src/App.tsx");
 const imageSearch = read("src/lib/image-search.ts");
 const picker = read("src/lib/image-picker.ts");
+const natureData = read("src/data/nature-fallbacks.ts");
 
 // ------------------------------------------------- broadening reaches the UI
 h.ok(
@@ -51,14 +59,36 @@ h.ok(
 
 // Research and Replace must widen too, or two of the three ways into a photo
 // would still dead-end on a specific query.
-for (const fn of ["researchImages", "replaceImage"]) {
-  const body = imageSearch.slice(imageSearch.indexOf(`export async function ${fn}`));
-  const end = body.indexOf("\n}\n");
+//
+// `bodyOf` matches the declaration exactly rather than by prefix, because
+// `researchImages` is a prefix of `researchImagesDetailed` and a loose match
+// would silently check the wrong function.
+const bodyOf = (fn: string) => {
+  const at = imageSearch.indexOf(`export async function ${fn}(`);
+  if (at === -1) return "";
+  const rest = imageSearch.slice(at);
+  const end = rest.indexOf("\n}\n");
+  return end === -1 ? rest : rest.slice(0, end);
+};
+
+for (const fn of ["researchImagesDetailed", "replaceImage"]) {
   h.ok(
-    body.slice(0, end).includes("searchImagePoolBroadened("),
+    bodyOf(fn).includes("searchImagePoolBroadened("),
     `${fn} widens the query instead of giving up`
   );
 }
+h.ok(
+  bodyOf("researchImages").includes("researchImagesDetailed("),
+  "researchImages is the same search, so it widens through the detailed form"
+);
+h.ok(
+  bodyOf("researchImagesDetailed").includes("fromFallbackDeck"),
+  "research reports whether the bundled deck answered, so the UI can say so"
+);
+h.ok(
+  bodyOf("researchImagesDetailed").includes("broadened"),
+  "research reports whether the query was widened"
+);
 
 // The user is told when the grid answers a different query than they typed.
 h.ok(modal.includes("broadened"), "the modal tracks whether the query was widened");
@@ -123,6 +153,102 @@ h.ok(
 h.ok(
   !app.includes("TRANSITION_OPTIONS.map"),
   "the picker no longer renders a flat row of every option"
+);
+
+// --------------------------------------- the research block searches by hand
+// The automatic query is built from the scene script, which is right most of
+// the time and wrong exactly when the writer already knows what they want to
+// see. Without a box of their own they had to edit the narration to move the
+// photo, which is the tail wagging the dog.
+h.ok(
+  strip.includes("onSearch?: (query: string) => void"),
+  "the research block accepts a search of the user's own criteria"
+);
+h.ok(
+  strip.includes("<input") && strip.includes("placeholder=\"Search your own words"),
+  "the research block renders a text box to type criteria into"
+);
+h.ok(
+  strip.includes('e.key === "Enter"'),
+  "Enter runs the search, so the button is not the only way in"
+);
+h.ok(
+  editor.includes("onSearch={handleResearchSearch}"),
+  "the scene editor hands the research block a real search"
+);
+h.ok(
+  editor.includes("image_query_locked: true"),
+  "criteria typed by hand are pinned, so a script edit cannot discard them"
+);
+h.ok(
+  editor.includes("const handleUseSceneWords"),
+  "there is a way back from a pinned query to the scene's own words"
+);
+h.ok(
+  editor.includes("researchImagesDetailed("),
+  "research reads the detailed result, so it can report a widened query"
+);
+h.ok(
+  strip.includes("broadened") && strip.includes("fromFallbackDeck"),
+  "the research block says when the query was widened or the deck answered"
+);
+
+// ------------------------------------------ nature fallback searches too
+// Picking "Waterfalls" used to filter nine bundled photos down to two, and
+// those same two appeared on every project forever. A criteria is now a
+// search, with the bundled deck as the floor under it.
+h.ok(
+  natureData.includes("export const NATURE_CATEGORIES"),
+  "the nature deck declares the criteria you can choose"
+);
+h.ok(
+  editor.includes("const chooseNatureCategory") && editor.includes("void searchNature("),
+  "choosing a nature criteria runs a real search for it"
+);
+h.ok(
+  editor.includes("NATURE_CATEGORIES.map("),
+  "the nature drawer renders the criteria chips"
+);
+h.ok(
+  editor.includes("natureResults.map("),
+  "the fresh search results are rendered, not just fetched"
+);
+h.ok(
+  editor.includes("natureBackgroundsFor("),
+  "the bundled deck is filtered to the chosen criteria"
+);
+h.ok(
+  editor.includes("void searchNature(natureCategory)"),
+  "there is a way to ask for more photos of the same criteria"
+);
+
+// Every bundled photo must sit under a criteria the drawer offers, or it
+// becomes unreachable the moment anything but All is chosen.
+const criteriaIds = new Set(NATURE_CATEGORIES.map((c) => c.id));
+h.ok(criteriaIds.has("all"), "there is an All criteria");
+for (const bg of NATURE_FALLBACKS) {
+  h.ok(criteriaIds.has(bg.category), `the ${bg.category} deck photo is reachable from a chip`);
+}
+for (const cat of NATURE_CATEGORIES) {
+  h.ok(cat.query.trim().length > 0, `the ${cat.id} criteria carries a search query`);
+}
+h.eq(
+  natureBackgroundsFor("all").length,
+  NATURE_FALLBACKS.length,
+  "All keeps the whole bundled deck"
+);
+h.ok(
+  natureBackgroundsFor("waterfall").every((bg) => bg.category === "waterfall"),
+  "a criteria filters the bundled deck to itself"
+);
+h.eq(
+  natureCategoryQuery("mountains"),
+  "mountain landscape",
+  "a criteria maps to the words the search actually asks for"
+);
+h.ok(
+  natureCategoryQuery("nonsense" as never).length > 0,
+  "an unknown criteria still searches for something rather than nothing"
 );
 
 h.done("image-search-wiring");

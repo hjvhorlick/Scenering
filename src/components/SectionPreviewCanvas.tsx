@@ -78,5 +78,10 @@ export default function SectionPreviewCanvas({
     return startPreviewLoop(canvas, draw, { fps: 30 });
   }, [width, height]);
 
-  return <canvas ref={canvasRef} className={className} />;
+  // `object-contain` is a guard, not decoration. A canvas defaults to
+  // object-fit: fill, so the moment its CSS box stops matching its backing
+  // store the picture is silently distorted rather than letterboxed - which
+  // is how portrait intros ended up squashed into a landscape box. With
+  // contain, a future mismatch costs a black bar instead of a stretch.
+  return <canvas ref={canvasRef} className={`object-contain ${className}`} />;
 }

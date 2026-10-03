@@ -99,6 +99,13 @@ export function createStubContext(width = 1920, height = 1080) {
     shadowOffsetY: 0,
     lineCap: "butt",
     lineJoin: "miter",
+    // Present on every modern canvas. They live here rather than being
+    // conjured by the proxy so that `"letterSpacing" in ctx` is true and
+    // feature-detected code paths are actually taken in the suite.
+    letterSpacing: "0px",
+    textRendering: "auto",
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: "low",
     measureText: (text: string) => ({
       width: String(text).length * 8,
       actualBoundingBoxAscent: 12,

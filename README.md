@@ -105,8 +105,16 @@ classes to components, regenerate the matrix with `npm run theme:css`.
    out, whip pan).
 3. **Voiceover** — pick a voice, generate narration, download the audio, and
    add full-video music or a production visualiser. A live sound visualiser
-   draws the narration while you listen to it.
-4. **Captions** — styling and timing.
+   draws the narration while you listen to it. The music library holds 30
+   cleared instrumental beds — filter them by feel (soft piano, classical,
+   acoustic, ambient, cinematic, electronic, upbeat) or search by name — and
+   **Upload your music** puts your own file under the video instead. Uploads
+   are kept in this browser and survive a reload; you are responsible for
+   their licence, and the credits document says so. Captions can be switched
+   on and off from here as well as from the Captions step.
+4. **Captions** — styling and timing. One switch turns captions on or off for
+   the whole project, and any single scene can be switched off on its own;
+   both are obeyed by the live preview and the exported file.
 5. **Video Studio** — the look of the finished video: filters, text templates,
    3D stickers, lower thirds, titles, call-to-action badges, sound effects,
    intro and outro.

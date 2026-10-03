@@ -13,6 +13,7 @@ import {
 } from "../data/intro-outro";
 import SectionPreviewCanvas from "./SectionPreviewCanvas";
 import type { AspectRatioType } from "../types";
+import { sectionPreviewShape } from "../lib/section-preview-size";
 import Icon, { iconify } from "./icons/Icon";
 
 interface Props {
@@ -147,14 +148,15 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
     update({ customSoundUrl: url, customSoundName: file.name });
   };
 
-  const previewAspect =
-    aspectRatio === "9:16"
-      ? { w: 360, h: 640, cls: "max-h-[420px]" }
-      : aspectRatio === "1:1"
-      ? { w: 480, h: 480, cls: "max-h-[420px]" }
-      : aspectRatio === "4:3"
-      ? { w: 560, h: 420, cls: "max-h-[420px]" }
-      : { w: 640, h: 360, cls: "" };
+  /**
+   * Preview geometry for the project's real frame shape.
+   *
+   * The sizes and the width caps live in src/lib/section-preview-size.ts so
+   * they can be checked by a test: this is the code that had the intro and
+   * outro previews squashed in 9:16, by pinning the width and clamping the
+   * height at the same time.
+   */
+  const shape = sectionPreviewShape(aspectRatio);
 
   const activeSound = sectionSoundUrl({ ...cfg, enabled: true });
 
@@ -229,9 +231,9 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
               <div key={b.id} className="rounded-lg overflow-hidden border border-hairline bg-black">
                 <SectionPreviewCanvas
                   config={{ ...cfg, enabled: true, motionId: b.id, backgroundKind: "motion", title: "", subtitle: "", badge: "", logoEnabled: false }}
-                  width={240}
-                  height={135}
-                  className="w-full h-auto block"
+                  width={shape.thumb.w}
+                  height={shape.thumb.h}
+                  className={`w-full h-auto block mx-auto ${shape.thumbCls}`}
                 />
               </div>
             ))}
@@ -260,10 +262,10 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
             <div className="bg-black rounded-xl overflow-hidden border border-hairline relative shadow-lg">
               <SectionPreviewCanvas
                 config={cfg}
-                width={previewAspect.w}
-                height={previewAspect.h}
+                width={shape.stage.w}
+                height={shape.stage.h}
                 restartKey={`${restartKey}-${cfg.motionId}-${cfg.backgroundKind}-${cfg.titleAnimation}-${cfg.duration}`}
-                className={`w-full h-auto block mx-auto ${previewAspect.cls}`}
+                className={`w-full h-auto block mx-auto ${shape.stageCls}`}
               />
               <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/70 backdrop-blur border border-white/10 text-[10px] font-semibold text-white flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -399,9 +401,9 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                                 badge: "",
                                 logoEnabled: false,
                               }}
-                              width={200}
-                              height={112}
-                              className="w-full h-auto block"
+                              width={shape.thumb.w}
+                              height={shape.thumb.h}
+                              className={`w-full h-auto block mx-auto ${shape.thumbCls}`}
                             />
                             {active && (
                               <span aria-hidden="true"><Icon glyph="✓" /></span>

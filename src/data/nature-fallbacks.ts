@@ -1,9 +1,61 @@
+export type NatureCategory =
+  | "mountains"
+  | "ocean"
+  | "forest"
+  | "sky"
+  | "waterfall"
+  | "peaceful";
+
 export interface NatureBackground {
   id: string;
   name: string;
-  category: "mountains" | "ocean" | "forest" | "sky" | "waterfall" | "peaceful";
+  category: NatureCategory;
   url: string;
   thumb: string;
+}
+
+/**
+ * The criteria you can pick in the Nature Fallback drawer.
+ *
+ * Each one is two things at once: a filter over the bundled deck below, and a
+ * real search query. Choosing "Waterfalls" used to show only the two bundled
+ * waterfall photos and nothing else, forever — the same two on every project.
+ * It now also searches for that criteria, so the drawer fills with fresh
+ * waterfalls and the bundled pair are the floor under it rather than the
+ * whole offering.
+ *
+ * The queries are deliberately plain nouns. The search ladder in
+ * `broadenQuery` widens from there if a term comes back empty, and plain
+ * nouns are what the stock libraries index best.
+ */
+export interface NatureCategoryDef {
+  id: NatureCategory | "all";
+  label: string;
+  /** What the live search asks for when this criteria is chosen. */
+  query: string;
+}
+
+export const NATURE_CATEGORIES: NatureCategoryDef[] = [
+  { id: "all", label: "All nature", query: "nature landscape" },
+  { id: "mountains", label: "Mountains", query: "mountain landscape" },
+  { id: "ocean", label: "Ocean", query: "ocean waves sea" },
+  { id: "forest", label: "Forest", query: "forest trees" },
+  { id: "sky", label: "Sky & space", query: "sky clouds sunset" },
+  { id: "waterfall", label: "Waterfalls", query: "waterfall river" },
+  { id: "peaceful", label: "Peaceful", query: "peaceful calm landscape" },
+];
+
+/** The search query behind a criteria, falling back to a sane default. */
+export function natureCategoryQuery(id: NatureCategory | "all"): string {
+  return NATURE_CATEGORIES.find((c) => c.id === id)?.query || "nature landscape";
+}
+
+/** The bundled photos for a criteria. "all" keeps the whole deck. */
+export function natureBackgroundsFor(
+  id: NatureCategory | "all",
+  deck: NatureBackground[] = NATURE_FALLBACKS
+): NatureBackground[] {
+  return id === "all" ? [...deck] : deck.filter((bg) => bg.category === id);
 }
 
 export const NATURE_FALLBACKS: NatureBackground[] = [

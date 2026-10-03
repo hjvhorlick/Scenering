@@ -1,4 +1,5 @@
 import type { Scene } from "../types";
+import { resolveVideoUrl } from "./custom-video";
 
 /**
  * Playback plumbing for short video clips attached to scenes.
@@ -100,6 +101,11 @@ export class ClipPool {
   /** Get (or create) the element for a scene, returning null without a clip. */
   get(scene: Scene): HTMLVideoElement | null {
     if (!scene.video_url) return null;
+    // An uploaded clip is stored as `custom-video:<id>`; the live object URL
+    // only exists for this page load, so it is resolved here rather than
+    // being written into the saved scene.
+    const src = resolveVideoUrl(scene.video_url);
+    if (!src) return null;
 
     let el = this.elements.get(scene.id);
     if (!el) {
@@ -110,9 +116,9 @@ export class ClipPool {
       el.loop = (scene.video_fit_mode || "trim") === "loop";
       this.elements.set(scene.id, el);
     }
-    if (el.getAttribute("data-src") !== scene.video_url) {
-      el.src = scene.video_url;
-      el.setAttribute("data-src", scene.video_url);
+    if (el.getAttribute("data-src") !== src) {
+      el.src = src;
+      el.setAttribute("data-src", src);
       el.load();
     }
     el.muted = clipIsMuted(scene);

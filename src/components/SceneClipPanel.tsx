@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Scene } from "../types";
+import { resolveVideoUrl } from "../lib/custom-video";
 import { sceneDurationForText } from "../lib/duration-utils";
 import Icon, { iconify } from "./icons/Icon";
 
@@ -212,7 +213,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
           <div className="flex gap-3 flex-col sm:flex-row">
             <video
               ref={videoRef}
-              src={scene.video_url || undefined}
+              src={resolveVideoUrl(scene.video_url) || undefined}
               className="w-full sm:w-48 rounded-lg border border-hairline bg-black"
               muted={muted}
               controls

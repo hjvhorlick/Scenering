@@ -143,6 +143,15 @@ export const ICON_FOR_GLYPH: Record<string, string> = {
   "🌐": "globe",
   "🔔": "bell",
   "💡": "bulb",
+  // Four glyphs used in the Scene Animation panel that had no drawing, so
+  // they rendered as the raw emoji among a set of line icons. Mapped onto
+  // drawings that already exist rather than inventing four more: an idea is
+  // a bulb, a stack of effects is a box, colour is the palette, and
+  // navigating sections is the target.
+  "🧠": "bulb",
+  "🧱": "box",
+  "🌈": "palette",
+  "🧭": "target",
   "⏳": "clock",
   "⏱": "clock",
   "⏰": "clock",

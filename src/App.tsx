@@ -29,6 +29,7 @@ import InsertPropertiesModal from "./components/InsertPropertiesModal";
 import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
 import { navigate, SITE_PATH } from "./lib/route";
+import { loadCustomVideos } from "./lib/custom-video";
 import { signOut } from "./lib/session";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "./lib/api-keys";
 import {
@@ -36,6 +37,7 @@ import {
   calibrateTextToTargetDuration,
   fitDurationToText,
   sceneDurationForText,
+  singleSceneDuration,
   splitScriptIntoScenes,
 } from "./lib/duration-utils";
 import { TRANSITION_GROUPS, transitionsInGroup } from "./lib/scene-transition";
@@ -49,6 +51,21 @@ import Icon, { iconify } from "./components/icons/Icon";
 
 type View = "create" | "editor";
 
+/** Extra choices the Setup screen can make when a project is created. */
+export interface NewProjectOptions {
+  /** The whole script is one scene and the video is one continuous shot. */
+  singleScene?: boolean;
+  /** Narration on or off for the project from the very first frame. */
+  voiceoverEnabled?: boolean;
+  /** Footage uploaded in Setup, used as the single scene's picture. */
+  clip?: {
+    /** Stable `custom-video:<id>` address, resolved at playback time. */
+    url: string;
+    name: string;
+    duration: number;
+  };
+}
+
 export interface ProjectSettings {
   aspect_ratio: AspectRatioType;
   resolution: ResolutionType;
@@ -57,6 +74,17 @@ export interface ProjectSettings {
   motion_style: string;
   /** Enables the optional per-scene animation/effect stack. Defaults OFF for backward compatibility. */
   scene_animation_enabled: boolean;
+  /**
+   * One-scene project: the whole script is a single scene and a single shot,
+   * rather than being chopped into 10/20/30-second scenes. This is the shape
+   * a music video or a self-filmed take needs.
+   */
+  single_scene: boolean;
+  /**
+   * Project-wide narration switch. Off means no spoken track is synthesised,
+   * previewed or rendered — for footage that carries its own sound.
+   */
+  voiceover_enabled: boolean;
   selected_voice: string;
   customer_logo: CustomerLogoConfig;
   captions_config: CaptionsConfig;
@@ -81,6 +109,8 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   scene_duration: 20,
   motion_style: "dynamic",
   scene_animation_enabled: false,
+  single_scene: false,
+  voiceover_enabled: true,
   selected_voice: "guy",
   transition: "crossfade",
   customer_logo: {
@@ -117,8 +147,12 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
 // the Setup screen and the scenes actually created can never disagree. Scenes
 // come out EVEN — the old fixed-chunk slicing left a short final scene (e.g.
 // 34 words in a 20-second slot, which played with ~6 seconds of silence).
-function parseScript(script: string, targetDuration: number = 20): { text: string; imageQuery: string }[] {
-  return splitScriptIntoScenes(script, targetDuration).map((text) => {
+function parseScript(
+  script: string,
+  targetDuration: number = 20,
+  singleScene: boolean = false
+): { text: string; imageQuery: string }[] {
+  return splitScriptIntoScenes(script, targetDuration, singleScene).map((text) => {
     const queryWords = text
       .replace(/[^a-zA-Z\s]/g, " ")
       .split(/\s+/)
@@ -194,6 +228,8 @@ export default function App() {
   const [pacingMode, setPacingMode] = useState<PacingModeType>(DEFAULT_PROJECT_SETTINGS.pacing_mode);
   const [motionStyle, setMotionStyle] = useState<string>(DEFAULT_PROJECT_SETTINGS.motion_style);
   const [sceneAnimationEnabled, setSceneAnimationEnabled] = useState<boolean>(DEFAULT_PROJECT_SETTINGS.scene_animation_enabled);
+  const [singleScene, setSingleScene] = useState<boolean>(DEFAULT_PROJECT_SETTINGS.single_scene);
+  const [voiceoverEnabled, setVoiceoverEnabled] = useState<boolean>(DEFAULT_PROJECT_SETTINGS.voiceover_enabled);
   const [videoFilter, setVideoFilter] = useState<VideoFilterConfig | null>(DEFAULT_PROJECT_SETTINGS.video_filter);
   const [introSection, setIntroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.intro_section);
   const [outroSection, setOutroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.outro_section);
@@ -368,6 +404,69 @@ export default function App() {
     saveCurrentProjectSettings({ scene_animation_enabled: enabled });
   }, [saveCurrentProjectSettings]);
 
+  /**
+   * Narration on or off for the whole project.
+   *
+   * The preview and the renderer both read this before they synthesise a
+   * single word, so flipping it is heard immediately — nothing has to be
+   * regenerated or re-applied afterwards.
+   */
+  const handleUpdateVoiceoverEnabled = useCallback((enabled: boolean) => {
+    setVoiceoverEnabled(enabled);
+    saveCurrentProjectSettings({ voiceover_enabled: enabled });
+  }, [saveCurrentProjectSettings]);
+
+  /**
+   * Switch an existing project between split scenes and one single scene.
+   *
+   * Turning it ON merges the scenes back into one (the script is rejoined in
+   * order); turning it OFF re-splits at the project's scene duration. Either
+   * way the script itself is never rewritten — only how it is cut up.
+   */
+  /**
+   * Attach footage uploaded in Setup to the project's single scene.
+   *
+   * Only reached for a project that already exists — a brand-new one carries
+   * the clip through `handleCreateProject` instead. The clip's own length
+   * becomes the scene's length, because the footage is the video now.
+   */
+  const handleAttachSingleSceneClip = useCallback(
+    (clip: { url: string; name: string; duration: number }) => {
+      setScenes((prev) => {
+        if (prev.length === 0) return prev;
+        const clipFields: Partial<Scene> = {
+          video_url: clip.url,
+          video_name: clip.name,
+          video_duration: clip.duration,
+          video_trim_start: 0,
+          video_trim_end: clip.duration,
+          video_mute: false,
+          video_volume: 1,
+          video_fit_mode: "trim",
+        };
+        const duration = singleSceneDuration(prev[0].text || "", clip.duration);
+        const updated = prev.map((sc, i) => (i === 0 ? { ...sc, ...clipFields, duration } : sc));
+        try {
+          const first = updated[0];
+          supabase.from("scenes").update({ duration }).eq("id", first.id).then();
+          const existingMeta = localStorage.getItem(`scenering_scene_meta_${first.id}`);
+          const parsedMeta = existingMeta ? JSON.parse(existingMeta) : {};
+          localStorage.setItem(
+            `scenering_scene_meta_${first.id}`,
+            JSON.stringify({ ...parsedMeta, ...clipFields, duration })
+          );
+        } catch {}
+        return updated;
+      });
+    },
+    []
+  );
+
+  const handleUpdateSingleScene = useCallback((enabled: boolean) => {
+    setSingleScene(enabled);
+    saveCurrentProjectSettings({ single_scene: enabled });
+  }, [saveCurrentProjectSettings]);
+
   const handleUpdateSceneDuration = useCallback((dur: number) => {
     setSceneDuration(dur);
     saveCurrentProjectSettings({ scene_duration: dur });
@@ -451,9 +550,17 @@ export default function App() {
   }, [currentProject?.id]);
 
   const handleUpdateScript = useCallback(
-    (newScript: string, regenerateScenes: boolean = false, overrideDuration?: number) => {
+    (
+      newScript: string,
+      regenerateScenes: boolean = false,
+      overrideDuration?: number,
+      /** Setup passes this when the user flips the one-scene switch in the
+       *  same click, because the state update has not landed yet. */
+      overrideSingleScene?: boolean
+    ) => {
       setCurrentProject((prev) => (prev ? { ...prev, script: newScript } : null));
       const targetDur = overrideDuration || sceneDuration || 20;
+      const oneScene = overrideSingleScene ?? singleScene;
 
       // Always persist the script text itself. It used to be written only on
       // the regenerate path, so a plain "save" left the stored script stale
@@ -465,7 +572,7 @@ export default function App() {
       } catch {}
 
       if (regenerateScenes) {
-        const parsed = parseScript(newScript, targetDur);
+        const parsed = parseScript(newScript, targetDur, oneScene);
         setScenes((prev) => {
           const newScenes: Scene[] = parsed.map((item, idx) => {
             const existing = prev[idx];
@@ -483,15 +590,29 @@ export default function App() {
                   ? existing.image_query
                   : item.imageQuery || existing?.image_query || "abstract background",
               image_query_locked: existing?.image_query_locked,
-              // each scene lasts as long as its OWN narration, so no scene
-              // holds on a still image in silence
-              duration: sceneDurationForText(sceneText, targetDur),
+              // Each scene lasts as long as its OWN narration, so no scene
+              // holds on a still image in silence. A one-scene project has no
+              // per-scene target to be bounded by — and when footage is
+              // attached, the footage decides.
+              duration: oneScene
+                ? singleSceneDuration(sceneText, existing?.video_duration)
+                : sceneDurationForText(sceneText, targetDur),
               created_at: existing?.created_at || new Date().toISOString(),
               motion_effect: existing?.motion_effect || "slow_zoom",
               animation: existing?.animation,
               audio_url: existing?.audio_url || null,
               audio_name: existing?.audio_name || null,
               voice_id: existing?.voice_id,
+              // Re-wording the script must never throw away the video the
+              // user attached to the scene.
+              video_url: existing?.video_url ?? null,
+              video_name: existing?.video_name ?? null,
+              video_duration: existing?.video_duration,
+              video_trim_start: existing?.video_trim_start,
+              video_trim_end: existing?.video_trim_end,
+              video_mute: existing?.video_mute,
+              video_volume: existing?.video_volume,
+              video_fit_mode: existing?.video_fit_mode,
             };
           });
 
@@ -499,6 +620,16 @@ export default function App() {
           try {
             if (currentProject?.id) {
               supabase.from("projects").update({ script: newScript, default_duration: targetDur }).eq("id", currentProject.id).then();
+            }
+            // Re-splitting can produce FEWER scenes than before — most
+            // dramatically when switching to a one-scene project, where a
+            // dozen become one. The rows left behind used to survive in
+            // storage and reappear on the next reload, so the project the
+            // user saved was not the project they got back.
+            for (const stale of prev.slice(newScenes.length)) {
+              if (newScenes.some((s) => s.id === stale.id)) continue;
+              supabase.from("scenes").delete().eq("id", stale.id).then();
+              localStorage.removeItem(`scenering_scene_meta_${stale.id}`);
             }
             for (const s of newScenes) {
               // The Supabase scenes table intentionally stores only the core
@@ -533,7 +664,7 @@ export default function App() {
         });
       }
     },
-    [currentProject?.id, sceneDuration]
+    [currentProject?.id, sceneDuration, singleScene]
   );
 
   // Timeline & Video Preview playback synchronization
@@ -557,6 +688,17 @@ export default function App() {
   // live preview and the final render paint the real faces rather than fallbacks.
   useEffect(() => {
     loadCaptionFonts();
+  }, []);
+
+  /**
+   * Re-open any uploaded footage before the first project loads.
+   *
+   * Scenes store the stable address `custom-video:<id>`; the object URL it
+   * resolves to only exists for this page load, so the store has to be read
+   * back from IndexedDB or a saved one-scene project opens to a black frame.
+   */
+  useEffect(() => {
+    loadCustomVideos().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -601,9 +743,17 @@ export default function App() {
   const handleCreateProject = async (
     title: string,
     script: string,
-    targetDuration?: number
+    targetDuration?: number,
+    /**
+     * One-scene projects, and the footage a one-scene project may start from.
+     * Everything here is optional so the normal split-scene path is unchanged.
+     */
+    options?: NewProjectOptions
   ): Promise<boolean> => {
     const chosenDuration = targetDuration || 20;
+    const oneScene = options?.singleScene ?? false;
+    const clip = oneScene ? options?.clip : undefined;
+    const narration = options?.voiceoverEnabled ?? true;
     // Keep the canvas choices made on the single setup frame (aspect ratio, resolution, motion)
     const chosenAspect = aspectRatio;
     const chosenResolution = resolution;
@@ -618,7 +768,7 @@ export default function App() {
       if (projectError) throw projectError;
 
       const project = projectData as Project;
-      const parsedScenes = parseScript(script, chosenDuration);
+      const parsedScenes = parseScript(script, chosenDuration, oneScene);
 
       // Clean, isolated project setup with defaults
       const freshSettings: ProjectSettings = {
@@ -628,6 +778,8 @@ export default function App() {
         resolution: chosenResolution,
         motion_style: chosenMotion,
         scene_animation_enabled: sceneAnimationEnabled,
+        single_scene: oneScene,
+        voiceover_enabled: narration,
       };
 
       try {
@@ -635,15 +787,26 @@ export default function App() {
         localStorage.setItem(`scenering_inserts_${project.id}`, JSON.stringify([]));
       } catch {}
 
-      // Create scenes from user's script segments
-      const sceneRows = parsedScenes.map((s, i) => {
+      // Create scenes from user's script segments.
+      //
+      // A one-scene project always has exactly one scene, even with no script
+      // at all: someone uploading a music video has footage and no words, and
+      // the rest of the app (captions, music, the studio, the timeline) is
+      // built around there being a scene to hang them on.
+      const sceneSources = oneScene && parsedScenes.length === 0
+        ? [{ text: "", imageQuery: clip ? "" : "abstract background" }]
+        : parsedScenes;
+
+      const sceneRows = sceneSources.map((s, i) => {
         const sceneText = s.text.trim();
         return {
           project_id: project.id,
           order_index: i,
           text: sceneText,
           image_query: s.imageQuery,
-          duration: sceneDurationForText(sceneText, chosenDuration),
+          duration: oneScene
+            ? singleSceneDuration(sceneText, clip?.duration)
+            : sceneDurationForText(sceneText, chosenDuration),
         };
       });
 
@@ -668,9 +831,42 @@ export default function App() {
       setVideoTransition(freshSettings.transition);
       setRenderProfile(resolveRenderProfileSettings(freshSettings.render_profile));
 
+      setSingleScene(oneScene);
+      setVoiceoverEnabled(narration);
+
+      // The uploaded video becomes the single scene's picture. It is stored
+      // under the scene's own meta key, which is the same place the scene
+      // editor's clip panel writes to — so the footage is still attached
+      // after a reload, and can be trimmed or muted there like any clip.
+      let createdScenes = (scenesData as Scene[]).map((sc) => ({ ...sc, transition: freshSettings.transition }));
+      if (clip && createdScenes.length > 0) {
+        const clipFields: Partial<Scene> = {
+          video_url: clip.url,
+          video_name: clip.name,
+          video_duration: clip.duration,
+          video_trim_start: 0,
+          video_trim_end: clip.duration,
+          // It is their own footage: its soundtrack plays unless they mute it
+          // in the scene editor. This is the whole point of a music video.
+          video_mute: false,
+          video_volume: 1,
+          video_fit_mode: "trim",
+        };
+        createdScenes = createdScenes.map((sc, i) => (i === 0 ? { ...sc, ...clipFields } : sc));
+        try {
+          const first = createdScenes[0];
+          const existingMeta = localStorage.getItem(`scenering_scene_meta_${first.id}`);
+          const parsedMeta = existingMeta ? JSON.parse(existingMeta) : {};
+          localStorage.setItem(
+            `scenering_scene_meta_${first.id}`,
+            JSON.stringify({ ...parsedMeta, ...clipFields, duration: first.duration })
+          );
+        } catch {}
+      }
+
       setNavNotice(null);
       setCurrentProject(project);
-      setScenes((scenesData as Scene[]).map((sc) => ({ ...sc, transition: freshSettings.transition })));
+      setScenes(createdScenes);
       setInserts([]);
       setCurrentPlayheadTime(0);
       setEditorStep("scenes");
@@ -729,6 +925,8 @@ export default function App() {
     setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
     setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
     setSceneAnimationEnabled(DEFAULT_PROJECT_SETTINGS.scene_animation_enabled);
+    setSingleScene(DEFAULT_PROJECT_SETTINGS.single_scene);
+    setVoiceoverEnabled(DEFAULT_PROJECT_SETTINGS.voiceover_enabled);
     setVideoFilter(DEFAULT_PROJECT_SETTINGS.video_filter);
     setIntroSection(DEFAULT_PROJECT_SETTINGS.intro_section);
     setOutroSection(DEFAULT_PROJECT_SETTINGS.outro_section);
@@ -765,6 +963,10 @@ export default function App() {
       setSceneDuration(projectSettings.scene_duration);
       setMotionStyle(projectSettings.motion_style);
       setSceneAnimationEnabled(projectSettings.scene_animation_enabled ?? false);
+      // Older projects pre-date both switches: they were all split-scene and
+      // all narrated, which is exactly what these defaults restore.
+      setSingleScene(projectSettings.single_scene ?? false);
+      setVoiceoverEnabled(projectSettings.voiceover_enabled ?? true);
       setVideoFilter(projectSettings.video_filter ?? null);
       setIntroSection(projectSettings.intro_section ?? null);
       setOutroSection(projectSettings.outro_section ?? null);
@@ -895,6 +1097,8 @@ export default function App() {
       setSceneDuration(DEFAULT_PROJECT_SETTINGS.scene_duration);
       setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
       setSceneAnimationEnabled(DEFAULT_PROJECT_SETTINGS.scene_animation_enabled);
+      setSingleScene(DEFAULT_PROJECT_SETTINGS.single_scene);
+      setVoiceoverEnabled(DEFAULT_PROJECT_SETTINGS.voiceover_enabled);
       setVideoTransition(DEFAULT_PROJECT_SETTINGS.transition);
       setRenderProfile(DEFAULT_PROJECT_SETTINGS.render_profile);
       setView("create");
@@ -1488,6 +1692,8 @@ export default function App() {
                 resolution={resolution}
                 pacingMode={pacingMode}
                 sceneDuration={sceneDuration}
+                singleScene={singleScene}
+                voiceoverEnabled={voiceoverEnabled}
                 motionStyle={motionStyle}
                 sceneAnimationEnabled={sceneAnimationEnabled}
                 loading={loading}
@@ -1503,6 +1709,9 @@ export default function App() {
                 onUpdateRenderProfile={handleUpdateRenderProfile}
                 onUpdatePacingMode={handleUpdatePacingMode}
                 onUpdateSceneDuration={handleUpdateSceneDuration}
+                onUpdateSingleScene={handleUpdateSingleScene}
+                onUpdateVoiceoverEnabled={handleUpdateVoiceoverEnabled}
+                onAttachSingleSceneClip={handleAttachSingleSceneClip}
                 onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
                 onFitScenesToSpeech={handleFitAllScenesDurationToSpeech}
                 onUpdateMotionStyle={handleUpdateMotionStyle}
@@ -1547,6 +1756,7 @@ export default function App() {
                 customerLogo={customerLogo}
                 captionsConfig={captionsConfig}
                 onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
+                voiceoverEnabled={voiceoverEnabled}
                 sceneDuration={sceneDuration}
                 motionStyle={motionStyle}
                 sceneAnimationEnabled={sceneAnimationEnabled}
@@ -1811,6 +2021,10 @@ export default function App() {
                   customerLogo={customerLogo}
                   onInsertItem={handleAddInsert}
                   onConfigureItem={openInsertEditor}
+                  captionsConfig={captionsConfig}
+                  onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
+                  voiceoverEnabled={voiceoverEnabled}
+                  onUpdateVoiceoverEnabled={handleUpdateVoiceoverEnabled}
                 />
               ) : editorStep === "captions" ? (
                 /* Step 3: Captions & Subtitles Studio */
@@ -1821,6 +2035,7 @@ export default function App() {
                   onUpdateScene={handleUpdateScene}
                   onApplyStyleToAll={handleApplyCaptionStyleToAll}
                   onNavigateToStep={setEditorStep}
+                  voiceoverEnabled={voiceoverEnabled}
                 />
               ) : (
                 /* Step 4: Video Studio & Timeline View */
@@ -1852,6 +2067,7 @@ export default function App() {
                     inserts={inserts}
                     customerLogo={customerLogo}
                     captionsConfig={captionsConfig}
+                    voiceoverEnabled={voiceoverEnabled}
                     currentPlayheadTime={currentPlayheadTime}
                     onSeek={setCurrentPlayheadTime}
                     onSelectInsert={(ins) => setSelectedInsert(ins)}
@@ -1885,12 +2101,11 @@ export default function App() {
                     onEditScene={handleEditSceneFromTimeline}
                   />
 
-                  {/* Video Studio Insert Catalog with Working Settings Button & Customer Brand Logo */}
+                  {/* Video Studio Insert Catalog — add here, then edit the block on the timeline */}
                   <VideoStudio
                     currentPlayheadTime={currentPlayheadTime}
                     totalDuration={estimatedTotalDuration}
                     onInsertItem={handleAddInsert}
-                    onConfigureItem={openInsertEditor}
                     customerLogo={customerLogo}
                     onUpdateCustomerLogo={handleUpdateCustomerLogo}
                     aspectRatio={aspectRatio}

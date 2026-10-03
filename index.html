@@ -4,8 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Scenering — From idea to video</title>
-    <!-- Caption typefaces: formal, classical, artsy and fun faces used by the
-         Captions studio. The renderer also injects this at runtime as a fallback. -->
+    <!-- Caption typefaces, first wave only: the handful of faces the default
+         styles use, requested here so the first caption paints in the right
+         font. The full catalogue (sixty-odd families, including the strange
+         shelf) is injected at runtime by loadCaptionFonts() in
+         src/data/caption-styles.ts, which marks its own links with
+         data-caption-fonts-full. Do NOT give this link that attribute: the
+         runtime loader skips its work when it finds one, and every face not
+         listed below would quietly fall back to Georgia. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

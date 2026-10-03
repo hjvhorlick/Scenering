@@ -16,11 +16,17 @@ import {
   DEFAULT_FRAMING,
   sceneIsBlankColor,
 } from "../lib/scene-framing";
-import { NATURE_FALLBACKS } from "../data/nature-fallbacks";
+import {
+  NATURE_FALLBACKS,
+  NATURE_CATEGORIES,
+  natureCategoryQuery,
+  natureBackgroundsFor,
+  type NatureCategory,
+} from "../data/nature-fallbacks";
 import { pickRandomSample } from "../lib/image-picker";
 import ImageCandidateStrip from "./ImageCandidateStrip";
 import {
-  researchImages,
+  researchImagesDetailed,
   replaceImage,
   proxyImageUrl,
   type ImageCandidate,
@@ -134,6 +140,18 @@ export default function SceneEditor({
   const [candidates, setCandidates] = useState<ImageCandidate[]>([]);
   const [researching, setResearching] = useState(false);
   const [showCandidates, setShowCandidates] = useState(false);
+  /**
+   * What the photos on screen actually answer.
+   *
+   * Not always what was asked: an exact query that returns nothing is widened
+   * (see broadenQuery), and the research block says so. Keeping the answering
+   * query here is what lets it be honest about that.
+   */
+  const [researchQuery, setResearchQuery] = useState("");
+  /** The query the results actually belong to, when it differs from the ask. */
+  const [researchAnswered, setResearchAnswered] = useState("");
+  const [researchBroadened, setResearchBroadened] = useState(false);
+  const [researchFromDeck, setResearchFromDeck] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
 
   /** True when this scene shows a flat colour and no photo or clip. */
@@ -144,9 +162,58 @@ export default function SceneEditor({
   // Shuffle the curated deck on every open so the fallback gallery doesn't
   // look like the same frozen nine images each time it is opened.
   const [natureDeck, setNatureDeck] = useState(() => [...NATURE_FALLBACKS]);
+  /** Which criteria is selected in the nature drawer. */
+  const [natureCategory, setNatureCategory] = useState<NatureCategory | "all">("all");
+  /**
+   * Live photos for the chosen criteria.
+   *
+   * The bundled deck is nine images and never changes, so picking
+   * "Waterfalls" used to mean seeing the same two waterfalls on every project
+   * forever. Choosing a criteria now also runs a real search for it; these are
+   * those results, shown above the bundled ones.
+   */
+  const [natureResults, setNatureResults] = useState<ImageCandidate[]>([]);
+  const [natureSearching, setNatureSearching] = useState(false);
+  /** True when the search came back empty and the bundled deck answered it. */
+  const [natureOffline, setNatureOffline] = useState(false);
+
+  /** Search the stock libraries for a nature criteria and show what comes back. */
+  const searchNature = async (category: NatureCategory | "all") => {
+    setNatureSearching(true);
+    try {
+      const found = await researchImagesDetailed(natureCategoryQuery(category), searchOptions());
+      // With no keys or no network the search answers from the bundled deck,
+      // which is already on screen below. Showing it again as "fresh" would be
+      // the same photos twice and a small lie, so say what happened instead.
+      setNatureOffline(found.fromFallbackDeck);
+      setNatureResults(found.fromFallbackDeck ? [] : found.candidates);
+    } catch {
+      setNatureResults([]);
+      setNatureOffline(true);
+    } finally {
+      setNatureSearching(false);
+    }
+  };
+
+  /** Pick a criteria: filter the bundled deck and search for it at the same time. */
+  const chooseNatureCategory = (category: NatureCategory | "all") => {
+    setNatureCategory(category);
+    setNatureDeck(() => {
+      const forCategory = natureBackgroundsFor(category);
+      return pickRandomSample(forCategory, forCategory.length);
+    });
+    void searchNature(category);
+  };
+
   const openNatureMenu = () => {
+    setNatureCategory("all");
+    setNatureResults([]);
+    setNatureOffline(false);
     setNatureDeck(pickRandomSample(NATURE_FALLBACKS, NATURE_FALLBACKS.length));
     setShowNatureMenu(true);
+    // Open straight into a live search so the drawer is not just the same
+    // nine bundled photos it has always been.
+    void searchNature("all");
   };
   const [showCropTools, setShowCropTools] = useState(false);
   const [showAnimationPanel, setShowAnimationPanel] = useState(false);
@@ -368,14 +435,19 @@ export default function SceneEditor({
    * Pressing it again searches again, so two presses give two different sets.
    */
   const loadCandidates = async (query?: string) => {
+    const asked = query ?? deriveImageQuery(textValue, scene.image_query);
     setResearching(true);
     setShowCandidates(true);
+    setResearchQuery(asked);
     try {
-      const found = await researchImages(
-        query ?? deriveImageQuery(textValue, scene.image_query),
-        searchOptions()
-      );
-      if (found.length > 0) setCandidates(found);
+      const found = await researchImagesDetailed(asked, searchOptions());
+      if (found.candidates.length > 0) setCandidates(found.candidates);
+      // Report the query that actually answered, which is not always the one
+      // asked for — otherwise a widened search looks like a broken one. The
+      // box keeps the words the user typed; the note explains the difference.
+      setResearchAnswered(found.query);
+      setResearchBroadened(found.broadened);
+      setResearchFromDeck(found.fromFallbackDeck);
     } catch {
       // Keep whatever set is already on screen rather than blanking it.
     } finally {
@@ -384,6 +456,27 @@ export default function SceneEditor({
   };
 
   const handleResearch = () => void loadCandidates();
+
+  /**
+   * The user typed their own criteria into the research box.
+   *
+   * It is stored on the scene AND locked, so a later script edit cannot throw
+   * it away: `deriveImageQuery` honours the lock, and so does the re-split in
+   * App. Someone who types "misty harbour at dawn" means it.
+   */
+  const handleResearchSearch = (query: string) => {
+    const wanted = query.trim();
+    if (!wanted) return;
+    onUpdate(scene.id, { image_query: wanted, image_query_locked: true } as Partial<Scene>);
+    void loadCandidates(wanted);
+  };
+
+  /** Drop the hand-typed query and go back to what the scene's words suggest. */
+  const handleUseSceneWords = () => {
+    const auto = buildSceneImageQuery(textValue, { fallback: "abstract background" });
+    onUpdate(scene.id, { image_query: auto, image_query_locked: false } as Partial<Scene>);
+    void loadCandidates(auto);
+  };
 
   /**
    * Give this scene a plain colour instead of a photo.
@@ -1042,7 +1135,86 @@ export default function SceneEditor({
                 ✕
               </button>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+
+            {/* Criteria. Each chip filters the bundled deck below AND runs a
+                real search for that criteria, so the drawer is not the same
+                nine photos on every project. */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              {NATURE_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => chooseNatureCategory(cat.id)}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors ${
+                    natureCategory === cat.id
+                      ? "bg-emerald-600 border-emerald-500 text-white"
+                      : "bg-gray-800 border-hairline text-gray-300 hover:border-emerald-600 hover:text-white"
+                  }`}
+                  title={`Search for ${cat.query}`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => void searchNature(natureCategory)}
+                disabled={natureSearching}
+                className="ml-auto px-2 py-1 rounded-lg text-[11px] font-medium bg-gray-800 border border-hairline text-emerald-300 hover:border-emerald-600 disabled:text-gray-500 transition-colors"
+                title="Search again for more photos matching this criteria"
+              >
+                {natureSearching ? "Searching…" : "↻ New photos"}
+              </button>
+            </div>
+
+            {/* Fresh results for the chosen criteria, above the bundled deck. */}
+            {natureSearching && natureResults.length === 0 && (
+              <p className="text-[11px] text-gray-400 pt-0.5">
+                Searching for {natureCategoryQuery(natureCategory)}…
+              </p>
+            )}
+            {!natureSearching && natureOffline && (
+              <p className="text-[11px] text-amber-300/90 pt-0.5">
+                No photos came back online for {natureCategoryQuery(natureCategory)} — the
+                bundled set below is what&apos;s available. Add a Pexels or Pixabay key in
+                Settings for live results.
+              </p>
+            )}
+            {natureResults.length > 0 && (
+              <div className="space-y-1.5 pt-0.5">
+                <p className="text-[10px] text-emerald-300/90 uppercase tracking-wide font-semibold">
+                  Fresh from search · {natureCategoryQuery(natureCategory)}
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {natureResults.map((candidate) => (
+                    <button
+                      key={candidate.url}
+                      type="button"
+                      onClick={() => handleSelectNatureFallback(proxyImageUrl(candidate.url))}
+                      className="group relative rounded-lg overflow-hidden border border-hairline hover:border-emerald-500 transition-all text-left aspect-video"
+                    >
+                      <img
+                        src={proxyImageUrl(candidate.thumbnail || candidate.url)}
+                        alt={`${natureCategoryQuery(natureCategory)} photo`}
+                        loading="lazy"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                      {candidate.source && (
+                        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-end p-1">
+                          <span className="text-[9px] text-white/80 font-medium truncate">
+                            {candidate.source}
+                          </span>
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold pt-0.5">
+              {natureResults.length > 0 ? "Always available · bundled" : "Bundled photos"}
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {natureDeck.map((bg) => (
                 <button
                   key={bg.id}
@@ -1062,6 +1234,12 @@ export default function SceneEditor({
                   </div>
                 </button>
               ))}
+              {natureDeck.length === 0 && (
+                <p className="col-span-full text-[11px] text-gray-500">
+                  No bundled photos in this criteria — the search results above
+                  are the full offering.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -1470,8 +1648,16 @@ export default function SceneEditor({
               loading={researching}
               currentUrl={scene.image_url ?? undefined}
               onSelect={handleSelectCandidate}
-              onMore={() => void loadCandidates()}
+              onMore={() => void loadCandidates(researchQuery || undefined)}
               onClose={() => setShowCandidates(false)}
+              query={researchQuery}
+              answeredQuery={researchAnswered}
+              onSearch={handleResearchSearch}
+              autoQuery={buildSceneImageQuery(textValue, { fallback: "abstract background" })}
+              queryLocked={Boolean(scene.image_query_locked)}
+              onUseSceneWords={handleUseSceneWords}
+              broadened={researchBroadened}
+              fromFallbackDeck={researchFromDeck}
             />
           </div>
         )}

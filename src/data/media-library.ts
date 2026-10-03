@@ -1,4 +1,5 @@
 import { ttsPlayer } from "../lib/tts-player";
+import { getCustomMusicTrack, isCustomMusicUrl, resolveAudioUrl } from "../lib/custom-music";
 
 export interface SoundAsset {
   id: string;
@@ -193,7 +194,7 @@ export const SOUND_LIBRARY: SoundAsset[] = [
 
 export interface BackgroundMusicTrack {
   id: string;
-  mood?: "acoustic" | "electronic" | "cinematic" | "ambient";
+  mood?: "acoustic" | "electronic" | "cinematic" | "ambient" | "piano" | "classical" | "upbeat";
   name: string;
   genre: string;
   url: string;
@@ -214,7 +215,7 @@ export const BACKGROUND_MUSIC_TRACKS: BackgroundMusicTrack[] = [
     mood: "ambient",
     genre: "Calm Minimalist Ambient — soft drone & piano",
     url: "/sounds/yt_divider.mp3",
-    duration: 201,
+    duration: 202,
     author: "Chris Zabriskie",
     source: "YouTube Audio Library",
     sourceUrl: "https://www.youtube.com/audiolibrary",
@@ -242,13 +243,13 @@ export const BACKGROUND_MUSIC_TRACKS: BackgroundMusicTrack[] = [
     mood: "acoustic",
     genre: "Tender Ballad — soft piano & calm strings",
     url: "/sounds/real_gentle_reflection.mp3",
-    duration: 518,
-    author: "Kevin MacLeod (incompetech.com)",
-    source: "YouTube Audio Library",
-    sourceUrl: "https://www.youtube.com/audiolibrary",
-    license: "YouTube Audio Library / CC0 Public Domain (no copyright claims)",
+    duration: 209,
+    author: "Alexander Nakarada",
+    source: "FreePD (freepd.com)",
+    sourceUrl: "https://freepd.com",
+    license: "CC0 Public Domain — free for commercial and monetised video",
     description: "Intimate, heartfelt ballad with soft acoustic instrumentation — calm, reflective and emotional.",
-    creditText: 'Music: "Relaxing Ballad" by Kevin MacLeod, YouTube Audio Library — Free for commercial and monetized videos',
+    creditText: 'Music: "Relaxing Ballad" by Alexander Nakarada, FreePD (freepd.com) — CC0, free for commercial and monetised videos',
   },
   {
     id: "lofi_study",
@@ -256,13 +257,13 @@ export const BACKGROUND_MUSIC_TRACKS: BackgroundMusicTrack[] = [
     mood: "electronic",
     genre: "Chill Mellow Lo-Fi — laid-back beat & warm keys",
     url: "/sounds/real_lofi_study.mp3",
-    duration: 494,
-    author: "Kevin MacLeod (incompetech.com)",
-    source: "YouTube Audio Library",
-    sourceUrl: "https://www.youtube.com/audiolibrary",
-    license: "YouTube Audio Library / CC0 Public Domain (no copyright claims)",
+    duration: 203,
+    author: "Alexander Nakarada",
+    source: "FreePD (freepd.com)",
+    sourceUrl: "https://freepd.com",
+    license: "CC0 Public Domain — free for commercial and monetised video",
     description: "Relaxed, mellow groove with warm keys and an unobtrusive chill beat — calm and nostalgic.",
-    creditText: 'Music: "Be Chillin" by Kevin MacLeod, YouTube Audio Library — Free for commercial and monetized videos',
+    creditText: 'Music: "Be Chillin" by Alexander Nakarada, FreePD (freepd.com) — CC0, free for commercial and monetised videos',
   },
   {
     id: "wonder_cycle",
@@ -270,7 +271,7 @@ export const BACKGROUND_MUSIC_TRACKS: BackgroundMusicTrack[] = [
     mood: "ambient",
     genre: "Serene Atmospheric Ambient — soft texture",
     url: "/sounds/yt_wonder_cycle.mp3",
-    duration: 345,
+    duration: 346,
     author: "Chris Zabriskie",
     source: "YouTube Audio Library",
     sourceUrl: "https://www.youtube.com/audiolibrary",
@@ -298,7 +299,7 @@ export const BACKGROUND_MUSIC_TRACKS: BackgroundMusicTrack[] = [
     mood: "ambient",
     genre: "Airy Ambient Atmosphere — light floating tone",
     url: "/sounds/yt_heliograph.mp3",
-    duration: 339,
+    duration: 340,
     author: "Chris Zabriskie",
     source: "YouTube Audio Library",
     sourceUrl: "https://www.youtube.com/audiolibrary",
@@ -326,13 +327,13 @@ export const BACKGROUND_MUSIC_TRACKS: BackgroundMusicTrack[] = [
     mood: "acoustic",
     genre: "Warm Acoustic Folk — gentle acoustic guitar",
     url: "/sounds/real_acoustic_campfire.mp3",
-    duration: 213,
-    author: "Kevin MacLeod (incompetech.com)",
-    source: "YouTube Audio Library",
-    sourceUrl: "https://www.youtube.com/audiolibrary",
-    license: "YouTube Audio Library / CC0 Public Domain (no copyright claims)",
+    duration: 99,
+    author: "Alexander Nakarada",
+    source: "FreePD (freepd.com)",
+    sourceUrl: "https://freepd.com",
+    license: "CC0 Public Domain — free for commercial and monetised video",
     description: "Earthy, warm acoustic folk guitar with a calm, friendly and relaxing feel.",
-    creditText: 'Music: "Bonfire" by Kevin MacLeod, YouTube Audio Library — Free for commercial and monetized videos',
+    creditText: 'Music: "Bonfire" by Alexander Nakarada, FreePD (freepd.com) — CC0, free for commercial and monetised videos',
   },
   {
     id: "prelude_no3",
@@ -354,7 +355,7 @@ export const BACKGROUND_MUSIC_TRACKS: BackgroundMusicTrack[] = [
     mood: "cinematic",
     genre: "Reflective Ambient Piano — quiet space",
     url: "/sounds/yt_prelude_no16.mp3",
-    duration: 90,
+    duration: 91,
     author: "Chris Zabriskie",
     source: "YouTube Audio Library",
     sourceUrl: "https://www.youtube.com/audiolibrary",
@@ -368,13 +369,271 @@ export const BACKGROUND_MUSIC_TRACKS: BackgroundMusicTrack[] = [
     mood: "cinematic",
     genre: "Warm Calming Piano — gentle reflection",
     url: "/sounds/yt_prelude_no23.mp3",
-    duration: 103,
+    duration: 104,
     author: "Chris Zabriskie",
     source: "YouTube Audio Library",
     sourceUrl: "https://www.youtube.com/audiolibrary",
     license: "YouTube Audio Library / Creative Commons Attribution 4.0",
     description: "Soft, peaceful piano harmonies creating an easy, relaxing background backdrop.",
     creditText: 'Music: "Prelude No. 23" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+
+  // ---------- Emotional soft piano: Chris Zabriskie, YouTube Audio Library (CC BY 4.0) ----------
+  // Every title, artist and length below was read from the audio file itself
+  // rather than typed from memory, so the credit a creator pastes into a
+  // YouTube description names the right person and the loop maths is right.
+  {
+    id: "cylinder_five",
+    name: "Cylinder Five",
+    mood: "piano",
+    genre: "Emotional Soft Piano — slow swelling chords",
+    url: "/sounds/yt_cylinder_five.mp3",
+    duration: 174,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Tender, slow-building piano and strings — the emotional bed for a reflective or moving story.",
+    creditText: 'Music: "Cylinder Five" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "cylinder_six",
+    name: "Cylinder Six",
+    mood: "piano",
+    genre: "Emotional Soft Piano — sparse and intimate",
+    url: "/sounds/yt_cylinder_six.mp3",
+    duration: 106,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Sparse, intimate piano phrases with plenty of air around them — gentle under a quiet narrator.",
+    creditText: 'Music: "Cylinder Six" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "cylinder_eight",
+    name: "Cylinder Eight",
+    mood: "piano",
+    genre: "Emotional Soft Piano — long cinematic build",
+    url: "/sounds/yt_cylinder_eight.mp3",
+    duration: 339,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "A patient, deeply felt piano build that carries a long sequence without ever crowding the voice.",
+    creditText: 'Music: "Cylinder Eight" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "temperature_air",
+    name: "The Temperature of the Air on the Bow of the Kaleetan",
+    mood: "piano",
+    genre: "Soft Reflective Piano — warm and wistful",
+    url: "/sounds/yt_temperature_air.mp3",
+    duration: 264,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Warm, wistful piano over a soft pad — one of the most-used emotional beds on YouTube.",
+    creditText: 'Music: "The Temperature of the Air on the Bow of the Kaleetan" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "writing_things_down",
+    name: "I Need to Start Writing Things Down",
+    mood: "piano",
+    genre: "Gentle Thoughtful Piano — unhurried",
+    url: "/sounds/yt_writing_things_down.mp3",
+    duration: 432,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Unhurried, thoughtful piano figures — calm, slightly melancholy and easy to talk over.",
+    creditText: 'Music: "I Need to Start Writing Things Down" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "john_stockton",
+    name: "John Stockton Slow Drag",
+    mood: "piano",
+    genre: "Slow Emotional Piano — soft and sentimental",
+    url: "/sounds/yt_john_stockton.mp3",
+    duration: 283,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "A slow, sentimental piano drag with a soft, nostalgic feel for personal or heartfelt scripts.",
+    creditText: 'Music: "John Stockton Slow Drag" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "denver_broncos",
+    name: "That Kid in Fourth Grade Who Really Liked the Denver Broncos",
+    mood: "piano",
+    genre: "Soft Piano & Strings — nostalgic",
+    url: "/sounds/yt_denver_broncos.mp3",
+    duration: 263,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Nostalgic piano with quiet strings underneath — gentle, emotional and unobtrusive.",
+    creditText: 'Music: "That Kid in Fourth Grade Who Really Liked the Denver Broncos" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "dark_glow_mountains",
+    name: "The Dark Glow of the Mountains",
+    mood: "cinematic",
+    genre: "Cinematic Ambient — slow and vast",
+    url: "/sounds/yt_dark_glow_mountains.mp3",
+    duration: 790,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Vast, slow-moving cinematic ambience — over thirteen minutes, so it covers a long video without looping.",
+    creditText: 'Music: "The Dark Glow of the Mountains" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "house_glows",
+    name: "The House Glows (With Almost No Help)",
+    mood: "ambient",
+    genre: "Warm Ambient Drone — soft and glowing",
+    url: "/sounds/yt_house_glows.mp3",
+    duration: 358,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "A warm, glowing ambient wash that sits far back behind narration.",
+    creditText: 'Music: "The House Glows (With Almost No Help)" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "probably_no_time",
+    name: "There's Probably No Time",
+    mood: "ambient",
+    genre: "Quiet Ambient Pulse — understated",
+    url: "/sounds/yt_probably_no_time.mp3",
+    duration: 312,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "An understated ambient pulse with a gentle sense of forward motion.",
+    creditText:
+      'Music: "There\'s Probably No Time" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "undercover_vampire",
+    name: "Undercover Vampire Policeman",
+    mood: "ambient",
+    genre: "Long Ambient Bed — calm and spacious",
+    url: "/sounds/yt_undercover_vampire.mp3",
+    duration: 731,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "Twelve calm, spacious minutes — the longest bed in the library for documentary-length videos.",
+    creditText: 'Music: "Undercover Vampire Policeman" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "walking_deluxe",
+    name: "I Knew My Way Downtown and Walking Was Deluxe",
+    mood: "acoustic",
+    genre: "Easy Acoustic Groove — light and relaxed",
+    url: "/sounds/yt_walking_deluxe.mp3",
+    duration: 271,
+    author: "Chris Zabriskie",
+    source: "YouTube Audio Library",
+    sourceUrl: "https://www.youtube.com/audiolibrary",
+    license: "YouTube Audio Library / Creative Commons Attribution 4.0",
+    description: "A light, relaxed acoustic groove with an easy walking pace — friendly without being busy.",
+    creditText: 'Music: "I Knew My Way Downtown and Walking Was Deluxe" by Chris Zabriskie, YouTube Audio Library — Licensed under Creative Commons: By Attribution 4.0',
+  },
+  {
+    id: "clair_de_lune",
+    name: "Clair de Lune",
+    mood: "classical",
+    genre: "Emotional Classical Piano — famous and tender",
+    url: "/sounds/clair_de_lune.ogg",
+    duration: 304,
+    author: "Claude Debussy (1905)",
+    source: "Public-domain classical recording",
+    sourceUrl: "https://commons.wikimedia.org/wiki/Category:Clair_de_lune_(Debussy)",
+    license: "Public Domain — composition out of copyright",
+    description: "Debussy's famous moonlight piano piece — the most emotional soft-piano option in the library.",
+    creditText: 'Music: "Clair de Lune" by Claude Debussy — public-domain composition',
+  },
+  {
+    id: "gymnopedie_no1",
+    name: "Gymnopedie No. 1",
+    mood: "classical",
+    genre: "Emotional Classical Piano — slow and gentle",
+    url: "/sounds/gymnopedie_no1.mp3",
+    duration: 187,
+    author: "Erik Satie, performed by Kevin MacLeod (incompetech.com)",
+    source: "Incompetech / FreePD",
+    sourceUrl: "https://incompetech.com",
+    license: "Public Domain composition — free for commercial and monetised video",
+    description: "Satie's slow, gentle piano study — calm, a little sad, and very easy to narrate over.",
+    creditText: 'Music: "Gymnopedie No. 1" by Erik Satie, performed by Kevin MacLeod (incompetech.com) — free for commercial and monetised videos',
+  },
+  {
+    id: "funshine",
+    name: "Funshine",
+    mood: "upbeat",
+    genre: "Bright Happy Instrumental — light and sunny",
+    url: "/sounds/real_celebration_bells.mp3",
+    duration: 165,
+    author: "Kevin MacLeod",
+    source: "FreePD (freepd.com)",
+    sourceUrl: "https://freepd.com",
+    license: "CC0 Public Domain — free for commercial and monetised video",
+    description: "Bright, sunny and good-natured — lifts a cheerful script without turning into a jingle.",
+    creditText: 'Music: "Funshine" by Kevin MacLeod, FreePD (freepd.com) — CC0, free for commercial and monetised videos',
+  },
+  {
+    id: "baltic_levity",
+    name: "Baltic Levity",
+    mood: "upbeat",
+    genre: "Playful Light Instrumental — marimba lilt",
+    url: "/sounds/real_marimba_hop.mp3",
+    duration: 48,
+    author: "Kevin MacLeod",
+    source: "FreePD (freepd.com)",
+    sourceUrl: "https://freepd.com",
+    license: "CC0 Public Domain — free for commercial and monetised video",
+    description: "A short, playful marimba-led loop with a light bounce — loops seamlessly under explainers.",
+    creditText: 'Music: "Baltic Levity" by Kevin MacLeod, FreePD (freepd.com) — CC0, free for commercial and monetised videos',
+  },
+  {
+    id: "happy_strum",
+    name: "Happy Strum",
+    mood: "acoustic",
+    genre: "Warm Acoustic Guitar — gentle strumming",
+    url: "/sounds/real_happy_strum.mp3",
+    duration: 123,
+    author: "Rafael Krux",
+    source: "FreePD (freepd.com)",
+    sourceUrl: "https://freepd.com",
+    license: "CC0 Public Domain — free for commercial and monetised video",
+    description: "Gentle acoustic guitar strumming — warm, hopeful and the friendliest bed in the library.",
+    creditText: 'Music: "Happy Strum" by Rafael Krux, FreePD (freepd.com) — CC0, free for commercial and monetised videos',
+  },
+  {
+    id: "chronos",
+    name: "Chronos",
+    mood: "cinematic",
+    genre: "Cinematic Build — steady and widescreen",
+    url: "/sounds/real_neon_drive.mp3",
+    duration: 129,
+    author: "Alexander Nakarada",
+    source: "Free Music Archive / serpentsoundstudios.com",
+    sourceUrl: "https://www.serpentsoundstudios.com",
+    license: "Creative Commons Attribution 4.0",
+    description: "A steady, widescreen cinematic build for a reveal, a conclusion or a title sequence.",
+    creditText: 'Music: "Chronos" by Alexander Nakarada (serpentsoundstudios.com) — Licensed under Creative Commons: By Attribution 4.0',
   },
 ];
 
@@ -497,7 +756,18 @@ export function toggleSoundPreview(
   onStateChange?.(true);
 
   try {
-    const audio = new Audio(url);
+    // An uploaded track is addressed as `custom-music:<id>`; swap it for this
+    // page's object URL at the moment of playback (see lib/custom-music.ts).
+    const playableUrl = resolveAudioUrl(url);
+    if (!playableUrl) {
+      console.warn("Audio source unavailable:", url);
+      currentActiveAudio = null;
+      currentActiveUrl = null;
+      notifyAudioListeners(null, false, currentPreviewVolume);
+      onStateChange?.(false);
+      return false;
+    }
+    const audio = new Audio(playableUrl);
     audio.volume = safeVol;
     currentActiveAudio = audio;
 
@@ -610,6 +880,16 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
   License: ${track.license}
   Source: ${track.source} (${track.sourceUrl})
   Attribution Note: ${track.creditText}
+
+`;
+    } else if (isCustomMusicUrl(musicType)) {
+      // Scenering cannot clear a licence it has never seen. Say so plainly
+      // rather than printing a reassurance the creator cannot rely on.
+      const uploaded = getCustomMusicTrack(musicType);
+      doc += `• "${uploaded?.name || "Your uploaded track"}" (uploaded by you)
+  Source: your own file — not from the Scenering library
+  License: you hold the rights to this music. If its licence asks for a
+  credit, add that credit here before publishing.
 
 `;
     } else {
