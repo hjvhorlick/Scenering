@@ -3,7 +3,9 @@ import {
   captionFontStack,
   getCaptionFont,
   getCaptionStyle,
+  getMetalFinish,
   resolveCaptionStyleId,
+  type MetalFinishDef,
 } from "../data/caption-styles";
 import {
   activeWordIndexAt,
@@ -28,6 +30,110 @@ export interface CaptionSync {
   audioTimeSec?: number;
 }
 
+/**
+ * Put the context into its best text-drawing mode.
+ *
+ * Canvas defaults optimise for speed: `textRendering` is "auto" (which lets
+ * the engine drop hinting and kerning precision as text scales), joins are
+ * mitred, and caps are butt. On outlined caption text that shows up as
+ * ragged corners on every letter and spikes on the diagonals of A, V and W.
+ * Round joins and caps plus geometric precision are what make an outline read
+ * as a smooth border rather than a jagged crust.
+ *
+ * Every property is feature-detected, because `textRendering` and
+ * `letterSpacing` are recent canvas additions and the offline renderer also
+ * runs against a stub context in the test suite.
+ */
+function applyTextQuality(ctx: CanvasRenderingContext2D, letterSpacingEm: number, fontPx: number) {
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.miterLimit = 2;
+  try {
+    (ctx as unknown as { textRendering?: string }).textRendering = "geometricPrecision";
+  } catch {
+    /* older engines ignore it */
+  }
+  try {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+  } catch {
+    /* not every context exposes the quality hint */
+  }
+  // Letter spacing was in the config and on a slider in the studio, but the
+  // renderer never read it, so the control did nothing. It must be set before
+  // any measureText call or the measurements and the drawing disagree and the
+  // words overlap.
+  try {
+    if ("letterSpacing" in ctx) {
+      (ctx as unknown as { letterSpacing: string }).letterSpacing =
+        `${(letterSpacingEm * fontPx).toFixed(2)}px`;
+    }
+  } catch {
+    /* unsupported: the font's own spacing is used */
+  }
+}
+
+/** "#RRGGBB" plus an alpha, as a canvas-ready rgba() string. */
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  if (!Number.isFinite(n)) return `rgba(255, 255, 255, ${alpha})`;
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/**
+ * A vertical chrome ramp across one line of text.
+ *
+ * Built per line, in frame coordinates, so the highlight band always lands on
+ * the middle of the glyph rather than drifting with the caption's position.
+ * The band from 0 to 1 covers the cap height plus a little descender room.
+ */
+function metalGradient(
+  ctx: CanvasRenderingContext2D,
+  metal: MetalFinishDef,
+  centerY: number,
+  fontPx: number
+): CanvasGradient | string {
+  try {
+    const top = centerY - fontPx * 0.58;
+    const bottom = centerY + fontPx * 0.42;
+    const grad = ctx.createLinearGradient(0, top, 0, bottom);
+    for (const stop of metal.stops) grad.addColorStop(stop.at, stop.color);
+    return grad;
+  } catch {
+    // No gradient support (very old context): the flat body colour still reads.
+    return metal.stops[Math.floor(metal.stops.length / 2)]?.color || "#CCCCCC";
+  }
+}
+
+/**
+ * The specular band laid over the active word: transparent top and bottom,
+ * bright across a sliver in the middle. Composited with "lighter" so it adds
+ * light to the surface rather than repainting it.
+ */
+function metalSheen(
+  ctx: CanvasRenderingContext2D,
+  metal: MetalFinishDef,
+  centerY: number,
+  fontPx: number
+): CanvasGradient | null {
+  try {
+    const top = centerY - fontPx * 0.58;
+    const bottom = centerY + fontPx * 0.42;
+    const grad = ctx.createLinearGradient(0, top, 0, bottom);
+    const clear = hexToRgba(metal.highlight, 0);
+    grad.addColorStop(0, clear);
+    grad.addColorStop(0.38, clear);
+    grad.addColorStop(0.47, hexToRgba(metal.highlight, 0.34));
+    grad.addColorStop(0.53, hexToRgba(metal.highlight, 0.34));
+    grad.addColorStop(0.62, clear);
+    grad.addColorStop(1, clear);
+    return grad;
+  } catch {
+    return null;
+  }
+}
+
 export const DEFAULT_CAPTIONS_CONFIG: CaptionsConfig = {
   enabled: true,
   mode: "karaoke",
@@ -47,6 +153,7 @@ export const DEFAULT_CAPTIONS_CONFIG: CaptionsConfig = {
   borderColor: "#000000",
   shadow: true,
   shadowStrength: 0.5,
+  metal: "none",
 };
 
 /**
@@ -90,6 +197,60 @@ export function cleanCaptionText(raw: string): string {
 }
 
 /**
+ * Type size for a caption at a given frame height.
+ *
+ * Exported because the Captions studio needs the exact same numbers to decide
+ * where to point its close-up: a preview that guesses the caption band is a
+ * preview that drifts away from the render the first time either changes.
+ */
+export function captionTypeMetrics(
+  fontSize: CaptionsConfig["fontSize"] | undefined,
+  h: number
+): { fontPx: number; lineSpacingPx: number } {
+  switch (fontSize) {
+    case "small": {
+      const fontPx = Math.max(16, Math.round(h * 0.032));
+      return { fontPx, lineSpacingPx: Math.round(fontPx * 1.35) };
+    }
+    case "large": {
+      const fontPx = Math.max(26, Math.round(h * 0.052));
+      return { fontPx, lineSpacingPx: Math.round(fontPx * 1.38) };
+    }
+    case "medium":
+    default: {
+      const fontPx = Math.max(20, Math.round(h * 0.04));
+      return { fontPx, lineSpacingPx: Math.round(fontPx * 1.36) };
+    }
+  }
+}
+
+/** Y of the FIRST of the two caption lines, for a frame of height `h`. */
+export function captionBlockStartY(
+  position: CaptionsConfig["position"] | undefined,
+  h: number,
+  lineSpacingPx: number
+): number {
+  switch (position) {
+    case "top":
+      return Math.max(32, Math.round(h * 0.12)) + lineSpacingPx / 2;
+    case "center":
+      return Math.round((h - 2 * lineSpacingPx) / 2) + lineSpacingPx / 2;
+    case "bottom":
+    default:
+      // Fixed bottom-anchored baseline so 1-line and 2-line cards align consistently
+      return h - Math.max(42, Math.round(h * 0.1)) - lineSpacingPx;
+  }
+}
+
+/**
+ * The middle of the two-line caption card — what a close-up should centre on.
+ */
+export function captionBandCenterY(config: CaptionsConfig, h: number): number {
+  const { lineSpacingPx } = captionTypeMetrics(config.fontSize, h);
+  return captionBlockStartY(config.position, h, lineSpacingPx) + lineSpacingPx / 2;
+}
+
+/**
  * Shared canvas caption rendering engine.
  * Used by both live VideoPreview and final offline RenderView.
  *
@@ -115,6 +276,10 @@ export function renderCanvasCaptions(
   const fontFamily = captionFontStack(config.fontId || style.fontId);
   const fontWeight = config.fontWeight ?? fontDef.weight;
   const uppercase = config.uppercase ?? style.uppercase;
+  const letterSpacingEm = config.letterSpacing ?? style.letterSpacing ?? 0;
+  // An explicit config choice wins; otherwise the style's own finish applies,
+  // so picking "Gold Chrome" is gold without the studio having to set a flag.
+  const metal = getMetalFinish(config.metal ?? style.metal);
 
   const textToRender = uppercase ? cleaned.toUpperCase() : cleaned;
   const words = textToRender.split(/\s+/).filter(Boolean);
@@ -122,25 +287,7 @@ export function renderCanvasCaptions(
 
   // Reference everything to 720p so caption sizing is identical in preview and render
   const scale = h / 720;
-
-  // Font size calculation based on canvas height
-  let fontPx: number;
-  let lineSpacingPx: number;
-  switch (config.fontSize) {
-    case "small":
-      fontPx = Math.max(16, Math.round(h * 0.032));
-      lineSpacingPx = Math.round(fontPx * 1.35);
-      break;
-    case "large":
-      fontPx = Math.max(26, Math.round(h * 0.052));
-      lineSpacingPx = Math.round(fontPx * 1.38);
-      break;
-    case "medium":
-    default:
-      fontPx = Math.max(20, Math.round(h * 0.04));
-      lineSpacingPx = Math.round(fontPx * 1.36);
-      break;
-  }
+  const { fontPx, lineSpacingPx } = captionTypeMetrics(config.fontSize, h);
 
   // Border and shadow, both scaled to the frame
   const borderWidth = Math.max(0, (config.borderWidth ?? style.borderWidth) * scale);
@@ -153,6 +300,7 @@ export function renderCanvasCaptions(
   ctx.save();
   ctx.font = `${fontWeight} ${fontPx}px ${fontFamily}`;
   ctx.textBaseline = "middle";
+  applyTextQuality(ctx, letterSpacingEm, fontPx);
 
   const spaceWidth = ctx.measureText(" ").width;
 
@@ -269,24 +417,33 @@ export function renderCanvasCaptions(
   const visibleLines = lines.slice(firstVisibleIdx, firstVisibleIdx + 2);
 
   // Calculate vertical position with generous safety margin from canvas borders
-  let startY: number;
-  const totalBlockHeight = 2 * lineSpacingPx;
-  switch (config.position) {
-    case "top":
-      startY = Math.max(32, Math.round(h * 0.12)) + lineSpacingPx / 2;
-      break;
-    case "center":
-      startY = Math.round((h - totalBlockHeight) / 2) + lineSpacingPx / 2;
-      break;
-    case "bottom":
-    default:
-      // Fixed bottom-anchored baseline so 1-line and 2-line cards align consistently
-      startY = h - Math.max(42, Math.round(h * 0.10)) - lineSpacingPx;
-      break;
-  }
+  const startY = captionBlockStartY(config.position, h, lineSpacingPx);
 
-  /** Hairline border + a shadow that falls below the text */
-  const strokeWord = (text: string, x: number, y: number, align: CanvasTextAlign) => {
+  /**
+   * The outline and the shadow the text sits on.
+   *
+   * Two details matter for how smooth the result looks:
+   *
+   * 1. The stroke is drawn at DOUBLE the requested width. `strokeText` centres
+   *    the stroke on the glyph outline, so half of it falls inside the letter
+   *    and eats the shape — thin stems go muddy and the counters of a, e and o
+   *    fill in. Stroking at 2x and then filling on top leaves exactly the
+   *    asked-for width showing on the outside with the glyph intact.
+   * 2. Round joins and caps (set in applyTextQuality) keep the corners of the
+   *    outline smooth instead of throwing mitre spikes off every diagonal.
+   */
+  const strokeWord = (
+    text: string,
+    x: number,
+    y: number,
+    align: CanvasTextAlign,
+    overrideColor?: string
+  ) => {
+    const color = overrideColor || borderColor;
+    // Chrome needs an edge even when the user has dialled the border to zero,
+    // or the bright top of the ramp dissolves into a light background.
+    const width = borderWidth > 0 ? borderWidth : metal ? Math.max(1, 1.2 * scale) : 0;
+    if (width <= 0 && shadowStrength <= 0) return;
     ctx.save();
     ctx.textAlign = align;
     if (shadowStrength > 0) {
@@ -295,35 +452,58 @@ export function renderCanvasCaptions(
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = shadowOffsetY;
     }
-    if (borderWidth > 0) {
+    if (width > 0) {
       ctx.lineJoin = "round";
+      ctx.lineCap = "round";
       ctx.miterLimit = 2;
-      ctx.lineWidth = borderWidth;
-      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = width * 2;
+      ctx.strokeStyle = color;
       ctx.strokeText(text, x, y);
+    } else {
+      // No outline, but the shadow still has to come from somewhere.
+      //
+      // A canvas shadow is cast by whatever is painted, and this pass used to
+      // paint only the stroke — so turning the border down to 0 silently
+      // turned the drop shadow off with it, and the captions lost the one
+      // thing holding them off a busy background. Painting the glyph itself
+      // here casts the shadow; the real fill lands on top of it immediately
+      // after and covers it completely.
+      ctx.fillStyle = color;
+      ctx.fillText(text, x, y);
     }
     ctx.restore();
   };
 
   // Render the max 2 visible lines
   visibleLines.forEach((lineObj, displayIdx) => {
-    const lineY = startY + displayIdx * lineSpacingPx;
+    // Snapped to a whole pixel. A caption baseline on a half pixel is
+    // resampled across two rows of pixels, which is exactly the soft-then-
+    // crunchy edge that reads as "jagged" on a still frame.
+    const lineY = Math.round(startY + displayIdx * lineSpacingPx);
+    // One ramp per line, reused by every word on it, so the chrome is a
+    // single continuous surface rather than each word having its own
+    // highlight band.
+    const metalFill = metal ? metalGradient(ctx, metal, lineY, fontPx) : null;
+    const sheenFill = metal ? metalSheen(ctx, metal, lineY, fontPx) : null;
 
     // Pre-measure word widths to compute exact line layout with ZERO skipped letters
     const wordWidths = lineObj.words.map((wrd) => ctx.measureText(wrd).width);
     const totalWordsWidth = wordWidths.reduce((a, b) => a + b, 0);
     const totalLineWidth = totalWordsWidth + Math.max(0, lineObj.words.length - 1) * spaceWidth;
-    const lineStartX = (w - totalLineWidth) / 2;
+    const lineStartX = Math.round((w - totalLineWidth) / 2);
 
     // 1. Background backdrop (if blocked) — floating on its own shadow
     if (config.backgroundStyle === "blocked") {
       const padX = Math.round(fontPx * 0.65);
       const padY = Math.round(fontPx * 0.35);
       const maxBgW = Math.round(w * 0.88);
-      const bgW = Math.min(totalLineWidth + padX * 2, maxBgW);
-      const bgH = lineSpacingPx + padY;
-      const bgX = (w - bgW) / 2;
-      const bgY = lineY - bgH / 2;
+      // Rounded to whole pixels: a half-pixel rectangle edge is drawn as two
+      // half-lit rows, which reads as a soft grey smear along the top of the
+      // bar rather than a clean edge.
+      const bgW = Math.round(Math.min(totalLineWidth + padX * 2, maxBgW));
+      const bgH = Math.round(lineSpacingPx + padY);
+      const bgX = Math.round((w - bgW) / 2);
+      const bgY = Math.round(lineY - bgH / 2);
 
       ctx.save();
       ctx.fillStyle = config.bgColor || "rgba(0, 0, 0, 0.72)";
@@ -352,37 +532,61 @@ export function renderCanvasCaptions(
         const isAlreadySung = safeProgress >= 1 || globalWrdIdx < activeWordGlobalIndex;
         const curWordWidth = wordWidths[wInLineIdx];
 
+        const wordX = Math.round(currentX);
+
         // Soft shadow below every word
-        strokeWord(wrd, currentX, lineY, "left");
+        strokeWord(wrd, wordX, lineY, "left", metal ? metal.edge : undefined);
 
         ctx.save();
         ctx.textAlign = "left";
 
         if (isCurrentActive) {
-          ctx.fillStyle = config.highlightColor || style.highlightColor;
+          // Chrome keeps its surface on the active word too; flattening it to
+          // one colour made the highlight look like a different typeface.
+          ctx.fillStyle = metalFill ?? (config.highlightColor || style.highlightColor);
           ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
           ctx.shadowBlur = shadowBlur;
           ctx.shadowOffsetY = shadowOffsetY;
         } else if (isAlreadySung) {
-          ctx.fillStyle = config.textColor || style.textColor;
+          ctx.fillStyle = metalFill ?? (config.textColor || style.textColor);
         } else {
           // Upcoming words in soft clean tone for anticipation
-          ctx.fillStyle = "rgba(255, 255, 255, 0.70)";
+          ctx.fillStyle = metalFill ?? "rgba(255, 255, 255, 0.70)";
+          if (metalFill) ctx.globalAlpha = 0.72;
         }
 
-        ctx.fillText(wrd, currentX, lineY);
+        ctx.fillText(wrd, wordX, lineY);
         ctx.restore();
+
+        // The active word catches the light: a narrow bright band across the
+        // turn of the surface, added on top.
+        //
+        // It has to be a GRADIENT, not a flat colour. Painting the whole
+        // glyph in the highlight colour under "lighter" adds that colour to
+        // every pixel and the word goes white — the opposite of metal. The
+        // band is transparent everywhere except a sliver either side of the
+        // midline, so only the part of the surface that would really catch a
+        // light source is brightened.
+        if (metal && isCurrentActive && sheenFill) {
+          ctx.save();
+          ctx.textAlign = "left";
+          ctx.globalCompositeOperation = "lighter";
+          ctx.fillStyle = sheenFill;
+          ctx.fillText(wrd, wordX, lineY);
+          ctx.restore();
+        }
 
         currentX += curWordWidth + spaceWidth;
       });
     } else {
       // In Normal mode, draw the full uniform phrase centered
-      strokeWord(lineObj.text, w / 2, lineY, "center");
+      const centerX = Math.round(w / 2);
+      strokeWord(lineObj.text, centerX, lineY, "center", metal ? metal.edge : undefined);
 
       ctx.save();
       ctx.textAlign = "center";
-      ctx.fillStyle = config.textColor || style.textColor;
-      ctx.fillText(lineObj.text, w / 2, lineY);
+      ctx.fillStyle = metalFill ?? (config.textColor || style.textColor);
+      ctx.fillText(lineObj.text, centerX, lineY);
       ctx.restore();
     }
   });

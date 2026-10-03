@@ -25,7 +25,6 @@ interface VideoStudioProps {
   currentPlayheadTime: number;
   totalDuration?: number;
   onInsertItem: (insert: TimelineInsert) => void;
-  onConfigureItem?: (insert: TimelineInsert) => void;
   customerLogo: CustomerLogoConfig;
   onUpdateCustomerLogo: (updates: Partial<CustomerLogoConfig>) => void;
   aspectRatio?: AspectRatioType;
@@ -44,7 +43,6 @@ export default function VideoStudio({
   currentPlayheadTime,
   totalDuration = 60,
   onInsertItem,
-  onConfigureItem,
   customerLogo,
   onUpdateCustomerLogo,
   aspectRatio,
@@ -92,14 +90,6 @@ export default function VideoStudio({
   const handleAdd = (item: CatalogItem) => {
     const newInsert = createTimelineInsert(item);
     onInsertItem(newInsert);
-  };
-
-  const handleConfigure = (item: CatalogItem) => {
-    const newInsert = createTimelineInsert(item);
-    onInsertItem(newInsert);
-    if (onConfigureItem) {
-      onConfigureItem(newInsert);
-    }
   };
 
   const handleTestSound = (soundUrl: string, itemVolume?: number) => {
@@ -338,7 +328,7 @@ export default function VideoStudio({
                       </span>
                     </div>
                     <p className="text-xs text-gray-300 mt-0.5">
-                      This tab is intentionally filtered to the new professional engine so it does not look like the old visualiser library. Add radial bars, 3D rings, circular waves, pulse rings, spectrum bars, mirrored bars, waveform scopes or particle rings, then open Edit to tune mapping, attack/release, colour and glow.
+                      This tab is intentionally filtered to the new professional engine so it does not look like the old visualiser library. Add radial bars, 3D rings, circular waves, pulse rings, spectrum bars, mirrored bars, waveform scopes or particle rings, then click the block on the timeline and press Edit to tune mapping, attack/release, colour and glow.
                     </p>
                   </div>
                 </div>
@@ -505,11 +495,12 @@ export default function VideoStudio({
                       </div>
 
                       {/* Action Buttons */}
-                      <div className="mt-4 pt-3 border-t border-hairline flex items-center gap-2">
+                      <div className="mt-4 pt-3 border-t border-hairline">
                         <button
                           type="button"
                           onClick={() => handleAdd(item)}
-                          className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-sm ${
+                          title="Add to the timeline — then click it on the timeline to edit it"
+                          className={`w-full px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-sm ${
                             item.category === "intro"
                               ? "bg-amber-600 hover:bg-amber-500 text-white"
                               : item.category === "outro"
@@ -526,14 +517,6 @@ export default function VideoStudio({
                                 : "➕ Add",
                             )}
                           </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleConfigure(item)}
-                          className="t-card-cta-ghost px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-hairline rounded-lg text-xs transition-colors"
-                          title="Customise before placing"
-                        >
-                          <Icon glyph="⚙" /> Edit
                         </button>
                       </div>
                     </div>

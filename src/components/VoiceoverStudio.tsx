@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import StepNav from "./StepNav";
-import type { CustomerLogoConfig, Scene, TimelineInsert } from "../types";
+import type { CaptionsConfig, CustomerLogoConfig, Scene, TimelineInsert } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
 import { setCachedSceneAudio, getSharedAudioContext } from "../lib/tts-cache";
 import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
@@ -16,6 +16,9 @@ import {
   getVoiceEchoPreset,
 } from "../lib/voice-echo";
 import { BackgroundMusicLibrary } from "./VoiceMediaLibrary";
+import CaptionsSwitch from "./CaptionsSwitch";
+import VoiceoverSwitch from "./VoiceoverSwitch";
+import { DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { iconify } from "./icons/Icon";
 import Icon from "./icons/Icon";
 
@@ -35,6 +38,13 @@ interface VoiceoverStudioProps {
   customerLogo: CustomerLogoConfig;
   onInsertItem: (insert: TimelineInsert) => void;
   onConfigureItem?: (insert: TimelineInsert) => void;
+  /** Captions can be switched on and off from here as well as the Captions step. */
+  captionsConfig?: CaptionsConfig;
+  onUpdateCaptionsConfig?: (config: CaptionsConfig) => void;
+  /** Narration on/off for the whole project. Off hides everything to do with
+   *  the spoken track and leaves music, captions and the Studio untouched. */
+  voiceoverEnabled?: boolean;
+  onUpdateVoiceoverEnabled?: (enabled: boolean) => void;
 }
 
 /**
@@ -60,6 +70,10 @@ export default function VoiceoverStudio({
   customerLogo,
   onInsertItem,
   onConfigureItem,
+  captionsConfig,
+  onUpdateCaptionsConfig,
+  voiceoverEnabled = true,
+  onUpdateVoiceoverEnabled,
 }: VoiceoverStudioProps) {
   const [internalSelectedVoice, setInternalSelectedVoice] = useState("guy");
   const selectedVoice = propSelectedVoice || internalSelectedVoice;
@@ -311,7 +325,10 @@ export default function VoiceoverStudio({
 
   const handleProceedNext = async (targetStep: string = "captions") => {
     // If any scene doesn't have an audio_url yet, or voice was changed, complete generation first!
-    const needsGeneration = scenes.some((s) => !s.audio_url || s.voice_id !== selectedVoice);
+    // Unless the project has no narration at all, in which case generating a
+    // voice track nobody will hear is just a long wait on the way to Captions.
+    const needsGeneration =
+      voiceoverEnabled && scenes.some((s) => !s.audio_url || s.voice_id !== selectedVoice);
     if (needsGeneration) {
       await handleGenerateAndSaveAllVoiceovers(selectedVoice);
     }
@@ -423,12 +440,49 @@ export default function VoiceoverStudio({
           current="voiceover"
           onNavigate={onNavigateToStep}
           onNext={() => handleProceedNext("captions")}
-          nextLabel={allScenesHaveSavedAudio ? "Next: Captions" : "Save Voiceovers & Next: Captions"}
+          nextLabel={
+            !voiceoverEnabled
+              ? "Next: Captions"
+              : allScenesHaveSavedAudio
+                ? "Next: Captions"
+                : "Save Voiceovers & Next: Captions"
+          }
           busyLabel={isGeneratingAll ? `Saving voiceovers (${generationProgress?.current || 0}/${scenes.length})…` : undefined}
-          note={allScenesHaveSavedAudio ? "narration saved" : "narration not generated yet"}
+          note={
+            !voiceoverEnabled
+              ? "voiceover off"
+              : allScenesHaveSavedAudio
+                ? "narration saved"
+                : "narration not generated yet"
+          }
         />
       )}
 
+      {/* Narration on/off — the first decision in this step, because with it
+          off everything below about voices is noise. Music and captions stay
+          available either way. */}
+      {onUpdateVoiceoverEnabled && (
+        <VoiceoverSwitch
+          enabled={voiceoverEnabled}
+          onChange={onUpdateVoiceoverEnabled}
+          sceneCount={scenes.length}
+        />
+      )}
+
+      {!voiceoverEnabled && (
+        <div className="rounded-2xl border border-hairline bg-gray-900/70 p-4 text-xs text-gray-300 leading-relaxed">
+          <span className="text-white font-semibold flex items-center gap-1.5 mb-1">
+            <Icon glyph="🔉" /> This video has no narration
+          </span>
+          Nothing is spoken in the preview or the exported file, and each scene runs for as long as
+          its own footage or script says — not for as long as a voice would have taken. Background
+          music, captions and everything in the Video Studio still work normally. Turn the switch
+          back on to pick a narrator.
+        </div>
+      )}
+
+      {voiceoverEnabled && (
+        <>
       {/* Studio Header Banner */}
       <div className="bg-gradient-to-r from-gray-900 via-indigo-950/40 to-gray-900 border border-indigo-900/40 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -596,6 +650,24 @@ export default function VoiceoverStudio({
         </div>
       </div>
 
+        </>
+      )}
+
+      {/* Captions on/off, right here in Voiceover — the same switch as the
+          Captions step, so narration and captions are decided in one place. */}
+      {onUpdateCaptionsConfig && (
+        <CaptionsSwitch
+          compact
+          enabled={captionsConfig?.enabled ?? true}
+          onChange={(next) =>
+            onUpdateCaptionsConfig({ ...(captionsConfig || DEFAULT_CAPTIONS_CONFIG), enabled: next })
+          }
+          sceneCount={scenes.length}
+          mutedSceneCount={scenes.filter((s) => (s.burn_caption ?? true) === false).length}
+          onOpenCaptions={onNavigateToStep ? () => onNavigateToStep("captions") : undefined}
+        />
+      )}
+
       <BackgroundMusicLibrary
         inserts={inserts}
         totalDuration={totalDuration}
@@ -604,6 +676,8 @@ export default function VoiceoverStudio({
         onConfigureItem={onConfigureItem}
       />
 
+      {voiceoverEnabled && (
+        <>
       {/* Voice tools tabs */}
       <div className="flex flex-wrap items-center gap-2 border-b border-hairline pb-3" role="tablist" aria-label="Voiceover sections">
         <button
@@ -1311,6 +1385,8 @@ export default function VoiceoverStudio({
           scenes={scenes}
           selectedVoice={selectedVoice}
         />
+      )}
+        </>
       )}
 
     </div>

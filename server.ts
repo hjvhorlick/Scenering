@@ -1,4 +1,5 @@
 import express from "express";
+import http from "node:http";
 import path from "path";
 import { existsSync } from "node:fs";
 import { createServer as createViteServer } from "vite";
@@ -1348,10 +1349,16 @@ async function startServer() {
     return res.send(item.buffer);
   });
 
+  // One HTTP server for everything. Vite's hot-reload socket is attached to
+  // it below instead of being given a port of its own, so a dev session
+  // behind a single-port proxy (a tunnel, a container preview, a codespace)
+  // reloads like a local one does.
+  const httpServer = http.createServer(app);
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: { server: httpServer } },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -1376,7 +1383,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

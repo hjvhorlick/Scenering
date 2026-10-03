@@ -55,7 +55,7 @@ export const CATALOG_COUNTS = {
   stickers: 34,
   stickerGroups: 5,
   /** src/data/media-library.ts → BACKGROUND_MUSIC_TRACKS / SOUND_LIBRARY */
-  musicTracks: 12,
+  musicTracks: 30,
   soundEffects: 12,
   /** src/lib/video-studio-catalog.ts → CATALOG_ITEMS.audio_visualizers */
   visualisers: 52,

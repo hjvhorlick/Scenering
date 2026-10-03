@@ -20,8 +20,12 @@ import { loadSceneImage } from "../lib/scene-image-loader";
 import { resolveLegacyLocalImage } from "../lib/nature-library-compat";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import { isMaleVoiceIdentifier } from "../lib/tts-player";
-import { formatDuration, sceneTimelineDuration, NARRATION_LEAD_IN_SECONDS } from "../lib/duration-utils";
-import { loadCaptionFonts } from "../data/caption-styles";
+import {
+  formatDuration,
+  narrationLeadIn,
+  sceneTimelineDuration,
+} from "../lib/duration-utils";
+import { loadCaptionFonts, ensureCaptionFont, getCaptionStyle } from "../data/caption-styles";
 import { generateAttributionDocument, getBackgroundMusicTrack, AMBIENT_STYLE_TO_TRACK } from "../data/media-library";
 import { calculateDynamicDuration } from "../lib/duration-utils";
 import { getFilterCanvas, getPreset, type VideoFilterConfig } from "../data/video-filters";
@@ -153,6 +157,8 @@ interface RenderViewProps {
   onBack?: () => void;
   customerLogo?: CustomerLogoConfig;
   captionsConfig?: CaptionsConfig;
+  /** Project-wide narration switch. Off renders a video with no spoken track. */
+  voiceoverEnabled?: boolean;
   onUpdateCaptionsConfig?: (config: CaptionsConfig) => void;
   renderedBlob?: Blob | null;
   renderedUrl?: string | null;
@@ -201,7 +207,7 @@ function SummaryRow({
   );
 }
 
-export function generateSrtSubtitles(scenes: Scene[]): string {
+export function generateSrtSubtitles(scenes: Scene[], voiceoverEnabled: boolean = true): string {
   const pad = (n: number, z = 2) => String(Math.floor(n)).padStart(z, "0");
   const formatSrtTime = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
@@ -213,7 +219,8 @@ export function generateSrtSubtitles(scenes: Scene[]): string {
 
   // The video opens with the first image held for the narration lead-in
   // before the first words are spoken, so the subtitle clock starts there.
-  let acc = NARRATION_LEAD_IN_SECONDS;
+  // With no narration there is no hold, and the first caption starts at zero.
+  let acc = narrationLeadIn(false, voiceoverEnabled);
   return scenes
     .filter(sceneHasVisual)
     .map((s, i) => {
@@ -238,6 +245,7 @@ export default function RenderView({
   onBack,
   customerLogo,
   captionsConfig,
+  voiceoverEnabled = true,
   onUpdateCaptionsConfig,
   renderedBlob: propRenderedBlob,
   renderedUrl: propRenderedUrl,
@@ -518,7 +526,7 @@ export default function RenderView({
         ctx.restore();
       }
 
-      if (settings.includeSubtitles && first.text) {
+      if (settings.includeSubtitles && (first.burn_caption ?? true) && first.text) {
         try {
           renderCanvasCaptions(
             ctx,
@@ -544,7 +552,11 @@ export default function RenderView({
       rafId = requestAnimationFrame(tick);
     };
 
-    void loadCaptionFonts().then(() => {
+    void loadCaptionFonts()
+      .then(() =>
+        ensureCaptionFont(captionsConfig?.fontId || getCaptionStyle(captionsConfig?.preset).fontId)
+      )
+      .then(() => {
       if (cancelled) return;
       // Load through the shared loader: a failed photo shows the gradient
       // card exactly like the preview, never a black canvas.
@@ -757,8 +769,15 @@ export default function RenderView({
       releaseWakeLock = await holdRenderWakeLock((wakeLock) => {
         setRenderHealth((health) => ({ ...health, wakeLock }));
       });
-      // Make sure the caption faces are ready before the first frame is captured
+      // Make sure the caption faces are ready before the first frame is
+      // captured. The specific face has to be requested by name: canvas text
+      // does not pull a web font in the way DOM text does, so without this
+      // the export would burn in the fallback typeface even though the
+      // preview showed the real one.
       await loadCaptionFonts();
+      await ensureCaptionFont(
+        captionsConfig?.fontId || getCaptionStyle(captionsConfig?.preset).fontId
+      );
 
       // 1. Synthesizing audio & sound effects
       reportStage("1/4: Synthesizing narration voices & sound effects...");
@@ -771,7 +790,11 @@ export default function RenderView({
       }
 
       const audioBuffers = new Map<number, { buffer: AudioBuffer; duration: number; words?: WordTiming[] }>();
-      for (let i = 0; i < scenesWithImages.length; i++) {
+      // A project with the voiceover switched off has no spoken track to
+      // resolve, synthesise or schedule. Leaving this map empty is what makes
+      // every later stage — scene lengths, the audio graph, the caption
+      // clock — fall back to the footage and the script instead of a voice.
+      for (let i = 0; voiceoverEnabled && i < scenesWithImages.length; i++) {
         if (abortControllerRef.current) throw new Error("Render cancelled");
         const s = scenesWithImages[i];
         const sceneVoice = s.voice_id || selectedVoice;
@@ -872,23 +895,27 @@ export default function RenderView({
       // spoken — the narration used to begin ~0.1s in, too soon to take in
       // the opening. An enabled intro section is its own opening, so the
       // lead-in only applies without one.
-      const narrationLeadIn = introSec ? 0 : NARRATION_LEAD_IN_SECONDS;
+      const leadIn = narrationLeadIn(Boolean(introSec), voiceoverEnabled);
 
       let timelineOffset = introDuration;
       const sceneSchedule = scenesWithImages.map((s, idx) => {
         const item = audioBuffers.get(s.id);
-        const speechDur =
-          item && item.duration > 0.3
+        const sceneLength = sceneTimelineDuration(s, item ? item.duration : undefined);
+        const speechDur = !voiceoverEnabled
+          ? // Nothing is spoken, so the "speech" simply spans the scene. Any
+            // other value would drift the captions away from the picture.
+            sceneLength
+          : item && item.duration > 0.3
             ? item.duration
             : calculateDynamicDuration(s.text, s.audio_duration);
         // The exact same scene-length formula the live preview uses
         // (src/lib/duration-utils.ts → sceneTimelineDuration): one number for
         // both, so the cut, the audio start and the caption flip all land on
         // the same moment in the preview and in the exported file.
-        const sceneDur = sceneTimelineDuration(s, item ? item.duration : undefined);
+        const sceneDur = sceneLength;
         // The first scene's window includes the lead-in; its narration (and
         // captions) begin speechOffset seconds into that window.
-        const speechOffset = idx === 0 ? narrationLeadIn : 0;
+        const speechOffset = idx === 0 ? leadIn : 0;
         const windowDur = sceneDur + speechOffset;
         const entry = {
           scene: s,
@@ -1393,7 +1420,14 @@ export default function RenderView({
         // --- Subtitle & Caption Rendering (Speech Synchronized) ---
         // Held back through the opening lead-in so the captions appear
         // exactly when the voice starts speaking.
-        if (settings.includeSubtitles && currentScene.text && elapsedInScene >= activeEntry.speechOffset) {
+        // A scene switched off in the Captions step is skipped here too, so the
+        // exported file matches what the preview showed.
+        if (
+          settings.includeSubtitles &&
+          (currentScene.burn_caption ?? true) &&
+          currentScene.text &&
+          elapsedInScene >= activeEntry.speechOffset
+        ) {
           try {
             const activeCaptionsConfig: CaptionsConfig = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
 
@@ -2403,12 +2437,25 @@ export default function RenderView({
       usedGraphics.add(STICKER_LIBRARY.find((st) => st.id === stickerId)?.name || ins.title);
     }
 
+    // The bed chosen in the Voiceover step is the music that is actually in
+    // the finished file, so that is what the credits document has to name.
+    // Most of the library is Creative Commons BY, where crediting the track is
+    // a condition of the licence — leaving it out of the document would leave
+    // the creator publishing without the attribution they owe.
+    let timelineMusicUrl: string | undefined;
+    for (const ins of inserts) {
+      if (ins.category === "background_music" && ins.audioSettings?.soundUrl) {
+        timelineMusicUrl = ins.audioSettings.soundUrl;
+      }
+    }
+
     return generateAttributionDocument({
       projectTitle: project?.title || "My Video Project",
       soundsUsed: soundUrlsUsed,
-      includeBackgroundMusic: settings.backgroundMusic !== "none",
+      includeBackgroundMusic: Boolean(timelineMusicUrl) || settings.backgroundMusic !== "none",
       // report the REAL track used for the chosen style in the credits doc
-      musicType: AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic] || settings.backgroundMusic,
+      musicType:
+        timelineMusicUrl || AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic] || settings.backgroundMusic,
       imageSources: [...usedImageSources],
       graphicsUsed: [...usedGraphics],
       voiceName: voiceDisplay,

@@ -971,7 +971,7 @@ for (const v of speechVisualisers) {
   const mediaLibrary = read("src/components/VoiceMediaLibrary.tsx");
   const videoStudio = read("src/components/VideoStudio.tsx");
 
-  h.eq(CATALOG_ITEMS.background_music.length, 12, "all 12 background tracks remain in the catalogue");
+  h.eq(CATALOG_ITEMS.background_music.length, 30, "all 30 background tracks remain in the catalogue");
   h.ok(
     STUDIO_CATEGORIES.some(({ id }) => id === "audio_visualizers") &&
       STUDIO_CATEGORIES.some(({ id }) => id === "background_music"),
@@ -988,8 +988,10 @@ for (const v of speechVisualisers) {
       mediaLibrary.includes("CATALOG_ITEMS.background_music"),
     "Voiceover reads only background music from the shared media catalogue"
   );
+  // Thirty tracks are filtered before they are sliced, so the collapsed view is
+  // one row of whatever the mood filter and search box currently match.
   h.ok(
-    mediaLibrary.includes("items.slice(0, COLLAPSED_ROW_SIZE)") &&
+    mediaLibrary.includes("filtered.slice(0, COLLAPSED_ROW_SIZE)") &&
       mediaLibrary.includes("Show all ${total}") &&
       mediaLibrary.includes('expanded ? "Hide"') &&
       !mediaLibrary.includes("LibraryFooter"),

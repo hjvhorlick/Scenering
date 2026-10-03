@@ -500,5 +500,13 @@ export interface CaptionsConfig {
   shadowStrength?: number;
   shadowOffset?: number;
   shadowBlur?: number;
+  /* ---------- Metallic finish ---------- */
+  /**
+   * Chrome fill for the letters. "none" (or absent) uses the flat textColor;
+   * "gold"/"silver" paint a vertical metal ramp instead. Absent means "take
+   * whatever the chosen style declares", so the metallic presets work without
+   * anything else being set.
+   */
+  metal?: "none" | "gold" | "silver";
 }
 

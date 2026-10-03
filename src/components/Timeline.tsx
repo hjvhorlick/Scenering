@@ -1,6 +1,19 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Scene, TimelineInsert } from "../types";
 import { calculateDynamicDuration } from "../lib/duration-utils";
+import {
+  IDEAL_ROW_H_COMPACT,
+  IDEAL_ROW_H_EXPANDED,
+  MAX_LANE_H_COMPACT,
+  MAX_LANE_H_EXPANDED,
+  MIN_ROW_H,
+  ROW_GAP,
+  ROW_LABEL_MIN_H,
+  laneMetrics,
+  packLane,
+  type LaneMetrics,
+  type LanePacking,
+} from "../lib/timeline-stacking";
 import Icon, { iconify } from "./icons/Icon";
 
 interface TimelineProps {
@@ -413,12 +426,40 @@ export default function Timeline({
   const visualInserts = overlayInserts.filter((ins) => !SOUND_CATEGORIES.has(ins.category));
   const soundInserts = overlayInserts.filter((ins) => SOUND_CATEGORIES.has(ins.category));
 
-  /* ---------------- shared effect-block renderer ---------------- */
-  const renderEffectBlock = (item: TimelineInsert, compact: boolean) => {
+  /* ---------------- stacking: nothing hides behind anything ---------------- */
+  const blockGeometry = (item: TimelineInsert) => {
     const clampedStart = Math.max(0, Math.min(item.startTime, safeTotalDuration - 0.2));
     const clampedDuration = Math.max(0.2, Math.min(item.duration, safeTotalDuration - clampedStart));
-    const left = timeToPx(clampedStart);
-    const width = Math.max(26, clampedDuration * pxPerSec);
+    return {
+      left: timeToPx(clampedStart),
+      width: Math.max(26, clampedDuration * pxPerSec),
+      clampedStart,
+      clampedDuration,
+    };
+  };
+
+  const overlayPack = packLane(overlayInserts, blockGeometry);
+  const visualPack = packLane(visualInserts, blockGeometry);
+  const soundPack = packLane(soundInserts, blockGeometry);
+
+  const overlayLane = laneMetrics(overlayPack.rows, OVERLAY_H, IDEAL_ROW_H_COMPACT, MAX_LANE_H_COMPACT);
+  const visualLane = laneMetrics(visualPack.rows, LANE_H, IDEAL_ROW_H_EXPANDED, MAX_LANE_H_EXPANDED);
+  const soundLane = laneMetrics(soundPack.rows, LANE_H, IDEAL_ROW_H_EXPANDED, MAX_LANE_H_EXPANDED);
+
+  /* ---------------- shared effect-block renderer ---------------- */
+  const renderEffectBlock = (
+    item: TimelineInsert,
+    compact: boolean,
+    pack: LanePacking,
+    lane: LaneMetrics
+  ) => {
+    const { clampedStart, clampedDuration, left, width } = blockGeometry(item);
+    const row = pack.placement.get(item.id) ?? 0;
+    const stacked = pack.rows > 1;
+    // One row keeps the old centred look; stacked rows sit on their own line.
+    const rowTop = stacked ? ROW_GAP + row * lane.rowH : 0;
+    const rowHeight = stacked ? Math.max(MIN_ROW_H, lane.rowH - ROW_GAP) : compact ? 24 : 28;
+    const showLabel = rowHeight >= ROW_LABEL_MIN_H;
     const isActive = currentTime >= clampedStart && currentTime <= clampedStart + clampedDuration;
     const isSelected = selectedInsertId === item.id;
     const isDragging = draggingId === item.id;
@@ -439,8 +480,16 @@ export default function Timeline({
           e.stopPropagation();
           if (!suppressClickRef.current) onEditInsertDetails?.(item);
         }}
-        style={{ left, width, touchAction: "none" }}
-        className={`absolute top-1/2 -translate-y-1/2 ${compact ? "h-6" : "h-7"} rounded-md border text-[10px] font-medium flex items-center px-0 shadow group/blk select-none ${badgeColor} ${
+        style={
+          stacked
+            ? { left, width, top: rowTop, height: rowHeight, touchAction: "none" }
+            : { left, width, height: rowHeight, touchAction: "none" }
+        }
+        className={`absolute ${
+          stacked ? "" : "top-1/2 -translate-y-1/2"
+        } rounded-md border ${
+          rowHeight < 15 ? "text-[8px] leading-none" : "text-[10px]"
+        } font-medium flex items-center overflow-hidden px-0 shadow group/blk select-none ${badgeColor} ${
           editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
         } ${
           isDragging
@@ -454,7 +503,7 @@ export default function Timeline({
         title={`${item.title} (${clampedStart.toFixed(1)}s – ${(clampedStart + clampedDuration).toFixed(1)}s)\nDrag to move · drag the edge grips to stretch · double-click to edit`}
       >
         {/* left stretch grip */}
-        {editable && (
+        {editable && rowHeight >= 14 && (
           <div
             onPointerDown={(e) => beginDrag(e, item, "start")}
             className="h-full w-2.5 flex-shrink-0 cursor-ew-resize flex items-center justify-center rounded-l-md hover:bg-white/25"
@@ -467,11 +516,11 @@ export default function Timeline({
 
         <span className="flex items-center gap-1 min-w-0 flex-1 px-0.5 pointer-events-none">
           <span className="t-ico flex-shrink-0">{icon}</span>
-          {width > 46 && <span className="truncate">{iconify(item.title)}</span>}
+          {width > 46 && showLabel && <span className="truncate">{iconify(item.title)}</span>}
         </span>
 
         {/* quick actions — visible on hover or when selected */}
-        {!isDragging && (
+        {!isDragging && rowHeight >= 16 && (
           <div
             className={`flex items-center gap-0.5 flex-shrink-0 pr-0.5 ${isSelected ? "" : "hidden group-hover/blk:flex"}`}
           >
@@ -505,7 +554,7 @@ export default function Timeline({
         )}
 
         {/* right stretch grip */}
-        {editable && (
+        {editable && rowHeight >= 14 && (
           <div
             onPointerDown={(e) => beginDrag(e, item, "end")}
             className="h-full w-2.5 flex-shrink-0 cursor-ew-resize flex items-center justify-center rounded-r-md hover:bg-white/25 ml-auto"
@@ -537,10 +586,10 @@ export default function Timeline({
   const scenesTop = rulerTop + RULER_H;
   const overlayTop = scenesTop + scenesHeight;
   const visualTop = overlayTop;
-  const soundTop = visualTop + LANE_H;
+  const soundTop = visualTop + visualLane.height;
   const tracksHeight = expanded
-    ? soundTop + LANE_H
-    : overlayTop + OVERLAY_H;
+    ? soundTop + soundLane.height
+    : overlayTop + overlayLane.height;
 
   const playheadX = timeToPx(Math.max(0, Math.min(safeTotalDuration, currentTime)));
 
@@ -797,10 +846,10 @@ export default function Timeline({
               {!expanded && (
                 <div
                   className="absolute inset-x-0"
-                  style={{ top: overlayTop, height: OVERLAY_H }}
+                  style={{ top: overlayTop, height: overlayLane.height }}
                   onPointerDown={startScrub}
                 >
-                  {overlayInserts.map((item) => renderEffectBlock(item, true))}
+                  {overlayInserts.map((item) => renderEffectBlock(item, true, overlayPack, overlayLane))}
                 </div>
               )}
 
@@ -808,7 +857,7 @@ export default function Timeline({
               {expanded && (
                 <div
                   className="absolute inset-x-0 border-b border-hairline bg-gray-900/20"
-                  style={{ top: visualTop, height: LANE_H }}
+                  style={{ top: visualTop, height: visualLane.height }}
                   onPointerDown={startScrub}
                 >
                   {visualInserts.length === 0 && (
@@ -816,7 +865,7 @@ export default function Timeline({
                       No visual effects yet — add stickers, text, visualisers…
                     </div>
                   )}
-                  {visualInserts.map((item) => renderEffectBlock(item, false))}
+                  {visualInserts.map((item) => renderEffectBlock(item, false, visualPack, visualLane))}
                 </div>
               )}
 
@@ -824,7 +873,7 @@ export default function Timeline({
               {expanded && (
                 <div
                   className="absolute inset-x-0 bg-teal-950/10"
-                  style={{ top: soundTop, height: LANE_H }}
+                  style={{ top: soundTop, height: soundLane.height }}
                   onPointerDown={startScrub}
                 >
                   {soundInserts.length === 0 && (
@@ -832,7 +881,7 @@ export default function Timeline({
                       No sounds yet — add music or sound effects…
                     </div>
                   )}
-                  {soundInserts.map((item) => renderEffectBlock(item, false))}
+                  {soundInserts.map((item) => renderEffectBlock(item, false, soundPack, soundLane))}
                 </div>
               )}
 
@@ -867,7 +916,7 @@ export default function Timeline({
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-400">
         <div>
           {selectedInsert ? (
-            <div className="flex flex-wrap items-center gap-2 bg-indigo-950/60 border border-indigo-700/60 px-2.5 py-1 rounded-lg">
+            <div className="flex flex-wrap items-center gap-2 bg-indigo-950/60 border border-indigo-700/60 pl-2.5 pr-1.5 py-1.5 rounded-lg">
               <span className="text-yellow-400 font-semibold flex items-center gap-1">
                 <Icon glyph={CATEGORY_ICON[selectedInsert.category] || "🎬"} />
                 Selected: {selectedInsert.title}
@@ -879,28 +928,32 @@ export default function Timeline({
                 <button
                   type="button"
                   onClick={() => onEditInsertDetails(selectedInsert)}
-                  className="t-card-cta-ghost px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-yellow-300 text-[10px] font-medium border border-hairline ml-1"
+                  title={`Edit ${selectedInsert.title} — timing, style and options`}
+                  className="t-card-cta ml-0.5 px-3.5 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-300 active:bg-yellow-500 text-gray-900 text-xs font-extrabold border border-yellow-200 shadow-lg shadow-yellow-500/30 ring-2 ring-yellow-400/40 hover:ring-yellow-300/70 hover:scale-[1.03] transition-all flex items-center gap-1.5"
                 >
-                  <Icon glyph="✏" /> Edit
+                  <Icon glyph="✏" /> Edit this effect
                 </button>
               )}
               <button
                 type="button"
                 onClick={() => onDeleteInsert(selectedInsert.id)}
-                className="px-2 py-0.5 rounded bg-red-950 hover:bg-red-800 text-red-200 text-[10px] font-medium border border-red-700/70"
+                title={`Remove ${selectedInsert.title} from the timeline`}
+                className="px-2.5 py-1.5 rounded-lg bg-red-950 hover:bg-red-800 text-red-200 text-[11px] font-semibold border border-red-700/70 transition-colors"
               >
-                <Icon glyph="🗑" /> Delete Effect
+                <Icon glyph="🗑" /> Delete
               </button>
             </div>
           ) : inserts.length === 0 ? (
             <span className="text-gray-500">
-              No inserts yet. Pick an effect from Video Studio below to place it at the red playhead line!
+              No inserts yet. Add an effect from Video Studio below — it lands at the red playhead line, then
+              its <span className="text-yellow-400 font-semibold">Edit</span> button appears right here.
             </span>
           ) : (
             <span className="text-gray-400">
               {overlayInserts.length} effect{overlayInserts.length === 1 ? "" : "s"} on the timeline
               {expanded ? ` · ${visualInserts.length} visual · ${soundInserts.length} sound` : ""}.
-              Drag to move, pull the edge grips to stretch, click a scene to edit it.
+              <span className="text-gray-300"> Click any block to select it and its Edit button shows up here.</span>
+              {" "}Drag to move, pull the edge grips to stretch.
             </span>
           )}
         </div>

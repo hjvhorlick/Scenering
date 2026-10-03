@@ -3,17 +3,24 @@ import StepNav from "./StepNav";
 import type { Scene, CaptionsConfig } from "../types";
 import { generateSrtSubtitles } from "./RenderView";
 import { formatDuration } from "../lib/duration-utils";
-import { renderCanvasCaptions } from "../lib/render-captions";
+import { renderCanvasCaptions, captionBandCenterY } from "../lib/render-captions";
 import {
   CAPTION_FONTS,
   CAPTION_STYLES,
+  CAPTION_STYLE_ORDER,
+  METAL_FINISHES,
   captionFontStack,
   getCaptionFont,
   getCaptionStyle,
+  getMetalFinish,
   loadCaptionFonts,
+  ensureCaptionFont,
   resolveCaptionStyleId,
+  type CaptionStyleCategory,
   type CaptionStyleDef,
+  type MetalFinish,
 } from "../data/caption-styles";
+import CaptionsSwitch from "./CaptionsSwitch";
 import Icon, { iconify } from "./icons/Icon";
 
 interface CaptionsStudioProps {
@@ -23,6 +30,8 @@ interface CaptionsStudioProps {
   onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
   onApplyStyleToAll: (burn: boolean) => void;
   onNavigateToStep?: (step: any) => void;
+  /** Narration off means no opening hold, so the exported SRT starts at zero. */
+  voiceoverEnabled?: boolean;
 }
 
 export type CaptionPresetType = string;
@@ -34,6 +43,7 @@ export default function CaptionsStudio({
   onUpdateScene,
   onApplyStyleToAll,
   onNavigateToStep,
+  voiceoverEnabled = true,
 }: CaptionsStudioProps) {
   const [mode, setMode] = useState<"karaoke" | "normal">(captionsConfig?.mode || "karaoke");
   const [backgroundStyle, setBackgroundStyle] = useState<"transparent" | "blocked">(
@@ -58,10 +68,17 @@ export default function CaptionsStudio({
   );
 
   // Web fonts must be in before the canvas draws them; loads once, then repaints.
+  //
+  // Canvas never triggers a font download by itself, so the face currently on
+  // the preview is requested explicitly and the canvas repainted when it
+  // lands. `ok` is false when the face could not be fetched at all, which is
+  // worth saying out loud: silently falling back to Georgia is how a shelf of
+  // sixty distinct typefaces ends up looking like three.
   const [fontsReady, setFontsReady] = useState(0);
+  const [faceMissing, setFaceMissing] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    loadCaptionFonts().then(() => {
+    void loadCaptionFonts().then(() => {
       if (!cancelled) setFontsReady((n) => n + 1);
     });
     return () => {
@@ -84,6 +101,14 @@ export default function CaptionsStudio({
   const [customHighlightColor, setCustomHighlightColor] = useState(
     captionsConfig?.highlightColor || "#38BDF8"
   );
+  /** Chrome fill. Any style can be given one, not just the metallic presets. */
+  const [metal, setMetal] = useState<MetalFinish>(
+    captionsConfig?.metal ?? getCaptionStyle(captionsConfig?.preset).metal ?? "none"
+  );
+  /** Magnification of the close-up preview. */
+  const [zoom, setZoom] = useState(3);
+  /** Which shelf of the style catalogue is on screen. */
+  const [styleFilter, setStyleFilter] = useState<CaptionStyleCategory | "All">("All");
 
   /**
    * Single source of truth for the caption look. Both the live preview below and
@@ -110,6 +135,7 @@ export default function CaptionsStudio({
     shadowStrength,
     shadowOffset: activeStyle.shadowOffset,
     shadowBlur: activeStyle.shadowBlur,
+    metal,
     ...partial,
   });
 
@@ -118,9 +144,14 @@ export default function CaptionsStudio({
   };
 
   const captionPreviewRef = useRef<HTMLCanvasElement | null>(null);
+  /** The close-up: the same frame, magnified, so letter edges can be judged. */
+  const captionZoomRef = useRef<HTMLCanvasElement | null>(null);
 
   const activeStyle: CaptionStyleDef = getCaptionStyle(selectedPreset);
   const activeFont = getCaptionFont(fontId || activeStyle.fontId);
+  const metalFinish = getMetalFinish(metal);
+  const visibleStyles =
+    styleFilter === "All" ? CAPTION_STYLES : CAPTION_STYLES.filter((s) => s.category === styleFilter);
 
   /** Selecting a style applies its whole recipe (font, case, colours, border, shadow) */
   const handleSelectPreset = (style: CaptionStyleDef) => {
@@ -135,7 +166,12 @@ export default function CaptionsStudio({
     setShadowStrength(style.shadowStrength);
     setLetterSpacing(style.letterSpacing);
     setBackgroundStyle(style.background);
+    // A style's finish is part of its recipe: picking Gold Chrome turns the
+    // chrome on, and picking a flat style afterwards turns it off again
+    // rather than leaving gold stuck on a typewriter face.
+    setMetal(style.metal ?? "none");
     emitConfigUpdate({
+      metal: style.metal ?? "none",
       preset: style.id,
       fontId: style.fontId,
       textColor: style.textColor,
@@ -163,6 +199,15 @@ export default function CaptionsStudio({
     emitConfigUpdate({ backgroundStyle: newBg });
   };
 
+  /** Scenes switched off one at a time, which the master switch reports. */
+  const mutedSceneCount = scenes.filter((s) => (s.burn_caption ?? true) === false).length;
+
+  const turnOnEveryScene = () => {
+    scenes.forEach((s) => {
+      if ((s.burn_caption ?? true) === false) onUpdateScene(s.id, { burn_caption: true });
+    });
+  };
+
   const handleApplyToAllScenes = () => {
     scenes.forEach((s) => {
       onUpdateScene(s.id, { burn_caption: burnCaptionsGlobal });
@@ -172,7 +217,7 @@ export default function CaptionsStudio({
   };
 
   const handleDownloadSrt = () => {
-    const srt = generateSrtSubtitles(scenes);
+    const srt = generateSrtSubtitles(scenes, voiceoverEnabled);
     const blob = new Blob([srt], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -187,34 +232,123 @@ export default function CaptionsStudio({
   const sampleSceneText =
     scenes[0]?.text || "Create stunning short-form videos with automatic animated subtitles.";
 
-  // The preview canvas runs the very same renderer the video uses, so the caption
-  // you see here is the caption that gets burned in - no approximations.
-  useEffect(() => {
-    const canvas = captionPreviewRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const w = canvas.width;
-    const h = canvas.height;
+  /**
+   * The logical frame both previews describe. Everything is drawn in these
+   * coordinates and then transformed onto whatever pixels the canvas has, so
+   * the two previews are the same frame seen from different distances.
+   */
+  const FRAME_W = 1280;
+  const FRAME_H = 720;
 
-    // Neutral 16:9 stage so the caption, its border and its shadow are readable
-    const grad = ctx.createLinearGradient(0, 0, w, h);
+  /** The neutral stage the captions are judged against, in frame coordinates. */
+  const paintBackdrop = (ctx: CanvasRenderingContext2D) => {
+    const grad = ctx.createLinearGradient(0, 0, FRAME_W, FRAME_H);
     grad.addColorStop(0, "#243044");
     grad.addColorStop(0.55, "#3c3a46");
     grad.addColorStop(1, "#11141c");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, FRAME_W, FRAME_H);
     ctx.globalAlpha = 0.16;
     ctx.fillStyle = "#e6ecff";
     const step = 96;
-    for (let row = 0; row < h / step; row++) {
-      for (let col = 0; col < w / step; col++) {
+    for (let row = 0; row < FRAME_H / step; row++) {
+      for (let col = 0; col < FRAME_W / step; col++) {
         ctx.fillRect(col * step + 24, row * step + 20, 54, 9);
       }
     }
     ctx.globalAlpha = 1;
+  };
 
-    renderCanvasCaptions(ctx, sampleSceneText, 0.5, buildConfig(), w, h);
+  /**
+   * Give a canvas a backing store that matches the pixels it actually
+   * occupies on this screen, and return the drawing context.
+   *
+   * This is the whole reason the captions looked jagged in the studio. The
+   * canvas was a fixed 1280x720 bitmap squeezed into a ~460px box, so every
+   * glyph was rendered at full size and then resampled down by the browser —
+   * a 0.36x downscale, which chews the thin parts of letters and the outline
+   * into a crunchy mess no matter how well the renderer drew them. Sizing the
+   * bitmap to the real display size (times the device pixel ratio) means the
+   * text is rasterised once, at the size it is shown, with no resampling at
+   * all. The frame coordinates stay 1280x720 via the transform, so the render
+   * is still pixel-for-pixel the same composition as the exported video.
+   */
+  const prepareCanvas = (canvas: HTMLCanvasElement): CanvasRenderingContext2D | null => {
+    const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+    const rect = canvas.getBoundingClientRect();
+    const cssW = Math.max(1, Math.round(rect.width));
+    const cssH = Math.max(1, Math.round(rect.height));
+    const pxW = Math.round(cssW * dpr);
+    const pxH = Math.round(cssH * dpr);
+    if (canvas.width !== pxW || canvas.height !== pxH) {
+      canvas.width = pxW;
+      canvas.height = pxH;
+    }
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) return null;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, pxW, pxH);
+    return ctx;
+  };
+
+  // The preview canvases run the very same renderer the video uses, so the
+  // caption you see here is the caption that gets burned in - no
+  // approximations.
+  const [previewTick, setPreviewTick] = useState(0);
+
+  // Fetch the face the preview is about to draw with, then repaint.
+  const previewFontId = fontId || activeStyle.fontId;
+  useEffect(() => {
+    let cancelled = false;
+    setFaceMissing(false);
+    void ensureCaptionFont(previewFontId).then((ok) => {
+      if (cancelled) return;
+      setFaceMissing(!ok);
+      setFontsReady((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewFontId]);
+
+  useEffect(() => {
+    const config = buildConfig();
+
+    // ---------------------------------------------------- full frame
+    const canvas = captionPreviewRef.current;
+    if (canvas) {
+      const ctx = prepareCanvas(canvas);
+      if (ctx) {
+        const k = canvas.width / FRAME_W;
+        ctx.setTransform(k, 0, 0, k, 0, 0);
+        paintBackdrop(ctx);
+        renderCanvasCaptions(ctx, sampleSceneText, 0.5, config, FRAME_W, FRAME_H);
+      }
+    }
+
+    // ---------------------------------------------------- close-up
+    // Not a magnified screenshot of the canvas above: the renderer is run a
+    // second time through a zoom transform, so the glyphs are rasterised at
+    // the magnified size. Blowing up the first canvas would show enlarged
+    // pixels, which is the opposite of what a detail view is for.
+    const zoomCanvas = captionZoomRef.current;
+    if (zoomCanvas) {
+      const ctx = prepareCanvas(zoomCanvas);
+      if (ctx) {
+        const viewW = zoomCanvas.width;
+        const viewH = zoomCanvas.height;
+        const regionH = FRAME_H / zoom;
+        const regionW = regionH * (viewW / viewH);
+        const bandY = captionBandCenterY(config, FRAME_H);
+        // Clamp so the window never runs off the frame and shows dead space.
+        const originX = Math.max(0, Math.min(FRAME_W - regionW, (FRAME_W - regionW) / 2));
+        const originY = Math.max(0, Math.min(Math.max(0, FRAME_H - regionH), bandY - regionH / 2));
+        const k = viewW / regionW;
+        ctx.setTransform(k, 0, 0, k, -originX * k, -originY * k);
+        paintBackdrop(ctx);
+        renderCanvasCaptions(ctx, sampleSceneText, 0.5, config, FRAME_W, FRAME_H);
+      }
+    }
   }, [
     sampleSceneText,
     mode,
@@ -233,7 +367,20 @@ export default function CaptionsStudio({
     fontId,
     burnCaptionsGlobal,
     fontsReady,
+    metal,
+    zoom,
+    previewTick,
   ]);
+
+  // Repaint when the canvases change size, or a window resize leaves the
+  // backing store at the wrong resolution and the jaggedness comes back.
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setPreviewTick((n) => n + 1));
+    if (captionPreviewRef.current) ro.observe(captionPreviewRef.current);
+    if (captionZoomRef.current) ro.observe(captionZoomRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   return (
     <div className="max-w-5xl 2xl:max-w-7xl mx-auto w-full space-y-3 sm:space-y-6 animate-fade-in p-1.5 sm:p-0">
@@ -277,35 +424,26 @@ export default function CaptionsStudio({
           </div>
         </div>
 
-        {/* Global Master Burn-In Switch */}
-        <div className="mt-4 pt-4 border-t border-hairline flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-900/60 p-3 rounded-xl border border-hairline">
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="masterBurnToggle"
-              checked={burnCaptionsGlobal}
-              onChange={(e) => {
-                setBurnCaptionsGlobal(e.target.checked);
-                emitConfigUpdate({ enabled: e.target.checked });
-              }}
-              className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-gray-800 border-hairline cursor-pointer"
-            />
-            <label htmlFor="masterBurnToggle" className="cursor-pointer">
-              <span className="text-xs font-bold text-white block">
-                Burn Animated Captions into Video Frames
-              </span>
-              <span className="text-[11px] text-gray-400">
-                When enabled, captions are baked directly onto the output MP4/WebM video stream.
-              </span>
-            </label>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-gray-400">Total Scenes:</span>
-            <span className="px-2 py-0.5 rounded bg-purple-950/80 border border-purple-800 text-purple-300 text-xs font-bold">
-              {scenes.length} Captions
-            </span>
-          </div>
+        {/* The captions on/off switch. Takes effect the moment it is clicked. */}
+        <div className="mt-4 pt-4 border-t border-hairline">
+          <CaptionsSwitch
+            enabled={burnCaptionsGlobal}
+            onChange={(next) => {
+              setBurnCaptionsGlobal(next);
+              emitConfigUpdate({ enabled: next });
+            }}
+            sceneCount={scenes.length}
+            mutedSceneCount={mutedSceneCount}
+          />
+          {burnCaptionsGlobal && mutedSceneCount > 0 && (
+            <button
+              type="button"
+              onClick={turnOnEveryScene}
+              className="mt-2 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-200 text-xs font-semibold transition-colors"
+            >
+              Turn captions back on for all {scenes.length} scenes
+            </button>
+          )}
         </div>
       </div>
 
@@ -426,27 +564,79 @@ export default function CaptionsStudio({
           </div>
         </div>
 
-        {/* The stage is centred and holds a true 16:9 at every width.
-            It previously combined `w-full aspect-video` with `max-h-[260px]`:
-            once the max-height clamped, the element kept its full width and
-            the ratio was lost, so the 1280x720 canvas was squashed into a
-            ~3.5:1 box and every letter in the preview looked stretched. Capping
-            the WIDTH instead of the height keeps the shape exact — 460px wide
-            is 259px tall at 16:9 — and mx-auto centres it. */}
-        <div className="mx-auto w-full max-w-[460px] aspect-video relative bg-black rounded-xl overflow-hidden border border-hairline shadow-inner">
-          <canvas
-            ref={captionPreviewRef}
-            width={1280}
-            height={720}
-            className="w-full h-full block"
-          />
-          <div className="absolute top-2 left-3 text-[10px] text-white/70 bg-black/45 px-2 py-0.5 rounded">
-            Video stage 16:9 · {activeStyle.name} · {activeFont.family}
+        {/* Two stages side by side: the whole frame, and the caption band
+            magnified. The close-up is not a zoomed screenshot of the left
+            canvas — both are drawn by the renderer at their own resolution,
+            so the right-hand one shows real letter edges rather than big
+            pixels. Each canvas sizes its own bitmap to the pixels it occupies
+            (see prepareCanvas), which is what stops the text being resampled
+            and going jagged.
+
+            The stages keep a true 16:9 at every width: capping the WIDTH
+            rather than the height is what preserves the ratio — an earlier
+            version clamped max-height and the 1280x720 canvas ended up
+            squashed into a ~3.5:1 box with every letter stretched. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+          {/* ---------------------------------------------- full frame */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between px-0.5">
+              <span className="text-[11px] font-semibold text-gray-300">Full frame</span>
+              <span className="text-[10px] text-gray-500">what the viewer sees</span>
+            </div>
+            <div className="w-full aspect-video relative bg-black rounded-xl overflow-hidden border border-hairline shadow-inner">
+              <canvas ref={captionPreviewRef} className="w-full h-full block" />
+              <div className="absolute top-2 left-3 text-[10px] text-white/70 bg-black/45 px-2 py-0.5 rounded">
+                16:9 · {activeStyle.name} · {activeFont.family}
+              </div>
+            </div>
           </div>
-          <div className="absolute bottom-2 right-3 text-[10px] text-white/50 bg-black/45 px-2 py-0.5 rounded">
-            Captions below are rendered by the same engine as the final video
+
+          {/* ------------------------------------------------- close-up */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2 px-0.5">
+              <span className="text-[11px] font-semibold text-gray-300">
+                Close-up <span className="text-indigo-300">{zoom}&times;</span>
+              </span>
+              <div className="flex items-center gap-1">
+                {[2, 3, 4, 6].map((z) => (
+                  <button
+                    key={z}
+                    type="button"
+                    onClick={() => setZoom(z)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border transition-colors ${
+                      zoom === z
+                        ? "bg-indigo-600 border-indigo-500 text-white"
+                        : "bg-gray-800 border-hairline text-gray-400 hover:text-white"
+                    }`}
+                    title={`Magnify the caption ${z} times`}
+                  >
+                    {z}&times;
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="w-full aspect-video relative bg-black rounded-xl overflow-hidden border border-indigo-900/60 shadow-inner">
+              <canvas ref={captionZoomRef} className="w-full h-full block" />
+              <div className="absolute top-2 left-3 text-[10px] text-white/70 bg-black/45 px-2 py-0.5 rounded">
+                Detail · edges, outline and {metalFinish ? metalFinish.label.toLowerCase() : "fill"}
+              </div>
+            </div>
           </div>
         </div>
+
+        {faceMissing && (
+          <p className="text-[11px] text-amber-300 text-center bg-amber-950/30 border border-amber-800/50 rounded-lg px-3 py-1.5">
+            <strong>{activeFont.family}</strong> could not be downloaded, so this
+            preview is drawing in the fallback typeface and will not look like the
+            style promises. Check the connection to fonts.googleapis.com.
+          </p>
+        )}
+
+        <p className="text-[10px] text-gray-500 text-center">
+          Both stages are drawn by the same engine that burns the captions into the
+          video — at your screen&apos;s full pixel density, so what looks smooth here
+          is smooth in the export.
+        </p>
       </div>
 
       {/* Caption Style Presets Grid */}
@@ -454,12 +644,39 @@ export default function CaptionsStudio({
         <div className="flex items-center justify-between border-b border-hairline pb-3">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <Icon glyph="🎨" /> Subtitle Visual Style Presets
+            <span className="text-[10px] font-normal text-gray-500">
+              {CAPTION_STYLES.length} styles · {CAPTION_FONTS.length} typefaces
+            </span>
           </h3>
           <span className="text-xs text-gray-400">Click to preview style</span>
         </div>
 
+        {/* Shelves. The catalogue outgrew a single flat grid, and scrolling
+            past two dozen cards to find the metallic ones is not browsing. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(["All", ...CAPTION_STYLE_ORDER] as const).map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setStyleFilter(cat as CaptionStyleCategory | "All")}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors ${
+                styleFilter === cat
+                  ? "bg-purple-600 border-purple-500 text-white"
+                  : "bg-gray-800 border-hairline text-gray-300 hover:border-purple-600 hover:text-white"
+              }`}
+            >
+              {cat}
+              <span className="ml-1 text-[9px] opacity-60">
+                {cat === "All"
+                  ? CAPTION_STYLES.length
+                  : CAPTION_STYLES.filter((s) => s.category === cat).length}
+              </span>
+            </button>
+          ))}
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {CAPTION_STYLES.map((style) => {
+          {visibleStyles.map((style) => {
             const isSelected = selectedPreset === style.id;
             const styleFont = getCaptionFont(style.fontId);
             return (
@@ -477,17 +694,60 @@ export default function CaptionsStudio({
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-900 text-purple-300 border border-hairline shrink-0">
                       {style.category}
                     </span>
+                    <span className="text-[10px] text-gray-500 truncate" title={styleFont.label}>
+                      {styleFont.family}
+                    </span>
+                  </div>
+
+                  {/* A real specimen, big enough to tell the faces apart.
+                      A 12px "Aa Bb 123" made a blackletter, a pixel font and
+                      a dripping-paint face all look like the same grey smudge,
+                      which is the entire complaint this grid has to answer. */}
+                  <div
+                    className="mb-2 px-2 py-2 rounded-lg bg-black/40 border border-hairline overflow-hidden text-center"
+                    title={styleFont.label}
+                  >
                     <span
-                      className="text-sm text-white truncate"
-                      style={{ fontFamily: captionFontStack(style.fontId), fontWeight: styleFont.weight }}
-                      title={styleFont.label}
+                      className="block truncate leading-tight"
+                      style={{
+                        fontFamily: captionFontStack(style.fontId),
+                        fontWeight: styleFont.weight,
+                        fontSize: style.uppercase ? "19px" : "21px",
+                        letterSpacing: `${style.letterSpacing}em`,
+                        textTransform: style.uppercase ? "uppercase" : "none",
+                        ...(style.metal && style.metal !== "none"
+                          ? {
+                              backgroundImage: getMetalFinish(style.metal)?.swatch,
+                              WebkitBackgroundClip: "text",
+                              backgroundClip: "text",
+                              color: "transparent",
+                            }
+                          : { color: style.textColor }),
+                      }}
                     >
-                      Aa Bb 123
+                      Hear the words
                     </span>
                   </div>
                   <p
-                    className="font-bold text-sm text-white mb-0.5"
-                    style={{ fontFamily: captionFontStack(style.fontId), fontWeight: styleFont.weight }}
+                    className="font-bold text-sm mb-0.5"
+                    style={
+                      style.metal && style.metal !== "none"
+                        ? {
+                            fontFamily: captionFontStack(style.fontId),
+                            fontWeight: styleFont.weight,
+                            // The card shows the finish the same way the
+                            // renderer does: a ramp, not a flat swatch.
+                            backgroundImage: getMetalFinish(style.metal)?.swatch,
+                            WebkitBackgroundClip: "text",
+                            backgroundClip: "text",
+                            color: "transparent",
+                          }
+                        : {
+                            fontFamily: captionFontStack(style.fontId),
+                            fontWeight: styleFont.weight,
+                            color: "#FFFFFF",
+                          }
+                    }
                   >
                     {style.name}
                   </p>
@@ -510,6 +770,13 @@ export default function CaptionsStudio({
                     <span className="text-[10px] text-gray-500">
                       {style.background === "blocked" ? "backdrop" : "no box"}
                     </span>
+                    {style.metal && style.metal !== "none" && (
+                      <span
+                        className="w-3.5 h-3.5 rounded-full border border-hairline"
+                        style={{ backgroundImage: getMetalFinish(style.metal)?.swatch }}
+                        title={getMetalFinish(style.metal)?.label}
+                      />
+                    )}
                   </div>
                   {isSelected && <span className="text-[10px] font-bold text-purple-400"><Icon glyph="✓" /> Active</span>}
                 </div>
@@ -657,7 +924,56 @@ export default function CaptionsStudio({
                 </option>
               ))}
             </select>
-            <p className="text-[10px] text-gray-500">10 faces: classical → formal → artsy → fun</p>
+            <p className="text-[10px] text-gray-500">
+              {CAPTION_FONTS.length} faces: classical → formal → modern → artsy → fun
+            </p>
+          </div>
+
+          {/* Metallic finish — available on every style, not just the two
+              chrome presets. A flat colour can never look like metal: the
+              finish paints a vertical ramp through the letter instead. */}
+          <div className="bg-gray-800/40 p-2.5 rounded-xl border border-hairline space-y-1.5">
+            <span className="text-gray-400 block font-medium">Finish:</span>
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setMetal("none");
+                  emitConfigUpdate({ metal: "none" });
+                }}
+                className={`py-1 rounded text-[11px] font-medium transition-colors border ${
+                  metal === "none"
+                    ? "bg-purple-600 border-purple-500 text-white"
+                    : "bg-gray-900 border-hairline text-gray-400 hover:text-white"
+                }`}
+              >
+                Flat
+              </button>
+              {METAL_FINISHES.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => {
+                    setMetal(m.id);
+                    emitConfigUpdate({ metal: m.id });
+                  }}
+                  className={`py-1 rounded text-[11px] font-semibold capitalize transition-colors border ${
+                    metal === m.id
+                      ? "border-purple-400 ring-1 ring-purple-400 text-gray-900"
+                      : "border-hairline text-gray-900/90 hover:brightness-110"
+                  }`}
+                  style={{ backgroundImage: m.swatch }}
+                  title={m.label}
+                >
+                  {m.id}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-500">
+              {metalFinish
+                ? `${metalFinish.label} — bevel, mirror band and a dark edge`
+                : "Flat colour from the text colour picker"}
+            </p>
           </div>
 
           {/* Border width — hairline by default, thicken as needed */}

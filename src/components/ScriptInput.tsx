@@ -95,7 +95,7 @@ export default function ScriptInput({ onSubmit, loading, onOpenApiKeys }: Script
           />
           <div className="flex items-center justify-between text-xs text-gray-500 mt-1">
             <span>{detectedScenes} scene(s) detected</span>
-            <span>Configure scene lengths in Setup (10s, 20s, or 30s)</span>
+            <span>Configure scene lengths in Setup (10s, 20s, 30s — or one single scene)</span>
           </div>
         </div>
 

@@ -12,6 +12,31 @@
 
 export type DurationOption = 10 | 20 | 30;
 
+/**
+ * How the script is cut into scenes.
+ *
+ * `10 | 20 | 30` chop the script into even scenes of that spoken length.
+ * `"single"` does not chop at all: the whole script is one scene and the
+ * project is one continuous shot — the shape you want for a music video, a
+ * talking-head take, or any clip you filmed yourself and want to caption,
+ * score and decorate as a single piece.
+ */
+export const SINGLE_SCENE = "single" as const;
+export type SceneLengthChoice = DurationOption | typeof SINGLE_SCENE;
+
+export function isSingleScene(choice: SceneLengthChoice | number | undefined): boolean {
+  return choice === SINGLE_SCENE;
+}
+
+/** The card shown beside the 10/20/30 options in Setup. */
+export const SINGLE_SCENE_OPTION = {
+  id: SINGLE_SCENE,
+  label: "One Scene",
+  tag: "Whole script, one shot",
+  description:
+    "No scene splitting at all — the entire script becomes a single scene, or upload your own video and use it as that scene.",
+} as const;
+
 export const DURATION_OPTIONS: {
   seconds: DurationOption;
   label: string;
@@ -90,11 +115,15 @@ export function getSpokenDurationFromWords(text?: string): number {
  */
 export function splitScriptIntoScenes(
   script: string,
-  targetDuration: number = 20
+  targetDuration: number = 20,
+  singleScene: boolean = false
 ): string[] {
   const targetWords = getTargetWordCount(targetDuration);
   const continuous = (script || "").replace(/\s+/g, " ").trim();
   if (!continuous) return [];
+  // One-scene projects skip the splitter entirely: whatever was written is
+  // the scene, however long it runs.
+  if (singleScene) return [continuous];
 
   const totalWords = countWords(continuous);
 
@@ -203,8 +232,31 @@ export function splitScriptIntoScenes(
  * Predicts how many scenes a script will produce. Always agrees with
  * splitScriptIntoScenes, so the count shown in Setup matches what is created.
  */
-export function countScenesFromScript(script: string, targetDuration: number = 20): number {
-  return splitScriptIntoScenes(script, targetDuration).length;
+export function countScenesFromScript(
+  script: string,
+  targetDuration: number = 20,
+  singleScene: boolean = false
+): number {
+  return splitScriptIntoScenes(script, targetDuration, singleScene).length;
+}
+
+/**
+ * How long the single scene of a one-scene project runs.
+ *
+ * `sceneDurationForText` deliberately clamps a scene to 1.6x its target so a
+ * 20-second scene cannot quietly become a minute. A one-scene project has no
+ * such target — the scene IS the video — so the spoken length stands on its
+ * own, and an uploaded clip overrides it with its real length.
+ */
+export function singleSceneDuration(text: string, clipSeconds?: number): number {
+  if (clipSeconds && clipSeconds > 0) return Math.round(clipSeconds * 10) / 10;
+  const spoken = getSpokenDurationFromWords(text);
+  // No words and no footage yet: ten seconds is long enough to see what the
+  // scene is while the creator decides what goes in it.
+  if (spoken <= 0) return 10;
+  // The same three-second floor the rest of the app uses, so a one-line
+  // script does not produce a video that is over before it is seen.
+  return Math.max(3, Math.round((spoken + 0.4) * 10) / 10);
 }
 
 /**
@@ -333,6 +385,20 @@ export function calculateDynamicDuration(
  * begins directly with a scene — an enabled intro section is its own opening.
  */
 export const NARRATION_LEAD_IN_SECONDS = 2;
+
+/**
+ * The lead-in actually applied, given what the video opens with.
+ *
+ * The hold exists so the first image is on screen before the first words are
+ * spoken. An intro section is its own opening, and a project with the
+ * voiceover switched off has no first words to wait for — in both cases the
+ * hold would just be dead air, so it is zero. The preview and the renderer
+ * both call this, which is what keeps their first cut on the same frame.
+ */
+export function narrationLeadIn(hasIntro: boolean, voiceoverEnabled: boolean = true): number {
+  if (hasIntro || !voiceoverEnabled) return 0;
+  return NARRATION_LEAD_IN_SECONDS;
+}
 
 export function sceneTimelineDuration(
   scene: { text?: string; duration?: number; audio_duration?: number },
