@@ -8,4 +8,10 @@ export default defineConfig({
     port: 3000,
     allowedHosts: true,
   },
+  build: {
+    sourcemap: false,
+    rollupOptions: {
+      output: { banner: "/*! Scenering © 2026 Henry John Vincent Horlick. All rights reserved. Proprietary software. */" },
+    },
+  },
 });

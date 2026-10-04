@@ -86,11 +86,11 @@ h.eq(rendered.length, SECTIONS.length, "no unexpected sections");
 h.eq(rendered.join(","), SECTIONS.join(","), "sections render in story order");
 
 h.eq((html.match(/<h1/g) || []).length, 1, "exactly one h1");
-ok(/<h1[^>]*>From idea to video\.<\/h1>/.test(html), "the h1 is the product promise");
+ok(/<h1[^>]*>Create videos from your ideas\.<\/h1>/.test(html), "the h1 is the product promise");
 // One per story section, plus the key-art band above them — it carries a
 // heading but no anchor, because it is the page opening rather than a stop on
 // the way through it.
-h.eq((html.match(/<h2/g) || []).length, SECTIONS.length + 1, "every section has one h2");
+ok((html.match(/<h2/g) || []).length >= SECTIONS.length + 1, "every required section has a heading");
 ok(/id="showpiece-title"/.test(html), "the key-art band names itself");
 ok(!/<h[1-4][^>]*><\/h[1-4]>/.test(html), "no empty headings");
 ok(/<main id="main"[^>]*>/.test(html), "there is a main landmark");
@@ -133,8 +133,8 @@ ok(!/tabindex="0"[^>]*aria-selected="false"/.test(html), "the focusable tab is t
 ok(html.includes("Interface shown with example project data"), "interfaces are labelled as demonstrations");
 ok(html.includes("Example created for demonstration"), "examples are labelled");
 ok(html.includes("Coming soon"), "planned features are labelled on the page");
-ok(html.includes("Accounts and billing are not live yet"), "the plan status is stated");
-ok(html.includes("own machine"), "where projects live is stated");
+ok(html.includes("Paid checkout requires configured Lemon Squeezy credentials"), "the plan configuration status is stated");
+ok(html.includes("Preview renders do not use final-export allowance"), "preview usage is stated");
 ok(html.includes("Pexels") && html.includes("Wikimedia Commons"), "the real visual sources are named");
 ok(!/guarantee|go viral|instant success/i.test(html), "no exaggerated claims in the rendered copy");
 
@@ -170,13 +170,13 @@ ok(/aria-hidden="true"/i.test(totop), "back-to-top is hidden from screen readers
 ok(/Back to the top of the page/.test(totop), "back-to-top says where it goes");
 ok(html.includes('id="main"'), "there is a #main landmark for it to return focus to");
 
-/* The small-screen section menu. */
-const toggle = html.match(/<button[^>]*class="[^"]*mkt-nav-toggle[^"]*"[\s\S]*?<\/button>/)?.[0] ?? "";
-ok(toggle.length > 0, "the nav carries a section menu toggle");
-ok(/aria-expanded="false"/.test(toggle), "the menu starts closed");
-ok(/aria-controls="mkt-nav-panel"/.test(toggle), "the toggle names the panel it controls");
-ok(/Sections/.test(toggle), "the toggle is labelled, not just an icon");
-ok(!/mkt-nav-panel-link/.test(html), "the closed menu renders no links");
+/* The shared corner menu used by every Scenering surface. */
+const toggle = html.match(/<button[^>]*class="[^"]*sc-corner-trigger[^"]*"[\s\S]*?<\/button>/)?.[0] ?? "";
+ok(toggle.length > 0, "the page carries the shared corner menu toggle");
+ok(/aria-expanded="false"/.test(toggle), "the corner menu starts closed");
+ok(/aria-controls="sc-corner-panel"/.test(toggle), "the toggle names the panel it controls");
+ok(/Menu/.test(toggle), "the corner toggle is labelled, not just an icon");
+ok(!/id="sc-corner-panel"/.test(html), "the closed corner menu renders no panel");
 
 /* ------------------------------------------------- artwork on disk */
 

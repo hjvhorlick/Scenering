@@ -55,15 +55,11 @@ export function getApiKeysHeaders(): Record<string, string> {
   return headers;
 }
 
+/**
+ * Kept for compatibility with existing search call sites. Provider keys must
+ * never be placed in URLs because URLs are commonly retained in browser,
+ * proxy and server logs; they travel only in request headers.
+ */
 export function getApiKeysQueryParams(): string {
-  const keys = getStoredApiKeys();
-  const params = new URLSearchParams();
-  if (keys.pexelsKey) {
-    params.set("pexels_key", keys.pexelsKey);
-  }
-  if (keys.pixabayKey) {
-    params.set("pixabay_key", keys.pixabayKey);
-  }
-  const str = params.toString();
-  return str ? `&${str}` : "";
+  return "";
 }

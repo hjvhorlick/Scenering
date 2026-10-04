@@ -1,11 +1,11 @@
 [functions.tts]
-verify_jwt = false
+verify_jwt = true
 entrypoint = "./functions/tts/index.ts"
 
 [functions.proxy-image]
-verify_jwt = false
+verify_jwt = true
 entrypoint = "./functions/proxy-image/index.ts"
 
 [functions.image-search]
-verify_jwt = false
+verify_jwt = true
 entrypoint = "./functions/image-search/index.ts"

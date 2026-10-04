@@ -8,6 +8,8 @@ import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { NATURE_FALLBACKS } from "./src/data/nature-fallbacks.ts";
 import { sanitizeTextForSpeech } from "./src/lib/speech-sanitizer.ts";
 import { parseEdgeWordBoundaries, type WordTiming } from "./src/lib/word-sync.ts";
+import { randomBytes } from "node:crypto";
+import { assertSecurePlatformConfiguration, platformFeatureAllowed, platformRateLimit, registerLemonSqueezyWebhook, registerPlatformRoutes, requirePlatformUser } from "./server/platform.ts";
 import {
   pexelsPhotoToCandidate,
   pixabayHitToCandidate,
@@ -1030,19 +1032,44 @@ async function startServer() {
   // Honour the PORT the host gives us (Render, Railway, Fly, Heroku and most
   // local setups set it); fall back to 3000 for plain `npm run dev`.
   const PORT = Number(process.env.PORT) || 3000;
-
-  app.use(express.json());
-
-  // CORS middleware for API endpoints
+  assertSecurePlatformConfiguration();
+  app.disable("x-powered-by");
+  if (process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
   app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Client-Info, Apikey");
-    if (req.method === "OPTIONS") {
-      return res.sendStatus(200);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+    if (process.env.NODE_ENV === "production") {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.lemonsqueezy.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co; worker-src 'self' blob:");
     }
     next();
   });
+  // Cookie-authenticated state changes are same-origin only. Lemon Squeezy's
+  // signed webhook has no browser Origin and remains independently verified.
+  app.use((req, res, next) => {
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path === "/api/webhooks/lemonsqueezy") return next();
+    const origin = req.get("origin");
+    if (!origin) return next();
+    let supplied: URL;
+    try { supplied = new URL(origin); } catch { return res.status(403).json({ error: "Cross-origin request rejected" }); }
+    const configured = process.env.PUBLIC_APP_URL ? new URL(process.env.PUBLIC_APP_URL).origin : null;
+    const requestHost = String(req.get("host") || "").toLowerCase();
+    const forwardedHost = process.env.TRUST_PROXY === "1" ? String(req.get("x-forwarded-host") || "").split(",")[0].trim().toLowerCase() : "";
+    const sameHost = supplied.host.toLowerCase() === requestHost || Boolean(forwardedHost && supplied.host.toLowerCase() === forwardedHost);
+    if ((configured && origin !== configured) || (!configured && !sameHost)) return res.status(403).json({ error: "Cross-origin request rejected" });
+    next();
+  });
+
+  // Billing signatures must be verified against the untouched request bytes,
+  // so the webhook is registered before the general JSON parser.
+  registerLemonSqueezyWebhook(app);
+  const standardJson = express.json({ limit: "2mb" });
+  app.use((req, res, next) => req.path === "/api/upload-audio" ? next() : standardJson(req, res, next));
+  registerPlatformRoutes(app);
 
   // Health check
   app.get("/api/health", (_req, res) => {
@@ -1056,10 +1083,8 @@ async function startServer() {
       // Up to 100 candidates so the client can pick randomly instead of
       // always receiving (and showing) the identical first-ranked image.
       const count = Math.min(parseInt((req.query.count as string) || "10", 10), 100);
-      const customPexelsKey =
-        (req.headers["x-pexels-key"] as string) || (req.query.pexels_key as string) || undefined;
-      const customPixabayKey =
-        (req.headers["x-pixabay-key"] as string) || (req.query.pixabay_key as string) || undefined;
+      const customPexelsKey = (req.headers["x-pexels-key"] as string) || undefined;
+      const customPixabayKey = (req.headers["x-pixabay-key"] as string) || undefined;
 
       if (!query.trim()) {
         return res.status(400).json({ error: "Missing query parameter 'q'" });
@@ -1106,11 +1131,10 @@ async function startServer() {
     }
   };
 
-  app.get("/api/image-search", handleImageSearch);
-  app.get("/functions/v1/image-search", handleImageSearch);
+  app.get(["/api/image-search", "/functions/v1/image-search"], requirePlatformUser, platformRateLimit("image-search", 120, 3600000), handleImageSearch);
 
   // Key verification endpoint so customer can test their entered keys
-  app.post("/api/verify-keys", async (req: express.Request, res: express.Response) => {
+  app.post("/api/verify-keys", requirePlatformUser, platformRateLimit("verify-provider-key", 20, 3600000), async (req: express.Request, res: express.Response) => {
     const { pexelsKey, pixabayKey } = req.body || {};
     const status: {
       pexels?: { valid: boolean; error?: string };
@@ -1158,6 +1182,34 @@ async function startServer() {
     return res.json({ status });
   });
 
+  // Proxy only known visual-provider CDNs. An unrestricted fetch proxy would
+  // permit SSRF against cloud metadata, internal services, and local files.
+  const allowedImageHost = (hostname: string) => [
+    "images.pexels.com", "images.pixabay.com", "cdn.pixabay.com", "pixabay.com",
+    "upload.wikimedia.org", "commons.wikimedia.org", "images.unsplash.com",
+  ].some((allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`));
+  const checkedImageUrl = (value: string) => {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || !allowedImageHost(parsed.hostname.toLowerCase())) throw new Error("Image host is not allowed");
+    return parsed;
+  };
+  const fetchAllowedImage = async (initial: string) => {
+    let current = checkedImageUrl(initial);
+    for (let redirects = 0; redirects <= 3; redirects += 1) {
+      const response = await fetch(current, { headers: { Accept: "image/*", "User-Agent": "Scenering/1.1 image proxy" }, redirect: "manual", signal: AbortSignal.timeout(12000) });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location || redirects === 3) throw new Error("Unsafe image redirect");
+        current = checkedImageUrl(new URL(location, current).toString());
+        continue;
+      }
+      const declared = Number(response.headers.get("content-length") || 0);
+      if (declared > 20 * 1024 * 1024) throw new Error("Image is too large");
+      return response;
+    }
+    throw new Error("Too many image redirects");
+  };
+
   // Proxy image handler (supports both /api/proxy-image and /functions/v1/proxy-image)
   const handleProxyImage = async (req: express.Request, res: express.Response) => {
     try {
@@ -1183,14 +1235,7 @@ async function startServer() {
         }
       }
 
-      const response = await fetch(targetUrl, {
-        headers: {
-          Accept: "image/*",
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        },
-        redirect: "follow",
-      });
+      const response = await fetchAllowedImage(targetUrl);
 
       if (!response.ok) {
         res.setHeader("Content-Type", "image/svg+xml");
@@ -1204,6 +1249,7 @@ async function startServer() {
       }
 
       const arrayBuf = await response.arrayBuffer();
+      if (arrayBuf.byteLength > 20 * 1024 * 1024) return res.status(413).json({ error: "Image is too large" });
       res.setHeader("Content-Type", contentType);
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
@@ -1217,8 +1263,7 @@ async function startServer() {
     }
   };
 
-  app.get("/api/proxy-image", handleProxyImage);
-  app.get("/functions/v1/proxy-image", handleProxyImage);
+  app.get(["/api/proxy-image", "/functions/v1/proxy-image"], requirePlatformUser, platformRateLimit("image-proxy", 600, 3600000), handleProxyImage);
 
   // TTS handler (voices on GET without text, synthesis on GET with text or POST)
   /**
@@ -1255,6 +1300,9 @@ async function startServer() {
     });
   };
 
+  const basicVoiceAllowed = (req: express.Request, voice: string) => platformFeatureAllowed(req, "advanced_voice") || /(^|[-_])(guy|jenny)(neural)?($|[-_])/i.test(String(voice));
+  const entitlementError = (res: express.Response) => res.status(403).json({ error: "This narrator requires SceneFlow or SceneForge.", code: "ENTITLEMENT_REQUIRED", feature: "advanced_voice" });
+
   const handleTTSGet = async (req: express.Request, res: express.Response) => {
     const text = req.query.text as string | undefined;
     if (!text) {
@@ -1270,6 +1318,7 @@ async function startServer() {
     }
     try {
       const voice = (req.query.voice as string) || "guy";
+      if (!basicVoiceAllowed(req, voice)) return entitlementError(res);
       const trimmedText = text.slice(0, 2000);
       const withTimeline = req.query.withTimeline === "1" || req.query.withTimeline === "true";
       const synthesized = await synthesizeTTSWithSource(trimmedText, voice);
@@ -1281,20 +1330,24 @@ async function startServer() {
 
   const handleTTSVoices = async (req: express.Request, res: express.Response) => {
     const fullList = await getEdgeVoicesCached();
+    const advanced = platformFeatureAllowed(req, "advanced_voice");
+    const curated = advanced ? VOICES : VOICES.filter((voice) => voice.id === "guy" || voice.id === "jenny");
+    const available = advanced ? (fullList.length > 0 ? fullList : VOICES) : curated;
     return res.json({
-      curated: VOICES,
-      voices: fullList.length > 0 ? fullList : VOICES,
-      allVoices: fullList,
-      total: fullList.length || 322,
+      curated,
+      voices: available,
+      allVoices: advanced ? fullList : [],
+      total: available.length,
     });
   };
 
   const handleTTSPost = async (req: express.Request, res: express.Response) => {
     try {
-      const { text, voice = "alloy", customDictionary, withTimeline } = req.body;
+      const { text, voice = "guy", customDictionary, withTimeline } = req.body;
       if (!text || typeof text !== "string") {
         return res.status(400).json({ error: "Text is required" });
       }
+      if (!basicVoiceAllowed(req, voice)) return entitlementError(res);
 
       const trimmedText = text.slice(0, 2000);
       const synthesized = await synthesizeTTSWithSource(trimmedText, voice, customDictionary);
@@ -1305,28 +1358,36 @@ async function startServer() {
     }
   };
 
-  app.get("/api/tts/voices", handleTTSVoices);
-  app.get("/functions/v1/tts/voices", handleTTSVoices);
-  app.get("/api/tts", handleTTSGet);
-  app.get("/functions/v1/tts", handleTTSGet);
-  app.post("/api/tts", handleTTSPost);
-  app.post("/functions/v1/tts", handleTTSPost);
+  app.get(["/api/tts/voices", "/functions/v1/tts/voices"], requirePlatformUser, platformRateLimit("tts-voices", 120, 3600000), handleTTSVoices);
+  app.get(["/api/tts", "/functions/v1/tts"], requirePlatformUser, platformRateLimit("tts-synthesis", 120, 3600000), handleTTSGet);
+  app.post(["/api/tts", "/functions/v1/tts"], requirePlatformUser, platformRateLimit("tts-synthesis", 120, 3600000), handleTTSPost);
 
-  // Upload/cache custom imported voice audio
-  const customAudioStore = new Map<string, { buffer: Buffer; mimeType: string }>();
+  // Upload/cache custom imported voice audio. Each item belongs to the
+  // authenticated account that uploaded it; opaque ids are cryptographic.
+  const customAudioStore = new Map<string, { buffer: Buffer; mimeType: string; ownerId: string; createdAt: number }>();
 
-  app.post("/api/upload-audio", express.json({ limit: "50mb" }), (req, res) => {
+  app.post("/api/upload-audio", requirePlatformUser, platformRateLimit("audio-upload", 30, 3600000), express.json({ limit: "50mb" }), (req, res) => {
     try {
       const { data, filename, mimeType = "audio/mpeg" } = req.body || {};
-      if (!data) {
+      if (!data || typeof data !== "string") {
         return res.status(400).json({ error: "Missing audio data" });
       }
+      const allowedAudioTypes = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg", "audio/webm", "audio/mp4", "audio/aac"]);
+      if (!allowedAudioTypes.has(String(mimeType).toLowerCase())) return res.status(415).json({ error: "Unsupported audio type" });
 
       // Base64 string to buffer
       const base64Clean = data.includes("base64,") ? data.split("base64,")[1] : data;
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Clean)) return res.status(400).json({ error: "Invalid audio encoding" });
       const buf = Buffer.from(base64Clean, "base64");
-      const audioId = "aud_" + Math.random().toString(36).substring(2, 10);
-      customAudioStore.set(audioId, { buffer: buf, mimeType });
+      if (!buf.length || buf.byteLength > 20 * 1024 * 1024) return res.status(413).json({ error: "Audio must be no larger than 20 MB" });
+      const audioId = "aud_" + randomBytes(18).toString("base64url");
+      const ownerId = String((req as any).auth.user.id);
+      const oldestFirst = [...customAudioStore.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
+      for (const [storedId, stored] of oldestFirst) if (Date.now() - stored.createdAt > 24 * 3600000) customAudioStore.delete(storedId);
+      const owned = [...customAudioStore.entries()].filter(([, stored]) => stored.ownerId === ownerId).sort((a, b) => a[1].createdAt - b[1].createdAt);
+      while (owned.length >= 5) { const oldest = owned.shift(); if (oldest) customAudioStore.delete(oldest[0]); }
+      while (customAudioStore.size >= 20) { const oldest = [...customAudioStore.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)[0]; if (!oldest) break; customAudioStore.delete(oldest[0]); }
+      customAudioStore.set(audioId, { buffer: buf, mimeType: String(mimeType).toLowerCase(), ownerId, createdAt: Date.now() });
 
       return res.json({
         url: `/api/custom-audio/${audioId}`,
@@ -1339,13 +1400,13 @@ async function startServer() {
     }
   });
 
-  app.get("/api/custom-audio/:id", (req, res) => {
+  app.get("/api/custom-audio/:id", requirePlatformUser, platformRateLimit("custom-audio", 600, 3600000), (req, res) => {
     const item = customAudioStore.get(req.params.id);
-    if (!item) {
+    if (!item || item.ownerId !== String((req as any).auth.user.id)) {
       return res.status(404).send("Audio not found");
     }
     res.setHeader("Content-Type", item.mimeType);
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", "private, no-store");
     return res.send(item.buffer);
   });
 

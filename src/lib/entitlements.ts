@@ -1,0 +1,17 @@
+import type { ExportCreativeManifest, FeatureKey, PlanConfig, PlanSlug } from "../config/plans";
+
+export interface UserEntitlements { plan: PlanSlug; entitlements: PlanConfig; usage: { finalExports: number; finalExportMinutes: number }; remaining: { finalExports: number | null; shortExports: number | null; longExports: number | null } }
+let cache: UserEntitlements | null = null;
+export async function getUserPlan(): Promise<PlanSlug> { return (await getEntitlements()).plan; }
+export async function getSubscription() { const response = await fetch("/api/account"); if (!response.ok) return null; return (await response.json()).subscription; }
+export async function getEntitlements(refresh = false): Promise<UserEntitlements> { if (cache && !refresh) return cache; const response = await fetch("/api/entitlements"); if (!response.ok) throw new Error("Unable to load membership"); cache = await response.json(); return cache!; }
+export async function canUseFeature(feature: FeatureKey) { return (await getEntitlements()).entitlements.features[feature]; }
+export async function canExport(durationMinutes: number, format: "short" | "long") { const response = await fetch("/api/usage/final-export/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ durationMinutes, format }) }); if (!response.ok) return false; return Boolean((await response.json()).allowed); }
+export async function reserveFinalExport(projectId: string | number, durationMinutes: number, format: "short" | "long", creativeManifest: ExportCreativeManifest): Promise<string> { const response = await fetch("/api/usage/final-export/reserve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, durationMinutes, format, creativeManifest }) }); const data = await response.json().catch(() => ({})); if (!response.ok || !data.reservationId) throw new Error(data.error || "Unable to authorize final export"); return data.reservationId; }
+export async function completeFinalExport(reservationId: string) { const response = await fetch("/api/usage/final-export/complete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reservationId }) }); if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Unable to confirm final export"); cache = null; }
+export async function cancelFinalExport(reservationId: string) { await fetch("/api/usage/final-export/cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reservationId }) }).catch(() => null); }
+/** @deprecated Use reserveFinalExport + completeFinalExport. */
+export async function recordFinalExport(projectId: string | number, durationMinutes: number, format: "short" | "long", creativeManifest: ExportCreativeManifest) { const reservationId = await reserveFinalExport(projectId, durationMinutes, format, creativeManifest); await completeFinalExport(reservationId); }
+export async function redeemComplimentaryCode(code: string) { const response = await fetch("/api/complimentary-codes/redeem", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error || "Unable to redeem access code"); cache = null; return data; }
+export async function getUsage() { return (await getEntitlements()).usage; }
+export async function getRemainingUsage() { return (await getEntitlements()).remaining; }

@@ -56,7 +56,7 @@ export function normalizePath(pathname: string): string {
 /** Which surface a path belongs to. Unknown paths fall back to the website. */
 export function routeForPath(pathname: string): SiteRoute {
   const path = normalizePath(pathname);
-  return path === STUDIO_PATH || path.startsWith(`${STUDIO_PATH}/`) ? "studio" : "site";
+  return path === STUDIO_PATH || path.startsWith(`${STUDIO_PATH}/`) || ["/login", "/register", "/forgot-password"].includes(path) ? "studio" : "site";
 }
 
 /** The website section a path deep-links to, if any. */

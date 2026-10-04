@@ -14,19 +14,18 @@ export default function FinalCta() {
           {MESSAGES.render}
         </div>
         <h2 className="mkt-h2" id="start-title">
-          Start with a script. Finish with a video.
+          Start creating with Scenering.
         </h2>
         <p className="mkt-lead" style={{ maxWidth: 620, margin: "14px auto 0" }}>
-          Sign in, paste something you have already written, and watch it become scenes. Nothing to install, and
-          your projects stay on your own machine.
+          Create a Free account, bring a script or prepared audio, and turn it into an editable scene-based video. No payment details required.
         </p>
 
         <div className="mkt-hero-cta" style={{ justifyContent: "center" }}>
-          <a className="mkt-btn mkt-btn-primary mkt-btn-lg" href="#workflow">
-            Walk through it again
+          <a className="mkt-btn mkt-btn-primary mkt-btn-lg" href="/register">
+            Get Started Free
           </a>
-          <a className="mkt-btn mkt-btn-lg" href="#pricing">
-            What is in the free plan
+          <a className="mkt-btn mkt-btn-lg" href="/pricing">
+            Compare plans
           </a>
         </div>
 

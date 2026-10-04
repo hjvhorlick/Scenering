@@ -1,199 +1,21 @@
 import { useState } from "react";
-import { Section, SectionHead, Pill, ComingSoon, FigureNote } from "../components/primitives";
-import { useRovingTabs } from "../hooks";
-import AppFrame from "../components/AppFrame";
-import PlayerFrame from "../components/PlayerFrame";
-import TimelineMock from "../components/TimelineMock";
-import { DEMO_CAPTION_STYLE, DEMO_SCENES } from "../demo-project";
-import { HONESTY, PLANS, type PlanId } from "../product-facts";
-import Icon, { iconify } from "../../components/icons/Icon";
-
-/**
- * Plans.
- *
- * Two rules, and they pull in opposite directions until you look closely:
- *
- *  - Free must not look broken. It is the complete route from script to
- *    exported file, drawn as a working workspace, not a workspace with
- *    holes in it.
- *  - Paid must not be vapour. Accounts and billing are not live, so the
- *    paid tiers carry a "Coming soon" badge and the section says plainly
- *    that nothing can be bought today.
- *
- * Switching plans changes the workspace beside the cards — you see what you
- * would gain, rather than the page greying itself out.
- */
-
-/**
- * Every plan gets the same timeline — the same three lanes, because the lanes
- * are the app and the app does not take any of them away. What changes is how
- * much you can put in them, so the plans differ by the number of overlay
- * items placed, not by hiding the places they go.
- */
-const ITEMS_BY_PLAN: Record<PlanId, number> = {
-  free: 1,
-  sceneflow: 5,
-  sceneforge: 5,
-};
+import { Section, SectionHead } from "../components/primitives";
+import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval } from "../../config/plans";
 
 export default function Pricing() {
-  const [active, setActive] = useState(0);
-  const { setRef, onKeyDown } = useRovingTabs(PLANS.length, active, setActive);
-  const plan = PLANS[active];
-
-  return (
-    <Section id="pricing" tone="white">
-      <SectionHead
-        id="pricing"
-        eyebrow="Plans"
-        title="Start free. The whole workflow is in the free plan."
-        lead="Free is not a trailer for the product — it is the product, from script to exported file. The paid tiers widen the creative library and the capacity around that same workflow."
-      />
-
-      <div className="mkt-optrow" role="tablist" aria-label="Plans" onKeyDown={onKeyDown} style={{ marginBottom: 18 }}>
-        {PLANS.map((entry, index) => (
-          <button
-            key={entry.id}
-            type="button"
-            role="tab"
-            ref={setRef(index)}
-            className="mkt-opt"
-            aria-selected={active === index}
-            aria-controls="plan-workspace"
-            tabIndex={active === index ? 0 : -1}
-            onClick={() => setActive(index)}
-          >
-            {entry.name}
-            {entry.availability === "soon" && <span className="mkt-opt-no">soon</span>}
-          </button>
-        ))}
-      </div>
-
-      <div className="mkt-grid cols-3">
-        {PLANS.map((entry, index) => (
-          <div className={`mkt-plan${active === index ? " is-on" : ""}`} key={entry.id}>
-            <div>
-              <div className="mkt-scene-top">
-                <h3 className="mkt-h3">{entry.name}</h3>
-                {entry.availability === "live" ? (
-                  <Pill tone="live">
-                    <span className="mkt-dot" aria-hidden="true" />
-                    Available now
-                  </Pill>
-                ) : (
-                  <ComingSoon />
-                )}
-              </div>
-              <p className="mkt-small" style={{ marginTop: 6 }}>
-                {entry.tagline}
-              </p>
-            </div>
-
-            <div>
-              <div className="mkt-plan-price">{entry.priceLabel}</div>
-              <p className="mkt-small">{entry.priceNote}</p>
-            </div>
-
-            <ul className="mkt-list">
-              {entry.includes.map((line) => (
-                <li key={line}>
-                  <span className={`mkt-tick${entry.availability === "soon" ? " is-lock" : ""}`} aria-hidden="true">
-                    {iconify(entry.availability === "soon" ? "+" : "✓")}
-                  </span>
-                  <span>{line}</span>
-                </li>
-              ))}
-            </ul>
-
-            <div style={{ marginTop: "auto" }}>
-              {entry.availability === "live" ? (
-                <button
-                  type="button"
-                  className="mkt-btn"
-                  style={{ width: "100%" }}
-                  onClick={() => setActive(index)}
-                >
-                  See what is included
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="mkt-btn"
-                  style={{ width: "100%" }}
-                  onClick={() => setActive(index)}
-                >
-                  See what it adds
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* the workspace changes with the plan */}
-      <figure style={{ margin: "22px 0 0" }}>
-        <div id="plan-workspace" role="tabpanel" aria-label={`${plan.name} workspace`}>
-          <AppFrame title={`Where Cities Begin · ${plan.name} workspace`} phase="studio">
-            <div className="mkt-work">
-              <div className="mkt-work-top">
-                <PlayerFrame
-                  assetId={DEMO_SCENES[1].assetId}
-                  caption={DEMO_SCENES[1].caption}
-                  captionStyle={DEMO_CAPTION_STYLE}
-                  progress={0.5}
-                  badge={`${plan.name} · ${plan.workspace.exports}`}
-                  sizes="(min-width: 950px) 460px, 92vw"
-                />
-                <div>
-                  <div className="mkt-strip-row" style={{ gridTemplateColumns: "1fr auto" }}>
-                    <span className="mkt-strip-label"><Icon glyph="🎙" /> Narrators</span>
-                    <Pill tone="accent">{plan.workspace.voices}</Pill>
-                  </div>
-                  <div className="mkt-strip-row" style={{ gridTemplateColumns: "1fr auto", marginTop: 8 }}>
-                    <span className="mkt-strip-label"><Icon glyph="💬" /> Captions</span>
-                    <Pill tone="accent">{plan.workspace.captions}</Pill>
-                  </div>
-                  <div className="mkt-chiprow" style={{ marginTop: 10 }}>
-                    {PLANS[PLANS.length - 1].workspace.studio.map((tool) => {
-                      const included = plan.workspace.studio.includes(tool);
-                      return (
-                        <span key={tool} className={`mkt-chip${included ? " is-on" : " is-locked"}`}>
-                          {iconify(included ? "●" : "🔒")} {tool}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              <TimelineMock items={ITEMS_BY_PLAN[plan.id]} playheadAt={0.5} showRuler={false} showHeader={false} height={20} />
-
-              {plan.id === "sceneforge" && (
-                <div className="mkt-chiprow">
-                  <span className="mkt-chip is-on"><Icon glyph="⏭" /> Batch queue</span>
-                  <span className="mkt-chip is-on"><Icon glyph="⚡" /> Priority processing</span>
-                  <span className="mkt-chip is-on"><Icon glyph="📦" /> High-volume exports</span>
-                </div>
-              )}
-            </div>
-          </AppFrame>
-        </div>
-
-        <FigureNote>
-          <Pill>{HONESTY.conceptLabel}</Pill>
-          <span>
-            Switching plan reveals what the tier adds — the workspace is never disabled, only widened.
-          </span>
-        </FigureNote>
-      </figure>
-
-      <div className="mkt-panel-flat mkt-pad" style={{ marginTop: 18 }}>
-        <p className="mkt-small">
-          <b>{HONESTY.planLabel}.</b> Scenering runs on your own machine today, and the complete workflow shown on
-          this page is what you get when you open the studio. The tiers above describe how the hosted service will
-          be packaged; no plan can be purchased yet, and prices will be published when accounts open.
-        </p>
-      </div>
-    </Section>
-  );
+  const [interval, setInterval] = useState<BillingInterval>("monthly");
+  return <Section id="pricing" tone="white">
+    <SectionHead id="pricing" eyebrow="Pricing" title="Free is real. Paid adds creative range and capacity." lead="Preview and perfect your video as much as you need. Your plan allowance applies to meaningful final exports—not preview renders." />
+    <div className="pub-toggle" role="group" aria-label="Billing interval"><button className={interval === "monthly" ? "is-on" : ""} onClick={() => setInterval("monthly")}>Monthly</button><button className={interval === "yearly" ? "is-on" : ""} onClick={() => setInterval("yearly")}>Yearly</button></div>
+    <div className="pub-plans">
+      {PLAN_ORDER.map((slug) => { const plan = PLAN_CONFIG[slug]; const price = plan.prices[interval]; const capacity = slug === "free" ? "2 Shorts + 1 long-video download each week" : slug === "sceneflow" ? "15 final video downloads each week" : "Unlimited final downloads, subject to fetched/upstream API service limits"; return <article className={`pub-plan${slug === "sceneflow" ? " is-featured" : ""}`} key={slug}>
+        <h3>{plan.name}</h3><p>{plan.description}</p><div className="pub-price"><b>${price}</b><span>{price === 0 ? "forever" : `/${interval === "monthly" ? "month" : "year"}`}</span></div>
+        {interval === "yearly" && price > 0 && <p className="pub-saving">${plan.annualMonthlyEquivalent}/month equivalent · save ${plan.annualSaving}/year</p>}
+        <ul className="pub-checks"><li>✓ {capacity}</li><li>✓ {slug === "free" ? "Sample visualisers, animated Subscribe CTA, 2 music tracks and 2 caption styles" : "All creative features unlocked"}</li><li>✓ 16:9 and 9:16 output</li><li>✓ Projects remain yours</li><li>✓ Unlimited preview corrections</li></ul>
+        <a className="mkt-btn mkt-btn-primary" href={slug === "free" ? "/register" : `/register?plan=${slug}&interval=${interval}`}>{slug === "free" ? "Start Free" : `Choose ${plan.name}`}</a>
+      </article>; })}
+    </div>
+    <p style={{ textAlign: "center", marginTop: 20 }}><a href="/pricing">See the complete feature comparison →</a></p>
+    <p className="mkt-small" style={{ textAlign: "center", marginTop: 10 }}>Paid checkout requires configured Lemon Squeezy credentials. Verified subscription status—not a checkout return page—controls paid access.</p>
+  </Section>;
 }

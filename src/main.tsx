@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { initTheme } from "./lib/themes";
 import { routeForPath, useRoute } from "./lib/route";
 import { preloadStudio } from "./studio/studio-loader";
+import { initAnalytics } from "./lib/analytics";
 
 /**
  * One product with the website as its front page.
@@ -16,23 +17,33 @@ import { preloadStudio } from "./studio/studio-loader";
  * and the studio CSS. Authentication still controls whether the studio is
  * mounted; it no longer controls when the application starts loading.
  */
-const marketingModule = import("./marketing/MarketingSite");
-const studioEntryModule = import("./studio/StudioEntry");
-const MarketingSite = lazy(() => marketingModule);
-const StudioEntry = lazy(() => studioEntryModule);
+const MarketingSite = lazy(() => import("./marketing/MarketingSite"));
+const StudioEntry = lazy(() => import("./studio/StudioEntry"));
 
-// Start the large application request in parallel with the front page. A
-// transient preload failure is retried by StudioEntry when the user signs in.
-void preloadStudio().catch(() => {});
+// Keep the public website lightweight. The large editor/renderer bundle starts
+// only at an account or studio route; marketing visuals are their own lazy assets.
+if (typeof window !== "undefined" && routeForPath(window.location.pathname) === "studio") {
+  void preloadStudio().catch(() => {});
+}
 
 // Apply the persisted theme before first paint (index.html also applies it
 // with an inline bootstrap, so this is just a safety net for HMR).
 initTheme();
+if (typeof window !== "undefined") initAnalytics();
 // The studio stylesheet is arriving in parallel now. Claim the marketing
 // surface before either stylesheet can paint, rather than waiting for the
 // MarketingSite effect and risking one frame of studio-wide base styles.
 if (typeof window !== "undefined" && routeForPath(window.location.pathname) === "site") {
   document.documentElement.setAttribute("data-mkt", "1");
+  const canonical = document.createElement("link");
+  canonical.rel = "canonical";
+  canonical.href = new URL(window.location.pathname, window.location.origin).toString();
+  document.head.appendChild(canonical);
+} else if (typeof document !== "undefined") {
+  const robots = document.createElement("meta");
+  robots.name = "robots";
+  robots.content = "noindex,nofollow";
+  document.head.appendChild(robots);
 }
 
 /** Quiet placeholder — one paint at most, so it must not flash anything loud. */

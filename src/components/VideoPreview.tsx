@@ -31,6 +31,7 @@ import {
 import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import { loadSceneImage } from "../lib/scene-image-loader";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
+import { getWatermarkLayout } from "../lib/watermark-layout";
 import Icon from "./icons/Icon";
 
 interface VideoPreviewProps {
@@ -734,19 +735,20 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
 
-        const scaleRatio = w / 1280;
-        const wmWidth = Math.max(20, Math.round(180 * scaleRatio));
-        const wmHeight = Math.max(10, Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / watermarkImgRef.current.naturalWidth));
-        const wmX = Math.round(24 * scaleRatio);
-        const wmY = Math.round(20 * (h / 720));
+        const watermark = getWatermarkLayout(
+          w,
+          h,
+          watermarkImgRef.current.naturalWidth,
+          watermarkImgRef.current.naturalHeight
+        );
 
         // Subtle soft shadow so transparent logo stands out cleanly on any video scene
         ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-        ctx.shadowBlur = 8 * scaleRatio;
+        ctx.shadowBlur = watermark.shadowBlur;
         ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 2 * scaleRatio;
+        ctx.shadowOffsetY = watermark.shadowOffsetY;
 
-        ctx.drawImage(watermarkImgRef.current, wmX, wmY, wmWidth, wmHeight);
+        ctx.drawImage(watermarkImgRef.current, watermark.x, watermark.y, watermark.width, watermark.height);
         ctx.restore();
       }
 

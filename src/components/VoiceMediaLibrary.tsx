@@ -23,6 +23,9 @@ import {
   type CustomMusicTrack,
 } from "../lib/custom-music";
 import Icon, { iconify } from "./icons/Icon";
+import { getInterfacePlan, useSession } from "../lib/session";
+import { isPlanCatalogItemIncluded, type PlanSlug } from "../config/plans";
+import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 
 const COLLAPSED_ROW_SIZE = 4;
 
@@ -123,6 +126,8 @@ export function BackgroundMusicLibrary({
   onInsertItem,
   onConfigureItem,
 }: LibraryActions) {
+  const { account } = useSession();
+  const currentPlan = getInterfacePlan(account);
   const actions: LibraryActions = {
     totalDuration,
     customerLogo,
@@ -212,14 +217,17 @@ export function BackgroundMusicLibrary({
     makeFullVideoInsert(item, actions, itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? 0.5);
 
   const choose = (item: CatalogItem, configure = false) => {
+    const isVip = !isPlanCatalogItemIncluded(currentPlan, item.category, item.type);
     stopAllSoundPreviews();
     if (configure && selectedMusic?.type === item.type) {
       onConfigureItem?.(selectedMusic);
+      if (isVip) openMembershipPlans();
       return;
     }
     const insert = makeInsert(item);
     onInsertItem(insert);
     if (configure) onConfigureItem?.(insert);
+    if (isVip) openMembershipPlans();
   };
 
   const handleFiles = async (files: FileList | null) => {
@@ -372,6 +380,7 @@ export function BackgroundMusicLibrary({
           const playing = Boolean(soundUrl && currentlyPlayingAudio === soundUrl);
           const selected = selectedMusic?.type === item.type;
           const custom = customTracks.find((t) => `bgm_custom_${t.id}` === item.type);
+          const isVip = !isPlanCatalogItemIncluded(currentPlan, item.category, item.type);
 
           return (
             <article
@@ -388,9 +397,12 @@ export function BackgroundMusicLibrary({
                   Full video
                 </span>
               </div>
-              <h4 className="text-sm font-semibold text-white group-hover:text-indigo-200 transition-colors">
-                {item.name}
-              </h4>
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold text-white group-hover:text-indigo-200 transition-colors">
+                  {item.name}
+                </h4>
+                {isVip && <VipFeatureBadge />}
+              </div>
               <p className="text-xs text-gray-400 mt-1 line-clamp-2 leading-relaxed min-h-[2.5rem]">
                 {item.description}
               </p>
@@ -447,7 +459,7 @@ export function BackgroundMusicLibrary({
                       : "bg-indigo-600 hover:bg-indigo-500 text-white"
                   }`}
                 >
-                  {selected ? "Selected for video" : selectedMusic ? "Replace music" : "Use for full video"}
+                  {isVip ? "✦ Preview · view plans" : selected ? "Selected for video" : selectedMusic ? "Replace music" : "Use for full video"}
                 </button>
                 <button
                   type="button"

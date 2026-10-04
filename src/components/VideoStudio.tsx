@@ -20,6 +20,9 @@ import SectionStudio from "./SectionStudio";
 import type { VideoFilterConfig } from "../data/video-filters";
 import type { SectionConfig } from "../data/intro-outro";
 import Icon, { iconify } from "./icons/Icon";
+import { getInterfacePlan, useSession } from "../lib/session";
+import { isPlanCatalogItemIncluded, type PlanSlug } from "../config/plans";
+import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 
 interface VideoStudioProps {
   currentPlayheadTime: number;
@@ -54,6 +57,8 @@ export default function VideoStudio({
   onUpdateIntroSection,
   onUpdateOutroSection,
 }: VideoStudioProps) {
+  const { account } = useSession();
+  const currentPlan = getInterfacePlan(account);
   // Default to the first of the tabs: "logo"
   const [selectedCategory, setSelectedCategory] = useState<string>("logo");
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>("all");
@@ -88,8 +93,12 @@ export default function VideoStudio({
     });
 
   const handleAdd = (item: CatalogItem) => {
+    const isVip = !isPlanCatalogItemIncluded(currentPlan, item.category, item.type);
     const newInsert = createTimelineInsert(item);
     onInsertItem(newInsert);
+    // Let Free members test the real feature in an unmetered preview, then
+    // immediately present the plans required to include it in a final download.
+    if (isVip) openMembershipPlans();
   };
 
   const handleTestSound = (soundUrl: string, itemVolume?: number) => {
@@ -228,6 +237,7 @@ export default function VideoStudio({
       <div className="t-studio-tabbar bg-gray-900/60 border-b border-hairline px-4 pt-2.5 flex gap-1.5 overflow-x-auto scrollbar-thin" role="tablist" aria-label="Video Studio sections">
         {VIDEO_STUDIO_CATEGORIES.map((cat, idx) => {
           const isSelected = selectedCategory === cat.id;
+          const categoryVip = currentPlan === "free" && ["filters", "intro", "outro", "stickers", "content_cards", "text_templates", "lower_thirds", "sound_effects", "special_effects"].includes(cat.id);
           return (
             <button
               key={cat.id}
@@ -246,6 +256,7 @@ export default function VideoStudio({
               <span>
                 {idx + 1}. {cat.name}
               </span>
+              {categoryVip && <VipFeatureBadge compact />}
             </button>
           );
         })}
@@ -295,9 +306,10 @@ export default function VideoStudio({
           <SectionStudio
             kind={selectedCategory === "intro" ? "intro" : "outro"}
             config={selectedCategory === "intro" ? introSection : outroSection}
-            onChange={(cfg) =>
-              selectedCategory === "intro" ? onUpdateIntroSection?.(cfg) : onUpdateOutroSection?.(cfg)
-            }
+            onChange={(cfg) => {
+              selectedCategory === "intro" ? onUpdateIntroSection?.(cfg) : onUpdateOutroSection?.(cfg);
+              if (currentPlan === "free") openMembershipPlans();
+            }}
             aspectRatio={aspectRatio}
             brandLogoUrl={customerLogo?.enabled && customerLogo.url ? customerLogo.url : undefined}
           />
@@ -307,7 +319,7 @@ export default function VideoStudio({
         {selectedCategory === "filters" && (
           <FiltersStudio
             value={videoFilter}
-            onChange={(cfg) => onUpdateVideoFilter?.(cfg)}
+            onChange={(cfg) => { onUpdateVideoFilter?.(cfg); if (currentPlan === "free") openMembershipPlans(); }}
             sampleImage={sampleBackgroundImage}
           />
         )}
@@ -394,6 +406,7 @@ export default function VideoStudio({
                   const hasSound = Boolean(soundUrl);
                   const itemVol = itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? studioVolume;
                   const isPlaying = Boolean(soundUrl) && currentlyPlayingAudio === soundUrl;
+                  const isVip = !isPlanCatalogItemIncluded(currentPlan, item.category, item.type);
 
                   return (
                     <div
@@ -486,9 +499,12 @@ export default function VideoStudio({
                         )}
 
                         {/* Title & Description */}
-                        <h4 className="text-sm font-semibold text-white group-hover:text-indigo-300 transition-colors">
-                          {item.name}
-                        </h4>
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="text-sm font-semibold text-white group-hover:text-indigo-300 transition-colors">
+                            {item.name}
+                          </h4>
+                          {isVip && <VipFeatureBadge />}
+                        </div>
                         <p className="text-xs text-gray-400 mt-1 line-clamp-2 leading-relaxed">
                           {item.description}
                         </p>
@@ -499,7 +515,7 @@ export default function VideoStudio({
                         <button
                           type="button"
                           onClick={() => handleAdd(item)}
-                          title="Add to the timeline — then click it on the timeline to edit it"
+                          title={isVip ? "View SceneFlow and SceneForge options" : "Add to the timeline — then click it on the timeline to edit it"}
                           className={`w-full px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-sm ${
                             item.category === "intro"
                               ? "bg-amber-600 hover:bg-amber-500 text-white"
@@ -514,6 +530,8 @@ export default function VideoStudio({
                                 ? "➕ Insert Before Script"
                                 : item.category === "outro"
                                 ? "➕ Insert After Script"
+                                : isVip
+                                ? "✦ Preview · view plans"
                                 : "➕ Add",
                             )}
                           </span>

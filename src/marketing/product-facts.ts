@@ -545,9 +545,9 @@ export const CONTROL_POINTS: { label: string; detail: string }[] = [
 
 /** Spec §33 — short, plain, no guarantees. */
 export const MESSAGES = {
-  hero: "From idea to video.",
+  hero: "Create videos from your ideas.",
   heroSub:
-    "Scenering turns a script into scenes, finds a visual for each one, narrates it, captions it and finishes it in a video studio — with you in control of every part.",
+    "Turn your script or audio into a complete faceless video with meaningful scenes, researched visuals, natural voice-over, captions and professional video effects.",
   scenes: "Turn your script into scenes.",
   visuals: "Find visuals that fit the story.",
   voice: "Give every scene a voice.",
@@ -670,7 +670,7 @@ export const NO_METER = {
 export const HONESTY = {
   demoLabel: "Example created for demonstration",
   conceptLabel: "Interface shown with example project data",
-  planLabel: "Accounts and billing are not live yet",
+  planLabel: "Paid checkout requires configured Lemon Squeezy credentials",
   localNote:
-    "Scenering runs on your own machine today. Projects are saved in your browser, and the render happens there too.",
+    "Your account controls membership while project media and frame-exact rendering remain in your browser. Preview renders do not use final-export allowance.",
 } as const;

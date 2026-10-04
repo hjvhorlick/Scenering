@@ -2,6 +2,8 @@
   "name": "scenering",
   "private": true,
   "version": "1.1.0",
+  "license": "UNLICENSED",
+  "author": "Henry John Vincent Horlick",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -35,12 +37,12 @@
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.20",
     "esbuild": "^0.28.2",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4",
-    "vite": "^5.4.3"
+    "vite": "^7.3.6"
   }
 }

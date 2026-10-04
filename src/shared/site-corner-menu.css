@@ -1,0 +1,194 @@
+@import "./porcelain.css";
+
+/* Shared Scenering corner navigation. The navy/white brand palette is stable;
+   corner geometry and layered control shadows follow the active app theme. */
+.sc-corner {
+  --sc-menu-bg: #0b2347;
+  --sc-menu-ink: #ffffff;
+  --sc-menu-muted: #b9c9e3;
+  --sc-menu-line: rgb(255 255 255 / .18);
+  --sc-menu-hover: #173762;
+  --sc-menu-selected: #ffffff;
+  --sc-menu-accent: #2f6fb5;
+  --sc-menu-accent-hover: #3f83cc;
+  --sc-menu-on-accent: #ffffff;
+  --sc-menu-panel-shadow: 0 20px 48px rgb(5 18 39 / .28), inset 0 1px 0 rgb(255 255 255 / .1);
+  --sc-menu-trigger-shadow: 0 3px 10px rgb(5 18 39 / .22), inset 0 1px 0 rgb(255 255 255 / .16);
+  --sc-menu-control-shadow: 0 4px 12px rgb(5 18 39 / .24), inset 0 1px 0 rgb(255 255 255 / .35);
+  --sc-menu-radius: var(--pc-r);
+  --sc-menu-focus: rgb(47 111 181 / .28);
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  z-index: 200;
+  color: var(--sc-menu-ink);
+  font-family: var(--pc-sans);
+}
+
+/* The public website is Porcelain by design, regardless of the last studio
+   theme saved in this browser. This keeps every public page in one palette. */
+html[data-mkt="1"] .sc-corner {
+  /* Keep public navigation in the website's cobalt/navy and porcelain palette. */
+  --sc-menu-bg: #0b2347;
+  --sc-menu-ink: #ffffff;
+  --sc-menu-muted: #b9c9e3;
+  --sc-menu-line: rgb(255 255 255 / .18);
+  --sc-menu-hover: #173762;
+  --sc-menu-selected: #ffffff;
+  --sc-menu-accent: #2f6fb5;
+  --sc-menu-accent-hover: #3f83cc;
+  --sc-menu-panel-shadow: 0 20px 48px rgb(5 18 39 / .28), inset 0 1px 0 rgb(255 255 255 / .1);
+  --sc-menu-trigger-shadow: 0 3px 10px rgb(5 18 39 / .22), inset 0 1px 0 rgb(255 255 255 / .16);
+  --sc-menu-control-shadow: 0 4px 12px rgb(5 18 39 / .24), inset 0 1px 0 rgb(255 255 255 / .35);
+  --sc-menu-radius: var(--pc-r);
+  --sc-menu-focus: rgb(47 111 181 / .28);
+}
+
+.sc-corner-trigger {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 13px;
+  border: 1px solid var(--sc-menu-line);
+  border-radius: var(--sc-menu-radius);
+  background: color-mix(in srgb, var(--sc-menu-bg) 94%, transparent);
+  color: var(--sc-menu-ink);
+  box-shadow: var(--sc-menu-trigger-shadow);
+  backdrop-filter: blur(16px);
+  font: 750 13px/1 var(--pc-sans);
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.sc-corner-trigger:hover,
+.sc-corner-trigger:focus-visible {
+  transform: translateY(-1px);
+  background: var(--sc-menu-hover);
+  outline: 3px solid var(--sc-menu-focus);
+  outline-offset: 2px;
+}
+.sc-corner-trigger.is-open {
+  background: var(--sc-menu-accent);
+  color: var(--sc-menu-on-accent);
+  border-color: var(--sc-menu-accent);
+}
+.sc-corner-trigger em {
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: 9px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: var(--sc-menu-accent);
+  color: var(--sc-menu-on-accent);
+}
+.sc-corner-trigger.is-open em {
+  background: color-mix(in srgb, var(--sc-menu-on-accent) 18%, transparent);
+}
+.sc-corner-bars { display: grid; gap: 3px; width: 16px; }
+.sc-corner-bars i { display: block; height: 1.5px; background: currentColor; border-radius: 2px; }
+
+.sc-corner-panel {
+  position: absolute;
+  top: 50px;
+  right: 0;
+  width: min(340px, calc(100vw - 24px));
+  max-height: calc(100vh - 74px);
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid var(--sc-menu-line);
+  border-radius: calc(var(--sc-menu-radius) + 3px);
+  background: var(--sc-menu-bg);
+  color: var(--sc-menu-ink);
+  box-shadow: var(--sc-menu-panel-shadow);
+  animation: sc-menu-in .16s ease-out;
+}
+.sc-corner-head { display: flex; align-items: center; gap: 11px; padding: 10px 10px 13px; }
+.sc-corner-mark {
+  width: 35px;
+  height: 35px;
+  display: grid;
+  place-items: center;
+  border-radius: calc(var(--sc-menu-radius) - 3px);
+  background: #ffffff;
+  color: #0b2347;
+  font-size: 19px;
+  font-weight: 900;
+  font-style: italic;
+  box-shadow: var(--sc-menu-control-shadow);
+}
+.sc-corner-head b, .sc-corner-head span { display: block; }
+.sc-corner-head b { font-size: 15px; }
+.sc-corner-head span { margin-top: 2px; color: var(--sc-menu-muted); font-size: 11px; text-transform: capitalize; }
+.sc-corner-links, .sc-corner-actions { display: grid; gap: 3px; }
+.sc-corner-links button, .sc-corner-actions button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: calc(var(--sc-menu-radius) - 5px);
+  background: transparent;
+  color: var(--sc-menu-ink);
+  padding: 10px 11px;
+  text-align: left;
+  font: 650 13px/1.2 var(--pc-sans);
+  cursor: pointer;
+}
+.sc-corner-links button:hover, .sc-corner-links button:focus-visible,
+.sc-corner-actions button:hover, .sc-corner-actions button:focus-visible {
+  background: var(--sc-menu-hover);
+  outline: none;
+}
+.sc-corner-links button.is-current { background: var(--sc-menu-selected); color: #0b2347; box-shadow: var(--sc-menu-control-shadow); }
+.sc-corner-links small { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.sc-corner-separator { height: 1px; background: var(--sc-menu-line); margin: 8px 4px; }
+.sc-corner-actions button.is-primary {
+  justify-content: center;
+  background: #ffffff;
+  color: #0b2347;
+  padding: 11px;
+  box-shadow: var(--sc-menu-control-shadow);
+}
+.sc-corner-actions button.is-primary:hover { background: #e7eefb; color: #0b2347; transform: translateY(-1px); }
+.sc-corner-legal { display: flex; gap: 4px; padding: 9px 6px 3px; margin-top: 7px; border-top: 1px solid var(--sc-menu-line); }
+.sc-corner-legal button { border: 0; background: transparent; color: var(--sc-menu-muted); padding: 5px; font: 600 10px/1 var(--pc-sans); cursor: pointer; }
+.sc-corner-legal button:hover { text-decoration: underline; color: var(--sc-menu-ink); }
+
+/* The menu keeps Scenering’s dark-blue and white brand palette in every
+   studio theme. Shape and shadow still adapt to the surrounding interface. */
+html[data-theme="classic"]:not([data-mkt]) .sc-corner {
+  --sc-menu-radius: 12px; --sc-menu-panel-shadow: 0 20px 50px rgb(0 0 0 / .42), inset 0 1px 0 rgb(255 255 255 / .1);
+  --sc-menu-trigger-shadow: 0 4px 14px rgb(0 0 0 / .3), inset 0 1px 0 rgb(255 255 255 / .14);
+}
+html[data-theme="apple"]:not([data-mkt]) .sc-corner {
+  --sc-menu-radius: 6px; --sc-menu-panel-shadow: 0 14px 40px rgb(0 0 0 / .2), inset 0 1px 0 rgb(255 255 255 / .12);
+  --sc-menu-trigger-shadow: 0 2px 6px rgb(0 0 0 / .16), inset 0 1px 0 rgb(255 255 255 / .18);
+}
+html[data-theme="windows"]:not([data-mkt]) .sc-corner {
+  --sc-menu-radius: 10px; --sc-menu-panel-shadow: 0 20px 60px rgb(2 6 14 / .58), inset 0 1px 0 rgb(255 255 255 / .1);
+  --sc-menu-trigger-shadow: 0 4px 14px rgb(2 6 14 / .45), inset 0 1px 0 rgb(255 255 255 / .16);
+}
+html[data-theme="playful"]:not([data-mkt]) .sc-corner {
+  --sc-menu-radius: 18px; --sc-menu-panel-shadow: 8px 8px 0 rgb(5 17 37 / .65);
+  --sc-menu-trigger-shadow: 4px 4px 0 rgb(5 17 37 / .65); --sc-menu-control-shadow: 3px 3px 0 rgb(5 17 37 / .55);
+}
+html[data-theme="glass"]:not([data-mkt]) .sc-corner {
+  --sc-menu-radius: 24px; --sc-menu-panel-shadow: 0 24px 60px rgb(9 30 63 / .3), inset 0 1px 0 rgb(255 255 255 / .16);
+  --sc-menu-trigger-shadow: 0 8px 22px rgb(9 30 63 / .25), inset 0 1px 0 rgb(255 255 255 / .2);
+}
+html[data-theme="porcelain"]:not([data-mkt]) .sc-corner {
+  --sc-menu-radius: var(--pc-r); --sc-menu-panel-shadow: 0 20px 48px rgb(5 18 39 / .28), inset 0 1px 0 rgb(255 255 255 / .1);
+  --sc-menu-trigger-shadow: 0 3px 10px rgb(5 18 39 / .22), inset 0 1px 0 rgb(255 255 255 / .16);
+}
+
+@keyframes sc-menu-in { from { opacity: 0; transform: translateY(-6px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (max-width: 560px) {
+  .sc-corner { top: 8px; right: 8px; }
+  .sc-corner-trigger { height: 40px; padding: 0 11px; }
+  .sc-corner-panel { top: 46px; width: calc(100vw - 16px); max-height: calc(100vh - 62px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sc-corner-panel { animation: none; }
+  .sc-corner-trigger { transition: none; }
+}

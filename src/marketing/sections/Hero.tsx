@@ -71,18 +71,18 @@ export default function Hero() {
             {/* No shortcut into the studio here — signing in is a decision
                 for the top of the page, not something to trip over. */}
             <div className="mkt-hero-cta">
-              <a className="mkt-btn mkt-btn-primary mkt-btn-lg" href="#workflow">
-                See how it works
+              <a className="mkt-btn mkt-btn-primary mkt-btn-lg" href="/register">
+                Start Free
               </a>
-              <a className="mkt-btn mkt-btn-lg" href="#examples">
-                See what people make
+              <a className="mkt-btn mkt-btn-lg" href="/how-it-works">
+                See How It Works
               </a>
             </div>
 
             <div className="mkt-hero-note">
               <Pill tone="live">
                 <span className="mkt-dot" aria-hidden="true" />
-                No account needed
+                Free membership · no payment required
               </Pill>
               <Pill>{LIVE_COUNTS.voices} narrators</Pill>
               <Pill>{LIVE_COUNTS.captionStyles} caption styles</Pill>

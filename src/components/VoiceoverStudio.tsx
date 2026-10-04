@@ -21,6 +21,9 @@ import VoiceoverSwitch from "./VoiceoverSwitch";
 import { DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { iconify } from "./icons/Icon";
 import Icon from "./icons/Icon";
+import { getInterfacePlan, useSession } from "../lib/session";
+import { isPlanVoiceIncluded, type PlanSlug } from "../config/plans";
+import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 
 interface VoiceoverStudioProps {
   scenes: Scene[];
@@ -75,14 +78,18 @@ export default function VoiceoverStudio({
   voiceoverEnabled = true,
   onUpdateVoiceoverEnabled,
 }: VoiceoverStudioProps) {
+  const { account } = useSession();
+  const currentPlan = getInterfacePlan(account);
   const [internalSelectedVoice, setInternalSelectedVoice] = useState("guy");
   const selectedVoice = propSelectedVoice || internalSelectedVoice;
 
   const handleSelectVoice = (vId: string) => {
+    const isVip = !isPlanVoiceIncluded(currentPlan, vId);
     setInternalSelectedVoice(vId);
     if (onSelectVoice) {
       onSelectVoice(vId);
     }
+    if (isVip) openMembershipPlans();
   };
 
   /**
@@ -881,12 +888,13 @@ export default function VoiceoverStudio({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <span className="text-xs text-gray-300 font-medium flex items-center gap-2">
                   <Icon glyph="🔀" /> Rotate between two voices
+                  {currentPlan === "free" && <VipFeatureBadge compact />}
                 </span>
                 <button
                   type="button"
                   role="switch"
                   aria-checked={rotateVoices}
-                  onClick={() => setRotateVoices((v) => !v)}
+                  onClick={() => { setRotateVoices((v) => !v); if (currentPlan === "free") openMembershipPlans(); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors shrink-0 ${
                     rotateVoices
                       ? "bg-indigo-600 border-indigo-500 text-white"
@@ -923,7 +931,7 @@ export default function VoiceoverStudio({
                       </span>
                       <select
                         value={secondVoice}
-                        onChange={(e) => setSecondVoice(e.target.value)}
+                        onChange={(e) => { setSecondVoice(e.target.value); if (!isPlanVoiceIncluded(currentPlan, e.target.value)) openMembershipPlans(); }}
                         className="px-2.5 py-2 bg-gray-900 border border-hairline rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       >
                         {STUDIO_VOICE_PRESETS.map((v) => (
@@ -977,6 +985,7 @@ export default function VoiceoverStudio({
                 const isMale = voice.gender === "male";
                 const isCurrentPlaying = playingId === voice.id;
                 const isCurrentLoading = loadingId === voice.id;
+                const isVip = !isPlanVoiceIncluded(currentPlan, voice.id);
 
                 return (
                   <div
@@ -1008,15 +1017,18 @@ export default function VoiceoverStudio({
                           </div>
                         </div>
 
-                        <span
-                          className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold border ${
-                            isMale
-                              ? "bg-blue-950 text-blue-300 border-blue-800"
-                              : "bg-pink-950 text-pink-300 border-pink-800"
-                          }`}
-                        >
-                          {isMale ? "MALE" : "FEMALE"}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {isVip && <VipFeatureBadge compact />}
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold border ${
+                              isMale
+                                ? "bg-blue-950 text-blue-300 border-blue-800"
+                                : "bg-pink-950 text-pink-300 border-pink-800"
+                            }`}
+                          >
+                            {isMale ? "MALE" : "FEMALE"}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="space-y-1 mb-3 text-xs">
