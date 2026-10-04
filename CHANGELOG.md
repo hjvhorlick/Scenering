@@ -1,5 +1,58 @@
 # Changelog
 
+## Unreleased — Images that arrive framed, honest VIP exports, and a Fairy shelf
+
+- **Fixed: image search returned nothing from Pexels.** The request asked for
+  `per_page=100`; the documented maximum is 80 and anything above it is
+  rejected outright, so every Pexels search failed with a 400 and fell
+  through to the other providers in silence. The value is clamped, Wikimedia
+  `titles` are batched at 50, and a failed provider now logs why instead of
+  looking like "no results".
+- **Choosing a photo lands it in the scene, already framed.** Auto-framing
+  always fills the frame, top and bottom, however badly the photo and the
+  video disagree in shape. The old rule — a portrait photo in a landscape
+  video is shown whole over a blurred copy of itself — is gone; blur fill is
+  now only ever something you pick by hand, and a framing you set yourself is
+  never overwritten.
+- **The Nature Fallback deck is a real library again**: 18 photographs
+  bundled as 1920/640 WebP pairs, ranked against the query, so a search that
+  matches nothing online still answers with something usable.
+- **Each scene can take its own image or video upload.** Uploads are stored
+  as `custom-image:` and `custom-video:` references backed by IndexedDB, not
+  `blob:` URLs, so a project still has its media after a reload.
+- **VIP effects can be previewed but can never reach a render.** Every export
+  that writes a file, drafts included, is produced from
+  `stripVipFromExport`, and the warning is shown as the render starts rather
+  than discovered afterwards. A VIP narration voice or caption preset blocks
+  only a final download, and links to the step that fixes it.
+- **The membership tiers are correct**: Voice Echo is VIP, only the standard
+  Subscribe button is free, and anything built in the settings section is
+  VIP. The VIP mark is now a flame (`.vip-flame`) — the icons only.
+- **New Fairy animation category**: floating bubbles, gold and silver glitter
+  swirls and twirls, circle smoke rings, falling stars, and sun flares
+  entering from any corner, edge, a rotating sweep or at random. Three
+  presets to start from. All of it drawn procedurally, so it ships no assets
+  and recolours with the existing chrome and neon palettes.
+- **Rows that are wider than their panel now say so.** `ScrollStrip` gives
+  the preset and sub-section rows arrow buttons, a fade on whichever edge
+  hides more content, and a visible slider — they used to run off the side
+  with the scrollbar hidden, which told the reader nothing was missing.
+- **Lemon Squeezy is ready to switch on with nothing but `.env` entries.**
+  Cancelling or a failed payment keeps the plan until the period that was
+  paid for actually ends, with the stored end date as a backstop if the
+  expiry webhook never arrives. The hosted portal and update-card links are
+  kept, so a customer can cancel without writing to support. Events that are
+  not subscription events are recorded and ignored rather than guessed at —
+  an order id is not a subscription id. The owner gets a go-live checklist
+  naming every missing variable, the webhook URL to register, and the last 25
+  webhooks received.
+- Smaller things: the captions on/off switch has one owner again (the
+  Captions studio), the SRT export and the preview Download button are gone,
+  voices are listed as male and female columns led by the free voice, the two
+  free caption styles lead their grid, caption specimens sit on dark grey so
+  they are legible, the corner menu shows the real wordmark, and the studio's
+  project title stops being truncated once there is room for it.
+
 ## Unreleased — Intro and outro previews keep their shape in 9:16
 
 - **Fixed: the intro and outro previews were squashed in portrait projects.**
