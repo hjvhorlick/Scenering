@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SITE_SECTIONS, goToSection, navigate } from "../lib/route";
 import { getInterfacePlan, signOut, useSession } from "../lib/session";
+import SocialLinksRow from "./SocialLinks";
 import "./site-corner-menu.css";
 
 /**
@@ -94,6 +95,10 @@ export default function SiteCornerMenu() {
         ))}
       </nav>
 
+      {/* The owner's configured social profiles — the same strip the public
+          footers show, so the studio carries them too. Renders nothing until
+          links are saved in Owner administration. */}
+      <SocialLinksRow size={16} style={{ padding: "10px 14px 0" }} />
       <div className="sc-corner-legal"><button onClick={() => go("/privacy")}>Privacy</button><button onClick={() => go("/terms")}>Terms</button><button onClick={() => go("/cookies")}>Cookies</button></div>
     </div>}
   </div>;

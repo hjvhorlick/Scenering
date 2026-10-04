@@ -27,6 +27,7 @@ import { MARKETING_ASSETS } from "./assets";
 import IconSprite from "../components/icons/IconSprite";
 import PublicPage, { isStandalonePublicPath } from "./PublicPage";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
+import SocialLinksRow from "../shared/SocialLinks";
 
 /**
  * The public website.
@@ -175,6 +176,7 @@ export default function MarketingSite() {
               <p style={{ marginTop: 10, fontSize: 13.5, maxWidth: 380, color: "#98a1b8" }}>
                 {MESSAGES.hero} {HONESTY.localNote}
               </p>
+              <SocialLinksRow size={18} style={{ marginTop: 14 }} />
             </div>
 
             <div>
