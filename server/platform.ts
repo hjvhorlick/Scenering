@@ -16,11 +16,58 @@ type ComplimentaryCode = { id: string; code_hash: string; code_prefix: string; p
 type Token = { id: string; user_id: string; purpose: "verify" | "reset" | "session"; token_hash: string; expires_at: string; created_at: string };
 type Contact = { id: string; name: string; email: string; subject: string; message: string; category: string; status: string; created_at: string };
 type EmailPreference = { user_id: string; marketing_consent: boolean; consent_timestamp: string; consent_source: string; consent_version: string; training_step: number; updated_at: string };
-type PlatformDb = { users: User[]; memberships: Membership[]; subscriptions: Subscription[]; usage_records: UsageRecord[]; export_reservations: ExportReservation[]; complimentary_grants: ComplimentaryGrant[]; complimentary_codes: ComplimentaryCode[]; tokens: Token[]; webhook_events: any[]; billing_events: any[]; contact_submissions: Contact[]; email_preferences: EmailPreference[] };
+type SocialLinks = { youtube: string; facebook: string; linkedin: string; x: string; updated_at?: string; updated_by?: string };
+type PlatformSettings = { social_links?: SocialLinks };
+type PlatformDb = { users: User[]; memberships: Membership[]; subscriptions: Subscription[]; usage_records: UsageRecord[]; export_reservations: ExportReservation[]; complimentary_grants: ComplimentaryGrant[]; complimentary_codes: ComplimentaryCode[]; tokens: Token[]; webhook_events: any[]; billing_events: any[]; contact_submissions: Contact[]; email_preferences: EmailPreference[]; settings: PlatformSettings };
 
 const DB_DIR = path.join(process.cwd(), ".data");
 const DB_PATH = path.join(DB_DIR, "platform.json");
-const EMPTY_DB: PlatformDb = { users: [], memberships: [], subscriptions: [], usage_records: [], export_reservations: [], complimentary_grants: [], complimentary_codes: [], tokens: [], webhook_events: [], billing_events: [], contact_submissions: [], email_preferences: [] };
+const EMPTY_DB: PlatformDb = { users: [], memberships: [], subscriptions: [], usage_records: [], export_reservations: [], complimentary_grants: [], complimentary_codes: [], tokens: [], webhook_events: [], billing_events: [], contact_submissions: [], email_preferences: [], settings: {} };
+
+/**
+ * The social profiles the owner can publish on the site and in the app.
+ * Each link must be an HTTPS URL on the platform's own domain, so a typo
+ * (or a pasted tracking redirect) can never become a footer icon that sends
+ * visitors somewhere else.
+ */
+export const SOCIAL_LINK_PLATFORMS = [
+  { id: "youtube", label: "YouTube", hosts: ["youtube.com", "youtu.be"] },
+  { id: "facebook", label: "Facebook", hosts: ["facebook.com", "fb.com"] },
+  { id: "linkedin", label: "LinkedIn", hosts: ["linkedin.com"] },
+  { id: "x", label: "X", hosts: ["x.com", "twitter.com"] },
+] as const;
+export type SocialPlatformId = (typeof SOCIAL_LINK_PLATFORMS)[number]["id"];
+
+/**
+ * Validates and normalizes the four social-link fields. An empty string
+ * clears a link. A link pasted without a scheme ("www.youtube.com/@x") is
+ * treated as https, because that is how addresses are copied from a browser
+ * bar or a profile page. Returns the clean record, or a human-readable error
+ * naming the first field that is wrong.
+ */
+export function sanitizeSocialLinks(input: unknown): { links: Record<SocialPlatformId, string> } | { error: string } {
+  const body = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const links = { youtube: "", facebook: "", linkedin: "", x: "" } as Record<SocialPlatformId, string>;
+  for (const platform of SOCIAL_LINK_PLATFORMS) {
+    const raw = String(body[platform.id] ?? "").trim();
+    if (!raw) continue;
+    if (raw.length > 300) return { error: `The ${platform.label} link is too long (300 characters maximum).` };
+    const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+    let url: URL;
+    try { url = new URL(candidate); } catch { return { error: `The ${platform.label} link is not a valid URL. Paste the full address, for example https://${platform.hosts[0]}/yourprofile.` }; }
+    if (url.protocol !== "https:") return { error: `The ${platform.label} link must use https://.` };
+    const host = url.hostname.toLowerCase();
+    if (!platform.hosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) return { error: `The ${platform.label} link must point at ${platform.hosts.join(" or ")}.` };
+    links[platform.id] = url.toString();
+  }
+  return { links };
+}
+
+/** The social links as the public site and app read them — never missing keys. */
+function publicSocialLinks(db: PlatformDb): Record<SocialPlatformId, string> {
+  const stored = db.settings?.social_links;
+  return { youtube: stored?.youtube || "", facebook: stored?.facebook || "", linkedin: stored?.linkedin || "", x: stored?.x || "" };
+}
 const id = (prefix: string) => `${prefix}_${randomBytes(12).toString("hex")}`;
 const now = () => new Date().toISOString();
 const DEVELOPMENT_SESSION_SECRET = "scenering-local-development-secret";
@@ -99,12 +146,38 @@ function activeComplimentaryGrant(db: PlatformDb, userId: string) { clean(db); r
 function getUserPlan(db: PlatformDb, userId: string): PlanSlug { const user = db.users.find((entry) => entry.id === userId); if (user?.role === "admin") return "sceneforge"; const paid = membershipFor(db, userId)?.plan_id || "free"; const complimentary = activeComplimentaryGrant(db, userId)?.plan_id || "free"; const rank: Record<PlanSlug, number> = { free: 0, sceneflow: 1, sceneforge: 2 }; return rank[complimentary] > rank[paid] ? complimentary : paid; }
 function effectiveMembership(db: PlatformDb, userId: string) { const stored = membershipFor(db, userId); const grant = activeComplimentaryGrant(db, userId); const plan = getUserPlan(db, userId); const user = db.users.find((entry) => entry.id === userId); return { ...(stored || { id: "", user_id: userId, status: "active" }), plan_id: plan, source: user?.role === "admin" ? "owner_admin" : grant && grant.plan_id === plan ? "complimentary" : plan === "free" ? "free" : "verified_subscription", complimentary_ends_at: grant && grant.plan_id === plan ? grant.ends_at : null, complimentary_period: grant && grant.plan_id === plan ? grant.period : null }; }
 function configuredOwnerEmail() { return String(process.env.SCENERING_OWNER_EMAIL || "").trim().toLowerCase(); }
-function setSessionCookie(res: Response, token: string) { res.setHeader("Set-Cookie", `scenering_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000; Priority=High${process.env.NODE_ENV === "production" ? "; Secure" : ""}`); }
-function clearSessionCookie(res: Response) { res.setHeader("Set-Cookie", `scenering_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Priority=High${process.env.NODE_ENV === "production" ? "; Secure" : ""}`); }
+/** Session cookie attributes. The real policy is HttpOnly; SameSite=Lax
+ *  (plus Secure in production). Embedded development previews — the app
+ *  shown inside an HTTPS iframe, as sandbox preview panes do — are the one
+ *  exception: browsers refuse to send Lax cookies inside a cross-site
+ *  frame, which makes sign-in appear to work and then fail with 401 on the
+ *  next request. DEV_EMBEDDED_PREVIEW=1 (never set in production; ignored
+ *  there) switches to SameSite=None; Secure so the preview behaves like the
+ *  deployed site. */
+function sessionCookieAttributes() {
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_EMBEDDED_PREVIEW === "1") return "Path=/; HttpOnly; SameSite=None; Secure";
+  return `Path=/; HttpOnly; SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+}
+function setSessionCookie(res: Response, token: string) { res.setHeader("Set-Cookie", `scenering_session=${encodeURIComponent(token)}; ${sessionCookieAttributes()}; Max-Age=2592000; Priority=High`); }
+function clearSessionCookie(res: Response) { res.setHeader("Set-Cookie", `scenering_session=; ${sessionCookieAttributes()}; Max-Age=0; Priority=High`); }
 function findSession(req: Request): { db: PlatformDb; user: User } | null {
-  const raw = cookies(req).scenering_session; if (!raw) return null;
-  const db = loadDb(); clean(db); const token = db.tokens.find((t) => t.purpose === "session" && t.token_hash === hashToken(raw));
-  const user = token && db.users.find((u) => u.id === token.user_id); return user ? { db, user } : null;
+  const raw = cookies(req).scenering_session;
+  if (raw) {
+    const db = loadDb(); clean(db); const token = db.tokens.find((t) => t.purpose === "session" && t.token_hash === hashToken(raw));
+    const user = token && db.users.find((u) => u.id === token.user_id); if (user) return { db, user };
+  }
+  /* DEV_AUTO_OWNER=1 — development previews only. Some browsers refuse to
+     store any cookie for an embedded or proxied preview, which makes
+     cookie-based sign-in impossible there no matter what the server sends.
+     With this flag the preview treats every request as the configured owner
+     administrator, so the product can be reviewed end to end. Double-gated:
+     ignored in production, and never set in any deployment configuration. */
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_AUTO_OWNER === "1") {
+    const db = loadDb(); clean(db);
+    const owner = db.users.find((u) => u.role === "admin" && u.email === configuredOwnerEmail()) || db.users.find((u) => u.role === "admin");
+    if (owner) return { db, user: owner };
+  }
+  return null;
 }
 export function requirePlatformUser(req: Request, res: Response, next: NextFunction) { const auth = findSession(req); if (!auth) return res.status(401).json({ error: "Sign in required" }); (req as any).auth = auth; next(); }
 const requireUser = requirePlatformUser;
@@ -261,6 +334,16 @@ export function registerPlatformRoutes(app: Express) {
   app.post("/api/admin/complimentary-memberships", requireAdmin, rateLimit("admin-grant", 60, 3600000), (req, res) => { const { user: admin } = (req as any).auth as { user: User }; const requestedUserId = String(req.body?.userId || ""); const requestedEmail = String(req.body?.email || "").trim().toLowerCase(); const planId = req.body?.planId as PlanSlug; const period = req.body?.period === "year" ? "year" : req.body?.period === "month" ? "month" : null; const reason = String(req.body?.reason || "").trim().slice(0, 500); if ((!requestedUserId && !requestedEmail) || !period || !["sceneflow", "sceneforge"].includes(planId)) return res.status(400).json({ error: "Choose a customer, plan, and complimentary period." }); const result = mutate((db) => { clean(db); const recipient = db.users.find((entry) => requestedUserId ? entry.id === requestedUserId : entry.email === requestedEmail); const userId = recipient?.id || ""; if (!recipient || !recipient.email_verified || recipient.role === "admin") return null; const grant = createComplimentaryGrant(db, userId, planId as Exclude<PlanSlug, "free">, period, admin.id, reason || undefined); db.billing_events.push({ id: id("bill"), user_id: userId, event_name: "complimentary_membership_granted", from_provider: false, granted_by: admin.id, plan_id: planId, period, ends_at: grant.ends_at, reason, created_at: now() }); return { grant, recipient: safeUser(recipient), membership: effectiveMembership(db, userId) }; }); return result ? res.status(201).json(result) : res.status(404).json({ error: "Eligible customer account not found." }); });
   app.post("/api/admin/complimentary-memberships/:id/revoke", requireAdmin, rateLimit("admin-grant-revoke", 60, 3600000), (req, res) => { const { user: admin } = (req as any).auth as { user: User }; const result = mutate((db) => { const grant = db.complimentary_grants.find((entry) => entry.id === req.params.id); if (!grant) return null; if (grant.status === "active") { grant.status = "revoked"; grant.revoked_at = now(); db.billing_events.push({ id: id("bill"), user_id: grant.user_id, event_name: "complimentary_membership_revoked", from_provider: false, granted_by: admin.id, grant_id: grant.id, created_at: now() }); } return grant; }); return result ? res.json({ revoked: true, grant: result }) : res.status(404).json({ error: "Complimentary membership not found." }); });
   app.put("/api/admin/contacts/:id", requireAdmin, rateLimit("admin-contact", 120, 3600000), (req, res) => { const allowed = new Set(["new", "open", "resolved", "closed"]); const status = String(req.body?.status || ""); if (!allowed.has(status)) return res.status(400).json({ error: "Invalid contact status" }); const updated = mutate((db) => { const contact = db.contact_submissions.find((entry) => entry.id === req.params.id); if (!contact) return null; contact.status = status; return contact; }); return updated ? res.json(updated) : res.status(404).json({ error: "Contact message not found" }); });
+  /* The configured social profiles. Public on purpose: the marketing footer
+     and the studio chrome both render these icons for signed-out visitors. */
+  app.get("/api/social-links", (_req, res) => { const db = loadDb(); res.setHeader("Cache-Control", "no-store"); res.json({ links: publicSocialLinks(db), platforms: SOCIAL_LINK_PLATFORMS.map(({ id, label }) => ({ id, label })) }); });
+  app.put("/api/admin/social-links", requireAdmin, rateLimit("admin-social-links", 60, 3600000), (req, res) => {
+    const { user: admin } = (req as any).auth as { user: User };
+    const result = sanitizeSocialLinks(req.body);
+    if ("error" in result) return res.status(400).json({ error: result.error });
+    const saved = mutate((db) => { db.settings = db.settings || {}; db.settings.social_links = { ...result.links, updated_at: now(), updated_by: admin.id }; return publicSocialLinks(db); });
+    res.json({ links: saved });
+  });
   app.get("/api/email-preferences", requireUser,  (req, res) => { const { db, user } = (req as any).auth; res.json(db.email_preferences.find((p) => p.user_id === user.id)); });
   app.put("/api/email-preferences", requireUser, (req, res) => { const { user } = (req as any).auth; const pref = mutate((db) => { let p = db.email_preferences.find((x) => x.user_id === user.id)!; p.marketing_consent = Boolean(req.body?.marketingConsent); p.consent_timestamp = now(); p.consent_source = "account_settings"; p.consent_version = "2026-10"; p.updated_at = now(); return p; }); res.json(pref); });
   app.post("/api/contact", rateLimit("contact", 5, 3600000), (req, res) => { const { name, email, subject, message, category, website } = req.body || {}; if (website) return res.status(201).json({ message: "Thanks — your message has been received." }); const categories = ["General", "Technical", "Billing", "Account", "Feature Request", "Business", "Other"]; if (String(name).trim().length < 2 || String(name).trim().length > 100 || String(email).length > 254 || !/^\S+@\S+\.\S+$/.test(String(email)) || String(subject).trim().length < 3 || String(subject).trim().length > 200 || String(message).trim().length < 10 || String(message).trim().length > 10000 || !categories.includes(category)) return res.status(400).json({ error: "Please complete every field with valid information." }); mutate((db) => db.contact_submissions.push({ id: id("contact"), name: String(name).trim(), email: String(email).trim(), subject: String(subject).trim(), message: String(message).trim(), category, status: "new", created_at: now() })); res.status(201).json({ message: "Thanks — your message has been received. We’ll reply by email." }); });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "../config/plans";
 import { getInterfacePlan, getSession, setAdminPlanPreview, useSession } from "../lib/session";
+import { invalidateSocialLinks, SocialIcon, SOCIAL_ICONS, type SocialLinkSet } from "../shared/SocialLinks";
 import Icon from "./icons/Icon";
 
 type AccountPayload = {
@@ -27,11 +28,27 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
   const [codeValidity, setCodeValidity] = useState<7 | 30 | 90>(30);
   const [generatedCode, setGeneratedCode] = useState<{ code: string; redeemUrl: string; expiresAt: string } | null>(null);
   const [redeemCode, setRedeemCode] = useState("");
+  const [socialLinks, setSocialLinks] = useState<SocialLinkSet>({ youtube: "", facebook: "", linkedin: "", x: "" });
+  const [socialStatus, setSocialStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
   async function refreshAdmin() {
     const response = await fetch("/api/admin/overview");
     if (!response.ok) throw new Error("Admin overview could not be loaded.");
     setAdminData(await response.json());
+    const links = await fetch("/api/social-links").then((r) => r.ok ? r.json() : null).catch(() => null);
+    if (links?.links) setSocialLinks({ youtube: "", facebook: "", linkedin: "", x: "", ...links.links });
+  }
+
+  async function saveSocialLinks() {
+    setBusy("social-links"); setSocialStatus(null);
+    /* An address copied from a browser bar often arrives without a scheme;
+       treat it as https rather than failing a save over a missing prefix. */
+    const normalized = Object.fromEntries(Object.entries(socialLinks).map(([key, value]) => { const trimmed = String(value || "").trim(); return [key, !trimmed || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`]; })) as SocialLinkSet;
+    const response = await fetch("/api/admin/social-links", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(normalized) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) setSocialStatus({ tone: "error", text: data.error || "Social links could not be saved." });
+    else { setSocialLinks({ youtube: "", facebook: "", linkedin: "", x: "", ...data.links }); invalidateSocialLinks(); setSocialStatus({ tone: "ok", text: "Saved. The icons on the website footers and the app menu now show these addresses." }); }
+    setBusy(null);
   }
 
   useEffect(() => {
@@ -186,6 +203,34 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
               <button type="submit" disabled={busy === "create-code"} className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50 disabled:opacity-60">{busy === "create-code" ? "Generating…" : "Generate gift code"}</button>
             </div>
             {generatedCode && <div className="mt-4 rounded-lg border border-emerald-500/50 bg-emerald-950/35 p-4"><div className="text-[10px] uppercase tracking-wider text-emerald-300">Gift code created — copy it now</div><code className="block text-base font-bold text-white break-all mt-1">{generatedCode.code}</code><div className="flex flex-wrap gap-2 mt-3"><button type="button" onClick={() => void copyGiftText(generatedCode.code, "Gift code")} className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-bold">Copy gift code</button><button type="button" onClick={() => void copyGiftText(new URL(generatedCode.redeemUrl, window.location.origin).toString(), "Gift registration link")} className="rounded-md border border-emerald-500/40 px-3 py-1.5 text-xs font-bold">Copy gift registration link</button></div><div className="text-[10px] text-gray-400 mt-2">The code must be claimed by {new Date(generatedCode.expiresAt).toLocaleDateString()}. The one-year membership starts when claimed.</div></div>}
+          </form>
+          <form className="rounded-xl border border-white/15 bg-gray-950/70 p-4 sm:p-5" aria-label="Social media links" onSubmit={(event) => { event.preventDefault(); void saveSocialLinks(); }}>
+            <span className="text-[10px] uppercase tracking-[.16em] text-blue-300 font-bold">Social media</span>
+            <h4 className="text-lg font-bold mt-1">Website and app social links</h4>
+            <p className="text-xs text-gray-400 mt-1 mb-4">Paste the full https:// address of each profile. A saved link shows its original platform icon in the website footers and the app menu; leaving a field empty hides that icon everywhere. Each address must point at the platform's own domain.</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {SOCIAL_ICONS.map((platform) => (
+                <label key={platform.id} className="block">
+                  <span className="flex items-center gap-2 text-xs font-bold text-gray-300"><SocialIcon id={platform.id} size={16} />{platform.label} URL</span>
+                  <input
+                    type="text"
+                    inputMode="url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={platform.id === "youtube" ? "https://www.youtube.com/@yourchannel" : platform.id === "facebook" ? "https://www.facebook.com/yourpage" : platform.id === "linkedin" ? "https://www.linkedin.com/company/yourcompany" : "https://x.com/yourhandle"}
+                    value={socialLinks[platform.id]}
+                    onChange={(event) => setSocialLinks((previous) => ({ ...previous, [platform.id]: event.target.value }))}
+                    className="mt-1.5 w-full rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs text-gray-100 placeholder:text-gray-600"
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-3 mt-4">
+              <button type="submit" disabled={busy === "social-links"} className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50 disabled:opacity-60">{busy === "social-links" ? "Saving…" : "Save social links"}</button>
+              {socialStatus
+                ? <span role="status" className={`text-xs font-bold ${socialStatus.tone === "ok" ? "text-emerald-300" : "text-amber-300"}`}>{socialStatus.text}</span>
+                : <span className="text-[10px] text-gray-500">Saved immediately for every visitor. No link is shown until it is saved here.</span>}
+            </div>
           </form>
           {adminData ? <>
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">{Object.entries(adminData.configuration || {}).map(([key, value]) => <div key={key} className="rounded-lg border border-white/10 bg-gray-950/60 p-3"><div className="text-[10px] text-gray-500 break-words">{key.replace(/([A-Z])/g, " $1")}</div><b className={value ? "text-emerald-300" : "text-amber-300"}>{value ? "Yes" : "No"}</b></div>)}</div>

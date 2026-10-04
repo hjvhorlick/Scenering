@@ -5,6 +5,7 @@ import { redeemComplimentaryCode } from "../lib/entitlements";
 import logo from "../assets/scenering-logo.png";
 import IconSprite from "../components/icons/IconSprite";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
+import SocialLinksRow from "../shared/SocialLinks";
 
 type Mode = "login" | "register" | "forgot";
 
@@ -59,6 +60,7 @@ export default function SignIn() {
   const switchMode = (next: Mode) => { setMode(next); setError(null); setMessage(null); setPassword(""); setConfirm(""); };
   return <div className="si-page"><IconSprite /><SiteCornerMenu />
     <header className="si-top"><img src={logo} alt="Scenering" height={30} style={{ height: 30, width: "auto" }} />
+      <SocialLinksRow size={20} tone="light" style={{ marginLeft: "auto" }} />
       <span style={{ width: 92 }} aria-hidden="true" />
     </header>
     <main className="si-center"><form className="si-card" onSubmit={onSubmit}>
