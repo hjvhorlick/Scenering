@@ -266,6 +266,18 @@ html[data-mkt="1"][data-theme] body {
   flex: 1 1 auto;
 }
 
+/* Header social icons: present from small-desktop up, hidden on narrow
+   screens where the header only has room for the wordmark and menu. */
+.mkt-nav-social {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .mkt-nav-social {
+    display: flex;
+  }
+}
+
 /* ---- small-screen section menu ---- */
 /* The link rail above is hidden below 1000px. This replaces it, so the page
    is navigable on a phone instead of being one long scroll. */

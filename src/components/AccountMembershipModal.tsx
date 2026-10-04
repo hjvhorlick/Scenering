@@ -29,6 +29,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
   const [generatedCode, setGeneratedCode] = useState<{ code: string; redeemUrl: string; expiresAt: string } | null>(null);
   const [redeemCode, setRedeemCode] = useState("");
   const [socialLinks, setSocialLinks] = useState<SocialLinkSet>({ youtube: "", facebook: "", linkedin: "", x: "" });
+  const [socialStatus, setSocialStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
   async function refreshAdmin() {
     const response = await fetch("/api/admin/overview");
@@ -39,11 +40,14 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
   }
 
   async function saveSocialLinks() {
-    setBusy("social-links"); setNotice("");
-    const response = await fetch("/api/admin/social-links", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(socialLinks) });
+    setBusy("social-links"); setSocialStatus(null);
+    /* An address copied from a browser bar often arrives without a scheme;
+       treat it as https rather than failing a save over a missing prefix. */
+    const normalized = Object.fromEntries(Object.entries(socialLinks).map(([key, value]) => { const trimmed = String(value || "").trim(); return [key, !trimmed || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`]; })) as SocialLinkSet;
+    const response = await fetch("/api/admin/social-links", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(normalized) });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) setNotice(data.error || "Social links could not be saved.");
-    else { setSocialLinks({ youtube: "", facebook: "", linkedin: "", x: "", ...data.links }); invalidateSocialLinks(); setNotice("Social links saved. The icons on the website and in the app now reflect these addresses."); }
+    if (!response.ok) setSocialStatus({ tone: "error", text: data.error || "Social links could not be saved." });
+    else { setSocialLinks({ youtube: "", facebook: "", linkedin: "", x: "", ...data.links }); invalidateSocialLinks(); setSocialStatus({ tone: "ok", text: "Saved. The icons on the website footers and the app menu now show these addresses." }); }
     setBusy(null);
   }
 
@@ -209,8 +213,10 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
                 <label key={platform.id} className="block">
                   <span className="flex items-center gap-2 text-xs font-bold text-gray-300"><SocialIcon id={platform.id} size={16} />{platform.label} URL</span>
                   <input
-                    type="url"
+                    type="text"
                     inputMode="url"
+                    autoComplete="off"
+                    spellCheck={false}
                     placeholder={platform.id === "youtube" ? "https://www.youtube.com/@yourchannel" : platform.id === "facebook" ? "https://www.facebook.com/yourpage" : platform.id === "linkedin" ? "https://www.linkedin.com/company/yourcompany" : "https://x.com/yourhandle"}
                     value={socialLinks[platform.id]}
                     onChange={(event) => setSocialLinks((previous) => ({ ...previous, [platform.id]: event.target.value }))}
@@ -221,7 +227,9 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
             </div>
             <div className="flex flex-wrap items-center gap-3 mt-4">
               <button type="submit" disabled={busy === "social-links"} className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50 disabled:opacity-60">{busy === "social-links" ? "Saving…" : "Save social links"}</button>
-              <span className="text-[10px] text-gray-500">Saved immediately for every visitor. No link is shown until it is saved here.</span>
+              {socialStatus
+                ? <span role="status" className={`text-xs font-bold ${socialStatus.tone === "ok" ? "text-emerald-300" : "text-amber-300"}`}>{socialStatus.text}</span>
+                : <span className="text-[10px] text-gray-500">Saved immediately for every visitor. No link is shown until it is saved here.</span>}
             </div>
           </form>
           {adminData ? <>

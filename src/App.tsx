@@ -52,6 +52,7 @@ import { VoiceEchoConfig, DEFAULT_VOICE_ECHO, resolveVoiceEcho } from "./lib/voi
 import IconSprite from "./components/icons/IconSprite";
 import Icon, { iconify } from "./components/icons/Icon";
 import SiteCornerMenu from "./shared/SiteCornerMenu";
+import SocialLinksRow from "./shared/SocialLinks";
 
 type View = "create" | "editor";
 
@@ -1573,6 +1574,10 @@ export default function App() {
           >
             {currentProject ? currentProject.title : "Start a New Project"}
           </h2>
+
+          {/* The owner's configured social profiles — same strip as the
+              website. Top row, after the logo and project title. */}
+          <SocialLinksRow size={18} className="hidden md:flex shrink-0" />
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
           {/* Scrolls sideways like the Video Studio tab row rather than

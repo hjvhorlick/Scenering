@@ -122,6 +122,12 @@ const customerCookie = await createSignedInUser("customer@example.com", "Ordinar
   const stored = JSON.parse(readFileSync(join(process.cwd(), ".data/platform.json"), "utf8"));
   h.eq(stored.settings?.social_links?.linkedin, "https://www.linkedin.com/company/scenering", "the links persist in the platform store, not in memory");
   ok(Boolean(stored.settings?.social_links?.updated_at), "the save is timestamped");
+
+  /* An address copied from a browser bar often has no scheme. That must be
+     treated as https, not rejected as a typo. */
+  const schemeless = await fetch(`${base}/api/admin/social-links`, { method: "PUT", headers: { "Content-Type": "application/json", Cookie: ownerCookie }, body: JSON.stringify({ youtube: "www.youtube.com/@scenering" }) });
+  h.eq(schemeless.status, 200, "an address pasted without https:// is accepted");
+  h.eq((await schemeless.json()).links.youtube, "https://www.youtube.com/@scenering", "the missing https:// prefix is added, not rejected");
 }
 
 /* ------------------------------------------------------------------ */
@@ -158,7 +164,8 @@ ok(publicPageSource.includes("<SocialLinksRow"), "the standalone public pages' f
 ok(cornerMenuSource.includes("<SocialLinksRow"), "the app's corner menu carries the social strip");
 ok(modalSource.includes("/api/admin/social-links"), "the administration panel saves to the admin endpoint");
 ok(modalSource.includes("saveSocialLinks"), "the administration panel has a save action for social links");
-ok(/type="url"/.test(modalSource), "the administration panel uses URL inputs for the four addresses");
+ok(modalSource.includes('inputMode="url"'), "the administration panel uses URL-keyboard inputs for the four addresses");
+ok(modalSource.includes("socialStatus"), "save feedback is shown inline, next to the save button");
 ok(modalSource.includes("invalidateSocialLinks"), "a save refreshes the icons without a page reload");
 
 h.done("social links");

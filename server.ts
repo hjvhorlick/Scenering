@@ -1092,6 +1092,19 @@ function generatePlaceholder(seedText = "Scene Visual"): string {
 
 async function startServer() {
   const app = express();
+
+  // Development-only API request log (DEV_REQUEST_LOG=1): one line per API
+  // call with method, path, status and whether a session cookie arrived —
+  // for diagnosing embedded-preview cookie behaviour. Never runs in
+  // production.
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_REQUEST_LOG === "1") {
+    app.use((req, res, next) => {
+      if (!req.path.startsWith("/api/")) return next();
+      const hasCookie = /scenering_session=/.test(String(req.headers.cookie || ""));
+      res.on("finish", () => console.log(`[api] ${req.method} ${req.path} -> ${res.statusCode} cookie=${hasCookie ? "yes" : "NO"}`));
+      next();
+    });
+  }
   // Honour the PORT the host gives us (Render, Railway, Fly, Heroku and most
   // local setups set it); fall back to 3000 for plain `npm run dev`.
   const PORT = Number(process.env.PORT) || 3000;

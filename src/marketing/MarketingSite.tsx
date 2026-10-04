@@ -120,6 +120,10 @@ export default function MarketingSite() {
 
           <span className="mkt-nav-spacer" />
 
+          {/* The owner's configured social profiles, in the header as well as
+              the footer. Hidden on narrow screens by .mkt-nav-social. */}
+          <SocialLinksRow size={18} tone="light" className="mkt-nav-social" />
+
           {/* The shared corner menu owns public navigation and account actions
               on every Scenering surface. This spacer keeps the fixed button
               clear of the wordmark and desktop link rail. */}
@@ -176,7 +180,7 @@ export default function MarketingSite() {
               <p style={{ marginTop: 10, fontSize: 13.5, maxWidth: 380, color: "#98a1b8" }}>
                 {MESSAGES.hero} {HONESTY.localNote}
               </p>
-              <SocialLinksRow size={18} style={{ marginTop: 14 }} />
+              <SocialLinksRow size={24} style={{ marginTop: 14 }} />
             </div>
 
             <div>

@@ -40,8 +40,10 @@ export type SocialPlatformId = (typeof SOCIAL_LINK_PLATFORMS)[number]["id"];
 
 /**
  * Validates and normalizes the four social-link fields. An empty string
- * clears a link. Returns the clean record, or a human-readable error naming
- * the first field that is wrong.
+ * clears a link. A link pasted without a scheme ("www.youtube.com/@x") is
+ * treated as https, because that is how addresses are copied from a browser
+ * bar or a profile page. Returns the clean record, or a human-readable error
+ * naming the first field that is wrong.
  */
 export function sanitizeSocialLinks(input: unknown): { links: Record<SocialPlatformId, string> } | { error: string } {
   const body = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
@@ -50,8 +52,9 @@ export function sanitizeSocialLinks(input: unknown): { links: Record<SocialPlatf
     const raw = String(body[platform.id] ?? "").trim();
     if (!raw) continue;
     if (raw.length > 300) return { error: `The ${platform.label} link is too long (300 characters maximum).` };
+    const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
     let url: URL;
-    try { url = new URL(raw); } catch { return { error: `The ${platform.label} link is not a valid URL. Paste the full address, starting with https://.` }; }
+    try { url = new URL(candidate); } catch { return { error: `The ${platform.label} link is not a valid URL. Paste the full address, for example https://${platform.hosts[0]}/yourprofile.` }; }
     if (url.protocol !== "https:") return { error: `The ${platform.label} link must use https://.` };
     const host = url.hostname.toLowerCase();
     if (!platform.hosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) return { error: `The ${platform.label} link must point at ${platform.hosts.join(" or ")}.` };
@@ -143,12 +146,38 @@ function activeComplimentaryGrant(db: PlatformDb, userId: string) { clean(db); r
 function getUserPlan(db: PlatformDb, userId: string): PlanSlug { const user = db.users.find((entry) => entry.id === userId); if (user?.role === "admin") return "sceneforge"; const paid = membershipFor(db, userId)?.plan_id || "free"; const complimentary = activeComplimentaryGrant(db, userId)?.plan_id || "free"; const rank: Record<PlanSlug, number> = { free: 0, sceneflow: 1, sceneforge: 2 }; return rank[complimentary] > rank[paid] ? complimentary : paid; }
 function effectiveMembership(db: PlatformDb, userId: string) { const stored = membershipFor(db, userId); const grant = activeComplimentaryGrant(db, userId); const plan = getUserPlan(db, userId); const user = db.users.find((entry) => entry.id === userId); return { ...(stored || { id: "", user_id: userId, status: "active" }), plan_id: plan, source: user?.role === "admin" ? "owner_admin" : grant && grant.plan_id === plan ? "complimentary" : plan === "free" ? "free" : "verified_subscription", complimentary_ends_at: grant && grant.plan_id === plan ? grant.ends_at : null, complimentary_period: grant && grant.plan_id === plan ? grant.period : null }; }
 function configuredOwnerEmail() { return String(process.env.SCENERING_OWNER_EMAIL || "").trim().toLowerCase(); }
-function setSessionCookie(res: Response, token: string) { res.setHeader("Set-Cookie", `scenering_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000; Priority=High${process.env.NODE_ENV === "production" ? "; Secure" : ""}`); }
-function clearSessionCookie(res: Response) { res.setHeader("Set-Cookie", `scenering_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Priority=High${process.env.NODE_ENV === "production" ? "; Secure" : ""}`); }
+/** Session cookie attributes. The real policy is HttpOnly; SameSite=Lax
+ *  (plus Secure in production). Embedded development previews — the app
+ *  shown inside an HTTPS iframe, as sandbox preview panes do — are the one
+ *  exception: browsers refuse to send Lax cookies inside a cross-site
+ *  frame, which makes sign-in appear to work and then fail with 401 on the
+ *  next request. DEV_EMBEDDED_PREVIEW=1 (never set in production; ignored
+ *  there) switches to SameSite=None; Secure so the preview behaves like the
+ *  deployed site. */
+function sessionCookieAttributes() {
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_EMBEDDED_PREVIEW === "1") return "Path=/; HttpOnly; SameSite=None; Secure";
+  return `Path=/; HttpOnly; SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+}
+function setSessionCookie(res: Response, token: string) { res.setHeader("Set-Cookie", `scenering_session=${encodeURIComponent(token)}; ${sessionCookieAttributes()}; Max-Age=2592000; Priority=High`); }
+function clearSessionCookie(res: Response) { res.setHeader("Set-Cookie", `scenering_session=; ${sessionCookieAttributes()}; Max-Age=0; Priority=High`); }
 function findSession(req: Request): { db: PlatformDb; user: User } | null {
-  const raw = cookies(req).scenering_session; if (!raw) return null;
-  const db = loadDb(); clean(db); const token = db.tokens.find((t) => t.purpose === "session" && t.token_hash === hashToken(raw));
-  const user = token && db.users.find((u) => u.id === token.user_id); return user ? { db, user } : null;
+  const raw = cookies(req).scenering_session;
+  if (raw) {
+    const db = loadDb(); clean(db); const token = db.tokens.find((t) => t.purpose === "session" && t.token_hash === hashToken(raw));
+    const user = token && db.users.find((u) => u.id === token.user_id); if (user) return { db, user };
+  }
+  /* DEV_AUTO_OWNER=1 — development previews only. Some browsers refuse to
+     store any cookie for an embedded or proxied preview, which makes
+     cookie-based sign-in impossible there no matter what the server sends.
+     With this flag the preview treats every request as the configured owner
+     administrator, so the product can be reviewed end to end. Double-gated:
+     ignored in production, and never set in any deployment configuration. */
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_AUTO_OWNER === "1") {
+    const db = loadDb(); clean(db);
+    const owner = db.users.find((u) => u.role === "admin" && u.email === configuredOwnerEmail()) || db.users.find((u) => u.role === "admin");
+    if (owner) return { db, user: owner };
+  }
+  return null;
 }
 export function requirePlatformUser(req: Request, res: Response, next: NextFunction) { const auth = findSession(req); if (!auth) return res.status(401).json({ error: "Sign in required" }); (req as any).auth = auth; next(); }
 const requireUser = requirePlatformUser;
