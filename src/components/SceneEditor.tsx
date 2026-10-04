@@ -12,7 +12,6 @@ import {
   frameSizeFor,
   fitFrameInBox,
   autoFrame,
-  measureImage,
   DEFAULT_FRAMING,
   sceneIsBlankColor,
 } from "../lib/scene-framing";
@@ -21,6 +20,8 @@ import {
   NATURE_CATEGORIES,
   natureCategoryQuery,
   natureBackgroundsFor,
+  NATURE_DECK_ON_SCREEN,
+  type NatureBackground,
   type NatureCategory,
 } from "../data/nature-fallbacks";
 import { pickRandomSample } from "../lib/image-picker";
@@ -32,6 +33,9 @@ import {
   type ImageCandidate,
 } from "../lib/image-search";
 import { resolveLegacyLocalImage } from "../lib/nature-library-compat";
+import { loadSceneImage } from "../lib/scene-image-loader";
+import { addCustomImage, CustomImageError } from "../lib/custom-image";
+import { sceneUpdatesForVideoFile, videoUploadMessage } from "../lib/scene-clip-attach";
 import { getApiKeysHeaders, getApiKeysQueryParams } from "../lib/api-keys";
 import { buildSceneImageQuery, describeSceneTopic } from "../lib/topic-extract";
 import { useViewport } from "../lib/use-breakpoint";
@@ -153,42 +157,71 @@ export default function SceneEditor({
   const [researchBroadened, setResearchBroadened] = useState(false);
   const [researchFromDeck, setResearchFromDeck] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  /** Own-file uploads: hidden inputs driven by the two buttons in the row. */
+  const imageUploadRef = useRef<HTMLInputElement | null>(null);
+  const videoUploadRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState<"image" | "video" | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   /** True when this scene shows a flat colour and no photo or clip. */
   const isBlank = sceneIsBlankColor(scene);
   const [isPlayingAttachedAudio, setIsPlayingAttachedAudio] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showNatureMenu, setShowNatureMenu] = useState(false);
-  // Shuffle the curated deck on every open so the fallback gallery doesn't
-  // look like the same frozen nine images each time it is opened.
-  const [natureDeck, setNatureDeck] = useState(() => [...NATURE_FALLBACKS]);
+  // Ten photos are drawn from the library on every open, in a fresh order,
+  // so the drawer is never the same frozen shelf twice.
+  const [natureDeck, setNatureDeck] = useState(() =>
+    pickRandomSample(NATURE_FALLBACKS, NATURE_DECK_ON_SCREEN)
+  );
   /** Which criteria is selected in the nature drawer. */
   const [natureCategory, setNatureCategory] = useState<NatureCategory | "all">("all");
   /**
    * Live photos for the chosen criteria.
    *
-   * The bundled deck is nine images and never changes, so picking
-   * "Waterfalls" used to mean seeing the same two waterfalls on every project
-   * forever. Choosing a criteria now also runs a real search for it; these are
-   * those results, shown above the bundled ones.
+   * The bundled library never changes, so picking "Waterfalls" used to mean
+   * seeing the same waterfalls on every project forever. Choosing a criteria
+   * now also runs a real search for it; these are those results, shown above
+   * the bundled ones. Ten of them, to match the shelf underneath.
    */
   const [natureResults, setNatureResults] = useState<ImageCandidate[]>([]);
   const [natureSearching, setNatureSearching] = useState(false);
   /** True when the search came back empty and the bundled deck answered it. */
   const [natureOffline, setNatureOffline] = useState(false);
 
+  /** The library as search candidates, shuffled — what answers when offline. */
+  const natureDeckResults = (category: NatureCategory | "all", exclude: NatureBackground[]) => {
+    const seen = new Set(exclude.map((bg) => bg.url));
+    const pool = natureBackgroundsFor(category).filter((bg) => !seen.has(bg.url));
+    // Prefer photos the shelf below is not already showing; if the criteria
+    // is too small for that, repeat rather than hand back an empty row.
+    const source = pool.length > 0 ? pool : natureBackgroundsFor(category);
+    return pickRandomSample(source, NATURE_DECK_ON_SCREEN).map((bg) => ({
+      url: bg.url,
+      thumbnail: bg.thumb,
+      source: "bundled library",
+    }));
+  };
+
   /** Search the stock libraries for a nature criteria and show what comes back. */
-  const searchNature = async (category: NatureCategory | "all") => {
+  const searchNature = async (
+    category: NatureCategory | "all",
+    deck: NatureBackground[] = natureDeck
+  ) => {
     setNatureSearching(true);
     try {
       const found = await researchImagesDetailed(natureCategoryQuery(category), searchOptions());
-      // With no keys or no network the search answers from the bundled deck,
-      // which is already on screen below. Showing it again as "fresh" would be
-      // the same photos twice and a small lie, so say what happened instead.
+      // With no keys and no network the search answers from the bundled
+      // library. It still fills the results row — an empty row read as a
+      // broken search — but it is labelled as the library rather than passed
+      // off as something fresh from a provider.
       setNatureOffline(found.fromFallbackDeck);
-      setNatureResults(found.fromFallbackDeck ? [] : found.candidates);
+      setNatureResults(
+        found.fromFallbackDeck
+          ? natureDeckResults(category, deck)
+          : found.candidates.slice(0, NATURE_DECK_ON_SCREEN)
+      );
     } catch {
-      setNatureResults([]);
+      setNatureResults(natureDeckResults(category, deck));
       setNatureOffline(true);
     } finally {
       setNatureSearching(false);
@@ -198,22 +231,21 @@ export default function SceneEditor({
   /** Pick a criteria: filter the bundled deck and search for it at the same time. */
   const chooseNatureCategory = (category: NatureCategory | "all") => {
     setNatureCategory(category);
-    setNatureDeck(() => {
-      const forCategory = natureBackgroundsFor(category);
-      return pickRandomSample(forCategory, forCategory.length);
-    });
-    void searchNature(category);
+    const deck = pickRandomSample(natureBackgroundsFor(category), NATURE_DECK_ON_SCREEN);
+    setNatureDeck(deck);
+    void searchNature(category, deck);
   };
 
   const openNatureMenu = () => {
     setNatureCategory("all");
     setNatureResults([]);
     setNatureOffline(false);
-    setNatureDeck(pickRandomSample(NATURE_FALLBACKS, NATURE_FALLBACKS.length));
+    const deck = pickRandomSample(NATURE_FALLBACKS, NATURE_DECK_ON_SCREEN);
+    setNatureDeck(deck);
     setShowNatureMenu(true);
-    // Open straight into a live search so the drawer is not just the same
-    // nine bundled photos it has always been.
-    void searchNature("all");
+    // Open straight into a live search so the drawer is not just the bundled
+    // shelf it has always been.
+    void searchNature("all", deck);
   };
   const [showCropTools, setShowCropTools] = useState(false);
   const [showAnimationPanel, setShowAnimationPanel] = useState(false);
@@ -353,10 +385,13 @@ export default function SceneEditor({
    * whatever) slice rather than a stretched one.
    */
   const cropToRatio = (ratio: number) => {
-    const el = new Image();
-    el.src = resolveLegacyLocalImage(scene.image_url || "");
-    const apply = (nw: number, nh: number) => {
-      const srcRatio = nw / nh;
+    // Through the shared loader, for the same reason as adoptImage: a bare
+    // Image() could not read a photo the preview was showing perfectly well,
+    // and the crop button then did nothing at all.
+    void loadSceneImage(scene.image_url || "", 0, { fallback: "none" }).then((res) => {
+      const el = res?.img;
+      if (!el || !el.naturalWidth) return;
+      const srcRatio = el.naturalWidth / el.naturalHeight;
       let w = 1;
       let h = 1;
       if (srcRatio > ratio) {
@@ -367,9 +402,7 @@ export default function SceneEditor({
       onUpdate(scene.id, {
         image_crop: { x: (1 - w) / 2, y: (1 - h) / 2, w, h },
       });
-    };
-    if (el.complete && el.naturalWidth) apply(el.naturalWidth, el.naturalHeight);
-    else el.onload = () => apply(el.naturalWidth, el.naturalHeight);
+    });
   };
 
   /** Copies this scene's framing onto every other scene in the project */
@@ -530,10 +563,20 @@ export default function SceneEditor({
     };
     onUpdate(scene.id, base);
     setShowColorPicker(false);
-    void measureImage(url).then((measured) => {
-      // Unmeasurable photo (a blocked or broken URL): the defaults above are
-      // already correct, so leave the scene exactly as it is.
-      if (!measured) return;
+    // Measured through the SAME loader the preview and the renderer use.
+    //
+    // This used to be a single bare `new Image()` against the saved URL. A
+    // photo the browser can only reach one way — directly when the server
+    // proxy is unreachable, or through the proxy when the host refuses a
+    // cross-origin read — measured as nothing, and `autoFrame` was skipped
+    // without a word. The photo then sat in the scene at default framing:
+    // visible in the preview, but never cropped to the frame. Going through
+    // the loader means the measurement succeeds in exactly the cases the
+    // preview itself succeeds, so a photo that can be shown is always
+    // cropped to fit.
+    void loadSceneImage(url, 0, { fallback: "none" }).then((res) => {
+      const measured = res?.img;
+      if (!measured || !measured.naturalWidth) return;
       onUpdate(scene.id, autoFrame(measured, frame.w, frame.h) as Partial<Scene>);
     });
   };
@@ -557,6 +600,46 @@ export default function SceneEditor({
     adoptImage(url);
     setShowNatureMenu(false);
     setImgError(false);
+  };
+
+  /**
+   * A photo off the creator's own disk.
+   *
+   * It is stored first (IndexedDB, via `custom-image`) and the scene is
+   * given the stable `custom-image:<id>` address rather than a `blob:` URL,
+   * which would stop resolving on the next reload. From there it goes
+   * through the very same `adoptImage` as a searched photo, so an uploaded
+   * picture is cropped to fill the frame exactly like every other one.
+   */
+  const handleUploadImage = (file: File | undefined) => {
+    if (!file) return;
+    setUploadError(null);
+    setUploading("image");
+    void addCustomImage(file)
+      .then(({ url }) => {
+        adoptImage(url);
+        setImgError(false);
+        // The scene now shows the creator's own picture, so a stale search
+        // topic must not quietly replace it on the next narration edit.
+        onUpdate(scene.id, { image_query_locked: true });
+      })
+      .catch((err) => {
+        setUploadError(
+          err instanceof CustomImageError ? err.message : "That image could not be added."
+        );
+      })
+      .finally(() => setUploading(null));
+  };
+
+  /** A video clip off the creator's own disk — same storage rules. */
+  const handleUploadVideo = (file: File | undefined) => {
+    if (!file) return;
+    setUploadError(null);
+    setUploading("video");
+    void sceneUpdatesForVideoFile(file, scene, sceneDurationForText(textValue, targetDuration))
+      .then((updates) => onUpdate(scene.id, updates))
+      .catch((err) => setUploadError(videoUploadMessage(err)))
+      .finally(() => setUploading(null));
   };
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -1046,8 +1129,67 @@ export default function SceneEditor({
               <span>Colour</span>
               <span className="text-[10px]">{iconify(showColorPicker ? "▲" : "▼")}</span>
             </button>
+
+            {/* The creator's own files, at the end of the row: everything to
+                the left finds a picture for you, these two let you bring
+                your own. An uploaded photo goes through the same adoptImage
+                as a searched one, so it is cropped to fill the frame too. */}
+            <input
+              ref={imageUploadRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                handleUploadImage(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => imageUploadRef.current?.click()}
+              disabled={uploading !== null}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap flex items-center gap-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 border-hairline text-gray-200"
+              title="Use a photo from this device for this scene"
+            >
+              <span><Icon glyph="⬆" /> {uploading === "image" ? "Adding…" : "Upload Image"}</span>
+            </button>
+
+            <input
+              ref={videoUploadRef}
+              type="file"
+              accept="video/*"
+              className="hidden"
+              onChange={(e) => {
+                handleUploadVideo(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => videoUploadRef.current?.click()}
+              disabled={uploading !== null}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap flex items-center gap-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 border-hairline text-gray-200"
+              title="Use a video clip from this device for this scene"
+            >
+              <span><Icon glyph="⬆" /> {uploading === "video" ? "Adding…" : "Upload Video"}</span>
+            </button>
           </div>
         </div>
+
+        {/* Why an upload was refused — size, format or blocked storage. */}
+        {uploadError && (
+          <div className="text-[11px] text-rose-400 flex items-center gap-1.5">
+            <span>{uploadError}</span>
+            <button
+              type="button"
+              onClick={() => setUploadError(null)}
+              className="text-gray-500 hover:text-white"
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* PER-SCENE ANIMATION PANEL */}
         {sceneAnimationEnabled && showAnimationPanel && (
@@ -1174,15 +1316,16 @@ export default function SceneEditor({
             )}
             {!natureSearching && natureOffline && (
               <p className="text-[11px] text-amber-300/90 pt-0.5">
-                No photos came back online for {natureCategoryQuery(natureCategory)} — the
-                bundled set below is what&apos;s available. Add a Pexels or Pixabay key in
-                Settings for live results.
+                No photos came back online for {natureCategoryQuery(natureCategory)} — these
+                are from the bundled library. Add a Pexels or Pixabay key in Settings for
+                live results.
               </p>
             )}
             {natureResults.length > 0 && (
               <div className="space-y-1.5 pt-0.5">
                 <p className="text-[10px] text-emerald-300/90 uppercase tracking-wide font-semibold">
-                  Fresh from search · {natureCategoryQuery(natureCategory)}
+                  {natureOffline ? "Offline library" : "Fresh from search"} ·{" "}
+                  {natureCategoryQuery(natureCategory)}
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {natureResults.map((candidate) => (
@@ -1213,6 +1356,7 @@ export default function SceneEditor({
 
             <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold pt-0.5">
               {natureResults.length > 0 ? "Always available · bundled" : "Bundled photos"}
+              {` · ${natureDeck.length} of ${natureBackgroundsFor(natureCategory).length}`}
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {natureDeck.map((bg) => (

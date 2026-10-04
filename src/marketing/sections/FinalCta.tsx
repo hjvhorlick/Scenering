@@ -17,7 +17,7 @@ export default function FinalCta() {
           Start creating with Scenering.
         </h2>
         <p className="mkt-lead" style={{ maxWidth: 620, margin: "14px auto 0" }}>
-          Create a Free account, bring a script or prepared audio, and turn it into an editable scene-based video. No payment details required.
+          Bring a script or prepared audio and turn it into an editable scene-based video. No payment details required.
         </p>
 
         <div className="mkt-hero-cta" style={{ justifyContent: "center" }}>

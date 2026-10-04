@@ -16,7 +16,7 @@ export default function Examples() {
         id="examples"
         eyebrow="What can you create?"
         title="Faceless videos, across eight kinds of story."
-        lead="Every example below was written for this page to show the range of the workflow — a script, scenes, narration, captions and a finished file."
+        lead="Eight projects written for this page, to show the range of the workflow."
       />
 
       <div className="mkt-grid cols-4">

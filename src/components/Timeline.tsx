@@ -15,6 +15,7 @@ import {
   type LanePacking,
 } from "../lib/timeline-stacking";
 import Icon, { iconify } from "./icons/Icon";
+import { resolveImageUrl } from "../lib/custom-image";
 
 interface TimelineProps {
   scenes: Scene[];
@@ -744,7 +745,9 @@ export default function Timeline({
                   const isSelected = block.insert && selectedInsertId === block.insert.id;
                   const left = timeToPx(block.start);
                   const width = Math.max(block.type === "scene" ? 34 : 30, block.duration * pxPerSec);
-                  const sceneThumb = block.scene?.image_url;
+                  // Uploaded photos are stored as `custom-image:<id>`; the raw
+                  // address means nothing to an <img>, so resolve it here.
+                  const sceneThumb = resolveImageUrl(block.scene?.image_url);
                   const sceneHasVideo = Boolean(block.scene?.video_url);
 
                   return (

@@ -603,6 +603,60 @@ export const CTA_PLATFORMS: CtaPlatform[] = [
   },
 ];
 
+/** The one call to action a Free final download may use. */
+export const FREE_CTA_PLATFORM_ID = "youtube_subscribe";
+
+/**
+ * Has this button been changed from the badge the library ships?
+ *
+ * The button settings panel can rebuild any badge into any other: a new
+ * platform, new wording, new colours, a different shape or an uploaded logo.
+ * That is the whole point of the panel — and it is also why "the Subscribe
+ * button is free" cannot be decided from the insert's type alone. A Subscribe
+ * badge recoloured gold and re-worded "JOIN THE VIP CLUB" is a made-to-order
+ * button, so it is treated as one.
+ *
+ * Only the fields a viewer can actually see are compared. Position, size,
+ * timing and volume are placement, not design, and stay free.
+ */
+export function isCtaCustomised(insert: {
+  type?: string;
+  visualOptions?: Record<string, any> | null;
+  content?: Record<string, any> | null;
+}): boolean {
+  const platform = resolveCtaPlatform(insert.type, insert.visualOptions?.platform);
+  if (!platform) return true;
+
+  const visual = insert.visualOptions || {};
+  const content = insert.content || {};
+  const differs = (value: unknown, shipped: unknown) =>
+    value !== undefined && value !== null && String(value) !== String(shipped);
+
+  if (visual.customMark) return true;
+  if (differs(visual.primaryColor, platform.primaryColor)) return true;
+  if (differs(visual.secondaryColor, platform.secondaryColor)) return true;
+  if (differs(visual.ctaShape, platform.shape || "pill")) return true;
+  if (differs(visual.ctaStyle, platform.style || "gradient")) return true;
+  if (differs(content.primaryText, platform.primaryText)) return true;
+  if (differs(content.secondaryText, platform.secondaryText)) return true;
+  if (differs(content.badgeText, platform.action)) return true;
+  if (differs(content.label, platform.icon)) return true;
+  return false;
+}
+
+/**
+ * True only for the standard Subscribe badge exactly as it ships — the single
+ * call to action included in a Free final download.
+ */
+export function isFreeCtaInsert(insert: {
+  type?: string;
+  visualOptions?: Record<string, any> | null;
+  content?: Record<string, any> | null;
+}): boolean {
+  const platform = resolveCtaPlatform(insert.type, insert.visualOptions?.platform);
+  return platform?.id === FREE_CTA_PLATFORM_ID && !isCtaCustomised(insert);
+}
+
 export function getCtaPlatform(idOrUrl?: string): CtaPlatform | undefined {
   if (!idOrUrl) return undefined;
   return (

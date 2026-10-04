@@ -579,12 +579,16 @@ export function drawSceneImage(
  * ------------------------------------------------------------------------- */
 
 /**
- * How far a photo's shape may differ from the frame's before cropping is
- * abandoned in favour of the blurred fill.
+ * The shape difference past which a crop starts throwing away most of the
+ * photo — a 4:3 photo in a 9:16 frame is ≈2.37, a portrait photo in a
+ * landscape frame ≈3.16.
  *
- * 2.4 is just past the worst common pairing a crop still survives (a 4:3
- * photo in a 9:16 frame, ≈2.37) and comfortably below a portrait photo in a
- * landscape frame (9:16 in 16:9, ≈3.16), which must never be cropped.
+ * This NO LONGER decides the automatic framing. A chosen photo is always
+ * cropped to fill the frame, edge to edge and top to bottom, because that is
+ * what a scene is expected to look like; bars are something the user asks
+ * for in Crop & Fit, not something the app imposes. The number survives as
+ * the hint behind `suggestFit` and as the threshold the UI uses to warn that
+ * a particular photo is losing a lot of itself to the crop.
  */
 export const AUTO_CROP_MAX_MISMATCH = 2.4;
 
@@ -649,23 +653,31 @@ export interface AutoFraming {
 /**
  * The framing to apply to a photo the moment it is chosen.
  *
- * Within the mismatch limit the photo is cropped to the frame and fills it
- * edge to edge. Past the limit it is shown whole over a blurred copy of
- * itself — the crop is reset there, because cropping and then not cropping
- * would leave a stale rectangle behind if the user later switched back.
+ * ALWAYS a crop to the frame. The photo fills the scene edge to edge and top
+ * to bottom, with the overflow trimmed evenly from both sides (or both of
+ * top and bottom), centred on the middle of the picture.
+ *
+ * This used to bail out to `blur_fill` past AUTO_CROP_MAX_MISMATCH, which
+ * meant that in a vertical project — where every landscape photo is a ≈3.16
+ * mismatch — nothing ever filled the frame: every scene opened as a small
+ * photo floating between blurred bars, and the user had to fix each one by
+ * hand. Filling is the expectation; bars are a deliberate choice, made in
+ * Crop & Fit, and nothing here overrides a choice already made there.
  */
 export function autoFrame(img: SourceSize, frameW: number, frameH: number): AutoFraming {
-  if (aspectMismatch(img, frameW, frameH) > AUTO_CROP_MAX_MISMATCH) {
-    return {
-      image_fit: "blur_fill",
-      image_crop: { ...DEFAULT_CROP },
-      image_backdrop: "blur",
-    };
-  }
   return {
     image_fit: "cover",
     image_crop: autoCropToFrame(img, frameW, frameH),
   };
+}
+
+/**
+ * True when filling the frame with this photo costs more of it than most
+ * people would expect — the cue for the editor to offer "show it whole"
+ * rather than to quietly decide that for them.
+ */
+export function cropLosesALot(img: SourceSize, frameW: number, frameH: number): boolean {
+  return aspectMismatch(img, frameW, frameH) > AUTO_CROP_MAX_MISMATCH;
 }
 
 /**
@@ -693,19 +705,20 @@ export function measureImage(url: string): Promise<SourceSize | null> {
 }
 
 /**
- * A sensible fit for a photo the user has just picked, given the frame shape.
- * A portrait photo in a landscape frame (or the reverse) would lose most of
- * itself to a crop, so those default to the blurred fill instead.
+ * The fit a newly chosen photo gets: always `cover`, so it fills the frame.
+ *
+ * Kept as a named function because two screens ask the question, and they
+ * must never answer it differently — which is exactly what happened when
+ * this returned `blur_fill` on a shape mismatch while the scene editor
+ * cropped anyway. Whether the crop is expensive is a separate question, and
+ * `cropLosesALot` answers that one.
  */
 export function suggestFit(
-  img: SourceSize,
-  frameW: number,
-  frameH: number
+  _img: SourceSize,
+  _frameW: number,
+  _frameH: number
 ): SceneFitMode {
-  const ir = (img.naturalWidth || 1) / (img.naturalHeight || 1);
-  const fr = frameW / Math.max(1, frameH);
-  const mismatch = ir > fr ? ir / fr : fr / ir;
-  return mismatch > 1.35 ? "blur_fill" : "cover";
+  return "cover";
 }
 
 /** Frame pixel size for an aspect-ratio id, used by the editor previews. */

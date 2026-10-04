@@ -62,6 +62,35 @@
   display: none;
 }
 
+/**
+ * The slider on a ScrollStrip row.
+ *
+ * Thin enough not to crowd a row of tabs, but actually visible — a hidden
+ * scrollbar on a row that runs past the edge of its panel tells the reader
+ * nothing is missing, which is exactly wrong. It only appears when the row
+ * can scroll, because a browser draws no track for content that fits.
+ */
+.strip-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(99 102 241 / 0.75) transparent;
+  scroll-padding-inline: 2.25rem;
+  overscroll-behavior-x: contain;
+}
+.strip-scrollbar::-webkit-scrollbar {
+  height: 6px;
+}
+.strip-scrollbar::-webkit-scrollbar-track {
+  background: rgb(255 255 255 / 0.05);
+  border-radius: 999px;
+}
+.strip-scrollbar::-webkit-scrollbar-thumb {
+  background: rgb(99 102 241 / 0.7);
+  border-radius: 999px;
+}
+.strip-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgb(129 140 248 / 0.95);
+}
+
 /** Kept for completeness on rows that can legally scroll horizontally. */
 .scrollbar-thin {
   scrollbar-width: thin;
@@ -96,4 +125,116 @@
 
 .animate-pulse-slow {
   animation: pulse-slow 2s ease-in-out infinite;
+}
+
+/* ============================================================ VIP mark
+
+   The badge that marks a paid creative feature. It used to be a quiet
+   amber pill, which read as a disabled state rather than something worth
+   paying for — the one thing it must never look like. It is now struck in
+   flame: a bright orange-to-red body, a hot orange rim over a deep red
+   outline, and an orange glow that lifts it off the dark panels it always
+   sits on. It is small, so the contrast has to do all the work.
+
+   Only the badge changed. Nothing around it moved: the sizes below are the
+   same box the amber pill occupied, so no row re-flows. */
+
+.vip-flame {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+  border-radius: 999px;
+  padding: 1px 8px 2px;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.5;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* ember at the top, fire in the middle, coal at the bottom */
+  background: linear-gradient(160deg, #ffc247 0%, #ff8a1f 34%, #ff4d14 68%, #d81c0b 100%);
+  /* the bright rim; the red outline below it is the first shadow ring */
+  border: 1px solid #ffd98a;
+  color: #fff6e8;
+  text-shadow:
+    0 1px 1px rgba(122, 22, 0, 0.85),
+    0 0 7px rgba(255, 196, 96, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(214, 24, 8, 0.95),
+    0 0 11px rgba(255, 122, 0, 0.7),
+    0 0 24px rgba(255, 61, 20, 0.42),
+    0 1px 3px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -2px 4px rgba(154, 24, 0, 0.5);
+  animation: vip-flame-breathe 2.8s ease-in-out infinite;
+}
+
+/* The smaller one sits inline with 11px labels, so it loses a little
+   padding and tracking but none of the heat. */
+.vip-flame.is-compact {
+  padding: 0 6px 1px;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+
+/* The star itself is the hottest point: white at the core with an orange
+   halo, the way the centre of a flame is pale. */
+.vip-flame-mark {
+  color: #fffdf6;
+  text-shadow:
+    0 0 4px #ffd27a,
+    0 0 9px #ff8a1f,
+    0 0 16px rgba(255, 61, 20, 0.85);
+  font-size: 1.08em;
+  line-height: 1;
+}
+
+/* A slow swell of the glow rather than a blink — it should catch the eye
+   on the second look, not nag on the first. */
+@keyframes vip-flame-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(214, 24, 8, 0.95),
+      0 0 11px rgba(255, 122, 0, 0.7),
+      0 0 24px rgba(255, 61, 20, 0.42),
+      0 1px 3px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -2px 4px rgba(154, 24, 0, 0.5);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(236, 46, 14, 1),
+      0 0 16px rgba(255, 148, 32, 0.92),
+      0 0 34px rgba(255, 74, 26, 0.6),
+      0 1px 3px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.55),
+      inset 0 -2px 4px rgba(154, 24, 0, 0.5);
+  }
+}
+
+/* Hovering the thing it marks brings the fire up. */
+.vip-flame:hover,
+button:hover > .vip-flame,
+label:hover > .vip-flame,
+a:hover > .vip-flame {
+  border-color: #ffe9bc;
+  filter: brightness(1.08) saturate(1.06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vip-flame {
+    animation: none;
+  }
+}
+
+/* Forced-colours mode throws every colour away; the badge still has to be
+   legible as a marked-out thing. */
+@media (forced-colors: active) {
+  .vip-flame {
+    border: 1px solid CanvasText;
+    animation: none;
+  }
 }

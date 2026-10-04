@@ -1,10 +1,13 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHarness } from "./harness";
+import { createHarness, createStubContext } from "./harness";
 import type { Scene } from "../src/types";
 import {
   EFFECT_BY_TYPE,
+  SCENE_ANIMATION_CATEGORIES,
+  SCENE_ANIMATION_EFFECTS,
+  renderSceneAnimationEffects,
   SCENE_ANIMATION_COLOR_PALETTES,
   SCENE_ANIMATION_LIBRARY_SECTIONS,
   SCENE_ANIMATION_PRESETS,
@@ -194,6 +197,118 @@ const baseScene: Scene = {
   const bannerIndex = appSource.indexOf("Scene Animation Effects");
   const firstSceneEditorIndex = appSource.indexOf("<SceneEditor");
   h.ok(bannerIndex > -1 && firstSceneEditorIndex > -1 && bannerIndex < firstSceneEditorIndex, "Scene Animation Effects banner appears above the first scene card in App.tsx");
+}
+
+// -------- Fairy effects --------
+{
+  const FAIRY = ["fairy_bubbles", "glitter_swirls", "smoke_rings", "falling_stars", "sun_flares"];
+
+  h.ok(SCENE_ANIMATION_CATEGORIES.some((category) => category.id === "fairy"), "the catalogue has a Fairy category");
+  for (const type of FAIRY) {
+    const def = EFFECT_BY_TYPE.get(type);
+    h.ok(Boolean(def), `${type} is in the effect catalogue`);
+    if (!def) continue;
+    h.eq(def.category, "fairy", `${type} is filed under Fairy`);
+    h.ok((def.variants?.length || 0) >= 4, `${type} offers several looks`);
+    h.ok(def.controls.length >= 5, `${type} is adjustable, not a fixed overlay`);
+    h.ok(Boolean(def.defaults?.variant || type === "sun_flares"), `${type} starts on a sensible variant`);
+    // Every variant id must be usable: the panel sets e.variant from these.
+    for (const variant of def.variants || []) {
+      h.ok(/^[a-z0-9_]+$/.test(variant.id), `${type}/${variant.id} has a usable id`);
+    }
+  }
+
+  // The things the request named, by name.
+  h.ok(EFFECT_BY_TYPE.get("fairy_bubbles")?.label.includes("Bubbles"), "floating bubbles are offered");
+  h.ok(/Swirls|Twirls/.test(EFFECT_BY_TYPE.get("glitter_swirls")?.label || ""), "glitter swirls and twirls are offered");
+  const glitterVariants = (EFFECT_BY_TYPE.get("glitter_swirls")?.variants || []).map((variant) => variant.id);
+  h.ok(glitterVariants.includes("gold_glitter_stream"), "a gold glitter stream is one of the choices");
+  h.ok(glitterVariants.includes("silver_glitter_stream"), "a silver glitter stream is one of the choices");
+  h.ok(/Ring/.test(EFFECT_BY_TYPE.get("smoke_rings")?.label || ""), "circle smoke rings are offered");
+  h.ok(EFFECT_BY_TYPE.get("falling_stars")?.label === "Falling Stars", "falling stars are offered");
+  const flareVariants = (EFFECT_BY_TYPE.get("sun_flares")?.variants || []).map((variant) => variant.id);
+  for (const direction of ["from_top_left", "from_top_right", "from_left", "from_right", "from_below", "rotating_sweep", "random_directions"]) {
+    h.ok(flareVariants.includes(direction), `sun flares can come ${direction.replace(/_/g, " ")}`);
+  }
+
+  // Reachable from the browser, not just from the data file.
+  const fairySection = SCENE_ANIMATION_LIBRARY_SECTIONS.find((section) => section.id === "fairy");
+  h.ok(Boolean(fairySection), "the library has a Fairy section");
+  const listed = new Set((fairySection?.groups || []).flatMap((group) => group.effects));
+  for (const type of FAIRY) h.ok(listed.has(type), `${type} is reachable from the Fairy section`);
+  const allSection = SCENE_ANIMATION_LIBRARY_SECTIONS.find((section) => section.id === "all");
+  const allFairy = allSection?.groups.find((group) => group.id === "fairy");
+  h.ok((allFairy?.effects.length || 0) === FAIRY.length, "the technical All Effects list picks the Fairy category up automatically");
+
+  // One-click starting points.
+  for (const presetId of ["fairy_dust", "silver_fairy_tale", "bubble_wishes"]) {
+    const preset = SCENE_ANIMATION_PRESETS.find((entry) => entry.id === presetId);
+    h.ok(Boolean(preset), `the ${presetId} preset exists`);
+    for (const effectValue of preset?.effects || []) {
+      h.ok(EFFECT_BY_TYPE.has(effectValue.type), `${presetId} uses the real effect ${effectValue.type}`);
+      const def = EFFECT_BY_TYPE.get(effectValue.type);
+      if (effectValue.variant && def?.variants) {
+        h.ok(def.variants.some((variant) => variant.id === effectValue.variant), `${presetId} uses a real variant of ${effectValue.type}`);
+      }
+    }
+  }
+
+  // Suggested when the script asks for them.
+  const suggested = getSmartSceneAnimationSuggestions({ text: "A fairy tale about bubbles and glitter", image_query: "" } as any);
+  h.ok(suggested.includes("fairy_bubbles"), "a fairy script suggests bubbles");
+  h.ok(suggested.includes("glitter_swirls"), "a fairy script suggests glitter swirls");
+
+  // And they actually draw, at every variant, without producing NaN
+  // geometry — the stub context throws on a non-finite argument.
+  for (const type of FAIRY) {
+    const def = EFFECT_BY_TYPE.get(type)!;
+    for (const variant of def.variants || []) {
+      const { ctx, ops } = createStubContext(1920, 1080);
+      const scene = {
+        id: 7,
+        animation: { enabled: true, effects: [{ ...effectDefaults(type), variant: variant.id }] },
+      } as any;
+      let threw = "";
+      try {
+        renderSceneAnimationEffects(ctx, scene, 1920, 1080, 1.7, 0.4);
+      } catch (error: any) {
+        threw = error?.message || "threw";
+      }
+      h.eq(threw, "", `${type}/${variant.id} draws without an error`);
+      h.ok(ops.length > 0, `${type}/${variant.id} actually paints something`);
+    }
+  }
+
+  // Drawn, not downloaded: nothing in the fairy set may need an asset.
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src/lib/scene-animation.ts"), "utf8");
+  for (const fn of ["drawFairyBubbles", "drawGlitterSwirls", "drawSmokeRings", "drawFallingStars", "drawSunFlares"]) {
+    h.ok(source.includes(`function ${fn}(`), `${fn} is implemented`);
+  }
+  h.ok(!/new Image\(|\.src\s*=\s*["']\/(fairy|sprites)/.test(source), "the fairy effects ship no image assets");
+  h.eq(SCENE_ANIMATION_EFFECTS.filter((def) => def.category === "fairy").length, 5, "the Fairy category holds exactly the five requested effects");
+}
+
+// -------- Rows that are wider than the panel must say so --------
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const panel = readFileSync(join(root, "src/components/SceneAnimationPanel.tsx"), "utf8");
+  const strip = readFileSync(join(root, "src/components/ScrollStrip.tsx"), "utf8");
+  const css = readFileSync(join(root, "src/index.css"), "utf8");
+
+  h.ok(panel.includes('import ScrollStrip from "./ScrollStrip"'), "the panel uses the scrolling strip");
+  h.ok(panel.includes('<ScrollStrip label="Quick presets"'), "the preset row is a slider");
+  h.ok(panel.includes('<ScrollStrip label="Sub-sections"'), "the sub-section tab row is a slider");
+  h.ok(!panel.includes("no-scrollbar"), "no row in the panel hides its slider any more");
+  h.ok(panel.includes('className="shrink-0 w-[150px]'), "preset cards keep their width instead of being squeezed");
+
+  h.ok(/aria-label="Scroll left"/.test(strip) && /aria-label="Scroll right"/.test(strip), "the strip has labelled arrow buttons");
+  h.ok(/scrollBy\(\{ left: direction/.test(strip), "the arrows page the row along");
+  h.ok(strip.includes("overflowing && !atStart") && strip.includes("overflowing && !atEnd"), "arrows and fades only appear on the side that has more content");
+  h.ok(strip.includes("ResizeObserver"), "the strip re-measures when the panel or its contents change");
+  h.ok(strip.includes("strip-scrollbar"), "the row carries the visible slider style");
+  h.ok(!/overflow-y-(auto|scroll)/.test(strip), "the strip scrolls sideways only");
+  h.ok(/\.strip-scrollbar::-webkit-scrollbar \{/.test(css), "the slider is styled for WebKit");
+  h.ok(/scrollbar-width: thin/.test(css.slice(css.indexOf(".strip-scrollbar"))), "and for Firefox");
 }
 
 h.done("scene-animation");

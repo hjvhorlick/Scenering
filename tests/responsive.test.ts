@@ -158,4 +158,118 @@ ok(
   );
 }
 
+/* =====================================================================
+ * The pages themselves: front page, standalone pages, manual, sign-in.
+ *
+ * There is no browser here to measure a layout in, so these read the
+ * stylesheets and assert the properties that decide whether a page works
+ * on a given screen: that layouts are written mobile-first, that nothing
+ * is pinned to a width a phone does not have, that panels which hang off
+ * the top of the window have a ceiling and their own scroll, and that the
+ * viewport is declared in the one way that makes any of it apply.
+ * ===================================================================== */
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const read = (rel: string) => readFileSync(join(root, rel), "utf8");
+  const mkt = read("src/marketing/marketing.css");
+  const menu = read("src/shared/site-corner-menu.css");
+  const signIn = read("src/studio/sign-in.css");
+  const html = read("index.html");
+
+  // 1. Without this meta tag a phone pretends to be 980px wide and shrinks
+  //    the whole page, which makes every media query below a decoration.
+  ok(/<meta name="viewport"[^>]*width=device-width/.test(html), "the viewport is the device's width");
+  ok(/initial-scale=1/.test(html), "the page opens at 1:1 scale");
+  ok(/viewport-fit=cover/.test(html), "viewport-fit=cover, so env(safe-area-inset-*) has real values on a notched phone");
+  ok(!/user-scalable=no|maximum-scale=1/.test(html), "pinch zoom is never disabled");
+
+  // 2. Mobile-first. A `max-width` query describes an exception; a sheet
+  //    built out of them is a desktop layout with apologies. The marketing
+  //    sheet must stay predominantly min-width.
+  const minW = (mkt.match(/@media \(min-width/g) || []).length;
+  const maxW = (mkt.match(/@media \(max-width|@media \(width <=/g) || []).length;
+  ok(minW >= maxW, `marketing.css is mobile-first (${minW} min-width vs ${maxW} max-width queries)`);
+  ok(minW >= 20, "the page has real breakpoints, not one catch-all");
+
+  // 3. The extremes at both ends are handled on purpose.
+  ok(/@media \(min-width: 1600px\)/.test(mkt), "there is a layout for a very wide monitor");
+  ok(/@media \(width <= 359px\)/.test(mkt), "there is a layout for a 320px phone");
+  ok(/@media \(max-height: 560px\)/.test(mkt), "there is a layout for a phone held sideways");
+  ok(/@media \(pointer: coarse\)/.test(mkt), "touch screens get finger-sized targets");
+  ok(/@media \(pointer: coarse\)/.test(menu), "the corner menu gets finger-sized rows too");
+
+  // 4. Anything that opens off the top of the window must be able to end:
+  //    a drop panel taller than a sideways phone with no scroll of its own
+  //    is a panel whose last item cannot be reached.
+  for (const [sheet, name, sel] of [
+    [mkt, "marketing.css", ".mkt-nav-panel"],
+    [mkt, "marketing.css", ".pub-navlinks"],
+    [mkt, "marketing.css", ".manual-nav"],
+    [menu, "site-corner-menu.css", ".sc-corner-panel"],
+  ] as [string, string, string][]) {
+    const blocks = sheet.split(sel).slice(1).map((b) => b.slice(0, b.indexOf("}") + 1));
+    ok(blocks.some((b) => /max-height:/.test(b)), `${name} gives ${sel} a height ceiling`);
+    ok(
+      blocks.some((b) => /max-height:/.test(b) && /overflow-y: auto|overflow: auto/.test(b)),
+      `${name} gives ${sel} a height ceiling it can scroll inside`
+    );
+  }
+
+  // 5. 100vh on a phone is the viewport at its TALLEST — while the browser
+  //    chrome is showing, a 100vh page is taller than the window. Every
+  //    full-height rule carries a dvh twin.
+  for (const [sheet, name] of [[mkt, "marketing.css"], [menu, "site-corner-menu.css"], [signIn, "sign-in.css"]] as [string, string][]) {
+    const vh = (sheet.match(/100vh/g) || []).length;
+    const dvh = (sheet.match(/100dvh/g) || []).length;
+    ok(dvh >= vh, `${name} pairs every 100vh with a 100dvh fallback (${vh} vh, ${dvh} dvh)`);
+  }
+
+  // 6. Nothing may be wider than the narrowest phone we support. A fixed
+  //    width or a grid of fixed columns over 300px is a horizontal scrollbar
+  //    at 320px unless a query is holding it back.
+  const outsideQueries = mkt.replace(/@media[^{]+\{(?:[^{}]*\{[^{}]*\}\s*)*\}/g, "");
+  const fixedWidths = [...outsideQueries.matchAll(/(?<!max-|min-)\bwidth:\s*(\d{3,})px/g)].map((m) => Number(m[1]));
+  for (const w of fixedWidths) ok(w <= 300, `an unconditional width of ${w}px does not fit a 320px screen`);
+  for (const m of outsideQueries.matchAll(/grid-template-columns:([^;]+);/g)) {
+    const sum = [...m[1].matchAll(/(\d+)px/g)].reduce((a, x) => a + Number(x[1]), 0);
+    ok(sum <= 300, `a fixed ${sum}px of columns outside a media query cannot fit a phone`);
+  }
+  for (const m of outsideQueries.matchAll(/minmax\((\d+)px/g)) {
+    ok(Number(m[1]) <= 300, `a ${m[1]}px minimum column outside a media query overflows a phone`);
+  }
+
+  // 7. Images and media never push a page sideways.
+  ok(/\.mkt-root img\s*\{[^}]*max-width: 100%/.test(mkt), "every picture on the site is capped at its container");
+
+  // 8. The standalone pages get the tablet range, not three columns or one.
+  ok(
+    /@media \(620px <= width <= 900px\)[\s\S]{0,400}grid-template-columns: repeat\(2/.test(mkt),
+    "the standalone pages show two columns on a tablet"
+  );
+
+  // 9. The studio shell: the one flex child that holds everything must be
+  //    allowed to be narrower than its content, or a single wide row drags
+  //    the whole app past the right edge of the window.
+  const app = read("src/App.tsx");
+  ok(/flex-1 flex flex-col min-w-0/.test(app), "the studio's main column may shrink below its content");
+  ok(/overflow-x-auto/.test(app) || /overflow-x-auto/.test(read("src/components/Timeline.tsx")), "wide rows scroll themselves");
+  // The phase tabs are the widest fixed row in the app; they must scroll
+  // rather than widen the header.
+  ok(/t-tabbar[^"]*overflow-x-auto/.test(app), "the phase tabs scroll sideways instead of stretching the header");
+
+  // The project name shrinks on phones only. A desktop with room to spare
+  // must show the whole title, not a 220px stub of it.
+  const projectTitle =
+    app.match(/<h2\s+className="font-semibold text-xs[^"]*"/)?.[0] ?? "";
+  ok(projectTitle.length > 0, "the header still carries the project title");
+  ok(/max-w-\[40vw\]/.test(projectTitle), "the title is clamped on phones, where space is scarce");
+  ok(/md:max-w-\[360px\]/.test(projectTitle), "the clamp widens on tablets");
+  ok(/lg:max-w-\[560px\]/.test(projectTitle), "the clamp widens again on laptops");
+  ok(/xl:max-w-none/.test(projectTitle), "the clamp is lifted entirely on a full-size screen");
+  ok(
+    app.includes('title={currentProject ? currentProject.title : "Start a New Project"}'),
+    "a shortened title is still readable in full from the tooltip"
+  );
+}
+
 h.done("responsive");

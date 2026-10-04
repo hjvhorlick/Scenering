@@ -67,11 +67,55 @@ matches, the bundled nature library answers instead, ranked against the query.
 The modal also offers three subjects to click, drawn from a rotating deck, so
 no suggestion comes back until every other one has been shown.
 
-Choosing a photo frames it immediately: a mild shape mismatch is cropped to
-the frame, a severe one (a portrait photo in a landscape video) is shown whole
-over a blurred copy of itself rather than losing its subject to the crop. A
-search term typed by hand is pinned to the scene, so later edits to the script
-cannot silently replace it.
+Choosing a photo frames it immediately, and always fills the frame: the photo
+is scaled to cover the whole scene and centred, top and bottom included, no
+matter how badly its shape differs from the video's. Nothing is letterboxed or
+blurred behind unless you ask for it yourself in the scene's framing controls,
+and a framing you set by hand is never overwritten. A search term typed by
+hand is pinned to the scene, so later edits to the script cannot silently
+replace it.
+
+## Billing (Lemon Squeezy)
+
+Payments are handled entirely by Lemon Squeezy. Scenering never sees a card
+number and stores no payment details of its own — only the subscription's
+status, plan, period dates and the hosted links Lemon Squeezy sends back.
+
+Everything needed is in `.env`; nothing is hard-coded. The flow:
+
+| Step | Where |
+|---|---|
+| Customer picks a plan | Account & Membership modal → `GET /api/billing/checkout/:plan/:interval` |
+| Server hands back the checkout link | `LEMON_SQUEEZY_<PLAN>_<INTERVAL>_CHECKOUT_URL`, with `checkout[email]` and `checkout[custom][user_id]` appended |
+| Lemon Squeezy confirms the purchase | `POST /api/webhooks/lemonsqueezy`, verified against `LEMON_SQUEEZY_WEBHOOK_SECRET` |
+| Webhook maps the purchase to a plan | `LEMON_SQUEEZY_<PLAN>_<INTERVAL>_VARIANT_ID` |
+| Access changes | the account's membership row, which is what every entitlement check reads |
+
+Register the webhook at `<PUBLIC_APP_URL>/api/webhooks/lemonsqueezy` and tick
+every subscription event: `subscription_created`, `subscription_updated`,
+`subscription_cancelled`, `subscription_resumed`, `subscription_expired`,
+`subscription_paused`, `subscription_unpaused`, `subscription_payment_failed`,
+`subscription_payment_success` and `subscription_payment_recovered`. Anything
+else the store sends is recorded and ignored rather than acted on. Each event is processed once — a redelivery with
+the same event id is a no-op — and an event whose signature does not verify is
+rejected with 401 before it is parsed.
+
+Access follows what was paid for, not what the dashboard says today:
+`cancelled` and `past_due` keep the plan until the period already paid for
+ends, and the stored end date downgrades the account on time even if the
+expiry webhook is never delivered. A cancelled subscription stays visible to
+its owner until then, with its end date and a **Manage or cancel** link to the
+Lemon Squeezy customer portal.
+
+Sign in as the owner and open **Account & Membership** to see a go-live
+checklist naming every environment variable that is still missing, the exact
+webhook URL to paste into Lemon Squeezy, and the last 25 webhooks received
+with their outcome (`processed`, `ignored`, `duplicate`, `unmatched`,
+`unknown_variant`).
+
+Until the keys are filled in, checkout answers `503 BILLING_NOT_CONFIGURED`
+and the webhook answers `503`; nothing else in the app is affected, and the
+Free plan works throughout.
 
 ## Themes
 

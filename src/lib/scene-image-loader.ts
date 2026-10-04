@@ -30,6 +30,7 @@
 import { proxyImageUrl } from "./image-search";
 import { rawImageUrl } from "./image-picker";
 import { resolveLegacyLocalImage } from "./nature-library-compat";
+import { isCustomImageUrl, resolveImageUrl } from "./custom-image";
 
 export interface SceneImageResult {
   img: HTMLImageElement;
@@ -112,7 +113,30 @@ export function loadSceneImage(
       }
     };
 
-    const raw = resolveLegacyLocalImage(String(url || "").trim());
+    const trimmed = String(url || "").trim();
+
+    // A photo the user uploaded is addressed as `custom-image:<id>` and lives
+    // in IndexedDB; turn it into this page load's object URL before anything
+    // else. An upload that has been deleted resolves to nothing, and falls
+    // back exactly like a photo that failed to download.
+    if (isCustomImageUrl(trimmed)) {
+      const local = resolveImageUrl(trimmed);
+      if (!local) {
+        giveUp();
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        const done = () => resolve({ img, usedFallback: false });
+        if (typeof img.decode === "function") img.decode().then(done, done);
+        else done();
+      };
+      img.onerror = () => giveUp();
+      img.src = local;
+      return;
+    }
+
+    const raw = resolveLegacyLocalImage(trimmed);
     if (!raw) {
       giveUp();
       return;

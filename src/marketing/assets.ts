@@ -146,17 +146,6 @@ const pending = (
 });
 
 export const MARKETING_ASSETS: MarketingAsset[] = [
-  {
-    id: "hero.workflow.generated",
-    group: "hero",
-    file: "scenering-workflow-hero",
-    widths: [640, 1280],
-    width: 1376,
-    height: 768,
-    alt: "Scenering workflow showing a script becoming scenes, researched visuals, voice, captions, a studio timeline and a finished vertical video.",
-    status: "concept",
-    note: "Original configurable marketing illustration; replaceable with a real product capture.",
-  },
   // --------------------------------------------------------------- brand
   {
     id: "brand.showpiece",
@@ -360,39 +349,45 @@ export const MARKETING_ASSETS: MarketingAsset[] = [
     "A tidy desk seen from above with an open notebook, a globe, pencils and a brass compass.",
     "Example video poster — education"
   ),
-  pending(
+  photo(
     "example.inspiration",
     "examples",
+    "example-inspiration",
     "Sunrise over a mountain ridge rising above a sea of cloud.",
     "Example video poster — inspiration"
   ),
-  pending(
+  photo(
     "example.storytelling",
     "examples",
+    "example-storytelling",
     "A lantern-lit forest path at dusk with mist between the trees.",
     "Example video poster — storytelling"
   ),
-  pending(
+  photo(
     "example.business",
     "examples",
+    "example-business",
     "A modern glass office district photographed from above at blue hour.",
     "Example video poster — business"
   ),
-  pending(
+  photo(
     "example.training",
     "examples",
+    "example-training",
     "A workshop bench from above with hand tools neatly arranged on pale wood.",
     "Example video poster — training"
   ),
-  pending(
+  photo(
     "example.information",
     "examples",
+    "example-information",
     "A city grid at night from high above, street lights drawing bright lines.",
     "Example video poster — information"
   ),
-  pending(
+  photo(
     "example.social",
     "examples",
+    "example-social",
     "A phone lying on a pastel desk beside a coffee cup, shot from above.",
     "Example video poster — social media"
   ),

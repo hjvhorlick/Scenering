@@ -870,6 +870,20 @@ async function synthesizeTTSWithSource(
 }
 
 // --- Pexels ---
+/** Pexels' documented ceiling for `per_page`; anything higher is a 400. */
+const PEXELS_MAX_PER_PAGE = 80;
+/** Pixabay's documented ceiling for `per_page` (minimum is 3). */
+const PIXABAY_MAX_PER_PAGE = 200;
+/** Wikimedia's ceiling for `list=search` results in one request. */
+const WIKIMEDIA_MAX_SEARCH = 100;
+/** Wikimedia's ceiling for `titles=` values in one request (anonymous). */
+const WIKIMEDIA_MAX_TITLES = 50;
+/**
+ * How long any one provider request may take. Without this a hung upstream
+ * left the studio's spinner turning indefinitely — a search that never
+ * answers reads as "image search does nothing".
+ */
+const PROVIDER_TIMEOUT_MS = 12000;
 // Every result is delivered as an exact 1920×1080 (16:9) crop from the
 // original file, so nothing is ever upscaled into a 1080p render. Photos
 // smaller than Full HD are dropped by the shared candidate mapper.
@@ -877,19 +891,35 @@ async function searchPexels(query: string, count: number, customKey?: string): P
   const apiKey = (customKey && customKey.trim()) || process.env.PEXELS_API_KEY;
   if (!apiKey) return [];
 
+  // Pexels rejects per_page above 80 with a 400, which used to turn every
+  // search into an empty result set (the client asks for 100). Clamp to the
+  // documented maximum instead of losing the whole response.
+  const perPage = Math.min(Math.max(1, count), PEXELS_MAX_PER_PAGE);
+
   try {
     const res = await fetch(
-      `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${count}&orientation=landscape&size=large`,
-      { headers: { Authorization: apiKey } }
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${perPage}&orientation=landscape&size=large`,
+      { headers: { Authorization: apiKey }, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }
     );
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.warn(`Pexels search failed (${res.status}) for "${query}"`);
+      return [];
+    }
     const data = (await res.json()) as any;
     if (!data.photos) return [];
 
-    return data.photos
+    const candidates = data.photos
       .map(pexelsPhotoToCandidate)
       .filter((c): c is ImageResult => c !== null);
-  } catch {
+    // `size=large` already means ≥24MP, but a photo below Full HD or in the
+    // wrong shape is still dropped by the mapper — say so rather than
+    // letting the search look silently empty.
+    if (candidates.length === 0 && data.photos.length > 0) {
+      console.warn(`Pexels returned ${data.photos.length} photos for "${query}", none met the 1920×1080 rule`);
+    }
+    return candidates;
+  } catch (e: any) {
+    console.warn(`Pexels search error for "${query}":`, e?.message || e);
     return [];
   }
 }
@@ -909,6 +939,7 @@ function canPixabayServe1920(sampleUrl: string): Promise<boolean> {
         const res = await fetch(sampleUrl, {
           headers: { Accept: "image/*", Range: "bytes=0-1" },
           redirect: "follow",
+          signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
         });
         const type = res.headers.get("content-type") || "";
         return res.ok && type.startsWith("image/");
@@ -935,11 +966,18 @@ async function searchPixabay(query: string, count: number, customKey?: string): 
   const apiKey = (customKey && customKey.trim()) || process.env.PIXABAY_API_KEY;
   if (!apiKey) return [];
 
+  // Pixabay accepts 3–200 per page and 400s outside that window.
+  const perPage = Math.min(Math.max(3, count), PIXABAY_MAX_PER_PAGE);
+
   try {
     const res = await fetch(
-      `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(query)}&per_page=${count}&image_type=photo&orientation=horizontal&min_width=1920&min_height=1080`
+      `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(query)}&per_page=${perPage}&image_type=photo&orientation=horizontal&min_width=1920&min_height=1080`,
+      { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }
     );
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.warn(`Pixabay search failed (${res.status}) for "${query}"`);
+      return [];
+    }
     const data = (await res.json()) as any;
     if (!data.hits) return [];
 
@@ -963,8 +1001,13 @@ async function searchPixabay(query: string, count: number, customKey?: string): 
           .filter((c: ImageResult | null): c is ImageResult => c !== null);
       }
     }
-    return [...direct, ...recovered];
-  } catch {
+    const all = [...direct, ...recovered];
+    if (all.length === 0 && data.hits.length > 0) {
+      console.warn(`Pixabay returned ${data.hits.length} hits for "${query}", none met the 16:9 1920×1080 rule`);
+    }
+    return all;
+  } catch (e: any) {
+    console.warn(`Pixabay search error for "${query}":`, e?.message || e);
     return [];
   }
 }
@@ -974,41 +1017,61 @@ async function searchPixabay(query: string, count: number, customKey?: string): 
 // that are ~16:9 and at least Full HD. Diagrams and B&W scans that survive
 // the dimension gate are removed client-side by pixel analysis.
 async function searchWikimedia(query: string, count: number): Promise<ImageResult[]> {
+  // `list=search` accepts up to 500 titles, but `titles=` is capped at 50
+  // values per request for anonymous clients — asking for more is rejected
+  // outright ("toomanyvalues"), which used to lose the entire search.
+  const srlimit = Math.min(Math.max(1, count), WIKIMEDIA_MAX_SEARCH);
   try {
-    const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&list=search&srnamespace=6&srlimit=${count}&srsearch=${encodeURIComponent(query + " filetype:bitmap")}&origin=*`;
+    const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&list=search&srnamespace=6&srlimit=${srlimit}&srsearch=${encodeURIComponent(query + " filetype:bitmap")}&origin=*`;
     const searchRes = await fetch(searchUrl, {
       headers: { "User-Agent": "SceneringApp/1.0 (https://ai.studio)" },
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     });
-    if (!searchRes.ok) return [];
+    if (!searchRes.ok) {
+      console.warn(`Wikimedia search failed (${searchRes.status}) for "${query}"`);
+      return [];
+    }
     const searchData = (await searchRes.json()) as any;
     const searchResults = searchData?.query?.search;
     if (!searchResults || searchResults.length === 0) return [];
 
-    const titles = searchResults.map((r: any) => r.title).join("|");
-    const imageInfoUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1920&titles=${encodeURIComponent(titles)}&origin=*`;
-    const imageRes = await fetch(imageInfoUrl, {
-      headers: { "User-Agent": "SceneringApp/1.0 (https://ai.studio)" },
-    });
-    if (!imageRes.ok) return [];
-    const imageData = (await imageRes.json()) as any;
-
-    const pages = imageData?.query?.pages;
-    if (!pages) return [];
-
+    const allTitles: string[] = searchResults.map((r: any) => String(r.title));
     const results: ImageResult[] = [];
-    for (const key of Object.keys(pages)) {
-      const page = pages[key];
-      const info = page?.imageinfo?.[0];
-      if (!info) continue;
-      if (info.mime && !info.mime.startsWith("image/")) continue;
-      if (info.mime === "image/svg+xml") continue;
 
-      const candidate = wikimediaInfoToCandidate(info);
-      if (candidate) results.push(candidate);
+    for (let start = 0; start < allTitles.length; start += WIKIMEDIA_MAX_TITLES) {
+      const titles = allTitles.slice(start, start + WIKIMEDIA_MAX_TITLES).join("|");
+      const imageInfoUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1920&titles=${encodeURIComponent(titles)}&origin=*`;
+      const imageRes = await fetch(imageInfoUrl, {
+        headers: { "User-Agent": "SceneringApp/1.0 (https://ai.studio)" },
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+      });
+      if (!imageRes.ok) {
+        console.warn(`Wikimedia imageinfo failed (${imageRes.status}) for "${query}"`);
+        continue;
+      }
+      const imageData = (await imageRes.json()) as any;
+
+      const pages = imageData?.query?.pages;
+      if (!pages) continue;
+
+      for (const key of Object.keys(pages)) {
+        const page = pages[key];
+        const info = page?.imageinfo?.[0];
+        if (!info) continue;
+        if (info.mime && !info.mime.startsWith("image/")) continue;
+        if (info.mime === "image/svg+xml") continue;
+
+        const candidate = wikimediaInfoToCandidate(info);
+        if (candidate) results.push(candidate);
+      }
     }
 
+    if (results.length === 0 && allTitles.length > 0) {
+      console.warn(`Wikimedia returned ${allTitles.length} files for "${query}", none were 16:9 and at least 1920×1080`);
+    }
     return results;
-  } catch {
+  } catch (e: any) {
+    console.warn(`Wikimedia search error for "${query}":`, e?.message || e);
     return [];
   }
 }
@@ -1037,7 +1100,11 @@ async function startServer() {
   if (process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
   app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("X-Frame-Options", "DENY");
+    // Framing stays forbidden everywhere except an explicitly opted-in local
+    // preview (sandbox/container iframes), which must never be production.
+    if (process.env.NODE_ENV === "production" || process.env.ALLOW_FRAMING !== "1") {
+      res.setHeader("X-Frame-Options", "DENY");
+    }
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");

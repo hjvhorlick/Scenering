@@ -25,25 +25,49 @@ export const STUDIO_PATH = "/app";
 export const SITE_PATH = "/";
 
 /**
+ * The areas of the front page, in the order they appear on it.
+ *
+ * This is the one list behind three things: the friendly deep-link paths
+ * below, the shortcut list in the corner menu, and the scrolling that happens
+ * when either is used. The menu used to carry its own hand-written list of
+ * "features" whose links went to separate marketing pages instead of to the
+ * areas they named, which is why a shortcut never took anyone to the thing
+ * they clicked.
+ */
+export interface SiteSection {
+  /** The element id rendered by MarketingSite. */
+  id: string;
+  /** What the menu calls it. */
+  label: string;
+  /** Its friendly URL. */
+  path: string;
+}
+
+export const SITE_SECTIONS: readonly SiteSection[] = [
+  { id: "workflow", label: "How it works", path: "/workflow" },
+  { id: "scenes", label: "Scenes", path: "/scenes" },
+  { id: "visuals", label: "Visuals", path: "/visuals" },
+  { id: "voice", label: "Voice over", path: "/voice" },
+  { id: "captions", label: "Captions", path: "/captions" },
+  { id: "video-studio", label: "Video Studio", path: "/video-studio" },
+  { id: "effects", label: "Effects library", path: "/effects" },
+  { id: "control", label: "You stay in control", path: "/control" },
+  { id: "no-meter", label: "No credits or tokens", path: "/no-meter" },
+  { id: "examples", label: "Examples", path: "/examples" },
+  { id: "formats", label: "Formats & devices", path: "/formats" },
+  { id: "sources", label: "Visual sources", path: "/sources" },
+  { id: "pricing", label: "Pricing", path: "/pricing" },
+];
+
+/**
  * Friendly URLs that deep-link into a section of the public website.
  * Keys are paths, values are the section id rendered by MarketingSite.
  */
 export const SITE_SECTION_PATHS: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(SITE_SECTIONS.map((section) => [section.path, section.id])),
   "/questions": "questions",
-  "/no-meter": "no-meter",
-  "/workflow": "workflow",
+  // kept from the original launch URLs
   "/product": "workflow",
-  "/scenes": "scenes",
-  "/visuals": "visuals",
-  "/voice": "voice",
-  "/captions": "captions",
-  "/video-studio": "video-studio",
-  "/effects": "effects",
-  "/control": "control",
-  "/examples": "examples",
-  "/formats": "formats",
-  "/sources": "sources",
-  "/pricing": "pricing",
 };
 
 /** Lower-cased, trailing-slash-free path. `""` and `"/"` both become `"/"`. */
@@ -80,6 +104,43 @@ export function navigate(path: string): void {
   }
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+/**
+ * Scroll an area of the front page into view, exactly the way the question
+ * band at the top does it: reduced motion is honoured, and the area flashes
+ * briefly so the eye lands on the answer rather than on a wall of page.
+ *
+ * Returns false when the element is not on screen — the caller then has to
+ * go to the front page first.
+ */
+export function scrollToSection(id: string): boolean {
+  if (typeof document === "undefined") return false;
+  const target = document.getElementById(id);
+  if (!target) return false;
+  const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  target.classList.add("is-answering");
+  window.setTimeout(() => target.classList.remove("is-answering"), 2200);
+  return true;
+}
+
+/**
+ * Take the visitor to an area of the front page from anywhere.
+ *
+ * On the front page it simply scrolls. From /pricing, /faq or the studio it
+ * navigates home first and scrolls once the page has rendered — the whole
+ * point being that the shortcut always ends at the area it names.
+ */
+export function goToSection(id: string): void {
+  if (typeof window === "undefined") return;
+  if (scrollToSection(id)) {
+    const section = SITE_SECTIONS.find((entry) => entry.id === id);
+    if (section) window.history?.replaceState?.({}, "", section.path);
+    return;
+  }
+  const section = SITE_SECTIONS.find((entry) => entry.id === id);
+  navigate(section?.path ?? "/");
 }
 
 /** Current surface + path, kept in sync with Back/Forward. */

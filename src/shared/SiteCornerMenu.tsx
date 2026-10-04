@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { navigate } from "../lib/route";
+import { SITE_SECTIONS, goToSection, navigate } from "../lib/route";
 import { getInterfacePlan, signOut, useSession } from "../lib/session";
 import "./site-corner-menu.css";
 
+/**
+ * The pages of the site. Separate from the FRONT-PAGE AREAS below: these are
+ * documents, those are places on one long page.
+ */
 const PRODUCT_LINKS = [
   ["/", "Home"], ["/features", "Features"], ["/how-it-works", "How It Works"],
   ["/pricing", "Pricing"], ["/about", "About"], ["/manual", "Manual"], ["/faq", "FAQ"], ["/contact", "Contact"],
@@ -40,7 +44,25 @@ export default function SiteCornerMenu() {
     </button>
 
     {open && <div className="sc-corner-panel" id="sc-corner-panel">
-      <div className="sc-corner-head"><div className="sc-corner-mark" aria-hidden="true">S</div><div><b>Scenering</b><span>{signedIn ? `${name || "Your account"} · ${interfacePlan}${account?.user.role === "admin" && interfacePlan !== account.membership.plan_id ? " preview" : ""}` : "From idea to video"}</span></div></div>
+      {/* The panel's head carries the real wordmark rather than a letter in a
+          box. The menu opens over whatever page you are on, including the
+          studio, so it is the one place that has to say plainly whose menu
+          this is. The mark is the same file the front page uses, served at
+          two widths; the status line underneath still says who is signed in
+          and on which plan. */}
+      <div className="sc-corner-head">
+        <img
+          className="sc-corner-logo"
+          src="/marketing/mark-scenering-240.webp"
+          srcSet="/marketing/mark-scenering-120.webp 120w, /marketing/mark-scenering-240.webp 240w"
+          sizes="128px"
+          width={240}
+          height={76}
+          alt="Scenering"
+          decoding="async"
+        />
+        <span>{signedIn ? `${name || "Your account"} · ${interfacePlan}${account?.user.role === "admin" && interfacePlan !== account.membership.plan_id ? " preview" : ""}` : "From idea to video"}</span>
+      </div>
 
       {!checking && (signedIn ? <div className="sc-corner-actions">
         {!inStudio && <button className="is-primary" onClick={() => go("/app")}>Open Studio</button>}
@@ -55,6 +77,21 @@ export default function SiteCornerMenu() {
       <div className="sc-corner-separator" />
       <nav aria-label="Scenering pages" className="sc-corner-links">
         {PRODUCT_LINKS.map(([href, label]) => <button key={href} className={path === href ? "is-current" : ""} onClick={() => go(href)}><span>{label}</span>{path === href && <small>Current</small>}</button>)}
+      </nav>
+
+      {/* The front page explains each part of the studio in its own area;
+          these go straight to one. They used to be feature NAMES pointing at
+          separate marketing pages, so clicking "Captions" never took anyone
+          to the captions area — now every one of them scrolls to the thing
+          it names, from this page or any other. */}
+      <div className="sc-corner-separator" />
+      <nav aria-label="Front page sections" className="sc-corner-links sc-corner-sections">
+        <b className="sc-corner-group">Jump to a section</b>
+        {SITE_SECTIONS.map((section) => (
+          <button key={section.id} onClick={() => { setOpen(false); goToSection(section.id); }}>
+            <span>{section.label}</span>
+          </button>
+        ))}
       </nav>
 
       <div className="sc-corner-legal"><button onClick={() => go("/privacy")}>Privacy</button><button onClick={() => go("/terms")}>Terms</button><button onClick={() => go("/cookies")}>Cookies</button></div>

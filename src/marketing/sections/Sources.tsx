@@ -23,7 +23,7 @@ export default function Sources() {
         id="sources"
         eyebrow="Visual sources"
         title="Where do the visuals come from?"
-        lead="Scenering searches the visual sources you have connected and uses the most suitable result it finds. It is looking for existing photographs, not inventing one for every scene."
+        lead="Scenering searches the sources you connect for existing photographs. It does not invent a picture for a scene."
       />
 
       <div className="mkt-grid cols-2">

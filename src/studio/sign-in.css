@@ -13,6 +13,7 @@
 .si-page {
   box-sizing: border-box;
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 24px;

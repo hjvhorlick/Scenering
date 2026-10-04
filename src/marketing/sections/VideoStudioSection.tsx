@@ -91,7 +91,7 @@ export default function VideoStudioSection() {
         id="video-studio"
         eyebrow="06 · Video Studio"
         title={MESSAGES.studio}
-        lead="A preview, a timeline and every layer that sits on top of it: filters, music, sound effects, captions, stickers, lower thirds, calls to action, intro and outro — arranged against the scenes you already have. Background music, Sound visualisers and Narration ambience now sit together in Voiceover; Video Studio keeps its Sound effects focused on exact timeline moments."
+        lead="A preview, a timeline, and every layer that sits on top of it — filters, text, stickers, lower thirds, calls to action, intro and outro — arranged against the scenes you already have."
       />
 
       <figure ref={figureRef} style={{ margin: 0 }}>

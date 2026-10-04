@@ -34,7 +34,7 @@ export default function VisualResearch() {
         id="visuals"
         eyebrow="03 · Visuals"
         title={MESSAGES.visuals}
-        lead="Each scene writes its own search from its own words, checks what comes back, and keeps the one that fits. You can overrule it at any point."
+        lead="Each scene writes its own search, checks what comes back and keeps the one that fits — and you can overrule it."
       />
 
       {/* the flow, spelled out */}
@@ -108,8 +108,7 @@ export default function VisualResearch() {
                   })}
                 </div>
                 <p className="mkt-small" style={{ marginTop: 8 }}>
-                  Results that are not photographs, not 16:9 or under 1920×1080 are skipped before you see them — a
-                  1080p render never has to upscale its footage.
+                  Anything that is not a 16:9 photograph of at least 1920&nbsp;×&nbsp;1080 is skipped before you see it.
                 </p>
               </div>
 
@@ -142,8 +141,8 @@ export default function VisualResearch() {
                   </button>
                 </div>
                 <p className="mkt-small" style={{ marginTop: 10 }}>
-                  <b>Don’t like the image? Replace it.</b> Pick another result, search again, or bring your own
-                  photo or clip. The scene text, narration and timing stay exactly as they were.
+                  <b>Don’t like it? Replace it.</b> Another result, a fresh search, or your own photo or clip —
+                  the text, narration and timing stay as they were.
                 </p>
               </div>
             </div>

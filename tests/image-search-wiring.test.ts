@@ -113,7 +113,21 @@ h.ok(modal.includes("handleTopic"), "a suggestion is clickable");
 
 // ------------------------------------------------------- auto-framing is used
 h.ok(editor.includes("autoFrame("), "the scene editor frames a newly chosen photo automatically");
-h.ok(editor.includes("measureImage("), "the scene editor measures the photo before framing it");
+// Measured through the shared loader, not a bare Image(): a photo reachable
+// only through the proxy (or only directly) used to measure as nothing, and
+// the scene then kept its default framing with no crop and no complaint.
+h.ok(
+  editor.includes("loadSceneImage(url, 0, { fallback: \"none\" })"),
+  "the scene editor measures the photo through the same loader the preview uses"
+);
+h.ok(
+  !/measureImage\(/.test(editor),
+  "the editor no longer measures with a bare Image() that cross-origin hosts can defeat"
+);
+h.ok(
+  editor.includes("loadSceneImage(scene.image_url"),
+  "the crop-to-ratio buttons measure through the loader too"
+);
 h.ok(
   !editor.includes("const probe = new Image()"),
   "the hand-rolled image probe was replaced by the shared helper"

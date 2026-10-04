@@ -18,6 +18,7 @@ export type SceneAnimationCategory =
   | "fire_smoke"
   | "steam"
   | "mystical"
+  | "fairy"
   | "lighting";
 
 export type SceneAnimationLayer =
@@ -110,6 +111,7 @@ export const SCENE_ANIMATION_CATEGORIES: Array<{
   { id: "fire_smoke", label: "Fire & Smoke", icon: "🔥", hint: "Flame, smoke, sparks, embers and firelight." },
   { id: "steam", label: "Steam", icon: "♨️", hint: "Coffee, tea, food and general vapor." },
   { id: "mystical", label: "Mystical", icon: "🔮", hint: "Golden signs, runes, orbs, portals and reactive mid-air magic." },
+  { id: "fairy", label: "Fairy", icon: "🧚", hint: "Floating bubbles, glitter swirls, smoke rings, falling stars and sun flares." },
   { id: "lighting", label: "Lighting", icon: "🔆", hint: "Rays, beams, flares, shadows and illumination." },
 ];
 
@@ -793,6 +795,65 @@ export const SCENE_ANIMATION_EFFECTS: SceneAnimationEffectDefinition[] = [
     defaults: { variant: "motivational_starburst", amount: 0.45, intensity: 0.76, speed: 0.4, direction: "up", size: 0.54, opacity: 0.62, origin: { x: 0.5, y: 0.42 }, region: full },
   }),
 
+  // Fairy — storybook magic that reads at a glance: things that float, swirl,
+  // ring, fall and flare. Everything here is drawn, so it costs no assets and
+  // recolours with the gold/silver/neon palettes like the rest of the library.
+  effect({
+    type: "fairy_bubbles",
+    label: "Floating Bubbles",
+    icon: "🫧",
+    category: "fairy",
+    layer: "foreground",
+    description: "Soap-film bubbles that rise, wobble and catch the light, with occasional pops.",
+    variants: v("Floating Bubbles", "Fairy Bubbles", "Tiny Bubble Cluster", "Giant Slow Bubbles", "Iridescent Bubbles"),
+    controls: ["amount", "speed", "size", "direction", "opacity", "density", "region"],
+    defaults: { variant: "floating_bubbles", amount: 0.46, speed: 0.3, size: 0.48, direction: "up", opacity: 0.6, density: 0.44, region: full },
+  }),
+  effect({
+    type: "glitter_swirls",
+    label: "Glitter Swirls & Twirls",
+    icon: "🌀",
+    category: "fairy",
+    layer: "foreground",
+    description: "Ribbons of gold or silver glitter that spiral, twirl and trail sparkle behind them.",
+    variants: v("Gold Glitter Stream", "Silver Glitter Stream", "Double Twirl", "Rising Spiral", "Pixie Trail", "Wand Flourish"),
+    controls: ["amount", "intensity", "speed", "size", "direction", "opacity", "origin", "region"],
+    defaults: { variant: "gold_glitter_stream", amount: 0.5, intensity: 0.68, speed: 0.42, size: 0.5, direction: "up-right", opacity: 0.72, origin: { x: 0.5, y: 0.62 }, region: full },
+  }),
+  effect({
+    type: "smoke_rings",
+    label: "Circle Smoke Rings",
+    icon: "⭕",
+    category: "fairy",
+    layer: "atmosphere",
+    description: "Vortex rings that drift outward and widen as they fade, like blown smoke halos.",
+    variants: v("Smoke Rings", "Mist Rings", "Vortex Rings", "Halo Rings", "Dragon Puffs"),
+    controls: ["amount", "speed", "size", "direction", "opacity", "origin", "region"],
+    defaults: { variant: "smoke_rings", amount: 0.4, speed: 0.34, size: 0.52, direction: "up", opacity: 0.4, origin: { x: 0.5, y: 0.68 }, region: full },
+  }),
+  effect({
+    type: "falling_stars",
+    label: "Falling Stars",
+    icon: "🌠",
+    category: "fairy",
+    layer: "foreground",
+    description: "Five-point stars that tumble down the frame trailing sparkle, slow enough to follow.",
+    variants: v("Falling Stars", "Star Shower", "Slow Drifting Stars", "Wish Stars", "Glitter Stars"),
+    controls: ["amount", "speed", "size", "direction", "opacity", "density", "region"],
+    defaults: { variant: "falling_stars", amount: 0.44, speed: 0.38, size: 0.46, direction: "down-left", opacity: 0.74, density: 0.4, region: full },
+  }),
+  effect({
+    type: "sun_flares",
+    label: "Sun Flares",
+    icon: "✸",
+    category: "fairy",
+    layer: "lighting",
+    description: "Bursting flares that enter from a chosen corner or edge, or sweep around the frame.",
+    variants: v("From Top Left", "From Top Right", "From Left", "From Right", "From Below", "Rotating Sweep", "Random Directions"),
+    controls: ["amount", "intensity", "speed", "size", "direction", "opacity", "origin", "region"],
+    defaults: { variant: "from_top_left", amount: 0.38, intensity: 0.62, speed: 0.36, size: 0.52, direction: "down-right", opacity: 0.5, origin: { x: 0.16, y: 0.14 }, region: full },
+  }),
+
   // Lighting
   effect({
     type: "sun_rays",
@@ -1094,6 +1155,42 @@ export const SCENE_ANIMATION_PRESETS: SceneAnimationPreset[] = [
       { type: "glowing_orbs", amount: 0.5, opacity: 0.74, colorPalette: "neon_purple", bloom: 0.5, shine: 0.6 },
     ],
   },
+  {
+    id: "fairy_dust",
+    label: "Fairy Dust",
+    icon: "🧚",
+    description: "Gold glitter swirls, floating bubbles and slow falling stars — the whole fairy look in one click.",
+    camera: { motion: "cinematic_drift", speed: 0.28, intensity: 0.45 },
+    effects: [
+      { type: "glitter_swirls", variant: "gold_glitter_stream", opacity: 0.7, amount: 0.5, colorPalette: "gold", bloom: 0.45, shine: 0.7 },
+      { type: "fairy_bubbles", variant: "fairy_bubbles", opacity: 0.5, amount: 0.4, speed: 0.26 },
+      { type: "falling_stars", variant: "slow_drifting_stars", opacity: 0.6, amount: 0.34, speed: 0.26 },
+    ],
+  },
+  {
+    id: "silver_fairy_tale",
+    label: "Silver Fairy Tale",
+    icon: "✨",
+    description: "Silver glitter twirls, smoke rings and a soft flare from the top left for storybook scenes.",
+    camera: { motion: "slow_zoom", speed: 0.3, intensity: 0.42 },
+    effects: [
+      { type: "glitter_swirls", variant: "double_twirl", opacity: 0.68, amount: 0.46, colorPalette: "silver", bloom: 0.4, shine: 0.75 },
+      { type: "smoke_rings", variant: "mist_rings", opacity: 0.32, amount: 0.34, speed: 0.3 },
+      { type: "sun_flares", variant: "from_top_left", opacity: 0.4, intensity: 0.5, amount: 0.3 },
+    ],
+  },
+  {
+    id: "bubble_wishes",
+    label: "Bubble Wishes",
+    icon: "🫧",
+    description: "Iridescent bubbles rising past wish stars, with flares drifting in from both sides.",
+    camera: { motion: "zoom_out", speed: 0.26, intensity: 0.4 },
+    effects: [
+      { type: "fairy_bubbles", variant: "iridescent_bubbles", opacity: 0.62, amount: 0.55, speed: 0.3, density: 0.5 },
+      { type: "falling_stars", variant: "wish_stars", opacity: 0.6, amount: 0.3, speed: 0.3 },
+      { type: "sun_flares", variant: "random_directions", opacity: 0.34, intensity: 0.46, amount: 0.4 },
+    ],
+  },
 ];
 
 /**
@@ -1172,6 +1269,38 @@ export const SCENE_ANIMATION_LIBRARY_SECTIONS: SceneAnimationLibrarySection[] = 
         description: "Portal rings, magic pulses, reactive aura and shockwaves.",
         effects: ["energy_waves", "scene_reactive_glow", "glowing_orbs", "motivational_starburst"],
         presetIds: ["reactive_energy"],
+      },
+    ],
+  },
+  {
+    id: "fairy",
+    label: "Fairy",
+    icon: "🧚",
+    description: "Bubbles, glitter swirls, smoke rings, falling stars and sun flares.",
+    groups: [
+      {
+        id: "bubbles_glitter",
+        label: "Bubbles & Glitter",
+        icon: "🫧",
+        description: "Floating bubbles and gold or silver glitter swirls and twirls.",
+        effects: ["fairy_bubbles", "glitter_swirls", "celestial_twinkles", "glowing_particles"],
+        presetIds: ["fairy_dust", "bubble_wishes"],
+      },
+      {
+        id: "rings_stars",
+        label: "Rings & Falling Stars",
+        icon: "⭕",
+        description: "Circle smoke rings drifting up and stars tumbling down the frame.",
+        effects: ["smoke_rings", "falling_stars", "shooting_star", "glowing_orbs"],
+        presetIds: ["silver_fairy_tale"],
+      },
+      {
+        id: "flares",
+        label: "Sun Flares",
+        icon: "✸",
+        description: "Flares entering from any corner or edge, sweeping or scattered.",
+        effects: ["sun_flares", "lens_flare", "sun_rays", "motivational_starburst"],
+        presetIds: ["fairy_dust"],
       },
     ],
   },
@@ -1602,6 +1731,13 @@ export function getSmartSceneAnimationSuggestions(scene: Pick<Scene, "text" | "i
     suggestions.add("energy_waves");
     suggestions.add("scene_reactive_glow");
   }
+  if (has("fairy", "fairies", "pixie", "magical", "wish", "dream", "wonder", "bubble", "bubbles", "glitter", "sparkle", "sparkling", "storybook", "fairytale", "fairy tale", "princess", "unicorn")) {
+    suggestions.add("fairy_bubbles");
+    suggestions.add("glitter_swirls");
+    suggestions.add("falling_stars");
+    suggestions.add("sun_flares");
+    suggestions.add("smoke_rings");
+  }
   if (has("meditation", "meditate", "calm", "peace", "peaceful", "healing", "mindful", "breath", "breathe", "relax")) {
     suggestions.add("meditation_aura");
     suggestions.add("mandala_bloom");
@@ -1792,6 +1928,21 @@ switch (effectValue.type) {
     break;
   case "motivational_starburst":
     drawMotivationalStarburst(ctx, effectValue, w, h, elapsedSec, seed);
+    break;
+  case "fairy_bubbles":
+    drawFairyBubbles(ctx, effectValue, w, h, elapsedSec, seed, wind);
+    break;
+  case "glitter_swirls":
+    drawGlitterSwirls(ctx, effectValue, w, h, elapsedSec, seed);
+    break;
+  case "smoke_rings":
+    drawSmokeRings(ctx, effectValue, w, h, elapsedSec, seed);
+    break;
+  case "falling_stars":
+    drawFallingStars(ctx, effectValue, w, h, elapsedSec, seed, wind);
+    break;
+  case "sun_flares":
+    drawSunFlares(ctx, effectValue, w, h, elapsedSec, seed);
     break;
   case "smoke":
   case "fire_smoke":
@@ -3056,6 +3207,373 @@ function drawMotivationalStarburst(ctx: CanvasRenderingContext2D, e: SceneAnimat
     const y = (r.y + ((rand(seed, i + 3) + p * dir.y * 0.2 + 1) % 1) * r.h) * h;
     const flash = Math.sin(p * Math.PI);
     drawStarGlyph(ctx, x, y, (5 + rand(seed, i + 5) * 12) * (0.55 + size) * (w / 1280), opacity * flash, "255,225,95");
+  }
+}
+
+/* ---------------------------------------------------------------- *
+ * Fairy effects.
+ *
+ * All five are procedural: no sprites, no image assets to ship or load, and
+ * every one of them is drawn into the same styled layer as the rest of the
+ * library, so the gold/silver chrome palettes, bloom, trail and shine
+ * controls work on them without special-casing.
+ * ---------------------------------------------------------------- */
+
+function drawFairyBubbles(ctx: CanvasRenderingContext2D, e: SceneAnimationEffect, w: number, h: number, t: number, seed: number, wind: WindState) {
+  const amount = value(e, "amount", 0.46);
+  const speed = value(e, "speed", 0.3);
+  const size = value(e, "size", 0.48);
+  const opacity = value(e, "opacity", 0.6);
+  const density = value(e, "density", 0.44);
+  const r = regionOf(e, full);
+  const dir = directionVector(e.direction || "up");
+  applyRegionClip(ctx, r, w, h);
+  ctx.globalCompositeOperation = "screen";
+
+  const tiny = e.variant === "tiny_bubble_cluster";
+  const giant = e.variant === "giant_slow_bubbles";
+  const iridescent = e.variant === "iridescent_bubbles" || e.variant === "fairy_bubbles";
+  const n = Math.round((tiny ? 36 : giant ? 7 : 18) * (0.5 + amount) * (0.6 + density));
+  const scale = w / 1280;
+
+  for (let i = 0; i < n; i++) {
+    // Each bubble has its own lifetime, so they do not all pop in step.
+    const life = (t * (0.05 + speed * 0.16) * (0.6 + rand(seed, i + 40) * 0.8) + rand(seed, i)) % 1;
+    const sway = Math.sin(t * (0.5 + rand(seed, i + 7)) + i * 1.3) * w * 0.018 * (0.4 + size);
+    const x = (r.x + ((rand(seed, i + 1) + life * dir.x * 0.3 + wind.x * life * 0.4 + 2) % 1) * r.w) * w + sway;
+    const y = (r.y + ((rand(seed, i + 2) + life * dir.y * 0.85 + 2) % 1) * r.h) * h;
+    const base = (tiny ? 4 : giant ? 34 : 13) + rand(seed, i + 3) * (tiny ? 5 : giant ? 26 : 16);
+    const rr = base * (0.5 + size) * scale;
+
+    // The last tenth of a bubble's life is the pop: it swells slightly and
+    // thins out, which is what the eye reads as a burst.
+    const popping = life > 0.9;
+    const pop = popping ? (life - 0.9) / 0.1 : 0;
+    const alpha = opacity * (popping ? 1 - pop : Math.min(1, life * 6)) * (0.6 + rand(seed, i + 9) * 0.4);
+    if (alpha <= 0.01) continue;
+    const radius = rr * (1 + pop * 0.5);
+
+    // Soap film: almost transparent in the middle, bright at the rim.
+    const film = ctx.createRadialGradient(x, y, radius * 0.1, x, y, radius);
+    film.addColorStop(0, `rgba(255,255,255,${alpha * 0.06})`);
+    film.addColorStop(0.72, `rgba(${iridescent ? "190,230,255" : "225,240,255"},${alpha * 0.12})`);
+    film.addColorStop(0.93, `rgba(255,255,255,${alpha * 0.5})`);
+    film.addColorStop(1, `rgba(255,255,255,0)`);
+    ctx.fillStyle = film;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // A thin rim plus two highlights is what makes a circle look like glass.
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.55})`;
+    ctx.lineWidth = Math.max(0.6, 1.1 * scale);
+    ctx.beginPath();
+    ctx.arc(x, y, radius * 0.97, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (iridescent) {
+      const sheen = ctx.createLinearGradient(x - radius, y - radius, x + radius, y + radius);
+      sheen.addColorStop(0, `rgba(255,160,230,${alpha * 0.3})`);
+      sheen.addColorStop(0.45, `rgba(150,255,235,${alpha * 0.22})`);
+      sheen.addColorStop(1, `rgba(255,235,150,${alpha * 0.3})`);
+      ctx.strokeStyle = sheen;
+      ctx.lineWidth = Math.max(0.8, 2 * scale);
+      ctx.beginPath();
+      ctx.arc(x, y, radius * 0.86, Math.PI * 0.15, Math.PI * 1.1);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = `rgba(255,255,255,${alpha * 0.8})`;
+    ctx.beginPath();
+    ctx.ellipse(x - radius * 0.34, y - radius * 0.38, radius * 0.16, radius * 0.1, -0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + radius * 0.4, y + radius * 0.34, radius * 0.07, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawGlitterSwirls(ctx: CanvasRenderingContext2D, e: SceneAnimationEffect, w: number, h: number, t: number, seed: number) {
+  const amount = value(e, "amount", 0.5);
+  const intensity = value(e, "intensity", 0.68);
+  const speed = value(e, "speed", 0.42);
+  const size = value(e, "size", 0.5);
+  const opacity = value(e, "opacity", 0.72);
+  const origin = originOf(e, { x: 0.5, y: 0.62 });
+  const r = regionOf(e, full);
+  const dir = directionVector(e.direction || "up-right");
+  applyRegionClip(ctx, r, w, h);
+  ctx.globalCompositeOperation = "screen";
+
+  const silver = e.variant === "silver_glitter_stream";
+  const tint = silver ? [226, 240, 255] : [255, 206, 92];
+  const core = silver ? [255, 255, 255] : [255, 246, 198];
+  const ribbons = e.variant === "double_twirl" ? 2 : e.variant === "wand_flourish" ? 3 : e.variant === "pixie_trail" ? 1 : 2;
+  const rising = e.variant === "rising_spiral" || e.variant === "gold_glitter_stream" || e.variant === "silver_glitter_stream";
+  const scale = w / 1280;
+  const cx = origin.x * w;
+  const cy = origin.y * h;
+  const span = Math.min(w, h) * (0.18 + size * 0.5);
+  const grains = Math.round((38 + amount * 150));
+
+  for (let ribbon = 0; ribbon < ribbons; ribbon++) {
+    const phase = (ribbon / ribbons) * Math.PI * 2 + rand(seed, ribbon + 3) * Math.PI;
+    for (let i = 0; i < grains; i++) {
+      // Position along the ribbon, 0 at the source and 1 at its tail.
+      const along = (i / grains + t * (0.04 + speed * 0.22) + rand(seed, ribbon * 11 + 5)) % 1;
+      const turns = rising ? 2.4 : 1.6;
+      const angle = phase + along * Math.PI * 2 * turns + Math.sin(t * 0.6 + ribbon) * 0.25;
+      const radius = span * (rising ? 0.18 + along * 0.85 : Math.sin(along * Math.PI) * 1.05);
+      const drift = rising ? -along * span * 1.25 : 0;
+      const x = cx + Math.cos(angle) * radius * (0.62 + size * 0.5) + dir.x * along * span * 0.5;
+      const y = cy + Math.sin(angle) * radius * 0.42 + drift + dir.y * along * span * 0.35;
+      if (x < -w * 0.1 || x > w * 1.1 || y < -h * 0.1 || y > h * 1.1) continue;
+
+      // Glitter is a population of specks of different sizes, a few of which
+      // flash hard. A uniform dot field reads as noise instead of sparkle.
+      const twinkle = Math.sin(t * (3 + speed * 6) + i * 2.3 + ribbon) ** 2;
+      const fade = Math.sin(Math.min(1, along) * Math.PI) ** 0.6;
+      const alpha = opacity * fade * (0.25 + twinkle * 0.75) * (0.5 + intensity * 0.7);
+      if (alpha <= 0.015) continue;
+      const rr = (0.7 + rand(seed, i + ribbon * 97) * 2.3) * (0.5 + size) * scale * (1 + twinkle * 0.8);
+
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, rr * 4);
+      grad.addColorStop(0, `rgba(${core[0]},${core[1]},${core[2]},${alpha})`);
+      grad.addColorStop(0.3, `rgba(${tint[0]},${tint[1]},${tint[2]},${alpha * 0.6})`);
+      grad.addColorStop(1, `rgba(${tint[0]},${tint[1]},${tint[2]},0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, rr * 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // The brightest few get a cross glint, which is what sells "glitter"
+      // rather than "dots".
+      if (twinkle > 0.86) drawStarGlyph(ctx, x, y, rr * 3.4, alpha * 0.9, `${core[0]},${core[1]},${core[2]}`);
+    }
+  }
+}
+
+function drawSmokeRings(ctx: CanvasRenderingContext2D, e: SceneAnimationEffect, w: number, h: number, t: number, seed: number) {
+  const amount = value(e, "amount", 0.4);
+  const speed = value(e, "speed", 0.34);
+  const size = value(e, "size", 0.52);
+  const opacity = value(e, "opacity", 0.4);
+  const origin = originOf(e, { x: 0.5, y: 0.68 });
+  const r = regionOf(e, full);
+  const dir = directionVector(e.direction || "up");
+  applyRegionClip(ctx, r, w, h);
+  ctx.globalCompositeOperation = "screen";
+
+  const halo = e.variant === "halo_rings";
+  const puffs = e.variant === "dragon_puffs";
+  const mist = e.variant === "mist_rings";
+  const rings = Math.round(2 + amount * 7);
+  const scale = w / 1280;
+  const travel = Math.min(w, h) * (0.35 + size * 0.75);
+
+  for (let i = 0; i < rings; i++) {
+    const life = (t * (0.05 + speed * 0.18) + i / rings + rand(seed, i)) % 1;
+    const wobble = Math.sin(t * 1.1 + i * 2.1) * w * 0.012;
+    const x = origin.x * w + dir.x * travel * life + wobble;
+    const y = origin.y * h + dir.y * travel * life;
+    // A real vortex ring widens and slows as it goes, then dissolves.
+    const radius = Math.min(w, h) * (0.03 + size * 0.07) * (1 + life * (puffs ? 2.6 : 1.9));
+    const alpha = opacity * Math.sin(life * Math.PI) ** 1.2 * (halo ? 1 : 0.85);
+    if (alpha <= 0.01) continue;
+    const thickness = radius * (puffs ? 0.42 : 0.26) * (1 - life * 0.45);
+
+    // Drawn as a soft torus: a radial gradient with a hollow middle, which
+    // stays convincing when the ring is scaled up by the renderer.
+    const grad = ctx.createRadialGradient(x, y, Math.max(0.1, radius - thickness), x, y, radius + thickness);
+    const body = mist ? "225,238,255" : halo ? "255,232,170" : "210,214,222";
+    grad.addColorStop(0, `rgba(${body},0)`);
+    grad.addColorStop(0.42, `rgba(${body},${alpha * 0.75})`);
+    grad.addColorStop(0.62, `rgba(${body},${alpha})`);
+    grad.addColorStop(1, `rgba(${body},0)`);
+    ctx.fillStyle = grad;
+    ctx.save();
+    ctx.translate(x, y);
+    // Perspective: a ring blown away from the camera is an ellipse.
+    ctx.scale(1, 0.46 + life * 0.22);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius + thickness, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    if (halo) {
+      ctx.strokeStyle = `rgba(255,244,205,${alpha * 0.5})`;
+      ctx.lineWidth = Math.max(0.8, 1.6 * scale);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(1, 0.46 + life * 0.22);
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
+
+function drawFallingStars(ctx: CanvasRenderingContext2D, e: SceneAnimationEffect, w: number, h: number, t: number, seed: number, wind: WindState) {
+  const amount = value(e, "amount", 0.44);
+  const speed = value(e, "speed", 0.38);
+  const size = value(e, "size", 0.46);
+  const opacity = value(e, "opacity", 0.74);
+  const density = value(e, "density", 0.4);
+  const r = regionOf(e, full);
+  const dir = directionVector(e.direction || "down-left");
+  applyRegionClip(ctx, r, w, h);
+  ctx.globalCompositeOperation = "screen";
+
+  const shower = e.variant === "star_shower";
+  const slow = e.variant === "slow_drifting_stars";
+  const glitter = e.variant === "glitter_stars";
+  const n = Math.round((shower ? 40 : 16) * (0.5 + amount) * (0.6 + density));
+  const scale = w / 1280;
+  const fall = (slow ? 0.03 : 0.09) + speed * (slow ? 0.1 : 0.3);
+
+  for (let i = 0; i < n; i++) {
+    const life = (t * fall * (0.7 + rand(seed, i + 31) * 0.6) + rand(seed, i)) % 1;
+    const x = (r.x + ((rand(seed, i + 1) + life * dir.x * 0.45 + wind.x * life * 0.3 + 2) % 1) * r.w) * w;
+    const y = (r.y + ((rand(seed, i + 2) + life * dir.y * 0.95 + 2) % 1) * r.h) * h;
+    const rr = (6 + rand(seed, i + 3) * 12) * (0.45 + size) * scale;
+    // Fade in and out, so stars appear and vanish rather than hitting the
+    // edge of the frame and disappearing abruptly.
+    const alpha = opacity * Math.sin(Math.min(1, Math.max(0, life)) * Math.PI) ** 0.5;
+    if (alpha <= 0.015) continue;
+    const spin = t * (0.5 + speed * 1.6) + rand(seed, i + 5) * Math.PI * 2;
+
+    // A short tail in the direction of travel, so a falling star looks like
+    // it is moving even in a single frame.
+    const tail = rr * (slow ? 2 : 5.5);
+    const trailGrad = ctx.createLinearGradient(x - dir.x * tail, y - dir.y * tail, x, y);
+    trailGrad.addColorStop(0, "rgba(255,255,255,0)");
+    trailGrad.addColorStop(1, `rgba(255,248,210,${alpha * 0.5})`);
+    ctx.strokeStyle = trailGrad;
+    ctx.lineWidth = Math.max(0.8, rr * 0.26);
+    ctx.beginPath();
+    ctx.moveTo(x - dir.x * tail, y - dir.y * tail);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+
+    const glow = ctx.createRadialGradient(x, y, 0, x, y, rr * 2.6);
+    glow.addColorStop(0, `rgba(255,252,226,${alpha * 0.85})`);
+    glow.addColorStop(1, "rgba(255,226,140,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y, rr * 2.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // The star itself: a real five-point polygon, not a dot.
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(spin);
+    ctx.beginPath();
+    for (let point = 0; point < 10; point++) {
+      const radius = point % 2 === 0 ? rr : rr * 0.42;
+      const angle = (point / 10) * Math.PI * 2 - Math.PI / 2;
+      const px = Math.cos(angle) * radius;
+      const py = Math.sin(angle) * radius;
+      if (point === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = `rgba(255,250,224,${alpha})`;
+    ctx.fill();
+    ctx.restore();
+
+    if (glitter) drawStarGlyph(ctx, x, y, rr * 2.2, alpha * 0.7, "255,244,190");
+  }
+}
+
+function drawSunFlares(ctx: CanvasRenderingContext2D, e: SceneAnimationEffect, w: number, h: number, t: number, seed: number) {
+  const amount = value(e, "amount", 0.38);
+  const intensity = value(e, "intensity", 0.62);
+  const speed = value(e, "speed", 0.36);
+  const size = value(e, "size", 0.52);
+  const opacity = value(e, "opacity", 0.5);
+  const r = regionOf(e, full);
+  applyRegionClip(ctx, r, w, h);
+  ctx.globalCompositeOperation = "screen";
+
+  // Where the light comes in. The variants are the directions people
+  // actually ask for; "Rotating Sweep" walks the source around the frame and
+  // "Random Directions" gives each burst its own corner.
+  const anchors: Record<string, { x: number; y: number }> = {
+    from_top_left: { x: 0.12, y: 0.12 },
+    from_top_right: { x: 0.88, y: 0.12 },
+    from_left: { x: 0.04, y: 0.5 },
+    from_right: { x: 0.96, y: 0.5 },
+    from_below: { x: 0.5, y: 0.96 },
+  };
+  const variant = e.variant || "from_top_left";
+  const sweeping = variant === "rotating_sweep";
+  const scattered = variant === "random_directions";
+  const bursts = Math.max(1, Math.round(1 + amount * 5));
+  const minSide = Math.min(w, h);
+
+  for (let i = 0; i < bursts; i++) {
+    const cycle = (t * (0.06 + speed * 0.3) + i / bursts + rand(seed, i)) % 1;
+    let origin = e.origin || anchors[variant] || anchors.from_top_left;
+    if (sweeping) {
+      const angle = t * (0.12 + speed * 0.5) + (i / bursts) * Math.PI * 2;
+      origin = { x: 0.5 + Math.cos(angle) * 0.46, y: 0.5 + Math.sin(angle) * 0.42 };
+    } else if (scattered) {
+      const keys = Object.keys(anchors);
+      origin = anchors[keys[Math.floor(rand(seed, i + 17) * keys.length) % keys.length]];
+    }
+    const cx = clamp(origin.x) * w;
+    const cy = clamp(origin.y) * h;
+    // Each burst swells and falls away rather than sitting at a constant
+    // brightness, which is what separates a flare from a vignette.
+    const pulse = Math.sin(cycle * Math.PI) ** 1.4;
+    const alpha = opacity * intensity * pulse;
+    if (alpha <= 0.01) continue;
+    const reach = minSide * (0.3 + size * 0.95) * (0.65 + pulse * 0.5);
+
+    const bloom = ctx.createRadialGradient(cx, cy, 0, cx, cy, reach);
+    bloom.addColorStop(0, `rgba(255,252,232,${alpha * 0.95})`);
+    bloom.addColorStop(0.18, `rgba(255,226,150,${alpha * 0.55})`);
+    bloom.addColorStop(0.55, `rgba(255,180,90,${alpha * 0.2})`);
+    bloom.addColorStop(1, "rgba(255,170,70,0)");
+    ctx.fillStyle = bloom;
+    ctx.beginPath();
+    ctx.arc(cx, cy, reach, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Spikes, pointing away from the source, of uneven length.
+    const spikes = 6 + Math.round(intensity * 8);
+    ctx.lineWidth = Math.max(1, minSide * 0.0035 * (0.5 + intensity));
+    for (let spike = 0; spike < spikes; spike++) {
+      const angle = (spike / spikes) * Math.PI * 2 + t * (0.05 + speed * 0.22) + rand(seed, i * 31 + spike);
+      const length = reach * (0.5 + rand(seed, i * 53 + spike) * 1.05);
+      const ray = ctx.createLinearGradient(cx, cy, cx + Math.cos(angle) * length, cy + Math.sin(angle) * length);
+      ray.addColorStop(0, `rgba(255,248,214,${alpha * 0.6})`);
+      ray.addColorStop(1, "rgba(255,200,110,0)");
+      ctx.strokeStyle = ray;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(angle) * length, cy + Math.sin(angle) * length);
+      ctx.stroke();
+    }
+
+    // Lens ghosts along the line through the frame centre, the giveaway that
+    // light is hitting a lens rather than being painted on.
+    const toCentreX = w / 2 - cx;
+    const toCentreY = h / 2 - cy;
+    for (let ghost = 1; ghost <= 3; ghost++) {
+      const gx = cx + toCentreX * (ghost * 0.55);
+      const gy = cy + toCentreY * (ghost * 0.55);
+      const gr = minSide * (0.02 + size * 0.04) * (1 + ghost * 0.35);
+      const ghostGrad = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+      ghostGrad.addColorStop(0, `rgba(255,236,190,${alpha * 0.16})`);
+      ghostGrad.addColorStop(0.7, `rgba(255,190,120,${alpha * 0.08})`);
+      ghostGrad.addColorStop(1, "rgba(255,190,120,0)");
+      ctx.fillStyle = ghostGrad;
+      ctx.beginPath();
+      ctx.arc(gx, gy, gr, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 

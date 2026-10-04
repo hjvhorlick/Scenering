@@ -200,7 +200,7 @@ export default function IdeaToVideo() {
         id="workflow"
         eyebrow="From idea to video"
         title={`${WORKFLOW_STAGES.length} steps, one project.`}
-        lead="Pick a step to see the part of Scenering that handles it — they are the studio's own tabs, in its own order. Everything here is the same project, carried the whole way from a block of text to an exported file."
+        lead="Pick a step to see the part of the studio that handles it. One project, carried the whole way."
       />
 
       <div className="mkt-split">

@@ -32,6 +32,7 @@ import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
 
 import { loadCustomVideos } from "./lib/custom-video";
+import { loadCustomImages } from "./lib/custom-image";
 import { getSession } from "./lib/session";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "./lib/api-keys";
 import {
@@ -718,6 +719,9 @@ export default function App() {
    */
   useEffect(() => {
     loadCustomVideos().catch(() => {});
+    // Same story for uploaded photos: `custom-image:<id>` only resolves once
+    // the store has been read back from IndexedDB.
+    loadCustomImages().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1554,7 +1558,19 @@ export default function App() {
               the same fixed corner menu used on every public page. */}
           <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />
 
-          <h2 className="font-semibold text-xs sm:text-sm truncate max-w-[40vw] sm:max-w-[220px]">
+          {/* The project's name. It used to be cut off at 220px on every
+              screen, so a desktop with room to spare still showed
+              "My Documentary About The..." — the clamp only exists to stop a
+              long name from crushing the phase tabs, which is a phone
+              problem, not a desktop one. The ceiling now widens with the
+              window and is lifted entirely on large screens; the tab row
+              scrolls sideways, so a very long name can still never push
+              anything off the edge. The full name is in the tooltip at every
+              size, for the rare case where it is still shortened. */}
+          <h2
+            className="font-semibold text-xs sm:text-sm truncate max-w-[40vw] sm:max-w-[220px] md:max-w-[360px] lg:max-w-[560px] xl:max-w-none"
+            title={currentProject ? currentProject.title : "Start a New Project"}
+          >
             {currentProject ? currentProject.title : "Start a New Project"}
           </h2>
 
@@ -2038,8 +2054,6 @@ export default function App() {
                   customerLogo={customerLogo}
                   onInsertItem={handleAddInsert}
                   onConfigureItem={openInsertEditor}
-                  captionsConfig={captionsConfig}
-                  onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
                   voiceoverEnabled={voiceoverEnabled}
                   onUpdateVoiceoverEnabled={handleUpdateVoiceoverEnabled}
                 />
@@ -2052,7 +2066,6 @@ export default function App() {
                   onUpdateScene={handleUpdateScene}
                   onApplyStyleToAll={handleApplyCaptionStyleToAll}
                   onNavigateToStep={setEditorStep}
-                  voiceoverEnabled={voiceoverEnabled}
                 />
               ) : (
                 /* Step 4: Video Studio & Timeline View */

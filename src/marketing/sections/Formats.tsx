@@ -19,7 +19,7 @@ export default function Formats() {
         id="formats"
         eyebrow="Output"
         title="Widescreen and vertical, from one project."
-        lead="Pick the destination in Setup and render. The scenes, narration and captions are the same; the framing and the caption size follow the shape you chose."
+        lead="Pick the shape in Setup and render. Same scenes and narration; the framing and caption size follow."
       />
 
       <div className="mkt-formats">

@@ -23,7 +23,7 @@ export default function ScenesSection() {
         id="scenes"
         eyebrow="02 · Scenes"
         title={MESSAGES.scenes}
-        lead="Your script is divided into scenes that follow the sentences, and every scene keeps the length of its own narration. Longer line, longer scene."
+        lead="Scenes follow your sentences, and each one lasts exactly as long as its own narration."
       />
 
       <div className="mkt-split is-reverse">
@@ -40,21 +40,14 @@ export default function ScenesSection() {
             <li>
               <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
-                <b>Narration sets the timing.</b> When the voice is generated, each scene is fitted to the audio, so
-                there are no silent gaps at the end of a scene.
+                <b>Narration sets the timing.</b> Each scene is fitted to its audio, so there are no silent gaps —
+                and re-wording a line re-times it.
               </span>
             </li>
             <li>
               <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
-                <b>Every card is editable.</b> Rewrite the text, swap the visual, drop in your own clip, crop and
-                reposition, change the motion — one scene or all of them.
-              </span>
-            </li>
-            <li>
-              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
-              <span>
-                <b>Nothing is locked in.</b> Change a scene after narration and the timing follows the new line.
+                <b>Every card is editable.</b> Rewrite it, swap or upload the visual, crop it, change the motion.
               </span>
             </li>
           </ul>

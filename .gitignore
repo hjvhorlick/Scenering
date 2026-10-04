@@ -19,3 +19,7 @@ public/brand-mark.mjs
 
 # npm lockfile — this project uses bun.lock
 package-lock.json
+
+# Local contact sheet of the bundled nature library, generated while working
+# on it. Useful to look at, not part of the app.
+nature-library-preview.jpg

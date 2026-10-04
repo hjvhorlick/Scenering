@@ -20,7 +20,7 @@ export default function Devices() {
         id="devices"
         eyebrow="Anywhere you work"
         title="Desktop, tablet and phone."
-        lead="The studio runs in the browser. Wide screens get the full timeline; smaller screens keep the same project and recompose the layout around it."
+        lead="It runs in the browser. Wide screens get the full timeline; smaller ones recompose around the same project."
       />
 
       <div className="mkt-devices">
