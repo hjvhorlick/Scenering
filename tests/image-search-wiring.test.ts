@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHarness } from "./harness";
@@ -228,6 +228,9 @@ const criteriaIds = new Set(NATURE_CATEGORIES.map((c) => c.id));
 h.ok(criteriaIds.has("all"), "there is an All criteria");
 for (const bg of NATURE_FALLBACKS) {
   h.ok(criteriaIds.has(bg.category), `the ${bg.category} deck photo is reachable from a chip`);
+  h.ok(bg.url.startsWith("/"), `${bg.id} has a same-origin fallback that does not depend on an upstream service`);
+  h.ok(existsSync(join(process.cwd(), "public", bg.url)), `${bg.id} full-size fallback exists in public assets`);
+  h.ok(existsSync(join(process.cwd(), "public", bg.thumb)), `${bg.id} thumbnail fallback exists in public assets`);
 }
 for (const cat of NATURE_CATEGORIES) {
   h.ok(cat.query.trim().length > 0, `the ${cat.id} criteria carries a search query`);

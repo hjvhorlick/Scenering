@@ -13,7 +13,7 @@ import "./sign-in.css";
  * beginning a megabyte-sized download at that moment.
  */
 export default function StudioEntry() {
-  const { signedIn } = useSession();
+  const { signedIn, checking } = useSession();
   const [studio, setStudio] = useState<StudioComponent | null>(() => getPreloadedStudio());
   const LoadedStudio = studio ?? getPreloadedStudio();
 
@@ -33,6 +33,7 @@ export default function StudioEntry() {
     };
   }, [signedIn, LoadedStudio]);
 
+  if (checking) return <StudioLoading />;
   if (!signedIn) return <SignIn />;
   if (!LoadedStudio) return <StudioLoading />;
 

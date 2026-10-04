@@ -50,6 +50,8 @@ import {
 import VoiceoverSwitch from "./VoiceoverSwitch";
 import type { NewProjectOptions } from "../App";
 import Icon, { iconify } from "./icons/Icon";
+import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "../config/plans";
+import { getInterfacePlan, useSession } from "../lib/session";
 
 /**
  * How much of a project title fits on the video banner.
@@ -141,6 +143,24 @@ function SectionHeading({
   );
 }
 
+function setupPlanHighlights(slug: PlanSlug): string[] {
+  const plan = PLAN_CONFIG[slug];
+  const limits = plan.limits;
+  const capacity = limits.visualResearchCapacity === "high" ? "High-capacity visual research" : limits.visualResearchCapacity === "expanded" ? "Expanded visual research" : "Standard visual research";
+  const allowance = plan.id === "free"
+    ? `${limits.shortExportsPerWeek} Shorts plus ${limits.longExportsPerWeek} long-video download each week`
+    : limits.finalExportsPerWeek == null
+      ? "Unlimited final downloads, subject to fetched/upstream API service limits"
+      : `${limits.finalExportsPerWeek} final video downloads each week`;
+  return [
+    allowance,
+    capacity,
+    plan.features.full_video_studio ? "All Video Studio creative tools" : "Sample visualisers, animated Subscribe CTA and 2 music tracks",
+    plan.features.premium_captions ? "All available voice and caption options" : "2 voice presets and 2 caption styles",
+    plan.features.bulk_workflow ? "Bulk workflow capability" : "Horizontal and vertical final export",
+  ];
+}
+
 export default function SetupStudio({
   project,
   projects,
@@ -172,6 +192,11 @@ export default function SetupStudio({
   onUpdateMotionStyle,
   onNavigateToStep,
 }: SetupStudioProps) {
+  const { account } = useSession();
+  const currentPlan = getInterfacePlan(account);
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
+  const openMembership = () => window.dispatchEvent(new Event("scenering-open-account"));
+
   /** Best-known title/script for a project, preferring anything unsaved. */
   const initialFor = (proj: Project | null | undefined, sc: Scene[]) =>
     resolveSetupFields(proj, sc, readDraft(proj?.id));
@@ -1437,171 +1462,78 @@ export default function SetupStudio({
         )}
       </div>
 
-      {/* ---------------- Pricing plans ---------------- */}
-      {/* Pricing Plans Filler Section (Non-functional as requested, clean and visually polished) */}
-      <div className="bg-gray-900/90 border border-hairline rounded-2xl p-6 shadow-xl space-y-6">
-        <div className="text-center max-w-xl mx-auto space-y-2">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-950/80 border border-indigo-700/60 text-indigo-300">
-            <Icon glyph="💎" /> Pricing & Studio Plans
+      {/* ---------------- Membership plans ---------------- */}
+      <section className="bg-gray-900/90 border border-hairline rounded-2xl p-4 sm:p-6 shadow-xl space-y-5" aria-labelledby="setup-membership-title">
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-950/80 border border-blue-700/60 text-blue-200">
+              <Icon glyph="💎" /> Membership & production capacity
+            </div>
+            <h3 id="setup-membership-title" className="text-xl font-bold text-white tracking-tight">
+              Free, SceneFlow and SceneForge
+            </h3>
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Preview and correct your project freely. Plan usage applies only to meaningful Final Export, and changing membership never automatically deletes saved projects.
+            </p>
           </div>
-          <h3 className="text-xl font-bold text-white tracking-tight">
-            Flexible Plans for Every Video Creator
-          </h3>
-          <p className="text-xs text-gray-400">
-            Create high-impact AI narrated videos with 3D audio-reactive visualizers, dynamic captions, and cinematic motion.
-          </p>
-        </div>
-
-        {/* 3-Tier Pricing Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-5 pt-2">
-          {/* Tier 1: Free Starter */}
-          <div className="bg-gray-800/60 border border-hairline rounded-2xl p-5 flex flex-col justify-between hover:border-hairline transition-all shadow-md">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Free Starter</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 border border-emerald-700/60 text-emerald-300">
-                  Current Plan
-                </span>
-              </div>
-
-              <div>
-                <div className="text-2xl font-extrabold text-white">$0</div>
-                <div className="text-[11px] text-gray-400">Free forever • No credit card</div>
-              </div>
-
-              <ul className="space-y-2 text-xs text-gray-300 pt-2 border-t border-hairline">
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Unlimited scenes & scripts
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> 1080p Full HD rendering
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> 10+ Neural voiceover actors
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Full 3D audio visualizer suite
-                </li>
-                <li className="flex items-center gap-2 text-gray-400">
-                  <span className="text-gray-500 font-bold">•</span> Standard Scenering watermark
-                </li>
-              </ul>
-            </div>
-
-            <div className="pt-6">
+          <div className="inline-flex self-start rounded-xl border border-hairline bg-gray-950/70 p-1" role="group" aria-label="Plan billing interval">
+            {(["monthly", "yearly"] as BillingInterval[]).map((interval) => (
               <button
+                key={interval}
                 type="button"
-                disabled
-                className="w-full py-2.5 px-4 rounded-xl bg-gray-700/60 text-gray-300 text-xs font-semibold cursor-default text-center border border-hairline"
+                onClick={() => setBillingInterval(interval)}
+                className={`px-3 py-2 rounded-lg text-[11px] font-bold transition-all ${billingInterval === interval ? "bg-blue-600 text-white shadow-md" : "text-gray-400 hover:text-white hover:bg-gray-800"}`}
               >
-                Active Workspace
+                {interval === "monthly" ? "Monthly" : "Yearly · save more"}
               </button>
-            </div>
-          </div>
-
-          {/* Tier 2: Creator Studio (Featured) */}
-          <div className="bg-gradient-to-b from-indigo-950/60 to-purple-950/40 border border-indigo-500 rounded-2xl p-5 flex flex-col justify-between relative shadow-xl transform md:-translate-y-1 transition-all">
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-[10px] rounded-full shadow tracking-wide uppercase">
-              Most Popular
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-indigo-300 uppercase tracking-wider">Creator Studio</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-900 border border-indigo-600/60 text-indigo-200">
-                  Coming Soon
-                </span>
-              </div>
-
-              <div>
-                <div className="text-2xl font-extrabold text-white flex items-baseline gap-1">
-                  <span>$19</span>
-                  <span className="text-xs font-normal text-gray-400">/ month</span>
-                </div>
-                <div className="text-[11px] text-indigo-300">Ideal for YouTubers & content creators</div>
-              </div>
-
-              <ul className="space-y-2 text-xs text-gray-200 pt-2 border-t border-indigo-800/40">
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Watermark removal included
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Custom customer brand logo embedding
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> High-speed priority cloud rendering
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> All 20+ multi-accent neural voices
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Commercial monetization rights
-                </li>
-              </ul>
-            </div>
-
-            <div className="pt-6">
-              <button
-                type="button"
-                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold hover:from-indigo-500 hover:to-purple-500 transition-all shadow-md text-center"
-              >
-                Upgrade to Creator (Preview)
-              </button>
-            </div>
-          </div>
-
-          {/* Tier 3: Pro Agency */}
-          <div className="bg-gray-800/60 border border-hairline rounded-2xl p-5 flex flex-col justify-between hover:border-hairline transition-all shadow-md">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Pro Agency</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-950 border border-purple-700/60 text-purple-300">
-                  Coming Soon
-                </span>
-              </div>
-
-              <div>
-                <div className="text-2xl font-extrabold text-white flex items-baseline gap-1">
-                  <span>$49</span>
-                  <span className="text-xs font-normal text-gray-400">/ month</span>
-                </div>
-                <div className="text-[11px] text-gray-400">For agencies & high-volume production</div>
-              </div>
-
-              <ul className="space-y-2 text-xs text-gray-300 pt-2 border-t border-hairline">
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> 4K Ultra-HD 60 FPS exporting
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Multi-speaker dialogue auto-splitting
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Unlimited custom audio SFX upload
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> Dedicated fast rendering queue
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-emerald-400 font-bold"><Icon glyph="✓" /></span> White-label video agency export
-                </li>
-              </ul>
-            </div>
-
-            <div className="pt-6">
-              <button
-                type="button"
-                className="w-full py-2.5 px-4 rounded-xl bg-gray-800 hover:bg-gray-750 text-white text-xs font-bold transition-all border border-hairline shadow text-center"
-              >
-                Upgrade to Pro (Preview)
-              </button>
-            </div>
+            ))}
           </div>
         </div>
 
-        <p className="text-center text-[11px] text-gray-500">
-          ℹ️ Billing is currently in preview mode. All studio tools, 3D visualizers, voice actors, and unlimited scenes are unlocked for testing.
-        </p>
-      </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-5 pt-1">
+          {PLAN_ORDER.map((slug) => {
+            const plan = PLAN_CONFIG[slug];
+            const price = plan.prices[billingInterval];
+            const isCurrent = currentPlan === slug;
+            const isFeatured = slug === "sceneflow";
+            return (
+              <article
+                key={slug}
+                className={`relative rounded-2xl p-5 flex flex-col justify-between border transition-all ${isFeatured ? "bg-blue-950/55 border-blue-500 shadow-xl md:-translate-y-1" : "bg-gray-800/60 border-hairline shadow-md"}`}
+              >
+                {isFeatured && <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-blue-600 text-white text-[9px] font-bold uppercase tracking-wider shadow-md">Regular creators</span>}
+                <div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div><h4 className="text-base font-bold text-white">{plan.name}</h4><p className="text-[11px] text-gray-400 mt-1 min-h-8">{plan.description}</p></div>
+                    {isCurrent && <span className="shrink-0 px-2 py-1 rounded-full bg-white text-blue-950 text-[9px] font-extrabold uppercase tracking-wide shadow">Current</span>}
+                  </div>
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <strong className="text-3xl text-white">${price}</strong>
+                    <span className="text-[11px] text-gray-400">{price === 0 ? "forever" : `/${billingInterval === "monthly" ? "month" : "year"}`}</span>
+                  </div>
+                  {billingInterval === "yearly" && price > 0 && <p className="text-[10px] text-blue-200 mt-1">${plan.annualMonthlyEquivalent}/month equivalent · save ${plan.annualSaving}/year</p>}
+                  <ul className="mt-4 pt-4 border-t border-white/10 space-y-2 text-xs text-gray-300">
+                    {setupPlanHighlights(slug).map((line) => <li key={line} className="flex gap-2"><span className="text-blue-300 font-bold">✓</span><span>{line}</span></li>)}
+                  </ul>
+                </div>
+                <button
+                  type="button"
+                  disabled={isCurrent}
+                  onClick={openMembership}
+                  className={`w-full mt-6 py-2.5 px-4 rounded-xl text-xs font-bold transition-all border ${isCurrent ? "bg-gray-700/60 border-hairline text-gray-300 cursor-default" : "bg-white border-white text-blue-950 hover:bg-blue-50 shadow-md"}`}
+                >
+                  {isCurrent ? "Current membership" : `Choose ${plan.name}`}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1 text-[11px] text-gray-400">
+          <p>Paid checkout is available only when Lemon Squeezy has been configured. Paid access begins after verified subscription confirmation.</p>
+          <button type="button" onClick={() => { window.location.href = "/pricing"; }} className="shrink-0 text-blue-300 hover:text-white font-bold underline underline-offset-4">Open complete plan comparison</button>
+        </div>
+      </section>
 
       {/* Footer status (navigation lives in the top StepNav only) */}
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">

@@ -251,22 +251,17 @@ ok(
   read("src/marketing/sections/EffectsLibrary.tsx").includes("<ComingSoon />"),
   "the effects section renders the Coming soon badge"
 );
-ok(
-  read("src/marketing/sections/Pricing.tsx").includes("<ComingSoon />"),
-  "unreleased plans render the Coming soon badge"
-);
-ok(
-  PLANS.filter((p) => p.availability === "live").length === 1,
-  "exactly one plan is presented as available today"
-);
-h.eq(PLANS[0].id, "free", "the available plan is Free");
-for (const plan of PLANS) {
-  ok(!/\$|€|£|\d+\s*(?:\/|per)\s*month/i.test(plan.priceLabel + plan.priceNote), `${plan.name}: invents no price`);
-}
-ok(
-  read("src/marketing/sections/Pricing.tsx").includes("HONESTY.planLabel"),
-  "the pricing section states that billing is not live"
-);
+const pricingSource = read("src/marketing/sections/Pricing.tsx");
+ok(pricingSource.includes("PLAN_CONFIG") && pricingSource.includes("PLAN_ORDER"), "pricing uses the central plan configuration");
+ok(pricingSource.includes('href="/register"') || pricingSource.includes('"/register"'), "Free has a working registration entry point");
+ok(read("src/config/plans.ts").includes('name: "SceneFlow"'), "SceneFlow is configured");
+ok(read("src/config/plans.ts").includes('name: "SceneForge"'), "SceneForge is configured");
+ok(read("src/config/plans.ts").includes('prices: { monthly: 19, yearly: 180 }'), "SceneFlow prices are exact");
+ok(read("src/config/plans.ts").includes('prices: { monthly: 39, yearly: 372 }'), "SceneForge prices are exact");
+const setupSource = read("src/components/SetupStudio.tsx");
+ok(setupSource.includes("PLAN_CONFIG") && setupSource.includes("PLAN_ORDER"), "Setup membership cards use central plan configuration");
+ok(setupSource.includes("scenering-open-account"), "Setup plan actions open functional membership management");
+for (const obsoletePlan of ["Free Starter", "Creator Studio", "Pro Agency"]) ok(!setupSource.includes(obsoletePlan), `Setup removes obsolete ${obsoletePlan} plan`);
 // Demonstration content is labelled as such wherever an example is shown.
 for (const section of ["Examples", "BeforeAfter"]) {
   ok(
@@ -297,7 +292,7 @@ for (const key of ["hero", "scenes", "visuals", "voice", "captions", "studio", "
   ok(MESSAGES[key].length > 8 && MESSAGES[key].endsWith("."), `message "${key}" is a short, finished sentence`);
 }
 ok(marketingSource.includes("MESSAGES.hero"), "the hero message is used, not retyped");
-ok(HONESTY.localNote.includes("own machine"), "the page says where projects live");
+ok(HONESTY.localNote.includes("Preview renders do not use final-export allowance"), "the page explains preview usage honestly");
 
 /* -------------------------------------------------- 6. structure */
 
@@ -578,35 +573,28 @@ ok(
  * navigation; nowhere else on the page may jump into the editor.
  */
 {
-  const siteFiles = marketingFiles.filter((f) => /\.tsx$/.test(f.name));
-  const linkers = siteFiles.filter((f) => f.text.includes("STUDIO_PATH"));
-  h.eq(linkers.length, 1, "exactly one module links to the studio");
-  h.eq(linkers[0]?.name.split("/").pop(), "MarketingSite.tsx", "…and it is the navigation");
-  const nav = read("src/marketing/MarketingSite.tsx");
-  h.eq(
-    (nav.match(/navigate\(STUDIO_PATH\)/g) || []).length,
-    1,
-    "the navigation links to the studio exactly once"
-  );
-  ok(nav.includes("Sign in"), "that link is the sign-in");
-  ok(!/Open the studio/.test(marketingSource), "no 'open the studio' shortcuts anywhere on the site");
-  // And the studio does not offer a way back in past the door either.
-  const app = read("src/App.tsx");
-  ok(app.includes("signOut()"), "the studio can be signed out of");
+  const corner = read("src/shared/SiteCornerMenu.tsx");
+  ok(corner.includes('go("/login")'), "the shared corner menu has an explicit Login entry");
+  ok(corner.includes('go("/register")'), "the shared corner menu has an explicit Get Started entry");
+  ok(corner.includes("Login") && corner.includes("Get Started Free"), "the account calls to action are named clearly");
+  ok(corner.includes("signedIn") && corner.includes("Open Studio"), "the studio shortcut is shown only for authenticated customers");
+  ok(corner.includes("await signOut()"), "the shared application menu can sign out");
+  ok(read("src/App.tsx").includes("<SiteCornerMenu />"), "the signed-in studio mounts the same corner menu");
+  ok(read("src/studio/SignIn.tsx").includes("<SiteCornerMenu />"), "login and registration mount the same corner menu");
 }
 
 /* ----------------------------------------------- 7. performance */
 
 const main = read("src/main.tsx");
 ok(
-  main.includes('const marketingModule = import("./marketing/MarketingSite")'),
-  "the website starts loading as soon as the product boots"
+  main.includes('lazy(() => import("./marketing/MarketingSite"))'),
+  "the public website is a separate lazy bundle"
 );
 ok(
-  main.includes('const studioEntryModule = import("./studio/StudioEntry")'),
-  "the sign-in door starts loading beside the website"
+  main.includes('lazy(() => import("./studio/StudioEntry"))'),
+  "the account and studio entry is a separate lazy bundle"
 );
-ok(main.includes("preloadStudio()"), "the full studio starts preparing beside the front page");
+ok(main.includes('routeForPath(window.location.pathname) === "studio"'), "the heavy studio is preloaded only on account or studio routes");
 ok(
   main.includes('document.documentElement.setAttribute("data-mkt", "1")'),
   "the front page claims its scoped styles before the background studio CSS can paint"
@@ -627,14 +615,12 @@ ok(
 );
 const signInDoor = read("src/studio/SignIn.tsx");
 ok(
-  signInDoor.includes("await preloadStudio()") &&
-    signInDoor.indexOf("await preloadStudio()") < signInDoor.indexOf("await signIn(passphrase)"),
-  "the existing-profile session opens only after studio preparation wins the final race"
+  signInDoor.includes("await preloadStudio()") && signInDoor.includes("await signIn(email, password)"),
+  "login prepares the studio before opening the authenticated session"
 );
 ok(
-  signInDoor.lastIndexOf("await preloadStudio()") >= 0 &&
-    signInDoor.lastIndexOf("await preloadStudio()") < signInDoor.indexOf("await createProfile(name, passphrase)"),
-  "first-time setup also opens only when the prepared studio can mount"
+  signInDoor.includes("registerAccount(displayName, email, password, marketingConsent)"),
+  "registration creates a server-backed account with separate marketing consent"
 );
 ok(studioEntry.includes("useSession"), "the prepared studio still stays behind the session check");
 ok(
@@ -789,7 +775,7 @@ h.eq(sectionForPath("/nope"), null, "unknown paths have no section");
 for (const [path, section] of Object.entries(SITE_SECTION_PATHS)) {
   ok(site.includes(`<${section}`) || marketingSource.includes(`id="${section}"`), `${path} points at a real section`);
 }
-ok(read("src/App.tsx").includes("navigate(SITE_PATH)"), "the studio links back to the website");
+ok(read("src/shared/SiteCornerMenu.tsx").includes('["/", "Home"]'), "the shared app menu links back to the website");
 
 /* --------------------------------------------------- 10. responsive */
 
@@ -885,16 +871,13 @@ const railHidden = rules.some(
   (r) => r.selector.includes(".mkt-nav-links") && !r.responsive && /display:\s*none/.test(r.body),
 );
 ok(railHidden, "the wide link rail is hidden on small screens");
-const menuHiddenWide = rules.some(
-  (r) => r.selector.includes(".mkt-nav-menu") && r.responsive && /display:\s*none/.test(r.body),
-);
-ok(menuHiddenWide, "the small-screen menu gets out of the way once the rail fits");
-ok(site.includes("mkt-nav-panel"), "small screens get a section menu");
-ok(site.includes("aria-expanded={menuOpen}"), "the menu reports its state");
-ok(site.includes('aria-controls="mkt-nav-panel"'), "the toggle points at the panel it opens");
-ok(/Escape/.test(site) && /setMenuOpen\(false\)/.test(site), "Escape closes the menu");
-// The panel is the rail: same links, no shorter list for phones.
-ok(/NAV\.map\([\s\S]{0,400}mkt-nav-panel-link/.test(site), "the menu lists every section the rail does");
+const cornerMenu = read("src/shared/SiteCornerMenu.tsx");
+ok(site.includes("<SiteCornerMenu />"), "the landing page mounts the shared corner menu");
+ok(cornerMenu.includes("aria-expanded={open}"), "the shared menu reports its state");
+ok(cornerMenu.includes('aria-controls="sc-corner-panel"'), "the toggle points at the panel it opens");
+ok(/Escape/.test(cornerMenu) && /setOpen\(false\)/.test(cornerMenu), "Escape closes the shared menu");
+ok(cornerMenu.includes("PRODUCT_LINKS.map"), "the corner menu lists every public product page");
+ok(cornerMenu.includes("Account, membership & billing"), "the same menu exposes account and billing inside the app");
 
 /* Back to top. */
 const totop = read("src/marketing/components/BackToTop.tsx");

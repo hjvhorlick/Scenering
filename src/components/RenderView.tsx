@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, EditorStep, ResolutionType, PacingModeType } from "../types";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
+import { cancelFinalExport, completeFinalExport, getEntitlements, reserveFinalExport } from "../lib/entitlements";
+import type { FeatureKey } from "../config/plans";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
@@ -90,6 +92,7 @@ import { createFrameBudget } from "../lib/yield-to-browser";
 import { RenderTimer, formatMs } from "../lib/render-timing";
 import { holdRenderWakeLock, type RenderWakeLockState } from "../lib/render-wake-lock";
 import { formatStorageBytes, type RenderOutputStorageMode } from "../lib/render-output-store";
+import { getWatermarkLayout } from "../lib/watermark-layout";
 import Icon, { iconify } from "./icons/Icon";
 
 /**
@@ -142,6 +145,13 @@ const EMPTY_RENDER_HEALTH: RenderHealthState = {
   telemetryBytes: 0,
   tabHidden: false,
   wakeLock: "released",
+};
+
+const INSERT_FEATURE: Partial<Record<TimelineInsert["category"], FeatureKey>> = {
+  stickers: "stickers", content_cards: "text_templates", text_templates: "text_templates",
+  lower_thirds: "lower_thirds", audio_visualizers: "sound_visualiser", speech_reactive: "sound_visualiser",
+  background_music: "background_music", filters: "filters", sound_effects: "sound_effects",
+  special_effects: "special_effects", meditation: "special_effects", intro: "full_video_studio", outro: "full_video_studio",
 };
 
 interface RenderViewProps {
@@ -513,16 +523,16 @@ export default function RenderView({
       // Watermark + brand logo, same placement as the export
       if (watermarkImgRef.current && watermarkImgRef.current.naturalWidth > 0) {
         ctx.save();
-        const scaleRatio = width / 1280;
-        const wmWidth = Math.max(20, Math.round(180 * scaleRatio));
-        const wmHeight = Math.max(
-          10,
-          Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth))
+        const watermark = getWatermarkLayout(
+          width,
+          height,
+          watermarkImgRef.current.naturalWidth,
+          watermarkImgRef.current.naturalHeight
         );
         ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-        ctx.shadowBlur = 8 * scaleRatio;
-        ctx.shadowOffsetY = 2 * scaleRatio;
-        ctx.drawImage(watermarkImgRef.current, Math.round(24 * scaleRatio), Math.round(20 * (height / 720)), wmWidth, wmHeight);
+        ctx.shadowBlur = watermark.shadowBlur;
+        ctx.shadowOffsetY = watermark.shadowOffsetY;
+        ctx.drawImage(watermarkImgRef.current, watermark.x, watermark.y, watermark.width, watermark.height);
         ctx.restore();
       }
 
@@ -694,6 +704,45 @@ export default function RenderView({
     plan?: RenderPlan & { label?: string }
   ): Promise<{ blob: Blob; container: "mp4" | "webm" } | null> => {
     if (scenesWithImages.length === 0 || isRendering) return null;
+
+    // Draft is an unmetered preview. Every other encode reserves allowance
+    // atomically before expensive work starts, preventing parallel-tab races.
+    const isFinalExport = Boolean(plan) || settings.quality !== "draft";
+    let exportReservationId: string | null = null;
+    let exportCompleted = false;
+    if (isFinalExport) {
+      const durationMinutes = Math.max(0.01, totalDuration / 60);
+      try {
+        const required = new Set<FeatureKey>();
+        if (!/^(guy|jenny)$/i.test(selectedVoice || "guy")) required.add("advanced_voice");
+        if (captionsConfig?.enabled && !["newsroom_clean", "cinema_classic"].includes(captionsConfig.preset || "newsroom_clean")) required.add("premium_captions");
+        if (motionStyle && !["dynamic", "static", "none"].includes(motionStyle)) required.add("camera_movements");
+        if (sceneAnimationEnabled) required.add("special_effects");
+        if (videoFilter) required.add("filters");
+        for (const insert of inserts) {
+          const feature = INSERT_FEATURE[insert.category];
+          if (feature) required.add(feature);
+          if (insert.category === "call_to_action" && insert.type !== "cta_youtube_subscribe") required.add("advanced_cta");
+        }
+        const membership = await getEntitlements(true);
+        const denied = [...required].find((feature) => !membership.entitlements.features[feature]);
+        if (denied) throw new Error(`Your current membership does not include ${denied.replace(/_/g, " ")} in a Final Export. You can still preview it or change membership.`);
+        const creativeManifest = {
+          features: [...required],
+          voice: selectedVoice || "guy",
+          captionStyle: captionsConfig?.preset || "newsroom_clean",
+          backgroundMusic: inserts.filter((insert) => insert.category === "background_music").map((insert) => insert.type),
+          audioVisualisers: inserts.filter((insert) => insert.category === "audio_visualizers" || insert.category === "speech_reactive").map((insert) => insert.type),
+          callsToAction: inserts.filter((insert) => insert.category === "call_to_action").map((insert) => insert.type),
+        };
+        exportReservationId = await reserveFinalExport(project?.id ?? "unknown", durationMinutes, durationMinutes <= 1 ? "short" : "long", creativeManifest);
+      } catch (authorizationError: any) {
+        const message = authorizationError?.message || "This final export could not be authorized.";
+        setRenderError(message);
+        setRenderStatus({ active: false, error: message, stage: "Export authorization required" });
+        return null;
+      }
+    }
 
     setIsRendering(true);
     setRenderTiming(null);
@@ -939,6 +988,12 @@ export default function RenderView({
         recordedContainer: "mp4" | "webm",
         fallbackMime: string
       ): Promise<{ blob: Blob; container: "mp4" | "webm"; durableVaultCopy: boolean }> => {
+        // Do not expose a final Blob or Vault download until the server has
+        // atomically completed the reservation. Draft previews never reserve.
+        if (exportReservationId) {
+          await completeFinalExport(exportReservationId);
+          exportCompleted = true;
+        }
         let finishedBlob = finalBlob;
         let durableVaultCopy = false;
         let lastVaultId: string | null = null;
@@ -1356,25 +1411,25 @@ export default function RenderView({
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = "high";
 
-          const scaleRatio = width / 1280;
-          const wmScale = Math.max(0.4, Math.min(2.0, settings.watermarkScale ?? 1.0));
           const wmOpacity = Math.max(0.1, Math.min(1.0, settings.watermarkOpacity ?? 1.0));
           ctx.globalAlpha = wmOpacity;
-
-          const wmWidth = Math.max(20, Math.round(180 * wmScale * scaleRatio));
-          const wmHeight = Math.max(10, Math.round((wmWidth * watermarkImgRef.current.naturalHeight) / Math.max(1, watermarkImgRef.current.naturalWidth)));
-          const posX = Math.round(24 * scaleRatio);
-          const posY = Math.round(20 * (height / 720));
+          const watermark = getWatermarkLayout(
+            width,
+            height,
+            watermarkImgRef.current.naturalWidth,
+            watermarkImgRef.current.naturalHeight,
+            settings.watermarkScale ?? 1
+          );
 
           // Subtle soft shadow so transparent logo stands out cleanly on any video scene (matches preview 1:1)
           ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-          ctx.shadowBlur = 8 * scaleRatio;
+          ctx.shadowBlur = watermark.shadowBlur;
           ctx.shadowOffsetX = 0;
-          ctx.shadowOffsetY = 2 * scaleRatio;
+          ctx.shadowOffsetY = watermark.shadowOffsetY;
 
           // Draw crisp transparent watermark logo
           try {
-            ctx.drawImage(watermarkImgRef.current, posX, posY, wmWidth, wmHeight);
+            ctx.drawImage(watermarkImgRef.current, watermark.x, watermark.y, watermark.width, watermark.height);
           } catch (wmDrawErr) {
             console.warn("Watermark draw notice:", wmDrawErr);
           }
@@ -2305,6 +2360,7 @@ export default function RenderView({
       setRenderStatus({ active: false, error: message, stage: "Render failed" });
       return null;
     } finally {
+      if (exportReservationId && !exportCompleted) await cancelFinalExport(exportReservationId);
       setIsRendering(false);
       await releaseWakeLock();
       setRenderHealth((health) => ({

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import "./marketing.css";
-import { navigate, sectionForPath, STUDIO_PATH } from "../lib/route";
+import { navigate, sectionForPath } from "../lib/route";
 import { BrandMark, Stat } from "./components/primitives";
 import BackToTop from "./components/BackToTop";
 import Hero from "./sections/Hero";
@@ -25,7 +25,8 @@ import FinalCta from "./sections/FinalCta";
 import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES } from "./product-facts";
 import { MARKETING_ASSETS } from "./assets";
 import IconSprite from "../components/icons/IconSprite";
-import { iconify } from "../components/icons/Icon";
+import PublicPage, { isStandalonePublicPath } from "./PublicPage";
+import SiteCornerMenu from "../shared/SiteCornerMenu";
 
 /**
  * The public website.
@@ -46,22 +47,17 @@ import { iconify } from "../components/icons/Icon";
  */
 
 const NAV = [
-  { id: "workflow", label: "How it works" },
-  { id: "scenes", label: "Scenes" },
-  { id: "visuals", label: "Visuals" },
-  { id: "voice", label: "Voice" },
-  { id: "captions", label: "Captions" },
-  { id: "video-studio", label: "Video Studio" },
-  { id: "examples", label: "Examples" },
-  { id: "pricing", label: "Plans" },
+  { href: "/", label: "Home" },
+  { href: "/features", label: "Features" },
+  { href: "/how-it-works", label: "How It Works" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/about", label: "About" },
+  { href: "/manual", label: "Manual" },
+  { href: "/faq", label: "FAQ" },
+  { href: "/contact", label: "Contact" },
 ];
 
 export default function MarketingSite() {
-  // Below 1000px the link rail does not fit beside the wordmark, so it
-  // collapses into this panel rather than disappearing — on a page this long,
-  // a phone without navigation is a phone with a scrollbar and nothing else.
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
   // The studio themes paint the document dark; the website is its own light
   // surface, and this flag lets the stylesheet claim <html> while it is open.
   useEffect(() => {
@@ -79,29 +75,16 @@ export default function MarketingSite() {
     target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
   }, []);
 
-  // Escape closes it, and so does a click anywhere else on the page.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
-    };
-    const onPointer = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onPointer);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onPointer);
-    };
-  }, [menuOpen]);
-
   const conceptCount = MARKETING_ASSETS.filter((asset) => asset.status === "concept").length;
   const renderedCount = MARKETING_ASSETS.filter((asset) => asset.status === "rendered").length;
+  const publicPath = typeof window === "undefined" ? "/" : (window.location.pathname.replace(/\/+$/, "") || "/");
+
+  if (isStandalonePublicPath(publicPath)) return <PublicPage path={publicPath} />;
 
   return (
     <div className="mkt-root">
       <IconSprite />
+      <SiteCornerMenu />
       <a className="mkt-skip" href="#main">
         Skip to content
       </a>
@@ -114,7 +97,7 @@ export default function MarketingSite() {
 
           <div className="mkt-nav-links">
             {NAV.map((item) => (
-              <a key={item.id} className="mkt-nav-link" href={`#${item.id}`}>
+              <a key={item.href} className="mkt-nav-link" href={item.href}>
                 {item.label}
               </a>
             ))}
@@ -122,40 +105,10 @@ export default function MarketingSite() {
 
           <span className="mkt-nav-spacer" />
 
-          {/* The same links, for screens the rail does not fit on. */}
-          <div className="mkt-nav-menu" ref={menuRef}>
-            <button
-              type="button"
-              className="mkt-btn mkt-btn-quiet mkt-nav-toggle"
-              aria-expanded={menuOpen}
-              aria-controls="mkt-nav-panel"
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              <span aria-hidden="true">{iconify(menuOpen ? "✕" : "☰")}</span>
-              <span>Sections</span>
-            </button>
-
-            {menuOpen && (
-              <div className="mkt-nav-panel" id="mkt-nav-panel">
-                {NAV.map((item) => (
-                  <a
-                    key={item.id}
-                    className="mkt-nav-panel-link"
-                    href={`#${item.id}`}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    {item.label}
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* The only way into the studio anywhere on this site. There are
-              no shortcuts past it: the sign-in screen is the door. */}
-          <button type="button" className="mkt-btn mkt-btn-primary" onClick={() => navigate(STUDIO_PATH)}>
-            Sign in
-          </button>
+          {/* The shared corner menu owns public navigation and account actions
+              on every Scenering surface. This spacer keeps the fixed button
+              clear of the wordmark and desktop link rail. */}
+          <span style={{ width: 92 }} aria-hidden="true" />
         </div>
       </nav>
 
@@ -190,6 +143,9 @@ export default function MarketingSite() {
         <Devices />
         <Sources />
         <Pricing />
+        <section className="mkt-section" id="about"><div className="mkt-container pub-callout"><div><h2>Built for creators who want control without filming.</h2><p>Scenering brings scene planning, visual research, narration, captions and finishing into one guided workflow for education, storytelling, organizations, training, travel, business and social content.</p></div><a className="mkt-btn mkt-btn-primary" href="/about">About Scenering</a></div></section>
+        <section className="mkt-section" id="faq"><div className="mkt-container"><div className="mkt-section-head"><span className="mkt-eyebrow">FAQ</span><h2>Preview freely. Export when it is right.</h2><p>Free creates real finished videos. Paid plans add more creative capability and production capacity, and cancelling never automatically deletes projects.</p></div><p><a href="/faq">Read all frequently asked questions →</a></p></div></section>
+        <section className="mkt-section" id="contact"><div className="mkt-container pub-callout"><div><h2>Questions about the product, account or billing?</h2><p>Send a validated support request and choose the category that fits your question.</p></div><a className="mkt-btn mkt-btn-primary" href="/contact">Contact Scenering</a></div></section>
         <FinalCta />
       </main>
 
@@ -211,8 +167,8 @@ export default function MarketingSite() {
               <h4>The workflow</h4>
               <ul>
                 {NAV.slice(0, 6).map((item) => (
-                  <li key={item.id}>
-                    <a href={`#${item.id}`}>{item.label}</a>
+                  <li key={item.href}>
+                    <a href={item.href}>{item.label}</a>
                   </li>
                 ))}
               </ul>
@@ -231,7 +187,8 @@ export default function MarketingSite() {
 
           <p style={{ marginTop: 26, fontSize: 12, color: "#7a8399" }}>
             Every interface on this page is the real Scenering workflow shown with example content. Where something
-            is planned rather than built, it says so. Nothing here promises views, subscribers or results.
+            is planned rather than built, it says so. Nothing here promises views, subscribers or results.<br />
+            © 2026 Henry John Vincent Horlick. Scenering. All rights reserved.
           </p>
         </div>
       </footer>

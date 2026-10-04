@@ -146,6 +146,17 @@ const pending = (
 });
 
 export const MARKETING_ASSETS: MarketingAsset[] = [
+  {
+    id: "hero.workflow.generated",
+    group: "hero",
+    file: "scenering-workflow-hero",
+    widths: [640, 1280],
+    width: 1376,
+    height: 768,
+    alt: "Scenering workflow showing a script becoming scenes, researched visuals, voice, captions, a studio timeline and a finished vertical video.",
+    status: "concept",
+    note: "Original configurable marketing illustration; replaceable with a real product capture.",
+  },
   // --------------------------------------------------------------- brand
   {
     id: "brand.showpiece",

@@ -24,13 +24,15 @@ import CaptionsStudio from "./components/CaptionsStudio";
 import SetupStudio from "./components/SetupStudio";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./components/StepNav";
 import ThemeSwitcher from "./components/ThemeSwitcher";
+import AccountMembershipModal from "./components/AccountMembershipModal";
+import { redeemComplimentaryCode } from "./lib/entitlements";
 import { stretchFullVideoMedia } from "./lib/render-visualizers";
 import InsertPropertiesModal from "./components/InsertPropertiesModal";
 import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
-import { navigate, SITE_PATH } from "./lib/route";
+
 import { loadCustomVideos } from "./lib/custom-video";
-import { signOut } from "./lib/session";
+import { getSession } from "./lib/session";
 import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "./lib/api-keys";
 import {
   calculateDynamicDuration,
@@ -48,6 +50,7 @@ import type { SectionConfig } from "./data/intro-outro";
 import { VoiceEchoConfig, DEFAULT_VOICE_ECHO, resolveVoiceEcho } from "./lib/voice-echo";
 import IconSprite from "./components/icons/IconSprite";
 import Icon, { iconify } from "./components/icons/Icon";
+import SiteCornerMenu from "./shared/SiteCornerMenu";
 
 type View = "create" | "editor";
 
@@ -212,6 +215,22 @@ export default function App() {
   const [fetchingImages, setFetchingImages] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [apiKeysModalOpen, setApiKeysModalOpen] = useState(false);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [accountModalFocusPlans, setAccountModalFocusPlans] = useState(false);
+  useEffect(() => {
+    const accessCode = new URLSearchParams(window.location.search).get("code");
+    if (!accessCode) return;
+    void redeemComplimentaryCode(accessCode).then(() => { setNavNotice("Complimentary membership activated. Your plan access is now available."); history.replaceState({}, "", "/app"); window.location.reload(); }).catch((error) => { setNavNotice(error.message || "The complimentary access code could not be redeemed."); history.replaceState({}, "", "/app"); });
+  }, []);
+  useEffect(() => {
+    const openAccount = (event: Event) => {
+      setAccountModalFocusPlans(event instanceof CustomEvent && event.detail?.focus === "plans");
+      setAccountModalOpen(true);
+    };
+    window.addEventListener("scenering-open-account", openAccount);
+    if (new URLSearchParams(window.location.search).get("account") === "1") setAccountModalOpen(true);
+    return () => window.removeEventListener("scenering-open-account", openAccount);
+  }, []);
   /** Scene jumped-to from the timeline — briefly highlighted in Scene Editor */
   const [focusedSceneId, setFocusedSceneId] = useState<number | null>(null);
   const [hasCustomKeys, setHasCustomKeys] = useState(() => {
@@ -717,7 +736,13 @@ export default function App() {
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      setProjects(data as Project[]);
+      const ownerId = getSession()?.user.id;
+      // Legacy browser projects have no owner field; keep them visible and
+      // adopt them into the first authenticated account rather than deleting
+      // work during the account-system migration.
+      const owned = (data as (Project & { user_id?: string | null })[]).filter((project) => !project.user_id || project.user_id === ownerId);
+      setProjects(owned as Project[]);
+      if (ownerId) for (const project of owned) if (!project.user_id) void supabase.from("projects").update({ user_id: ownerId }).eq("id", project.id).then();
     } catch (err) {
       console.error("Failed to fetch projects:", err);
     }
@@ -762,7 +787,7 @@ export default function App() {
     try {
       const { data: projectData, error: projectError } = await supabase
         .from("projects")
-        .insert({ title, script, default_duration: chosenDuration })
+        .insert({ title, script, default_duration: chosenDuration, user_id: getSession()?.user.id ?? null })
         .select()
         .single();
       if (projectError) throw projectError;
@@ -1504,6 +1529,7 @@ export default function App() {
   return (
     <div className="flex min-h-screen bg-gray-950 text-white font-sans">
       <IconSprite />
+      <SiteCornerMenu />
       {/* Main Content */}
       {/* min-w-0 is load-bearing: without it this flex child keeps its
           content's intrinsic width and drags the whole app wider than the
@@ -1524,20 +1550,8 @@ export default function App() {
             />
           </button>
 
-          {/* Sign out. There is no shortcut back into the studio from the
-              public site — the sign-in screen is the only way in. */}
-          <button
-            onClick={() => {
-              signOut();
-              navigate(SITE_PATH);
-            }}
-            className="opt-btn shrink-0"
-            title="Sign out and return to the website"
-          >
-            <span className="t-ico"><Icon glyph="⎋" /></span>
-            <span className="hidden sm:inline">Sign out</span>
-          </button>
-
+          {/* Website navigation, account, membership and sign-out now live in
+              the same fixed corner menu used on every public page. */}
           <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />
 
           <h2 className="font-semibold text-xs sm:text-sm truncate max-w-[40vw] sm:max-w-[220px]">
@@ -1752,6 +1766,9 @@ export default function App() {
                 onRenderSuccess={(blob, url) => {
                   setRenderedBlob(blob);
                   setRenderedUrl(url);
+                  // Final allowance is reserved and completed inside
+                  // RenderView before the finished Blob is exposed. Draft
+                  // previews never enter that metered path.
                 }}
                 customerLogo={customerLogo}
                 captionsConfig={captionsConfig}
@@ -2123,6 +2140,12 @@ export default function App() {
           )}
         </div>
       </div>
+
+      <AccountMembershipModal
+        isOpen={accountModalOpen}
+        focusPlans={accountModalFocusPlans}
+        onClose={() => { setAccountModalOpen(false); setAccountModalFocusPlans(false); }}
+      />
 
       {/* Provider API Keys Configuration Modal */}
       <ApiKeysModal

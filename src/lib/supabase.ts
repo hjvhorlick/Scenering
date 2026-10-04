@@ -4,10 +4,11 @@ import type { Project, Scene } from "../types";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const EDGE_FUNCTION_BASE =
-  supabaseUrl && supabaseUrl.startsWith("http")
-    ? `${supabaseUrl}/functions/v1`
-    : "/api";
+// Hosted media and synthesis requests always pass through Scenering's own
+// cookie-authenticated server. Legacy public Supabase Edge Functions are
+// intentionally not a fallback because they cannot validate this platform's
+// custom HttpOnly session and would create an entitlement bypass.
+export const EDGE_FUNCTION_BASE = "/api";
 
 // --- Local Storage Mock for Supabase ---
 const STORAGE_KEY_PROJECTS = "scenering_projects_v1";
@@ -262,8 +263,12 @@ const mockSupabase = {
   },
 };
 
-// Use real client if keys are provided, otherwise use localStorage-backed mock
-export const supabase =
-  supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith("http")
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : (mockSupabase as any);
+// Direct anonymous database access is restricted to local development. The
+// commercial account system does not use Supabase Auth, so auth.uid()-based
+// RLS cannot safely identify these users in a production browser. Hosted
+// builds therefore keep projects in the browser-local workspace until
+// a server-side project repository using service credentials is configured.
+const allowDirectDevelopmentSupabase = import.meta.env.DEV && supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith("http");
+export const supabase = allowDirectDevelopmentSupabase
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : (mockSupabase as any);

@@ -22,6 +22,9 @@ import {
 } from "../data/caption-styles";
 import CaptionsSwitch from "./CaptionsSwitch";
 import Icon, { iconify } from "./icons/Icon";
+import { getInterfacePlan, useSession } from "../lib/session";
+import { isPlanCaptionIncluded, type PlanSlug } from "../config/plans";
+import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 
 interface CaptionsStudioProps {
   scenes: Scene[];
@@ -45,6 +48,8 @@ export default function CaptionsStudio({
   onNavigateToStep,
   voiceoverEnabled = true,
 }: CaptionsStudioProps) {
+  const { account } = useSession();
+  const currentPlan = getInterfacePlan(account);
   const [mode, setMode] = useState<"karaoke" | "normal">(captionsConfig?.mode || "karaoke");
   const [backgroundStyle, setBackgroundStyle] = useState<"transparent" | "blocked">(
     captionsConfig?.backgroundStyle || "transparent"
@@ -155,6 +160,7 @@ export default function CaptionsStudio({
 
   /** Selecting a style applies its whole recipe (font, case, colours, border, shadow) */
   const handleSelectPreset = (style: CaptionStyleDef) => {
+    const isVip = !isPlanCaptionIncluded(currentPlan, style.id);
     setSelectedPreset(style.id);
     setFontId(style.fontId);
     setCustomTextColor(style.textColor);
@@ -187,6 +193,7 @@ export default function CaptionsStudio({
       backgroundStyle: style.background,
       bgColor: style.background === "transparent" ? "rgba(0,0,0,0)" : style.bgColor,
     });
+    if (isVip) openMembershipPlans();
   };
 
   const handleModeChange = (newMode: "karaoke" | "normal") => {
@@ -678,6 +685,7 @@ export default function CaptionsStudio({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {visibleStyles.map((style) => {
             const isSelected = selectedPreset === style.id;
+            const isVip = !isPlanCaptionIncluded(currentPlan, style.id);
             const styleFont = getCaptionFont(style.fontId);
             return (
               <div
@@ -697,6 +705,7 @@ export default function CaptionsStudio({
                     <span className="text-[10px] text-gray-500 truncate" title={styleFont.label}>
                       {styleFont.family}
                     </span>
+                    {isVip && <VipFeatureBadge compact />}
                   </div>
 
                   {/* A real specimen, big enough to tell the faces apart.

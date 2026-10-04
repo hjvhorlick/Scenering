@@ -30,7 +30,7 @@ export default function Showpiece() {
     <section className="mkt-showpiece" aria-labelledby="showpiece-title">
       <div className="mkt-container mkt-showpiece-inner">
         <div className="mkt-showpiece-art">
-          <MarketingImage assetId="brand.showpiece" sizes="(min-width: 900px) 460px, 86vw" eager />
+          <MarketingImage assetId="hero.workflow.generated" sizes="(min-width: 900px) 620px, 92vw" eager />
         </div>
 
         <div className="mkt-showpiece-copy">
