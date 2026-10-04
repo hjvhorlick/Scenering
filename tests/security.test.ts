@@ -5,7 +5,8 @@ const h = createHarness();
 const platform = readFileSync("server/platform.ts", "utf8");
 const server = readFileSync("server.ts", "utf8");
 const keys = readFileSync("src/lib/api-keys.ts", "utf8");
-const terms = readFileSync("src/marketing/PublicPage.tsx", "utf8");
+const terms = readFileSync("src/marketing/legal-content.ts", "utf8");
+const publicPage = readFileSync("src/marketing/PublicPage.tsx", "utf8");
 const license = readFileSync("LICENSE", "utf8");
 
 h.ok(platform.includes("SESSION_SECRET must be a unique production secret"), "production rejects missing or weak session secrets");
@@ -42,6 +43,8 @@ h.ok(render.includes("reserveFinalExport") && render.includes("completeFinalExpo
 h.ok(render.includes("getEntitlements(true)") && render.includes("ENTITLEMENT") === false, "final render reloads authoritative feature entitlements");
 h.ok(!keys.includes('params.set("pexels_key"') && !keys.includes('params.set("pixabay_key"'), "provider keys are not placed in URLs");
 h.ok(license.includes("Henry John Vincent Horlick") && license.includes("All rights reserved"), "proprietary licence identifies the owner");
-h.ok(terms.includes("created and owned by Henry John Vincent Horlick"), "public terms state application ownership");
+h.ok(terms.includes('LEGAL_OWNER = "Henry John Vincent Horlick"'), "legal content identifies the owner");
+h.ok(terms.includes("created and owned by ${LEGAL_OWNER}"), "public terms state application ownership");
+h.ok(publicPage.includes("LEGAL_DOCUMENTS"), "PublicPage renders the legal document registry");
 h.ok(readFileSync("SECURITY.md", "utf8").includes("browser is **not a trusted security boundary**"), "security policy records the browser-renderer limitation");
 h.done("security and ownership");
