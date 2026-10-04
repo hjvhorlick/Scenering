@@ -16,9 +16,7 @@ import {
   getVoiceEchoPreset,
 } from "../lib/voice-echo";
 import { BackgroundMusicLibrary } from "./VoiceMediaLibrary";
-import CaptionsSwitch from "./CaptionsSwitch";
 import VoiceoverSwitch from "./VoiceoverSwitch";
-import { DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { iconify } from "./icons/Icon";
 import Icon from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
@@ -42,8 +40,6 @@ interface VoiceoverStudioProps {
   onInsertItem: (insert: TimelineInsert) => void;
   onConfigureItem?: (insert: TimelineInsert) => void;
   /** Captions can be switched on and off from here as well as the Captions step. */
-  captionsConfig?: CaptionsConfig;
-  onUpdateCaptionsConfig?: (config: CaptionsConfig) => void;
   /** Narration on/off for the whole project. Off hides everything to do with
    *  the spoken track and leaves music, captions and the Studio untouched. */
   voiceoverEnabled?: boolean;
@@ -73,8 +69,6 @@ export default function VoiceoverStudio({
   customerLogo,
   onInsertItem,
   onConfigureItem,
-  captionsConfig,
-  onUpdateCaptionsConfig,
   voiceoverEnabled = true,
   onUpdateVoiceoverEnabled,
 }: VoiceoverStudioProps) {
@@ -152,17 +146,35 @@ export default function VoiceoverStudio({
     ttsPlayer.setVoiceEcho(echoConfig);
   }, [echoConfig]);
 
+  /** Echo is a VIP sound: free plans can hear it, but not export it. */
+  const echoIsVip = currentPlan === "free";
+
   const updateEcho = (next: VoiceEchoConfig) => {
     const resolved = resolveVoiceEcho(next);
     setEchoConfig(resolved);
     onUpdateVoiceEcho?.(resolved);
+    // Say so the moment it is switched on, rather than at the download.
+    if (echoIsVip && resolved.enabled && resolved.preset !== "off") openMembershipPlans();
   };
 
-  // Filter 10 voices by gender
-  const filteredVoices = useMemo(() => {
-    if (genderFilter === "all") return STUDIO_VOICE_PRESETS;
-    return STUDIO_VOICE_PRESETS.filter((v) => v.gender === genderFilter);
-  }, [genderFilter]);
+  /**
+   * The catalogue as two columns: the ten male voices and the ten female
+   * voices, each with the voice Free includes pinned to the top.
+   *
+   * Order inside a column is otherwise the catalogue's own, so the studio
+   * voices still come before the narrator personas. Which voice is free is
+   * read from the plan configuration rather than a hard-coded pair, so this
+   * follows the plans if they ever change.
+   */
+  const VOICE_COLUMNS = useMemo(() => {
+    const column = (gender: "male" | "female", label: string) => {
+      const voices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === gender);
+      const free = voices.filter((voice) => isPlanVoiceIncluded("free", voice.id));
+      const rest = voices.filter((voice) => !isPlanVoiceIncluded("free", voice.id));
+      return { gender, label, voices: [...free, ...rest] };
+    };
+    return [column("male", "Male voices"), column("female", "Female voices")];
+  }, []);
 
   const handlePlayVoicePreview = async (
     text: string,
@@ -660,20 +672,11 @@ export default function VoiceoverStudio({
         </>
       )}
 
-      {/* Captions on/off, right here in Voiceover — the same switch as the
-          Captions step, so narration and captions are decided in one place. */}
-      {onUpdateCaptionsConfig && (
-        <CaptionsSwitch
-          compact
-          enabled={captionsConfig?.enabled ?? true}
-          onChange={(next) =>
-            onUpdateCaptionsConfig({ ...(captionsConfig || DEFAULT_CAPTIONS_CONFIG), enabled: next })
-          }
-          sceneCount={scenes.length}
-          mutedSceneCount={scenes.filter((s) => (s.burn_caption ?? true) === false).length}
-          onOpenCaptions={onNavigateToStep ? () => onNavigateToStep("captions") : undefined}
-        />
-      )}
+      {/* The captions on/off switch used to be repeated here. It now lives in
+          one place only — the top of the Captions step, which is where someone
+          looking for captions goes. Two switches for one setting meant the
+          Voiceover step could silently change what the Captions step was
+          showing, and neither screen was obviously the one in charge. */}
 
       <BackgroundMusicLibrary
         inserts={inserts}
@@ -722,11 +725,18 @@ export default function VoiceoverStudio({
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-700/60 bg-indigo-950/60 text-indigo-300">
                 {echoConfig.enabled ? "ON" : "OFF"}
               </span>
+              {echoIsVip && <VipFeatureBadge compact />}
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
               Put the narrator in a space — a tight studio slap, a warm room, a concert hall or a
               canyon. You hear it in every voice preview and it is written into the rendered video.
             </p>
+            {echoIsVip && (
+              <p className="text-[11px] text-amber-300/90 mt-1">
+                Echo is a VIP sound. Try every space here as much as you like — a final download
+                with echo on needs SceneFlow or SceneForge, or switch back to No Echo.
+              </p>
+            )}
           </div>
           <div className="text-right shrink-0">
             <span className="text-[10px] text-gray-500 uppercase tracking-wider block">Current sound</span>
@@ -978,137 +988,163 @@ export default function VoiceoverStudio({
               </div>
             </div>
 
-            {/* The 10 Voice Cards Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {filteredVoices.map((voice) => {
-                const isSelected = selectedVoice === voice.id;
-                const isMale = voice.gender === "male";
-                const isCurrentPlaying = playingId === voice.id;
-                const isCurrentLoading = loadingId === voice.id;
-                const isVip = !isPlanVoiceIncluded(currentPlan, voice.id);
+            {/* The voice cards, in two columns: every male voice on the left,
+                every female voice on the right, and in each column the voice
+                that Free includes is first.
 
-                return (
-                  <div
-                    key={voice.id}
-                    onClick={() => handleSelectVoice(voice.id)}
-                    className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-                      isSelected
-                        ? isMale
-                          ? "bg-blue-950/40 border-blue-500 ring-1 ring-blue-500 shadow-md"
-                          : "bg-pink-950/40 border-pink-500 ring-1 ring-pink-500 shadow-md"
-                        : "bg-gray-800/40 hover:bg-gray-800/80 border-hairline text-gray-300"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm border ${
-                              isMale
-                                ? "bg-blue-950/80 border-blue-700 text-blue-300"
-                                : "bg-pink-950/80 border-pink-700 text-pink-300"
-                            }`}
-                          >
-                            {iconify(isMale ? "👨" : "👩")}
-                          </span>
-                          <div>
-                            <h4 className="font-bold text-sm text-white">{voice.name}</h4>
-                            <span className="text-[10px] text-gray-400 font-medium">{voice.accent}</span>
+                One mixed list in catalogue order meant choosing "a man's
+                voice" was a hunt down a column of alternating cards, and the
+                two voices a Free member can actually export were somewhere in
+                the middle of twenty. Columns answer the first question people
+                ask of this screen, and the pinned pair answers the second.
+
+                The gender filter still works: picking one gender collapses
+                this to that single column, full width. */}
+            <div className={`grid gap-3.5 ${genderFilter === "all" ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"}`}>
+              {VOICE_COLUMNS.filter((column) => genderFilter === "all" || genderFilter === column.gender).map((column) => (
+                <div key={column.gender} className="space-y-3.5">
+                  <div className="flex items-center justify-between gap-2 px-0.5">
+                    <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <span className={column.gender === "male" ? "text-blue-300" : "text-pink-300"}>
+                        {iconify(column.gender === "male" ? "👨" : "👩")}
+                      </span>
+                      <span>{column.label}</span>
+                      <span className="text-gray-500 font-semibold">({column.voices.length})</span>
+                    </h4>
+                    <span className="text-[10px] text-gray-500">Free voice first</span>
+                  </div>
+
+                  {column.voices.map((voice) => {
+                    const isSelected = selectedVoice === voice.id;
+                    const isMale = voice.gender === "male";
+                    const isCurrentPlaying = playingId === voice.id;
+                    const isCurrentLoading = loadingId === voice.id;
+                    const isVip = !isPlanVoiceIncluded(currentPlan, voice.id);
+
+                    return (
+                      <div
+                        key={voice.id}
+                        onClick={() => handleSelectVoice(voice.id)}
+                        className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? isMale
+                              ? "bg-blue-950/40 border-blue-500 ring-1 ring-blue-500 shadow-md"
+                              : "bg-pink-950/40 border-pink-500 ring-1 ring-pink-500 shadow-md"
+                            : "bg-gray-800/40 hover:bg-gray-800/80 border-hairline text-gray-300"
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-start justify-between gap-2 mb-1.5">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm border ${
+                                  isMale
+                                    ? "bg-blue-950/80 border-blue-700 text-blue-300"
+                                    : "bg-pink-950/80 border-pink-700 text-pink-300"
+                                }`}
+                              >
+                                {iconify(isMale ? "👨" : "👩")}
+                              </span>
+                              <div>
+                                <h4 className="font-bold text-sm text-white">{voice.name}</h4>
+                                <span className="text-[10px] text-gray-400 font-medium">{voice.accent}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              {isVip && <VipFeatureBadge compact />}
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold border ${
+                                  isMale
+                                    ? "bg-blue-950 text-blue-300 border-blue-800"
+                                    : "bg-pink-950 text-pink-300 border-pink-800"
+                                }`}
+                              >
+                                {isMale ? "MALE" : "FEMALE"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 mb-3 text-xs">
+                            <p className="text-gray-300 font-medium">{voice.tone}</p>
+                            <p className="text-[11px] text-gray-400">
+                              <span className="text-gray-500">Best for: </span>
+                              {voice.recommendedFor}
+                            </p>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5">
-                          {isVip && <VipFeatureBadge compact />}
-                          <span
-                            className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold border ${
-                              isMale
-                                ? "bg-blue-950 text-blue-300 border-blue-800"
-                                : "bg-pink-950 text-pink-300 border-pink-800"
+                        <div className="pt-2.5 border-t border-hairline flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePlayVoicePreview(voice.sampleText, voice.id, voice.id, globalSpeed);
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                              isCurrentPlaying
+                                ? "bg-amber-600 text-white animate-pulse"
+                                : isCurrentLoading
+                                ? "bg-gray-700 text-gray-300"
+                                : isMale
+                                ? "bg-blue-900/50 hover:bg-blue-800 text-blue-200 border border-blue-700/60"
+                                : "bg-pink-900/50 hover:bg-pink-800 text-pink-200 border border-pink-700/60"
                             }`}
                           >
-                            {isMale ? "MALE" : "FEMALE"}
-                          </span>
+                            {isCurrentLoading ? (
+                              <>
+                                <span className="animate-spin text-xs"><Icon glyph="⏳" /></span>
+                                <span>Loading...</span>
+                              </>
+                            ) : isCurrentPlaying ? (
+                              <>
+                                <Icon glyph="⏹" />
+                                <span>Stop</span>
+                              </>
+                            ) : (
+                              <>
+                                <Icon glyph="▶" />
+                                <span>Listen Sample</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* Save this voice's sample as an audio file */}
+                          <button
+                            type="button"
+                            disabled={downloadingId === `sample-${voice.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownloadSample(voice);
+                            }}
+                            title={`Download a sample of ${voice.name}`}
+                            className="px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-700/60 border border-hairline transition-colors"
+                          >
+                            {iconify(downloadingId === `sample-${voice.id}` ? "⏳" : "⬇️")}
+                          </button>
+
+                          {isSelected ? (
+                            <span className={`text-xs font-bold flex items-center gap-1 ${isMale ? "text-blue-400" : "text-pink-400"}`}>
+                              <Icon glyph="✓" /> Active Voice
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectVoice(voice.id);
+                              }}
+                              className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-700/50 transition-colors"
+                            >
+                              Select
+                            </button>
+                          )}
                         </div>
                       </div>
-
-                      <div className="space-y-1 mb-3 text-xs">
-                        <p className="text-gray-300 font-medium">{voice.tone}</p>
-                        <p className="text-[11px] text-gray-400">
-                          <span className="text-gray-500">Best for: </span>
-                          {voice.recommendedFor}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="pt-2.5 border-t border-hairline flex items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handlePlayVoicePreview(voice.sampleText, voice.id, voice.id, globalSpeed);
-                        }}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                          isCurrentPlaying
-                            ? "bg-amber-600 text-white animate-pulse"
-                            : isCurrentLoading
-                            ? "bg-gray-700 text-gray-300"
-                            : isMale
-                            ? "bg-blue-900/50 hover:bg-blue-800 text-blue-200 border border-blue-700/60"
-                            : "bg-pink-900/50 hover:bg-pink-800 text-pink-200 border border-pink-700/60"
-                        }`}
-                      >
-                        {isCurrentLoading ? (
-                          <>
-                            <span className="animate-spin text-xs"><Icon glyph="⏳" /></span>
-                            <span>Loading...</span>
-                          </>
-                        ) : isCurrentPlaying ? (
-                          <>
-                            <Icon glyph="⏹" />
-                            <span>Stop</span>
-                          </>
-                        ) : (
-                          <>
-                            <Icon glyph="▶" />
-                            <span>Listen Sample</span>
-                          </>
-                        )}
-                      </button>
-
-                      {/* Save this voice's sample as an audio file */}
-                      <button
-                        type="button"
-                        disabled={downloadingId === `sample-${voice.id}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDownloadSample(voice);
-                        }}
-                        title={`Download a sample of ${voice.name}`}
-                        className="px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-700/60 border border-hairline transition-colors"
-                      >
-                        {iconify(downloadingId === `sample-${voice.id}` ? "⏳" : "⬇️")}
-                      </button>
-
-                      {isSelected ? (
-                        <span className={`text-xs font-bold flex items-center gap-1 ${isMale ? "text-blue-400" : "text-pink-400"}`}>
-                          <Icon glyph="✓" /> Active Voice
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSelectVoice(voice.id);
-                          }}
-                          className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-700/50 transition-colors"
-                        >
-                          Select
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
 

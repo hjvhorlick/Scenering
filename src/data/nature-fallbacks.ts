@@ -21,7 +21,7 @@ export interface NatureBackground {
  * real search query. Choosing "Waterfalls" used to show only the two bundled
  * waterfall photos and nothing else, forever — the same two on every project.
  * It now also searches for that criteria, so the drawer fills with fresh
- * waterfalls and the bundled pair are the floor under it rather than the
+ * waterfalls and the bundled ones are the floor under it rather than the
  * whole offering.
  *
  * The queries are deliberately plain nouns. The search ladder in
@@ -58,61 +58,159 @@ export function natureBackgroundsFor(
   return id === "all" ? [...deck] : deck.filter((bg) => bg.category === id);
 }
 
+/**
+ * How many bundled photos the drawer puts on screen at once.
+ *
+ * The deck is deliberately deeper than this: a fixed ten would be the same
+ * ten on every project, which is what the drawer looked like before. Ten are
+ * drawn from the deck each time it opens, so the shelf stays a tidy size
+ * while the library behind it has enough variety to look different on the
+ * next open.
+ */
+export const NATURE_DECK_ON_SCREEN = 10;
+
+/**
+ * The bundled nature library.
+ *
+ * Every entry is a same-origin file under /nature/ at exactly 1920×1080
+ * (16:9), with a 640×360 thumbnail beside it — the same shape and resolution
+ * rule the stock providers are held to, so a library photo renders at 1080p
+ * without upscaling and crops identically to a searched one.
+ *
+ * Rebuild the files from `assets-src/nature/` with `npm run nature:assets`.
+ *
+ * These photos must match their own names. An earlier build pointed the deck
+ * at the website's marketing artwork: "Lush Sunlit Redwood Forest" served the
+ * Scenering logo, "Deep Cosmos & Night Sky" served a sunlit ancient city, and
+ * "Mirror Reflection Alpine Lake" was filed under Waterfalls. Nothing in the
+ * drawer was what it said it was. If you change a URL here, open the file and
+ * look at it.
+ */
 export const NATURE_FALLBACKS: NatureBackground[] = [
   {
     id: "mountain_sunrise",
     name: "Misty Alpine Sunrise",
     category: "mountains",
-    url: "/marketing/scene-01-river-dawn-1280.webp",
-    thumb: "/marketing/scene-01-river-dawn-640.webp",
+    url: "/nature/mountain-sunrise-1920.webp",
+    thumb: "/nature/mountain-sunrise-640.webp",
+  },
+  {
+    id: "mountain_lake",
+    name: "Mirror Reflection Alpine Lake",
+    category: "mountains",
+    url: "/nature/mountain-lake-1920.webp",
+    thumb: "/nature/mountain-lake-640.webp",
+  },
+  {
+    id: "winter_peaks",
+    name: "Snowbound Winter Peaks",
+    category: "mountains",
+    url: "/nature/winter-peaks-1920.webp",
+    thumb: "/nature/winter-peaks-640.webp",
   },
   {
     id: "serene_ocean",
     name: "Calm Turquoise Ocean",
     category: "ocean",
-    url: "/marketing/scene-05-harbour-1280.webp",
-    thumb: "/marketing/scene-05-harbour-640.webp",
+    url: "/nature/serene-ocean-1920.webp",
+    thumb: "/nature/serene-ocean-640.webp",
+  },
+  {
+    id: "coastal_cliffs",
+    name: "Wild Atlantic Sea Cliffs",
+    category: "ocean",
+    url: "/nature/coastal-cliffs-1920.webp",
+    thumb: "/nature/coastal-cliffs-640.webp",
+  },
+  {
+    id: "tropical_lagoon",
+    name: "Turquoise Island Lagoon",
+    category: "ocean",
+    url: "/nature/tropical-lagoon-1920.webp",
+    thumb: "/nature/tropical-lagoon-640.webp",
   },
   {
     id: "lush_forest",
     name: "Lush Sunlit Redwood Forest",
     category: "forest",
-    url: "/marketing/hero-showpiece-1024.webp",
-    thumb: "/marketing/hero-showpiece-512.webp",
+    url: "/nature/lush-forest-1920.webp",
+    thumb: "/nature/lush-forest-640.webp",
+  },
+  {
+    id: "autumn_forest",
+    name: "Golden Autumn Woodland",
+    category: "forest",
+    url: "/nature/autumn-forest-1920.webp",
+    thumb: "/nature/autumn-forest-640.webp",
+  },
+  {
+    id: "bamboo_forest",
+    name: "Green Bamboo Grove",
+    category: "forest",
+    url: "/nature/bamboo-forest-1920.webp",
+    thumb: "/nature/bamboo-forest-640.webp",
   },
   {
     id: "golden_sunset",
     name: "Radiant Golden Hour Clouds",
     category: "sky",
-    url: "/marketing/example-travel-1280.webp",
-    thumb: "/marketing/example-travel-640.webp",
-  },
-  {
-    id: "mountain_lake",
-    name: "Mirror Reflection Alpine Lake",
-    category: "waterfall",
-    url: "/marketing/search-02-canal-1280.webp",
-    thumb: "/marketing/search-02-canal-640.webp",
-  },
-  {
-    id: "gentle_waterfall",
-    name: "Emerald Cascade Waterfall",
-    category: "waterfall",
-    url: "/marketing/search-01-well-1280.webp",
-    thumb: "/marketing/search-01-well-640.webp",
-  },
-  {
-    id: "rolling_hills",
-    name: "Peaceful Misty Rolling Hills",
-    category: "peaceful",
-    url: "/marketing/search-03-oasis-1280.webp",
-    thumb: "/marketing/search-03-oasis-640.webp",
+    url: "/nature/golden-sunset-1920.webp",
+    thumb: "/nature/golden-sunset-640.webp",
   },
   {
     id: "starry_sky",
     name: "Deep Cosmos & Night Sky",
     category: "sky",
-    url: "/marketing/scene-02-ancient-city-1280.webp",
-    thumb: "/marketing/scene-02-ancient-city-640.webp",
+    url: "/nature/starry-sky-1920.webp",
+    thumb: "/nature/starry-sky-640.webp",
+  },
+  {
+    id: "northern_lights",
+    name: "Aurora Over a Still Lake",
+    category: "sky",
+    url: "/nature/northern-lights-1920.webp",
+    thumb: "/nature/northern-lights-640.webp",
+  },
+  {
+    id: "storm_clouds",
+    name: "Towering Storm Over the Plains",
+    category: "sky",
+    url: "/nature/storm-clouds-1920.webp",
+    thumb: "/nature/storm-clouds-640.webp",
+  },
+  {
+    id: "gentle_waterfall",
+    name: "Emerald Cascade Waterfall",
+    category: "waterfall",
+    url: "/nature/gentle-waterfall-1920.webp",
+    thumb: "/nature/gentle-waterfall-640.webp",
+  },
+  {
+    id: "jungle_falls",
+    name: "Tropical Rainforest Falls",
+    category: "waterfall",
+    url: "/nature/jungle-falls-1920.webp",
+    thumb: "/nature/jungle-falls-640.webp",
+  },
+  {
+    id: "canyon_cascade",
+    name: "Red Canyon River Cascade",
+    category: "waterfall",
+    url: "/nature/canyon-cascade-1920.webp",
+    thumb: "/nature/canyon-cascade-640.webp",
+  },
+  {
+    id: "rolling_hills",
+    name: "Peaceful Misty Rolling Hills",
+    category: "peaceful",
+    url: "/nature/rolling-hills-1920.webp",
+    thumb: "/nature/rolling-hills-640.webp",
+  },
+  {
+    id: "wildflower_meadow",
+    name: "Alpine Wildflower Meadow",
+    category: "peaceful",
+    url: "/nature/wildflower-meadow-1920.webp",
+    thumb: "/nature/wildflower-meadow-640.webp",
   },
 ];

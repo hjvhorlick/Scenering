@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 580 utility
+   Colour matrix for every non-classic theme. 586 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -51,11 +51,17 @@ html[data-theme="apple"] .bg-amber-600\/90 {
 html[data-theme="apple"] .bg-amber-900 {
   background-color: rgb(254 241 189 / 1);
 }
+html[data-theme="apple"] .bg-amber-900\/40 {
+  background-color: rgb(254 241 189 / 0.4);
+}
 html[data-theme="apple"] .bg-amber-950 {
   background-color: rgb(254 246 211 / 1);
 }
 html[data-theme="apple"] .bg-amber-950\/20 {
   background-color: rgb(254 246 211 / 0.2);
+}
+html[data-theme="apple"] .bg-amber-950\/25 {
+  background-color: rgb(254 246 211 / 0.25);
 }
 html[data-theme="apple"] .bg-amber-950\/30 {
   background-color: rgb(254 246 211 / 0.3);
@@ -572,6 +578,9 @@ html[data-theme="apple"] .border-amber-600\/80 {
 }
 html[data-theme="apple"] .border-amber-700\/60 {
   border-color: rgb(180 83 9 / 0.6);
+}
+html[data-theme="apple"] .border-amber-700\/70 {
+  border-color: rgb(180 83 9 / 0.7);
 }
 html[data-theme="apple"] .border-amber-700\/80 {
   border-color: rgb(180 83 9 / 0.8);
@@ -1115,6 +1124,9 @@ html[data-theme="apple"] .hover\:bg-amber-400:hover {
 html[data-theme="apple"] .hover\:bg-amber-500:hover {
   background-color: rgb(251 211 145 / 1);
 }
+html[data-theme="apple"] .hover\:bg-amber-800\/50:hover {
+  background-color: rgb(254 233 166 / 0.5);
+}
 html[data-theme="apple"] .hover\:bg-amber-900:hover {
   background-color: rgb(254 241 189 / 1);
 }
@@ -1150,9 +1162,6 @@ html[data-theme="apple"] .hover\:bg-emerald-800:hover {
 }
 html[data-theme="apple"] .hover\:bg-emerald-900:hover {
   background-color: rgb(206 248 229 / 1);
-}
-html[data-theme="apple"] .hover\:bg-emerald-900\/70:hover {
-  background-color: rgb(206 248 229 / 0.7);
 }
 html[data-theme="apple"] .hover\:bg-emerald-950\/40:hover {
   background-color: rgb(222 250 237 / 0.4);
@@ -1306,6 +1315,9 @@ html[data-theme="apple"] .hover\:border-emerald-600:hover {
 }
 html[data-theme="apple"] .hover\:border-emerald-700:hover {
   border-color: rgb(4 120 87 / 1);
+}
+html[data-theme="apple"] .hover\:border-indigo-400:hover {
+  border-color: rgb(142 194 255 / 1);
 }
 html[data-theme="apple"] .hover\:border-indigo-500:hover {
   border-color: rgb(10 132 255 / 1);
@@ -1482,6 +1494,12 @@ html[data-theme="apple"] .shadow-yellow-500\/30 {
 html[data-theme="apple"] .text-amber-100 {
   color: rgb(180 83 9 / 1);
 }
+html[data-theme="apple"] .text-amber-100\/80 {
+  color: rgb(180 83 9 / 0.8);
+}
+html[data-theme="apple"] .text-amber-100\/85 {
+  color: rgb(180 83 9 / 0.85);
+}
 html[data-theme="apple"] .text-amber-200 {
   color: rgb(180 83 9 / 1);
 }
@@ -1491,6 +1509,9 @@ html[data-theme="apple"] .text-amber-200\/80 {
 html[data-theme="apple"] .text-amber-300 {
   color: rgb(217 119 6 / 1);
 }
+html[data-theme="apple"] .text-amber-300\/70 {
+  color: rgb(217 119 6 / 0.7);
+}
 html[data-theme="apple"] .text-amber-300\/90 {
   color: rgb(217 119 6 / 0.9);
 }
@@ -1499,6 +1520,9 @@ html[data-theme="apple"] .text-amber-400 {
 }
 html[data-theme="apple"] .text-amber-400\/80 {
   color: rgb(224 129 7 / 0.8);
+}
+html[data-theme="apple"] .text-amber-50 {
+  color: rgb(180 83 9 / 1);
 }
 html[data-theme="apple"] .text-black {
   color: rgb(29 29 31 / 1);
@@ -1539,17 +1563,11 @@ html[data-theme="apple"] .text-emerald-300 {
 html[data-theme="apple"] .text-emerald-300\/75 {
   color: rgb(5 150 105 / 0.75);
 }
-html[data-theme="apple"] .text-emerald-300\/80 {
-  color: rgb(5 150 105 / 0.8);
-}
 html[data-theme="apple"] .text-emerald-300\/90 {
   color: rgb(5 150 105 / 0.9);
 }
 html[data-theme="apple"] .text-emerald-400 {
   color: rgb(8 159 111 / 1);
-}
-html[data-theme="apple"] .text-emerald-400\/70 {
-  color: rgb(8 159 111 / 0.7);
 }
 html[data-theme="apple"] .text-emerald-400\/80 {
   color: rgb(8 159 111 / 0.8);
@@ -1842,11 +1860,17 @@ html[data-theme="windows"] .bg-amber-600\/90 {
 html[data-theme="windows"] .bg-amber-900 {
   background-color: rgb(114 55 21 / 1);
 }
+html[data-theme="windows"] .bg-amber-900\/40 {
+  background-color: rgb(114 55 21 / 0.4);
+}
 html[data-theme="windows"] .bg-amber-950 {
   background-color: rgb(65 27 7 / 1);
 }
 html[data-theme="windows"] .bg-amber-950\/20 {
   background-color: rgb(65 27 7 / 0.2);
+}
+html[data-theme="windows"] .bg-amber-950\/25 {
+  background-color: rgb(65 27 7 / 0.25);
 }
 html[data-theme="windows"] .bg-amber-950\/30 {
   background-color: rgb(65 27 7 / 0.3);
@@ -2363,6 +2387,9 @@ html[data-theme="windows"] .border-amber-600\/80 {
 }
 html[data-theme="windows"] .border-amber-700\/60 {
   border-color: rgb(170 84 19 / 0.6);
+}
+html[data-theme="windows"] .border-amber-700\/70 {
+  border-color: rgb(170 84 19 / 0.7);
 }
 html[data-theme="windows"] .border-amber-700\/80 {
   border-color: rgb(170 84 19 / 0.8);
@@ -2906,6 +2933,9 @@ html[data-theme="windows"] .hover\:bg-amber-400:hover {
 html[data-theme="windows"] .hover\:bg-amber-500:hover {
   background-color: rgb(231 154 25 / 1);
 }
+html[data-theme="windows"] .hover\:bg-amber-800\/50:hover {
+  background-color: rgb(138 66 22 / 0.5);
+}
 html[data-theme="windows"] .hover\:bg-amber-900:hover {
   background-color: rgb(114 55 21 / 1);
 }
@@ -2941,9 +2971,6 @@ html[data-theme="windows"] .hover\:bg-emerald-800:hover {
 }
 html[data-theme="windows"] .hover\:bg-emerald-900:hover {
   background-color: rgb(10 74 57 / 1);
-}
-html[data-theme="windows"] .hover\:bg-emerald-900\/70:hover {
-  background-color: rgb(10 74 57 / 0.7);
 }
 html[data-theme="windows"] .hover\:bg-emerald-950\/40:hover {
   background-color: rgb(5 41 33 / 0.4);
@@ -3097,6 +3124,9 @@ html[data-theme="windows"] .hover\:border-emerald-600:hover {
 }
 html[data-theme="windows"] .hover\:border-emerald-700:hover {
   border-color: rgb(11 113 84 / 1);
+}
+html[data-theme="windows"] .hover\:border-indigo-400:hover {
+  border-color: rgb(111 211 255 / 1);
 }
 html[data-theme="windows"] .hover\:border-indigo-500:hover {
   border-color: rgb(76 194 255 / 1);
@@ -3273,6 +3303,12 @@ html[data-theme="windows"] .shadow-yellow-500\/30 {
 html[data-theme="windows"] .text-amber-100 {
   color: rgb(251 241 202 / 1);
 }
+html[data-theme="windows"] .text-amber-100\/80 {
+  color: rgb(251 241 202 / 0.8);
+}
+html[data-theme="windows"] .text-amber-100\/85 {
+  color: rgb(251 241 202 / 0.85);
+}
 html[data-theme="windows"] .text-amber-200 {
   color: rgb(246 226 145 / 1);
 }
@@ -3282,6 +3318,9 @@ html[data-theme="windows"] .text-amber-200\/80 {
 html[data-theme="windows"] .text-amber-300 {
   color: rgb(242 205 88 / 1);
 }
+html[data-theme="windows"] .text-amber-300\/70 {
+  color: rgb(242 205 88 / 0.7);
+}
 html[data-theme="windows"] .text-amber-300\/90 {
   color: rgb(242 205 88 / 0.9);
 }
@@ -3290,6 +3329,9 @@ html[data-theme="windows"] .text-amber-400 {
 }
 html[data-theme="windows"] .text-amber-400\/80 {
   color: rgb(238 185 49 / 0.8);
+}
+html[data-theme="windows"] .text-amber-50 {
+  color: rgb(254 250 236 / 1);
 }
 html[data-theme="windows"] .text-black {
   color: rgb(11 15 22 / 1);
@@ -3330,17 +3372,11 @@ html[data-theme="windows"] .text-emerald-300 {
 html[data-theme="windows"] .text-emerald-300\/75 {
   color: rgb(117 224 182 / 0.75);
 }
-html[data-theme="windows"] .text-emerald-300\/80 {
-  color: rgb(117 224 182 / 0.8);
-}
 html[data-theme="windows"] .text-emerald-300\/90 {
   color: rgb(117 224 182 / 0.9);
 }
 html[data-theme="windows"] .text-emerald-400 {
   color: rgb(62 201 150 / 1);
-}
-html[data-theme="windows"] .text-emerald-400\/70 {
-  color: rgb(62 201 150 / 0.7);
 }
 html[data-theme="windows"] .text-emerald-400\/80 {
   color: rgb(62 201 150 / 0.8);
@@ -3633,11 +3669,17 @@ html[data-theme="playful"] .bg-amber-600\/90 {
 html[data-theme="playful"] .bg-amber-900 {
   background-color: rgb(138 50 0 / 1);
 }
+html[data-theme="playful"] .bg-amber-900\/40 {
+  background-color: rgb(138 50 0 / 0.4);
+}
 html[data-theme="playful"] .bg-amber-950 {
   background-color: rgb(73 26 0 / 1);
 }
 html[data-theme="playful"] .bg-amber-950\/20 {
   background-color: rgb(73 26 0 / 0.2);
+}
+html[data-theme="playful"] .bg-amber-950\/25 {
+  background-color: rgb(73 26 0 / 0.25);
 }
 html[data-theme="playful"] .bg-amber-950\/30 {
   background-color: rgb(73 26 0 / 0.3);
@@ -4154,6 +4196,9 @@ html[data-theme="playful"] .border-amber-600\/80 {
 }
 html[data-theme="playful"] .border-amber-700\/60 {
   border-color: rgb(193 83 0 / 0.6);
+}
+html[data-theme="playful"] .border-amber-700\/70 {
+  border-color: rgb(193 83 0 / 0.7);
 }
 html[data-theme="playful"] .border-amber-700\/80 {
   border-color: rgb(193 83 0 / 0.8);
@@ -4697,6 +4742,9 @@ html[data-theme="playful"] .hover\:bg-amber-400:hover {
 html[data-theme="playful"] .hover\:bg-amber-500:hover {
   background-color: rgb(255 162 6 / 1);
 }
+html[data-theme="playful"] .hover\:bg-amber-800\/50:hover {
+  background-color: rgb(163 62 0 / 0.5);
+}
 html[data-theme="playful"] .hover\:bg-amber-900:hover {
   background-color: rgb(138 50 0 / 1);
 }
@@ -4732,9 +4780,6 @@ html[data-theme="playful"] .hover\:bg-emerald-800:hover {
 }
 html[data-theme="playful"] .hover\:bg-emerald-900:hover {
   background-color: rgb(0 86 63 / 1);
-}
-html[data-theme="playful"] .hover\:bg-emerald-900\/70:hover {
-  background-color: rgb(0 86 63 / 0.7);
 }
 html[data-theme="playful"] .hover\:bg-emerald-950\/40:hover {
   background-color: rgb(0 47 36 / 0.4);
@@ -4888,6 +4933,9 @@ html[data-theme="playful"] .hover\:border-emerald-600:hover {
 }
 html[data-theme="playful"] .hover\:border-emerald-700:hover {
   border-color: rgb(0 126 90 / 1);
+}
+html[data-theme="playful"] .hover\:border-indigo-400:hover {
+  border-color: rgb(255 159 201 / 1);
 }
 html[data-theme="playful"] .hover\:border-indigo-500:hover {
   border-color: rgb(255 111 177 / 1);
@@ -5064,6 +5112,12 @@ html[data-theme="playful"] .shadow-yellow-500\/30 {
 html[data-theme="playful"] .text-amber-100 {
   color: rgb(255 245 207 / 1);
 }
+html[data-theme="playful"] .text-amber-100\/80 {
+  color: rgb(255 245 207 / 0.8);
+}
+html[data-theme="playful"] .text-amber-100\/85 {
+  color: rgb(255 245 207 / 0.85);
+}
 html[data-theme="playful"] .text-amber-200 {
   color: rgb(255 233 144 / 1);
 }
@@ -5073,6 +5127,9 @@ html[data-theme="playful"] .text-amber-200\/80 {
 html[data-theme="playful"] .text-amber-300 {
   color: rgb(255 214 81 / 1);
 }
+html[data-theme="playful"] .text-amber-300\/70 {
+  color: rgb(255 214 81 / 0.7);
+}
 html[data-theme="playful"] .text-amber-300\/90 {
   color: rgb(255 214 81 / 0.9);
 }
@@ -5081,6 +5138,9 @@ html[data-theme="playful"] .text-amber-400 {
 }
 html[data-theme="playful"] .text-amber-400\/80 {
   color: rgb(255 194 38 / 0.8);
+}
+html[data-theme="playful"] .text-amber-50 {
+  color: rgb(255 253 245 / 1);
 }
 html[data-theme="playful"] .text-black {
   color: rgb(13 10 22 / 1);
@@ -5121,17 +5181,11 @@ html[data-theme="playful"] .text-emerald-300 {
 html[data-theme="playful"] .text-emerald-300\/75 {
   color: rgb(97 251 190 / 0.75);
 }
-html[data-theme="playful"] .text-emerald-300\/80 {
-  color: rgb(97 251 190 / 0.8);
-}
 html[data-theme="playful"] .text-emerald-300\/90 {
   color: rgb(97 251 190 / 0.9);
 }
 html[data-theme="playful"] .text-emerald-400 {
   color: rgb(31 237 162 / 1);
-}
-html[data-theme="playful"] .text-emerald-400\/70 {
-  color: rgb(31 237 162 / 0.7);
 }
 html[data-theme="playful"] .text-emerald-400\/80 {
   color: rgb(31 237 162 / 0.8);
@@ -5424,11 +5478,17 @@ html[data-theme="glass"] .bg-amber-600\/90 {
 html[data-theme="glass"] .bg-amber-900 {
   background-color: rgb(254 245 207 / 1);
 }
+html[data-theme="glass"] .bg-amber-900\/40 {
+  background-color: rgb(254 245 207 / 0.4);
+}
 html[data-theme="glass"] .bg-amber-950 {
   background-color: rgb(254 249 224 / 1);
 }
 html[data-theme="glass"] .bg-amber-950\/20 {
   background-color: rgb(254 249 224 / 0.2);
+}
+html[data-theme="glass"] .bg-amber-950\/25 {
+  background-color: rgb(254 249 224 / 0.25);
 }
 html[data-theme="glass"] .bg-amber-950\/30 {
   background-color: rgb(254 249 224 / 0.3);
@@ -5945,6 +6005,9 @@ html[data-theme="glass"] .border-amber-600\/80 {
 }
 html[data-theme="glass"] .border-amber-700\/60 {
   border-color: rgb(164 85 38 / 0.6);
+}
+html[data-theme="glass"] .border-amber-700\/70 {
+  border-color: rgb(164 85 38 / 0.7);
 }
 html[data-theme="glass"] .border-amber-700\/80 {
   border-color: rgb(164 85 38 / 0.8);
@@ -6488,6 +6551,9 @@ html[data-theme="glass"] .hover\:bg-amber-400:hover {
 html[data-theme="glass"] .hover\:bg-amber-500:hover {
   background-color: rgb(252 223 175 / 1);
 }
+html[data-theme="glass"] .hover\:bg-amber-800\/50:hover {
+  background-color: rgb(254 239 189 / 0.5);
+}
 html[data-theme="glass"] .hover\:bg-amber-900:hover {
   background-color: rgb(254 245 207 / 1);
 }
@@ -6523,9 +6589,6 @@ html[data-theme="glass"] .hover\:bg-emerald-800:hover {
 }
 html[data-theme="glass"] .hover\:bg-emerald-900:hover {
   background-color: rgb(219 250 236 / 1);
-}
-html[data-theme="glass"] .hover\:bg-emerald-900\/70:hover {
-  background-color: rgb(219 250 236 / 0.7);
 }
 html[data-theme="glass"] .hover\:bg-emerald-950\/40:hover {
   background-color: rgb(232 252 243 / 0.4);
@@ -6679,6 +6742,9 @@ html[data-theme="glass"] .hover\:border-emerald-600:hover {
 }
 html[data-theme="glass"] .hover\:border-emerald-700:hover {
   border-color: rgb(27 113 99 / 1);
+}
+html[data-theme="glass"] .hover\:border-indigo-400:hover {
+  border-color: rgb(203 188 242 / 1);
 }
 html[data-theme="glass"] .hover\:border-indigo-500:hover {
   border-color: rgb(183 158 230 / 1);
@@ -6855,6 +6921,12 @@ html[data-theme="glass"] .shadow-yellow-500\/30 {
 html[data-theme="glass"] .text-amber-100 {
   color: rgb(168 84 30 / 1);
 }
+html[data-theme="glass"] .text-amber-100\/80 {
+  color: rgb(168 84 30 / 0.8);
+}
+html[data-theme="glass"] .text-amber-100\/85 {
+  color: rgb(168 84 30 / 0.85);
+}
 html[data-theme="glass"] .text-amber-200 {
   color: rgb(168 84 30 / 1);
 }
@@ -6864,6 +6936,9 @@ html[data-theme="glass"] .text-amber-200\/80 {
 html[data-theme="glass"] .text-amber-300 {
   color: rgb(199 114 28 / 1);
 }
+html[data-theme="glass"] .text-amber-300\/70 {
+  color: rgb(199 114 28 / 0.7);
+}
 html[data-theme="glass"] .text-amber-300\/90 {
   color: rgb(199 114 28 / 0.9);
 }
@@ -6872,6 +6947,9 @@ html[data-theme="glass"] .text-amber-400 {
 }
 html[data-theme="glass"] .text-amber-400\/80 {
   color: rgb(205 123 29 / 0.8);
+}
+html[data-theme="glass"] .text-amber-50 {
+  color: rgb(168 84 30 / 1);
 }
 html[data-theme="glass"] .text-black {
   color: rgb(28 26 34 / 1);
@@ -6912,17 +6990,11 @@ html[data-theme="glass"] .text-emerald-300 {
 html[data-theme="glass"] .text-emerald-300\/75 {
   color: rgb(21 140 111 / 0.75);
 }
-html[data-theme="glass"] .text-emerald-300\/80 {
-  color: rgb(21 140 111 / 0.8);
-}
 html[data-theme="glass"] .text-emerald-300\/90 {
   color: rgb(21 140 111 / 0.9);
 }
 html[data-theme="glass"] .text-emerald-400 {
   color: rgb(24 148 116 / 1);
-}
-html[data-theme="glass"] .text-emerald-400\/70 {
-  color: rgb(24 148 116 / 0.7);
 }
 html[data-theme="glass"] .text-emerald-400\/80 {
   color: rgb(24 148 116 / 0.8);
@@ -7215,11 +7287,17 @@ html[data-theme="porcelain"] .bg-amber-600\/90 {
 html[data-theme="porcelain"] .bg-amber-900 {
   background-color: rgb(254 240 185 / 1);
 }
+html[data-theme="porcelain"] .bg-amber-900\/40 {
+  background-color: rgb(254 240 185 / 0.4);
+}
 html[data-theme="porcelain"] .bg-amber-950 {
   background-color: rgb(254 245 206 / 1);
 }
 html[data-theme="porcelain"] .bg-amber-950\/20 {
   background-color: rgb(254 245 206 / 0.2);
+}
+html[data-theme="porcelain"] .bg-amber-950\/25 {
+  background-color: rgb(254 245 206 / 0.25);
 }
 html[data-theme="porcelain"] .bg-amber-950\/30 {
   background-color: rgb(254 245 206 / 0.3);
@@ -7736,6 +7814,9 @@ html[data-theme="porcelain"] .border-amber-600\/80 {
 }
 html[data-theme="porcelain"] .border-amber-700\/60 {
   border-color: rgb(180 83 9 / 0.6);
+}
+html[data-theme="porcelain"] .border-amber-700\/70 {
+  border-color: rgb(180 83 9 / 0.7);
 }
 html[data-theme="porcelain"] .border-amber-700\/80 {
   border-color: rgb(180 83 9 / 0.8);
@@ -8279,6 +8360,9 @@ html[data-theme="porcelain"] .hover\:bg-amber-400:hover {
 html[data-theme="porcelain"] .hover\:bg-amber-500:hover {
   background-color: rgb(250 207 133 / 1);
 }
+html[data-theme="porcelain"] .hover\:bg-amber-800\/50:hover {
+  background-color: rgb(253 231 157 / 0.5);
+}
 html[data-theme="porcelain"] .hover\:bg-amber-900:hover {
   background-color: rgb(254 240 185 / 1);
 }
@@ -8314,9 +8398,6 @@ html[data-theme="porcelain"] .hover\:bg-emerald-800:hover {
 }
 html[data-theme="porcelain"] .hover\:bg-emerald-900:hover {
   background-color: rgb(202 248 227 / 1);
-}
-html[data-theme="porcelain"] .hover\:bg-emerald-900\/70:hover {
-  background-color: rgb(202 248 227 / 0.7);
 }
 html[data-theme="porcelain"] .hover\:bg-emerald-950\/40:hover {
   background-color: rgb(218 250 235 / 0.4);
@@ -8470,6 +8551,9 @@ html[data-theme="porcelain"] .hover\:border-emerald-600:hover {
 }
 html[data-theme="porcelain"] .hover\:border-emerald-700:hover {
   border-color: rgb(4 120 87 / 1);
+}
+html[data-theme="porcelain"] .hover\:border-indigo-400:hover {
+  border-color: rgb(169 200 232 / 1);
 }
 html[data-theme="porcelain"] .hover\:border-indigo-500:hover {
   border-color: rgb(91 147 207 / 1);
@@ -8646,6 +8730,12 @@ html[data-theme="porcelain"] .shadow-yellow-500\/30 {
 html[data-theme="porcelain"] .text-amber-100 {
   color: rgb(180 83 9 / 1);
 }
+html[data-theme="porcelain"] .text-amber-100\/80 {
+  color: rgb(180 83 9 / 0.8);
+}
+html[data-theme="porcelain"] .text-amber-100\/85 {
+  color: rgb(180 83 9 / 0.85);
+}
 html[data-theme="porcelain"] .text-amber-200 {
   color: rgb(180 83 9 / 1);
 }
@@ -8655,6 +8745,9 @@ html[data-theme="porcelain"] .text-amber-200\/80 {
 html[data-theme="porcelain"] .text-amber-300 {
   color: rgb(217 119 6 / 1);
 }
+html[data-theme="porcelain"] .text-amber-300\/70 {
+  color: rgb(217 119 6 / 0.7);
+}
 html[data-theme="porcelain"] .text-amber-300\/90 {
   color: rgb(217 119 6 / 0.9);
 }
@@ -8663,6 +8756,9 @@ html[data-theme="porcelain"] .text-amber-400 {
 }
 html[data-theme="porcelain"] .text-amber-400\/80 {
   color: rgb(224 129 7 / 0.8);
+}
+html[data-theme="porcelain"] .text-amber-50 {
+  color: rgb(180 83 9 / 1);
 }
 html[data-theme="porcelain"] .text-black {
   color: rgb(42 39 36 / 1);
@@ -8703,17 +8799,11 @@ html[data-theme="porcelain"] .text-emerald-300 {
 html[data-theme="porcelain"] .text-emerald-300\/75 {
   color: rgb(5 150 105 / 0.75);
 }
-html[data-theme="porcelain"] .text-emerald-300\/80 {
-  color: rgb(5 150 105 / 0.8);
-}
 html[data-theme="porcelain"] .text-emerald-300\/90 {
   color: rgb(5 150 105 / 0.9);
 }
 html[data-theme="porcelain"] .text-emerald-400 {
   color: rgb(8 159 111 / 1);
-}
-html[data-theme="porcelain"] .text-emerald-400\/70 {
-  color: rgb(8 159 111 / 0.7);
 }
 html[data-theme="porcelain"] .text-emerald-400\/80 {
   color: rgb(8 159 111 / 0.8);

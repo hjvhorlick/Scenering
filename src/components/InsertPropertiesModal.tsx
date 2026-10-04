@@ -14,6 +14,8 @@ import {
   type TextTemplateStyle,
 } from "../data/text-templates";
 import { CAPTION_FONTS } from "../data/caption-styles";
+import { getInterfacePlan, useSession } from "../lib/session";
+import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 import {
   TEXT_MATERIALS,
   LETTER_STYLES,
@@ -40,6 +42,7 @@ import {
   CTA_PLATFORMS,
   CTA_GROUPS,
   resolveCtaPlatform,
+  isFreeCtaInsert,
   type CtaShape,
   type CtaStyle,
 } from "../data/cta-library";
@@ -853,6 +856,18 @@ function InsertPropertiesContent({
     { tab: "timing", id: "ipm-timing", icon: "⏱️", name: "Timing", show: true },
   ];
   const visibleSectionTabs = SECTION_TABS.filter((t) => t.show);
+
+  /**
+   * Free includes exactly one call to action: the standard Subscribe badge as
+   * it ships. This panel can rebuild that badge into any button at all — a
+   * different platform, new wording, new colours, an uploaded logo — and a
+   * made-to-order button is a VIP button. It stays fully usable here and in
+   * the preview; the line is drawn at the final download, which is where the
+   * rest of the plan limits are drawn too.
+   */
+  const { account } = useSession();
+  const currentPlan = getInterfacePlan(account);
+  const ctaNeedsVip = isCallToAction && currentPlan === "free" && !isFreeCtaInsert(data);
 
   const [ctaGroup, setCtaGroup] = useState<string>("all");
   const [ctaSearch, setCtaSearch] = useState("");
@@ -2701,6 +2716,33 @@ function InsertPropertiesContent({
           {/* ================= TAB: CTA PLATFORM ================= */}
           {isCallToAction && (
             <div className="space-y-4">
+              {/* Said here, at the moment the button is being designed —
+                  not sprung on the creator at the download. */}
+              <div
+                className={`rounded-xl border px-3 py-2.5 flex flex-wrap items-center gap-2 text-[11px] ${
+                  ctaNeedsVip
+                    ? "border-amber-500/50 bg-amber-950/40 text-amber-200"
+                    : "border-hairline bg-gray-900/50 text-gray-400"
+                }`}
+              >
+                {ctaNeedsVip && <VipFeatureBadge compact />}
+                <span className="min-w-0">
+                  {currentPlan === "free"
+                    ? ctaNeedsVip
+                      ? "Free downloads include the standard Subscribe button as it ships. This one has been changed, so it needs SceneFlow or SceneForge — keep designing, it plays in every preview."
+                      : "This is the standard Subscribe button, included in Free downloads. Change the platform, wording, colours or logo and it becomes a VIP button."
+                    : "Design this button any way you like — platform, wording, colours, shape and logo are all yours."}
+                </span>
+                {ctaNeedsVip && (
+                  <button
+                    type="button"
+                    onClick={openMembershipPlans}
+                    className="ml-auto shrink-0 px-2 py-1 rounded-lg border border-amber-400/60 bg-amber-900/40 text-amber-100 font-semibold hover:bg-amber-800/50"
+                  >
+                    See VIP plans
+                  </button>
+                )}
+              </div>
               <BlockTitle id="ipm-cta-platform" icon="🌐" title="Platform Style" />
               <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -4018,7 +4060,7 @@ function InsertPropertiesContent({
                       {/* Material */}
                       <div className="space-y-1.5">
                         <span className="text-[11px] text-gray-400 block">Material — gold, silver, rusted, damaged and more</span>
-                        <div className="grid grid-cols-4 gap-1.5">
+                        <div className="grid grid-cols-2 xs:grid-cols-4 gap-1.5">
                           {TEXT_MATERIALS.map((m) => (
                             <button
                               key={m.id}

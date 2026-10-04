@@ -269,10 +269,20 @@ h.eq(lateFills.filter((f) => f === "set:fillStyle=#7DD3FC").length, 1, "late: ex
 
   // one switch component, used in both places a creator might look for it
   h.ok(switchUi.includes('role="switch"') && switchUi.includes("aria-checked"), "the switch is a real switch");
-  h.ok(
-    studio.includes("<CaptionsSwitch") && voiceover.includes("<CaptionsSwitch"),
-    "captions can be switched on and off from the Captions step and from Voiceover"
-  );
+  // ONE switch, in ONE place. It used to be repeated in the Voiceover step;
+  // one setting with two owners meant neither screen was obviously in charge,
+  // and captions could change under you from a step that is about narration.
+  h.ok(studio.includes("<CaptionsSwitch"), "captions are switched on and off in the Captions step");
+  h.ok(!voiceover.includes("<CaptionsSwitch"), "and nowhere else — the Voiceover duplicate is gone");
+  h.ok(!voiceover.includes("onUpdateCaptionsConfig"), "the Voiceover step no longer writes the captions config at all");
+  {
+    const app = read("src/App.tsx");
+    const at = app.indexOf("<VoiceoverStudio");
+    const element = at === -1 ? "" : app.slice(at, app.indexOf("/>", at));
+    h.ok(at > 0, "the Voiceover step is still mounted");
+    h.ok(!element.includes("onUpdateCaptionsConfig"), "and is no longer handed the captions setter");
+    h.ok(!element.includes("captionsConfig="), "nor the captions config");
+  }
   h.ok(
     !studio.includes('id="masterBurnToggle"'),
     "the old buried checkbox is gone in favour of the shared switch"
@@ -283,10 +293,7 @@ h.eq(lateFills.filter((f) => f === "set:fillStyle=#7DD3FC").length, 1, "late: ex
     studio.includes("emitConfigUpdate({ enabled: next })"),
     "the Captions step publishes the new state the moment the switch moves"
   );
-  h.ok(
-    voiceover.includes("onUpdateCaptionsConfig({ ...(captionsConfig || DEFAULT_CAPTIONS_CONFIG), enabled: next })"),
-    "the Voiceover step publishes the new state the moment the switch moves"
-  );
+
 }
 
 /* =====================================================================
@@ -653,6 +660,34 @@ h.ok(
   h.ok(studio.includes("METAL_FINISHES.map("), "the studio offers the metal finishes");
   h.ok(studio.includes('emitConfigUpdate({ metal:'), "choosing a finish publishes it at once");
   h.ok(studio.includes("setStyleFilter"), "the larger catalogue can be filtered by category");
+
+  // The Export .SRT button was removed from the studio header by request.
+  h.ok(!studio.includes("Export .SRT File"), "the header no longer offers an SRT download");
+  h.ok(!studio.includes("handleDownloadSrt"), "the SRT download handler is gone with its button");
+  h.ok(!studio.includes("generateSrtSubtitles"), "the studio no longer imports the SRT writer");
+  h.ok(
+    !studio.includes("captions_subtitles.srt"),
+    "no stray download of a subtitle file is left behind"
+  );
+
+  // The two styles Free includes lead the grid, so they sit together on the
+  // top row instead of being buried among the VIP cards.
+  h.ok(
+    studio.includes('const free = shelf.filter((s) => isPlanCaptionIncluded("free", s.id));'),
+    "the free caption styles are pulled out of the shelf"
+  );
+  h.ok(
+    studio.includes('return [...free, ...shelf.filter((s) => !isPlanCaptionIncluded("free", s.id))];'),
+    "the free styles are placed first, the rest keep catalogue order"
+  );
+  h.ok(
+    studio.includes("if (free.length === 0) return shelf;"),
+    "a category shelf with no free style is left exactly as authored"
+  );
+  h.ok(
+    studio.includes("grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"),
+    "the grid is at least two columns wide, so the two free styles land side by side"
+  );
 }
 
 h.done("captions word-sync");

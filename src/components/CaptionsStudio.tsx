@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import StepNav from "./StepNav";
 import type { Scene, CaptionsConfig } from "../types";
-import { generateSrtSubtitles } from "./RenderView";
 import { formatDuration } from "../lib/duration-utils";
 import { renderCanvasCaptions, captionBandCenterY } from "../lib/render-captions";
 import {
@@ -33,8 +32,6 @@ interface CaptionsStudioProps {
   onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
   onApplyStyleToAll: (burn: boolean) => void;
   onNavigateToStep?: (step: any) => void;
-  /** Narration off means no opening hold, so the exported SRT starts at zero. */
-  voiceoverEnabled?: boolean;
 }
 
 export type CaptionPresetType = string;
@@ -46,7 +43,6 @@ export default function CaptionsStudio({
   onUpdateScene,
   onApplyStyleToAll,
   onNavigateToStep,
-  voiceoverEnabled = true,
 }: CaptionsStudioProps) {
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
@@ -155,8 +151,24 @@ export default function CaptionsStudio({
   const activeStyle: CaptionStyleDef = getCaptionStyle(selectedPreset);
   const activeFont = getCaptionFont(fontId || activeStyle.fontId);
   const metalFinish = getMetalFinish(metal);
-  const visibleStyles =
-    styleFilter === "All" ? CAPTION_STYLES : CAPTION_STYLES.filter((s) => s.category === styleFilter);
+  /**
+   * The style cards, with the two presets Free includes first so they land
+   * side by side on the top row.
+   *
+   * They used to sit wherever the catalogue happened to put them, which meant
+   * the only two styles a Free member can actually export were somewhere down
+   * a grid of two dozen cards. Everything else keeps its catalogue order, so
+   * the shelves still read the way they were authored.
+   */
+  const visibleStyles = useMemo(() => {
+    const shelf =
+      styleFilter === "All"
+        ? CAPTION_STYLES
+        : CAPTION_STYLES.filter((s) => s.category === styleFilter);
+    const free = shelf.filter((s) => isPlanCaptionIncluded("free", s.id));
+    if (free.length === 0) return shelf;
+    return [...free, ...shelf.filter((s) => !isPlanCaptionIncluded("free", s.id))];
+  }, [styleFilter]);
 
   /** Selecting a style applies its whole recipe (font, case, colours, border, shadow) */
   const handleSelectPreset = (style: CaptionStyleDef) => {
@@ -221,19 +233,6 @@ export default function CaptionsStudio({
     });
     onApplyStyleToAll(burnCaptionsGlobal);
     emitConfigUpdate({ enabled: burnCaptionsGlobal });
-  };
-
-  const handleDownloadSrt = () => {
-    const srt = generateSrtSubtitles(scenes, voiceoverEnabled);
-    const blob = new Blob([srt], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "captions_subtitles.srt";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
 
   const sampleSceneText =
@@ -408,19 +407,11 @@ export default function CaptionsStudio({
               </span>
             </div>
             <p className="text-xs text-gray-300 max-w-xl">
-              Design eye-catching on-screen caption styles, burn-in subtitles for viral social formats, or export synchronized SRT subtitle files.
+              Design eye-catching on-screen caption styles and burn word-synced subtitles into your video for the social formats that need them.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleDownloadSrt}
-              className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold border border-hairline flex items-center gap-2 transition-colors shadow"
-            >
-              <Icon glyph="📄" />
-              <span>Export .SRT File</span>
-            </button>
-
             <button
               onClick={handleApplyToAllScenes}
               className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"
@@ -429,9 +420,15 @@ export default function CaptionsStudio({
               <span>Apply to All {scenes.length} Scenes</span>
             </button>
           </div>
+
         </div>
 
-        {/* The captions on/off switch. Takes effect the moment it is clicked. */}
+        {/* The captions on/off switch — the first control in the step, above
+            everything it governs. There is no second copy of it anywhere else
+            in the app: the Voiceover step used to carry a duplicate, which
+            meant one setting had two owners and neither screen was obviously
+            in charge. It takes effect the moment it is clicked; nothing has
+            to be applied afterwards. */}
         <div className="mt-4 pt-4 border-t border-hairline">
           <CaptionsSwitch
             enabled={burnCaptionsGlobal}
@@ -713,7 +710,14 @@ export default function CaptionsStudio({
                       a dripping-paint face all look like the same grey smudge,
                       which is the entire complaint this grid has to answer. */}
                   <div
-                    className="mb-2 px-2 py-2 rounded-lg bg-black/40 border border-hairline overflow-hidden text-center"
+                    /* Dark GREY, not black. Every caption style is pale
+                       lettering carried by a dark outline and a dark drop
+                       shadow; on black both of those vanish and the
+                       specimen reads as faint text in a hole, which is why
+                       the faces were hard to tell apart. Grey gives the
+                       outline something to be dark against and lifts the
+                       specimen off the card. */
+                    className="mb-2 px-2 py-2 rounded-lg border border-white/10 overflow-hidden text-center bg-gradient-to-b from-[#464a52] via-[#383c43] to-[#2e3137] shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_-8px_18px_rgba(0,0,0,0.28)]"
                     title={styleFont.label}
                   >
                     <span

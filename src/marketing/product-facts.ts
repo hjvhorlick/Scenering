@@ -23,6 +23,7 @@ import { CAPTION_STYLES } from "../data/caption-styles";
 import { STUDIO_VOICE_PRESETS } from "../data/voice-presets";
 import { TRANSITION_OPTIONS } from "../lib/scene-transition";
 import { PROJECT_PHASES } from "../components/StepNav";
+import { NATURE_FALLBACKS } from "../data/nature-fallbacks";
 
 /* ------------------------------------------------------------------ counts */
 
@@ -190,7 +191,7 @@ export const VISUAL_SOURCES: VisualSource[] = [
   },
   {
     id: "nature-library",
-    name: "Built-in library",
+    name: `Built-in library (${NATURE_FALLBACKS.length} photographs)`,
     access: "bundled",
     role: "Offline fallback so a scene is never empty",
     setup: "Ships with the app",
@@ -530,15 +531,11 @@ export const CONTROL_POINTS: { label: string; detail: string }[] = [
   { label: "Change scenes", detail: "Split, merge, reorder or delete any scene." },
   { label: "Edit scene text", detail: "Rewrite the line; the timing follows the new narration." },
   { label: "Replace visuals", detail: "Search again, pick another result or drop in your own file." },
-  { label: "Change narration", detail: "Re-word what is spoken without touching the on-screen text." },
   { label: "Change voices", detail: `Any of ${LIVE_COUNTS.voices} narrators, for one scene or all of them.` },
   { label: "Change captions", detail: "Style, size, position, colours, word-by-word or line-by-line." },
-  { label: "Move stickers", detail: "Drag anything on the overlay to where it belongs." },
   { label: "Adjust sound", detail: "Music level, ducking, effects and narration ambience." },
   { label: "Change effects", detail: "Filters, motion, transitions, intro and outro." },
-  { label: "Preview changes", detail: "Play the timeline before committing to a render." },
-  { label: "Render again", detail: "Re-render as often as you like; nothing is one-shot." },
-  { label: "Export when satisfied", detail: "The file lands in your Vault, ready to upload." },
+  { label: "Render again", detail: "Preview and re-render as often as you like; nothing is one-shot." },
 ];
 
 /* ---------------------------------------------------------------- messages */
@@ -547,7 +544,7 @@ export const CONTROL_POINTS: { label: string; detail: string }[] = [
 export const MESSAGES = {
   hero: "Create videos from your ideas.",
   heroSub:
-    "Turn your script or audio into a complete faceless video with meaningful scenes, researched visuals, natural voice-over, captions and professional video effects.",
+    "A script or an audio file becomes scenes, researched visuals, narration, captions and a finished file \u2014 and every step stays yours to change.",
   scenes: "Turn your script into scenes.",
   visuals: "Find visuals that fit the story.",
   voice: "Give every scene a voice.",
@@ -639,31 +636,31 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
 export const NO_METER = {
   message: "No credits. No tokens. No counter.",
   lead:
-    "Scenering has no language model at the centre of it. Nothing writes your script, invents your pictures or charges you by the word — so there is nothing to meter.",
+    "There is no language model at the centre of Scenering — nothing writes your script or invents your pictures, so there is nothing to meter.",
   points: [
     {
       label: "Your script stays your script",
       detail:
-        "It is divided into scenes by counting words and respecting sentence endings, so each scene lasts as long as its own line takes to say. Nothing rewrites it.",
+        "It is divided into scenes by counting words and respecting sentence endings. Nothing rewrites it.",
     },
     {
       label: "The pictures are photographs",
       detail:
-        "Search terms are built from the scene's own nouns and names, then real photographs are fetched from free libraries. Nothing is generated, so nothing can be invented.",
+        "Search terms come from the scene's own nouns and names, and real photographs are fetched from free libraries.",
     },
     {
       label: "The narration is free speech synthesis",
       detail:
-        "The narrators are neural text-to-speech voices, the same kind built into your computer, and they cost nothing to use.",
+        "The narrators are neural text-to-speech voices, the kind built into your computer, and cost nothing to use.",
     },
     {
       label: "The video is made on your machine",
       detail:
-        "The render runs in your browser, frame by frame. There is no queue, no upload and no per-minute charge.",
+        "The render runs in your browser, frame by frame — no queue, no upload, no per-minute charge.",
     },
   ],
   caveat:
-    "One optional exception, stated plainly: if whoever runs the server adds a Gemini key, the narration can be synthesised by Google's voices instead of the free ones. That is text-to-speech, not a model writing your video, and Scenering works fully without it.",
+    "One exception, stated plainly: if whoever runs the server adds a Gemini key, narration can be synthesised by Google's voices instead. That is text-to-speech, not a model writing your video, and Scenering works fully without it.",
 } as const;
 
 /** Honest, repeated everywhere it matters. */

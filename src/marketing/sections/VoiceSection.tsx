@@ -4,7 +4,8 @@ import AppFrame from "../components/AppFrame";
 import { useInView } from "../hooks";
 import { STUDIO_VOICE_PRESETS, resolveVoicePreset } from "../../data/voice-presets";
 import { DEMO_DIALOGUE, DEMO_SCENES, DEMO_TOTAL_SECONDS, formatDuration } from "../demo-project";
-import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES, NARRATION_CHAIN, PLANS } from "../product-facts";
+import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES, NARRATION_CHAIN } from "../product-facts";
+import { PLAN_CONFIG, isPlanVoiceIncluded } from "../../config/plans";
 import Icon, { iconify } from "../../components/icons/Icon";
 
 /**
@@ -25,8 +26,14 @@ const RealVisualiser = lazy(() =>
  * so plainly instead of implying unlimited voices.
  */
 
-/** Which narrators the Free tier includes — a packaging decision, kept here. */
-const FREE_VOICE_IDS = ["guy", "aria", "ryan", "jenny"];
+/**
+ * Which narrators Free includes is NOT a decision this page gets to make.
+ * It used to list four ids by hand, and the plan it was describing had two —
+ * so the website promised a narrator the product would refuse at the
+ * download. `isPlanVoiceIncluded` is the same function the studio marks its
+ * voice cards with.
+ */
+const freeVoiceCount = PLAN_CONFIG.free.limits.voicePresets ?? LIVE_COUNTS.voices;
 
 export default function VoiceSection() {
   const [voiceId, setVoiceId] = useState(STUDIO_VOICE_PRESETS[2]?.id ?? STUDIO_VOICE_PRESETS[0].id);
@@ -36,7 +43,6 @@ export default function VoiceSection() {
 
   const voices = STUDIO_VOICE_PRESETS.filter((voice) => filter === "all" || voice.gender === filter);
   const active = resolveVoicePreset(voiceId) ?? STUDIO_VOICE_PRESETS[0];
-  const freePlan = PLANS[0];
 
   return (
     <Section id="voice" tone="white">
@@ -44,7 +50,7 @@ export default function VoiceSection() {
         id="voice"
         eyebrow="04 · Voice Over"
         title={MESSAGES.voice}
-        lead={`${LIVE_COUNTS.voices} narrators — ${LIVE_COUNTS.maleVoices} male, ${LIVE_COUNTS.femaleVoices} female — with accents, tone and a preview before you commit. Narration can be generated for one scene or the whole project.`}
+        lead={`${LIVE_COUNTS.voices} narrators — ${LIVE_COUNTS.maleVoices} male, ${LIVE_COUNTS.femaleVoices} female — each with a preview before you commit.`}
       />
 
       <div className="mkt-split">
@@ -64,8 +70,8 @@ export default function VoiceSection() {
               ))}
             </ul>
             <p className="mkt-small" style={{ marginTop: 12 }}>
-              Narration never hard-fails: if no voice service is reachable the scene still gets a track of the right
-              length, so the video renders and you can add the voice later.
+              Narration never hard-fails: with no voice service reachable the scene still gets a track of the right
+              length, so the video renders.
             </p>
           </div>
 
@@ -98,8 +104,8 @@ export default function VoiceSection() {
           </div>
 
           <p className="mkt-small" style={{ marginTop: 14 }}>
-            On <b>{freePlan.name}</b>: {freePlan.workspace.voices.toLowerCase()}. On SceneFlow and SceneForge: all{" "}
-            {LIVE_COUNTS.voices}. {HONESTY.planLabel}.
+            <b>Free</b> includes {freeVoiceCount} narrators; SceneFlow and SceneForge include all{" "}
+            {LIVE_COUNTS.voices}.
           </p>
         </div>
 
@@ -145,7 +151,7 @@ export default function VoiceSection() {
 
               <div className="mkt-strip" role="listbox" aria-label="Narrator">
                 {voices.slice(0, 10).map((voice) => {
-                  const free = FREE_VOICE_IDS.includes(voice.id);
+                  const free = isPlanVoiceIncluded("free", voice.id);
                   return (
                     <button
                       key={voice.id}
@@ -226,7 +232,7 @@ export default function VoiceSection() {
               <div className="mkt-chiprow">
                 <span className="mkt-chip is-on">Narrate all scenes</span>
                 <span className="mkt-chip">Download narration</span>
-                <span className="mkt-chip">Room ambience</span>
+                <span className="mkt-chip">Room ambience · VIP</span>
                 <span className="mkt-chip">Pronunciation dictionary</span>
               </div>
               <p className="mkt-small">Project narration: {formatDuration(DEMO_TOTAL_SECONDS)}</p>

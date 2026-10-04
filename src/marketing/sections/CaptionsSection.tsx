@@ -6,6 +6,7 @@ import PlayerFrame from "../components/PlayerFrame";
 import { CAPTION_STYLES, loadCaptionFonts } from "../../data/caption-styles";
 import { DEMO_SCENES } from "../demo-project";
 import { HONESTY, LIVE_COUNTS, MESSAGES } from "../product-facts";
+import { PLAN_CONFIG, isPlanCaptionIncluded } from "../../config/plans";
 import Icon from "../../components/icons/Icon";
 
 /**
@@ -20,12 +21,17 @@ import Icon from "../../components/icons/Icon";
  * working and complete, not crippled.
  */
 
-/** Caption styles included with Free — a packaging decision, kept here. */
-const FREE_STYLE_IDS = ["newsroom_clean", "cinema_classic", "poster_impact"];
+/**
+ * Which styles Free includes comes from the plan configuration, not from a
+ * list typed on the website — the hand-written one here named three while
+ * the plan allowed two, so the page was quietly over-promising.
+ */
+const freeStyles = CAPTION_STYLES.filter((style) => isPlanCaptionIncluded("free", style.id));
+const freeStyleCount = PLAN_CONFIG.free.limits.captionStyles ?? freeStyles.length;
 
 export default function CaptionsSection() {
   const scene = DEMO_SCENES[3];
-  const [styleId, setStyleId] = useState(FREE_STYLE_IDS[0]);
+  const [styleId, setStyleId] = useState(freeStyles[0]?.id ?? CAPTION_STYLES[0].id);
   const style = CAPTION_STYLES.find((entry) => entry.id === styleId) ?? CAPTION_STYLES[0];
 
   // The caption typefaces are web fonts; load them once this section exists
@@ -40,7 +46,7 @@ export default function CaptionsSection() {
         id="captions"
         eyebrow="05 · Captions"
         title={MESSAGES.captions}
-        lead={`${LIVE_COUNTS.captionStyles} styles across ${LIVE_COUNTS.captionCategories} families — classical, formal, modern, artsy and fun. Word-by-word highlighting or a clean subtitle line, in your own colours if you want them.`}
+        lead={`${LIVE_COUNTS.captionStyles} styles across ${LIVE_COUNTS.captionCategories} families — word-by-word highlighting or a clean subtitle line, in your own colours.`}
       />
 
       <div className="mkt-split is-reverse">
@@ -56,8 +62,8 @@ export default function CaptionsSection() {
             <li>
               <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
-                <b>Word-by-word or line-by-line.</b> Karaoke highlighting for social cuts, a steady subtitle for
-                documentary work.
+                <b>Word-by-word or line-by-line.</b> Karaoke highlighting for social cuts, a steady subtitle
+                otherwise.
               </span>
             </li>
             <li>
@@ -69,8 +75,8 @@ export default function CaptionsSection() {
             <li>
               <span className="mkt-tick is-lock" aria-hidden="true"><Icon glyph="🔒" /></span>
               <span>
-                <b>{FREE_STYLE_IDS.length} styles on Free, all {LIVE_COUNTS.captionStyles} on SceneFlow.</b> The Free
-                set is complete and unmarked — nothing is watermarked to make a point.
+                <b>{freeStyleCount} styles on Free, all {LIVE_COUNTS.captionStyles} on SceneFlow.</b> Nothing is
+                watermarked to make a point.
               </span>
             </li>
           </ul>
@@ -157,7 +163,7 @@ export default function CaptionsSection() {
 
               <div style={{ display: "grid", gap: 8 }}>
                 {CAPTION_STYLES.map((entry) => {
-                  const free = FREE_STYLE_IDS.includes(entry.id);
+                  const free = isPlanCaptionIncluded("free", entry.id);
                   const on = entry.id === style.id;
                   return (
                     <button

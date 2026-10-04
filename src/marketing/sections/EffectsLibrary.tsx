@@ -31,7 +31,7 @@ export default function EffectsLibrary() {
         id="effects"
         eyebrow="Effects library"
         title="Everything you can put on top of a scene."
-        lead={`${live} kinds of effect are in the app today. ${soon} more are planned and marked as such — the website says which is which.`}
+        lead={`${live} kinds of effect are in the app today; ${soon} more are planned and labelled as such.`}
       />
 
       <figure className="mkt-figure" ref={galleryRef}>

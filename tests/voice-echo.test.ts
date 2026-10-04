@@ -365,6 +365,31 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
     studio.includes("{STUDIO_VOICE_PRESETS.filter((v) => v.gender === \"male\").length} Male"),
     "male filter count derives from the list"
   );
+
+  // The catalogue is two columns - male on the left, female on the right -
+  // and the voice a Free member can export sits at the top of each column.
+  h.ok(studio.includes("const VOICE_COLUMNS = useMemo("), "the voice list is grouped into columns");
+  h.ok(
+    studio.includes("return [column(\"male\", \"Male voices\"), column(\"female\", \"Female voices\")]"),
+    "male column is built first, so it renders on the left"
+  );
+  h.ok(
+    studio.includes("isPlanVoiceIncluded(\"free\", voice.id)"),
+    "the free voice is pinned to the top of its column, read from the plan config"
+  );
+  h.ok(
+    !studio.includes("filteredVoices"),
+    "the old single ungrouped grid is gone"
+  );
+  h.ok(
+    studio.includes("genderFilter === \"all\" ? \"grid-cols-1 md:grid-cols-2\" : \"grid-cols-1\"") &&
+      studio.includes("genderFilter === \"all\" || genderFilter === column.gender"),
+    "picking one gender collapses the layout to that single full-width column"
+  );
+
+  // Each column has a voice Free can export, so the pinned slot is never empty.
+  h.ok(ids.includes("guy"), "the free male voice (guy) is in the catalogue");
+  h.ok(ids.includes("jenny"), "the free female voice (jenny) is in the catalogue");
 }
 
 h.done("voice-echo");

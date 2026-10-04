@@ -183,6 +183,17 @@ export const ICON_FOR_GLYPH: Record<string, string> = {
   "☰": "menu",
   "●": "dot",
   "⬤": "dot",
+
+  // Fairy effects. These are catalogue icons rather than controls, so they
+  // borrow the nearest existing drawing instead of adding sprite shapes: a
+  // bubble and a smoke ring are circles, glitter and a fairy are sparkle, a
+  // falling star is a star, and a flare is the visualiser's radial burst.
+  "🫧": "ring",
+  "⭕": "ring",
+  "🧚": "sparkle",
+  "🌀": "sparkle",
+  "🌠": "star",
+  "✸": "visualiser",
 };
 
 /** Every drawing the sprite actually contains. */

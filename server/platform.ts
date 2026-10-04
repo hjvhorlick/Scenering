@@ -8,7 +8,7 @@ import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
 
 type User = { id: string; email: string; password_hash: string; display_name: string; email_verified: boolean; role?: "user" | "admin"; created_at: string; updated_at: string };
 type Membership = { id: string; user_id: string; plan_id: PlanSlug; status: "active" | "inactive"; created_at: string; updated_at: string };
-type Subscription = { id: string; user_id: string; provider: string; provider_customer_id?: string; provider_subscription_id?: string; provider_product_id?: string; provider_variant_id?: string; plan_id: PlanSlug; billing_interval: BillingInterval; status: string; current_period_start?: string; current_period_end?: string; cancel_at_period_end: boolean; cancelled_at?: string; expires_at?: string; created_at: string; updated_at: string };
+type Subscription = { id: string; user_id: string; provider: string; provider_customer_id?: string; provider_subscription_id?: string; provider_product_id?: string; provider_variant_id?: string; plan_id: PlanSlug; billing_interval: BillingInterval; status: string; current_period_start?: string; current_period_end?: string; cancel_at_period_end: boolean; cancelled_at?: string; expires_at?: string; /** Lemon Squeezy hosted pages, so a customer can cancel or change a card without emailing us. */ customer_portal_url?: string; update_payment_url?: string; card_brand?: string; card_last_four?: string; renewal_price?: string; created_at: string; updated_at: string };
 type UsageRecord = { id: string; user_id: string; kind: "final_export"; duration_minutes: number; format?: "short" | "long"; project_id?: string; reservation_id?: string; created_at: string };
 type ExportReservation = { id: string; user_id: string; project_id: string; duration_minutes: number; format: "short" | "long"; creative_manifest?: ExportCreativeManifest; status: "reserved" | "completed" | "cancelled"; expires_at: string; created_at: string; completed_at?: string };
 type ComplimentaryGrant = { id: string; user_id: string; plan_id: Exclude<PlanSlug, "free">; period: "month" | "year"; status: "active" | "revoked" | "expired"; starts_at: string; ends_at: string; granted_by: string; reason?: string; access_code_id?: string; created_at: string; revoked_at?: string };
@@ -47,7 +47,20 @@ function saveDb(db: PlatformDb) {
   renameSync(temp, DB_PATH);
 }
 function mutate<T>(fn: (db: PlatformDb) => T): T { const db = loadDb(); const result = fn(db); saveDb(db); return result; }
-function clean(db: PlatformDb) { db.tokens = db.tokens.filter((t) => Date.parse(t.expires_at) > Date.now()); for (const reservation of db.export_reservations || []) if (reservation.status === "reserved" && Date.parse(reservation.expires_at) <= Date.now()) reservation.status = "cancelled"; for (const grant of db.complimentary_grants || []) if (grant.status === "active" && Date.parse(grant.ends_at) <= Date.now()) grant.status = "expired"; for (const code of db.complimentary_codes || []) if (code.status === "active" && Date.parse(code.expires_at) <= Date.now()) code.status = "expired"; }
+function clean(db: PlatformDb) { db.tokens = db.tokens.filter((t) => Date.parse(t.expires_at) > Date.now()); for (const reservation of db.export_reservations || []) if (reservation.status === "reserved" && Date.parse(reservation.expires_at) <= Date.now()) reservation.status = "cancelled"; for (const grant of db.complimentary_grants || []) if (grant.status === "active" && Date.parse(grant.ends_at) <= Date.now()) grant.status = "expired"; for (const code of db.complimentary_codes || []) if (code.status === "active" && Date.parse(code.expires_at) <= Date.now()) code.status = "expired";
+  /* A subscription that was cancelled or is in dunning keeps its plan until
+     the period that was paid for runs out. Lemon Squeezy sends an expiry
+     event then, but a webhook that is never delivered must not leave a paid
+     plan switched on forever, so the stored end date is the backstop. */
+  for (const sub of db.subscriptions || []) {
+    if (sub.status === "expired" || ["active", "on_trial"].includes(sub.status)) continue;
+    const ends = Date.parse(String(sub.expires_at || sub.current_period_end || ""));
+    if (!Number.isFinite(ends) || ends > Date.now()) continue;
+    sub.status = "expired"; sub.updated_at = now();
+    const member = db.memberships.find((m) => m.user_id === sub.user_id && m.status === "active");
+    if (member && member.plan_id !== "free") { member.plan_id = "free"; member.updated_at = now(); }
+  }
+}
 function passwordHash(password: string): string { const salt = randomBytes(16); const derived = scryptSync(password, salt, 64); return `scrypt:${salt.toString("hex")}:${derived.toString("hex")}`; }
 function passwordMatches(password: string, stored: string): boolean {
   const [, saltHex, hashHex] = stored.split(":");
@@ -72,7 +85,10 @@ function issueToken(db: PlatformDb, userId: string, purpose: Token["purpose"], h
 }
 function safeUser(user: User) { return { id: user.id, email: user.email, displayName: user.display_name, emailVerified: user.email_verified, role: user.role || "user", createdAt: user.created_at }; }
 function membershipFor(db: PlatformDb, userId: string) { return db.memberships.find((m) => m.user_id === userId && m.status === "active") || null; }
-function subscriptionFor(db: PlatformDb, userId: string) { return db.subscriptions.find((s) => s.user_id === userId && !["expired", "cancelled"].includes(s.status)) || null; }
+/** The subscription worth showing. A cancelled one is still shown while the
+ *  paid period runs, so the customer can see the end date and reopen the
+ *  Lemon Squeezy portal to resume. */
+function subscriptionFor(db: PlatformDb, userId: string) { return db.subscriptions.find((s) => s.user_id === userId && s.status !== "expired") || null; }
 function createComplimentaryGrant(db: PlatformDb, userId: string, planId: Exclude<PlanSlug, "free">, period: "month" | "year", grantedBy: string, reason?: string, accessCodeId?: string) {
   for (const grant of db.complimentary_grants) if (grant.user_id === userId && grant.status === "active") { grant.status = "revoked"; grant.revoked_at = now(); }
   const start = new Date(); const end = new Date(start); if (period === "month") end.setUTCMonth(end.getUTCMonth() + 1); else end.setUTCFullYear(end.getUTCFullYear() + 1);
@@ -127,6 +143,54 @@ const rateBuckets = new Map<string, number[]>();
 export function platformRateLimit(name: string, max: number, windowMs: number) { return (req: Request, res: Response, next: NextFunction) => { const key = `${name}:${(req as any).auth?.user?.id || req.ip}`; const cutoff = Date.now() - windowMs; if (rateBuckets.size > 10000) { for (const [bucket, timestamps] of rateBuckets) { const active = timestamps.filter((time) => time > cutoff); if (active.length) rateBuckets.set(bucket, active); else rateBuckets.delete(bucket); } } const hits = (rateBuckets.get(key) || []).filter((t) => t > cutoff); if (hits.length >= max) { res.setHeader("Retry-After", String(Math.ceil(windowMs / 1000))); return res.status(429).json({ error: "Too many requests. Please try again later." }); } hits.push(Date.now()); rateBuckets.set(key, hits); next(); }; }
 const rateLimit = platformRateLimit;
 
+/**
+ * The Lemon Squeezy events this server acts on. Everything else the store
+ * sends (orders, licence keys, refunds) is recorded and ignored rather than
+ * being guessed at: an order event carries an order id where this code
+ * expects a subscription id, and treating one as the other would create a
+ * subscription row that no later event could ever update.
+ */
+export const LEMON_SQUEEZY_SUBSCRIPTION_EVENTS = [
+  "subscription_created", "subscription_updated", "subscription_cancelled", "subscription_resumed",
+  "subscription_expired", "subscription_paused", "subscription_unpaused",
+  "subscription_payment_failed", "subscription_payment_success", "subscription_payment_recovered",
+] as const;
+export const LEMON_SQUEEZY_WEBHOOK_PATH = "/api/webhooks/lemonsqueezy";
+
+/**
+ * What is, and is not, configured for billing. The owner sees this as a
+ * checklist in the administration panel, so going live is a matter of filling
+ * the gaps it names rather than reading the source.
+ */
+export function billingConfiguration() {
+  const plans = PLAN_ORDER.slice(1).map((slug) => ({
+    plan: slug,
+    name: PLAN_CONFIG[slug].name,
+    intervals: (["monthly", "yearly"] as const).map((interval) => ({
+      interval,
+      checkoutEnv: PLAN_CONFIG[slug].checkoutEnv[interval],
+      checkoutUrlSet: Boolean(process.env[PLAN_CONFIG[slug].checkoutEnv[interval]]),
+      variantEnv: PLAN_CONFIG[slug].variantEnv[interval],
+      variantIdSet: Boolean(process.env[PLAN_CONFIG[slug].variantEnv[interval]]),
+    })),
+  }));
+  const webhookSecretSet = Boolean(process.env.LEMON_SQUEEZY_WEBHOOK_SECRET);
+  const everyLinkSet = plans.every((plan) => plan.intervals.every((i) => i.checkoutUrlSet && i.variantIdSet));
+  return {
+    provider: "lemonsqueezy",
+    webhookSecretSet,
+    apiKeySet: Boolean(process.env.LEMON_SQUEEZY_API_KEY),
+    storeIdSet: Boolean(process.env.LEMON_SQUEEZY_STORE_ID),
+    publicAppUrlSet: Boolean(process.env.PUBLIC_APP_URL),
+    webhookPath: LEMON_SQUEEZY_WEBHOOK_PATH,
+    webhookUrl: process.env.PUBLIC_APP_URL ? `${process.env.PUBLIC_APP_URL.replace(/\/$/, "")}${LEMON_SQUEEZY_WEBHOOK_PATH}` : null,
+    requiredEvents: [...LEMON_SQUEEZY_SUBSCRIPTION_EVENTS],
+    plans,
+    /** True when a real customer could buy a plan and have access granted. */
+    ready: webhookSecretSet && everyLinkSet && Boolean(process.env.PUBLIC_APP_URL),
+  };
+}
+
 export function registerLemonSqueezyWebhook(app: Express) {
   app.post("/api/webhooks/lemonsqueezy", express.raw({ type: "application/json", limit: "2mb" }), (req, res) => {
     const secret = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET; if (!secret) return res.status(503).json({ error: "Billing webhook is not configured" });
@@ -137,17 +201,26 @@ export function registerLemonSqueezyWebhook(app: Express) {
     const eventId = String(event.meta?.event_id || event.data?.id || ""); const eventName = String(event.meta?.event_name || ""); if (!eventId || !eventName) return res.status(400).json({ error: "Invalid event" });
     const result = mutate((db) => {
       if (db.webhook_events.some((e) => e.provider_event_id === eventId)) return "duplicate";
+      const record = (status: string) => { db.webhook_events.push({ id: id("wh"), provider_event_id: eventId, event_name: eventName, status, payload: { data_id: event.data?.id, variant_id: event.data?.attributes?.variant_id, status: event.data?.attributes?.status }, created_at: now() }); return status; };
+      if (!(LEMON_SQUEEZY_SUBSCRIPTION_EVENTS as readonly string[]).includes(eventName)) return record("ignored");
       const attrs = event.data?.attributes || {}; const custom = event.meta?.custom_data || {}; const email = String(attrs.user_email || custom.email || "").toLowerCase();
-      const userById = custom.user_id ? db.users.find((u) => u.id === custom.user_id) : undefined; const user = userById && (!email || userById.email === email) ? userById : (!custom.user_id ? db.users.find((u) => u.email === email) : undefined); if (!user) { db.webhook_events.push({ id: id("wh"), provider_event_id: eventId, event_name: eventName, status: "unmatched", payload: { data_id: event.data?.id, variant_id: event.data?.attributes?.variant_id, status: event.data?.attributes?.status }, created_at: now() }); return "unmatched"; }
+      const userById = custom.user_id ? db.users.find((u) => u.id === custom.user_id) : undefined; const user = userById && (!email || userById.email === email) ? userById : (!custom.user_id ? db.users.find((u) => u.email === email) : undefined); if (!user) return record("unmatched");
       const variant = String(attrs.variant_id || ""); let mapped: { plan: PlanSlug; interval: BillingInterval } | null = null;
       for (const slug of PLAN_ORDER.slice(1)) for (const interval of ["monthly", "yearly"] as const) if (process.env[PLAN_CONFIG[slug].variantEnv[interval]] === variant) mapped = { plan: slug, interval };
-      if (!mapped) { db.webhook_events.push({ id: id("wh"), provider_event_id: eventId, event_name: eventName, status: "unknown_variant", payload: { data_id: event.data?.id, variant_id: event.data?.attributes?.variant_id, status: event.data?.attributes?.status }, created_at: now() }); return "unknown_variant"; }
+      if (!mapped) return record("unknown_variant");
       const statusMap: Record<string, string> = { subscription_created: "active", subscription_updated: attrs.status || "active", subscription_cancelled: "cancelled", subscription_resumed: "active", subscription_expired: "expired", subscription_paused: "paused", subscription_unpaused: "active", subscription_payment_failed: "past_due", subscription_payment_success: "active", subscription_payment_recovered: "active" };
       const status = statusMap[eventName] || attrs.status || "pending"; let sub = db.subscriptions.find((s) => s.provider_subscription_id === String(event.data.id));
       if (!sub) { sub = { id: id("sub"), user_id: user.id, provider: "lemonsqueezy", plan_id: mapped.plan, billing_interval: mapped.interval, status, cancel_at_period_end: false, created_at: now(), updated_at: now() }; db.subscriptions.push(sub); }
-      Object.assign(sub, { provider_customer_id: String(attrs.customer_id || ""), provider_subscription_id: String(event.data.id), provider_product_id: String(attrs.product_id || ""), provider_variant_id: variant, plan_id: mapped.plan, billing_interval: mapped.interval, status, current_period_start: attrs.created_at, current_period_end: attrs.renews_at, expires_at: attrs.ends_at, cancelled_at: status === "cancelled" ? now() : undefined, updated_at: now() });
-      const paid = ["active", "on_trial"].includes(status); const member = membershipFor(db, user.id) || db.memberships.find((m) => m.user_id === user.id)!; member.plan_id = paid ? mapped.plan : "free"; member.status = "active"; member.updated_at = now();
-      db.webhook_events.push({ id: id("wh"), provider_event_id: eventId, event_name: eventName, status: "processed", payload: { data_id: event.data?.id, variant_id: event.data?.attributes?.variant_id, status: event.data?.attributes?.status }, created_at: now() }); db.billing_events.push({ id: id("bill"), user_id: user.id, subscription_id: sub.id, event_name: eventName, from_provider: true, created_at: now() }); return "processed";
+      const urls = (attrs.urls || {}) as Record<string, string>; const portal = typeof urls.customer_portal === "string" && urls.customer_portal.startsWith("https://") ? urls.customer_portal : undefined; const updatePayment = typeof urls.update_payment_method === "string" && urls.update_payment_method.startsWith("https://") ? urls.update_payment_method : undefined;
+      Object.assign(sub, { provider_customer_id: String(attrs.customer_id || ""), provider_subscription_id: String(event.data.id), provider_product_id: String(attrs.product_id || ""), provider_variant_id: variant, plan_id: mapped.plan, billing_interval: mapped.interval, status, current_period_start: attrs.created_at, current_period_end: attrs.renews_at, expires_at: attrs.ends_at, cancel_at_period_end: Boolean(attrs.cancelled), cancelled_at: status === "cancelled" ? now() : undefined, customer_portal_url: portal, update_payment_url: updatePayment, card_brand: attrs.card_brand ? String(attrs.card_brand).slice(0, 40) : undefined, card_last_four: attrs.card_last_four ? String(attrs.card_last_four).slice(0, 4) : undefined, renewal_price: attrs.renewal_price ? String(attrs.renewal_price) : undefined, updated_at: now() });
+      const periodEnd = Date.parse(String(attrs.ends_at || attrs.renews_at || "")); const paidThrough = Number.isFinite(periodEnd) && periodEnd > Date.now();
+      /* "cancelled" at Lemon Squeezy means "will not renew", not "stop now",
+         and a failed payment opens a retry window rather than ending the
+         subscription. Both keep the plan until the period that was paid for
+         actually ends; clean() drops it on the day, in case the expiry
+         webhook never arrives. */
+      const paid = ["active", "on_trial"].includes(status) || (["cancelled", "past_due"].includes(status) && paidThrough); const member = membershipFor(db, user.id) || db.memberships.find((m) => m.user_id === user.id)!; member.plan_id = paid ? mapped.plan : "free"; member.status = "active"; member.updated_at = now();
+      record("processed"); db.billing_events.push({ id: id("bill"), user_id: user.id, subscription_id: sub.id, event_name: eventName, from_provider: true, created_at: now() }); return "processed";
     });
     return res.status(result === "unmatched" || result === "unknown_variant" ? 202 : 200).json({ received: true, status: result });
   });
@@ -181,7 +254,7 @@ export function registerPlatformRoutes(app: Express) {
   app.post("/api/usage/final-export/cancel", requireUser, rateLimit("export-cancel", 60, 3600000), (req, res) => { const { user } = (req as any).auth; const reservationId = String(req.body?.reservationId || ""); mutate((db) => { const row = db.export_reservations.find((r) => r.id === reservationId && r.user_id === user.id && r.status === "reserved"); if (row) row.status = "cancelled"; }); res.json({ cancelled: true }); });
   app.post("/api/usage/final-export", requireUser, (req, res) => { const { user } = (req as any).auth; const duration = Number(req.body?.durationMinutes); const format = req.body?.format === "short" ? "short" : "long"; if (!(duration > 0)) return res.status(400).json({ error: "Valid duration required" }); const recorded = mutate((db) => { if (!canExport(db, user.id, duration, format)) return false; db.usage_records.push({ id: id("use"), user_id: user.id, kind: "final_export", duration_minutes: duration, format, project_id: String(req.body?.projectId || ""), created_at: now() }); return true; }); return recorded ? res.status(201).json({ recorded: true }) : res.status(403).json({ error: "Your final-export allowance has been reached. Previews remain unlimited." }); });
   app.get("/api/billing/checkout/:plan/:interval", requireUser, rateLimit("checkout", 20, 3600000), (req, res) => { const { user } = (req as any).auth as { user: User }; const slug = req.params.plan as PlanSlug; const interval = req.params.interval as BillingInterval; if (!PLAN_CONFIG[slug] || slug === "free" || !["monthly", "yearly"].includes(interval)) return res.status(400).json({ error: "Invalid plan selection" }); const env = PLAN_CONFIG[slug].checkoutEnv[interval]; const configured = process.env[env]; if (!configured) return res.status(503).json({ error: "Checkout is not configured yet.", code: "BILLING_NOT_CONFIGURED" }); let checkout: URL; try { checkout = new URL(configured); } catch { return res.status(503).json({ error: "Checkout configuration is invalid." }); } if (checkout.protocol !== "https:" && process.env.NODE_ENV === "production") return res.status(503).json({ error: "Checkout must use HTTPS." }); checkout.searchParams.set("checkout[custom][user_id]", user.id); checkout.searchParams.set("checkout[email]", user.email); res.setHeader("Cache-Control", "no-store"); res.json({ url: checkout.toString() }); });
-  app.get("/api/admin/overview", requireAdmin, rateLimit("admin-overview", 120, 3600000), (req, res) => { const { db } = (req as any).auth as { db: PlatformDb }; res.setHeader("Cache-Control", "no-store"); res.json({ owner: "Henry John Vincent Horlick", organization: "Horlick Group", users: db.users.map((user) => ({ ...safeUser(user), membership: effectiveMembership(db, user.id), subscription: subscriptionFor(db, user.id), complimentaryGrant: activeComplimentaryGrant(db, user.id), usage: weeklyUsage(db, user.id), marketingConsent: db.email_preferences.find((pref) => pref.user_id === user.id)?.marketing_consent || false })), complimentaryCodes: [...(db.complimentary_codes || [])].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 100).map(({ code_hash: _hash, ...code }) => code), contacts: [...db.contact_submissions].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 200), plans: PLAN_ORDER.map((slug) => PLAN_CONFIG[slug]), configuration: { emailProviderConfigured: Boolean(process.env.EMAIL_PROVIDER && process.env.EMAIL_PROVIDER !== "console"), lemonSqueezyConfigured: Boolean(process.env.LEMON_SQUEEZY_WEBHOOK_SECRET), publicAppUrlConfigured: Boolean(process.env.PUBLIC_APP_URL), production: process.env.NODE_ENV === "production" } }); });
+  app.get("/api/admin/overview", requireAdmin, rateLimit("admin-overview", 120, 3600000), (req, res) => { const { db } = (req as any).auth as { db: PlatformDb }; res.setHeader("Cache-Control", "no-store"); res.json({ owner: "Henry John Vincent Horlick", organization: "Horlick Group", users: db.users.map((user) => ({ ...safeUser(user), membership: effectiveMembership(db, user.id), subscription: subscriptionFor(db, user.id), complimentaryGrant: activeComplimentaryGrant(db, user.id), usage: weeklyUsage(db, user.id), marketingConsent: db.email_preferences.find((pref) => pref.user_id === user.id)?.marketing_consent || false })), complimentaryCodes: [...(db.complimentary_codes || [])].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 100).map(({ code_hash: _hash, ...code }) => code), contacts: [...db.contact_submissions].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 200), plans: PLAN_ORDER.map((slug) => PLAN_CONFIG[slug]), configuration: { emailProviderConfigured: Boolean(process.env.EMAIL_PROVIDER && process.env.EMAIL_PROVIDER !== "console"), lemonSqueezyConfigured: Boolean(process.env.LEMON_SQUEEZY_WEBHOOK_SECRET), publicAppUrlConfigured: Boolean(process.env.PUBLIC_APP_URL), production: process.env.NODE_ENV === "production" }, billing: billingConfiguration(), webhookEvents: [...db.webhook_events].slice(-25).reverse() }); });
   app.post("/api/admin/complimentary-codes", requireAdmin, rateLimit("admin-code", 60, 3600000), (req, res) => { const { user: admin } = (req as any).auth as { user: User }; const planId = req.body?.planId as PlanSlug; const period = "year" as const; const validForDays = [7, 30, 90].includes(Number(req.body?.validForDays)) ? Number(req.body.validForDays) : 30; if (!["sceneflow", "sceneforge"].includes(planId)) return res.status(400).json({ error: "Choose a complimentary plan." }); const raw = `SCN-${randomBytes(12).toString("hex").toUpperCase()}`; const record = mutate((db) => { const created = new Date(); const expires = new Date(created.getTime() + validForDays * 86400000); const code: ComplimentaryCode = { id: id("code"), code_hash: hashToken(raw), code_prefix: `${raw.slice(0, 8)}…${raw.slice(-4)}`, plan_id: planId as Exclude<PlanSlug, "free">, period, status: "active", expires_at: expires.toISOString(), created_by: admin.id, created_at: created.toISOString() }; db.complimentary_codes.push(code); return code; }); res.status(201).json({ code: raw, codeId: record.id, planId: record.plan_id, period: record.period, expiresAt: record.expires_at, redeemUrl: `/register?code=${encodeURIComponent(raw)}` }); });
   app.post("/api/admin/complimentary-codes/:id/revoke", requireAdmin, rateLimit("admin-code-revoke", 60, 3600000), (req, res) => { const revoked = mutate((db) => { const code = db.complimentary_codes.find((entry) => entry.id === req.params.id && entry.status === "active"); if (!code) return false; code.status = "revoked"; return true; }); return revoked ? res.json({ revoked: true }) : res.status(404).json({ error: "Active access code not found." }); });
   app.post("/api/complimentary-codes/redeem", requireUser, rateLimit("code-redeem", 20, 3600000), (req, res) => { const { user } = (req as any).auth as { user: User }; const raw = String(req.body?.code || "").trim().toUpperCase(); if (!raw || raw.length > 100 || user.role === "admin") return res.status(400).json({ error: "This access code is not valid." }); const result = mutate((db) => { clean(db); const code = db.complimentary_codes.find((entry) => entry.code_hash === hashToken(raw) && entry.status === "active" && Date.parse(entry.expires_at) > Date.now()); if (!code) return null; code.status = "redeemed"; code.redeemed_by = user.id; code.redeemed_at = now(); const grant = createComplimentaryGrant(db, user.id, code.plan_id, code.period, code.created_by, "Complimentary access code", code.id); db.billing_events.push({ id: id("bill"), user_id: user.id, event_name: "complimentary_code_redeemed", from_provider: false, code_id: code.id, plan_id: code.plan_id, period: code.period, ends_at: grant.ends_at, created_at: now() }); return { grant, membership: effectiveMembership(db, user.id) }; }); return result ? res.json({ redeemed: true, ...result }) : res.status(400).json({ error: "This access code is invalid, expired, revoked, or already used." }); });

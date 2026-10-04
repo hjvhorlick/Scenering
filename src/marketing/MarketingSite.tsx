@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import "./marketing.css";
-import { navigate, sectionForPath } from "../lib/route";
+import { navigate, scrollToSection, sectionForPath } from "../lib/route";
 import { BrandMark, Stat } from "./components/primitives";
 import BackToTop from "./components/BackToTop";
 import Hero from "./sections/Hero";
@@ -65,14 +65,28 @@ export default function MarketingSite() {
     return () => document.documentElement.removeAttribute("data-mkt");
   }, []);
 
-  // /pricing, /scenes and friends open the page at that section.
+  /**
+   * /scenes, /captions, /pricing and friends open the page at that area.
+   *
+   * It listens for navigation as well as running once: the corner menu's
+   * section shortcuts and the Back button both change the path without
+   * reloading, and a shortcut that only worked on a cold load was a shortcut
+   * that appeared to do nothing. The first run waits a frame so the lazy
+   * parts of the page have laid out before anything is scrolled to.
+   */
   useEffect(() => {
-    const section = sectionForPath(window.location.pathname);
-    if (!section) return;
-    const target = document.getElementById(section);
-    if (!target) return;
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    let timer = 0;
+    const jump = () => {
+      const section = sectionForPath(window.location.pathname);
+      if (!section) return;
+      timer = window.setTimeout(() => scrollToSection(section), 60);
+    };
+    jump();
+    window.addEventListener("popstate", jump);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("popstate", jump);
+    };
   }, []);
 
   const conceptCount = MARKETING_ASSETS.filter((asset) => asset.status === "concept").length;

@@ -46,7 +46,7 @@ import {
   DEMO_TIMELINE_EXTRAS,
   DEMO_TOTAL_SECONDS,
 } from "../src/marketing/demo-project";
-import { normalizePath, routeForPath, sectionForPath, SITE_SECTION_PATHS } from "../src/lib/route";
+import { normalizePath, routeForPath, sectionForPath, SITE_SECTIONS, SITE_SECTION_PATHS } from "../src/lib/route";
 
 import { CAPTION_STYLES } from "../src/data/caption-styles";
 import { PROJECT_PHASES } from "../src/components/StepNav";
@@ -777,6 +777,37 @@ for (const [path, section] of Object.entries(SITE_SECTION_PATHS)) {
 }
 ok(read("src/shared/SiteCornerMenu.tsx").includes('["/", "Home"]'), "the shared app menu links back to the website");
 
+/* ------------------------------------------ 9b. caption specimens ----- */
+
+/* Every style in the catalogue is pale lettering carried by a dark outline
+   and a dark shadow. Set on black, both disappear and the specimen is a
+   faint smudge; the strip behind it has to be grey enough for the outline
+   to register and dark enough for white text to stay crisp. */
+{
+  const stage = css.slice(css.indexOf(".mkt-capstage {"), css.indexOf(".mkt-capstage {") + 700);
+  const greys = [...stage.matchAll(/#([0-9a-f]{6})\b/gi)].map((m) => m[1]);
+  ok(greys.length >= 2, "the caption strip has a background");
+  // WCAG relative luminance: sRGB channels linearised, then weighted.
+  const chan = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  const lum = (hex: string) =>
+    0.2126 * chan(parseInt(hex.slice(0, 2), 16) / 255) +
+    0.7152 * chan(parseInt(hex.slice(2, 4), 16) / 255) +
+    0.0722 * chan(parseInt(hex.slice(4, 6), 16) / 255);
+  const darkest = Math.min(...greys.map(lum));
+  const lightest = Math.max(...greys.map(lum));
+  ok(darkest > 0.015, `the caption strip is grey, not black (darkest stop ${darkest.toFixed(3)})`);
+  ok(lightest < 0.2, `and still dark enough for white captions (lightest stop ${lightest.toFixed(3)})`);
+  // White text on the lightest stop must still clear WCAG AA for body text.
+  const contrast = (1.05) / (lightest + 0.05);
+  ok(contrast >= 7, `white caption text keeps ${contrast.toFixed(1)}:1 contrast on the strip`);
+
+  // The studio's own specimen box made the same mistake and gets the same
+  // treatment, so a style looks the same in both places.
+  const studio = read("src/components/CaptionsStudio.tsx");
+  ok(!/rounded-lg bg-black\/40 border border-hairline overflow-hidden text-center/.test(studio), "the studio specimen box is no longer set on black");
+  ok(/from-\[#4[0-9a-f]{5}\]/.test(studio), "the studio specimen box is set on dark grey");
+}
+
 /* --------------------------------------------------- 10. responsive */
 
 /* The page is long and most of it will be read on a phone. These checks are
@@ -879,6 +910,42 @@ ok(/Escape/.test(cornerMenu) && /setOpen\(false\)/.test(cornerMenu), "Escape clo
 ok(cornerMenu.includes("PRODUCT_LINKS.map"), "the corner menu lists every public product page");
 ok(cornerMenu.includes("Account, membership & billing"), "the same menu exposes account and billing inside the app");
 
+/* The menu's section shortcuts.
+ *
+ * The menu used to name the parts of the product and then link each one to a
+ * separate marketing page, so "Captions" never took anyone to the captions
+ * area of the front page. Every shortcut now addresses a real section id, and
+ * the front page scrolls to it on navigation as well as on a cold load. */
+{
+  ok(cornerMenu.includes("SITE_SECTIONS.map"), "the menu builds its shortcuts from the one section list");
+  ok(cornerMenu.includes("goToSection(section.id)"), "a shortcut goes to the section, not to another page");
+  ok(cornerMenu.includes("Jump to a section"), "the shortcut group says what it is");
+
+  const renderedIds = new Set<string>();
+  for (const { name, text } of marketingFiles) {
+    if (!/sections\/.*\.tsx$/.test(name)) continue;
+    for (const match of text.matchAll(/<Section id="([^"]+)"/g)) renderedIds.add(match[1]);
+  }
+  for (const match of site.matchAll(/<section className="mkt-section" id="([^"]+)"/g)) renderedIds.add(match[1]);
+
+  ok(SITE_SECTIONS.length >= 8, `${SITE_SECTIONS.length} areas of the front page are reachable from the menu`);
+  for (const section of SITE_SECTIONS) {
+    ok(renderedIds.has(section.id), `menu shortcut "${section.label}" points at #${section.id}, which the page renders`);
+    ok(section.label.trim().length > 2, `menu shortcut #${section.id} is named for a human`);
+    h.eq(sectionForPath(section.path), section.id, `${section.path} deep-links to #${section.id}`);
+  }
+  const labels = SITE_SECTIONS.map((entry) => entry.label);
+  h.eq(new Set(labels).size, labels.length, "no two shortcuts carry the same name");
+
+  // The scroll has to survive client-side navigation: the shortcut changes
+  // the path without a reload, so a one-shot mount effect would do nothing.
+  ok(site.includes('window.addEventListener("popstate", jump)'), "the front page re-scrolls when the path changes");
+  ok(site.includes("scrollToSection(section)"), "…using the shared helper the question band uses");
+  const route = read("src/lib/route.ts");
+  ok(route.includes("prefers-reduced-motion"), "the shared scroll honours reduced motion");
+  ok(route.includes("is-answering"), "…and flashes the area so the eye lands on it");
+}
+
 /* Back to top. */
 const totop = read("src/marketing/components/BackToTop.tsx");
 ok(site.includes("<BackToTop />"), "the page mounts a back-to-top control");
@@ -907,6 +974,35 @@ for (const size of imgSizes) {
   } else {
     const fixed = Number(value.match(/^(\d+)px$/)?.[1] ?? NaN);
     ok(fixed > 0 && fixed < PHONE, `fixed thumbnail fits a ${PHONE}px screen: ${value}`);
+  }
+}
+
+/* The corner menu's panel head carries the real wordmark, not a letter tile.
+   It is the same artwork the front page uses, at both encoded widths. */
+{
+  const cornerMenu = read("src/shared/SiteCornerMenu.tsx");
+  const cornerCss = read("src/shared/site-corner-menu.css");
+  h.ok(
+    cornerMenu.includes('src="/marketing/mark-scenering-240.webp"'),
+    "the menu head shows the Scenering wordmark"
+  );
+  h.ok(
+    cornerMenu.includes('srcSet="/marketing/mark-scenering-120.webp 120w, /marketing/mark-scenering-240.webp 240w"'),
+    "the wordmark is offered at both encoded widths"
+  );
+  h.ok(cornerMenu.includes('alt="Scenering"'), "the wordmark names itself for screen readers");
+  h.ok(
+    cornerMenu.includes("width={240}") && cornerMenu.includes("height={76}"),
+    "the wordmark declares its intrinsic size, so the panel does not jump as it loads"
+  );
+  h.ok(!cornerMenu.includes("sc-corner-mark"), "the old letter tile is gone");
+  h.ok(!cornerCss.includes(".sc-corner-mark"), "the letter tile's styles went with it");
+  h.ok(cornerCss.includes(".sc-corner-logo"), "the wordmark is sized by the menu stylesheet");
+  for (const width of [120, 240]) {
+    h.ok(
+      existsSync(join(repoRoot, `public/marketing/mark-scenering-${width}.webp`)),
+      `mark-scenering-${width}.webp is on disk for the menu`
+    );
   }
 }
 

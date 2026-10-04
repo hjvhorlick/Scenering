@@ -5,7 +5,7 @@ import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval } from "../../config/plan
 export default function Pricing() {
   const [interval, setInterval] = useState<BillingInterval>("monthly");
   return <Section id="pricing" tone="white">
-    <SectionHead id="pricing" eyebrow="Pricing" title="Free is real. Paid adds creative range and capacity." lead="Preview and perfect your video as much as you need. Your plan allowance applies to meaningful final exports—not preview renders." />
+    <SectionHead id="pricing" eyebrow="Pricing" title="Free is real. Paid adds creative range and capacity." lead="Preview as much as you need — your allowance is spent on final downloads, not on previews." />
     <div className="pub-toggle" role="group" aria-label="Billing interval"><button className={interval === "monthly" ? "is-on" : ""} onClick={() => setInterval("monthly")}>Monthly</button><button className={interval === "yearly" ? "is-on" : ""} onClick={() => setInterval("yearly")}>Yearly</button></div>
     <div className="pub-plans">
       {PLAN_ORDER.map((slug) => { const plan = PLAN_CONFIG[slug]; const price = plan.prices[interval]; const capacity = slug === "free" ? "2 Shorts + 1 long-video download each week" : slug === "sceneflow" ? "15 final video downloads each week" : "Unlimited final downloads, subject to fetched/upstream API service limits"; return <article className={`pub-plan${slug === "sceneflow" ? " is-featured" : ""}`} key={slug}>

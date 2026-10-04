@@ -3,7 +3,18 @@ import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { cancelFinalExport, completeFinalExport, getEntitlements, reserveFinalExport } from "../lib/entitlements";
-import type { FeatureKey } from "../config/plans";
+import { CUSTOMISED_CTA_SUFFIX, type FeatureKey } from "../config/plans";
+import { getInterfacePlan, useSession } from "../lib/session";
+import { openMembershipPlans } from "./VipFeatureBadge";
+import {
+  INSERT_FEATURE,
+  auditVipForExport,
+  blockingVipFindings,
+  omittableVipFindings,
+  stripVipFromExport,
+  type VipFinding,
+} from "../lib/vip-export-audit";
+import { isCtaCustomised, isFreeCtaInsert } from "../data/cta-library";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
@@ -147,12 +158,9 @@ const EMPTY_RENDER_HEALTH: RenderHealthState = {
   wakeLock: "released",
 };
 
-const INSERT_FEATURE: Partial<Record<TimelineInsert["category"], FeatureKey>> = {
-  stickers: "stickers", content_cards: "text_templates", text_templates: "text_templates",
-  lower_thirds: "lower_thirds", audio_visualizers: "sound_visualiser", speech_reactive: "sound_visualiser",
-  background_music: "background_music", filters: "filters", sound_effects: "sound_effects",
-  special_effects: "special_effects", meditation: "special_effects", intro: "full_video_studio", outro: "full_video_studio",
-};
+/* INSERT_FEATURE now lives in src/lib/vip-export-audit.ts, so the warning on
+   screen, the dialog at the moment of pressing Render and the render itself
+   all read one table instead of three copies that could drift. */
 
 interface RenderViewProps {
   project: Project | null;
@@ -274,6 +282,33 @@ export default function RenderView({
   // Scenes with a short video clip are renderable even without a still image.
   const scenesWithImages = scenes.filter(sceneHasVisual);
   const activeLook = getPreset(videoFilter?.id);
+
+  /* ---------------------------------------------------------------- VIP
+     What this project contains that the membership does not include in a
+     final download. Previewing it is free and stays free; this is only
+     about the file that gets written. Recomputed as the project changes so
+     the notice on screen is never stale. */
+  const { account } = useSession();
+  const currentPlan = getInterfacePlan(account);
+  const vipFindings = useMemo(
+    () =>
+      auditVipForExport(currentPlan, {
+        inserts,
+        videoFilter,
+        sceneAnimationEnabled,
+        motionStyle,
+        captionsConfig,
+        selectedVoice,
+        voiceEcho,
+      }),
+    [currentPlan, inserts, videoFilter, sceneAnimationEnabled, motionStyle, captionsConfig, selectedVoice, voiceEcho]
+  );
+  const vipBlocking = useMemo(() => blockingVipFindings(vipFindings), [vipFindings]);
+  const vipOmittable = useMemo(() => omittableVipFindings(vipFindings), [vipFindings]);
+  /** Set when the creator presses Render and there is something to say first. */
+  const [vipPrompt, setVipPrompt] = useState<null | { format?: "mp4" | "webm" | "mov"; plan?: RenderPlan & { label?: string } }>(null);
+  /** What the last final render actually left out, reported after the fact. */
+  const [vipOmittedLast, setVipOmittedLast] = useState<VipFinding[]>([]);
   const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
   const totalDuration = scenesWithImages.reduce((sum, s) => sum + getSceneDuration(s), 0);
 
@@ -701,28 +736,81 @@ export default function RenderView({
   // failure or cancellation.
   const handleStartRender = async (
     targetFormat?: "mp4" | "webm" | "mov",
-    plan?: RenderPlan & { label?: string }
+    plan?: RenderPlan & { label?: string },
+    /** Set once the creator has seen, and accepted, the VIP warning below. */
+    vipAcknowledged = false
   ): Promise<{ blob: Blob; container: "mp4" | "webm" } | null> => {
     if (scenesWithImages.length === 0 || isRendering) return null;
 
     // Draft is an unmetered preview. Every other encode reserves allowance
     // atomically before expensive work starts, preventing parallel-tab races.
     const isFinalExport = Boolean(plan) || settings.quality !== "draft";
+
+    /* ------------------------------------------------------------- VIP
+       A draft is a preview and shows everything. A FINAL download is the
+       file people keep, and it goes out with only what the membership
+       includes. Two things happen here, in this order:
+
+       1. Nobody is surprised. If there is anything VIP in the project the
+          render does not start — the dialog opens first and says exactly
+          what is in there and what is about to happen to it.
+       2. The renderer is handed a cleaned copy either way. Everything
+          below draws from `exportInserts` / `exportFilter` / … rather than
+          the project's own values, so a paid effect cannot reach the file
+          through a check that was missed, a plan that changed mid-session
+          or a stale answer from the server. */
+    if (isFinalExport && vipFindings.length > 0 && !vipAcknowledged) {
+      setVipPrompt({ format: targetFormat, plan });
+      return null;
+    }
+    /* Cleaned for EVERY render, draft included. A draft is a cheap, unmetered
+       encode, but it is still a file: it lands in the Vault and it has a
+       download button, so "the preview may show it" cannot stretch to cover
+       it. Watching the project play on this page is the preview; anything
+       that writes a video goes out with what the membership includes.
+       (The two findings that cannot be left out — the narration voice and
+       the caption style — only stop a FINAL download; a draft is allowed to
+       keep them, because it exists to be looked at and then thrown away.) */
+    const exportSafe = stripVipFromExport(currentPlan, {
+      inserts,
+      videoFilter,
+      sceneAnimationEnabled,
+      motionStyle,
+      captionsConfig,
+      selectedVoice,
+      voiceEcho,
+    });
+    const exportInserts = exportSafe.inserts;
+    const exportFilter = exportSafe.videoFilter;
+    const exportSceneAnimation = exportSafe.sceneAnimationEnabled;
+    const exportMotionStyle = exportSafe.motionStyle;
+    const exportVoiceEcho = exportSafe.voiceEcho;
+    setVipOmittedLast(exportSafe.removed);
+
     let exportReservationId: string | null = null;
     let exportCompleted = false;
     if (isFinalExport) {
       const durationMinutes = Math.max(0.01, totalDuration / 60);
       try {
+        // Everything here is measured on the cleaned render — what the file
+        // will contain — not on the project, which may still hold VIP work
+        // the creator wants to keep for when they upgrade.
         const required = new Set<FeatureKey>();
         if (!/^(guy|jenny)$/i.test(selectedVoice || "guy")) required.add("advanced_voice");
         if (captionsConfig?.enabled && !["newsroom_clean", "cinema_classic"].includes(captionsConfig.preset || "newsroom_clean")) required.add("premium_captions");
-        if (motionStyle && !["dynamic", "static", "none"].includes(motionStyle)) required.add("camera_movements");
-        if (sceneAnimationEnabled) required.add("special_effects");
-        if (videoFilter) required.add("filters");
-        for (const insert of inserts) {
+        if (exportMotionStyle && !["dynamic", "static", "none"].includes(exportMotionStyle)) required.add("camera_movements");
+        if (exportSceneAnimation) required.add("special_effects");
+        // Echo and ambience are written into the exported voice track, so the
+        // export is what they are charged against; previewing them stays free.
+        if (voiceEchoIsActive(resolveVoiceEcho(exportVoiceEcho))) required.add("voice_echo");
+        if (exportFilter) required.add("filters");
+        for (const insert of exportInserts) {
           const feature = INSERT_FEATURE[insert.category];
           if (feature) required.add(feature);
-          if (insert.category === "call_to_action" && insert.type !== "cta_youtube_subscribe") required.add("advanced_cta");
+          // Free includes ONE button: the standard Subscribe badge as it
+          // ships. Any other platform — and any badge restyled in the button
+          // settings, Subscribe included — is an advanced call to action.
+          if (insert.category === "call_to_action" && !isFreeCtaInsert(insert)) required.add("advanced_cta");
         }
         const membership = await getEntitlements(true);
         const denied = [...required].find((feature) => !membership.entitlements.features[feature]);
@@ -731,9 +819,14 @@ export default function RenderView({
           features: [...required],
           voice: selectedVoice || "guy",
           captionStyle: captionsConfig?.preset || "newsroom_clean",
-          backgroundMusic: inserts.filter((insert) => insert.category === "background_music").map((insert) => insert.type),
-          audioVisualisers: inserts.filter((insert) => insert.category === "audio_visualizers" || insert.category === "speech_reactive").map((insert) => insert.type),
-          callsToAction: inserts.filter((insert) => insert.category === "call_to_action").map((insert) => insert.type),
+          backgroundMusic: exportInserts.filter((insert) => insert.category === "background_music").map((insert) => insert.type),
+          audioVisualisers: exportInserts.filter((insert) => insert.category === "audio_visualizers" || insert.category === "speech_reactive").map((insert) => insert.type),
+          // A restyled badge is reported with the :custom suffix so the server
+          // refuses it by the same route as an unlisted platform, instead of
+          // seeing a type that looks like the free Subscribe button.
+          callsToAction: exportInserts
+            .filter((insert) => insert.category === "call_to_action")
+            .map((insert) => (isCtaCustomised(insert) ? `${insert.type}${CUSTOMISED_CTA_SUFFIX}` : insert.type)),
         };
         exportReservationId = await reserveFinalExport(project?.id ?? "unknown", durationMinutes, durationMinutes <= 1 ? "short" : "long", creativeManifest);
       } catch (authorizationError: any) {
@@ -1060,7 +1153,7 @@ export default function RenderView({
       const images: RenderImage[] = new Array(scenesWithImages.length).fill(null);
       const imageLoads = new Map<number, Promise<void>>();
       const fallbackScenes = new Set<number>();
-      const gradeForCache = getFilterCanvas(videoFilter, width);
+      const gradeForCache = getFilterCanvas(exportFilter, width);
       const clipPool = new ClipPool();
       clipPoolRef.current = clipPool;
 
@@ -1184,8 +1277,8 @@ export default function RenderView({
             console.warn("Intro section render notice:", e);
           }
 
-          if (inserts && inserts.length > 0) {
-            inserts
+          if (exportInserts && exportInserts.length > 0) {
+            exportInserts
               .filter((i) => i.category !== "intro" && i.category !== "outro")
               .forEach((ins) => {
                 try {
@@ -1212,8 +1305,8 @@ export default function RenderView({
             console.warn("Outro section render notice:", e);
           }
 
-          if (inserts && inserts.length > 0) {
-            inserts
+          if (exportInserts && exportInserts.length > 0) {
+            exportInserts
               .filter((i) => i.category !== "intro" && i.category !== "outro")
               .forEach((ins) => {
                 try {
@@ -1286,7 +1379,7 @@ export default function RenderView({
 
         const { scale, dx, dy } = getSceneCameraTransform(
           currentScene,
-          sceneAnimationEnabled,
+          exportSceneAnimation,
           progressInScene,
           width,
           height,
@@ -1322,7 +1415,7 @@ export default function RenderView({
             const { scale: prevScale, dx: prevDx, dy: prevDy } = prevScene
               ? getSceneCameraTransform(
                   prevScene,
-                  sceneAnimationEnabled,
+                  exportSceneAnimation,
                   1,
                   width,
                   height,
@@ -1347,13 +1440,13 @@ export default function RenderView({
                 motionScale: safeScale,
                 motionDx: safeDx + (width * safeScale - width) / 2,
                 motionDy: safeDy + (height * safeScale - height) / 2,
-                filter: getFilterCanvas(videoFilter, width),
+                filter: getFilterCanvas(exportFilter, width),
               },
               prevScene ? {
                 motionScale: safePrevScale,
                 motionDx: safePrevDx + (width * safePrevScale - width) / 2,
                 motionDy: safePrevDy + (height * safePrevScale - height) / 2,
-                filter: getFilterCanvas(videoFilter, width),
+                filter: getFilterCanvas(exportFilter, width),
               } : undefined
             );
           }
@@ -1365,7 +1458,7 @@ export default function RenderView({
               motionScale: safeScale,
               motionDx: safeDx + (width * safeScale - width) / 2,
               motionDy: safeDy + (height * safeScale - height) / 2,
-              filter: getFilterCanvas(videoFilter, width),
+              filter: getFilterCanvas(exportFilter, width),
             });
           } catch (drawErr) {
             console.warn("Scene draw notice:", drawErr);
@@ -1377,7 +1470,7 @@ export default function RenderView({
         }
 
         // --- Per-scene living-scene animation layers ---
-        if (sceneAnimationEnabled) {
+        if (exportSceneAnimation) {
           try {
             renderSceneAnimationEffects(
               ctx,
@@ -1395,7 +1488,7 @@ export default function RenderView({
 
         // --- Animated atmosphere of the project-wide filter ---
         try {
-          paintVideoFilter(ctx, videoFilter, width, height, currentGlobalTime);
+          paintVideoFilter(ctx, exportFilter, width, height, currentGlobalTime);
         } catch (filterErr) {
           console.warn("Video filter notice:", filterErr);
         }
@@ -1506,7 +1599,7 @@ export default function RenderView({
         }
 
         // --- Timeline Inserts & Overlays ---
-        if (inserts && inserts.length > 0) {
+        if (exportInserts && exportInserts.length > 0) {
           try {
             let audioLevel = 0.4;
             let freqData: Uint8Array | null = null;
@@ -1519,7 +1612,7 @@ export default function RenderView({
               freqData = (loudest.freq as Uint8Array) || null;
             }
 
-            inserts.forEach((insert) => {
+            exportInserts.forEach((insert) => {
               try {
                 renderTimelineInsert(ctx, insert, currentGlobalTime, width, height, audioLevel, freqData, insertAudioFrame, {
                   logo: customerLogo?.enabled ? customerLogoImgRef.current : null,
@@ -1614,7 +1707,7 @@ export default function RenderView({
           reportStage(`3/4: Frame-exact ${offlineProbe.videoCodec} + ${offlineProbe.audioCodec} — rendering audio…`);
           renderTimer.stage("audio graph");
           const offlineCtx = new OfflineAudioContext(2, Math.ceil(estimatedTotalDuration * 48_000), 48_000);
-          const visualizerFftSize = requiredVisualizerFftSize(inserts);
+          const visualizerFftSize = requiredVisualizerFftSize(exportInserts);
           const offlineMastering = createMasteringChain(offlineCtx, settings.audioMastering);
           offlineMastering.output.connect(offlineCtx.destination);
 
@@ -1632,7 +1725,7 @@ export default function RenderView({
           offlineMusicAnalyser.connect(offlineMastering.musicInput);
 
           let offlineEcho: VoiceEchoGraph | null = null;
-          const offlineEchoConfig = resolveVoiceEcho(voiceEcho);
+          const offlineEchoConfig = resolveVoiceEcho(exportVoiceEcho);
           if (voiceEchoIsActive(offlineEchoConfig)) {
             offlineEcho = createVoiceEchoGraph(offlineCtx, offlineEchoConfig);
             offlineEcho.output.connect(voiceAnalyser);
@@ -1670,7 +1763,7 @@ export default function RenderView({
           }
 
           const insertPlans = [
-            ...buildInsertAudioPlan(inserts, estimatedTotalDuration),
+            ...buildInsertAudioPlan(exportInserts, estimatedTotalDuration),
             ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
           ];
           const offlineInsertMixer = new InsertAudioMixer(offlineCtx, offlineMusicAnalyser);
@@ -2090,7 +2183,7 @@ export default function RenderView({
         }, Math.max(15, estimatedTotalDuration + 15) * 1000);
       });
 
-      const visualizerFftSize = requiredVisualizerFftSize(inserts);
+      const visualizerFftSize = requiredVisualizerFftSize(exportInserts);
 
       // Voice bus → mastering voice input (never ducked, always intelligible)
       const analyser = audioCtx.createAnalyser();
@@ -2116,7 +2209,7 @@ export default function RenderView({
         ambientGainNode.connect(musicAnalyser);
       }
 
-      const echoCfg = resolveVoiceEcho(voiceEcho);
+      const echoCfg = resolveVoiceEcho(exportVoiceEcho);
       let voiceEchoGraph: VoiceEchoGraph | null = null;
       if (voiceEchoIsActive(echoCfg)) {
         try {
@@ -2132,7 +2225,7 @@ export default function RenderView({
       let insertMixer: InsertAudioMixer | null = null;
       try {
         const insertPlans = [
-          ...buildInsertAudioPlan(inserts, estimatedTotalDuration),
+          ...buildInsertAudioPlan(exportInserts, estimatedTotalDuration),
           ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
         ];
         if (insertPlans.length > 0) {
@@ -2477,7 +2570,8 @@ export default function RenderView({
     for (const s of scenes) {
       const url = resolveLegacyLocalImage((s.image_url || "").trim());
       if (!url) continue;
-      if (/^data:|^blob:/i.test(url)) usedImageSources.add("Creator's own uploaded imagery");
+      // `custom-image:` is an upload from this device, same as data:/blob:.
+      if (/^data:|^blob:|^custom-image:/i.test(url)) usedImageSources.add("Creator's own uploaded imagery");
       else if (url.includes("images.unsplash.com")) usedImageSources.add("Unsplash (Unsplash License)");
       else if (url.includes("pexels.com")) usedImageSources.add("Pexels (CC0 / Free License)");
       else if (url.includes("pixabay")) usedImageSources.add("Pixabay (Content License)");
@@ -3413,6 +3507,48 @@ export default function RenderView({
                 </div>
               )}
 
+              {/* What this download will go without.
+                  Standing on the page BEFORE the button, not sprung at the
+                  end of a ten-minute encode: a VIP effect stays in the
+                  project and in the preview, and is simply not written into
+                  the file. Saying which ones, by name, is the difference
+                  between a limit and a trick. */}
+              {vipFindings.length > 0 && !isRendering && (
+                <div className="p-3 rounded-xl border border-amber-700/60 bg-amber-950/25 space-y-2">
+                  <p className="flex items-center gap-2 text-[11px] font-bold text-amber-200">
+                    <span className="vip-flame is-compact">
+                      <span className="vip-flame-mark" aria-hidden="true">✦</span>VIP
+                    </span>
+                    <span>
+                      {vipFindings.length} VIP {vipFindings.length === 1 ? "choice" : "choices"} in this video
+                    </span>
+                  </p>
+                  <ul className="space-y-1">
+                    {vipFindings.map((finding) => (
+                      <li key={finding.id} className="text-[10px] leading-relaxed text-amber-100/85">
+                        <span className="font-semibold">{finding.label}</span>
+                        <span className="text-amber-300/70"> — {finding.detail}</span>
+                        <span className={`ml-1 font-semibold ${finding.leaveOut ? "text-amber-300" : "text-rose-300"}`}>
+                          {finding.leaveOut ? "Left out of the download." : "Must be changed first."}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-[10px] text-amber-300/70 leading-relaxed">
+                    They stay in your project and in the preview. {vipBlocking.length === 0
+                      ? "The downloaded file is rendered without them."
+                      : "The download cannot start until the ones marked above are changed."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openMembershipPlans}
+                    className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-amber-50 text-[10px] font-bold transition-colors"
+                  >
+                    Include them — see VIP plans
+                  </button>
+                </div>
+              )}
+
               {/* Primary Action Button: Render or Re-Render */}
               {!renderedUrl ? (
                 <div className="space-y-1.5">
@@ -3456,6 +3592,23 @@ export default function RenderView({
                       <Icon glyph="🔄" /> Re-render
                     </button>
                   </div>
+
+                  {/* Said once more after the fact, so the file in the Vault
+                      is never a mystery: this is what is not in it. */}
+                  {vipOmittedLast.length > 0 && (
+                    <div className="p-3 rounded-xl border border-amber-700/60 bg-amber-950/25">
+                      <p className="flex items-center gap-2 text-[11px] font-bold text-amber-200">
+                        <span className="vip-flame is-compact">
+                          <span className="vip-flame-mark" aria-hidden="true">✦</span>VIP
+                        </span>
+                        <span>Rendered without {vipOmittedLast.length} VIP {vipOmittedLast.length === 1 ? "choice" : "choices"}</span>
+                      </p>
+                      <p className="mt-1 text-[10px] text-amber-100/80 leading-relaxed">
+                        {vipOmittedLast.map((finding) => finding.label).join(" · ")} — still in your project and in the
+                        preview, and included in every download on SceneFlow and SceneForge.
+                      </p>
+                    </div>
+                  )}
 
                   {/* One honest download of this render; every finished
                       render ALSO waits in the Vault above, where multiple
@@ -3615,6 +3768,94 @@ export default function RenderView({
           )}
         </div>
       </div>
+
+      {/* The warning at the moment of pressing Render.
+          A final download is minutes of work and a weekly allowance, so the
+          last word before it starts belongs to the creator: here is what is
+          VIP, here is what will happen, carry on or go and change it. */}
+      {vipPrompt && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="vip-render-warning-title"
+        >
+          <div className="w-full max-w-lg my-auto rounded-2xl border border-amber-700/70 bg-gray-950 shadow-2xl">
+            <div className="p-5 border-b border-hairline flex items-start gap-3">
+              <span className="vip-flame mt-0.5">
+                <span className="vip-flame-mark" aria-hidden="true">✦</span>VIP
+              </span>
+              <div>
+                <h3 id="vip-render-warning-title" className="text-base font-bold text-white">
+                  {vipBlocking.length > 0
+                    ? "This download needs a change first"
+                    : "Your download will go without these"}
+                </h3>
+                <p className="text-xs text-gray-400 mt-1">
+                  Everything here works in the preview and stays in your project. It is the final file that
+                  {" "}{vipBlocking.length > 0 ? "cannot carry it" : "goes without it"}.
+                </p>
+              </div>
+            </div>
+
+            {/* The overlay itself is the scrolling layer (one page per
+                modal); this list flows inside it. */}
+            <ul className="p-5 space-y-2.5">
+              {vipFindings.map((finding) => (
+                <li key={finding.id} className="rounded-xl border border-hairline bg-gray-900/70 p-3">
+                  <p className="text-xs font-bold text-gray-100">{finding.label}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{finding.detail}</p>
+                  <p className={`text-[10px] font-bold mt-1.5 ${finding.leaveOut ? "text-amber-300" : "text-rose-300"}`}>
+                    {finding.leaveOut ? "Will not be rendered into the file." : "Change it before downloading."}
+                  </p>
+                  {finding.fixIn && onNavigateToStep && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVipPrompt(null);
+                        onNavigateToStep(finding.fixIn === "voiceover" ? "voiceover" : "captions");
+                      }}
+                      className="mt-2 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-200 text-[10px] font-semibold transition-colors"
+                    >
+                      Go to the {finding.fixIn === "voiceover" ? "Voiceover" : "Captions"} step
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            <div className="p-5 border-t border-hairline flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setVipPrompt(null)}
+                className="px-3.5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-200 text-xs font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={openMembershipPlans}
+                className="px-3.5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-amber-50 text-xs font-bold transition-colors"
+              >
+                Include them — see VIP plans
+              </button>
+              {vipBlocking.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pending = vipPrompt;
+                    setVipPrompt(null);
+                    void handleStartRender(pending?.format, pending?.plan, true);
+                  }}
+                  className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors"
+                >
+                  Render without them
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

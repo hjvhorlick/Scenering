@@ -18,7 +18,7 @@ export default function Control() {
         id="control"
         eyebrow="You stay in control"
         title="Automatic doesn’t mean uncontrollable."
-        lead="Scenering helps create the video. What it produces is a starting point you can take apart — scene by scene, layer by layer — until it is the video you meant to make."
+        lead="What Scenering makes is a first version. Every decision it took is a control you can reach."
       />
 
       <div className="mkt-split">
@@ -34,13 +34,9 @@ export default function Control() {
             ))}
           </div>
 
-          <div className="mkt-panel mkt-pad" style={{ marginTop: 16 }}>
-            <h3 className="mkt-h3">{MESSAGES.control}</h3>
-            <p className="mkt-small" style={{ marginTop: 8 }}>
-              Scenering helps create the video, but you remain in control of the result. Nothing renders until you
-              ask for it, and you can render again as many times as you like.
-            </p>
-          </div>
+          <p className="mkt-small" style={{ marginTop: 14 }}>
+            <b>{MESSAGES.control}</b> Nothing renders until you ask for it.
+          </p>
         </div>
 
         <figure style={{ margin: 0 }}>

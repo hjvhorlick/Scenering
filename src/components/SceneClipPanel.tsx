@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Scene } from "../types";
 import { resolveVideoUrl } from "../lib/custom-video";
+import { sceneUpdatesForVideoFile, videoUploadMessage } from "../lib/scene-clip-attach";
 import { sceneDurationForText } from "../lib/duration-utils";
 import Icon, { iconify } from "./icons/Icon";
 
@@ -53,33 +54,20 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
     setLoadError(null);
   }, [scene.video_url]);
 
+  /**
+   * Store the upload and point the scene at it.
+   *
+   * This used to keep `URL.createObjectURL(file)` in `scene.video_url`,
+   * which stopped resolving the moment the page was reloaded — a saved
+   * project opened to a clip that would not play. The shared helper puts the
+   * file in IndexedDB and returns the stable `custom-video:<id>` address.
+   */
   const handlePick = (file: File | undefined) => {
     if (!file) return;
-    if (!file.type.startsWith("video/")) {
-      setLoadError("That file is not a video.");
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    const probe = document.createElement("video");
-    probe.preload = "metadata";
-    probe.onloadedmetadata = () => {
-      const full = Number.isFinite(probe.duration) ? probe.duration : narrationDuration;
-      // Trim to the narration window straight away so the scene is never
-      // longer than what is actually being said.
-      const end = Math.min(full, narrationDuration);
-      onUpdate(scene.id, {
-        video_url: url,
-        video_name: file.name,
-        video_duration: full,
-        video_trim_start: 0,
-        video_trim_end: end,
-        video_mute: !isInserted,
-        video_volume: scene.video_volume ?? 0.8,
-        video_fit_mode: full < narrationDuration ? "loop" : "trim",
-      });
-    };
-    probe.onerror = () => setLoadError("Could not read that video file.");
-    probe.src = url;
+    setLoadError(null);
+    void sceneUpdatesForVideoFile(file, scene, narrationDuration)
+      .then((updates) => onUpdate(scene.id, updates))
+      .catch((err) => setLoadError(videoUploadMessage(err)));
   };
 
   const setTrim = (start: number, end: number) => {

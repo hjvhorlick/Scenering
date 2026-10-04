@@ -75,6 +75,9 @@
   letter-spacing: 0.008em;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  /* dvh where it exists: on phones 100vh is the tallest the viewport ever
+     gets, so a 100vh page sits under the browser chrome until you scroll. */
+  min-height: 100dvh;
   overflow-x: clip;
 }
 
@@ -519,14 +522,20 @@ html[data-mkt="1"][data-theme] body {
 
 /* ---- sections ---- */
 
+/* Section rhythm.
+   The page is nineteen areas long, so every extra pixel of padding is paid
+   for nineteen times over — it was 58/84px, which put most of a phone screen
+   of nothing between each demonstration and made the page feel like homework.
+   Tighter bands keep the same structure while bringing the next thing to look
+   at into view sooner. */
 .mkt-section {
-  padding: 58px 0;
-  scroll-margin-top: 76px;
+  padding: 40px 0;
+  scroll-margin-top: 72px;
 }
 
 @media (min-width: 900px) {
   .mkt-section {
-    padding: 84px 0;
+    padding: 58px 0;
   }
 }
 
@@ -543,8 +552,10 @@ html[data-mkt="1"][data-theme] body {
 }
 
 .mkt-head {
-  max-width: 720px;
-  margin-bottom: 30px;
+  /* A measure of about 62 characters: long enough for a real sentence,
+     short enough that nobody has to track across the whole page. */
+  max-width: 660px;
+  margin-bottom: 22px;
 }
 
 .mkt-head.is-center {
@@ -576,13 +587,13 @@ html[data-mkt="1"][data-theme] body {
 }
 
 .mkt-h1 {
-  font-size: clamp(42px, 7.4vw, 72px);
+  font-size: clamp(33px, 8.6vw, 72px);
   line-height: 1.02;
 }
 
 .mkt-h2 {
-  font-size: clamp(30px, 4.2vw, 46px);
-  line-height: 1.1;
+  font-size: clamp(27px, 3.6vw, 38px);
+  line-height: 1.12;
 }
 
 .mkt-h3 {
@@ -591,10 +602,10 @@ html[data-mkt="1"][data-theme] body {
 }
 
 .mkt-lead {
-  margin-top: 14px;
-  font-size: clamp(15.5px, 1.6vw, 18px);
+  margin-top: 10px;
+  font-size: clamp(15px, 1.5vw, 17px);
   color: var(--mkt-ink-2);
-  line-height: 1.6;
+  line-height: 1.52;
 }
 
 .mkt-muted {
@@ -1812,7 +1823,7 @@ html[data-mkt="1"][data-theme] body {
 
 .mkt-grid {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .mkt-grid.cols-2 {
@@ -1848,7 +1859,7 @@ html[data-mkt="1"][data-theme] body {
 /* split: text beside a demonstration, stacked on phones */
 .mkt-split {
   display: grid;
-  gap: 22px;
+  gap: 16px;
   grid-template-columns: 1fr;
   align-items: center;
 }
@@ -1856,7 +1867,7 @@ html[data-mkt="1"][data-theme] body {
 @media (min-width: 950px) {
   .mkt-split {
     grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
-    gap: 40px;
+    gap: 30px;
   }
   .mkt-split.is-reverse > *:first-child {
     order: 2;
@@ -2147,18 +2158,18 @@ html[data-mkt="1"][data-theme] body {
 /* ============================================ 6. hero & demo composites */
 
 .mkt-hero {
-  padding: 34px 0 44px;
+  padding: 26px 0 32px;
 }
 
 @media (min-width: 900px) {
   .mkt-hero {
-    padding: 56px 0 72px;
+    padding: 40px 0 48px;
   }
 }
 
 .mkt-hero-grid {
   display: grid;
-  gap: 28px;
+  gap: 22px;
   grid-template-columns: 1fr;
   align-items: center;
 }
@@ -2309,7 +2320,16 @@ html[data-mkt="1"][data-theme] body {
   white-space: nowrap;
 }
 
-/* dark strip for caption previews */
+/* The strip each caption specimen is set on.
+   It was near-black (#1d1b18), which is what a caption sits on in a video
+   but not what makes one READABLE in a list: every style in the catalogue
+   is pale text with a dark hairline outline and a dark drop shadow, so on
+   black the outline and the shadow disappear into the background and each
+   row reads as faint lettering floating in a hole. On a dark grey the
+   outline has something to be dark against, the shadow lands, and the
+   specimen reads as a solid object — the whole point of the row.
+   Light enough to separate the lettering, dark enough that white captions
+   still clear 9:1 contrast. */
 .mkt-capstage {
   display: flex;
   align-items: center;
@@ -2317,7 +2337,11 @@ html[data-mkt="1"][data-theme] body {
   min-height: 54px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: radial-gradient(120% 140% at 50% 0%, #332f2a 0%, #1d1b18 70%);
+  background: radial-gradient(125% 150% at 50% 0%, #4c5057 0%, #33363c 68%, #2b2e33 100%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -10px 22px rgba(0, 0, 0, 0.3);
 }
 
 /* search result grid */
@@ -2676,3 +2700,179 @@ html[data-mkt="1"][data-theme] body {
 .manual-results > h2 { margin-bottom: 22px; }.manual-results > button { width: 100%; display: grid; gap: 5px; margin: 0 0 10px; border: 1px solid var(--mkt-line); border-radius: var(--mkt-r); padding: 16px 18px; background: var(--mkt-surface); color: var(--mkt-ink); text-align: left; cursor: pointer; }.manual-results > button:hover { border-color: var(--mkt-accent-mid); box-shadow: var(--mkt-sh-1); }.manual-results > button span { color: var(--mkt-accent); font-size: .68rem; font-weight: 850; }.manual-results > button b { font-size: 1rem; }.manual-results > button p { margin: 0; color: var(--mkt-ink-3); }.manual-results > button small { color: var(--mkt-ink-5); }.manual-empty { padding: 30px; border: 1px dashed var(--mkt-line-2); border-radius: var(--mkt-r); }.manual-empty p { color: var(--mkt-ink-3); }
 @media (width <= 860px) { .manual-shell { padding: 68px 14px 70px; }.manual-top { grid-template-columns: 1fr; padding-inline: 8px; }.manual-nav-toggle { display: block; width: max-content; }.manual-layout { display: block; }.manual-nav { display: none; position: fixed; z-index: 170; inset: 125px 12px 16px; max-height: none; padding: 14px; border: 1px solid var(--mkt-line-2); border-radius: var(--mkt-r); background: var(--mkt-surface); box-shadow: var(--mkt-sh-5); }.manual-nav.is-open { display: block; }.manual-content { padding: 34px 8px; max-width: none; }.manual-anchor { left: 0; top: 20px; }.manual-section { padding-top: 48px; } }
 @media (width <= 520px) { .manual-pager { grid-template-columns: 1fr; }.manual-pager button.is-next { text-align: left; }.manual-on-page { display: grid; }.manual-top h1 { font-size: 2.2rem; } }
+
+
+/* ======================================================= 7. responsive
+
+   The sheet above is written mobile-first: every layout starts as one
+   column and widens at a min-width. What is left here is the work that
+   cannot be expressed that way — the extremes at both ends (very narrow
+   phones, very wide monitors), screens that are short rather than narrow
+   (a phone held sideways), and the difference between a mouse and a
+   finger. Each block says which situation it is for, because a bare
+   breakpoint number six months from now tells nobody anything.
+   ------------------------------------------------------------------ */
+
+/* ---- very wide monitors ----
+   A 1200px column on a 2560px display is a stripe of text down the middle
+   with a desert on either side. Letting it breathe a little keeps the
+   two-column bands (hero, workflow, studio) honest at that size without
+   ever stretching a line of body text past a readable measure — the
+   headings and paragraphs keep their own max-widths. */
+@media (min-width: 1600px) {
+  .mkt-container {
+    max-width: 1360px;
+    padding: 0 40px;
+  }
+
+  .mkt-section {
+    padding: 66px 0;
+  }
+}
+
+/* ---- very narrow phones (320–359px: iPhone SE, older Androids) ----
+   Side padding and gaps are the first things to give here: at 320px, 18px
+   of padding on each side is more than a tenth of the screen. */
+@media (width <= 359px) {
+  .mkt-container {
+    padding: 0 13px;
+  }
+
+  .mkt-section {
+    padding: 32px 0;
+  }
+
+  .mkt-head {
+    margin-bottom: 18px;
+  }
+
+  .mkt-nav-inner {
+    gap: 8px;
+    min-height: 56px;
+  }
+
+  .mkt-nav-logo {
+    font-size: 15px;
+  }
+
+  .mkt-hero-cta,
+  .mkt-hero-note {
+    gap: 8px;
+  }
+
+  /* Two buttons side by side at this width leave room for about four
+     characters each, so they stack and each one gets the full line. */
+  .mkt-hero-cta .mkt-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ---- short viewports (a phone held sideways, ~380–480px tall) ----
+   Nothing is too narrow here, but anything pinned to the top with a drop
+   panel can be taller than the window. Every one of those panels gets a
+   ceiling and its own scroll, so the page behind it never has to move. */
+@media (max-height: 560px) {
+  .mkt-nav-panel {
+    max-height: calc(100dvh - 92px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .mkt-hero {
+    padding: 18px 0 24px;
+  }
+
+  /* The jump-to-top button and a landscape keyboard want the same corner. */
+  .mkt-totop {
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ---- touch screens ----
+   Pointer-accurate sizes are too small for a fingertip. This only widens
+   the hit area; nothing moves on a mouse-driven machine. */
+@media (pointer: coarse) {
+  .mkt-nav-panel-link,
+  .mkt-nav-link {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Footer links are a dense list; padding keeps them a finger apart
+     without turning the footer into a column of buttons. */
+  .mkt-footer a,
+  .pub-footer a {
+    padding-block: 7px;
+  }
+
+  .mkt-btn {
+    min-height: 44px;
+  }
+}
+
+/* ---- the standalone pages (/features, /pricing, /about, …) ----
+   Their grids went straight from three columns to one at 900px, which
+   wasted the whole tablet range: a 768px iPad showed one card per row with
+   250px of margin beside it. Two columns in between fixes that. */
+@media (620px <= width <= 900px) {
+  .pub-grid,
+  .pub-plans {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* An odd last card stretched across both columns reads as a mistake, so
+     it stays one column wide and sits on the left. */
+  .pub-plans .pub-plan:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (width <= 420px) {
+  .pub-hero h1 {
+    font-size: clamp(2rem, 9vw, 2.5rem);
+  }
+
+  .pub-prose,
+  .pub-form,
+  .pub-faq-tools {
+    padding: 16px;
+  }
+
+  .pub-steps article {
+    padding: 16px;
+  }
+}
+
+@media (max-height: 560px) {
+  .pub-navlinks {
+    max-height: calc(100dvh - 96px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/* The manual's fixed side navigation on a short screen, same reasoning. */
+@media (width <= 860px) {
+  .manual-nav {
+    max-height: calc(100dvh - 145px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/* ---- printing ----
+   Interactive furniture has nothing to say on paper. */
+@media print {
+  .mkt-nav,
+  .pub-nav,
+  .manual-nav {
+    display: none;
+  }
+
+  .mkt-section,
+  .mkt-hero {
+    padding: 12px 0;
+  }
+}

@@ -6,6 +6,7 @@ export type FeatureKey =
   | "basic_captions" | "premium_captions" | "basic_video_studio" | "full_video_studio"
   | "filters" | "text_templates" | "lower_thirds" | "cta" | "advanced_cta" | "stickers"
   | "camera_movements" | "background_music" | "sound_effects" | "sound_visualiser"
+  | "voice_echo"
   | "special_effects" | "bulk_workflow" | "priority_processing" | "horizontal_output"
   | "vertical_output" | "final_export";
 
@@ -37,7 +38,7 @@ export interface PlanConfig {
 
 const FREE_FEATURES: Record<FeatureKey, boolean> = {
   scene_creation: true, visual_research: true, basic_voice: true, advanced_voice: false,
-  dialogue_voice: false, basic_captions: true, premium_captions: false, basic_video_studio: true,
+  dialogue_voice: false, voice_echo: false, basic_captions: true, premium_captions: false, basic_video_studio: true,
   full_video_studio: false, filters: false, text_templates: false, lower_thirds: false, cta: true,
   advanced_cta: false, stickers: false, camera_movements: false, background_music: true,
   sound_effects: false, sound_visualiser: true, special_effects: false, bulk_workflow: false,
@@ -102,6 +103,19 @@ export type ExportCreativeManifest = {
   callsToAction: string[];
 };
 
+/**
+ * Appended to a call-to-action's type in the export manifest when the creator
+ * has restyled it in the button settings.
+ *
+ * Free includes ONE call to action: the standard animated Subscribe button,
+ * as it ships. The settings panel can turn that button into any button at all
+ * — another platform, new wording, new colours, a custom logo — and a
+ * restyled button is a VIP button no matter which type it started life as.
+ * The suffix is how the browser tells the server that happened, so the check
+ * below can refuse it by exactly the same route as an unlisted platform.
+ */
+export const CUSTOMISED_CTA_SUFFIX = ":custom";
+
 const FREE_CATALOG = {
   voices: ["guy", "jenny"],
   captionStyles: ["newsroom_clean", "cinema_classic"],
@@ -139,6 +153,7 @@ export function validateExportCreativeManifest(slug: PlanSlug, manifest: ExportC
   if (!allowed(manifest.captionStyle || "newsroom_clean", FREE_CATALOG.captionStyles)) return "This caption style is outside the Free sample selection";
   if (manifest.backgroundMusic.some((value) => !allowed(value, FREE_CATALOG.backgroundMusic))) return "This music track is outside the Free two-track selection";
   if (manifest.audioVisualisers.some((value) => !allowed(value, FREE_CATALOG.audioVisualisers))) return "This audio visualiser is outside the Free sample selection";
-  if (manifest.callsToAction.some((value) => !allowed(value, FREE_CATALOG.callsToAction))) return "Free final downloads include the animated Subscribe call to action only";
+  if (manifest.callsToAction.some((value) => !allowed(value, FREE_CATALOG.callsToAction)))
+    return "Free final downloads include the standard animated Subscribe button only — other buttons, and buttons restyled in the button settings, are VIP";
   return null;
 }

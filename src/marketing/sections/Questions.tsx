@@ -35,7 +35,7 @@ export default function Questions() {
         id="questions"
         eyebrow="Before you start"
         title="The five things people ask first."
-        lead="Every answer is somewhere on this page. Pick the one you were about to ask and it will take you straight to it."
+        lead="Pick the one you were about to ask."
       />
 
       <ul className="mkt-qs">

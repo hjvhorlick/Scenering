@@ -94,6 +94,7 @@ html[data-mkt="1"] .sc-corner {
   right: 0;
   width: min(340px, calc(100vw - 24px));
   max-height: calc(100vh - 74px);
+  max-height: calc(100dvh - 74px);
   overflow-y: auto;
   padding: 10px;
   border: 1px solid var(--sc-menu-line);
@@ -103,23 +104,19 @@ html[data-mkt="1"] .sc-corner {
   box-shadow: var(--sc-menu-panel-shadow);
   animation: sc-menu-in .16s ease-out;
 }
-.sc-corner-head { display: flex; align-items: center; gap: 11px; padding: 10px 10px 13px; }
-.sc-corner-mark {
-  width: 35px;
-  height: 35px;
-  display: grid;
-  place-items: center;
-  border-radius: calc(var(--sc-menu-radius) - 3px);
-  background: #ffffff;
-  color: #0b2347;
-  font-size: 19px;
-  font-weight: 900;
-  font-style: italic;
-  box-shadow: var(--sc-menu-control-shadow);
+.sc-corner-head { display: grid; gap: 4px; justify-items: start; padding: 10px 10px 13px; }
+/* The wordmark sets its own height; the width follows the artwork's shape so
+   it can never be squashed. 128px keeps it inside the panel at every width. */
+.sc-corner-logo {
+  width: 128px;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
 }
 .sc-corner-head b, .sc-corner-head span { display: block; }
 .sc-corner-head b { font-size: 15px; }
-.sc-corner-head span { margin-top: 2px; color: var(--sc-menu-muted); font-size: 11px; text-transform: capitalize; }
+.sc-corner-head span { color: var(--sc-menu-muted); font-size: 11px; text-transform: capitalize; }
 .sc-corner-links, .sc-corner-actions { display: grid; gap: 3px; }
 .sc-corner-links button, .sc-corner-actions button {
   width: 100%;
@@ -143,6 +140,19 @@ html[data-mkt="1"] .sc-corner {
 .sc-corner-links button.is-current { background: var(--sc-menu-selected); color: #0b2347; box-shadow: var(--sc-menu-control-shadow); }
 .sc-corner-links small { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
 .sc-corner-separator { height: 1px; background: var(--sc-menu-line); margin: 8px 4px; }
+
+/* Shortcuts into the areas of the front page. Two columns and a smaller
+   type size, so thirteen destinations cost about the height of four. */
+.sc-corner-group {
+  grid-column: 1 / -1;
+  padding: 2px 6px 4px;
+  font: 700 9.5px/1 var(--pc-sans);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--sc-menu-muted);
+}
+.sc-corner-sections { grid-template-columns: 1fr 1fr; gap: 2px; }
+.sc-corner-sections button { padding: 7px 9px; font: 600 11.5px/1.15 var(--pc-sans); }
 .sc-corner-actions button.is-primary {
   justify-content: center;
   background: #ffffff;
@@ -186,9 +196,25 @@ html[data-theme="porcelain"]:not([data-mkt]) .sc-corner {
 @media (max-width: 560px) {
   .sc-corner { top: 8px; right: 8px; }
   .sc-corner-trigger { height: 40px; padding: 0 11px; }
-  .sc-corner-panel { top: 46px; width: calc(100vw - 16px); max-height: calc(100vh - 62px); }
+  .sc-corner-panel { top: 46px; width: calc(100vw - 16px); max-height: calc(100vh - 62px); max-height: calc(100dvh - 62px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .sc-corner-panel { animation: none; }
   .sc-corner-trigger { transition: none; }
+}
+
+/* Two columns of section names need about 150px each to stay on one or two
+   lines. Below that the list reads better as a single column than as a
+   column of three-line stubs. */
+@media (max-width: 360px) {
+  .sc-corner-sections { grid-template-columns: 1fr; }
+}
+/* A phone held sideways: the panel is the only thing that may scroll. */
+@media (max-height: 560px) {
+  .sc-corner-panel { max-height: calc(100dvh - 56px); overscroll-behavior: contain; }
+}
+/* Finger-sized rows on touch screens. */
+@media (pointer: coarse) {
+  .sc-corner-links button, .sc-corner-actions button, .sc-corner-links a { min-height: 42px; }
+  .sc-corner-sections button { min-height: 38px; }
 }

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { AspectRatioType, Scene, SceneAnimationConfig, SceneAnimationEffect, SceneAnimationRegion, SceneMotionType } from "../types";
 import type { VideoFilterConfig } from "../data/video-filters";
 import Icon, { iconify } from "./icons/Icon";
+import ScrollStrip from "./ScrollStrip";
 import SceneAnimationPreviewCanvas from "./SceneAnimationPreviewCanvas";
 import {
   EFFECT_BY_TYPE,
@@ -258,13 +259,18 @@ export default function SceneAnimationPanel({
                   <p className="text-[10px] text-gray-500">Presets add multiple layers. You can change every layer after applying.</p>
                 </div>
               </div>
-              <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
+              {/* The preset cards are wider than the panel and there are
+                  twenty of them, so the row gets a real slider: arrows, edge
+                  fades and a visible bar. It used to run off the side with
+                  the scrollbar hidden, which left most of the presets
+                  invisible unless you happened to flick a trackpad. */}
+              <ScrollStrip label="Quick presets" className="gap-1.5">
                 {SCENE_ANIMATION_PRESETS.map((preset) => (
                   <button
                     key={preset.id}
                     type="button"
                     onClick={() => applyPreset(preset.id)}
-                    className="min-w-[140px] px-2.5 py-2 rounded-lg bg-gray-800/90 hover:bg-indigo-950/80 border border-hairline hover:border-indigo-600 text-left transition-all"
+                    className="shrink-0 w-[150px] px-2.5 py-2 rounded-lg bg-gray-800/90 hover:bg-indigo-950/80 border border-hairline hover:border-indigo-600 text-left transition-all"
                     title={preset.description}
                   >
                     <div className="text-[11px] font-bold text-white flex items-center gap-1">
@@ -273,7 +279,7 @@ export default function SceneAnimationPanel({
                     <div className="text-[9px] text-gray-400 leading-tight mt-0.5 line-clamp-2">{preset.description}</div>
                   </button>
                 ))}
-              </div>
+              </ScrollStrip>
             </section>
 
             {/* Smart suggestions */}
@@ -387,7 +393,7 @@ export default function SceneAnimationPanel({
             })}
           </div>
 
-          <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
+          <ScrollStrip label="Sub-sections" className="gap-1.5">
             {activeSection.groups.map((group) => {
               const active = activeGroup?.id === group.id;
               const effectTypes = new Set(group.effects);
@@ -397,7 +403,7 @@ export default function SceneAnimationPanel({
                   key={group.id}
                   type="button"
                   onClick={() => setActiveGroupId(group.id)}
-                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border whitespace-nowrap flex items-center gap-1.5 ${
+                  className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border whitespace-nowrap flex items-center gap-1.5 ${
                     active
                       ? "bg-purple-600 border-purple-400 text-white"
                       : "bg-gray-800 border-hairline text-gray-300 hover:text-white hover:bg-gray-750"
@@ -409,7 +415,7 @@ export default function SceneAnimationPanel({
                 </button>
               );
             })}
-          </div>
+          </ScrollStrip>
 
           <div className="bg-gray-950/50 border border-hairline rounded-xl p-2.5 space-y-2">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">

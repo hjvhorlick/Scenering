@@ -4,6 +4,14 @@ import { MarketingImage } from "../components/primitives";
 /**
  * The key art, at the top of the page.
  *
+ * It is the BRAND key art, deliberately: the piece that used to sit here was
+ * an illustration of a made-up application — invented screen names ("Asset
+ * Library", "Video Composer"), buttons Scenering does not have and garbled
+ * lettering. The real interface is drawn in code a few hundred pixels below
+ * this, from the app’s own data, so a drawing of a different product was
+ * both the least accurate thing on the page and the first thing a visitor
+ * saw. It has been removed from the registry entirely.
+ *
  * Everything else on this site is drawn from the application's own data — the
  * real catalogues, the real six phases, the real interface. This one piece is
  * different: it is the product as an object, the parts of a finished video
@@ -30,7 +38,7 @@ export default function Showpiece() {
     <section className="mkt-showpiece" aria-labelledby="showpiece-title">
       <div className="mkt-container mkt-showpiece-inner">
         <div className="mkt-showpiece-art">
-          <MarketingImage assetId="hero.workflow.generated" sizes="(min-width: 900px) 620px, 92vw" eager />
+          <MarketingImage assetId="brand.showpiece" sizes="(min-width: 900px) 380px, 86vw" eager />
         </div>
 
         <div className="mkt-showpiece-copy">
@@ -38,8 +46,7 @@ export default function Showpiece() {
             Every part of a video, in one place.
           </h2>
           <p className="mkt-showpiece-lede">
-            The pictures, the narration, the music and the cut. Scenering puts them together on your
-            own machine, and you keep hold of every one of them.
+            Pictures, narration, music and the cut — put together on your own machine.
           </p>
 
           <ul className="mkt-showpiece-steps">

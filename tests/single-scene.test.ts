@@ -319,10 +319,12 @@ const LONG_SCRIPT = Array.from(
   const studio = read("src/components/VoiceoverStudio.tsx");
   const switchAt = studio.indexOf("<VoiceoverSwitch");
   const musicAt = studio.indexOf("<BackgroundMusicLibrary");
-  const captionsAt = studio.indexOf("<CaptionsSwitch");
+  // The captions switch lives in the Captions step only; this step keeps the
+  // narration switch and the music library.
   const firstGate = studio.indexOf("{voiceoverEnabled && (");
 
-  ok(switchAt > 0 && musicAt > 0 && captionsAt > 0, "the step still holds all three");
+  ok(switchAt > 0 && musicAt > 0, "the step still holds the narration switch and the music library");
+  ok(studio.indexOf("<CaptionsSwitch") === -1, "and no longer carries a second captions switch");
   ok(switchAt < firstGate, "the switch itself is above everything it hides");
 
   // Music and captions must sit OUTSIDE the gated narration blocks: someone
@@ -333,7 +335,6 @@ const LONG_SCRIPT = Array.from(
     gateOpens.some((open, i) => at > open && at < (gateCloses[i] ?? Infinity));
 
   ok(!insideAGate(musicAt), "the background music library stays available with narration off");
-  ok(!insideAGate(captionsAt), "the captions switch stays available with narration off");
   ok(studio.includes("This video has no narration"), "the step says plainly what being off means");
 }
 

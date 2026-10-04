@@ -35,7 +35,7 @@ export default function BeforeAfter() {
         id="before-after"
         eyebrow="Before · after"
         title="The same words, twice."
-        lead="Everything on the right came out of the text on the left: scenes, visuals, narration, captions, music and a finished file."
+        lead="Everything on the right came out of the text on the left."
       />
 
       <div className="mkt-ba">
