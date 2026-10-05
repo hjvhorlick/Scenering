@@ -6,15 +6,21 @@ studio, and renders the whole thing out.
 
 ## Running it
 
-You need [Node.js](https://nodejs.org) 18 or newer. Then:
+You need [Node.js](https://nodejs.org) 18 or newer. Scenering runs on
+**Cloudflare Workers** — the API is an Express app bridged into a Worker, with
+D1 (accounts, sessions, billing), KV (rate limits), R2 (voice-import uploads)
+and a Cron Trigger (upload expiry) behind it. In local development `wrangler
+dev` emulates all of those bindings, so no Cloudflare account is needed:
 
 ```bash
 npm install
+npx wrangler d1 migrations apply scenering-db --local   # first run only
 npm run dev
 ```
 
-Open **http://localhost:3000**. That is the whole setup — no database, no API
-keys, no accounts. Projects are saved in your browser's local storage.
+Open **http://localhost:8787**. Copy `.dev.vars.example` to `.dev.vars` to
+configure secrets locally (a session secret is required; media and billing keys
+are optional).
 
 There are two front doors on the same server:
 
@@ -29,19 +35,26 @@ loading together. The landing page stays visible while the editor, renderer and
 studio styles are prepared in the background, so signing in mounts an already
 loaded application instead of beginning a second large download.
 
-To run the production build instead:
+### Deploying to Cloudflare
 
 ```bash
-npm run build
-npm start
+bash scripts/setup-cloudflare.sh   # creates the D1 database, R2 bucket and KV namespace,
+                                   # fills their ids into wrangler.jsonc, applies migrations,
+                                   # and prompts for the required secrets
+npm run deploy                     # builds the site and deploys Worker + assets + cron trigger
 ```
 
-Set `PORT` to use a different port (`PORT=8080 npm start`).
+The full platform-compatibility audit — every backend function mapped to its
+Cloudflare service, measured usage against every platform limit, and the
+deployment checklist — is in **[CLOUDFLARE.md](CLOUDFLARE.md)**. Note that the
+production deployment should be on the Workers Paid plan: password hashing
+(scrypt) needs more than the Free plan's 10 ms CPU ceiling.
 
 ## Optional API keys
 
-The app works without any of these. Copy `.env.example` to `.env` and fill in
-whichever you want:
+The app works without any of these. Locally, copy `.dev.vars.example` to
+`.dev.vars` and fill in whichever you want; in production set them with
+`wrangler secret put <NAME>` (the names match `.env.example`):
 
 | Key | What it adds | Without it |
 |---|---|---|

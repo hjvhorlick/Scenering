@@ -166,6 +166,21 @@ export interface EmailPreference {
 const nowIso = () => new Date().toISOString();
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().replace(/-/g, "")}`;
 
+/**
+ * "Now" as a bound parameter, for every timestamp comparison in this file.
+ *
+ * Why not SQLite's `datetime('now')`: that function formats time as
+ * `YYYY-MM-DD HH:MM:SS`, while every timestamp this app writes is a full
+ * ISO-8601 string from `toISOString()` (`YYYY-MM-DDTHH:MM:SS.sssZ`). Text
+ * comparison between the two formats is only correct while the dates differ —
+ * on the same UTC day the ISO string's `T` (0x54) sorts after the space
+ * (0x20), so e.g. a one-hour password-reset token created at 10:00 still
+ * compared as "not expired" at 23:59. Comparing like with like — an ISO
+ * string bound from UTC "now" against the stored ISO strings — is
+ * chronologically exact, and is also one less function call inside SQLite.
+ */
+const nowSql = () => nowIso();
+
 function jsonOrNull(value: unknown): string | null {
   return value === undefined || value === null ? null : JSON.stringify(value);
 }
@@ -281,7 +296,7 @@ export const db = {
 
   // --- sessions ---
   async findSessionByToken(tokenHash: string): Promise<Session | null> {
-    const row = await env().DB.prepare("SELECT * FROM sessions WHERE token = ? AND expires_at > datetime('now')").bind(tokenHash).first();
+    const row = await env().DB.prepare("SELECT * FROM sessions WHERE token = ? AND expires_at > ?").bind(tokenHash, nowSql()).first();
     return row ? rowToSession(row) : null;
   },
   async createSession(userId: string, tokenHash: string, expiresAt: string): Promise<Session> {
@@ -297,7 +312,7 @@ export const db = {
     await env().DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId).run();
   },
   async deleteExpiredSessions(): Promise<void> {
-    await env().DB.prepare("DELETE FROM sessions WHERE expires_at <= datetime('now')").run();
+    await env().DB.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(nowSql()).run();
   },
 
   // --- verification / reset tokens ---
@@ -308,7 +323,7 @@ export const db = {
     return row;
   },
   async findVerificationToken(tokenHash: string, type: VerificationTokenType): Promise<VerificationToken | null> {
-    const row = await env().DB.prepare("SELECT * FROM verification_tokens WHERE token = ? AND type = ? AND expires_at > datetime('now')").bind(tokenHash, type).first();
+    const row = await env().DB.prepare("SELECT * FROM verification_tokens WHERE token = ? AND type = ? AND expires_at > ?").bind(tokenHash, type, nowSql()).first();
     return row ? rowToVerificationToken(row) : null;
   },
   async deleteVerificationToken(id: string): Promise<void> {
@@ -323,6 +338,15 @@ export const db = {
   async findMembershipByUserId(userId: string): Promise<Membership | null> {
     const row = await env().DB.prepare("SELECT * FROM memberships WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1").bind(userId).first();
     return row ? rowToMembership(row) : null;
+  },
+  /** Every active membership, newest first — the bulk-read counterpart of
+   *  findMembershipByUserId for endpoints that need all users at once
+   *  (the admin overview). Building the same per-user "latest row" mapping
+   *  in memory turns N+1 D1 round trips (each a subrequest against the
+   *  Worker limit) into one. */
+  async listActiveMemberships(): Promise<Membership[]> {
+    const result = await env().DB.prepare("SELECT * FROM memberships WHERE status = 'active' ORDER BY created_at DESC").all();
+    return (result.results || []).map(rowToMembership);
   },
   async createMembership(userId: string, plan: PlanSlug, status: MembershipStatus = "active"): Promise<Membership> {
     const stamp = nowIso();
@@ -346,6 +370,13 @@ export const db = {
   async findActiveSubscriptionByUserId(userId: string): Promise<Subscription | null> {
     const row = await env().DB.prepare("SELECT * FROM subscriptions WHERE user_id = ? AND status != 'expired' ORDER BY created_at DESC LIMIT 1").bind(userId).first();
     return row ? rowToSubscription(row) : null;
+  },
+  /** Bulk counterpart of findActiveSubscriptionByUserId (see
+   *  listActiveMemberships for why): all non-expired subscriptions, newest
+   *  first — take the first row per user_id for the same result. */
+  async listNonExpiredSubscriptions(): Promise<Subscription[]> {
+    const result = await env().DB.prepare("SELECT * FROM subscriptions WHERE status != 'expired' ORDER BY created_at DESC").all();
+    return (result.results || []).map(rowToSubscription);
   },
   async findSubscriptionByProviderId(providerSubscriptionId: string): Promise<Subscription | null> {
     const row = await env().DB.prepare("SELECT * FROM subscriptions WHERE provider_subscription_id = ?").bind(providerSubscriptionId).first();
@@ -396,6 +427,12 @@ export const db = {
     const result = await env().DB.prepare("SELECT * FROM usage_records WHERE user_id = ? AND created_at >= ?").bind(userId, sinceIso).all();
     return (result.results || []).map(rowToUsage);
   },
+  /** Bulk counterpart of listUsageSince across all users (see
+   *  listActiveMemberships for why). */
+  async listAllUsageSince(sinceIso: string): Promise<UsageRecord[]> {
+    const result = await env().DB.prepare("SELECT * FROM usage_records WHERE created_at >= ?").bind(sinceIso).all();
+    return (result.results || []).map(rowToUsage);
+  },
   async createUsageRecord(record: Omit<UsageRecord, "id" | "createdAt">): Promise<UsageRecord> {
     const row: UsageRecord = { ...record, id: newId("use"), createdAt: nowIso() };
     await env().DB.prepare("INSERT INTO usage_records (id, user_id, kind, duration_minutes, format, project_id, reservation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
@@ -425,13 +462,20 @@ export const db = {
     await env().DB.prepare("UPDATE export_reservations SET status = 'cancelled' WHERE id = ? AND status = 'reserved'").bind(id).run();
   },
   async expireStaleReservations(): Promise<void> {
-    await env().DB.prepare("UPDATE export_reservations SET status = 'cancelled' WHERE status = 'reserved' AND expires_at <= datetime('now')").run();
+    await env().DB.prepare("UPDATE export_reservations SET status = 'cancelled' WHERE status = 'reserved' AND expires_at <= ?").bind(nowSql()).run();
   },
 
   // --- complimentary grants ---
   async findActiveComplimentaryGrant(userId: string): Promise<ComplimentaryGrant | null> {
-    const row = await env().DB.prepare("SELECT * FROM complimentary_grants WHERE user_id = ? AND status = 'active' AND ends_at > datetime('now') ORDER BY ends_at DESC LIMIT 1").bind(userId).first();
+    const row = await env().DB.prepare("SELECT * FROM complimentary_grants WHERE user_id = ? AND status = 'active' AND ends_at > ? ORDER BY ends_at DESC LIMIT 1").bind(userId, nowSql()).first();
     return row ? rowToComplimentaryGrant(row) : null;
+  },
+  /** Bulk counterpart of findActiveComplimentaryGrant (see
+   *  listActiveMemberships for why): every active, unexpired grant, latest
+   *  end date first — take the first row per user_id for the same result. */
+  async listActiveComplimentaryGrants(): Promise<ComplimentaryGrant[]> {
+    const result = await env().DB.prepare("SELECT * FROM complimentary_grants WHERE status = 'active' AND ends_at > ? ORDER BY ends_at DESC").bind(nowSql()).all();
+    return (result.results || []).map(rowToComplimentaryGrant);
   },
   async revokeActiveComplimentaryGrantsForUser(userId: string): Promise<void> {
     await env().DB.prepare("UPDATE complimentary_grants SET status = 'revoked', revoked_at = ? WHERE user_id = ? AND status = 'active'").bind(nowIso(), userId).run();
@@ -450,7 +494,7 @@ export const db = {
     await env().DB.prepare("UPDATE complimentary_grants SET status = 'revoked', revoked_at = ? WHERE id = ? AND status = 'active'").bind(nowIso(), id).run();
   },
   async expireStaleComplimentaryGrants(): Promise<void> {
-    await env().DB.prepare("UPDATE complimentary_grants SET status = 'expired' WHERE status = 'active' AND ends_at <= datetime('now')").run();
+    await env().DB.prepare("UPDATE complimentary_grants SET status = 'expired' WHERE status = 'active' AND ends_at <= ?").bind(nowSql()).run();
   },
 
   // --- complimentary codes ---
@@ -461,7 +505,7 @@ export const db = {
     return full;
   },
   async findActiveComplimentaryCodeByHash(codeHash: string): Promise<ComplimentaryCode | null> {
-    const row = await env().DB.prepare("SELECT * FROM complimentary_codes WHERE code_hash = ? AND status = 'active' AND expires_at > datetime('now')").bind(codeHash).first();
+    const row = await env().DB.prepare("SELECT * FROM complimentary_codes WHERE code_hash = ? AND status = 'active' AND expires_at > ?").bind(codeHash, nowSql()).first();
     return row ? rowToComplimentaryCode(row) : null;
   },
   async redeemComplimentaryCode(id: string, userId: string): Promise<void> {
@@ -476,7 +520,7 @@ export const db = {
     return (result.results || []).map(rowToComplimentaryCode);
   },
   async expireStaleComplimentaryCodes(): Promise<void> {
-    await env().DB.prepare("UPDATE complimentary_codes SET status = 'expired' WHERE status = 'active' AND expires_at <= datetime('now')").run();
+    await env().DB.prepare("UPDATE complimentary_codes SET status = 'expired' WHERE status = 'active' AND expires_at <= ?").bind(nowSql()).run();
   },
 
   // --- webhook / billing event logs ---
@@ -519,6 +563,11 @@ export const db = {
     const row = await env().DB.prepare("SELECT * FROM email_preferences WHERE user_id = ?").bind(userId).first();
     return row ? rowToEmailPreference(row) : null;
   },
+  /** Bulk counterpart of findEmailPreference (see listActiveMemberships). */
+  async listEmailPreferences(): Promise<EmailPreference[]> {
+    const result = await env().DB.prepare("SELECT * FROM email_preferences").all();
+    return (result.results || []).map(rowToEmailPreference);
+  },
   async upsertEmailPreference(row: EmailPreference): Promise<EmailPreference> {
     await env().DB.prepare(
       `INSERT INTO email_preferences (user_id, marketing_consent, consent_timestamp, consent_source, consent_version, training_step, updated_at)
@@ -536,7 +585,7 @@ export const db = {
   },
   async setSetting(key: string, value: string): Promise<void> {
     await env().DB.prepare(
-      "INSERT INTO admin_settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')"
-    ).bind(key, value).run();
+      "INSERT INTO admin_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+    ).bind(key, value, nowIso()).run();
   },
 };

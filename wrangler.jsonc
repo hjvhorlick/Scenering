@@ -3,25 +3,59 @@
   "name": "scenering",
   "main": "./worker.ts",
   "compatibility_date": "2026-10-01",
+  // nodejs_compat (+ a compatibility date of 2025-08-15 or later) provides
+  // node:crypto, node:http and the `cloudflare:node` bridge module that
+  // worker.ts uses to run the Express app — see CLOUDFLARE.md.
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": "./dist/",
     "not_found_handling": "single-page-application",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    // Paths the Worker must handle BEFORE the static-asset layer. With
+    // `not_found_handling: "single-page-application"` every non-asset path is
+    // otherwise answered with the SPA shell (index.html, HTTP 200) — which
+    // would silently swallow the Express routes below:
+    //   /api/* and /functions/v1/*  — the whole JSON API (the legacy
+    //                                /functions/v1 paths stay routable for
+    //                                clients saved before the migration)
+    //   /robots.txt, /sitemap.xml   — served by Express (registerPlatformRoutes);
+    //                                as SPA fallback they would return HTML
+    //                                with a 200 and break crawlers
+    "run_worker_first": [
+      "/api/*",
+      "/functions/v1/*",
+      "/robots.txt",
+      "/sitemap.xml"
+    ]
+  },
+  // Hourly Cron Trigger: worker.ts's `scheduled` handler sweeps custom
+  // voice-import uploads whose 24h retention window has passed (R2 object +
+  // D1 bookkeeping row). This is the only expiry path for that storage.
+  // Without this `triggers` block the sweep never runs at all.
+  "triggers": {
+    "crons": ["0 * * * *"]
+  },
+  // Workers Logs: invocation logs, console output and errors in the
+  // dashboard, with no tail command to keep running.
+  "observability": {
+    "enabled": true
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "scenering-db",
-      "database_id": "PLACEHOLDER_RUN_SETUP_SCRIPT",
+      "database_id": "SCENERING_D1_ID_PLACEHOLDER",
       "migrations_dir": "./migrations"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "RATE_LIMITS",
-      "id": "c0b74485bcc9428582acb39e210a480e"
+      // Previous value in this file: "c0b74485bcc9428582acb39e210a480e".
+      // scripts/setup-cloudflare.sh fills this in when it creates the
+      // namespace; if that namespace already exists in your account, you can
+      // put its id back instead of running the script.
+      "id": "SCENERING_KV_ID_PLACEHOLDER"
     }
   ],
   "r2_buckets": [

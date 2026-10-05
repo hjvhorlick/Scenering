@@ -20,7 +20,15 @@ export const audioStore = {
           await db.prepare("DELETE FROM audio_files WHERE id = ?").bind((oldest as any).id).run();
         }
       }
-      const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+      // Buffer.from(base64) decodes natively. The previous
+      // `Uint8Array.from(atob(...), c => c.charCodeAt(0))` walked a ~27 M
+      // character string through a per-character callback — hundreds of
+      // milliseconds of CPU and several transient copies, which matters
+      // against the Worker CPU budget (10 ms free / 30 s paid) and the
+      // 128 MB isolate memory ceiling. This module is only ever imported by
+      // server.ts/worker.ts, so Node's Buffer is available everywhere it
+      // runs (nodejs_compat in the Worker, real Node in the test suite).
+      const bytes = Buffer.from(base64Data, "base64");
       const r2Key = `audio/${userId}/${audioId}`;
       await bucket.put(r2Key, bytes, { httpMetadata: { contentType: mimeType } });
       await db.prepare("INSERT INTO audio_files (id, user_id, filename, r2_key, size_bytes, mime_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(audioId, userId, audioId, r2Key, bytes.length, mimeType, new Date().toISOString()).run();
@@ -54,7 +62,13 @@ export const audioStore = {
       const bucket = (env() as any).AUDIO_BUCKET;
       if (!bucket) return;
 
-      const expired = await env().DB.prepare("SELECT id, r2_key FROM audio_files WHERE created_at < datetime('now', '-24 hours')").all();
+      // ISO-8601 "now" minus 24h, bound as a parameter: `created_at` rows are
+      // written as full ISO strings, and comparing them against SQLite's
+      // `datetime('now', '-24 hours')` (space-separated format) mis-sorts
+      // every row created on the same UTC day — delaying cleanup by up to
+      // 24 hours.
+      const cutoff = new Date(Date.now() - 24 * 3600000).toISOString();
+      const expired = await env().DB.prepare("SELECT id, r2_key FROM audio_files WHERE created_at < ?").bind(cutoff).all();
       for (const row of expired.results || []) {
         try {
           await bucket.delete((row as any).r2_key);

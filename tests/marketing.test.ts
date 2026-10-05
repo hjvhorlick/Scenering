@@ -460,7 +460,7 @@ ok(
   );
   // …and it is optional.
   ok(
-    server.includes("process.env.GEMINI_API_KEY"),
+    server.includes("env().GEMINI_API_KEY"),
     "that voice needs a key the operator supplies"
   );
   ok(

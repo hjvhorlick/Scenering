@@ -34,6 +34,10 @@ process.env.SESSION_SECRET = "a-test-session-secret-of-sufficient-length";
 process.env.SCENERING_OWNER_EMAIL = "owner@example.com";
 
 const express = (await import("express")).default;
+/* Cloudflare bindings (D1/KV/R2) faked in-memory with real SQLite, so the
+   suite runs the same server code the Worker runs. */
+const { installTestPlatformEnv, testD1 } = await import("./platform-env.ts");
+installTestPlatformEnv();
 const platform = await import("../server/platform.ts");
 
 const app = express();
@@ -119,9 +123,9 @@ const customerCookie = await createSignedInUser("customer@example.com", "Ordinar
   const read = await (await fetch(`${base}/api/social-links`)).json();
   h.eq(read.links.facebook, "https://www.facebook.com/scenering", "a visitor reads the saved Facebook link");
 
-  const stored = JSON.parse(readFileSync(join(process.cwd(), ".data/platform.json"), "utf8"));
-  h.eq(stored.settings?.social_links?.linkedin, "https://www.linkedin.com/company/scenering", "the links persist in the platform store, not in memory");
-  ok(Boolean(stored.settings?.social_links?.updated_at), "the save is timestamped");
+  const stored = JSON.parse(String((testD1().sqlite.prepare("SELECT value FROM admin_settings WHERE key = 'social_links'").get() as { value: string } | undefined)?.value ?? "{}"));
+  h.eq(stored.linkedin, "https://www.linkedin.com/company/scenering", "the links persist in the platform store (D1), not in memory");
+  ok(Boolean(stored.updated_at), "the save is timestamped");
 
   /* An address copied from a browser bar often has no scheme. That must be
      treated as https, not rejected as a typo. */

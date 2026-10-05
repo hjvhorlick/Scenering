@@ -1,63 +1,109 @@
 #!/bin/bash
-set -e
-echo "🚀 Scenering — Cloudflare Workers Setup"
-echo "═══════════════════════════════════════"
+#
+# Scenering — Cloudflare Workers setup (idempotent).
+#
+# Creates the three backing resources this Worker needs and wires their ids
+# into wrangler.jsonc:
+#   • D1 database      (binding DB)          — accounts, sessions, billing
+#   • R2 bucket        (binding AUDIO_BUCKET) — custom voice-import uploads
+#   • KV namespace     (binding RATE_LIMITS)  — rate-limit counters
+# Then applies the D1 schema remotely and prompts for the required secrets.
+#
+# Safe to re-run: existing resources are detected, and wrangler.jsonc is only
+# edited where a SCENERING_*_PLACEHOLDER value is still present.
+set -euo pipefail
 
-# Step 1: Create D1 database
-echo "📦 Creating D1 database..."
+CONFIG="wrangler.jsonc"
+
+say() { printf '\n\033[1;36m%s\033[0m\n' "$1"; }
+ok()  { printf '\033[1;32m✅ %s\033[0m\n' "$1"; }
+
+# Replace a placeholder in wrangler.jsonc only if it is still there.
+# macOS sed needs -i '' ; GNU sed needs -i.
+replace_placeholder() {
+  local placeholder="$1" value="$2"
+  if grep -q "\"$placeholder\"" "$CONFIG"; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s|$placeholder|$value|" "$CONFIG"
+    else
+      sed -i    "s|$placeholder|$value|" "$CONFIG"
+    fi
+    ok "wrangler.jsonc: $placeholder → $value"
+  else
+    echo "ℹ️  $CONFIG already has a real value for this slot — left untouched."
+  fi
+}
+
+command -v npx >/dev/null || { echo "npx not found — install Node.js 18+ first."; exit 1; }
+
+say "🚀 Scenering — Cloudflare Workers setup"
+
+# ---------------------------------------------------------------- D1 database
+say "📦 Step 1/6: D1 database (binding: DB)"
 DB_OUTPUT=$(npx wrangler d1 create scenering-db 2>&1 || true)
 echo "$DB_OUTPUT"
-# D1 database IDs are UUIDs (8-4-4-4-12 hex), not a bare 32-char hex blob.
-DB_ID=$(echo "$DB_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || echo "")
+# D1 database ids are UUIDs (8-4-4-4-12 hex). If the database already exists,
+# wrangler prints an error containing the existing id's hint — fall back to
+# the value already in wrangler.jsonc, or ask.
+DB_ID=$(echo "$DB_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)
 if [ -z "$DB_ID" ]; then
-  read -p "Paste the database ID from above: " DB_ID
+  if grep -q '"database_id": "SCENERING_D1_ID_PLACEHOLDER"' "$CONFIG"; then
+    read -r -p "Could not create/read the database id. Paste the D1 database id: " DB_ID
+    [ -n "$DB_ID" ] || { echo "No database id — aborting."; exit 1; }
+  else
+    DB_ID=$(grep -oE '"database_id": "[0-9a-f-]{36}"' "$CONFIG" | grep -oE '[0-9a-f-]{36}')
+    echo "Using the database id already configured in $CONFIG: $DB_ID"
+  fi
 fi
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  sed -i '' "s|PLACEHOLDER_RUN_SETUP_SCRIPT|$DB_ID|" wrangler.jsonc
-else
-  sed -i "s|PLACEHOLDER_RUN_SETUP_SCRIPT|$DB_ID|" wrangler.jsonc
-fi
-echo "✅ D1 database ID: $DB_ID"
+replace_placeholder "SCENERING_D1_ID_PLACEHOLDER" "$DB_ID"
 
-# Step 2: Create R2 bucket
-echo "📦 Creating R2 bucket..."
-npx wrangler r2 bucket create scenering-audio 2>&1 || true
-echo "✅ R2 bucket created"
+# ------------------------------------------------------------------ R2 bucket
+say "📦 Step 2/6: R2 bucket (binding: AUDIO_BUCKET)"
+npx wrangler r2 bucket create scenering-audio 2>&1 || echo "(bucket probably already exists — continuing)"
+ok "R2 bucket scenering-audio ready"
 
-# Step 3: Create KV namespace
-echo "📦 Creating KV namespace..."
+# -------------------------------------------------------------- KV namespace
+say "📦 Step 3/6: KV namespace (binding: RATE_LIMITS)"
 KV_OUTPUT=$(npx wrangler kv namespace create RATE_LIMITS 2>&1 || true)
 echo "$KV_OUTPUT"
-KV_ID=$(echo "$KV_OUTPUT" | grep -oE '"id":\s*"[a-f0-9]+"' | grep -oE '[a-f0-9]{32}' || echo "")
+KV_ID=$(echo "$KV_OUTPUT" | grep -oE '[a-f0-9]{32}' | head -1 || true)
 if [ -z "$KV_ID" ]; then
-  read -p "Paste the KV namespace ID from above: " KV_ID
+  if grep -q '"id": "SCENERING_KV_ID_PLACEHOLDER"' "$CONFIG"; then
+    read -r -p "Paste the KV namespace id: " KV_ID
+    [ -n "$KV_ID" ] || { echo "No namespace id — aborting."; exit 1; }
+  else
+    KV_ID=$(grep -A1 '"binding": "RATE_LIMITS"' "$CONFIG" | grep -oE '[a-f0-9]{32}')
+    echo "Using the KV namespace id already configured in $CONFIG: $KV_ID"
+  fi
 fi
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  sed -i '' "s|\"id\": \"PLACEHOLDER_RUN_SETUP_SCRIPT\"|\"id\": \"$KV_ID\"|" wrangler.jsonc
-else
-  sed -i "s|\"id\": \"PLACEHOLDER_RUN_SETUP_SCRIPT\"|\"id\": \"$KV_ID\"|" wrangler.jsonc
-fi
-echo "✅ KV namespace ID: $KV_ID"
+replace_placeholder "SCENERING_KV_ID_PLACEHOLDER" "$KV_ID"
 
-# Step 4: Apply database schema
-# --remote targets the real (production) D1 database tied to the deployed
-# Worker, not the local wrangler-dev emulation — without it this would
-# silently migrate an empty local DB and the live site would still have no
-# tables.
-echo "📦 Creating database tables..."
+# ------------------------------------------------------------- D1 schema (×2)
+say "📦 Step 4/6: applying migrations"
+# --remote targets the production D1 behind the deployed Worker;
+# --local seeds the local miniflare copy that `wrangler dev` uses, so local
+# development is not greeted by "no such table: users".
 npx wrangler d1 migrations apply scenering-db --remote 2>&1 || true
-echo "✅ Tables created"
+npx wrangler d1 migrations apply scenering-db --local  2>&1 || true
+ok "Schema applied (remote + local)"
 
-# Step 5: Set required secrets
-echo "🔐 Setting secrets..."
-SESSION_SECRET=$(openssl rand -base64 32 2>/dev/null || echo "fallback_$(date +%s)_change_me")
-echo "Generated SESSION_SECRET: $SESSION_SECRET"
-echo "$SESSION_SECRET" | npx wrangler secret put SESSION_SECRET 2>&1 || true
-read -p "SCENERING_OWNER_EMAIL (e.g. hjvhorlick@gmail.com): " OWNER_EMAIL
-echo "$OWNER_EMAIL" | npx wrangler secret put SCENERING_OWNER_EMAIL 2>&1 || true
+# ------------------------------------------------------------------- secrets
+say "🔐 Step 5/6: required secrets"
+if [ -z "${SESSION_SECRET:-}" ]; then
+  SESSION_SECRET=$(openssl rand -base64 48 2>/dev/null || head -c 48 /dev/urandom | base64)
+fi
+echo "$SESSION_SECRET" | npx wrangler secret put SESSION_SECRET
+ok "SESSION_SECRET set"
+read -r -p "SCENERING_OWNER_EMAIL (the owner-admin sign-in address, e.g. hjvhorlick@gmail.com): " OWNER_EMAIL
+if [ -n "$OWNER_EMAIL" ]; then
+  echo "$OWNER_EMAIL" | npx wrangler secret put SCENERING_OWNER_EMAIL
+  ok "SCENERING_OWNER_EMAIL set"
+else
+  echo "⚠️  Skipped — the owner-admin role cannot be granted until this is set."
+fi
 
-# Step 6: Optional secrets
-# Names match what src/env.ts and server/platform.ts actually read — a
+say "🔐 Step 6/6: optional secrets (Enter to skip each)"
+# Names must match what src/env.ts and server/platform.ts actually read — a
 # secret set under any other name is silently ignored by the app.
 for SECRET in GEMINI_API_KEY PEXELS_API_KEY PIXABAY_API_KEY \
   LEMON_SQUEEZY_API_KEY LEMON_SQUEEZY_STORE_ID LEMON_SQUEEZY_WEBHOOK_SECRET \
@@ -65,12 +111,24 @@ for SECRET in GEMINI_API_KEY PEXELS_API_KEY PIXABAY_API_KEY \
   LEMON_SQUEEZY_SCENEFORGE_MONTHLY_VARIANT_ID LEMON_SQUEEZY_SCENEFORGE_YEARLY_VARIANT_ID \
   LEMON_SQUEEZY_SCENEFLOW_MONTHLY_CHECKOUT_URL LEMON_SQUEEZY_SCENEFLOW_YEARLY_CHECKOUT_URL \
   LEMON_SQUEEZY_SCENEFORGE_MONTHLY_CHECKOUT_URL LEMON_SQUEEZY_SCENEFORGE_YEARLY_CHECKOUT_URL; do
-  read -p "$SECRET (Enter to skip): " VAL
-  if [ -n "$VAL" ]; then echo "$VAL" | npx wrangler secret put "$SECRET" 2>&1 || true; echo "✅ $SECRET set"; else echo "⏭️ Skipped $SECRET"; fi
+  read -r -p "$SECRET: " VAL
+  if [ -n "$VAL" ]; then
+    printf '%s' "$VAL" | npx wrangler secret put "$SECRET"
+    ok "$SECRET set"
+  else
+    echo "⏭️  Skipped $SECRET"
+  fi
 done
 
-echo "═══════════════════════════════════════"
-echo "✅ Setup complete! Now run:"
-echo "  npm run build"
-echo "  npx wrangler deploy"
-echo "═══════════════════════════════════════"
+say "Setup complete"
+cat <<'EOF'
+
+Next steps:
+  npm run build          # build the SPA into dist/ (the assets layer serves it)
+  npx wrangler deploy    # deploy the Worker + assets + bindings
+  npm run dev            # or develop locally against wrangler dev on :8787
+
+The hourly Cron Trigger in wrangler.jsonc (audio-expiry sweep) is deployed
+with the Worker automatically — nothing to schedule by hand.
+See CLOUDFLARE.md for the full platform-compatibility report.
+EOF
