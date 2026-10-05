@@ -6,15 +6,23 @@ export function setEnv(e: any) {
 
 export function env(): any {
   if (!_env) {
+    if (typeof process !== "undefined" && process.env) {
+      return process.env;
+    }
     throw new Error("Environment not initialized. Ensure the Worker entry point calls setEnv() first.");
   }
   return _env;
 }
 
+// Fallback types for when @cloudflare/workers-types is not in the compilation unit (e.g. client tsconfig)
+type WorkerD1Database = typeof globalThis extends { D1Database: infer T } ? T : any;
+type WorkerKVNamespace = typeof globalThis extends { KVNamespace: infer T } ? T : any;
+type WorkerFetcher = typeof globalThis extends { Fetcher: infer T } ? T : any;
+
 export type Env = {
-  DB: D1Database;
-  RATE_LIMITS: KVNamespace;
-  ASSETS: Fetcher;
+  DB: WorkerD1Database;
+  RATE_LIMITS: WorkerKVNamespace;
+  ASSETS: WorkerFetcher;
   PUBLIC_APP_URL: string;
   EMAIL_PROVIDER: string;
   SESSION_SECRET: string;
