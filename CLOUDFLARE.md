@@ -32,7 +32,7 @@ a Node.js server, a container, or any other host.
 | Bundled nature library from inside the API | `server.ts` proxy route | **`ASSETS` binding** (`env.ASSETS.fetch`) — no filesystem on Workers | ✅ verified |
 | Narration (TTS) | `server.ts` | Outbound `fetch` to the Gemini API (no WebSocket TTS engines — the msedge-tts dependency was already removed) | ✅ verified (falls back Google-TTS → silent WAV by design) |
 | Image search (Pexels / Pixabay / Wikimedia) | `server.ts` | Outbound `fetch` with 12 s timeouts + provider clamps | ✅ verified (nature-library fallback when no keys) |
-| Email | `server/email.ts` | Pluggable provider; `console` by default (verification links appear in `wrangler tail` / Workers Logs). Add an HTTP email API (e.g. Resend) behind the same seam — SMTP is not available from Workers | ✅ (console mode) |
+| Email | `server/email.ts` | Resend HTTPS API in production (`EMAIL_PROVIDER=resend`, authenticated by the `RESEND_API_KEY` secret); `console` remains available for local development. SMTP is not available from Workers | ✅ |
 | Billing webhooks | `server/platform.ts` | Inbound HTTPS at `/api/webhooks/lemonsqueezy`, HMAC-verified against raw bytes | ✅ verified (503/401 paths) |
 | Scheduled email link expiry, token expiry | `src/db.ts` | D1, ISO-8601 comparisons (fixed — see §4) | ✅ verified |
 
@@ -200,9 +200,10 @@ platform's documented behaviour, then re-verified under `wrangler dev`:
 
 ## 5. Residual notes (no action needed, by design)
 
-- **Email sending** is console-only until a provider is wired in
-  (`EMAIL_PROVIDER`). Any HTTP email API works from Workers; plain SMTP does
-  not. Verification/reset links currently appear in the Worker logs.
+- **Email sending** uses Resend's HTTPS API in production
+  (`EMAIL_PROVIDER=resend`) and requires the server-side `RESEND_API_KEY`
+  secret. Local development can select `console` to print verification/reset
+  links without sending mail.
 - **`accountPayload` runs 4 D1 queries concurrently** (well within the 6-connection
   limit). A further micro-batch would save ~2 round trips per `/api/account`
   call; left alone deliberately to keep the diff small.

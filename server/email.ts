@@ -1,6 +1,11 @@
+import { env } from "../src/env.ts";
+
 export type EmailKind = "verification" | "password_reset" | "subscription" | "security" | "training" | "marketing";
 export interface EmailMessage { to: string; subject: string; text: string; html?: string; kind: EmailKind }
 export interface EmailProvider { send(message: EmailMessage): Promise<void> }
+
+const RESEND_API_URL = "https://api.resend.com/emails";
+const RESEND_FROM = "Scenering <noreply@scenering.com>";
 
 class ConsoleEmailProvider implements EmailProvider {
   async send(message: EmailMessage) {
@@ -10,11 +15,41 @@ class ConsoleEmailProvider implements EmailProvider {
   }
 }
 
+class ResendEmailProvider implements EmailProvider {
+  constructor(private readonly apiKey: string) {}
+
+  async send(message: EmailMessage) {
+    const response = await fetch(RESEND_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: RESEND_FROM,
+        to: [message.to],
+        subject: message.subject,
+        text: message.text,
+        ...(message.html ? { html: message.html } : {}),
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 500);
+      throw new Error(`Resend email request failed (${response.status})${detail ? `: ${detail}` : ""}`);
+    }
+  }
+}
+
 function provider(): EmailProvider {
-  // Provider adapters can be added behind this seam (SMTP, Resend, Postmark,
-  // etc.) without changing auth or campaign code. Console is deliberately the
-  // only built-in provider until real credentials are configured.
-  return new ConsoleEmailProvider();
+  const configured = String(env().EMAIL_PROVIDER || "console").trim().toLowerCase();
+  if (configured === "console") return new ConsoleEmailProvider();
+  if (configured === "resend") {
+    const apiKey = String(env().RESEND_API_KEY || "").trim();
+    if (!apiKey) throw new Error("RESEND_API_KEY is required when EMAIL_PROVIDER=resend");
+    return new ResendEmailProvider(apiKey);
+  }
+  throw new Error(`Unsupported EMAIL_PROVIDER: ${configured}`);
 }
 
 export async function sendTransactionalEmail(message: Omit<EmailMessage, "kind"> & { kind?: Exclude<EmailKind, "marketing" | "training"> }) {

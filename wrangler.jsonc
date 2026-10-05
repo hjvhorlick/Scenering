@@ -67,6 +67,6 @@
   ],
   "vars": {
     "PUBLIC_APP_URL": "https://scenering.com",
-    "EMAIL_PROVIDER": "console"
+    "EMAIL_PROVIDER": "resend"
   }
 }
