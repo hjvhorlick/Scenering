@@ -24,6 +24,12 @@
       "id": "c0b74485bcc9428582acb39e210a480e"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "AUDIO_BUCKET",
+      "bucket_name": "scenering-audio"
+    }
+  ],
   "vars": {
     "PUBLIC_APP_URL": "https://scenering.com",
     "EMAIL_PROVIDER": "console"

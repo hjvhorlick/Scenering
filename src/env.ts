@@ -17,11 +17,13 @@ export function env(): any {
 // Fallback types for when @cloudflare/workers-types is not in the compilation unit (e.g. client tsconfig)
 type WorkerD1Database = typeof globalThis extends { D1Database: infer T } ? T : any;
 type WorkerKVNamespace = typeof globalThis extends { KVNamespace: infer T } ? T : any;
+type WorkerR2Bucket = typeof globalThis extends { R2Bucket: infer T } ? T : any;
 type WorkerFetcher = typeof globalThis extends { Fetcher: infer T } ? T : any;
 
 export type Env = {
   DB: WorkerD1Database;
   RATE_LIMITS: WorkerKVNamespace;
+  AUDIO_BUCKET?: WorkerR2Bucket;
   ASSETS: WorkerFetcher;
   PUBLIC_APP_URL: string;
   EMAIL_PROVIDER: string;
