@@ -8,12 +8,7 @@
     "directory": "./dist/",
     "not_found_handling": "single-page-application",
     "binding": "ASSETS",
-    // Only these paths reach the Worker/Express at all — everything else is
-    // served directly by Cloudflare's static assets handler. robots.txt,
-    // sitemap.xml and the legacy /functions/v1/* aliases are generated
-    // dynamically by Express, not shipped as files in dist/, so they must be
-    // listed here too or they'd 404 against the asset handler instead.
-    "run_worker_first": ["/api/*", "/functions/v1/*", "/robots.txt", "/sitemap.xml"]
+    "run_worker_first": ["/api/*"]
   },
   "d1_databases": [
     {
@@ -29,20 +24,8 @@
       "id": "c0b74485bcc9428582acb39e210a480e"
     }
   ],
-  // Daily sweep for expired custom-voice uploads (R2 object + D1 row older
-  // than 24h) — see worker.ts's `scheduled` handler and src/audio-store.ts's
-  // cleanupExpired(). Runs independent of request traffic since a Worker
-  // only runs when it's handling a request or a trigger like this one.
-  "triggers": {
-    "crons": ["17 3 * * *"]
-  },
   "vars": {
     "PUBLIC_APP_URL": "https://scenering.com",
-    "EMAIL_PROVIDER": "console",
-    // Workers don't set NODE_ENV the way Node hosts do, but the app's
-    // security headers, secure-cookie flag, HSTS and CSP all gate on this
-    // being exactly "production" — must be explicit here. Local `wrangler
-    // dev` can override it to "development" via a .dev.vars file.
-    "NODE_ENV": "production"
+    "EMAIL_PROVIDER": "console"
   }
 }
