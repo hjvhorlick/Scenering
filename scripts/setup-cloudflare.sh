@@ -47,6 +47,12 @@ echo "$DB_OUTPUT"
 # the value already in wrangler.jsonc, or ask.
 DB_ID=$(echo "$DB_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)
 if [ -z "$DB_ID" ]; then
+  # Creation usually fails here because the database already exists — look
+  # the id up with `d1 info` instead of prompting for it.
+  DB_ID=$(npx wrangler d1 info scenering-db 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)
+  [ -n "$DB_ID" ] && ok "Found existing database scenering-db: $DB_ID"
+fi
+if [ -z "$DB_ID" ]; then
   if grep -q '"database_id": "SCENERING_D1_ID_PLACEHOLDER"' "$CONFIG"; then
     read -r -p "Could not create/read the database id. Paste the D1 database id: " DB_ID
     [ -n "$DB_ID" ] || { echo "No database id — aborting."; exit 1; }
@@ -64,19 +70,22 @@ ok "R2 bucket scenering-audio ready"
 
 # -------------------------------------------------------------- KV namespace
 say "📦 Step 3/6: KV namespace (binding: RATE_LIMITS)"
-KV_OUTPUT=$(npx wrangler kv namespace create RATE_LIMITS 2>&1 || true)
-echo "$KV_OUTPUT"
-KV_ID=$(echo "$KV_OUTPUT" | grep -oE '[a-f0-9]{32}' | head -1 || true)
-if [ -z "$KV_ID" ]; then
-  if grep -q '"id": "SCENERING_KV_ID_PLACEHOLDER"' "$CONFIG"; then
+# If wrangler.jsonc already carries a real namespace id, keep it — creating
+# another namespace would orphan the one production traffic uses. The sed
+# range spans the whole binding block so comment lines can't hide the id.
+KV_CONFIG_ID=$(sed -n '/"binding": "RATE_LIMITS"/,/}/p' "$CONFIG" | grep -oE '[a-f0-9]{32}' | head -1 || true)
+if [ -n "$KV_CONFIG_ID" ]; then
+  ok "RATE_LIMITS already bound to namespace $KV_CONFIG_ID — skipping creation"
+else
+  KV_OUTPUT=$(npx wrangler kv namespace create RATE_LIMITS 2>&1 || true)
+  echo "$KV_OUTPUT"
+  KV_ID=$(echo "$KV_OUTPUT" | grep -oE '[a-f0-9]{32}' | head -1 || true)
+  if [ -z "$KV_ID" ]; then
     read -r -p "Paste the KV namespace id: " KV_ID
     [ -n "$KV_ID" ] || { echo "No namespace id — aborting."; exit 1; }
-  else
-    KV_ID=$(grep -A1 '"binding": "RATE_LIMITS"' "$CONFIG" | grep -oE '[a-f0-9]{32}')
-    echo "Using the KV namespace id already configured in $CONFIG: $KV_ID"
   fi
+  replace_placeholder "SCENERING_KV_ID_PLACEHOLDER" "$KV_ID"
 fi
-replace_placeholder "SCENERING_KV_ID_PLACEHOLDER" "$KV_ID"
 
 # ------------------------------------------------------------- D1 schema (×2)
 say "📦 Step 4/6: applying migrations"

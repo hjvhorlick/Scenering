@@ -222,6 +222,13 @@ bash scripts/setup-cloudflare.sh   # creates D1 + R2 + KV, fills wrangler.jsonc,
 npm run deploy                     # vite build → wrangler deploy (assets + worker + cron)
 ```
 
+`npm run deploy` and `npm run deploy:check` first run
+`scripts/check-deploy-config.mjs`, which fails fast — locally, with an
+actionable message — while `wrangler.jsonc` still contains
+`SCENERING_*_PLACEHOLDER` resource ids or malformed binding ids. Without the
+guard, a placeholder config only fails remotely, as the API's cryptic
+`KV namespace '…' is not valid [10042]`.
+
 Then:
 
 1. **Custom domain** — in the Cloudflare dashboard, attach the zone (e.g.
