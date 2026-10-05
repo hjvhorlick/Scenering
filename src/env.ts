@@ -13,7 +13,6 @@ export function env(): any {
 
 export type Env = {
   DB: D1Database;
-  AUDIO_BUCKET: R2Bucket;
   RATE_LIMITS: KVNamespace;
   ASSETS: Fetcher;
   PUBLIC_APP_URL: string;
