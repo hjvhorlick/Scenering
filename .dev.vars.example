@@ -1,0 +1,31 @@
+# Local `wrangler dev` overrides. Copy to `.dev.vars` (already gitignored by
+# Wrangler's default patterns — do not commit the real file) and fill in.
+# `wrangler dev` reads this automatically; it is the Workers equivalent of
+# the old `.env` used by `tsx server.ts`.
+
+NODE_ENV=development
+SESSION_SECRET=local-development-secret-change-me-32-chars-minimum
+PUBLIC_APP_URL=http://localhost:8787
+SCENERING_OWNER_EMAIL=you@example.com
+
+# Optional
+GEMINI_API_KEY=
+PEXELS_API_KEY=
+PIXABAY_API_KEY=
+LEMON_SQUEEZY_API_KEY=
+LEMON_SQUEEZY_STORE_ID=
+LEMON_SQUEEZY_WEBHOOK_SECRET=
+LEMON_SQUEEZY_SCENEFLOW_MONTHLY_VARIANT_ID=
+LEMON_SQUEEZY_SCENEFLOW_YEARLY_VARIANT_ID=
+LEMON_SQUEEZY_SCENEFORGE_MONTHLY_VARIANT_ID=
+LEMON_SQUEEZY_SCENEFORGE_YEARLY_VARIANT_ID=
+LEMON_SQUEEZY_SCENEFLOW_MONTHLY_CHECKOUT_URL=
+LEMON_SQUEEZY_SCENEFLOW_YEARLY_CHECKOUT_URL=
+LEMON_SQUEEZY_SCENEFORGE_MONTHLY_CHECKOUT_URL=
+LEMON_SQUEEZY_SCENEFORGE_YEARLY_CHECKOUT_URL=
+
+# Dev-only conveniences (ignored when NODE_ENV=production)
+DEV_AUTO_OWNER=
+DEV_EMBEDDED_PREVIEW=
+DEV_REQUEST_LOG=
+ALLOW_FRAMING=
