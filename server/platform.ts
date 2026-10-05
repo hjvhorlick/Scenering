@@ -411,7 +411,14 @@ export function registerLemonSqueezyWebhook(app: Express) {
   app.post("/api/webhooks/lemonsqueezy", express.raw({ type: "application/json", limit: "2mb" }), asyncHandlerVoid(async (req, res) => {
     const secret = env().LEMON_SQUEEZY_WEBHOOK_SECRET as string | undefined;
     if (!secret) return res.status(503).json({ error: "Billing webhook is not configured" });
-    const signature = String(req.headers["x-signature"] || ""); const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+    // Lemon Squeezy signs the exact raw request bytes with HMAC-SHA256 and
+    // sends the hex digest in X-Signature. Hex is case-insensitive as a
+    // format, so the supplied value is normalised before comparison —
+    // trimmed, lowercased, and stripped of an optional "sha256=" prefix —
+    // which keeps verification working no matter how any intermediary
+    // formats the digest.
+    const signature = String(req.headers["x-signature"] || "").trim().toLowerCase().replace(/^sha256=/, "");
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || ""); 
     const expected = createHmac("sha256", secret).update(body).digest("hex");
     if (!signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return res.status(401).json({ error: "Invalid signature" });
     let event: any; try { event = JSON.parse(body.toString("utf8")); } catch { return res.status(400).json({ error: "Invalid JSON" }); }
@@ -419,9 +426,18 @@ export function registerLemonSqueezyWebhook(app: Express) {
     if (!eventId || !eventName) return res.status(400).json({ error: "Invalid event" });
 
     const result = await (async () => {
-      if (await db.webhookEventExists(eventId)) return "duplicate";
+      if (await db.webhookEventExists(eventId)) {
+        // Not an error — Lemon Squeezy redelivers — but the owner's webhook
+        // log should show that it happened, so the original row is marked
+        // rather than a second row inserted for the same event id.
+        await db.markWebhookEventDuplicate(eventId);
+        return "duplicate";
+      }
       const record = async (status: string) => {
-        await db.recordWebhookEvent({ providerEventId: eventId, eventName, status, payload: { data_id: event.data?.id, variant_id: event.data?.attributes?.variant_id, status: event.data?.attributes?.status } });
+        // `test_mode` is recorded (not acted on differently): a test purchase
+        // from the store dashboard verifies the whole loop end to end and is
+        // clearly labelled in the administration panel's webhook log.
+        await db.recordWebhookEvent({ providerEventId: eventId, eventName, status, payload: { data_id: event.data?.id, variant_id: event.data?.attributes?.variant_id, status: event.data?.attributes?.status, test_mode: event.meta?.test_mode === true } });
         return status;
       };
       if (!(LEMON_SQUEEZY_SUBSCRIPTION_EVENTS as readonly string[]).includes(eventName)) return record("ignored");

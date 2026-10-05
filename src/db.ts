@@ -532,6 +532,15 @@ export const db = {
     await env().DB.prepare("INSERT INTO webhook_events (id, provider_event_id, event_name, status, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .bind(newId("wh"), row.providerEventId, row.eventName, row.status, jsonOrNull(row.payload), nowIso()).run();
   },
+  /** Marks on the original event's row that a redelivery arrived (Lemon
+   *  Squeezy retries, and the owner's webhook log should show it) without
+   *  creating a second row for the same provider event id — the column is
+   *  UNIQUE, and the original outcome must stay visible. */
+  async markWebhookEventDuplicate(providerEventId: string): Promise<void> {
+    await env().DB.prepare(
+      "UPDATE webhook_events SET payload = json_set(payload, '$.duplicate_count', coalesce(json_extract(payload, '$.duplicate_count'), 0) + 1, '$.last_duplicate_at', ?) WHERE provider_event_id = ?"
+    ).bind(nowIso(), providerEventId).run();
+  },
   async listRecentWebhookEvents(limit = 25): Promise<WebhookEvent[]> {
     const result = await env().DB.prepare("SELECT * FROM webhook_events ORDER BY created_at DESC LIMIT ?").bind(limit).all();
     return (result.results || []).map(rowToWebhookEvent);

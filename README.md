@@ -94,24 +94,48 @@ Payments are handled entirely by Lemon Squeezy. Scenering never sees a card
 number and stores no payment details of its own — only the subscription's
 status, plan, period dates and the hosted links Lemon Squeezy sends back.
 
-Everything needed is in `.env`; nothing is hard-coded. The flow:
+Everything needed is a server-side secret or variable; nothing is hard-coded.
+In production set them with `wrangler secret put <NAME>`; locally they live in
+`.dev.vars`. The flow:
 
 | Step | Where |
 |---|---|
 | Customer picks a plan | Account & Membership modal → `GET /api/billing/checkout/:plan/:interval` |
 | Server hands back the checkout link | `LEMON_SQUEEZY_<PLAN>_<INTERVAL>_CHECKOUT_URL`, with `checkout[email]` and `checkout[custom][user_id]` appended |
-| Lemon Squeezy confirms the purchase | `POST /api/webhooks/lemonsqueezy`, verified against `LEMON_SQUEEZY_WEBHOOK_SECRET` |
+| Lemon Squeezy confirms the purchase | `POST /api/webhooks/lemonsqueezy`, verified against `LEMON_SQUEEZY_WEBHOOK_SECRET` (HMAC-SHA256 of the raw body, `X-Signature`, constant-time compare) |
 | Webhook maps the purchase to a plan | `LEMON_SQUEEZY_<PLAN>_<INTERVAL>_VARIANT_ID` |
 | Access changes | the account's membership row, which is what every entitlement check reads |
 
-Register the webhook at `<PUBLIC_APP_URL>/api/webhooks/lemonsqueezy` and tick
-every subscription event: `subscription_created`, `subscription_updated`,
-`subscription_cancelled`, `subscription_resumed`, `subscription_expired`,
-`subscription_paused`, `subscription_unpaused`, `subscription_payment_failed`,
-`subscription_payment_success` and `subscription_payment_recovered`. Anything
-else the store sends is recorded and ignored rather than acted on. Each event is processed once — a redelivery with
-the same event id is a no-op — and an event whose signature does not verify is
-rejected with 401 before it is parsed.
+**Connecting the store, in order:**
+
+1. Create one product per plan with a monthly and a yearly variant in Lemon
+   Squeezy; copy each variant's numeric id into the four `…_VARIANT_ID`
+   secrets and each variant's checkout link into the four `…_CHECKOUT_URL`
+   secrets.
+2. In the store's settings, add a webhook pointing at
+   `<PUBLIC_APP_URL>/api/webhooks/lemonsqueezy` and tick every subscription
+   event: `subscription_created`, `subscription_updated`,
+   `subscription_cancelled`, `subscription_resumed`, `subscription_expired`,
+   `subscription_paused`, `subscription_unpaused`,
+   `subscription_payment_failed`, `subscription_payment_success` and
+   `subscription_payment_recovered`.
+3. Copy the webhook's signing secret into `LEMON_SQUEEZY_WEBHOOK_SECRET`.
+4. Sign in as the owner and open **Account & Membership** — the go-live
+   checklist names anything still missing, shows the exact webhook URL to
+   paste, and lists the last 25 webhooks received with their outcome.
+5. Do a **test-mode purchase** from the store dashboard to see the whole loop
+   work end to end. Test deliveries (`meta.test_mode`) are processed like
+   live ones and labelled as tests in the webhook log — use your own email,
+   and revoke the granted membership from the administration panel afterwards.
+
+Anything the store sends that is not a subscription event is recorded and
+ignored rather than acted on, so Lemon Squeezy is never left retrying. Each
+event is applied once — a redelivery with the same event id is a no-op that
+leaves a redelivery mark on the event's log entry — and an event whose
+signature does not verify is rejected with 401 before it is parsed. An event
+that maps to no account or no known variant is answered 202 (`unmatched`,
+`unknown_variant`) rather than 5xx, so the store stops retrying an event that
+could never succeed.
 
 Access follows what was paid for, not what the dashboard says today:
 `cancelled` and `past_due` keep the plan until the period already paid for

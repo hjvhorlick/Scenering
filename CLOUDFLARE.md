@@ -234,10 +234,32 @@ Then:
    (the setup script generates one).
 4. **`SCENERING_OWNER_EMAIL`** — the one address that receives the
    owner-admin role and SceneForge access at sign-in.
-5. **Lemon Squeezy** — register the webhook at
-   `<PUBLIC_APP_URL>/api/webhooks/lemonsqueezy`, tick every `subscription_*`
-   event, and fill the variant/checkout secrets. The go-live checklist inside
-   Account & Membership names anything still missing.
+5. **Lemon Squeezy** — the full connection runbook:
+   1. In the store: create one product per plan with a monthly and a yearly
+      variant. Copy each variant's numeric id into the four
+      `LEMON_SQUEEZY_*_VARIANT_ID` secrets and each variant's checkout link
+      into the four `LEMON_SQUEEZY_*_CHECKOUT_URL` secrets
+      (`wrangler secret put <NAME>`).
+   2. Settings → Webhooks → new webhook pointing at
+      `https://<your-domain>/api/webhooks/lemonsqueezy`; tick all ten
+      `subscription_*` events; copy the signing secret into
+      `LEMON_SQUEEZY_WEBHOOK_SECRET`.
+   3. Sign in as the owner → **Account & Membership** — the go-live checklist
+      must report ready, and shows the exact webhook URL + the last 25
+      deliveries with their outcome.
+   4. Run one **test-mode purchase** from the store dashboard to verify the
+      loop end to end. Test deliveries are processed like live ones and
+      labelled `test_mode` in the webhook log; revoke the granted membership
+      from the administration panel afterwards.
+
+   The webhook endpoint was verified against the real workerd runtime with a
+   44-check matrix: signature contract (wrong/missing/uppercase-hex
+   signatures, invalid JSON), the full subscription lifecycle (created,
+   updated/variant switch, cancelled inside and past the paid period, payment
+   failed → past_due grace, resumed, expired), replay/duplicate redelivery
+   marks, unmapped variants and unknown accounts answered 202 so the store
+   stops retrying, checkout links tagged with `checkout[custom][user_id]` and
+   `checkout[email]`, and the owner's checklist reporting ready.
 6. **Migrations** — `wrangler d1 migrations apply scenering-db --remote`
    (the setup script does this; re-run after adding a migration).
 
@@ -269,6 +291,13 @@ The hourly sweep can be fired manually with
   **20-request same-second burst with zero failures** · admin overview
   (bulk-read shape) · owner role grant · origin enforcement 403 · legacy
   `/functions/v1/*` routes · manual cron trigger.
+- **Lemon Squeezy connection matrix (44/44)** against the same runtime with
+  `LEMON_SQUEEZY_*` configured: checkout link handoff (user id + email
+  tagging), the store's signing contract (valid / wrong / missing /
+  uppercased / non-JSON deliveries), the full subscription lifecycle and the
+  paid-period rules, duplicate redelivery no-ops + log marks, 202s for
+  unmatchable events, test-mode labelling, and the owner's go-live checklist
+  reporting ready with the exact webhook URL.
 
 Documentation referenced: [Workers
 limits](https://developers.cloudflare.com/workers/platform/limits/) ·

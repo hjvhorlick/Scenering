@@ -75,9 +75,10 @@ function subscriptionEvent(options: {
   renewsAt?: string;
   endsAt?: string;
   cancelled?: boolean;
+  testMode?: boolean;
 }) {
   return {
-    meta: { event_id: options.eventId, event_name: options.eventName, custom_data: { user_id: options.userId, email: options.email } },
+    meta: { event_id: options.eventId, event_name: options.eventName, custom_data: { user_id: options.userId, email: options.email }, ...(options.testMode ? { test_mode: true } : {}) },
     data: {
       id: options.subscriptionId || "sub-9001",
       attributes: {
@@ -194,6 +195,22 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
 
   const replay = await postWebhook(subscriptionEvent({ eventId: "evt-created", eventName: "subscription_created", userId: dbUserId, email }));
   h.eq(replay.body.status, "duplicate", "the same event id is never applied twice");
+  {
+    const dupeRow = testD1().sqlite.prepare("SELECT payload FROM webhook_events WHERE provider_event_id = 'evt-created'").get() as { payload: string } | undefined;
+    const payload = dupeRow ? JSON.parse(dupeRow.payload) : {};
+    h.eq(payload.duplicate_count, 1, "a redelivery is marked on the original event's log entry");
+    h.ok(Boolean(payload.last_duplicate_at), "the redelivery is timestamped");
+  }
+
+  /* Test-mode purchases (card 4242… from the store dashboard) verify the
+     whole loop; they are processed and labelled in the webhook log. */
+  {
+    const testMode = await postWebhook(subscriptionEvent({ eventId: "evt-test-mode", eventName: "subscription_created", userId: dbUserId, email, testMode: true }));
+    h.eq(testMode.body.status, "processed", "a test-mode purchase is processed end to end");
+    const row = testD1().sqlite.prepare("SELECT payload FROM webhook_events WHERE provider_event_id = 'evt-test-mode'").get() as { payload: string } | undefined;
+    h.eq(row ? JSON.parse(row.payload).test_mode : undefined, true, "test-mode deliveries are labelled in the webhook log");
+    h.eq((await account()).membership.plan_id, "sceneflow", "the test-mode purchase granted the same plan a live one would");
+  }
 
   const upgraded = await postWebhook(subscriptionEvent({ eventId: "evt-upgrade", eventName: "subscription_updated", userId: dbUserId, email, variantId: "222" }));
   h.eq(upgraded.body.status, "processed", "an upgrade is processed");
