@@ -2,6 +2,16 @@
 
 ## Unreleased — Images that arrive framed, honest VIP exports, and a Fairy shelf
 
+- **Fixed: Cloudflare deploys failed with `KV namespace '…' is not valid
+  [10042]`.** `wrangler.jsonc` still carried placeholder resource ids — PR
+  #35's placeholder round-trip had reverted the real KV namespace id, and the
+  D1 database id had never been committed at all. Both bindings now carry
+  their real ids (the KV id restored from commit 4d28fea, the D1 id from the
+  dashboard), `npm run deploy` first runs a guard that fails fast with
+  instructions instead of the API's cryptic error, and the setup script no
+  longer prompts for ids it can look up (or tries to re-create a KV namespace
+  that is already configured).
+
 - **Fixed: image search returned nothing from Pexels.** The request asked for
   `per_page=100`; the documented maximum is 80 and anything above it is
   rejected outright, so every Pexels search failed with a 400 and fell
