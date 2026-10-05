@@ -799,7 +799,7 @@ const PROVIDER_TIMEOUT_MS = 12000;
 // original file, so nothing is ever upscaled into a 1080p render. Photos
 // smaller than Full HD are dropped by the shared candidate mapper.
 async function searchPexels(query: string, count: number, customKey?: string): Promise<ImageResult[]> {
-  const apiKey = (customKey && customKey.trim()) || env().PEXELS_API_KEY;
+  const apiKey = customKey?.trim();
   if (!apiKey) return [];
 
   // Pexels rejects per_page above 80 with a 400, which used to turn every
@@ -874,7 +874,7 @@ function canPixabayServe1920(sampleUrl: string): Promise<boolean> {
 // The source must already be ~16:9 and ≥1920×1080 (Pixabay cannot crop), and
 // the URL must be able to deliver that size.
 async function searchPixabay(query: string, count: number, customKey?: string): Promise<ImageResult[]> {
-  const apiKey = (customKey && customKey.trim()) || env().PIXABAY_API_KEY;
+  const apiKey = customKey?.trim();
   if (!apiKey) return [];
 
   // Pixabay accepts 3–200 per page and 400s outside that window.
@@ -1091,10 +1091,10 @@ export function createApp(): express.Express {
         return res.status(400).json({ error: "Missing query parameter 'q'" });
       }
 
-      // Try Pexels first (with customer's key or env key)
+      // Try Pexels first (only when the customer supplied a personal key)
       let results = await searchPexels(query, count, customPexelsKey);
 
-      // Try Pixabay if Pexels returned nothing (with customer's key or env key)
+      // Try Pixabay if Pexels returned nothing (only with a personal key)
       if (results.length === 0) {
         results = await searchPixabay(query, count, customPixabayKey);
       }

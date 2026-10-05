@@ -46,9 +46,11 @@ whichever you want:
 | Key | What it adds | Without it |
 |---|---|---|
 | `GEMINI_API_KEY` | Highest-quality narration | Free Edge voices, then a silent track |
-| `PEXELS_API_KEY` | Stock photo search | Wikimedia Commons |
-| `PIXABAY_API_KEY` | More stock photos | Wikimedia Commons |
 | `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` | Projects sync across devices | Saved in your browser |
+
+Pexels and Pixabay keys are entered by each user in the app. They are sent only
+with that user's search and are never configured as shared server secrets or
+server environment variables.
 
 Narration falls back in that order automatically, so it never hard-fails — if
 every option is unavailable you get a silent track of the right length and the

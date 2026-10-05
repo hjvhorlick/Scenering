@@ -21,8 +21,6 @@ export type Env = {
   SESSION_SECRET: string;
   SCENERING_OWNER_EMAIL: string;
   GEMINI_API_KEY?: string;
-  PEXELS_API_KEY?: string;
-  PIXABAY_API_KEY?: string;
   // Matches the names already used in .env.example, src/config/plans.ts and
   // server/platform.ts's billing/webhook code — keeping the underscore here
   // means none of that code needs to change.
