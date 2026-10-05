@@ -44,18 +44,19 @@
     {
       "binding": "DB",
       "database_name": "scenering-db",
-      "database_id": "SCENERING_D1_ID_PLACEHOLDER",
+      // The real scenering-db id (from the Cloudflare dashboard). The setup
+      // script leaves real values untouched and only fills placeholders.
+      "database_id": "9db6d98a-783c-4974-aaee-d56cfcf76e43",
       "migrations_dir": "./migrations"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "RATE_LIMITS",
-      // Previous value in this file: "c0b74485bcc9428582acb39e210a480e".
-      // scripts/setup-cloudflare.sh fills this in when it creates the
-      // namespace; if that namespace already exists in your account, you can
-      // put its id back instead of running the script.
-      "id": "SCENERING_KV_ID_PLACEHOLDER"
+      // The production RATE_LIMITS namespace, restored from commit 4d28fea
+      // ("Set real KV namespace ID") — PR #35's placeholder round-trip left a
+      // value the Cloudflare API rejects with error 10042.
+      "id": "c0b74485bcc9428582acb39e210a480e"
     }
   ],
   "r2_buckets": [
