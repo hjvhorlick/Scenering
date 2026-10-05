@@ -26,7 +26,7 @@
   "kv_namespaces": [
     {
       "binding": "RATE_LIMITS",
-      "id": "[PASTE YOUR KV ID HERE]"
+      "id": "c0b74485bcc9428582acb39e210a480e"
     }
   ],
   // Daily sweep for expired custom-voice uploads (R2 object + D1 row older
