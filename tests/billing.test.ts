@@ -45,6 +45,12 @@ process.env.LEMON_SQUEEZY_SCENEFORGE_MONTHLY_CHECKOUT_URL = "https://store.lemon
 process.env.LEMON_SQUEEZY_SCENEFORGE_YEARLY_CHECKOUT_URL = "https://store.lemonsqueezy.com/checkout/buy/forge-yearly";
 
 const express = (await import("express")).default;
+/* The platform now runs on Cloudflare bindings (D1/KV/R2) rather than JSON
+   files. Install the in-memory Node shims — real SQLite running the real
+   migration — so these behavioural tests exercise the same db.ts code the
+   Worker does. */
+const { installTestPlatformEnv, testD1 } = await import("./platform-env.ts");
+installTestPlatformEnv();
 const platform = await import("../server/platform.ts");
 
 const app = express();
@@ -69,9 +75,10 @@ function subscriptionEvent(options: {
   renewsAt?: string;
   endsAt?: string;
   cancelled?: boolean;
+  testMode?: boolean;
 }) {
   return {
-    meta: { event_id: options.eventId, event_name: options.eventName, custom_data: { user_id: options.userId, email: options.email } },
+    meta: { event_id: options.eventId, event_name: options.eventName, custom_data: { user_id: options.userId, email: options.email }, ...(options.testMode ? { test_mode: true } : {}) },
     data: {
       id: options.subscriptionId || "sub-9001",
       attributes: {
@@ -125,7 +132,7 @@ const login = await fetch(`${base}/api/auth/login`, { method: "POST", headers: {
 h.eq(login.status, 200, "a verified customer can sign in");
 const cookie = String(login.headers.get("set-cookie") || "").split(";")[0];
 const account = async () => (await fetch(`${base}/api/account`, { headers: { Cookie: cookie } })).json() as any;
-const dbUserId = JSON.parse(readFileSync(join(process.cwd(), ".data/platform.json"), "utf8")).users[0].id;
+const dbUserId = (testD1().sqlite.prepare("SELECT id FROM users ORDER BY created_at ASC LIMIT 1").get() as { id: string }).id;
 h.eq((await account()).membership.plan_id, "free", "a new account starts on Free");
 
 /* ------------------------------------------------------------------ */
@@ -188,6 +195,22 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
 
   const replay = await postWebhook(subscriptionEvent({ eventId: "evt-created", eventName: "subscription_created", userId: dbUserId, email }));
   h.eq(replay.body.status, "duplicate", "the same event id is never applied twice");
+  {
+    const dupeRow = testD1().sqlite.prepare("SELECT payload FROM webhook_events WHERE provider_event_id = 'evt-created'").get() as { payload: string } | undefined;
+    const payload = dupeRow ? JSON.parse(dupeRow.payload) : {};
+    h.eq(payload.duplicate_count, 1, "a redelivery is marked on the original event's log entry");
+    h.ok(Boolean(payload.last_duplicate_at), "the redelivery is timestamped");
+  }
+
+  /* Test-mode purchases (card 4242… from the store dashboard) verify the
+     whole loop; they are processed and labelled in the webhook log. */
+  {
+    const testMode = await postWebhook(subscriptionEvent({ eventId: "evt-test-mode", eventName: "subscription_created", userId: dbUserId, email, testMode: true }));
+    h.eq(testMode.body.status, "processed", "a test-mode purchase is processed end to end");
+    const row = testD1().sqlite.prepare("SELECT payload FROM webhook_events WHERE provider_event_id = 'evt-test-mode'").get() as { payload: string } | undefined;
+    h.eq(row ? JSON.parse(row.payload).test_mode : undefined, true, "test-mode deliveries are labelled in the webhook log");
+    h.eq((await account()).membership.plan_id, "sceneflow", "the test-mode purchase granted the same plan a live one would");
+  }
 
   const upgraded = await postWebhook(subscriptionEvent({ eventId: "evt-upgrade", eventName: "subscription_updated", userId: dbUserId, email, variantId: "222" }));
   h.eq(upgraded.body.status, "processed", "an upgrade is processed");
@@ -307,7 +330,10 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
     "the webhook body stays raw, or the signature could never be verified"
   );
   h.ok(platformSource.includes("timingSafeEqual"), "signatures are compared in constant time");
-  h.ok(platformSource.includes("provider_event_id === eventId"), "event ids are checked for replay");
+  h.ok(
+    platformSource.includes("webhookEventExists(eventId)") && readFileSync(join(repoRoot, "migrations", "0001_init.sql"), "utf8").includes("provider_event_id TEXT UNIQUE NOT NULL"),
+    "event ids are checked for replay"
+  );
 
   for (const key of [
     "LEMON_SQUEEZY_WEBHOOK_SECRET", "LEMON_SQUEEZY_API_KEY", "LEMON_SQUEEZY_STORE_ID",

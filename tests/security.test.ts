@@ -22,7 +22,10 @@ h.ok(sessionUi.includes("scenering_admin_plan_preview") && sessionUi.includes('a
 h.ok(platform.includes('"/api/admin/complimentary-memberships"') && platform.includes("ComplimentaryGrant"), "owner can issue audited expiring complimentary memberships");
 h.ok(platform.includes("setUTCMonth") && platform.includes("setUTCFullYear"), "complimentary periods are exactly one calendar month or year");
 h.ok(platform.includes('"/api/admin/complimentary-codes"') && platform.includes('"/api/complimentary-codes/redeem"'), "owner can create and customers can redeem access codes");
-h.ok(platform.includes("code_hash: hashToken(raw)") && platform.includes('code.status = "redeemed"'), "access codes are stored hashed and become single-use after redemption");
+h.ok(
+  platform.includes("codeHash: hashToken(raw)") && readFileSync("src/db.ts", "utf8").includes("SET status = 'redeemed'"),
+  "access codes are stored hashed and become single-use after redemption"
+);
 h.ok(platform.includes('const period = "year" as const'), "access codes always grant one year rather than a selectable month");
 h.ok(platform.includes("unknown_variant"), "unknown billing variants grant no membership");
 h.ok(server.includes("Cross-origin request rejected"), "state-changing browser requests have origin enforcement");

@@ -4,7 +4,7 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExportCreativeManifest, type BillingInterval, type ExportCreativeManifest, type FeatureKey, type PlanSlug } from "../src/config/plans.ts";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
 import { env } from "../src/env.ts";
-import { db, type User } from "../src/db.ts";
+import { db, type ComplimentaryGrant, type EmailPreference, type Membership, type Subscription, type UsageRecord, type User } from "../src/db.ts";
 import { rateLimit as kvRateLimit } from "../src/rate-limiter.ts";
 
 /**
@@ -168,6 +168,50 @@ async function subscriptionForUser(userId: string) {
   return sub;
 }
 
+/** The API's wire format for subscriptions: snake_case, exactly the shape
+ *  the account modal's TypeScript interface declares and the billing suite
+ *  pins (billing_interval, customer_portal_url, …). The db layer's row
+ *  mappers return camelCase; this converts on the way out. */
+function apiSubscription(sub: import("../src/db.ts").Subscription | null) {
+  if (!sub) return null;
+  return {
+    status: sub.status,
+    plan_id: sub.planId,
+    billing_interval: sub.billingInterval,
+    current_period_start: sub.currentPeriodStart,
+    current_period_end: sub.currentPeriodEnd,
+    cancel_at_period_end: sub.cancelAtPeriodEnd,
+    cancelled_at: sub.cancelledAt,
+    expires_at: sub.expiresAt,
+    customer_portal_url: sub.customerPortalUrl,
+    update_payment_url: sub.updatePaymentUrl,
+    card_brand: sub.cardBrand,
+    card_last_four: sub.cardLastFour,
+    renewal_price: sub.renewalPrice,
+    created_at: sub.createdAt,
+  };
+}
+
+/** Same for complimentary grants (ends_at, plan_id, …) — the account modal
+ *  and the administration panel read these snake_case fields. */
+function apiGrant(grant: import("../src/db.ts").ComplimentaryGrant | null) {
+  if (!grant) return null;
+  return {
+    id: grant.id,
+    user_id: grant.userId,
+    plan_id: grant.planId,
+    period: grant.period,
+    status: grant.status,
+    starts_at: grant.startsAt,
+    ends_at: grant.endsAt,
+    granted_by: grant.grantedBy,
+    reason: grant.reason,
+    access_code_id: grant.accessCodeId,
+    created_at: grant.createdAt,
+    revoked_at: grant.revokedAt,
+  };
+}
+
 /** Session cookie attributes. The real policy is HttpOnly; SameSite=Lax
  *  (plus Secure in production). Embedded development previews — the app
  *  shown inside an HTTPS iframe, as sandbox preview panes do — are the one
@@ -287,7 +331,10 @@ async function accountPayload(user: User) {
   const [usage, remaining, subscription, membership] = await Promise.all([
     weeklyUsage(user.id), remainingUsage(user.id, plan), subscriptionForUser(user.id), effectiveMembership(user, plan),
   ]);
-  return { user: safeUser(user), membership, subscription, plan: getPlanConfig(plan), usage, remaining };
+  // `subscription` goes out in the API's snake_case wire format
+  // (apiSubscription) — the same shape the membership object uses and the
+  // account modal's TypeScript interface declares.
+  return { user: safeUser(user), membership, subscription: apiSubscription(subscription), plan: getPlanConfig(plan), usage, remaining };
 }
 
 /**
@@ -364,7 +411,14 @@ export function registerLemonSqueezyWebhook(app: Express) {
   app.post("/api/webhooks/lemonsqueezy", express.raw({ type: "application/json", limit: "2mb" }), asyncHandlerVoid(async (req, res) => {
     const secret = env().LEMON_SQUEEZY_WEBHOOK_SECRET as string | undefined;
     if (!secret) return res.status(503).json({ error: "Billing webhook is not configured" });
-    const signature = String(req.headers["x-signature"] || ""); const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+    // Lemon Squeezy signs the exact raw request bytes with HMAC-SHA256 and
+    // sends the hex digest in X-Signature. Hex is case-insensitive as a
+    // format, so the supplied value is normalised before comparison —
+    // trimmed, lowercased, and stripped of an optional "sha256=" prefix —
+    // which keeps verification working no matter how any intermediary
+    // formats the digest.
+    const signature = String(req.headers["x-signature"] || "").trim().toLowerCase().replace(/^sha256=/, "");
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || ""); 
     const expected = createHmac("sha256", secret).update(body).digest("hex");
     if (!signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return res.status(401).json({ error: "Invalid signature" });
     let event: any; try { event = JSON.parse(body.toString("utf8")); } catch { return res.status(400).json({ error: "Invalid JSON" }); }
@@ -372,9 +426,18 @@ export function registerLemonSqueezyWebhook(app: Express) {
     if (!eventId || !eventName) return res.status(400).json({ error: "Invalid event" });
 
     const result = await (async () => {
-      if (await db.webhookEventExists(eventId)) return "duplicate";
+      if (await db.webhookEventExists(eventId)) {
+        // Not an error — Lemon Squeezy redelivers — but the owner's webhook
+        // log should show that it happened, so the original row is marked
+        // rather than a second row inserted for the same event id.
+        await db.markWebhookEventDuplicate(eventId);
+        return "duplicate";
+      }
       const record = async (status: string) => {
-        await db.recordWebhookEvent({ providerEventId: eventId, eventName, status, payload: { data_id: event.data?.id, variant_id: event.data?.attributes?.variant_id, status: event.data?.attributes?.status } });
+        // `test_mode` is recorded (not acted on differently): a test purchase
+        // from the store dashboard verifies the whole loop end to end and is
+        // clearly labelled in the administration panel's webhook log.
+        await db.recordWebhookEvent({ providerEventId: eventId, eventName, status, payload: { data_id: event.data?.id, variant_id: event.data?.attributes?.variant_id, status: event.data?.attributes?.status, test_mode: event.meta?.test_mode === true } });
         return status;
       };
       if (!(LEMON_SQUEEZY_SUBSCRIPTION_EVENTS as readonly string[]).includes(eventName)) return record("ignored");
@@ -576,13 +639,96 @@ export function registerPlatformRoutes(app: Express) {
   });
 
   app.get("/api/admin/overview", requireAdmin, rateLimit("admin-overview", 120, 3600000), asyncHandlerVoid(async (req, res) => {
+    /* Bulk reads, not per-user queries. The first version of this endpoint
+       awaited ~8 D1 round trips per user (plan, subscription, grant, usage,
+       preferences, plus the sweeps) inside a Promise.all over every user:
+       with more than a handful of accounts it exceeded the Workers free
+       plan's 50-subrequests-per-invocation cap outright, and past six
+       concurrent queries it stalled on the platform's six-connection limit.
+       Everything below is fetched in a fixed handful of queries and the
+       per-user values are computed in memory — identical output, bounded
+       cost no matter how many accounts exist. */
     const users = await db.listUsers();
-    const usersPayload = await Promise.all(users.map(async (user) => {
-      const plan = await getUserPlan(user);
-      const [subscription, grant, usage, prefs] = await Promise.all([subscriptionForUser(user.id), activeComplimentaryGrant(user.id), weeklyUsage(user.id), db.findEmailPreference(user.id)]);
-      return { ...safeUser(user), membership: await effectiveMembership(user, plan), subscription, complimentaryGrant: grant, usage, marketingConsent: prefs?.marketingConsent || false };
-    }));
-    const [codes, contacts, webhookEvents] = await Promise.all([db.listRecentComplimentaryCodes(100), db.listRecentContactSubmissions(200), db.listRecentWebhookEvents(25)]);
+    await db.expireStaleComplimentaryGrants(); // once, not once per user
+    const [memberships, subscriptions, grants, usageRows, prefs, codes, contacts, webhookEvents] = await Promise.all([
+      db.listActiveMemberships(),
+      db.listNonExpiredSubscriptions(),
+      db.listActiveComplimentaryGrants(),
+      db.listAllUsageSince(weekStart().toISOString()),
+      db.listEmailPreferences(),
+      db.listRecentComplimentaryCodes(100),
+      db.listRecentContactSubmissions(200),
+      db.listRecentWebhookEvents(25),
+    ]);
+
+    // "Latest row per user" — the bulk queries are ordered so the first
+    // occurrence per user_id is what the per-user LIMIT 1 query returned.
+    const latest = <T extends { userId: string }>(rows: T[]): Map<string, T> => {
+      const map = new Map<string, T>();
+      for (const row of rows) if (!map.has(row.userId)) map.set(row.userId, row);
+      return map;
+    };
+    const membershipByUser: Map<string, Membership> = latest(memberships);
+    const subscriptionByUser: Map<string, Subscription> = latest(subscriptions);
+    const grantByUser: Map<string, ComplimentaryGrant> = latest(grants);
+    const usageByUser = new Map<string, UsageRecord[]>();
+    for (const row of usageRows) {
+      const list = usageByUser.get(row.userId) || [];
+      list.push(row);
+      usageByUser.set(row.userId, list);
+    }
+    const prefsByUser = new Map<string, EmailPreference>(prefs.map((p) => [p.userId, p]));
+    const planRank: Record<PlanSlug, number> = { free: 0, sceneflow: 1, sceneforge: 2 };
+    // Subscription-expiry write-backs (the same backstop as
+    // sweepUserSubscriptionExpiry). Collected while computing, awaited
+    // before responding — on Workers a floating promise can be cancelled
+    // the moment the response is sent.
+    const sweepWrites: Promise<unknown>[] = [];
+
+    const usersPayload = users.map((user) => {
+      // Same plan resolution as getUserPlan(), minus the per-user sweeps.
+      const membership = membershipByUser.get(user.id) || null;
+      const grant = grantByUser.get(user.id) || null;
+      let plan: PlanSlug;
+      if (user.role === "admin") plan = "sceneforge";
+      else {
+        // Same expiry backstop as sweepUserSubscriptionExpiry(), applied
+        // from the already-fetched subscription row; the (rare) expired
+        // ones are written back below so the database stays truthful.
+        const sub = subscriptionByUser.get(user.id) || null;
+        if (sub && sub.status !== "active" && sub.status !== "on_trial") {
+          const ends = Date.parse(String(sub.expiresAt || sub.currentPeriodEnd || ""));
+          if (Number.isFinite(ends) && ends <= Date.now()) {
+            sweepWrites.push(db.updateSubscription(sub.id, { status: "expired" }));
+            subscriptionByUser.delete(user.id);
+            if (membership && membership.plan !== "free") sweepWrites.push(db.updateMembership(membership.id, { plan: "free" }));
+            if (membership) membershipByUser.set(user.id, { ...membership, plan: "free" });
+          }
+        }
+        const paid: PlanSlug = membership?.plan || "free";
+        const complimentary: PlanSlug = grant?.planId || "free";
+        plan = planRank[complimentary] > planRank[paid] ? complimentary : paid;
+      }
+
+      const usageRowsForUser = usageByUser.get(user.id) || [];
+      const usage = { finalExports: usageRowsForUser.length, finalExportMinutes: Number(usageRowsForUser.reduce((sum, r) => sum + r.durationMinutes, 0).toFixed(2)) };
+      const effective = {
+        ...(membership ? { id: membership.id, user_id: membership.userId, status: membership.status } : { id: "", user_id: user.id, status: "active" }),
+        plan_id: plan,
+        source: user.role === "admin" ? "owner_admin" : grant && grant.planId === plan ? "complimentary" : plan === "free" ? "free" : "verified_subscription",
+        complimentary_ends_at: grant && grant.planId === plan ? grant.endsAt : null,
+        complimentary_period: grant && grant.planId === plan ? grant.period : null,
+      };
+      return {
+        ...safeUser(user),
+        membership: effective,
+        subscription: apiSubscription(subscriptionByUser.get(user.id) || null),
+        complimentaryGrant: apiGrant(grant),
+        usage,
+        marketingConsent: prefsByUser.get(user.id)?.marketingConsent || false,
+      };
+    });
+    await Promise.all(sweepWrites);
     res.setHeader("Cache-Control", "no-store");
     const e = env();
     // Summary counts for the dashboard header. Derived from `usersPayload`
@@ -652,7 +798,7 @@ export function registerPlatformRoutes(app: Express) {
       await db.revokeComplimentaryGrant(grant.id);
       await db.recordBillingEvent({ userId: grant.userId, subscriptionId: null, eventName: "complimentary_membership_revoked", fromProvider: false, extra: { granted_by: admin.id, grant_id: grant.id } });
     }
-    res.json({ revoked: true, grant });
+    res.json({ revoked: true, grant: apiGrant(grant) });
   }));
   app.put("/api/admin/contacts/:id", requireAdmin, rateLimit("admin-contact", 120, 3600000), asyncHandlerVoid(async (req, res) => {
     const allowed = new Set(["new", "open", "resolved", "closed"]); const status = String(req.body?.status || "");
