@@ -86,7 +86,7 @@ const STORAGE_KEY = "scenering_phonetic_dictionary";
  * Loads custom phonetic entries saved by the user in localStorage
  */
 export function getCustomPhoneticDictionary(): PhoneticEntry[] {
-  if (typeof window === "undefined" || !window.localStorage) return [];
+  if (typeof globalThis === "undefined" || !(globalThis as any).window || !(globalThis as any).localStorage) return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
@@ -102,11 +102,11 @@ export function getCustomPhoneticDictionary(): PhoneticEntry[] {
  * Persists custom phonetic entries to localStorage
  */
 export function saveCustomPhoneticDictionary(entries: PhoneticEntry[]): void {
-  if (typeof window === "undefined" || !window.localStorage) return;
+  if (typeof globalThis === "undefined" || !(globalThis as any).window || !(globalThis as any).localStorage) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
     // Dispatch custom event so all components react immediately
-    window.dispatchEvent(new CustomEvent("scenering-phonetic-dictionary-updated"));
+    (globalThis as any).window.dispatchEvent(new CustomEvent("scenering-phonetic-dictionary-updated"));
   } catch (e) {
     console.error("Failed to save custom phonetic dictionary:", e);
   }
@@ -166,9 +166,9 @@ export function removeCustomPhoneticWord(id: string): void {
  * Clears all custom entries
  */
 export function resetCustomPhoneticDictionary(): void {
-  if (typeof window === "undefined" || !window.localStorage) return;
+  if (typeof globalThis === "undefined" || !(globalThis as any).window || !(globalThis as any).localStorage) return;
   localStorage.removeItem(STORAGE_KEY);
-  window.dispatchEvent(new CustomEvent("scenering-phonetic-dictionary-updated"));
+  (globalThis as any).window.dispatchEvent(new CustomEvent("scenering-phonetic-dictionary-updated"));
 }
 
 /**

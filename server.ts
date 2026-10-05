@@ -1,15 +1,19 @@
 import express from "express";
-import http from "node:http";
-import path from "path";
-import { existsSync } from "node:fs";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { NATURE_FALLBACKS } from "./src/data/nature-fallbacks.ts";
 import { sanitizeTextForSpeech } from "./src/lib/speech-sanitizer.ts";
 import { parseEdgeWordBoundaries, type WordTiming } from "./src/lib/word-sync.ts";
 import { randomBytes } from "node:crypto";
-import { assertSecurePlatformConfiguration, platformFeatureAllowed, platformRateLimit, registerLemonSqueezyWebhook, registerPlatformRoutes, requirePlatformUser } from "./server/platform.ts";
+import { env } from "./src/env.ts";
+import { audioStore } from "./src/audio-store.ts";
+import {
+  assertSecurePlatformConfiguration,
+  platformFeatureAllowed,
+  platformRateLimit,
+  registerLemonSqueezyWebhook,
+  registerPlatformRoutes,
+  requirePlatformUser,
+} from "./server/platform.ts";
 import {
   pexelsPhotoToCandidate,
   pixabayHitToCandidate,
@@ -33,9 +37,10 @@ function shuffleCopy<T>(items: readonly T[]): T[] {
 
 let geminiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI | null {
-  if (!geminiClient && process.env.GEMINI_API_KEY) {
+  const apiKey = env().GEMINI_API_KEY as string | undefined;
+  if (!geminiClient && apiKey) {
     try {
-      geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      geminiClient = new GoogleGenAI({ apiKey });
     } catch (e: any) {
       console.warn("Failed to initialize GoogleGenAI client:", e?.message);
     }
@@ -322,31 +327,6 @@ export interface RealVoiceProfile {
   friendlyName: string;
 }
 
-let cachedEdgeVoices: RealVoiceProfile[] = [];
-
-async function getEdgeVoicesCached(): Promise<RealVoiceProfile[]> {
-  if (cachedEdgeVoices.length > 0) return cachedEdgeVoices;
-  try {
-    const tts = new MsEdgeTTS();
-    const list = await tts.getVoices();
-    cachedEdgeVoices = list.map((v) => ({
-      id: v.ShortName,
-      name: v.FriendlyName || v.ShortName,
-      gender: v.Gender.toLowerCase() === "male" ? "male" : "female",
-      locale: v.Locale,
-      lang: v.Locale,
-      friendlyName: v.FriendlyName,
-    }));
-    return cachedEdgeVoices;
-  } catch (err: any) {
-    console.warn("Error caching Edge voices:", err?.message);
-    return [];
-  }
-}
-
-// Ensure pre-caching starts in background
-getEdgeVoicesCached().catch(() => {});
-
 // Resolves any voice identifier to its authentic Microsoft Neural Studio voice
 // Ensures Male is strictly Male, and Female is strictly Female
 function resolveVoiceShortName(voiceId: string): string {
@@ -601,9 +581,6 @@ export const PERSONA_PROSODY_CONFIG: Record<
   },
 };
 
-/** Higher bitrate than before: 96kbps mono was audibly lossy on sibilants. */
-const TTS_OUTPUT_FORMAT = OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3;
-
 /** Audio plus the word-by-word timings the captions are locked to. */
 interface SynthResult {
   buffer: Buffer;
@@ -620,83 +597,6 @@ function resolvePersonaConfig(voiceId: string) {
   const legacy = LEGACY_PERSONA_IDS[clean];
   if (legacy) return PERSONA_PROSODY_CONFIG[legacy];
   return null;
-}
-
-// Synthesizes speech using authentic Microsoft Edge Read Aloud Neural Voices.
-// Tries the most lifelike variant of the requested voice, then the exact one.
-async function synthesizeRealEdgeTTS(text: string, voiceId: string): Promise<SynthResult> {
-  const personaCfg = resolvePersonaConfig(voiceId);
-  const options = personaCfg
-    ? { pitch: personaCfg.pitch, rate: personaCfg.rate, volume: personaCfg.volume }
-    : undefined;
-
-  if (personaCfg) {
-    return await synthesizeWithEdgeVoice(text, personaCfg.neural, options);
-  }
-
-  const shortName = resolveVoiceShortName(voiceId);
-  const upgraded = REALISTIC_VOICE_UPGRADES[shortName];
-  const candidates = upgraded && upgraded !== shortName ? [upgraded, shortName] : [shortName];
-
-  let lastError: any = null;
-  for (const candidate of candidates) {
-    try {
-      return await synthesizeWithEdgeVoice(text, candidate, options);
-    } catch (err) {
-      lastError = err;
-    }
-  }
-  throw lastError || new Error("Edge TTS failed");
-}
-
-async function synthesizeWithEdgeVoice(
-  text: string,
-  shortName: string,
-  options?: { pitch?: string; rate?: string; volume?: string }
-): Promise<SynthResult> {
-  const tts = new MsEdgeTTS();
-  // Word boundaries are what make the karaoke captions follow the voice
-  // word-for-word: the service reports the spoken offset and duration of
-  // every word alongside the audio.
-  await tts.setMetadata(shortName, TTS_OUTPUT_FORMAT, { wordBoundaryEnabled: true });
-
-  return new Promise<SynthResult>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      try { tts.close(); } catch {}
-      reject(new Error(`Edge TTS timed out for voice ${shortName}`));
-    }, 15000);
-
-    const { audioStream, metadataStream } = tts.toStream(text, options);
-    const chunks: Buffer[] = [];
-    const metaFrames: string[] = [];
-
-    audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
-    if (metadataStream) {
-      metadataStream.on("data", (m: Buffer) => {
-        try {
-          metaFrames.push(m.toString("utf8"));
-        } catch {}
-      });
-    }
-    audioStream.on("end", () => {
-      clearTimeout(timeout);
-      try { tts.close(); } catch {}
-      const combined = Buffer.concat(chunks);
-      if (combined.length > 500) {
-        // Metadata frames precede the turn end, so by the time the audio
-        // stream ends the word boundaries are already in hand.
-        const words = parseEdgeWordBoundaries(metaFrames);
-        resolve({ buffer: combined, words });
-      } else {
-        reject(new Error("Empty audio buffer from Edge TTS"));
-      }
-    });
-    audioStream.on("error", (err: any) => {
-      clearTimeout(timeout);
-      try { tts.close(); } catch {}
-      reject(err);
-    });
-  });
 }
 
 function splitTextIntoChunks(text: string, maxLen = 180): string[] {
@@ -819,24 +719,35 @@ function generateFallbackToneBuffer(durationSeconds: number): Buffer {
   return pcmToWav(pcm, sampleRate, 1, 16);
 }
 
-// In-memory cache for high-fidelity synthesized speech
+// In-memory cache for high-fidelity synthesized speech. Scoped to one
+// Worker isolate — a cold start or a request landing on a different isolate
+// simply re-synthesizes, which is an acceptable cost for a pure performance
+// optimization (the content is idempotent).
 const ttsAudioCache = new Map<string, { buffer: Buffer; words: WordTiming[] }>();
 
-// Synthesizes high-fidelity authentic human speech using Microsoft Edge Neural voices (300+ free studio voices)
+// Synthesizes high-fidelity speech for the requested voice/persona.
 async function synthesizeTTS(text: string, voice: string): Promise<Buffer> {
   const { buffer } = await synthesizeTTSWithSource(text, voice);
   return buffer;
 }
 
 /** Which engine produced the audio for the most recent synthesis. */
-type TtsSource = "edge" | "google" | "silent";
+type TtsSource = "gemini" | "google" | "silent";
 
 /**
  * Same as synthesizeTTS but also reports which engine succeeded, so the API
  * can tell the client when the audio is only a silent placeholder — and
- * carries the per-word timings the captions lock onto. Google's fallback
- * endpoint has no word boundaries, so that path reports an empty timeline and
- * the client falls back to its estimated pacing.
+ * carries the per-word timings the captions lock onto.
+ *
+ * Synthesis waterfall (Workers-compatible, no msedge-tts/websockets):
+ *  1. Gemini TTS (GoogleGenAI, fetch-based) — primary. No word-boundary
+ *     timing is returned, so `words` is always empty on this path; the
+ *     client falls back to its estimated pacing for captions.
+ *  2. Google Translate's read-aloud endpoint — used only if Gemini is
+ *     unavailable/unconfigured or fails. Also has no word boundaries.
+ *  3. A silent WAV sized to the text's estimated spoken duration — last
+ *     resort so a failed synthesis never hangs the client or corrupts the
+ *     timeline; the UI reports the failure separately.
  */
 async function synthesizeTTSWithSource(
   text: string,
@@ -847,14 +758,14 @@ async function synthesizeTTSWithSource(
   const shortName = resolveVoiceShortName(voice);
   const cacheKey = `${shortName}_${cleanText.trim()}`;
   const cached = ttsAudioCache.get(cacheKey);
-  if (cached) return { buffer: cached.buffer, source: "edge", words: cached.words };
+  if (cached) return { buffer: cached.buffer, source: "gemini", words: cached.words };
 
   try {
-    const { buffer, words } = await synthesizeRealEdgeTTS(cleanText, voice);
-    ttsAudioCache.set(cacheKey, { buffer, words });
-    return { buffer, source: "edge", words };
+    const buffer = await synthesizeGeminiTTS(cleanText, voice);
+    ttsAudioCache.set(cacheKey, { buffer, words: [] });
+    return { buffer, source: "gemini", words: [] };
   } catch (err: any) {
-    console.warn("Primary Edge TTS notice:", err?.message);
+    console.warn("Primary Gemini TTS notice:", err?.message);
   }
 
   try {
@@ -888,7 +799,7 @@ const PROVIDER_TIMEOUT_MS = 12000;
 // original file, so nothing is ever upscaled into a 1080p render. Photos
 // smaller than Full HD are dropped by the shared candidate mapper.
 async function searchPexels(query: string, count: number, customKey?: string): Promise<ImageResult[]> {
-  const apiKey = (customKey && customKey.trim()) || process.env.PEXELS_API_KEY;
+  const apiKey = (customKey && customKey.trim()) || env().PEXELS_API_KEY;
   if (!apiKey) return [];
 
   // Pexels rejects per_page above 80 with a 400, which used to turn every
@@ -910,7 +821,7 @@ async function searchPexels(query: string, count: number, customKey?: string): P
 
     const candidates = data.photos
       .map(pexelsPhotoToCandidate)
-      .filter((c): c is ImageResult => c !== null);
+      .filter((c: ImageResult | null): c is ImageResult => c !== null);
     // `size=large` already means ≥24MP, but a photo below Full HD or in the
     // wrong shape is still dropped by the mapper — say so rather than
     // letting the search look silently empty.
@@ -963,7 +874,7 @@ function canPixabayServe1920(sampleUrl: string): Promise<boolean> {
 // The source must already be ~16:9 and ≥1920×1080 (Pixabay cannot crop), and
 // the URL must be able to deliver that size.
 async function searchPixabay(query: string, count: number, customKey?: string): Promise<ImageResult[]> {
-  const apiKey = (customKey && customKey.trim()) || process.env.PIXABAY_API_KEY;
+  const apiKey = (customKey && customKey.trim()) || env().PIXABAY_API_KEY;
   if (!apiKey) return [];
 
   // Pixabay accepts 3–200 per page and 400s outside that window.
@@ -983,7 +894,7 @@ async function searchPixabay(query: string, count: number, customKey?: string): 
 
     const direct = data.hits
       .map(pixabayHitToCandidate)
-      .filter((c): c is ImageResult => c !== null);
+      .filter((c: ImageResult | null): c is ImageResult => c !== null);
 
     // Hits whose only URLs are ≤1280px: recover them through the `_1920`
     // CDN variant when the probe says it works.
@@ -1089,15 +1000,27 @@ function generatePlaceholder(seedText = "Scene Visual"): string {
     <text x="640" y="360" fill="rgba(255,255,255,0.7)" font-size="36" text-anchor="middle" font-family="sans-serif">${seedText}</text>
   </svg>`;
 }
-
-async function startServer() {
+/**
+ * Builds the Express app with every route registered, but does not start
+ * listening — `worker.ts` calls `app.listen(PORT)` itself and bridges it to
+ * the Worker's fetch handler via `httpServerHandler` from `cloudflare:node`.
+ * (On Cloudflare Workers there is no dev-mode Vite middleware and no static
+ * file serving here at all: `wrangler.jsonc`'s `assets.run_worker_first`
+ * routes only `/api/*` and `/functions/v1/*` into this app; every other path
+ * — the SPA shell, hashed JS/CSS bundles, `/public` assets — is served
+ * directly by Cloudflare's static assets handler from `./dist/`, configured
+ * with `not_found_handling: "single-page-application"` for client-side
+ * routing. That mirrors the old production branch's behaviour, just moved
+ * out of Express and onto Cloudflare's asset layer.)
+ */
+export function createApp(): express.Express {
   const app = express();
 
   // Development-only API request log (DEV_REQUEST_LOG=1): one line per API
   // call with method, path, status and whether a session cookie arrived —
   // for diagnosing embedded-preview cookie behaviour. Never runs in
   // production.
-  if (process.env.NODE_ENV !== "production" && process.env.DEV_REQUEST_LOG === "1") {
+  if (env().NODE_ENV !== "production" && env().DEV_REQUEST_LOG === "1") {
     app.use((req, res, next) => {
       if (!req.path.startsWith("/api/")) return next();
       const hasCookie = /scenering_session=/.test(String(req.headers.cookie || ""));
@@ -1105,24 +1028,22 @@ async function startServer() {
       next();
     });
   }
-  // Honour the PORT the host gives us (Render, Railway, Fly, Heroku and most
-  // local setups set it); fall back to 3000 for plain `npm run dev`.
-  const PORT = Number(process.env.PORT) || 3000;
+
   assertSecurePlatformConfiguration();
   app.disable("x-powered-by");
-  if (process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
+  if (env().TRUST_PROXY === "1") app.set("trust proxy", 1);
   app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     // Framing stays forbidden everywhere except an explicitly opted-in local
     // preview (sandbox/container iframes), which must never be production.
-    if (process.env.NODE_ENV === "production" || process.env.ALLOW_FRAMING !== "1") {
+    if (env().NODE_ENV === "production" || env().ALLOW_FRAMING !== "1") {
       res.setHeader("X-Frame-Options", "DENY");
     }
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-    if (process.env.NODE_ENV === "production") {
+    if (env().NODE_ENV === "production") {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
       res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.lemonsqueezy.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co; worker-src 'self' blob:");
     }
@@ -1136,9 +1057,9 @@ async function startServer() {
     if (!origin) return next();
     let supplied: URL;
     try { supplied = new URL(origin); } catch { return res.status(403).json({ error: "Cross-origin request rejected" }); }
-    const configured = process.env.PUBLIC_APP_URL ? new URL(process.env.PUBLIC_APP_URL).origin : null;
+    const configured = env().PUBLIC_APP_URL ? new URL(env().PUBLIC_APP_URL as string).origin : null;
     const requestHost = String(req.get("host") || "").toLowerCase();
-    const forwardedHost = process.env.TRUST_PROXY === "1" ? String(req.get("x-forwarded-host") || "").split(",")[0].trim().toLowerCase() : "";
+    const forwardedHost = env().TRUST_PROXY === "1" ? String(req.get("x-forwarded-host") || "").split(",")[0].trim().toLowerCase() : "";
     const sameHost = supplied.host.toLowerCase() === requestHost || Boolean(forwardedHost && supplied.host.toLowerCase() === forwardedHost);
     if ((configured && origin !== configured) || (!configured && !sameHost)) return res.status(403).json({ error: "Cross-origin request rejected" });
     next();
@@ -1298,20 +1219,21 @@ async function startServer() {
         return res.status(400).json({ error: "Missing url parameter" });
       }
 
-      // Same-origin paths (the bundled nature library) are served straight
-      // from /public — no upstream fetch involved.
+      // Same-origin paths (the bundled nature library under /public) are
+      // served from Cloudflare's static assets layer via the ASSETS binding
+      // rather than the local filesystem — Workers has no filesystem to
+      // read the built `dist/` output from at runtime.
       if (targetUrl.startsWith("/") && !targetUrl.startsWith("//")) {
-        const safe = path.normalize(targetUrl).replace(/^(\.\.[/\\])+/, "");
-        const localPath = path.join(process.cwd(), "public", safe);
-        if (localPath.startsWith(path.join(process.cwd(), "public")) && existsSync(localPath)) {
-          const ext = path.extname(localPath).toLowerCase();
-          const mime =
-            ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : "image/jpeg";
-          res.setHeader("Content-Type", mime);
+        const safePath = targetUrl.replace(/\.\.(\/|\\)/g, "").split("?")[0].split("#")[0];
+        const assetResponse = await env().ASSETS.fetch(new Request(new URL(safePath, "http://assets.internal/")));
+        if (assetResponse.ok) {
+          const contentType = assetResponse.headers.get("content-type") || "image/jpeg";
+          const arrayBuf = await assetResponse.arrayBuffer();
+          res.setHeader("Content-Type", contentType);
           res.setHeader("Access-Control-Allow-Origin", "*");
           res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           res.setHeader("Cache-Control", "public, max-age=86400, immutable");
-          return res.sendFile(localPath);
+          return res.send(Buffer.from(arrayBuf));
         }
       }
 
@@ -1386,14 +1308,13 @@ async function startServer() {
   const handleTTSGet = async (req: express.Request, res: express.Response) => {
     const text = req.query.text as string | undefined;
     if (!text) {
-      const all = req.query.all === "true";
-      const fullList = await getEdgeVoicesCached();
-      if (all && fullList.length > 0) {
-        return res.json({ voices: fullList, total: fullList.length });
-      }
+      // `all=true` used to return msedge-tts's live 300+ voice catalogue;
+      // that service isn't reachable from Workers, so the curated VOICES
+      // list is the only catalogue now (see the RealVoiceProfile comment
+      // above `VOICES`).
       return res.json({
         voices: VOICES,
-        allVoicesCount: fullList.length || 322,
+        allVoicesCount: VOICES.length,
       });
     }
     try {
@@ -1409,15 +1330,13 @@ async function startServer() {
   };
 
   const handleTTSVoices = async (req: express.Request, res: express.Response) => {
-    const fullList = await getEdgeVoicesCached();
     const advanced = platformFeatureAllowed(req, "advanced_voice");
     const curated = advanced ? VOICES : VOICES.filter((voice) => voice.id === "guy" || voice.id === "jenny");
-    const available = advanced ? (fullList.length > 0 ? fullList : VOICES) : curated;
     return res.json({
       curated,
-      voices: available,
-      allVoices: advanced ? fullList : [],
-      total: available.length,
+      voices: curated,
+      allVoices: [],
+      total: curated.length,
     });
   };
 
@@ -1443,10 +1362,12 @@ async function startServer() {
   app.post(["/api/tts", "/functions/v1/tts"], requirePlatformUser, platformRateLimit("tts-synthesis", 120, 3600000), handleTTSPost);
 
   // Upload/cache custom imported voice audio. Each item belongs to the
-  // authenticated account that uploaded it; opaque ids are cryptographic.
-  const customAudioStore = new Map<string, { buffer: Buffer; mimeType: string; ownerId: string; createdAt: number }>();
-
-  app.post("/api/upload-audio", requirePlatformUser, platformRateLimit("audio-upload", 30, 3600000), express.json({ limit: "50mb" }), (req, res) => {
+  // authenticated account that uploaded it; storage is R2 (the audio bytes)
+  // plus a D1 row (ownership + expiry bookkeeping) via `src/audio-store.ts`.
+  // The 24h global expiry sweep runs out-of-band on a Cron Trigger
+  // (`audioStore.cleanupExpired()`); the 5-per-user cap is enforced inline
+  // by `audioStore.upload()` itself.
+  app.post("/api/upload-audio", requirePlatformUser, platformRateLimit("audio-upload", 30, 3600000), express.json({ limit: "50mb" }), async (req, res) => {
     try {
       const { data, filename, mimeType = "audio/mpeg" } = req.body || {};
       if (!data || typeof data !== "string") {
@@ -1455,24 +1376,19 @@ async function startServer() {
       const allowedAudioTypes = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg", "audio/webm", "audio/mp4", "audio/aac"]);
       if (!allowedAudioTypes.has(String(mimeType).toLowerCase())) return res.status(415).json({ error: "Unsupported audio type" });
 
-      // Base64 string to buffer
       const base64Clean = data.includes("base64,") ? data.split("base64,")[1] : data;
       if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Clean)) return res.status(400).json({ error: "Invalid audio encoding" });
-      const buf = Buffer.from(base64Clean, "base64");
-      if (!buf.length || buf.byteLength > 20 * 1024 * 1024) return res.status(413).json({ error: "Audio must be no larger than 20 MB" });
+      const approxBytes = Math.floor((base64Clean.length * 3) / 4);
+      if (!approxBytes || approxBytes > 20 * 1024 * 1024) return res.status(413).json({ error: "Audio must be no larger than 20 MB" });
       const audioId = "aud_" + randomBytes(18).toString("base64url");
       const ownerId = String((req as any).auth.user.id);
-      const oldestFirst = [...customAudioStore.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
-      for (const [storedId, stored] of oldestFirst) if (Date.now() - stored.createdAt > 24 * 3600000) customAudioStore.delete(storedId);
-      const owned = [...customAudioStore.entries()].filter(([, stored]) => stored.ownerId === ownerId).sort((a, b) => a[1].createdAt - b[1].createdAt);
-      while (owned.length >= 5) { const oldest = owned.shift(); if (oldest) customAudioStore.delete(oldest[0]); }
-      while (customAudioStore.size >= 20) { const oldest = [...customAudioStore.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)[0]; if (!oldest) break; customAudioStore.delete(oldest[0]); }
-      customAudioStore.set(audioId, { buffer: buf, mimeType: String(mimeType).toLowerCase(), ownerId, createdAt: Date.now() });
+
+      await audioStore.upload(ownerId, audioId, base64Clean, String(mimeType).toLowerCase());
 
       return res.json({
         url: `/api/custom-audio/${audioId}`,
         audioId,
-        size: buf.byteLength,
+        size: approxBytes,
         filename: filename || "imported_voice.mp3",
       });
     } catch (e: any) {
@@ -1480,53 +1396,27 @@ async function startServer() {
     }
   });
 
-  app.get("/api/custom-audio/:id", requirePlatformUser, platformRateLimit("custom-audio", 600, 3600000), (req, res) => {
-    const item = customAudioStore.get(req.params.id);
-    if (!item || item.ownerId !== String((req as any).auth.user.id)) {
-      return res.status(404).send("Audio not found");
+  app.get("/api/custom-audio/:id", requirePlatformUser, platformRateLimit("custom-audio", 600, 3600000), async (req, res) => {
+    try {
+      const audioId = String(req.params.id);
+      const ownerId = String((req as any).auth.user.id);
+      // audioStore.get() doesn't carry an owner check (it's a thin R2/D1
+      // lookup by id), so ownership is verified here against the D1 row
+      // before the R2 object is returned.
+      const row = await env().DB.prepare("SELECT user_id FROM audio_files WHERE id = ?").bind(audioId).first();
+      if (!row || String((row as any).user_id) !== ownerId) {
+        return res.status(404).json({ error: "Audio not found" });
+      }
+      const item = await audioStore.get(audioId);
+      if (!item) return res.status(404).json({ error: "Audio not found" });
+      const arrayBuf = await new Response(item.body).arrayBuffer();
+      res.setHeader("Content-Type", item.mimeType);
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.send(Buffer.from(arrayBuf));
+    } catch (e: any) {
+      return res.status(500).json({ error: "Failed to load audio" });
     }
-    res.setHeader("Content-Type", item.mimeType);
-    res.setHeader("Cache-Control", "private, no-store");
-    return res.send(item.buffer);
   });
 
-  // One HTTP server for everything. Vite's hot-reload socket is attached to
-  // it below instead of being given a port of its own, so a dev session
-  // behind a single-port proxy (a tunnel, a container preview, a codespace)
-  // reloads like a local one does.
-  const httpServer = http.createServer(app);
-
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: { server: httpServer } },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    // Hashed bundles never change under the same name, and the website's
-    // artwork changes only when someone re-runs the asset script — both are
-    // worth caching hard. index.html stays uncached so a deploy is picked up
-    // on the next visit.
-    app.use(
-      "/assets",
-      express.static(path.join(distPath, "assets"), { immutable: true, maxAge: "1y" })
-    );
-    app.use("/marketing", express.static(path.join(distPath, "marketing"), { maxAge: "7d" }));
-    app.use(express.static(distPath));
-    // Both front doors ("/" for the website, "/app" for the studio) and any
-    // deep link into a website section are served by the same document; the
-    // router in src/lib/route.ts decides which half to load.
-    app.use((_req, res) => {
-      res.setHeader("Cache-Control", "no-cache");
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
-
-  httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  return app;
 }
-
-startServer();
