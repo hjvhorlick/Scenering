@@ -23,16 +23,10 @@
       "migrations_dir": "./migrations"
     }
   ],
-  "r2_buckets": [
-    {
-      "binding": "AUDIO_BUCKET",
-      "bucket_name": "scenering-audio"
-    }
-  ],
   "kv_namespaces": [
     {
       "binding": "RATE_LIMITS",
-      "id": "PLACEHOLDER_RUN_SETUP_SCRIPT"
+      "id": "[PASTE YOUR KV ID HERE]"
     }
   ],
   // Daily sweep for expired custom-voice uploads (R2 object + D1 row older
