@@ -8,7 +8,7 @@
     "directory": "./dist/",
     "not_found_handling": "single-page-application",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/functions/v1/*", "/robots.txt", "/sitemap.xml"]
   },
   "d1_databases": [
     {
@@ -24,8 +24,12 @@
       "id": "c0b74485bcc9428582acb39e210a480e"
     }
   ],
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
   "vars": {
     "PUBLIC_APP_URL": "https://scenering.com",
-    "EMAIL_PROVIDER": "console"
+    "EMAIL_PROVIDER": "console",
+    "NODE_ENV": "production"
   }
 }
