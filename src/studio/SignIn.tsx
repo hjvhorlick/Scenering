@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { registerAccount, signIn } from "../lib/session";
+import { registerAccount, resendVerification, signIn } from "../lib/session";
 import { preloadStudio } from "./studio-loader";
 import { redeemComplimentaryCode } from "../lib/entitlements";
 import logo from "../assets/scenering-logo.png";
@@ -17,9 +17,10 @@ export default function SignIn() {
   const [password, setPassword] = useState(""); const [confirm, setConfirm] = useState("");
   const [marketingConsent, setMarketingConsent] = useState(false); const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
 
   async function onSubmit(event: FormEvent) {
-    event.preventDefault(); setError(null); setMessage(null); setBusy(true);
+    event.preventDefault(); setError(null); setMessage(null); setNeedsVerification(false); setBusy(true);
     try {
       if (mode === "forgot") {
         const response = await fetch("/api/auth/forgot-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
@@ -53,7 +54,10 @@ export default function SignIn() {
         if (response.ok && checkout.url) { localStorage.removeItem("scenering_intended_checkout"); window.location.href = checkout.url; }
         else if (checkout.code === "BILLING_NOT_CONFIGURED") setMessage("Your account is ready. Paid checkout has not been configured yet, so you are continuing on Free.");
       }
-    } catch (err: any) { setError(err.message || "Something went wrong."); }
+    } catch (err: any) {
+      setNeedsVerification(err?.code === "EMAIL_UNVERIFIED");
+      setError(err.message || "Something went wrong.");
+    }
     finally { setBusy(false); }
   }
 
@@ -72,7 +76,14 @@ export default function SignIn() {
       {mode !== "forgot" && <div className="si-field"><label htmlFor="si-pass">Password</label><input id="si-pass" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} placeholder={mode === "register" ? "At least 10 characters" : ""} /></div>}
       {mode === "register" && <><div className="si-field"><label htmlFor="si-confirm">Password again</label><input id="si-confirm" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required /></div>
         <label className="si-note" style={{ flexDirection: "row", alignItems: "flex-start" }}><input type="checkbox" checked={marketingConsent} onChange={(e) => setMarketingConsent(e.target.checked)} /><span>Send me optional tutorials, training and product news. I can unsubscribe at any time. Account and security email is separate.</span></label></>}
-      {error && <div className="si-error" role="alert">{error}</div>}{message && <div className="si-note" role="status"><b>{message}</b></div>}
+      {error && <div className="si-error" role="alert">{error}</div>}
+      {needsVerification && <button type="button" className="si-quiet" disabled={busy} onClick={async () => {
+        setBusy(true); setError(null);
+        try { const result = await resendVerification(email); setMessage(result.message || "Check your email for a new verification link."); }
+        catch (err: any) { setError(err.message || "Could not resend the verification email."); }
+        finally { setBusy(false); }
+      }}>Resend verification email</button>}
+      {message && <div className="si-note" role="status"><b>{message}</b></div>}
       <button className="si-btn" type="submit" disabled={busy}>{busy ? "One moment…" : mode === "login" ? "Sign in" : mode === "register" ? "Create free account" : "Send reset link"}</button>
       <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
         {mode !== "login" && <button type="button" className="si-quiet" onClick={() => switchMode("login")}>Sign in</button>}
