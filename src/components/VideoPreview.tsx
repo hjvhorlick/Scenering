@@ -7,6 +7,7 @@ import {
   renderTimelineInsert,
 } from "../lib/render-effects";
 import { getSceneCameraTransform, renderSceneAnimationEffects } from "../lib/scene-animation";
+import { stopAllSoundPreviews } from "../data/media-library";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
@@ -1090,6 +1091,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
   // ------ PLAY PREVIEW ------
   const playPreview = useCallback(async (seekTime?: number) => {
     if (scenesWithImages.length === 0) return;
+
+    // Starting the video silences any library/sound preview still playing,
+    // so the play button always gives one soundtrack — and doubles as a way
+    // to kill a stray preview track.
+    stopAllSoundPreviews();
 
     // Claim this playback. Anything already running or still preparing is
     // superseded, so a second press cannot end up with two soundtracks.

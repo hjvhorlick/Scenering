@@ -73,26 +73,179 @@ function pcmToWav(pcmData: Buffer, sampleRate = 24000, numChannels = 1, bitsPerS
   return buffer;
 }
 
-function getGeminiVoiceName(voiceId: string): string {
-  const v = (voiceId || "").toLowerCase();
-  // Deep / Authoritative Male
-  if (v.includes("christopher") || v.includes("charon") || v.includes("deep") || v.includes("echo")) return "Charon";
-  // Powerful / Dramatic / British / Australian Male
-  if (v.includes("ryan") || v.includes("william") || v.includes("fenrir") || v.includes("onyx") || v.includes("fable")) return "Fenrir";
-  // Warm Conversational Male
-  if (v.includes("guy") || v.includes("puck") || v.includes("alloy") || v.includes("male") || v.includes("david") || v.includes("mark")) return "Puck";
-  // Bright / Energetic Female
-  if (v.includes("aria") || v.includes("zephyr") || v.includes("nova") || v.includes("bright") || v.includes("vibrant")) return "Zephyr";
-  // British / Australian / Melodic Female
-  if (v.includes("sonia") || v.includes("natasha") || v.includes("aoede") || v.includes("elegant") || v.includes("soothing")) return "Aoede";
-  // Natural / Conversational Female
-  if (v.includes("jenny") || v.includes("kore") || v.includes("shimmer") || v.includes("female") || v.includes("zira")) return "Kore";
+/** One narrator's Gemini casting: which prebuilt voice speaks, and how. */
+interface GeminiVoiceCasting {
+  /** A prebuilt Gemini TTS voice name (e.g. "Charon", "Sulafat"). */
+  voiceName: string;
+  /**
+   * Natural-language delivery direction prepended to the request in the
+   * documented "<instruction>: <text>" form. This is how accent, pace and
+   * mood are steered on the Gemini TTS models — the instruction itself is
+   * not spoken.
+   */
+  style: string;
+}
+
+/**
+ * Gemini TTS narrator casting — one DISTINCT prebuilt Google voice for every
+ * entry in the 20-voice catalogue (10 male + 10 female), matched to each
+ * preset's documented gender, accent and tone.
+ *
+ * Why this exists: after the move from Edge neural TTS to Gemini, the old
+ * keyword mapping only ever reached six of Google's 30 prebuilt voices, and
+ * none of the ten narrator personas matched a keyword at all — every one of
+ * them fell through to the same default. The result was the whole catalogue
+ * collapsing onto one or two voices.
+ *
+ * Voice characters are Google's own descriptors for the prebuilt catalogue
+ * (Achird "Friendly", Charon "Informative", Algieba "Smooth", Enceladus
+ * "Breathy", Algenib "Gravelly", Gacrux "Mature", Sulafat "Warm", …), which
+ * is what each pick below is matched against.
+ */
+const GEMINI_VOICE_CASTING: Record<string, GeminiVoiceCasting> = {
+  // --- 5 Male Studio Voices ---
+  guy: {
+    voiceName: "Achird", // Friendly (male)
+    style: "Narrate in a warm, natural, conversational American male voice with relaxed, friendly pacing",
+  },
+  christopher: {
+    voiceName: "Charon", // Informative, deep (male)
+    style: "Narrate in a deep, authoritative, cinematic American male voice, like a dramatic movie-trailer narrator",
+  },
+  ryan: {
+    voiceName: "Sadaltager", // Knowledgeable (male)
+    style: "Narrate in a refined British Received Pronunciation male voice, articulate, sophisticated and distinguished",
+  },
+  william: {
+    voiceName: "Puck", // Upbeat (male)
+    style: "Narrate in a crisp, charismatic, friendly Australian male voice, upbeat and engaging",
+  },
+  brian: {
+    voiceName: "Umbriel", // Easy-going (male)
+    style: "Narrate in a smooth, relatable, professional American male voice with calm, trustworthy educational pacing",
+  },
+
+  // --- 5 Female Studio Voices ---
+  jenny: {
+    voiceName: "Erinome", // Clear (female)
+    style: "Narrate in a clear, friendly, engaging American female voice with natural conversational warmth",
+  },
+  aria: {
+    voiceName: "Zephyr", // Bright (female)
+    style: "Narrate in a bright, dynamic, high-energy modern American female voice, punchy and vibrant",
+  },
+  sonia: {
+    voiceName: "Despina", // Smooth (female)
+    style: "Narrate in a polished, elegant, expressive British Received Pronunciation female voice with emotional depth",
+  },
+  natasha: {
+    voiceName: "Vindemiatrix", // Gentle (female)
+    style: "Narrate in a calm, soothing, resonant Australian female voice, gentle and unhurried",
+  },
+  ava: {
+    voiceName: "Achernar", // Soft (female)
+    style: "Narrate in a soft, peaceful, balanced and melodic American female voice, serene and reassuring",
+  },
+
+  // --- 5 Male Narrator Personas ---
+  storyteller: {
+    voiceName: "Algieba", // Smooth, deep (male)
+    style: "Narrate in a deep, resonant, warm American male storyteller voice, unhurried and wise, with cinematic gravitas",
+  },
+  naturalist: {
+    voiceName: "Enceladus", // Breathy (male)
+    style: "Narrate in a breathy, hushed, measured British male voice full of quiet awe, like a classic BBC nature documentary",
+  },
+  titan: {
+    voiceName: "Alnilam", // Firm (male)
+    style: "Narrate in a booming, monumental, deep bass American male voice with commanding theatrical presence",
+  },
+  sentinel: {
+    voiceName: "Algenib", // Gravelly (male)
+    style: "Narrate in an authoritative Irish male baritone with calm, gritty, commanding thriller gravitas",
+  },
+  firebrand: {
+    voiceName: "Fenrir", // Excitable (male)
+    style: "Narrate in a punchy, dynamic, assertive American male voice with sharp cadence, swagger and dramatic intensity",
+  },
+
+  // --- 5 Female Narrator Personas ---
+  raconteur: {
+    voiceName: "Sulafat", // Warm (female)
+    style: "Narrate in a witty, warm, articulate British female voice with charming, intelligent delivery",
+  },
+  sovereign: {
+    voiceName: "Gacrux", // Mature (female)
+    style: "Narrate in a stately, regal, poised British female voice, polished and commanding like a distinguished dame",
+  },
+  enigma: {
+    voiceName: "Aoede", // Breezy (female)
+    style: "Narrate in an ethereal, velvety, hypnotic Australian female voice, sophisticated and mysterious",
+  },
+  investigator: {
+    voiceName: "Kore", // Firm (female)
+    style: "Narrate in a smoky, grounded, cool American female voice with calm documentary authority",
+  },
+  confidante: {
+    voiceName: "Laomedeia", // Upbeat (female)
+    style: "Narrate in a radiant, smiling, warm conversational American female voice with a friendly lilt",
+  },
+};
+
+/** Alias keywords (old engine ids, style words) → catalogue casting ids. */
+const GEMINI_VOICE_ALIASES: Record<string, string> = {
+  charon: "christopher",
+  deep: "christopher",
+  echo: "christopher",
+  onyx: "christopher",
+  fenrir: "firebrand",
+  fable: "ryan",
+  puck: "william",
+  alloy: "guy",
+  david: "guy",
+  mark: "guy",
+  zephyr: "aria",
+  nova: "aria",
+  bright: "aria",
+  vibrant: "aria",
+  aoede: "enigma",
+  elegant: "sonia",
+  soothing: "natasha",
+  kore: "investigator",
+  shimmer: "jenny",
+  zira: "jenny",
+};
+
+/** Neutral fallbacks for ids outside the catalogue, gender-correct. */
+const GEMINI_FALLBACK_MALE: GeminiVoiceCasting = { voiceName: "Iapetus", style: "" };
+const GEMINI_FALLBACK_FEMALE: GeminiVoiceCasting = { voiceName: "Callirrhoe", style: "" };
+
+function getGeminiVoiceCasting(voiceId: string): GeminiVoiceCasting {
+  const v = (voiceId || "").toLowerCase().replace(/^(browser:|web:)/, "").trim();
+
+  // Current catalogue ids, then ids saved before the persona rename
+  // (freeman → storyteller, attenborough → naturalist, …).
+  const direct = GEMINI_VOICE_CASTING[LEGACY_PERSONA_IDS[v] ?? v];
+  if (direct) return direct;
+
+  // Loose ids ("en-US-ChristopherNeural", "aria-energetic") still land on
+  // the right narrator instead of one shared default.
+  for (const id of Object.keys(GEMINI_VOICE_CASTING)) {
+    if (v.includes(id)) return GEMINI_VOICE_CASTING[id];
+  }
+  for (const [alias, id] of Object.entries(GEMINI_VOICE_ALIASES)) {
+    if (v.includes(alias)) return GEMINI_VOICE_CASTING[id];
+  }
 
   const entry = VOICES.find((e) => e.id === v);
-  if (entry?.gender === "male") return "Puck";
-  if (entry?.gender === "female") return "Kore";
+  if (entry?.gender === "male") return GEMINI_FALLBACK_MALE;
+  if (entry?.gender === "female") return GEMINI_FALLBACK_FEMALE;
+  if (v.includes("female") || v.includes("woman") || v.includes("girl") || v.includes("lady")) {
+    return GEMINI_FALLBACK_FEMALE;
+  }
+  if (v.includes("male") || v.includes("man") || v.includes("boy")) return GEMINI_FALLBACK_MALE;
 
-  return "Puck";
+  return GEMINI_FALLBACK_MALE;
 }
 
 async function synthesizeGeminiTTS(text: string, voiceId: string): Promise<Buffer> {
@@ -101,10 +254,14 @@ async function synthesizeGeminiTTS(text: string, voiceId: string): Promise<Buffe
     throw new Error("GEMINI_API_KEY is not configured");
   }
 
-  const voiceName = getGeminiVoiceName(voiceId);
+  const casting = getGeminiVoiceCasting(voiceId);
+  const voiceName = casting.voiceName;
+  // Documented "<direction>: <text>" steering — the direction is an
+  // instruction to the model, not spoken content.
+  const spokenText = casting.style ? `${casting.style}:\n\n${text}` : text;
   const response = await ai.models.generateContent({
     model: "gemini-3.1-flash-tts-preview",
-    contents: [{ parts: [{ text }] }],
+    contents: [{ parts: [{ text: spokenText }] }],
     config: {
       responseModalities: ["AUDIO"],
       speechConfig: {
@@ -756,7 +913,12 @@ async function synthesizeTTSWithSource(
 ): Promise<{ buffer: Buffer; source: TtsSource; words: WordTiming[] }> {
   const cleanText = sanitizeTextForSpeech(text, customEntries);
   const shortName = resolveVoiceShortName(voice);
-  const cacheKey = `${shortName}_${cleanText.trim()}`;
+  // Keyed on the Gemini casting too: several catalogue entries share one
+  // legacy shortName (Christopher, The Storyteller and The Titan all resolve
+  // to en-US-ChristopherNeural), and a shortName-only key made those
+  // profiles serve each other's cached audio — "one voice in every profile".
+  const casting = getGeminiVoiceCasting(voice);
+  const cacheKey = `${casting.voiceName}|${casting.style}|${shortName}_${cleanText.trim()}`;
   const cached = ttsAudioCache.get(cacheKey);
   if (cached) return { buffer: cached.buffer, source: "gemini", words: cached.words };
 

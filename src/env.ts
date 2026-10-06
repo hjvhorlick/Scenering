@@ -27,6 +27,7 @@ export type Env = {
   ASSETS: WorkerFetcher;
   PUBLIC_APP_URL: string;
   EMAIL_PROVIDER: string;
+  RESEND_API_KEY?: string;
   SESSION_SECRET: string;
   SCENERING_OWNER_EMAIL: string;
   GEMINI_API_KEY?: string;

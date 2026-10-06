@@ -70,6 +70,37 @@ export const SITE_SECTION_PATHS: Readonly<Record<string, string>> = {
   "/product": "workflow",
 };
 
+/**
+ * The areas that live on the /features tour rather than on the front page.
+ *
+ * The front page used to demonstrate everything; it is now a sales page and
+ * the full demonstrations moved to /features. A deep link like /captions has
+ * to open the page that actually renders #captions, so the router needs to
+ * know which page that is. Everything not in this list (no-meter, examples,
+ * pricing) still lives on the front page.
+ */
+export const FEATURE_TOUR_SECTION_IDS: readonly string[] = [
+  "questions",
+  "workflow",
+  "scenes",
+  "visuals",
+  "voice",
+  "captions",
+  "video-studio",
+  "effects",
+  "before-after",
+  "control",
+  "formats",
+  "devices",
+  "sources",
+];
+
+/** True when a path deep-links to an area of the /features tour. */
+export function isFeatureTourPath(pathname: string): boolean {
+  const id = sectionForPath(pathname);
+  return id !== null && FEATURE_TOUR_SECTION_IDS.includes(id);
+}
+
 /** Lower-cased, trailing-slash-free path. `""` and `"/"` both become `"/"`. */
 export function normalizePath(pathname: string): string {
   if (!pathname) return "/";

@@ -12,8 +12,9 @@ type AccountPayload = {
   remaining?: { finalExports: number | null; shortExports: number | null; longExports: number | null };
 };
 
-export default function AccountMembershipModal({ isOpen, onClose, focusPlans = false }: { isOpen: boolean; onClose: () => void; focusPlans?: boolean }) {
+export default function AccountMembershipModal({ isOpen, onClose, focusPlans = false, focusAdmin = false }: { isOpen: boolean; onClose: () => void; focusPlans?: boolean; focusAdmin?: boolean }) {
   const plansRef = useRef<HTMLElement | null>(null);
+  const adminRef = useRef<HTMLElement | null>(null);
   const { account: sessionAccount } = useSession();
   const [account, setAccount] = useState<AccountPayload | null>(null);
   const [interval, setInterval] = useState<BillingInterval>("monthly");
@@ -69,6 +70,21 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
     const timer = window.setTimeout(() => plansRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     return () => window.clearTimeout(timer);
   }, [isOpen, focusPlans]);
+
+  /* "Owner administration" in the corner menu lands on the administration
+     section instead of the top of the modal — previously both menu buttons
+     opened the identical view. The admin data loads async, so wait for the
+     section to exist before scrolling to it. */
+  useEffect(() => {
+    if (!isOpen || !focusAdmin) return;
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      tries += 1;
+      if (adminRef.current) { adminRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); window.clearInterval(timer); }
+      else if (tries > 40) window.clearInterval(timer);
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [isOpen, focusAdmin]);
 
   if (!isOpen) return null;
   const isOwnerAdmin = account?.user.role === "admin" || account?.membership?.source === "owner_admin" || getSession()?.user.role === "admin";
@@ -154,7 +170,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
     setNotice(response.ok ? "Email preference saved." : data.error || "Could not save email preference.");
   }
 
-  return <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-start justify-center p-3 sm:p-6 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="account-title" onMouseDown={(e) => { if (e.target === e.currentTarget) enterStudio(); }}>
+  return <div className="fixed inset-0 z-[210] bg-black/70 backdrop-blur-sm flex items-start justify-center p-3 sm:p-6 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="account-title" onMouseDown={(e) => { if (e.target === e.currentTarget) enterStudio(); }}>
     <div className="w-full max-w-6xl my-auto bg-gray-950 border border-hairline rounded-2xl shadow-2xl text-white overflow-hidden">
       <header className="flex items-start justify-between gap-4 p-5 sm:p-6 border-b border-hairline bg-gray-900/80">
         <div><span className="text-[11px] uppercase tracking-[.18em] text-indigo-300 font-bold">Account & Membership</span><h2 id="account-title" className="text-2xl font-bold mt-1">{account?.user.displayName || "Your Scenering account"}</h2><p className="text-sm text-gray-400 mt-1">{account?.user.email || "Loading account…"}</p></div>
@@ -183,7 +199,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
           </div>
         </section>
 
-        {isOwnerAdmin && <section className="rounded-xl border border-blue-500/60 bg-blue-950/25 p-4 sm:p-5 space-y-5" aria-label="Owner administration">
+        {isOwnerAdmin && <section ref={adminRef} className="rounded-xl border border-blue-500/60 bg-blue-950/25 p-4 sm:p-5 space-y-5" aria-label="Owner administration">
           <div><span className="text-[10px] uppercase tracking-[.16em] text-blue-300 font-bold">Owner administrator</span><h3 className="text-lg font-bold mt-1">Scenering administration</h3><p className="text-xs text-gray-400">Full SceneForge access plus customer, contact, email-consent and production configuration visibility. Secrets and password hashes are never displayed.</p></div>
           <div className="rounded-xl border border-indigo-400/50 bg-gray-950/70 p-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
