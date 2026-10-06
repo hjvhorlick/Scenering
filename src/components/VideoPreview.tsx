@@ -30,6 +30,9 @@ import {
   resolveVoiceEcho,
 } from "../lib/voice-echo";
 import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
+import { getNarrationHeaders } from "../lib/api-keys";
+import { isGeminiKeyRequiredResponse, noteGeminiKeyRequired } from "../lib/gemini-narration";
+import { GeminiKeyHint } from "./GeminiKeyNotice";
 import { loadSceneImage } from "../lib/scene-image-loader";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 import { getWatermarkLayout } from "../lib/watermark-layout";
@@ -403,11 +406,13 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       try {
         const res = await fetch("/api/tts", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...getNarrationHeaders() },
           body: JSON.stringify({ text: scene.text, voice: voiceToUse }),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
+
+        if (isGeminiKeyRequiredResponse(res)) noteGeminiKeyRequired();
 
         if (res.ok) {
           const arrayBuf = await res.arrayBuffer();
@@ -1697,6 +1702,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
               {audioStatus}
             </div>
           )}
+
+          {/* Narration is bring-your-own-key: if the account has not saved
+              one, the play button would produce a silent preview, so the
+              reason (and the way to fix it) sits right above it. */}
+          <GeminiKeyHint />
 
           {/* Action Buttons Row - Playback & Render Section */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-hairline">

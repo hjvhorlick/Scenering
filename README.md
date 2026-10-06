@@ -58,13 +58,22 @@ The app works without any of these. Locally, copy `.dev.vars.example` to
 
 | Key | What it adds | Without it |
 |---|---|---|
-| `GEMINI_API_KEY` | Highest-quality narration | Free Edge voices, then a silent track |
+| `GEMINI_API_KEY` | Narration for the **owner administrator** account only | The owner is prompted for a key like any customer |
 | `PEXELS_API_KEY` | Stock photo search | Wikimedia Commons |
 | `PIXABAY_API_KEY` | More stock photos | Wikimedia Commons |
 | `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` | Projects sync across devices | Saved in your browser |
 
-Narration falls back in that order automatically, so it never hard-fails — if
-every option is unavailable you get a silent track of the right length and the
+**Narration is bring-your-own-key.** Every ordinary account narrates with its
+own free Google AI Studio key, pasted once into the studio's API Keys modal
+(alongside Pexels and Pixabay) and sent on each `/api/tts` request as
+`X-Gemini-Key`; the server never stores it. An account with no key is told
+so — a clear `GEMINI_KEY_REQUIRED` answer and a prompt explaining that a key
+from [Google AI Studio](https://aistudio.google.com/app/apikey) is free and
+takes about a minute — rather than being handed a different voice. The
+server's `GEMINI_API_KEY` secret is reserved for the account matching
+`SCENERING_OWNER_EMAIL`, so the owner never pastes a key into their own
+product. Once a key is in place narration never hard-fails: if the voice
+service cannot be reached you get a silent track of the right length and the
 video still renders.
 
 Image search has a hard quality gate: only photo-like images are used (no

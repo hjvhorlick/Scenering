@@ -70,8 +70,9 @@ export default function VoiceSection() {
               ))}
             </ul>
             <p className="mkt-small" style={{ marginTop: 12 }}>
-              Narration never hard-fails: with no voice service reachable the scene still gets a track of the right
-              length, so the video renders.
+              The Gemini key is yours, free from Google AI Studio, and Scenering asks for it in plain words the first
+              time you reach for a voice. With the key in place narration never hard-fails: if the voice service
+              cannot be reached the scene still gets a track of the right length, so the video renders.
             </p>
           </div>
 

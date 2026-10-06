@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import type { Scene } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
+import { getNarrationHeaders } from "../lib/api-keys";
+import { isGeminiKeyRequiredResponse, noteGeminiKeyRequired } from "../lib/gemini-narration";
 import Icon, { iconify } from "./icons/Icon";
 
 interface VoiceImportModalProps {
@@ -348,9 +350,11 @@ export default function VoiceImportModal({
         // Fetch synthesized audio to attach directly
         const res = await fetch("/api/tts", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...getNarrationHeaders() },
           body: JSON.stringify({ text: scene.text, voice: selectedVoiceId }),
         });
+
+        if (isGeminiKeyRequiredResponse(res)) noteGeminiKeyRequired();
 
         if (res.ok) {
           const blob = await res.blob();

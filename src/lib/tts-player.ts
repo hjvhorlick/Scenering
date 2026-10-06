@@ -8,6 +8,13 @@ import {
 } from "./voice-echo";
 import { LEGACY_VOICE_IDS } from "../data/voice-presets";
 import { sanitizeTextForSpeech } from "./speech-sanitizer";
+import { getNarrationHeaders } from "./api-keys";
+import {
+  GeminiKeyRequiredError,
+  isGeminiKeyRequiredError,
+  isGeminiKeyRequiredResponse,
+  noteGeminiKeyRequired,
+} from "./gemini-narration";
 // Provides high-fidelity MP3/WAV playback via /api/tts and full support for over 300+ Web Speech API voices with gender-aware matching
 
 export interface BrowserVoiceInfo {
@@ -288,11 +295,20 @@ class TTSAudioPlayer {
         const timeoutId = setTimeout(() => controller.abort(), 15000);
         const res = await fetch("/api/tts", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...getNarrationHeaders() },
           body: JSON.stringify({ text: cleanText, voice }),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
+
+        // No narration key on the account. Auditioning a random browser
+        // voice here would be a lie about what the narrator sounds like, so
+        // the preview stops and the studio shows the "add your free Google
+        // key" prompt instead.
+        if (isGeminiKeyRequiredResponse(res)) {
+          noteGeminiKeyRequired();
+          throw new GeminiKeyRequiredError();
+        }
 
         if (!res.ok) {
           throw new Error(`TTS server error: ${res.status}`);
@@ -338,6 +354,10 @@ class TTSAudioPlayer {
 
       await audio.play();
     } catch (err) {
+      if (isGeminiKeyRequiredError(err)) {
+        this.stop();
+        return;
+      }
       console.warn("Server TTS fetch failed, using browser speech synthesis fallback:", err);
       this.fallbackSpeechSynthesis(cleanText, voice, speed, volume, playingId);
     }

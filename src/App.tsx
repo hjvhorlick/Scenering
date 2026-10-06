@@ -269,7 +269,7 @@ export default function App() {
   const [focusedSceneId, setFocusedSceneId] = useState<number | null>(null);
   const [hasCustomKeys, setHasCustomKeys] = useState(() => {
     const k = getStoredApiKeys();
-    return Boolean(k.pexelsKey || k.pixabayKey);
+    return Boolean(k.pexelsKey || k.pixabayKey || k.geminiKey);
   });
 
   const [customerLogo, setCustomerLogo] = useState<CustomerLogoConfig>(DEFAULT_PROJECT_SETTINGS.customer_logo);
@@ -760,10 +760,19 @@ export default function App() {
   useEffect(() => {
     const checkKeys = () => {
       const k = getStoredApiKeys();
-      setHasCustomKeys(Boolean(k.pexelsKey || k.pixabayKey));
+      setHasCustomKeys(Boolean(k.pexelsKey || k.pixabayKey || k.geminiKey));
     };
     window.addEventListener("scenering-api-keys-updated", checkKeys);
     return () => window.removeEventListener("scenering-api-keys-updated", checkKeys);
+  }, []);
+
+  /* Any part of the studio can ask for the API Keys modal — the narration
+     prompts shown when an account has no Google key of its own do exactly
+     that, so the key can be pasted without hunting for the toolbar. */
+  useEffect(() => {
+    const openKeys = () => setApiKeysModalOpen(true);
+    window.addEventListener("scenering-open-api-keys", openKeys);
+    return () => window.removeEventListener("scenering-open-api-keys", openKeys);
   }, []);
 
   const fetchProjects = useCallback(async () => {
@@ -1750,7 +1759,7 @@ export default function App() {
             <button
               onClick={() => setApiKeysModalOpen(true)}
               className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-hairline bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
-              title="Image search API keys (Pexels & Pixabay)"
+              title="Your API keys — Pexels & Pixabay for images, Google Gemini for narration"
             >
               <span className="t-ico"><Icon glyph="🔑" /></span>
               <span className="hidden sm:inline">API Keys</span>

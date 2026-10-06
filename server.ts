@@ -35,17 +35,44 @@ function shuffleCopy<T>(items: readonly T[]): T[] {
   return arr;
 }
 
-let geminiClient: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = env().GEMINI_API_KEY as string | undefined;
-  if (!geminiClient && apiKey) {
-    try {
-      geminiClient = new GoogleGenAI({ apiKey });
-    } catch (e: any) {
-      console.warn("Failed to initialize GoogleGenAI client:", e?.message);
+/**
+ * One GoogleGenAI client per distinct key.
+ *
+ * Narration is bring-your-own-key: an ordinary customer's own Gemini key
+ * arrives on the request, while the owner administrator keeps using the
+ * server's configured secret. Clients are therefore keyed by the API key
+ * itself rather than being a single module-level singleton, and the map is
+ * bounded so a stream of bad keys cannot grow it without limit.
+ */
+const geminiClients = new Map<string, GoogleGenAI>();
+const GEMINI_CLIENT_CACHE_LIMIT = 32;
+
+function geminiClientFor(apiKey: string): GoogleGenAI | null {
+  const key = (apiKey || "").trim();
+  if (!key) return null;
+  const existing = geminiClients.get(key);
+  if (existing) return existing;
+  try {
+    const client = new GoogleGenAI({ apiKey: key });
+    if (geminiClients.size >= GEMINI_CLIENT_CACHE_LIMIT) {
+      const oldest = geminiClients.keys().next().value;
+      if (oldest) geminiClients.delete(oldest);
     }
+    geminiClients.set(key, client);
+    return client;
+  } catch (e: any) {
+    console.warn("Failed to initialize GoogleGenAI client:", e?.message);
+    return null;
   }
-  return geminiClient;
+}
+
+/** The server's own key — the owner administrator's narration path. */
+function serverGeminiKey(): string {
+  return String((env().GEMINI_API_KEY as string | undefined) || "").trim();
+}
+
+function getGeminiClient(): GoogleGenAI | null {
+  return geminiClientFor(serverGeminiKey());
 }
 
 function pcmToWav(pcmData: Buffer, sampleRate = 24000, numChannels = 1, bitsPerSample = 16): Buffer {
@@ -248,8 +275,10 @@ function getGeminiVoiceCasting(voiceId: string): GeminiVoiceCasting {
   return GEMINI_FALLBACK_MALE;
 }
 
-async function synthesizeGeminiTTS(text: string, voiceId: string): Promise<Buffer> {
-  const ai = getGeminiClient();
+async function synthesizeGeminiTTS(text: string, voiceId: string, apiKey?: string): Promise<Buffer> {
+  // An explicit key is the customer's own; without one this is the owner
+  // administrator's path and the server's configured secret is used.
+  const ai = apiKey ? geminiClientFor(apiKey) : getGeminiClient();
   if (!ai) {
     throw new Error("GEMINI_API_KEY is not configured");
   }
@@ -883,8 +912,8 @@ function generateFallbackToneBuffer(durationSeconds: number): Buffer {
 const ttsAudioCache = new Map<string, { buffer: Buffer; words: WordTiming[] }>();
 
 // Synthesizes high-fidelity speech for the requested voice/persona.
-async function synthesizeTTS(text: string, voice: string): Promise<Buffer> {
-  const { buffer } = await synthesizeTTSWithSource(text, voice);
+async function synthesizeTTS(text: string, voice: string, geminiKey?: string): Promise<Buffer> {
+  const { buffer } = await synthesizeTTSWithSource(text, voice, undefined, geminiKey);
   return buffer;
 }
 
@@ -900,16 +929,23 @@ type TtsSource = "gemini" | "google" | "silent";
  *  1. Gemini TTS (GoogleGenAI, fetch-based) — primary. No word-boundary
  *     timing is returned, so `words` is always empty on this path; the
  *     client falls back to its estimated pacing for captions.
- *  2. Google Translate's read-aloud endpoint — used only if Gemini is
- *     unavailable/unconfigured or fails. Also has no word boundaries.
+ *  2. Google Translate's read-aloud endpoint — used only if the supplied
+ *     Gemini key fails. Also has no word boundaries. A request that carries
+ *     no key at all never reaches synthesis: the route answers with the
+ *     "add your own key" refusal instead, so nobody is quietly handed a
+ *     lesser voice they did not choose.
  *  3. A silent WAV sized to the text's estimated spoken duration — last
  *     resort so a failed synthesis never hangs the client or corrupts the
  *     timeline; the UI reports the failure separately.
+ *
+ * `geminiKey` is the key resolved for this request — the customer's own for
+ * an ordinary account, the server's secret for the owner administrator.
  */
 async function synthesizeTTSWithSource(
   text: string,
   voice: string,
-  customEntries?: any[]
+  customEntries?: any[],
+  geminiKey?: string
 ): Promise<{ buffer: Buffer; source: TtsSource; words: WordTiming[] }> {
   const cleanText = sanitizeTextForSpeech(text, customEntries);
   const shortName = resolveVoiceShortName(voice);
@@ -923,7 +959,7 @@ async function synthesizeTTSWithSource(
   if (cached) return { buffer: cached.buffer, source: "gemini", words: cached.words };
 
   try {
-    const buffer = await synthesizeGeminiTTS(cleanText, voice);
+    const buffer = await synthesizeGeminiTTS(cleanText, voice, geminiKey);
     ttsAudioCache.set(cacheKey, { buffer, words: [] });
     return { buffer, source: "gemini", words: [] };
   } catch (err: any) {
@@ -1298,10 +1334,11 @@ export function createApp(): express.Express {
 
   // Key verification endpoint so customer can test their entered keys
   app.post("/api/verify-keys", requirePlatformUser, platformRateLimit("verify-provider-key", 20, 3600000), async (req: express.Request, res: express.Response) => {
-    const { pexelsKey, pixabayKey } = req.body || {};
+    const { pexelsKey, pixabayKey, geminiKey } = req.body || {};
     const status: {
       pexels?: { valid: boolean; error?: string };
       pixabay?: { valid: boolean; error?: string };
+      gemini?: { valid: boolean; error?: string };
     } = {};
 
     if (pexelsKey && typeof pexelsKey === "string" && pexelsKey.trim()) {
@@ -1339,6 +1376,38 @@ export function createApp(): express.Express {
         };
       } catch (e: any) {
         status.pixabay = { valid: false, error: e.message || "Failed to connect to Pixabay" };
+      }
+    }
+
+    // The customer's own narration key. Checked exactly like the image
+    // providers: one cheap authenticated call, and only the verdict is kept
+    // — the key itself is never written down anywhere on the server.
+    if (geminiKey && typeof geminiKey === "string" && geminiKey.trim()) {
+      const trimmed = geminiKey.trim();
+      if (trimmed.length < 20 || /\s/.test(trimmed)) {
+        status.gemini = {
+          valid: false,
+          error: "That does not look like a Google AI Studio key (they are around 39 characters).",
+        };
+      } else {
+        try {
+          // The key travels in a header rather than the query string, which
+          // keeps it out of request logs along the way.
+          const gRes = await fetch("https://generativelanguage.googleapis.com/v1beta/models", {
+            headers: { "x-goog-api-key": trimmed },
+            signal: AbortSignal.timeout(12000),
+          });
+          const data = (await gRes.json().catch(() => null)) as any;
+          const isValid = gRes.ok && data && Array.isArray(data.models);
+          status.gemini = {
+            valid: isValid,
+            error: isValid
+              ? undefined
+              : data?.error?.message || `Google AI returned status ${gRes.status}`,
+          };
+        } catch (e: any) {
+          status.gemini = { valid: false, error: e.message || "Failed to connect to Google AI Studio" };
+        }
       }
     }
 
@@ -1467,6 +1536,47 @@ export function createApp(): express.Express {
   const basicVoiceAllowed = (req: express.Request, voice: string) => platformFeatureAllowed(req, "advanced_voice") || /(^|[-_])(guy|jenny)(neural)?($|[-_])/i.test(String(voice));
   const entitlementError = (res: express.Response) => res.status(403).json({ error: "This narrator requires SceneFlow or SceneForge.", code: "ENTITLEMENT_REQUIRED", feature: "advanced_voice" });
 
+  /**
+   * Which Gemini key speaks for this request.
+   *
+   * Narration is bring-your-own-key. An ordinary customer supplies their own
+   * free Google AI Studio key, sent as `X-Gemini-Key` and never stored on the
+   * server; the owner administrator keeps using the deployment's configured
+   * GEMINI_API_KEY secret so running the product never means pasting a key
+   * into it. A customer's key is never substituted by the server secret —
+   * that would silently bill the owner for a customer's narration.
+   */
+  const resolveGeminiKey = (req: express.Request): string => {
+    const auth = (req as any).auth as { user?: { role?: string } } | undefined;
+    if (auth?.user?.role === "admin") {
+      const ownerKey = serverGeminiKey();
+      if (ownerKey) return ownerKey;
+    }
+    const supplied = String(req.headers["x-gemini-key"] || "").trim();
+    // A key is an opaque Google credential; anything with whitespace or
+    // control characters is a mistake (or an injection attempt), not a key.
+    if (!supplied || supplied.length < 10 || supplied.length > 200 || /[^\x21-\x7e]/.test(supplied)) return "";
+    return supplied;
+  };
+
+  /**
+   * No key, no synthesis — and deliberately no quiet downgrade to the Google
+   * Translate read-aloud voice, which sounds nothing like the narrators the
+   * customer picked. The client turns this into a short prompt explaining
+   * that a free key takes a minute to create.
+   */
+  const geminiKeyRequired = (res: express.Response) => {
+    res.setHeader("X-TTS-Error", "gemini-key-required");
+    res.setHeader("Access-Control-Expose-Headers", "X-TTS-Source, X-TTS-Voice, X-TTS-Error");
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(400).json({
+      error:
+        "Narration needs your own Google Gemini API key. A key from Google AI Studio is free and takes about a minute to create — add it under API Keys.",
+      code: "GEMINI_KEY_REQUIRED",
+      helpUrl: "https://aistudio.google.com/app/apikey",
+    });
+  };
+
   const handleTTSGet = async (req: express.Request, res: express.Response) => {
     const text = req.query.text as string | undefined;
     if (!text) {
@@ -1482,9 +1592,11 @@ export function createApp(): express.Express {
     try {
       const voice = (req.query.voice as string) || "guy";
       if (!basicVoiceAllowed(req, voice)) return entitlementError(res);
+      const geminiKey = resolveGeminiKey(req);
+      if (!geminiKey) return geminiKeyRequired(res);
       const trimmedText = text.slice(0, 2000);
       const withTimeline = req.query.withTimeline === "1" || req.query.withTimeline === "true";
-      const synthesized = await synthesizeTTSWithSource(trimmedText, voice);
+      const synthesized = await synthesizeTTSWithSource(trimmedText, voice, undefined, geminiKey);
       return sendTtsResponse(res, synthesized, voice, withTimeline);
     } catch (err: any) {
       return res.status(500).json({ error: err.message || "Failed to generate speech" });
@@ -1509,9 +1621,11 @@ export function createApp(): express.Express {
         return res.status(400).json({ error: "Text is required" });
       }
       if (!basicVoiceAllowed(req, voice)) return entitlementError(res);
+      const geminiKey = resolveGeminiKey(req);
+      if (!geminiKey) return geminiKeyRequired(res);
 
       const trimmedText = text.slice(0, 2000);
-      const synthesized = await synthesizeTTSWithSource(trimmedText, voice, customDictionary);
+      const synthesized = await synthesizeTTSWithSource(trimmedText, voice, customDictionary, geminiKey);
       return sendTtsResponse(res, synthesized, voice, withTimeline === true);
     } catch (err: any) {
       console.warn("TTS synthesis error, returning 500:", err.message);
