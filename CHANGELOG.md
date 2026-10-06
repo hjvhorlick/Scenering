@@ -2,6 +2,35 @@
 
 ## Unreleased — Images that arrive framed, honest VIP exports, and a Fairy shelf
 
+- **Fixed: background music started late, or never.** A track added from the
+  Video Studio grid was built at the playhead, the way a sound effect is, so
+  the bed began a minute into the video — and with the playhead near the end,
+  where it sits after watching the preview through, the window left was too
+  small to schedule and nothing played at all. Music now spans the video
+  wherever it is added from, and a saved project whose bed carries no scope
+  plays from the first frame.
+
+- **Music starts without the wait.** A thirteen-minute bed is fifteen
+  megabytes, and all of it was downloaded and decoded — one sound after
+  another — before the preview could make a sound. The loader now asks for
+  only the stretch the timeline plays, cut on an MPEG frame boundary
+  (`src/lib/mp3-prefix.ts`): 1.5 MB instead of 11 MB for a ninety-second
+  window. Sounds are decoded concurrently rather than in turn, and the
+  decoded cache is capped at 192 MB with least-recently-used eviction.
+
+- **Fixed: a bed that played as silence.** Audio was fetched with
+  `cache: "force-cache"`, which returned the partial responses the library's
+  own Test button leaves in the HTTP cache — a fraction of the file, decoded
+  to a fraction of a second. Partial answers are now recognised and
+  refetched.
+
+- **A sound that cannot be loaded is named.** The preview and the render page
+  say which track is missing instead of playing on without it.
+
+- **Fixed: music ran ahead of the voice in real-time renders.** The bed is now
+  pinned to the same instant the narration is scheduled against, rather than
+  starting about 120 ms early and staying there for the whole video.
+
 - **Narration is bring-your-own-key.** Every ordinary account now narrates
   with its own free Google AI Studio (Gemini) key: a third field in the
   existing API Keys modal, saved beside Pexels and Pixabay, verified by the

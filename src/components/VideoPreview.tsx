@@ -178,6 +178,8 @@ export default function VideoPreview({
   const [progress, setProgress] = useState(0);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [audioStatus, setAudioStatus] = useState("");
+  /** Names of inserts whose sound could not be fetched for this playback. */
+  const [soundLoadIssues, setSoundLoadIssues] = useState<string[]>([]);
   const [selectedVoice, setSelectedVoice] = useState(propSelectedVoice || "en-US-ChristopherNeural");
   const [voices, setVoices] = useState<{ id: string; name: string }[]>([]);
   const currentPlayheadTimeRef = useRef(currentPlayheadTime);
@@ -1264,6 +1266,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
     // Build & pre-load the insert audio plan (BGM, SFX, CTA jingles, intro/outro sounds)
     let insertMixer: InsertAudioMixer | null = null;
+    let unplayableSounds: string[] = [];
     if (audioCtx && totalDur > 0) {
       try {
         const plans = [
@@ -1279,7 +1282,8 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
             audioCtx,
             musicAnalyserRef.current || analyserRef.current || audioCtx.destination
           );
-          await insertMixer.load(plans);
+          const result = await insertMixer.load(plans);
+          unplayableSounds = result.failed.map((item) => item.name);
         }
       } catch (err) {
         console.warn("Insert audio setup warning:", err);
@@ -1292,6 +1296,11 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
       try { insertMixer?.dispose(); } catch {}
       return;
     }
+
+    // A sound that will not load is a sound missing from the video. Name it,
+    // rather than letting the preview run without it and leaving the creator
+    // to work out what they are not hearing.
+    setSoundLoadIssues(unplayableSounds);
 
     insertMixerRef.current = insertMixer;
     if (insertMixer) insertMixer.startFrom(safeStartTime);
@@ -1700,6 +1709,15 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           {audioStatus && (
             <div className="text-xs text-gray-400 text-center">
               {audioStatus}
+            </div>
+          )}
+
+          {/* A sound that did not load is named here. It used to disappear
+              without a word, which is indistinguishable from a bed mixed too
+              quietly or a muted tab. */}
+          {soundLoadIssues.length > 0 && (
+            <div className="text-[11px] text-amber-300 text-center leading-relaxed">
+              <Icon glyph="⚠" /> Not playing: {soundLoadIssues.join(", ")} — the audio file could not be loaded.
             </div>
           )}
 
