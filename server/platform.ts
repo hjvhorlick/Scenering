@@ -56,6 +56,12 @@ async function publicSocialLinks(): Promise<SocialLinks> {
 }
 
 const now = () => new Date().toISOString();
+/** Verification links are intentionally long-lived enough for users who only
+ * check email once a day, while still limiting the lifetime of a bearer
+ * token. Keep this value shared by registration and resend so the email copy
+ * and the database check cannot drift apart. */
+export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const DEVELOPMENT_SESSION_SECRET = "scenering-local-development-secret";
 function isProduction() { return env().NODE_ENV === "production"; }
 function sessionSecret() {
@@ -234,7 +240,13 @@ async function findSession(req: Request): Promise<Auth | null> {
   if (raw) {
     const session = await db.findSessionByToken(hashToken(raw));
     const user = session && (await db.findUserById(session.userId));
-    if (user) { const resolved = await ensureOwnerPrivileges(user); return { user: resolved, plan: await getUserPlan(resolved) }; }
+    // A session may have been issued before verification enforcement was
+    // deployed, or a user may have been unverified by an administrative data
+    // repair. Never let an existing cookie bypass the verification gate.
+    if (user && user.isVerified) { const resolved = await ensureOwnerPrivileges(user); return { user: resolved, plan: await getUserPlan(resolved) }; }
+    // Revoke any legacy session that belongs to an unverified account. This
+    // prevents it becoming usable if verification state changes later.
+    if (session && user && !user.isVerified) await db.deleteSessionByToken(session.token);
   }
   /* DEV_AUTO_OWNER=1 — development previews only. Some browsers refuse to
      store any cookie for an embedded or proxied preview, which makes
@@ -245,7 +257,7 @@ async function findSession(req: Request): Promise<Auth | null> {
   if (!isProduction() && env().DEV_AUTO_OWNER === "1") {
     const ownerEmail = configuredOwnerEmail();
     const owner = ownerEmail && (await db.findUserByEmail(ownerEmail));
-    if (owner && owner.role === "admin") return { user: owner, plan: "sceneforge" };
+    if (owner && owner.role === "admin" && owner.isVerified) return { user: owner, plan: "sceneforge" };
   }
   return null;
 }
@@ -509,7 +521,8 @@ export function registerPlatformRoutes(app: Express) {
     await db.createMembership(user.id, isOwner ? "sceneforge" : "free");
     await db.upsertEmailPreference({ userId: user.id, marketingConsent: Boolean(req.body?.marketingConsent), consentTimestamp: now(), consentSource: "registration", consentVersion: "2026-10", trainingStep: 0, updatedAt: now() });
     const raw = randomBytes(32).toString("base64url");
-    await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + 24 * 3600000).toISOString());
+    await db.deleteVerificationTokensForUser(user.id, "verify");
+    await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
     await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(raw)}`);
     return res.status(201).json({ message: "Account created. Check your email to verify it.", requiresVerification: true, ...(!isProduction() ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(raw)}` } : {}) });
   }));
@@ -552,7 +565,8 @@ export function registerPlatformRoutes(app: Express) {
     const user = await db.findUserByEmail(email);
     if (user && !user.isVerified) {
       const raw = randomBytes(32).toString("base64url");
-      await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + 24 * 3600000).toISOString());
+      await db.deleteVerificationTokensForUser(user.id, "verify");
+      await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
       await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(raw)}`);
     }
     res.json({ message: "If the account exists, a verification message has been sent." });
@@ -564,7 +578,8 @@ export function registerPlatformRoutes(app: Express) {
     let developmentResetUrl = "";
     if (user) {
       const raw = randomBytes(32).toString("base64url");
-      await db.createVerificationToken(user.id, hashToken(raw), "reset", new Date(Date.now() + 3600000).toISOString());
+      await db.deleteVerificationTokensForUser(user.id, "reset");
+      await db.createVerificationToken(user.id, hashToken(raw), "reset", new Date(Date.now() + PASSWORD_RESET_TTL_MS).toISOString());
       developmentResetUrl = `/reset-password?token=${encodeURIComponent(raw)}`;
       await sendPasswordResetEmail(user.email, user.displayName, `${baseUrl(req)}${developmentResetUrl}`);
     }

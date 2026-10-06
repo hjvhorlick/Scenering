@@ -46,6 +46,7 @@ export function setAdminPlanPreview(plan: PlanSlug | null) {
   announce();
 }
 export async function signIn(email: string, password: string) { current = await jsonRequest("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }); checked = true; announce(); return current; }
+export async function resendVerification(email: string) { return jsonRequest("/api/auth/resend-verification", { method: "POST", body: JSON.stringify({ email }) }); }
 export async function registerAccount(displayName: string, email: string, password: string, marketingConsent = false) { return jsonRequest("/api/auth/register", { method: "POST", body: JSON.stringify({ displayName, email, password, marketingConsent }) }); }
 export async function signOut() { await jsonRequest("/api/auth/logout", { method: "POST", body: "{}" }).catch(() => null); current = null; checked = true; announce(); }
 
