@@ -407,6 +407,10 @@ export default function VideoStudio({
                   const itemVol = itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? studioVolume;
                   const isPlaying = Boolean(soundUrl) && currentlyPlayingAudio === soundUrl;
                   const isVip = !isPlanCatalogItemIncluded(currentPlan, item.category, item.type);
+                  // Music runs under the whole video from wherever it is
+                  // added, so the card says so rather than quoting the
+                  // track's own length as if it were a clip at the playhead.
+                  const spansWholeVideo = item.spansFullVideo || item.category === "background_music";
 
                   return (
                     <div
@@ -452,17 +456,17 @@ export default function VideoStudio({
                             )}
                             <span
                               className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                                item.spansFullVideo
+                                spansWholeVideo
                                   ? "text-emerald-300 bg-emerald-950/60 border border-emerald-800/60"
                                   : "text-gray-400 bg-gray-800/80"
                               }`}
                               title={
-                                item.spansFullVideo
+                                spansWholeVideo
                                   ? "Runs for the entire video"
                                   : `Default length ${item.defaultDuration}s`
                               }
                             >
-                              {item.spansFullVideo ? "Full video" : `${item.defaultDuration}s`}
+                              {spansWholeVideo ? "Full video" : `${item.defaultDuration}s`}
                             </span>
                           </div>
                         </div>

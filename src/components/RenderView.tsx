@@ -312,6 +312,8 @@ export default function RenderView({
   const [vipPrompt, setVipPrompt] = useState<null | { format?: "mp4" | "webm" | "mov"; plan?: RenderPlan & { label?: string } }>(null);
   /** What the last final render actually left out, reported after the fact. */
   const [vipOmittedLast, setVipOmittedLast] = useState<VipFinding[]>([]);
+  /** Sounds the mixer could not fetch for this render, named on the page. */
+  const [soundLoadIssues, setSoundLoadIssues] = useState<string[]>([]);
   const getSceneDuration = (s: Scene) => s.duration || calculateDynamicDuration(s.text, s.audio_duration);
   const totalDuration = scenesWithImages.reduce((sum, s) => sum + getSceneDuration(s), 0);
 
@@ -789,6 +791,8 @@ export default function RenderView({
     const exportMotionStyle = exportSafe.motionStyle;
     const exportVoiceEcho = exportSafe.voiceEcho;
     setVipOmittedLast(exportSafe.removed);
+    // Whatever the last render could not load belongs to the last render.
+    setSoundLoadIssues([]);
 
     let exportReservationId: string | null = null;
     let exportCompleted = false;
@@ -1772,7 +1776,8 @@ export default function RenderView({
             ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
           ];
           const offlineInsertMixer = new InsertAudioMixer(offlineCtx, offlineMusicAnalyser);
-          await offlineInsertMixer.load(insertPlans);
+          const offlineLoad = await offlineInsertMixer.load(insertPlans);
+          setSoundLoadIssues(offlineLoad.failed.map((item) => item.name));
           // Placed on the timeline up front, to the sample, so the render does
           // not have to stop once per frame to ask whether a sound is due.
           offlineInsertMixer.scheduleAll();
@@ -2235,10 +2240,11 @@ export default function RenderView({
         ];
         if (insertPlans.length > 0) {
           insertMixer = new InsertAudioMixer(audioCtx, musicAnalyser);
-          const loaded = await insertMixer.load(insertPlans);
-          if (loaded > 0) {
-            reportStage(`3/4: Audio ready (${loaded} track(s)) — rendering video...`);
+          const result = await insertMixer.load(insertPlans);
+          if (result.loaded > 0) {
+            reportStage(`3/4: Audio ready (${result.loaded} track(s)) — rendering video...`);
           }
+          setSoundLoadIssues(result.failed.map((item) => item.name));
         }
       } catch (err) {
         console.warn("Insert audio render setup warning:", err);
@@ -2272,7 +2278,11 @@ export default function RenderView({
 
       if (insertMixer) {
         try {
-          insertMixer.startFrom(0);
+          // Pinned to renderAudioT0, the same instant every line of narration
+          // was scheduled against. Started without it, the bed began the
+          // moment this ran and led the voice by the 120 ms head start the
+          // scheduler gives itself — for the whole video.
+          insertMixer.startFrom(0, renderAudioT0);
         } catch {}
       }
 
@@ -3615,6 +3625,25 @@ export default function RenderView({
                       <p className="mt-1 text-[10px] text-amber-100/80 leading-relaxed">
                         {vipOmittedLast.map((finding) => finding.label).join(" · ")} — still in your project and in the
                         preview, and included in every download on SceneFlow and SceneForge.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Sound that is missing from the file, by name. A failed
+                      fetch used to drop the track silently, so the creator
+                      downloaded a video with no music and nothing anywhere
+                      said why. */}
+                  {soundLoadIssues.length > 0 && (
+                    <div className="p-3 rounded-xl border border-amber-700/60 bg-amber-950/25">
+                      <p className="flex items-center gap-2 text-[11px] font-bold text-amber-200">
+                        <Icon glyph="⚠" />
+                        <span>
+                          {soundLoadIssues.length} {soundLoadIssues.length === 1 ? "sound" : "sounds"} could not be loaded
+                        </span>
+                      </p>
+                      <p className="mt-1 text-[10px] text-amber-100/80 leading-relaxed">
+                        {soundLoadIssues.join(" · ")} — not in this file. Check the connection, then render again;
+                        uploaded music has to be re-added if it was cleared from this browser.
                       </p>
                     </div>
                   )}

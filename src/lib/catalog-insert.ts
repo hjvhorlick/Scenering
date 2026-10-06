@@ -30,7 +30,19 @@ export function createCatalogInsert(
     startTime = Math.max(0, totalDuration - item.defaultDuration);
   }
 
-  const spansWholeVideo = Boolean(options.forceFullVideo || item.spansFullVideo);
+  /**
+   * A music bed is a bed under the video, not a clip dropped at the playhead.
+   *
+   * Voiceover asks for that explicitly with `forceFullVideo`. The Video
+   * Studio grid did not, so the same track added from the other screen
+   * became a sound effect pinned to wherever the playhead was: the music
+   * started a minute in, and with the playhead near the end it never played
+   * at all, because the window it was given closed before it opened. Music
+   * is whole-video wherever it is added from.
+   */
+  const spansWholeVideo = Boolean(
+    options.forceFullVideo || item.spansFullVideo || item.category === "background_music"
+  );
   if (spansWholeVideo) startTime = 0;
 
   const defaultContent = item.defaultContent ? { ...item.defaultContent } : {};
