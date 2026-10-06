@@ -11,6 +11,12 @@ import {
   type SectionConfig,
   type SectionKind,
 } from "../data/intro-outro";
+import {
+  setSoundPreviewVolume,
+  stopAllSoundPreviews,
+  subscribeToAudioPreview,
+  toggleSoundPreview,
+} from "../data/media-library";
 import SectionPreviewCanvas from "./SectionPreviewCanvas";
 import type { AspectRatioType } from "../types";
 import { sectionPreviewShape } from "../lib/section-preview-size";
@@ -86,15 +92,25 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
   const [tab, setTab] = useState<Tab>("background");
   const [restartKey, setRestartKey] = useState(0);
   const [playingSound, setPlayingSound] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playingSoundRef = useRef<string | null>(null);
+  playingSoundRef.current = playingSound;
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const soundInputRef = useRef<HTMLInputElement | null>(null);
 
+  /* Sound previews go through the ONE shared preview manager (the same one
+     the music library and insert modal use). This studio used to run its own
+     private Audio element, which the shared Stop could not reach — previewing
+     here and then in the music library produced two tracks playing at once,
+     with no button able to silence the first. */
   useEffect(() => {
+    const unsubscribe = subscribeToAudioPreview((_url, isPlaying) => {
+      if (!isPlaying) setPlayingSound(null);
+    });
     return () => {
-      audioRef.current?.pause();
-      audioRef.current = null;
+      unsubscribe();
+      // Leaving the intro/outro editor silences only a preview it started.
+      if (playingSoundRef.current) stopAllSoundPreviews();
     };
   }, []);
 
@@ -111,17 +127,14 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
   const disable = () => onChange({ ...cfg, enabled: false });
 
   const previewSound = (url: string, id: string) => {
-    audioRef.current?.pause();
-    if (playingSound === id || !url) {
+    if (!url) {
       setPlayingSound(null);
       return;
     }
-    const a = new Audio(url);
-    a.volume = cfg.volume ?? 0.85;
-    a.onended = () => setPlayingSound(null);
-    a.play().catch(() => setPlayingSound(null));
-    audioRef.current = a;
-    setPlayingSound(id);
+    const started = toggleSoundPreview(url, cfg.volume ?? 0.85, (active) => {
+      setPlayingSound(active ? id : null);
+    });
+    setPlayingSound(started ? id : null);
   };
 
   const onPickMedia = (file: File | undefined) => {
@@ -782,7 +795,8 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                     display={`${Math.round(cfg.volume * 100)}%`}
                     onChange={(v) => {
                       update({ volume: v });
-                      if (audioRef.current) audioRef.current.volume = v;
+                      // Live-adjust a preview this studio is playing.
+                      if (playingSound) setSoundPreviewVolume(v);
                     }}
                   />
                 </>

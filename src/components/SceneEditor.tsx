@@ -168,7 +168,7 @@ export default function SceneEditor({
   const [isPlayingAttachedAudio, setIsPlayingAttachedAudio] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showNatureMenu, setShowNatureMenu] = useState(false);
-  // Ten photos are drawn from the library on every open, in a fresh order,
+  // Twelve photos are drawn from the library on every open, in a fresh order,
   // so the drawer is never the same frozen shelf twice.
   const [natureDeck, setNatureDeck] = useState(() =>
     pickRandomSample(NATURE_FALLBACKS, NATURE_DECK_ON_SCREEN)
@@ -181,7 +181,7 @@ export default function SceneEditor({
    * The bundled library never changes, so picking "Waterfalls" used to mean
    * seeing the same waterfalls on every project forever. Choosing a criteria
    * now also runs a real search for it; these are those results, shown above
-   * the bundled ones. Ten of them, to match the shelf underneath.
+   * the bundled ones. Twelve of them, to match the shelf underneath.
    */
   const [natureResults, setNatureResults] = useState<ImageCandidate[]>([]);
   const [natureSearching, setNatureSearching] = useState(false);

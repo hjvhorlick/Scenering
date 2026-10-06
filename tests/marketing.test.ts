@@ -296,9 +296,36 @@ ok(HONESTY.localNote.includes("Preview renders do not use final-export allowance
 
 /* -------------------------------------------------- 6. structure */
 
+/*
+ * The front page sells; the features page explains. The front page used to
+ * carry every demonstration in sequence and read like a training course with
+ * the price at the bottom; now it makes the case — promise, proof, what you
+ * get, what it costs to run, the plans, examples, start — and the full
+ * demonstrations live on /features where the Features button and the corner
+ * menu shortcuts lead.
+ */
 const site = read("src/marketing/MarketingSite.tsx");
 const STORY = [
   "Hero",
+  "FeatureTour",
+  "NoMeter",
+  "Pricing",
+  "Examples",
+  "FinalCta",
+];
+let cursor = -1;
+for (const section of STORY) {
+  const at = site.indexOf(`<${section} />`);
+  ok(at > cursor, `${section} appears in sales order on the front page`);
+  cursor = at;
+}
+for (const moved of ["IdeaToVideo", "ScenesSection", "VisualResearch", "VoiceSection", "CaptionsSection", "VideoStudioSection", "EffectsLibrary", "BeforeAfter", "Control", "Formats", "Devices", "Sources", "Questions"]) {
+  ok(!site.includes(`<${moved} />`), `${moved} no longer crowds the front page`);
+}
+
+const featuresPage = read("src/marketing/PublicPage.tsx");
+const TOUR_STORY = [
+  "Questions",
   "IdeaToVideo",
   "ScenesSection",
   "VisualResearch",
@@ -308,19 +335,30 @@ const STORY = [
   "EffectsLibrary",
   "BeforeAfter",
   "Control",
-  "Examples",
   "Formats",
   "Devices",
   "Sources",
-  "Pricing",
-  "FinalCta",
 ];
-let cursor = -1;
-for (const section of STORY) {
-  const at = site.indexOf(`<${section} />`);
-  ok(at > cursor, `${section} appears in story order`);
+cursor = -1;
+for (const section of TOUR_STORY) {
+  const at = featuresPage.indexOf(`<${section} />`);
+  ok(at > cursor, `${section} appears in tour order on the features page`);
   cursor = at;
 }
+// The front page's shop window: one card per stage, each linking to the
+// demonstration of exactly that stage.
+{
+  const tour = read("src/marketing/sections/FeatureTour.tsx");
+  for (const path of ["/scenes", "/visuals", "/voice", "/captions", "/video-studio", "/effects"]) {
+    ok(tour.includes(`path: "${path}"`), `the feature tour links a card to ${path}`);
+  }
+  ok(tour.includes('href="/features"'), "the feature tour offers the full tour");
+  ok(tour.includes("MarketingImage"), "each card reuses the demonstration project's artwork");
+}
+// Pricing is part of the pitch: it sits in the page's top half, directly
+// after the cost answer, and the hero's second button goes straight to it.
+ok(site.indexOf("<Pricing />") < site.indexOf("<Examples />"), "the plans come before the closing proof, not at the bottom");
+ok(read("src/marketing/sections/Hero.tsx").includes('href="#pricing"'), "the hero offers the plans directly");
 /*
  * The workflow the page tells is the workflow the app has — one step per
  * phase, in the phase rail's own order. Finding the visuals lives inside
@@ -417,16 +455,24 @@ ok(
     ok(q.cue.length > 0, `"${q.id}" says where it goes`);
   }
 
-  // The jump has to work without the script, and must not steal modified clicks.
+  // The jump has to work without the script, and must not steal modified
+  // clicks. The band lives on the features tour now, and two of its answers
+  // (what it costs, the examples) live on the front page — so each question
+  // links its area's friendly URL, and the script upgrades that to a
+  // cross-page-aware scroll via the shared goToSection helper (which honours
+  // reduced motion in route.ts).
   const questions = read("src/marketing/sections/Questions.tsx");
-  ok(questions.includes('href={`#${item.section}`}'), "each question is a real anchor");
+  ok(questions.includes("href={pathFor(item.section)}"), "each question is a real link to the area's own URL");
   ok(questions.includes("event.metaKey || event.ctrlKey"), "open-in-new-tab still works");
-  ok(questions.includes("prefers-reduced-motion"), "the jump honours reduced motion");
+  ok(questions.includes("goToSection(item.section)"), "the jump works across pages, not just within one");
+  ok(read("src/lib/route.ts").includes("prefers-reduced-motion"), "the shared jump honours reduced motion");
 
-  ok(siteSource.includes("<Questions />"), "the band is on the page");
+  ok(!siteSource.includes("<Questions />"), "the band no longer crowds the front page");
+  const tourPage = read("src/marketing/PublicPage.tsx");
+  ok(tourPage.includes("<Questions />"), "the band opens the features tour");
   ok(
-    siteSource.indexOf("<Questions />") < siteSource.indexOf("<IdeaToVideo />"),
-    "…directly under the hero, before anything is explained"
+    tourPage.indexOf("<Questions />") < tourPage.indexOf("<IdeaToVideo />"),
+    "…before anything is explained"
   );
 }
 

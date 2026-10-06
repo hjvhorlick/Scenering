@@ -257,15 +257,16 @@ ok(
   // rather than widen the header.
   ok(/t-tabbar[^"]*overflow-x-auto/.test(app), "the phase tabs scroll sideways instead of stretching the header");
 
-  // The project name shrinks on phones only. A desktop with room to spare
-  // must show the whole title, not a 220px stub of it.
+  // The project name lives on its own full-width line under the logo and
+  // the phase tabs. It used to sit inline between them with a width clamp,
+  // and a long name still pushed the right-hand buttons off the edge of a
+  // laptop screen; a wrapped second line can never compete for that row.
   const projectTitle =
-    app.match(/<h2\s+className="font-semibold text-xs[^"]*"/)?.[0] ?? "";
-  ok(projectTitle.length > 0, "the header still carries the project title");
-  ok(/max-w-\[40vw\]/.test(projectTitle), "the title is clamped on phones, where space is scarce");
-  ok(/md:max-w-\[360px\]/.test(projectTitle), "the clamp widens on tablets");
-  ok(/lg:max-w-\[560px\]/.test(projectTitle), "the clamp widens again on laptops");
-  ok(/xl:max-w-none/.test(projectTitle), "the clamp is lifted entirely on a full-size screen");
+    app.match(/<h2\s+className="order-last w-full[^"]*"/)?.[0] ?? "";
+  ok(projectTitle.length > 0, "the header still carries the project title, on its own line");
+  ok(/w-full/.test(projectTitle), "the title wraps to a full-width row of its own");
+  ok(/order-last/.test(projectTitle), "the title's row comes after the logo, tabs and buttons");
+  ok(/truncate/.test(projectTitle), "a novel-length title still keeps to a single line");
   ok(
     app.includes('title={currentProject ? currentProject.title : "Start a New Project"}'),
     "a shortened title is still readable in full from the tooltip"

@@ -219,19 +219,51 @@ export default function App() {
   const [apiKeysModalOpen, setApiKeysModalOpen] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountModalFocusPlans, setAccountModalFocusPlans] = useState(false);
+  const [accountModalFocusAdmin, setAccountModalFocusAdmin] = useState(false);
   useEffect(() => {
     const accessCode = new URLSearchParams(window.location.search).get("code");
     if (!accessCode) return;
     void redeemComplimentaryCode(accessCode).then(() => { setNavNotice("Complimentary membership activated. Your plan access is now available."); history.replaceState({}, "", "/app"); window.location.reload(); }).catch((error) => { setNavNotice(error.message || "The complimentary access code could not be redeemed."); history.replaceState({}, "", "/app"); });
   }, []);
   useEffect(() => {
+    /**
+     * One-click guarantee for the corner menu's account buttons. The menu
+     * records the intent in sessionStorage BEFORE dispatching its event or
+     * navigating, so a click that lands while this listener is not yet
+     * registered (the studio chunk still mounting) is honoured here when it
+     * is — instead of silently vanishing, which is what made Membership and
+     * Owner administration need two clicks.
+     */
+    const consumeIntent = (): string | null => {
+      try {
+        const intent = window.sessionStorage.getItem("scenering_account_intent");
+        if (intent) window.sessionStorage.removeItem("scenering_account_intent");
+        return intent;
+      } catch { return null; }
+    };
     const openAccount = (event: Event) => {
-      setAccountModalFocusPlans(event instanceof CustomEvent && event.detail?.focus === "plans");
+      const intent = consumeIntent();
+      const focus = event instanceof CustomEvent ? event.detail?.focus : undefined;
+      setAccountModalFocusPlans(focus === "plans");
+      setAccountModalFocusAdmin(focus === "admin" || (!focus && intent === "admin"));
       setAccountModalOpen(true);
     };
     window.addEventListener("scenering-open-account", openAccount);
-    if (new URLSearchParams(window.location.search).get("account") === "1") setAccountModalOpen(true);
-    return () => window.removeEventListener("scenering-open-account", openAccount);
+    const openFromNavigation = () => {
+      const intent = consumeIntent();
+      if (intent || new URLSearchParams(window.location.search).get("account") === "1") {
+        setAccountModalFocusAdmin(intent === "admin");
+        setAccountModalOpen(true);
+      }
+    };
+    openFromNavigation();
+    // navigate() announces every route change as popstate; re-checking here
+    // covers /app?account=1 arriving while the studio is already mounted.
+    window.addEventListener("popstate", openFromNavigation);
+    return () => {
+      window.removeEventListener("scenering-open-account", openAccount);
+      window.removeEventListener("popstate", openFromNavigation);
+    };
   }, []);
   /** Scene jumped-to from the timeline — briefly highlighted in Scene Editor */
   const [focusedSceneId, setFocusedSceneId] = useState<number | null>(null);
@@ -756,6 +788,49 @@ export default function App() {
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
+
+  /**
+   * Where the user is working, per browser tab. If the studio reloads anyway
+   * (a stray pull-to-refresh on a browser that ignores overscroll-behavior,
+   * a crashed tab brought back, an accidental F5), the editor reopens the
+   * same project at the same step instead of dumping them on Setup.
+   */
+  useEffect(() => {
+    try {
+      if (view === "editor" && currentProject) {
+        window.sessionStorage.setItem("scenering_resume", JSON.stringify({ projectId: currentProject.id, step: editorStep }));
+      } else if (view === "create") {
+        window.sessionStorage.removeItem("scenering_resume");
+      }
+    } catch { /* storage unavailable */ }
+  }, [view, editorStep, currentProject]);
+
+  /**
+   * One-shot restore of that position once the project list has arrived.
+   * The saved value is read during the FIRST render — before the persist
+   * effect above can clear it (the studio always boots in the "create"
+   * view, which that effect treats as "nothing to resume").
+   */
+  const resumeStateRef = useRef<{ projectId?: number; step?: EditorStep } | null | "unread">("unread");
+  if (resumeStateRef.current === "unread") {
+    try { resumeStateRef.current = JSON.parse(window.sessionStorage.getItem("scenering_resume") || "null"); }
+    catch { resumeStateRef.current = null; }
+  }
+  const resumeAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (resumeAttemptedRef.current || projects.length === 0) return;
+    resumeAttemptedRef.current = true;
+    if (view !== "create" || currentProject) return;
+    const saved = resumeStateRef.current;
+    if (saved === "unread" || !saved?.projectId) return;
+    const project = projects.find((p) => p.id === saved.projectId);
+    if (!project) return;
+    const step = saved.step;
+    void handleSelectProject(project).then(() => {
+      if (step && ["scenes", "voiceover", "captions", "studio", "render"].includes(step)) setEditorStep(step);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects]);
 
   // Save inserts to localStorage whenever they change
   useEffect(() => {
@@ -1559,24 +1634,8 @@ export default function App() {
               the same fixed corner menu used on every public page. */}
           <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />
 
-          {/* The project's name. It used to be cut off at 220px on every
-              screen, so a desktop with room to spare still showed
-              "My Documentary About The..." — the clamp only exists to stop a
-              long name from crushing the phase tabs, which is a phone
-              problem, not a desktop one. The ceiling now widens with the
-              window and is lifted entirely on large screens; the tab row
-              scrolls sideways, so a very long name can still never push
-              anything off the edge. The full name is in the tooltip at every
-              size, for the rare case where it is still shortened. */}
-          <h2
-            className="font-semibold text-xs sm:text-sm truncate max-w-[40vw] sm:max-w-[220px] md:max-w-[360px] lg:max-w-[560px] xl:max-w-none"
-            title={currentProject ? currentProject.title : "Start a New Project"}
-          >
-            {currentProject ? currentProject.title : "Start a New Project"}
-          </h2>
-
           {/* The owner's configured social profiles — same strip as the
-              website. Top row, after the logo and project title. */}
+              website. Top row, after the logo. */}
           <SocialLinksRow size={18} className="hidden md:flex shrink-0" />
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
@@ -1702,6 +1761,22 @@ export default function App() {
               />
             </button>
           </div>
+
+          {/* The project's name, on its own line under the logo and phase
+              tabs. It used to sit inline between the logo and the tabs with
+              a width clamp, which meant a long name — even a clamped one —
+              competed with the tabs and the right-hand buttons for the same
+              row and pushed them off the edge of a laptop screen. A full-
+              width second line can never do that: order-last puts it after
+              everything else in the flex-wrap row, w-full forces the wrap,
+              and truncate keeps even a novel-length title to one line. The
+              full name is in the tooltip for the rare case it is cut. */}
+          <h2
+            className="order-last w-full min-w-0 truncate font-semibold text-xs sm:text-sm text-gray-200"
+            title={currentProject ? currentProject.title : "Start a New Project"}
+          >
+            {currentProject ? currentProject.title : "Start a New Project"}
+          </h2>
         </div>
 
         {/* Content Body */}
@@ -2162,7 +2237,8 @@ export default function App() {
       <AccountMembershipModal
         isOpen={accountModalOpen}
         focusPlans={accountModalFocusPlans}
-        onClose={() => { setAccountModalOpen(false); setAccountModalFocusPlans(false); }}
+        focusAdmin={accountModalFocusAdmin}
+        onClose={() => { setAccountModalOpen(false); setAccountModalFocusPlans(false); setAccountModalFocusAdmin(false); }}
       />
 
       {/* Provider API Keys Configuration Modal */}

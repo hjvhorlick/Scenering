@@ -26,7 +26,16 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 /* ------------------------------------------------------------- render */
 
 const bundle = await build({
-  entryPoints: [join(repoRoot, "src", "marketing", "MarketingSite.tsx")],
+  // Two surfaces under test: the front page (the sales pitch) and the
+  // features tour at /features (the full demonstrations that used to crowd
+  // the front page).
+  stdin: {
+    contents:
+      'export { default as MarketingSite } from "./src/marketing/MarketingSite";\n' +
+      'export { default as PublicPage } from "./src/marketing/PublicPage";\n',
+    resolveDir: repoRoot,
+    loader: "ts",
+  },
   bundle: true,
   format: "esm",
   platform: "node",
@@ -45,22 +54,42 @@ const dir = join(repoRoot, "node_modules", ".cache");
 mkdirSync(dir, { recursive: true });
 const file = join(dir, "scenering-site.mjs");
 writeFileSync(file, bundle.outputFiles[0].text);
-const { default: MarketingSite } = await import(pathToFileURL(file).href);
+const { MarketingSite, PublicPage } = await import(pathToFileURL(file).href);
 
-let html = "";
+let home = "";
 try {
-  html = renderToStaticMarkup(createElement(MarketingSite));
-  ok(true, "the website renders without throwing");
+  home = renderToStaticMarkup(createElement(MarketingSite));
+  ok(true, "the front page renders without throwing");
 } catch (error) {
-  ok(false, `the website renders without throwing (${(error as Error).message})`);
+  ok(false, `the front page renders without throwing (${(error as Error).message})`);
 }
 
-ok(html.length > 50_000, `the page has substance (${html.length} chars of markup)`);
+let tour = "";
+try {
+  tour = renderToStaticMarkup(createElement(PublicPage, { path: "/features" }));
+  ok(true, "the features tour renders without throwing");
+} catch (error) {
+  ok(false, `the features tour renders without throwing (${(error as Error).message})`);
+}
+
+// Most checks below read both pages at once: between them they carry the
+// whole product story, just split into the pitch and the proof.
+const html = home + tour;
+
+ok(home.length > 20_000, `the front page has substance (${home.length} chars of markup)`);
+ok(tour.length > 40_000, `the features tour has substance (${tour.length} chars of markup)`);
 
 /* --------------------------------------------------------- structure */
 
-const SECTIONS = [
-  // the five worries, before anything is explained
+// The front page is a sales page: what you get, what it costs to run, the
+// plans, the proof, the close — and nothing else.
+const HOME_SECTIONS = ["features", "no-meter", "pricing", "examples", "start"];
+const homeRendered = [...home.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]);
+h.eq(homeRendered.join(","), HOME_SECTIONS.join(","), "the front page renders the sales story, in order");
+
+// The features tour carries the demonstrations, opening with the five
+// worries, in workflow order.
+const TOUR_SECTIONS = [
   "questions",
   "workflow",
   "scenes",
@@ -71,26 +100,21 @@ const SECTIONS = [
   "effects",
   "before-after",
   "control",
-  "no-meter",
-  "examples",
   "formats",
   "devices",
   "sources",
-  "pricing",
-  "start",
 ];
-const rendered = [...html.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]);
-for (const id of SECTIONS) ok(rendered.includes(id), `section #${id} is on the page`);
-h.eq(rendered.length, SECTIONS.length, "no unexpected sections");
-// Order matters: the page is the story.
-h.eq(rendered.join(","), SECTIONS.join(","), "sections render in story order");
+const tourRendered = [...tour.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]);
+h.eq(tourRendered.join(","), TOUR_SECTIONS.join(","), "the features tour renders the demonstrations, in order");
 
-h.eq((html.match(/<h1/g) || []).length, 1, "exactly one h1");
-ok(/<h1[^>]*>Create videos from your ideas\.<\/h1>/.test(html), "the h1 is the product promise");
-// One per story section, plus the key-art band above them — it carries a
+h.eq((home.match(/<h1/g) || []).length, 1, "exactly one h1 on the front page");
+ok(/<h1[^>]*>Create videos from your ideas\.<\/h1>/.test(home), "the h1 is the product promise");
+h.eq((tour.match(/<h1/g) || []).length, 1, "exactly one h1 on the features tour");
+// One heading per section, plus the key-art band above them — it carries a
 // heading but no anchor, because it is the page opening rather than a stop on
 // the way through it.
-ok((html.match(/<h2/g) || []).length >= SECTIONS.length + 1, "every required section has a heading");
+ok((home.match(/<h2/g) || []).length >= HOME_SECTIONS.length + 1, "every front-page section has a heading");
+ok((tour.match(/<h2/g) || []).length >= TOUR_SECTIONS.length, "every tour section has a heading");
 ok(/id="showpiece-title"/.test(html), "the key-art band names itself");
 ok(!/<h[1-4][^>]*><\/h[1-4]>/.test(html), "no empty headings");
 ok(/<main id="main"[^>]*>/.test(html), "there is a main landmark");
