@@ -239,6 +239,13 @@ export default function App() {
     const k = getStoredApiKeys();
     return Boolean(k.pexelsKey || k.pixabayKey);
   });
+  // Give new users a clear reminder before they start working. The notice is
+  // only needed when neither image provider key has been configured; users who
+  // have already completed setup should go straight into the studio.
+  const [apiKeysNoticeOpen, setApiKeysNoticeOpen] = useState(() => {
+    const k = getStoredApiKeys();
+    return !(k.pexelsKey || k.pixabayKey);
+  });
 
   const [customerLogo, setCustomerLogo] = useState<CustomerLogoConfig>(DEFAULT_PROJECT_SETTINGS.customer_logo);
   const [captionsConfig, setCaptionsConfig] = useState<CaptionsConfig>(DEFAULT_PROJECT_SETTINGS.captions_config);
@@ -2165,10 +2172,68 @@ export default function App() {
         onClose={() => { setAccountModalOpen(false); setAccountModalFocusPlans(false); }}
       />
 
+      {/* First-entry reminder: image search and other provider-powered features
+          work best after the user's API keys are configured. */}
+      {apiKeysNoticeOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="api-keys-notice-title"
+        >
+          <div className="w-full max-w-lg rounded-2xl border border-amber-500/40 bg-gray-900 shadow-2xl shadow-black/50">
+            <div className="p-6 sm:p-7">
+              <div className="flex items-start gap-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-amber-400/30 bg-amber-500/15 text-2xl" aria-hidden="true">
+                  🔑
+                </div>
+                <div>
+                  <h2 id="api-keys-notice-title" className="text-lg font-semibold text-white">
+                    Before you get started
+                  </h2>
+                  <p className="mt-1 text-sm leading-6 text-gray-300">
+                    Please remember that some Scenering functions will not work to their fullest until you add your API keys.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-xl border border-amber-500/20 bg-amber-950/30 p-4 text-sm leading-6 text-amber-100">
+                Add your Pexels and/or Pixabay key to unlock the best image searches and broader media options. You can also continue without them — Scenering will use its free fallback where available.
+              </div>
+
+              <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setApiKeysNoticeOpen(false)}
+                  className="rounded-xl border border-hairline px-4 py-2.5 text-sm font-semibold text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+                >
+                  Continue without keys
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setApiKeysNoticeOpen(false);
+                    setApiKeysModalOpen(true);
+                  }}
+                  className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-950/40 transition-colors hover:bg-indigo-500"
+                >
+                  Add API keys
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Provider API Keys Configuration Modal */}
       <ApiKeysModal
         isOpen={apiKeysModalOpen}
         onClose={() => setApiKeysModalOpen(false)}
+        onSaved={() => {
+          const k = getStoredApiKeys();
+          setHasCustomKeys(Boolean(k.pexelsKey || k.pixabayKey));
+          setApiKeysNoticeOpen(false);
+        }}
       />
 
       {/* Insert Properties & Content Modal */}
