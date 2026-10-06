@@ -2,6 +2,8 @@ import JSZip from "jszip";
 import type { Scene } from "../types";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { sceneHasVisual } from "../lib/scene-framing";
+import { getNarrationHeaders } from "../lib/api-keys";
+import { isGeminiKeyRequiredResponse, noteGeminiKeyRequired } from "../lib/gemini-narration";
 
 interface ZipOptions {
   title: string;
@@ -104,9 +106,11 @@ export async function createProjectZip(options: ZipOptions): Promise<Blob> {
     try {
       const res = await fetch(`${EDGE_FUNCTION_BASE}/tts`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getNarrationHeaders() },
         body: JSON.stringify({ text: scene.text, voice }),
       });
+
+      if (isGeminiKeyRequiredResponse(res)) noteGeminiKeyRequired();
 
       if (res.ok) {
         const audioBlob = await res.blob();

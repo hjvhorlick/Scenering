@@ -2,6 +2,22 @@
 
 ## Unreleased — Images that arrive framed, honest VIP exports, and a Fairy shelf
 
+- **Narration is bring-your-own-key.** Every ordinary account now narrates
+  with its own free Google AI Studio (Gemini) key: a third field in the
+  existing API Keys modal, saved beside Pexels and Pixabay, verified by the
+  same `/api/verify-keys` endpoint and shown with the same green/amber
+  status dot. The key travels to `/api/tts` in an `X-Gemini-Key` header and
+  is never stored on the server. An account with no key is told exactly
+  that — a `GEMINI_KEY_REQUIRED` answer, plus a prompt in the Voiceover
+  Studio and beside the preview buttons explaining that a Google AI Studio
+  key is free and takes about a minute, with a link to get one and a button
+  that opens the API Keys modal — instead of being quietly handed the Google
+  Translate read-aloud voice, which sounds nothing like the narrator that
+  was chosen. The owner administrator keeps using the deployment's
+  `GEMINI_API_KEY` secret, so running the product never means pasting a key
+  into it, and a customer's narration is never charged to the owner's key.
+  The website's no-meter and pricing copy now says so plainly.
+
 - **Fixed: Cloudflare deploys failed with `KV namespace '…' is not valid
   [10042]`.** `wrangler.jsonc` still carried placeholder resource ids — PR
   #35's placeholder round-trip had reverted the real KV namespace id, and the

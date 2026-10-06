@@ -20,6 +20,14 @@ import VoiceoverSwitch from "./VoiceoverSwitch";
 import { iconify } from "./icons/Icon";
 import Icon from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
+import { getNarrationHeaders } from "../lib/api-keys";
+import {
+  isGeminiKeyRequiredResponse,
+  noteGeminiKeyRequired,
+  openApiKeysModal,
+  useNarrationKeyStatus,
+} from "../lib/gemini-narration";
+import GeminiKeyNotice, { GeminiKeyHint } from "./GeminiKeyNotice";
 import { isPlanVoiceIncluded, type PlanSlug } from "../config/plans";
 import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 
@@ -74,6 +82,8 @@ export default function VoiceoverStudio({
 }: VoiceoverStudioProps) {
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
+  /** Bring-your-own-key narration status for this account. */
+  const narrationKey = useNarrationKeyStatus();
   const [internalSelectedVoice, setInternalSelectedVoice] = useState("guy");
   const selectedVoice = propSelectedVoice || internalSelectedVoice;
 
@@ -182,6 +192,13 @@ export default function VoiceoverStudio({
     voiceId: string = selectedVoice,
     speed: number = globalSpeed
   ) => {
+    // Nothing can be auditioned without a narration key, so the press opens
+    // the place the key goes instead of failing quietly.
+    if (narrationKey.needsKey) {
+      openApiKeysModal();
+      return;
+    }
+
     if (playingId === id) {
       ttsPlayer.stop();
       setPlayingId(null);
@@ -257,9 +274,13 @@ export default function VoiceoverStudio({
     try {
       const res = await fetch("/api/tts", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getNarrationHeaders() },
         body: JSON.stringify({ text, voice: voiceToUse }),
       });
+      if (isGeminiKeyRequiredResponse(res)) {
+        noteGeminiKeyRequired();
+        throw new Error("Narration needs your own free Google key — add it under API Keys.");
+      }
       if (!res.ok) {
         let detail = `HTTP ${res.status}`;
         try {
@@ -502,6 +523,10 @@ export default function VoiceoverStudio({
 
       {voiceoverEnabled && (
         <>
+      {/* Narration is bring-your-own-key: without one, nothing here can
+          speak, so the explanation comes first rather than after a failure. */}
+      <GeminiKeyNotice />
+
       {/* Studio Header Banner */}
       <div className="bg-gradient-to-r from-gray-900 via-indigo-950/40 to-gray-900 border border-indigo-900/40 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -572,6 +597,10 @@ export default function VoiceoverStudio({
             </button>
           </div>
         </div>
+
+        {/* Same prompt beside the preview and generate buttons, so the
+            reason a press does nothing is right where the press happened. */}
+        <GeminiKeyHint className="mt-3" />
 
         {/* The speech service could not be reached — the audio is a silent
             placeholder, so say so rather than shipping a mute video. */}

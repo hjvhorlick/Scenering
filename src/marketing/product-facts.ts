@@ -206,11 +206,17 @@ export const SEARCH_POLICY: { step: string; detail: string }[] = [
   { step: "Use", detail: "Only the selected visual is downloaded into the project." },
 ];
 
-/** Narration falls back in this order and never hard-fails (README). */
+/** How a narrated scene is produced, in order (README). */
 export const NARRATION_CHAIN: { name: string; detail: string }[] = [
-  { name: "Gemini narration", detail: "Highest quality — used when a key is configured" },
-  { name: "Microsoft Edge voices", detail: "Free, no key required" },
-  { name: "Silent track", detail: "Exact scene length, so the video still renders" },
+  {
+    name: "Your own free Google key",
+    detail: "One key from Google AI Studio, free and about a minute to create, pasted into API Keys",
+  },
+  {
+    name: "Gemini narration",
+    detail: "Every narrator is a Gemini neural voice, spoken with your key — Scenering never meters it",
+  },
+  { name: "Silent track", detail: "Exact scene length, so the video still renders if speech cannot be reached" },
 ];
 
 /* ------------------------------------------------------------- effects map */
@@ -629,9 +635,9 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
  * libraries, and the render runs on the visitor's own machine.
  *
  * What we must NOT say is "no AI anywhere": the narrators are neural
- * text-to-speech, and an operator who supplies a Gemini key gets Gemini's
- * voices. That is speech synthesis, not a model writing the video, and it is
- * spelled out rather than hidden.
+ * text-to-speech spoken by Gemini, using the customer's own free Google AI
+ * Studio key. That is speech synthesis, not a model writing the video, and
+ * it is spelled out rather than hidden.
  */
 export const NO_METER = {
   message: "No credits. No tokens. No counter.",
@@ -649,9 +655,9 @@ export const NO_METER = {
         "Search terms come from the scene's own nouns and names, and real photographs are fetched from free libraries.",
     },
     {
-      label: "The narration is free speech synthesis",
+      label: "The narration uses your own free Google key",
       detail:
-        "The narrators are neural text-to-speech voices, the kind built into your computer, and cost nothing to use.",
+        "The narrators are neural text-to-speech voices spoken with your own Google AI Studio key — free to create, and never metered by Scenering.",
     },
     {
       label: "The video is made on your machine",
@@ -660,7 +666,7 @@ export const NO_METER = {
     },
   ],
   caveat:
-    "One exception, stated plainly: if whoever runs the server adds a Gemini key, narration can be synthesised by Google's voices instead. That is text-to-speech, not a model writing your video, and Scenering works fully without it.",
+    "One exception, stated plainly: the voices are Google's Gemini narrators, and they speak with your own free Google AI Studio key — a key takes about a minute to get, costs nothing, and Scenering never charges or counts against it. That is text-to-speech, not a model writing your video, and everything else here — the scenes, the photographs, the render — works without any key at all.",
 } as const;
 
 /** Honest, repeated everywhere it matters. */

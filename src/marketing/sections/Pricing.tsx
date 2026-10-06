@@ -11,11 +11,12 @@ export default function Pricing() {
       {PLAN_ORDER.map((slug) => { const plan = PLAN_CONFIG[slug]; const price = plan.prices[interval]; const capacity = slug === "free" ? "2 Shorts + 1 long-video download each week" : slug === "sceneflow" ? "15 final video downloads each week" : "Unlimited final downloads, subject to fetched/upstream API service limits"; return <article className={`pub-plan${slug === "sceneflow" ? " is-featured" : ""}`} key={slug}>
         <h3>{plan.name}</h3><p>{plan.description}</p><div className="pub-price"><b>${price}</b><span>{price === 0 ? "forever" : `/${interval === "monthly" ? "month" : "year"}`}</span></div>
         {interval === "yearly" && price > 0 && <p className="pub-saving">${plan.annualMonthlyEquivalent}/month equivalent · save ${plan.annualSaving}/year</p>}
-        <ul className="pub-checks"><li>✓ {capacity}</li><li>✓ {slug === "free" ? "Sample visualisers, animated Subscribe CTA, 2 music tracks and 2 caption styles" : "All creative features unlocked"}</li><li>✓ 16:9 and 9:16 output</li><li>✓ Projects remain yours</li><li>✓ Unlimited preview corrections</li></ul>
+        <ul className="pub-checks"><li>✓ {capacity}</li><li>✓ {slug === "free" ? "Sample visualisers, animated Subscribe CTA, 2 music tracks and 2 caption styles" : "All creative features unlocked"}</li><li>✓ 16:9 and 9:16 output</li><li>✓ Projects remain yours</li><li>✓ Unlimited preview corrections</li><li>✓ Narration with your own free Google key</li></ul>
         <a className="mkt-btn mkt-btn-primary" href={slug === "free" ? "/register" : `/register?plan=${slug}&interval=${interval}`}>{slug === "free" ? "Start Free" : `Choose ${plan.name}`}</a>
       </article>; })}
     </div>
     <p style={{ textAlign: "center", marginTop: 20 }}><a href="/pricing">See the complete feature comparison →</a></p>
+    <p className="mkt-small" style={{ textAlign: "center", marginTop: 10 }}>Narration uses your own free Google AI Studio key on every plan, including Free — a key takes about a minute to create, costs nothing, and Scenering never meters it.</p>
     <p className="mkt-small" style={{ textAlign: "center", marginTop: 10 }}>Paid checkout requires configured Lemon Squeezy credentials. Verified subscription status—not a checkout return page—controls paid access.</p>
   </Section>;
 }

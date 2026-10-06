@@ -1,6 +1,12 @@
 import JSZip from "jszip";
 import type { Scene } from "../types";
 import { EDGE_FUNCTION_BASE } from "./supabase";
+import { getNarrationHeaders } from "./api-keys";
+import {
+  GeminiKeyRequiredError,
+  isGeminiKeyRequiredResponse,
+  noteGeminiKeyRequired,
+} from "./gemini-narration";
 
 /**
  * Downloading generated voiceover audio.
@@ -22,9 +28,17 @@ export interface SynthesisResult {
 export async function synthesizeToBlob(text: string, voice: string): Promise<SynthesisResult> {
   const res = await fetch(`${EDGE_FUNCTION_BASE}/tts`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getNarrationHeaders() },
     body: JSON.stringify({ text, voice }),
   });
+  // The account has no narration key saved: say so in those words rather
+  // than reporting a generic HTTP failure.
+  if (isGeminiKeyRequiredResponse(res)) {
+    noteGeminiKeyRequired();
+    throw new GeminiKeyRequiredError(
+      "Narration needs your own free Google key — add it under API Keys and try again."
+    );
+  }
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try {

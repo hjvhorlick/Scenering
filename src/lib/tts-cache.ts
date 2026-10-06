@@ -2,6 +2,8 @@ import { EDGE_FUNCTION_BASE } from "./supabase";
 import type { Scene } from "../types";
 import { sanitizeTextForSpeech } from "./speech-sanitizer";
 import type { WordTiming } from "./word-sync";
+import { getNarrationHeaders } from "./api-keys";
+import { isGeminiKeyRequiredResponse, noteGeminiKeyRequired } from "./gemini-narration";
 
 export interface CachedAudioItem {
   audioBuffer: AudioBuffer;
@@ -256,11 +258,15 @@ export async function fetchSceneAudioWithTimeline(
     const timeoutId = setTimeout(() => controller.abort(), opts.timeoutMs ?? 20000);
     const res = await fetch("/api/tts", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getNarrationHeaders() },
       body: JSON.stringify({ text: cleanText, voice, withTimeline: true }),
       signal: opts.signal ?? controller.signal,
     });
     clearTimeout(timeoutId);
+    if (isGeminiKeyRequiredResponse(res)) {
+      noteGeminiKeyRequired();
+      return null;
+    }
     if (!res.ok) return null;
     const contentType = res.headers.get("content-type") || "";
     if (!contentType.includes("application/json")) return null;
@@ -362,11 +368,13 @@ export async function pregenerateAllScenesAudio(
         const timeoutId = setTimeout(() => controller.abort(), 12000);
         const res = await fetch("/api/tts", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...getNarrationHeaders() },
           body: JSON.stringify({ text: cleanText, voice: voiceId }),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
+
+        if (isGeminiKeyRequiredResponse(res)) noteGeminiKeyRequired();
 
         if (res.ok) {
           const arrayBuf = await res.arrayBuffer();

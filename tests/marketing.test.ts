@@ -504,18 +504,27 @@ ok(
     server.includes("synthesizeGeminiTTS"),
     "…inside the text-to-speech path"
   );
-  // …and it is optional.
+  // …and the key behind it belongs to whoever is narrating: the customer's
+  // own free Google key, or the server's secret for the owner administrator.
   ok(
     server.includes("env().GEMINI_API_KEY"),
-    "that voice needs a key the operator supplies"
+    "the owner's narration uses the key the operator supplies"
+  );
+  ok(
+    server.includes('"GEMINI_KEY_REQUIRED"'),
+    "a customer with no key of their own is told so rather than metered"
   );
   ok(
     NO_METER.caveat.includes("Gemini"),
     "the page names that exception instead of hiding it"
   );
   ok(
-    NO_METER.caveat.includes("works fully without it"),
-    "…and says the app does not need it"
+    NO_METER.caveat.includes("your own free Google AI Studio key"),
+    "…and says whose key pays for it"
+  );
+  ok(
+    NO_METER.caveat.includes("never charges") && NO_METER.caveat.includes("without any key at all"),
+    "…that Scenering adds no charge, and that the rest needs no key"
   );
 
   // The claim must not overreach into "no AI at all" — the narrators are

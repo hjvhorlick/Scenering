@@ -9,6 +9,7 @@ PUBLIC_APP_URL=http://localhost:8787
 SCENERING_OWNER_EMAIL=you@example.com
 
 # Optional
+# Owner-administrator narration only — customers bring their own Gemini key.
 GEMINI_API_KEY=
 PEXELS_API_KEY=
 PIXABAY_API_KEY=

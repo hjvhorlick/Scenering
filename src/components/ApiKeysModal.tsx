@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getStoredApiKeys, saveStoredApiKeys, clearStoredApiKeys, CustomerApiKeys } from "../lib/api-keys";
+import { GEMINI_KEY_HELP_URL, useNarrationKeyStatus } from "../lib/gemini-narration";
 import Icon, { iconify } from "./icons/Icon";
 
 interface ApiKeysModalProps {
@@ -8,23 +9,50 @@ interface ApiKeysModalProps {
   onSaved?: () => void;
 }
 
+type KeyCheck = { valid: boolean; message: string };
+
+/**
+ * A single verification dot: green once the key answered, amber when the
+ * provider rejected it, grey while nothing has been checked. The same dot is
+ * used for all three keys so "is this one working?" is answered identically
+ * for photographs and for narration.
+ */
+function StatusDot({ state }: { state: "unknown" | "valid" | "invalid" }) {
+  const colour =
+    state === "valid" ? "bg-emerald-400" : state === "invalid" ? "bg-amber-400" : "bg-gray-600";
+  const label =
+    state === "valid" ? "Key verified" : state === "invalid" ? "Key not accepted" : "Not verified yet";
+  return <span className={`w-2 h-2 rounded-full ${colour}`} role="img" aria-label={label} title={label} />;
+}
+
+function dotState(result: KeyCheck | undefined, configured: boolean): "unknown" | "valid" | "invalid" {
+  if (!result) return configured ? "unknown" : "unknown";
+  return result.valid ? "valid" : "invalid";
+}
+
 export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalProps) {
   const [pexelsKey, setPexelsKey] = useState("");
   const [pixabayKey, setPixabayKey] = useState("");
+  const [geminiKey, setGeminiKey] = useState("");
   const [showPexels, setShowPexels] = useState(false);
   const [showPixabay, setShowPixabay] = useState(false);
+  const [showGemini, setShowGemini] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResults, setTestResults] = useState<{
-    pexels?: { valid: boolean; message: string };
-    pixabay?: { valid: boolean; message: string };
+    pexels?: KeyCheck;
+    pixabay?: KeyCheck;
+    gemini?: KeyCheck;
   } | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  /** The owner administrator narrates with the server's own key. */
+  const { isOwner } = useNarrationKeyStatus();
 
   useEffect(() => {
     if (isOpen) {
       const current = getStoredApiKeys();
       setPexelsKey(current.pexelsKey);
       setPixabayKey(current.pixabayKey);
+      setGeminiKey(current.geminiKey);
       setTestResults(null);
       setSaveSuccess(false);
     }
@@ -41,15 +69,17 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
     const keysToSave: CustomerApiKeys = {
       pexelsKey: pexelsKey.trim(),
       pixabayKey: pixabayKey.trim(),
+      geminiKey: geminiKey.trim(),
     };
 
     const results: {
-      pexels?: { valid: boolean; message: string };
-      pixabay?: { valid: boolean; message: string };
+      pexels?: KeyCheck;
+      pixabay?: KeyCheck;
+      gemini?: KeyCheck;
     } = {};
 
     try {
-      if (keysToSave.pexelsKey || keysToSave.pixabayKey) {
+      if (keysToSave.pexelsKey || keysToSave.pixabayKey || keysToSave.geminiKey) {
         const res = await fetch("/api/verify-keys", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -74,6 +104,14 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
                 : (data.status?.pixabay?.error || "Key rejected by Pixabay API."),
             };
           }
+          if (keysToSave.geminiKey) {
+            results.gemini = {
+              valid: data.status?.gemini?.valid ?? false,
+              message: data.status?.gemini?.valid
+                ? "Valid key! Gemini narration enabled for every voice, preview and export."
+                : (data.status?.gemini?.error || "Key rejected by Google AI Studio."),
+            };
+          }
         }
       }
 
@@ -92,10 +130,11 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
   };
 
   const handleClear = () => {
-    if (confirm("Clear both saved API keys?")) {
+    if (confirm("Clear all saved API keys?")) {
       clearStoredApiKeys();
       setPexelsKey("");
       setPixabayKey("");
+      setGeminiKey("");
       setTestResults(null);
       setSaveSuccess(true);
       if (onSaved) onSaved();
@@ -123,9 +162,9 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
               🔑
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">Image Provider API Keys</h2>
+              <h2 className="text-base font-semibold text-white">Your API Keys</h2>
               <p className="text-xs text-gray-400">
-                Use your personal Pexels & Pixabay keys for high-quality stock imagery
+                Your own Pexels & Pixabay keys for stock imagery, and your own Google key for narration
               </p>
             </div>
           </div>
@@ -147,7 +186,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
               <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              <span>API keys have been stored in your browser and will be used for all searches.</span>
+              <span>API keys have been stored in your browser and will be used for all searches and narration.</span>
             </div>
           )}
 
@@ -155,6 +194,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-gray-200 uppercase tracking-wider flex items-center gap-2">
+                <StatusDot state={dotState(testResults?.pexels, Boolean(pexelsKey.trim()))} />
                 <span>Pexels API Key</span>
                 {pexelsKey.trim() ? (
                   <span className="text-[10px] bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
@@ -213,6 +253,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
           <div className="space-y-2 pt-2 border-t border-hairline">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-gray-200 uppercase tracking-wider flex items-center gap-2">
+                <StatusDot state={dotState(testResults?.pixabay, Boolean(pixabayKey.trim()))} />
                 <span>Pixabay API Key</span>
                 {pixabayKey.trim() ? (
                   <span className="text-[10px] bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
@@ -267,13 +308,79 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
             </p>
           </div>
 
+          {/* Gemini Section — narration is bring-your-own-key, so this is the
+              one key the app genuinely needs before a voice will speak. */}
+          <div className="space-y-2 pt-2 border-t border-hairline">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-gray-200 uppercase tracking-wider flex items-center gap-2">
+                <StatusDot state={dotState(testResults?.gemini, Boolean(geminiKey.trim()))} />
+                <span>Gemini API Key</span>
+                {geminiKey.trim() ? (
+                  <span className="text-[10px] bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
+                    Configured
+                  </span>
+                ) : isOwner ? (
+                  <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded font-normal normal-case">
+                    Optional
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-amber-900/60 text-amber-300 border border-amber-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
+                    Needed for narration
+                  </span>
+                )}
+              </label>
+              <a
+                href={GEMINI_KEY_HELP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-indigo-400 hover:text-indigo-300 underline inline-flex items-center gap-1"
+              >
+                Get free Google key
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+            </div>
+            <div className="relative">
+              <input
+                type={showGemini ? "text" : "password"}
+                value={geminiKey}
+                onChange={(e) => setGeminiKey(e.target.value)}
+                placeholder="Paste your Google AI Studio (Gemini) API key..."
+                className="w-full pl-3 pr-10 py-2.5 bg-gray-800/80 border border-hairline rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowGemini(!showGemini)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 text-xs px-1"
+              >
+                {showGemini ? "Hide" : "Show"}
+              </button>
+            </div>
+            {testResults?.gemini && (
+              <p
+                className={`text-xs ${
+                  testResults.gemini.valid ? "text-emerald-400" : "text-amber-400"
+                } flex items-center gap-1.5 pt-0.5`}
+              >
+                <span>{iconify(testResults.gemini.valid ? "✓" : "⚠")}</span>
+                {testResults.gemini.message}
+              </p>
+            )}
+            <p className="text-[11px] text-gray-400">
+              {isOwner
+                ? "Narration for this owner account uses the server's configured key, so this field can stay empty."
+                : "The narrators speak with Google's Gemini voices using your own key. A key from Google AI Studio is free and takes about a minute to create."}
+            </p>
+          </div>
+
           {/* Wikimedia fallback reminder */}
           <div className="p-3 bg-gray-800/60 rounded-xl border border-hairline text-xs text-gray-400 space-y-1">
             <div className="font-semibold text-gray-300 flex items-center gap-1.5">
               <Icon glyph="ℹ" /> Free Keyless Fallback
             </div>
             <p>
-              If no keys are entered or a search yields no results on Pexels/Pixabay, Scenering automatically searches Wikimedia Commons as a free fallback.
+              If no image keys are entered or a search yields no results on Pexels/Pixabay, Scenering automatically searches Wikimedia Commons as a free fallback. Narration has no such fallback — it always uses your own Google key.
             </p>
           </div>
 
@@ -282,7 +389,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
             <button
               type="button"
               onClick={handleClear}
-              disabled={testing || (!pexelsKey && !pixabayKey)}
+              disabled={testing || (!pexelsKey && !pixabayKey && !geminiKey)}
               className="px-3 py-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Clear Keys
