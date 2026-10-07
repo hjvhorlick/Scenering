@@ -1,4 +1,5 @@
 import { createHarness } from "./harness.ts";
+import { EMAIL_TEMPLATE_STARTERS } from "../src/admin/email-centre-api.ts";
 import {
   buildBrandedTextEmail,
   buildPasswordResetEmail,
@@ -42,6 +43,16 @@ h.ok(accountNotice.html.includes("ACCOUNT UPDATE"), "generic account mail has an
 h.ok(accountNotice.html.includes("Your plan is active. &lt;img"), "generic text content is escaped before HTML rendering");
 h.ok(!accountNotice.html.includes("<img src=x"), "generic account text cannot inject HTML");
 h.ok(accountNotice.text.includes("<img src=x"), "plain-text fallback preserves the original message");
+
+h.eq(EMAIL_TEMPLATE_STARTERS.length, 4, "the existing Email Centre has four professional starter templates");
+h.eq(new Set(EMAIL_TEMPLATE_STARTERS.map((starter) => starter.id)).size, 4, "starter template IDs are unique");
+for (const starter of EMAIL_TEMPLATE_STARTERS) {
+  h.ok(Boolean(starter.name && starter.subject && starter.preheader), `${starter.label} has a name, subject and inbox preheader`);
+  h.ok(starter.htmlBody.includes("class=\"cta\""), `${starter.label} includes an email-safe call to action`);
+  h.ok(starter.htmlBody.includes("{{first_name}}"), `${starter.label} personalizes the greeting`);
+  h.ok(starter.textBody.length > 0, `${starter.label} includes a plain-text version`);
+  h.ok(!starter.htmlBody.includes("{{unsubscribe_url}}"), `${starter.label} leaves the shared consent footer to the existing Email Centre layout`);
+}
 
 console.log("PASS Email templates: branded, responsive and safe HTML with plain-text fallbacks");
 h.done("Branded email templates");

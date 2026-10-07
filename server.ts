@@ -398,11 +398,10 @@ export function createApp(): express.Express {
 
   // Key verification endpoint so customer can test their entered keys
   app.post("/api/verify-keys", requirePlatformUser, platformRateLimit("verify-provider-key", 20, 3600000), async (req: express.Request, res: express.Response) => {
-    const { pexelsKey, pixabayKey, geminiKey } = req.body || {};
+    const { pexelsKey, pixabayKey } = req.body || {};
     const status: {
       pexels?: { valid: boolean; error?: string };
       pixabay?: { valid: boolean; error?: string };
-      gemini?: { valid: boolean; error?: string };
     } = {};
 
     if (pexelsKey && typeof pexelsKey === "string" && pexelsKey.trim()) {

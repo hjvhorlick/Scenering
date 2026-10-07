@@ -10,6 +10,7 @@ import { initAnalytics } from "./lib/analytics";
  *
  *   /      the public front page (src/marketing)
  *   /app   the studio, behind its sign-in (src/studio → src/App)
+ *   /admin the owner-only Email Centre (src/admin)
  *
  * The surfaces remain separate chunks, but their requests start together.
  * While somebody reads the landing page or types a passphrase, the browser is
@@ -19,8 +20,6 @@ import { initAnalytics } from "./lib/analytics";
  */
 const MarketingSite = lazy(() => import("./marketing/MarketingSite"));
 const StudioEntry = lazy(() => import("./studio/StudioEntry"));
-// The owner's admin surfaces (the Email Centre) — a separate chunk, loaded
-// only on /admin/* paths, mounted only for signed-in administrators.
 const AdminEntry = lazy(() => import("./admin/AdminEntry"));
 
 // Keep the public website lightweight. The large editor/renderer bundle starts

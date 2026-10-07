@@ -7,8 +7,24 @@ import {
 } from "../src/lib/email-templates.ts";
 
 export type EmailKind = EmailTemplateKind;
-export interface EmailMessage { to: string; subject: string; text: string; html?: string; kind: EmailKind }
-export interface EmailProvider { send(message: EmailMessage): Promise<void> }
+export interface EmailMessage {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  kind: EmailKind;
+  /** Optional Reply-To override; falls back to the EMAIL_REPLY_TO var. */
+  replyTo?: string;
+  /** Provider-side tags (Resend supports a small array) — used to carry
+   *  campaign metadata like "campaign:<id>" alongside the message kind. */
+  tags?: string[];
+}
+/** What the provider told us about an accepted message. `messageId` is
+ *  Resend's email id — the handle delivery webhooks match against. Null
+ *  when the provider could not supply one (the console provider, for
+ *  instance, which only logs). */
+export interface EmailSendResult { messageId: string | null }
+export interface EmailProvider { send(message: EmailMessage): Promise<EmailSendResult> }
 
 const RESEND_API_URL = "https://api.resend.com/emails";
 const RESEND_FROM = "Scenering <noreply@scenering.com>";
@@ -77,15 +93,25 @@ function provider(): EmailProvider {
   throw new Error(`Unsupported EMAIL_PROVIDER: ${configured}`);
 }
 
-export async function sendTransactionalEmail(message: Omit<EmailMessage, "kind"> & { kind?: Exclude<EmailKind, "marketing" | "training"> }) {
+/**
+ * Transactional mail: verification, password resets, security notices,
+ * billing/subscription and account notifications. These are *never* gated
+ * on marketing consent and must never be sent through the Email Centre's
+ * campaign machinery — a verification link the user needs cannot depend on
+ * a marketing preference.
+ */
+export async function sendTransactionalEmail(message: Omit<EmailMessage, "kind"> & { kind?: Exclude<EmailKind, "marketing" | "training"> }): Promise<EmailSendResult> {
   const kind = message.kind || "security";
   const html = message.html || buildBrandedTextEmail(kind, message.subject, message.text).html;
   return provider().send({ ...message, kind, html });
 }
-export async function sendMarketingEmail(message: Omit<EmailMessage, "kind"> & { kind?: "marketing" | "training" }) {
-  const kind = message.kind || "marketing";
-  const html = message.html || buildBrandedTextEmail(kind, message.subject, message.text).html;
-  return provider().send({ ...message, kind, html });
+/**
+ * Marketing mail: the admin Email Centre's campaigns, training sequences
+ * and anything subscription-shaped that is promotional. Only ever sent to
+ * accounts with marketing consent, and always carries an unsubscribe path.
+ */
+export async function sendMarketingEmail(message: Omit<EmailMessage, "kind"> & { kind?: "marketing" | "training" }): Promise<EmailSendResult> {
+  return provider().send({ ...message, kind: message.kind || "marketing" });
 }
 export async function sendVerificationEmail(to: string, name: string, url: string) {
   return sendTransactionalEmail({ to, kind: "verification", ...buildVerificationEmail(name, url) });

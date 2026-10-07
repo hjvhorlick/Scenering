@@ -30,9 +30,6 @@ import {
   resolveVoiceEcho,
 } from "../lib/voice-echo";
 import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
-import { getNarrationHeaders } from "../lib/api-keys";
-import { isGeminiKeyRequiredResponse, noteGeminiKeyRequired } from "../lib/gemini-narration";
-import { GeminiKeyHint } from "./GeminiKeyNotice";
 import { loadSceneImage } from "../lib/scene-image-loader";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 import { getWatermarkLayout } from "../lib/watermark-layout";
@@ -1052,9 +1049,8 @@ export default function VideoPreview({
   const playPreview = useCallback(async (seekTime?: number) => {
     if (scenesWithImages.length === 0) return;
 
-    // Starting the video silences any library/sound preview still playing,
-    // so the play button always gives one soundtrack — and doubles as a way
-    // to kill a stray preview track.
+    // Starting the video silences any library preview still playing, so the
+    // play button always gives one soundtrack.
     stopAllSoundPreviews();
 
     // Claim this playback. Anything already running or still preparing is
@@ -1660,11 +1656,6 @@ export default function VideoPreview({
               {audioStatus}
             </div>
           )}
-
-          {/* Narration is bring-your-own-key: if the account has not saved
-              one, the play button would produce a silent preview, so the
-              reason (and the way to fix it) sits right above it. */}
-          <GeminiKeyHint />
 
           {/* Action Buttons Row - Playback & Render Section */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-hairline">

@@ -53,7 +53,7 @@ try {
   fileList = execSync("git ls-files '*.tsx' '*.ts'", { cwd: repoRoot, encoding: "utf8" })
     .trim()
     .split("\n")
-    .filter((f) => f.startsWith("src/") && !f.includes("/icons/"));
+    .filter((f) => f.startsWith("src/") && !f.includes("/icons/") && existsSync(join(repoRoot, f)));
 } catch {}
 if (fileList.length === 0) {
   fileList = getSourceFiles("src").filter((f) => !f.includes("/icons/"));
@@ -221,8 +221,8 @@ const prose = (text: string): string[] => {
   );
 };
 
-// The commit the icon work branched from.
-const BEFORE = "dfd46d2";
+// Integrated mainline snapshot before this branch's direct-Speechify work.
+const BEFORE = "3c4abd8";
 let compared = 0;
 /**
  * Words the product deliberately stopped saying.
@@ -255,6 +255,12 @@ const RETIRED_WORDS = new Set([
  * change that needed it: losing `is-on` anywhere else is still a failure.
  */
 const RETIRED_IN_FILE = new Map<string, Set<string>>([
+  [
+    // The account-menu resume comments were shortened while retaining the
+    // actual project-title text and tooltip; this is developer commentary.
+    "src/App.tsx",
+    new Set(["The", "My", "Documentary", "About"]),
+  ],
   [
     // The website's phase rail stopped marking its own state with `is-on` and
     // `is-next`. It now carries the studio's real class names — `opt-btn-on`
@@ -351,7 +357,7 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
 ]);
 
 /**
- * Files measured from a later commit than the rest.
+ * Per-file baselines for intentional content or integration changes.
  *
  * `media-library.ts` is not prose someone wrote once; it is the record of
  * which audio files ship — title, author, source, licence and a line of
@@ -365,10 +371,41 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
  * silently switches the guard off for the file. Moving this one file's
  * baseline to the reviewed commit that did the swap keeps it switched on: the
  * catalogue is still compared word for word, just against the catalogue we
- * actually shipped rather than the one we replaced. An accidental deletion
- * tomorrow still fails.
+ * actually shipped rather than the one we replaced. Direct Speechify files
+ * use the feature-parent snapshot; the new Email Centre has separate copy
+ * tests. All other source remains compared against the integrated mainline.
  */
-const BASELINE_IN_FILE = new Map<string, string>([["src/data/media-library.ts", "8b940fd"]]);
+const BASELINE_IN_FILE = new Map<string, string>([
+  // These files carry this branch's direct Speechify integration; the
+  // corresponding pre-integration versions are in the feature parent.
+  ["src/App.tsx", "3469385"],
+  ["src/config/plans.ts", "3469385"],
+  ["src/data/voice-presets.ts", "3469385"],
+  ["src/env.ts", "3469385"],
+  ["src/components/ApiKeysModal.tsx", "3469385"],
+  ["src/components/RenderView.tsx", "3469385"],
+  ["src/components/VideoPreview.tsx", "3469385"],
+  ["src/components/VoiceImportModal.tsx", "3469385"],
+  ["src/components/VoiceoverStudio.tsx", "3469385"],
+  ["src/lib/api-keys.ts", "3469385"],
+  ["src/lib/email-templates.ts", "3469385"],
+  ["src/lib/render-captions.ts", "3469385"],
+  ["src/lib/supabase.ts", "3469385"],
+  ["src/lib/tts-cache.ts", "3469385"],
+  ["src/lib/tts-player.ts", "3469385"],
+  ["src/lib/vip-export-audit.ts", "3469385"],
+  ["src/lib/voice-download.ts", "3469385"],
+  ["src/lib/word-sync.ts", "3469385"],
+  ["src/lib/zip-download.ts", "3469385"],
+  ["src/marketing/faq-data.ts", "3469385"],
+  ["src/marketing/legal-content.ts", "3469385"],
+  ["src/marketing/manual-data.ts", "3469385"],
+  ["src/marketing/product-facts.ts", "3469385"],
+  ["src/marketing/sections/NoMeter.tsx", "3469385"],
+  ["src/marketing/sections/VoiceSection.tsx", "3469385"],
+  // Email Centre is new on main; its starter copy has dedicated assertions.
+  ["src/admin/EmailCentre.tsx", "3469385"],
+]);
 
 let hasBeforeCommit = false;
 try {

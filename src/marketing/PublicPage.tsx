@@ -74,6 +74,76 @@ function ContactPage() { const [status, setStatus] = useState(""); const [busy, 
 function LegalPage({ kind }: { kind: LegalKind }) { const document = LEGAL_DOCUMENTS[kind]; return <><PageHero eyebrow="Legal" title={document.title} lead={document.lead} /><section className="mkt-container pub-prose"><p className="pub-legal-date">Effective {LEGAL_EFFECTIVE_DATE} — {LEGAL_OWNER}, {LEGAL_ORGANISATION}</p><div className="pub-legal-summary"><h2>In short</h2><ul>{document.summary.map((item) => <li key={item}>{item}</li>)}</ul></div>{document.sections.map((section) => <section key={section.heading}><h2>{section.heading}</h2>{section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}{section.bullets && <ul>{section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}{section.table && <div className="pub-table-wrap"><table className="pub-table"><thead><tr>{section.table.headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{section.table.rows.map((row) => <tr key={row.join("|")}>{row.map((cell, index) => index === 0 ? <th scope="row" key={cell}>{cell}</th> : <td key={cell}>{cell}</td>)}</tr>)}</tbody></table></div>}</section>)}<section><h2>Questions</h2><p>Use the <a href={LEGAL_CONTACT_PATH}>Contact page</a> for privacy, legal or account questions.</p></section><p className="pub-legal-note">See also <a href="/privacy">Privacy</a>, <a href="/terms">Terms</a> and <a href="/cookies">Cookie information</a>.</p></section></>; }
 function VerifyPage() { const [status, setStatus] = useState("Verifying your email…"); useEffect(() => { const token = new URLSearchParams(location.search).get("token"); fetch("/api/auth/verify-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }).then(async (r) => { const d = await r.json(); setStatus(d.message || d.error); }); }, []); return <><PageHero eyebrow="Account" title="Email verification" lead={status} /><div className="mkt-container pub-center"><a href="/login" className="mkt-btn mkt-btn-primary">Continue to login</a></div></>; }
 function ResetPage() { const [status, setStatus] = useState(""); async function reset(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const fd = new FormData(e.currentTarget); if (fd.get("password") !== fd.get("confirm")) return setStatus("The passwords do not match."); const response = await fetch("/api/auth/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: new URLSearchParams(location.search).get("token"), password: fd.get("password") }) }); const data = await response.json(); setStatus(data.message || data.error); } return <><PageHero eyebrow="Account" title="Choose a new password" lead="Reset links expire after one hour and can only be used once." /><form className="mkt-container pub-form pub-form-small" onSubmit={reset}><label>New password<input name="password" type="password" required minLength={10} /></label><label>Confirm password<input name="confirm" type="password" required minLength={10} /></label><button className="mkt-btn mkt-btn-primary">Update password</button>{status && <p role="status">{status}</p>}</form></>; }
+/* The two pages behind the links in every Scenering marketing email
+   ({{preferences_url}} and {{unsubscribe_url}}). Both work signed-out via
+   the tamper-proof token the email carries; neither exposes anything
+   beyond the recipient's own marketing preference. Transactional mail —
+   verification, password resets, security and billing notices — is never
+   affected by these choices. */
+function readEmailToken() { try { return new URLSearchParams(window.location.search).get("token") || ""; } catch { return ""; } }
+async function emailPreferenceRequest(path: string, method: "GET" | "PUT" | "POST", token: string, body?: Record<string, unknown>) {
+  const url = method === "GET" && token ? `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}` : path;
+  const response = await fetch(url, {
+    method,
+    headers: method === "GET" ? undefined : { "Content-Type": "application/json" },
+    body: method === "GET" ? undefined : JSON.stringify({ ...(body || {}), ...(token ? { token } : {}) }),
+  });
+  const data = await response.json().catch(() => ({}));
+  return { ok: response.ok, data } as { ok: boolean; data: any };
+}
+function EmailPreferencesPage() {
+  const [token] = useState(readEmailToken);
+  const [state, setState] = useState<{ status: "loading" | "error" | "ready"; consent: boolean; message: string }>({ status: "loading", consent: false, message: "" });
+  useEffect(() => {
+    let active = true;
+    emailPreferenceRequest("/api/email-preferences", "GET", token).then(({ ok, data }) => {
+      if (!active) return;
+      if (!ok) return setState({ status: "error", consent: false, message: data.error || "This preferences link is invalid or has expired." });
+      setState({ status: "ready", consent: Boolean(data.marketingConsent), message: "" });
+    });
+    return () => { active = false; };
+  }, [token]);
+  async function save(next: boolean) {
+    setState((current) => ({ ...current, consent: next, message: "" }));
+    const { ok, data } = await emailPreferenceRequest("/api/email-preferences", "PUT", token, { marketingConsent: next });
+    if (!ok) setState((current) => ({ ...current, message: data.error || "Could not save your preference." }));
+    else setState((current) => ({ ...current, consent: Boolean(data.marketingConsent), message: next ? "You will receive Scenering product news. Account and security messages are unaffected." : "You will not receive Scenering marketing email. Account and security messages are unaffected." }));
+  }
+  async function unsubscribeAll() {
+    setState((current) => ({ ...current, message: "" }));
+    const { ok, data } = await emailPreferenceRequest("/api/email/unsubscribe", "POST", token);
+    setState((current) => ({ ...current, consent: false, message: ok ? (data.message || "You have been unsubscribed.") : (data.error || "Could not unsubscribe.") }));
+  }
+  return <><PageHero eyebrow="Email preferences" title="Choose what Scenering sends you" lead="Marketing email is strictly opt-in. Account, security and billing messages are sent regardless, because they protect your account." />
+    <div className="mkt-container pub-form pub-form-small">
+      {state.status === "loading" && <p role="status">Loading your preferences…</p>}
+      {state.status === "error" && <><p role="alert">{state.message}</p><a href="/login" className="mkt-btn mkt-btn-primary">Sign in to manage preferences</a></>}
+      {state.status === "ready" && <>
+        <label className="pub-checks"><input type="checkbox" checked={state.consent} onChange={(event) => void save(event.target.checked)} /> Product news, tips and updates from Scenering</label>
+        {state.message && <p role="status">{state.message}</p>}
+        {state.consent && <button type="button" className="mkt-btn" onClick={() => void unsubscribeAll()}>Unsubscribe from all marketing email</button>}
+      </>}
+    </div></>;
+}
+function UnsubscribePage() {
+  const [token] = useState(readEmailToken);
+  const [state, setState] = useState<{ status: "idle" | "busy" | "done" | "error"; message: string }>({ status: token ? "idle" : "error", message: "" });
+  async function unsubscribe() {
+    setState({ status: "busy", message: "" });
+    const { ok, data } = await emailPreferenceRequest("/api/email/unsubscribe", "POST", token);
+    if (ok) setState({ status: "done", message: data.message || "You have been unsubscribed." });
+    else setState({ status: "error", message: data.error || "This unsubscribe link is invalid or has expired." });
+  }
+  return <><PageHero eyebrow="Email preferences" title="Unsubscribe from Scenering marketing email" lead="One click stops all product news, tips and promotional messages." />
+    <div className="mkt-container pub-center">
+      {state.status === "idle" && <><p>You will stop receiving marketing email from Scenering. Account, security and billing messages about your own account are unaffected.</p><button type="button" className="mkt-btn mkt-btn-primary" onClick={() => void unsubscribe()}>Unsubscribe from marketing email</button></>}
+      {state.status === "busy" && <p role="status">Unsubscribing…</p>}
+      {state.status === "done" && <p role="status">{state.message}</p>}
+      {state.status === "error" && <><p role="alert">{state.message || "This unsubscribe link is invalid or has expired."}</p><a href="/login" className="mkt-btn mkt-btn-primary">Sign in to manage preferences</a></>}
+      <p className="pub-legal-note">Prefer to choose categories? <a href={token ? `/email-preferences?token=${encodeURIComponent(token)}` : "/email-preferences"}>Manage your email preferences</a></p>
+    </div></>;
+}
+
 function usePageMeta(path: string) {
   useEffect(() => {
     applyPageSeo(path);

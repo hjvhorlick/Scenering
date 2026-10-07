@@ -864,7 +864,7 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
 • Voice Profile: ${voiceName}
   Profile Type: ${voiceGender ? `${voiceGender.toUpperCase()} • ` : ""}${voiceAccent || "Studio Narration"}
   Technology: ${voiceEngine || "Speechify text-to-speech (customer-provided API key)"}
-  License: ${voiceEngine?.toLowerCase().includes("speechify") ? "Subject to Speechify's current terms and the customer's account plan" : "The creator is responsible for the rights to imported audio"}
+  License: ${!voiceEngine || /speechify/i.test(voiceEngine) ? "Subject to Speechify's current terms and the customer's account plan" : "The creator is responsible for the rights to imported audio"}
 
 `;
   }

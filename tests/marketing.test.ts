@@ -630,6 +630,9 @@ ok(
   main.includes('lazy(() => import("./studio/StudioEntry"))'),
   "the account and studio entry is a separate lazy bundle"
 );
+ok(main.includes('lazy(() => import("./admin/AdminEntry"))'), "the Email Centre has its own authenticated lazy entry");
+ok(main.includes('if (route === "admin")'), "the admin route mounts the existing Email Centre entry");
+ok(main.includes("<AdminEntry />"), "the admin route does not fall through to the marketing pages");
 ok(main.includes('routeForPath(window.location.pathname) === "studio"'), "the heavy studio is preloaded only on account or studio routes");
 ok(
   main.includes('document.documentElement.setAttribute("data-mkt", "1")'),
@@ -804,6 +807,8 @@ h.eq(routeForPath(""), "site", "empty path is the website");
 h.eq(routeForPath("/app"), "studio", "/app is the studio");
 h.eq(routeForPath("/app/"), "studio", "/app/ is the studio");
 h.eq(routeForPath("/app/project/7"), "studio", "deep studio paths stay in the studio");
+h.eq(routeForPath("/admin"), "admin", "the owner admin surface has its own route");
+h.eq(routeForPath("/admin/email-centre"), "admin", "the existing Email Centre path mounts the admin surface");
 h.eq(routeForPath("/pricing"), "site", "marketing paths stay on the website");
 h.eq(normalizePath("/Pricing/"), "/pricing", "paths normalise");
 h.eq(sectionForPath("/pricing"), "pricing", "/pricing deep-links to the pricing section");

@@ -1,8 +1,6 @@
 import type { Scene } from "../types";
 import { synthesizeSpeechify } from "./speechify-client";
 import type { WordTiming } from "./word-sync";
-import { getNarrationHeaders } from "./api-keys";
-import { isGeminiKeyRequiredResponse, noteGeminiKeyRequired } from "./gemini-narration";
 
 export interface CachedAudioItem {
   audioBuffer: AudioBuffer;

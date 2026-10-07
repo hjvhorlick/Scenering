@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 587 utility
+   Colour matrix for every non-classic theme. 596 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -56,9 +56,6 @@ html[data-theme="apple"] .bg-amber-900 {
 }
 html[data-theme="apple"] .bg-amber-900\/40 {
   background-color: rgb(254 241 189 / 0.4);
-}
-html[data-theme="apple"] .bg-amber-900\/60 {
-  background-color: rgb(254 241 189 / 0.6);
 }
 html[data-theme="apple"] .bg-amber-950 {
   background-color: rgb(254 246 211 / 1);
@@ -233,9 +230,6 @@ html[data-theme="apple"] .bg-gray-200\/10 {
 }
 html[data-theme="apple"] .bg-gray-500 {
   background-color: rgb(174 174 178 / 1);
-}
-html[data-theme="apple"] .bg-gray-600 {
-  background-color: rgb(210 210 215 / 1);
 }
 html[data-theme="apple"] .bg-gray-700 {
   background-color: rgb(232 232 237 / 1);
@@ -587,9 +581,6 @@ html[data-theme="apple"] .border-amber-600\/40 {
 }
 html[data-theme="apple"] .border-amber-600\/50 {
   border-color: rgb(217 119 6 / 0.5);
-}
-html[data-theme="apple"] .border-amber-600\/60 {
-  border-color: rgb(217 119 6 / 0.6);
 }
 html[data-theme="apple"] .border-amber-600\/70 {
   border-color: rgb(217 119 6 / 0.7);
@@ -1560,9 +1551,6 @@ html[data-theme="apple"] .text-amber-400\/80 {
 html[data-theme="apple"] .text-amber-50 {
   color: rgb(180 83 9 / 1);
 }
-html[data-theme="apple"] .text-amber-950 {
-  color: rgb(69 26 3 / 1);
-}
 html[data-theme="apple"] .text-black {
   color: rgb(29 29 31 / 1);
 }
@@ -1908,9 +1896,6 @@ html[data-theme="windows"] .bg-amber-900 {
 html[data-theme="windows"] .bg-amber-900\/40 {
   background-color: rgb(114 55 21 / 0.4);
 }
-html[data-theme="windows"] .bg-amber-900\/60 {
-  background-color: rgb(114 55 21 / 0.6);
-}
 html[data-theme="windows"] .bg-amber-950 {
   background-color: rgb(65 27 7 / 1);
 }
@@ -2084,9 +2069,6 @@ html[data-theme="windows"] .bg-gray-200\/10 {
 }
 html[data-theme="windows"] .bg-gray-500 {
   background-color: rgb(82 97 122 / 1);
-}
-html[data-theme="windows"] .bg-gray-600 {
-  background-color: rgb(57 71 95 / 1);
 }
 html[data-theme="windows"] .bg-gray-700 {
   background-color: rgb(45 58 79 / 0.85);
@@ -2438,9 +2420,6 @@ html[data-theme="windows"] .border-amber-600\/40 {
 }
 html[data-theme="windows"] .border-amber-600\/50 {
   border-color: rgb(204 118 19 / 0.5);
-}
-html[data-theme="windows"] .border-amber-600\/60 {
-  border-color: rgb(204 118 19 / 0.6);
 }
 html[data-theme="windows"] .border-amber-600\/70 {
   border-color: rgb(204 118 19 / 0.7);
@@ -3411,9 +3390,6 @@ html[data-theme="windows"] .text-amber-400\/80 {
 html[data-theme="windows"] .text-amber-50 {
   color: rgb(254 250 236 / 1);
 }
-html[data-theme="windows"] .text-amber-950 {
-  color: rgb(65 27 7 / 1);
-}
 html[data-theme="windows"] .text-black {
   color: rgb(11 15 22 / 1);
 }
@@ -3759,9 +3735,6 @@ html[data-theme="playful"] .bg-amber-900 {
 html[data-theme="playful"] .bg-amber-900\/40 {
   background-color: rgb(138 50 0 / 0.4);
 }
-html[data-theme="playful"] .bg-amber-900\/60 {
-  background-color: rgb(138 50 0 / 0.6);
-}
 html[data-theme="playful"] .bg-amber-950 {
   background-color: rgb(73 26 0 / 1);
 }
@@ -3935,9 +3908,6 @@ html[data-theme="playful"] .bg-gray-200\/10 {
 }
 html[data-theme="playful"] .bg-gray-500 {
   background-color: rgb(98 82 142 / 1);
-}
-html[data-theme="playful"] .bg-gray-600 {
-  background-color: rgb(72 58 110 / 1);
 }
 html[data-theme="playful"] .bg-gray-700 {
   background-color: rgb(56 44 88 / 1);
@@ -4289,9 +4259,6 @@ html[data-theme="playful"] .border-amber-600\/40 {
 }
 html[data-theme="playful"] .border-amber-600\/50 {
   border-color: rgb(227 122 0 / 0.5);
-}
-html[data-theme="playful"] .border-amber-600\/60 {
-  border-color: rgb(227 122 0 / 0.6);
 }
 html[data-theme="playful"] .border-amber-600\/70 {
   border-color: rgb(227 122 0 / 0.7);
@@ -5262,9 +5229,6 @@ html[data-theme="playful"] .text-amber-400\/80 {
 html[data-theme="playful"] .text-amber-50 {
   color: rgb(255 253 245 / 1);
 }
-html[data-theme="playful"] .text-amber-950 {
-  color: rgb(73 26 0 / 1);
-}
 html[data-theme="playful"] .text-black {
   color: rgb(13 10 22 / 1);
 }
@@ -5610,9 +5574,6 @@ html[data-theme="glass"] .bg-amber-900 {
 html[data-theme="glass"] .bg-amber-900\/40 {
   background-color: rgb(254 245 207 / 0.4);
 }
-html[data-theme="glass"] .bg-amber-900\/60 {
-  background-color: rgb(254 245 207 / 0.6);
-}
 html[data-theme="glass"] .bg-amber-950 {
   background-color: rgb(254 249 224 / 1);
 }
@@ -5786,9 +5747,6 @@ html[data-theme="glass"] .bg-gray-200\/10 {
 }
 html[data-theme="glass"] .bg-gray-500 {
   background-color: rgb(164 148 194 / 1);
-}
-html[data-theme="glass"] .bg-gray-600 {
-  background-color: rgb(238 233 246 / 0.97);
 }
 html[data-theme="glass"] .bg-gray-700 {
   background-color: rgb(255 255 255 / 0.96);
@@ -6140,9 +6098,6 @@ html[data-theme="glass"] .border-amber-600\/40 {
 }
 html[data-theme="glass"] .border-amber-600\/50 {
   border-color: rgb(193 113 36 / 0.5);
-}
-html[data-theme="glass"] .border-amber-600\/60 {
-  border-color: rgb(193 113 36 / 0.6);
 }
 html[data-theme="glass"] .border-amber-600\/70 {
   border-color: rgb(193 113 36 / 0.7);
@@ -7113,9 +7068,6 @@ html[data-theme="glass"] .text-amber-400\/80 {
 html[data-theme="glass"] .text-amber-50 {
   color: rgb(168 84 30 / 1);
 }
-html[data-theme="glass"] .text-amber-950 {
-  color: rgb(75 36 25 / 1);
-}
 html[data-theme="glass"] .text-black {
   color: rgb(28 26 34 / 1);
 }
@@ -7461,9 +7413,6 @@ html[data-theme="porcelain"] .bg-amber-900 {
 html[data-theme="porcelain"] .bg-amber-900\/40 {
   background-color: rgb(254 240 185 / 0.4);
 }
-html[data-theme="porcelain"] .bg-amber-900\/60 {
-  background-color: rgb(254 240 185 / 0.6);
-}
 html[data-theme="porcelain"] .bg-amber-950 {
   background-color: rgb(254 245 206 / 1);
 }
@@ -7637,9 +7586,6 @@ html[data-theme="porcelain"] .bg-gray-200\/10 {
 }
 html[data-theme="porcelain"] .bg-gray-500 {
   background-color: rgb(195 184 166 / 1);
-}
-html[data-theme="porcelain"] .bg-gray-600 {
-  background-color: rgb(222 214 200 / 1);
 }
 html[data-theme="porcelain"] .bg-gray-700 {
   background-color: rgb(234 228 218 / 1);
@@ -7991,9 +7937,6 @@ html[data-theme="porcelain"] .border-amber-600\/40 {
 }
 html[data-theme="porcelain"] .border-amber-600\/50 {
   border-color: rgb(217 119 6 / 0.5);
-}
-html[data-theme="porcelain"] .border-amber-600\/60 {
-  border-color: rgb(217 119 6 / 0.6);
 }
 html[data-theme="porcelain"] .border-amber-600\/70 {
   border-color: rgb(217 119 6 / 0.7);
@@ -8963,9 +8906,6 @@ html[data-theme="porcelain"] .text-amber-400\/80 {
 }
 html[data-theme="porcelain"] .text-amber-50 {
   color: rgb(180 83 9 / 1);
-}
-html[data-theme="porcelain"] .text-amber-950 {
-  color: rgb(69 26 3 / 1);
 }
 html[data-theme="porcelain"] .text-black {
   color: rgb(42 39 36 / 1);
