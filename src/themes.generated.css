@@ -57,6 +57,9 @@ html[data-theme="apple"] .bg-amber-900 {
 html[data-theme="apple"] .bg-amber-900\/40 {
   background-color: rgb(254 241 189 / 0.4);
 }
+html[data-theme="apple"] .bg-amber-900\/60 {
+  background-color: rgb(254 241 189 / 0.6);
+}
 html[data-theme="apple"] .bg-amber-950 {
   background-color: rgb(254 246 211 / 1);
 }
@@ -189,6 +192,12 @@ html[data-theme="apple"] .bg-emerald-900\/50 {
 html[data-theme="apple"] .bg-emerald-950 {
   background-color: rgb(222 250 237 / 1);
 }
+html[data-theme="apple"] .bg-emerald-950\/20 {
+  background-color: rgb(222 250 237 / 0.2);
+}
+html[data-theme="apple"] .bg-emerald-950\/30 {
+  background-color: rgb(222 250 237 / 0.3);
+}
 html[data-theme="apple"] .bg-emerald-950\/35 {
   background-color: rgb(222 250 237 / 0.35);
 }
@@ -219,8 +228,14 @@ html[data-theme="apple"] .bg-fuchsia-600 {
 html[data-theme="apple"] .bg-fuchsia-950 {
   background-color: rgb(251 237 255 / 1);
 }
+html[data-theme="apple"] .bg-gray-200\/10 {
+  background-color: rgb(174 174 178 / 0.1);
+}
 html[data-theme="apple"] .bg-gray-500 {
   background-color: rgb(174 174 178 / 1);
+}
+html[data-theme="apple"] .bg-gray-600 {
+  background-color: rgb(210 210 215 / 1);
 }
 html[data-theme="apple"] .bg-gray-700 {
   background-color: rgb(232 232 237 / 1);
@@ -573,6 +588,9 @@ html[data-theme="apple"] .border-amber-600\/40 {
 html[data-theme="apple"] .border-amber-600\/50 {
   border-color: rgb(217 119 6 / 0.5);
 }
+html[data-theme="apple"] .border-amber-600\/60 {
+  border-color: rgb(217 119 6 / 0.6);
+}
 html[data-theme="apple"] .border-amber-600\/70 {
   border-color: rgb(217 119 6 / 0.7);
 }
@@ -606,6 +624,9 @@ html[data-theme="apple"] .border-amber-800\/80 {
 html[data-theme="apple"] .border-amber-900\/50 {
   border-color: rgb(120 53 15 / 0.5);
 }
+html[data-theme="apple"] .border-black\/20 {
+  border-color: rgb(210 210 215 / 0.2);
+}
 html[data-theme="apple"] .border-black\/40 {
   border-color: rgb(210 210 215 / 0.4);
 }
@@ -617,6 +638,9 @@ html[data-theme="apple"] .border-blue-500 {
 }
 html[data-theme="apple"] .border-blue-500\/30 {
   border-color: rgb(59 130 246 / 0.3);
+}
+html[data-theme="apple"] .border-blue-500\/40 {
+  border-color: rgb(59 130 246 / 0.4);
 }
 html[data-theme="apple"] .border-blue-500\/60 {
   border-color: rgb(59 130 246 / 0.6);
@@ -659,6 +683,9 @@ html[data-theme="apple"] .border-emerald-400\/40 {
 }
 html[data-theme="apple"] .border-emerald-500 {
   border-color: rgb(16 185 129 / 1);
+}
+html[data-theme="apple"] .border-emerald-500\/30 {
+  border-color: rgb(16 185 129 / 0.3);
 }
 html[data-theme="apple"] .border-emerald-500\/40 {
   border-color: rgb(16 185 129 / 0.4);
@@ -999,6 +1026,9 @@ html[data-theme="apple"] .focus\:border-amber-500:focus {
 html[data-theme="apple"] .focus\:border-fuchsia-500:focus {
   border-color: rgb(217 70 239 / 1);
 }
+html[data-theme="apple"] .focus\:border-indigo-400:focus {
+  border-color: rgb(142 194 255 / 1);
+}
 html[data-theme="apple"] .focus\:border-indigo-500:focus {
   border-color: rgb(10 132 255 / 1);
 }
@@ -1204,6 +1234,9 @@ html[data-theme="apple"] .hover\:bg-gray-800\/80:hover {
 }
 html[data-theme="apple"] .hover\:bg-gray-900:hover {
   background-color: rgb(255 255 255 / 1);
+}
+html[data-theme="apple"] .hover\:bg-gray-900\/60:hover {
+  background-color: rgb(255 255 255 / 0.6);
 }
 html[data-theme="apple"] .hover\:bg-gray-900\/80:hover {
   background-color: rgb(255 255 255 / 0.8);
@@ -1527,6 +1560,9 @@ html[data-theme="apple"] .text-amber-400\/80 {
 html[data-theme="apple"] .text-amber-50 {
   color: rgb(180 83 9 / 1);
 }
+html[data-theme="apple"] .text-amber-950 {
+  color: rgb(69 26 3 / 1);
+}
 html[data-theme="apple"] .text-black {
   color: rgb(29 29 31 / 1);
 }
@@ -1556,6 +1592,9 @@ html[data-theme="apple"] .text-cyan-400 {
 }
 html[data-theme="apple"] .text-emerald-100 {
   color: rgb(4 120 87 / 1);
+}
+html[data-theme="apple"] .text-emerald-100\/90 {
+  color: rgb(4 120 87 / 0.9);
 }
 html[data-theme="apple"] .text-emerald-200 {
   color: rgb(4 120 87 / 1);
@@ -1869,6 +1908,9 @@ html[data-theme="windows"] .bg-amber-900 {
 html[data-theme="windows"] .bg-amber-900\/40 {
   background-color: rgb(114 55 21 / 0.4);
 }
+html[data-theme="windows"] .bg-amber-900\/60 {
+  background-color: rgb(114 55 21 / 0.6);
+}
 html[data-theme="windows"] .bg-amber-950 {
   background-color: rgb(65 27 7 / 1);
 }
@@ -2001,6 +2043,12 @@ html[data-theme="windows"] .bg-emerald-900\/50 {
 html[data-theme="windows"] .bg-emerald-950 {
   background-color: rgb(5 41 33 / 1);
 }
+html[data-theme="windows"] .bg-emerald-950\/20 {
+  background-color: rgb(5 41 33 / 0.2);
+}
+html[data-theme="windows"] .bg-emerald-950\/30 {
+  background-color: rgb(5 41 33 / 0.3);
+}
 html[data-theme="windows"] .bg-emerald-950\/35 {
   background-color: rgb(5 41 33 / 0.35);
 }
@@ -2031,8 +2079,14 @@ html[data-theme="windows"] .bg-fuchsia-600 {
 html[data-theme="windows"] .bg-fuchsia-950 {
   background-color: rgb(70 8 74 / 1);
 }
+html[data-theme="windows"] .bg-gray-200\/10 {
+  background-color: rgb(82 97 122 / 0.1);
+}
 html[data-theme="windows"] .bg-gray-500 {
   background-color: rgb(82 97 122 / 1);
+}
+html[data-theme="windows"] .bg-gray-600 {
+  background-color: rgb(57 71 95 / 1);
 }
 html[data-theme="windows"] .bg-gray-700 {
   background-color: rgb(45 58 79 / 0.85);
@@ -2385,6 +2439,9 @@ html[data-theme="windows"] .border-amber-600\/40 {
 html[data-theme="windows"] .border-amber-600\/50 {
   border-color: rgb(204 118 19 / 0.5);
 }
+html[data-theme="windows"] .border-amber-600\/60 {
+  border-color: rgb(204 118 19 / 0.6);
+}
 html[data-theme="windows"] .border-amber-600\/70 {
   border-color: rgb(204 118 19 / 0.7);
 }
@@ -2418,6 +2475,9 @@ html[data-theme="windows"] .border-amber-800\/80 {
 html[data-theme="windows"] .border-amber-900\/50 {
   border-color: rgb(114 55 21 / 0.5);
 }
+html[data-theme="windows"] .border-black\/20 {
+  border-color: rgb(0 0 0 / 0.1);
+}
 html[data-theme="windows"] .border-black\/40 {
   border-color: rgb(0 0 0 / 0.2);
 }
@@ -2429,6 +2489,9 @@ html[data-theme="windows"] .border-blue-500 {
 }
 html[data-theme="windows"] .border-blue-500\/30 {
   border-color: rgb(70 133 235 / 0.3);
+}
+html[data-theme="windows"] .border-blue-500\/40 {
+  border-color: rgb(70 133 235 / 0.4);
 }
 html[data-theme="windows"] .border-blue-500\/60 {
   border-color: rgb(70 133 235 / 0.6);
@@ -2471,6 +2534,9 @@ html[data-theme="windows"] .border-emerald-400\/40 {
 }
 html[data-theme="windows"] .border-emerald-500 {
   border-color: rgb(26 175 126 / 1);
+}
+html[data-theme="windows"] .border-emerald-500\/30 {
+  border-color: rgb(26 175 126 / 0.3);
 }
 html[data-theme="windows"] .border-emerald-500\/40 {
   border-color: rgb(26 175 126 / 0.4);
@@ -2811,6 +2877,9 @@ html[data-theme="windows"] .focus\:border-amber-500:focus {
 html[data-theme="windows"] .focus\:border-fuchsia-500:focus {
   border-color: rgb(209 80 229 / 1);
 }
+html[data-theme="windows"] .focus\:border-indigo-400:focus {
+  border-color: rgb(111 211 255 / 1);
+}
 html[data-theme="windows"] .focus\:border-indigo-500:focus {
   border-color: rgb(76 194 255 / 1);
 }
@@ -3016,6 +3085,9 @@ html[data-theme="windows"] .hover\:bg-gray-800\/80:hover {
 }
 html[data-theme="windows"] .hover\:bg-gray-900:hover {
   background-color: rgb(24 32 45 / 0.86);
+}
+html[data-theme="windows"] .hover\:bg-gray-900\/60:hover {
+  background-color: rgb(24 32 45 / 0.516);
 }
 html[data-theme="windows"] .hover\:bg-gray-900\/80:hover {
   background-color: rgb(24 32 45 / 0.688);
@@ -3339,6 +3411,9 @@ html[data-theme="windows"] .text-amber-400\/80 {
 html[data-theme="windows"] .text-amber-50 {
   color: rgb(254 250 236 / 1);
 }
+html[data-theme="windows"] .text-amber-950 {
+  color: rgb(65 27 7 / 1);
+}
 html[data-theme="windows"] .text-black {
   color: rgb(11 15 22 / 1);
 }
@@ -3368,6 +3443,9 @@ html[data-theme="windows"] .text-cyan-400 {
 }
 html[data-theme="windows"] .text-emerald-100 {
   color: rgb(211 248 229 / 1);
+}
+html[data-theme="windows"] .text-emerald-100\/90 {
+  color: rgb(211 248 229 / 0.9);
 }
 html[data-theme="windows"] .text-emerald-200 {
   color: rgb(172 238 208 / 1);
@@ -3681,6 +3759,9 @@ html[data-theme="playful"] .bg-amber-900 {
 html[data-theme="playful"] .bg-amber-900\/40 {
   background-color: rgb(138 50 0 / 0.4);
 }
+html[data-theme="playful"] .bg-amber-900\/60 {
+  background-color: rgb(138 50 0 / 0.6);
+}
 html[data-theme="playful"] .bg-amber-950 {
   background-color: rgb(73 26 0 / 1);
 }
@@ -3813,6 +3894,12 @@ html[data-theme="playful"] .bg-emerald-900\/50 {
 html[data-theme="playful"] .bg-emerald-950 {
   background-color: rgb(0 47 36 / 1);
 }
+html[data-theme="playful"] .bg-emerald-950\/20 {
+  background-color: rgb(0 47 36 / 0.2);
+}
+html[data-theme="playful"] .bg-emerald-950\/30 {
+  background-color: rgb(0 47 36 / 0.3);
+}
 html[data-theme="playful"] .bg-emerald-950\/35 {
   background-color: rgb(0 47 36 / 0.35);
 }
@@ -3843,8 +3930,14 @@ html[data-theme="playful"] .bg-fuchsia-600 {
 html[data-theme="playful"] .bg-fuchsia-950 {
   background-color: rgb(79 0 84 / 1);
 }
+html[data-theme="playful"] .bg-gray-200\/10 {
+  background-color: rgb(98 82 142 / 0.1);
+}
 html[data-theme="playful"] .bg-gray-500 {
   background-color: rgb(98 82 142 / 1);
+}
+html[data-theme="playful"] .bg-gray-600 {
+  background-color: rgb(72 58 110 / 1);
 }
 html[data-theme="playful"] .bg-gray-700 {
   background-color: rgb(56 44 88 / 1);
@@ -4197,6 +4290,9 @@ html[data-theme="playful"] .border-amber-600\/40 {
 html[data-theme="playful"] .border-amber-600\/50 {
   border-color: rgb(227 122 0 / 0.5);
 }
+html[data-theme="playful"] .border-amber-600\/60 {
+  border-color: rgb(227 122 0 / 0.6);
+}
 html[data-theme="playful"] .border-amber-600\/70 {
   border-color: rgb(227 122 0 / 0.7);
 }
@@ -4230,6 +4326,9 @@ html[data-theme="playful"] .border-amber-800\/80 {
 html[data-theme="playful"] .border-amber-900\/50 {
   border-color: rgb(138 50 0 / 0.5);
 }
+html[data-theme="playful"] .border-black\/20 {
+  border-color: rgb(10 7 18 / 0.2);
+}
 html[data-theme="playful"] .border-black\/40 {
   border-color: rgb(10 7 18 / 0.4);
 }
@@ -4241,6 +4340,9 @@ html[data-theme="playful"] .border-blue-500 {
 }
 html[data-theme="playful"] .border-blue-500\/30 {
   border-color: rgb(56 132 255 / 0.3);
+}
+html[data-theme="playful"] .border-blue-500\/40 {
+  border-color: rgb(56 132 255 / 0.4);
 }
 html[data-theme="playful"] .border-blue-500\/60 {
   border-color: rgb(56 132 255 / 0.6);
@@ -4283,6 +4385,9 @@ html[data-theme="playful"] .border-emerald-400\/40 {
 }
 html[data-theme="playful"] .border-emerald-500 {
   border-color: rgb(0 205 137 / 1);
+}
+html[data-theme="playful"] .border-emerald-500\/30 {
+  border-color: rgb(0 205 137 / 0.3);
 }
 html[data-theme="playful"] .border-emerald-500\/40 {
   border-color: rgb(0 205 137 / 0.4);
@@ -4623,6 +4728,9 @@ html[data-theme="playful"] .focus\:border-amber-500:focus {
 html[data-theme="playful"] .focus\:border-fuchsia-500:focus {
   border-color: rgb(230 60 255 / 1);
 }
+html[data-theme="playful"] .focus\:border-indigo-400:focus {
+  border-color: rgb(255 159 201 / 1);
+}
 html[data-theme="playful"] .focus\:border-indigo-500:focus {
   border-color: rgb(255 111 177 / 1);
 }
@@ -4828,6 +4936,9 @@ html[data-theme="playful"] .hover\:bg-gray-800\/80:hover {
 }
 html[data-theme="playful"] .hover\:bg-gray-900:hover {
   background-color: rgb(30 23 49 / 1);
+}
+html[data-theme="playful"] .hover\:bg-gray-900\/60:hover {
+  background-color: rgb(30 23 49 / 0.6);
 }
 html[data-theme="playful"] .hover\:bg-gray-900\/80:hover {
   background-color: rgb(30 23 49 / 0.8);
@@ -5151,6 +5262,9 @@ html[data-theme="playful"] .text-amber-400\/80 {
 html[data-theme="playful"] .text-amber-50 {
   color: rgb(255 253 245 / 1);
 }
+html[data-theme="playful"] .text-amber-950 {
+  color: rgb(73 26 0 / 1);
+}
 html[data-theme="playful"] .text-black {
   color: rgb(13 10 22 / 1);
 }
@@ -5180,6 +5294,9 @@ html[data-theme="playful"] .text-cyan-400 {
 }
 html[data-theme="playful"] .text-emerald-100 {
   color: rgb(213 255 234 / 1);
+}
+html[data-theme="playful"] .text-emerald-100\/90 {
+  color: rgb(213 255 234 / 0.9);
 }
 html[data-theme="playful"] .text-emerald-200 {
   color: rgb(163 255 213 / 1);
@@ -5493,6 +5610,9 @@ html[data-theme="glass"] .bg-amber-900 {
 html[data-theme="glass"] .bg-amber-900\/40 {
   background-color: rgb(254 245 207 / 0.4);
 }
+html[data-theme="glass"] .bg-amber-900\/60 {
+  background-color: rgb(254 245 207 / 0.6);
+}
 html[data-theme="glass"] .bg-amber-950 {
   background-color: rgb(254 249 224 / 1);
 }
@@ -5625,6 +5745,12 @@ html[data-theme="glass"] .bg-emerald-900\/50 {
 html[data-theme="glass"] .bg-emerald-950 {
   background-color: rgb(232 252 243 / 1);
 }
+html[data-theme="glass"] .bg-emerald-950\/20 {
+  background-color: rgb(232 252 243 / 0.2);
+}
+html[data-theme="glass"] .bg-emerald-950\/30 {
+  background-color: rgb(232 252 243 / 0.3);
+}
 html[data-theme="glass"] .bg-emerald-950\/35 {
   background-color: rgb(232 252 243 / 0.35);
 }
@@ -5655,8 +5781,14 @@ html[data-theme="glass"] .bg-fuchsia-600 {
 html[data-theme="glass"] .bg-fuchsia-950 {
   background-color: rgb(253 243 255 / 1);
 }
+html[data-theme="glass"] .bg-gray-200\/10 {
+  background-color: rgb(164 148 194 / 0.1);
+}
 html[data-theme="glass"] .bg-gray-500 {
   background-color: rgb(164 148 194 / 1);
+}
+html[data-theme="glass"] .bg-gray-600 {
+  background-color: rgb(238 233 246 / 0.97);
 }
 html[data-theme="glass"] .bg-gray-700 {
   background-color: rgb(255 255 255 / 0.96);
@@ -6009,6 +6141,9 @@ html[data-theme="glass"] .border-amber-600\/40 {
 html[data-theme="glass"] .border-amber-600\/50 {
   border-color: rgb(193 113 36 / 0.5);
 }
+html[data-theme="glass"] .border-amber-600\/60 {
+  border-color: rgb(193 113 36 / 0.6);
+}
 html[data-theme="glass"] .border-amber-600\/70 {
   border-color: rgb(193 113 36 / 0.7);
 }
@@ -6042,6 +6177,9 @@ html[data-theme="glass"] .border-amber-800\/80 {
 html[data-theme="glass"] .border-amber-900\/50 {
   border-color: rgb(117 61 43 / 0.5);
 }
+html[data-theme="glass"] .border-black\/20 {
+  border-color: rgb(122 101 160 / 0.1);
+}
 html[data-theme="glass"] .border-black\/40 {
   border-color: rgb(122 101 160 / 0.2);
 }
@@ -6053,6 +6191,9 @@ html[data-theme="glass"] .border-blue-500 {
 }
 html[data-theme="glass"] .border-blue-500\/30 {
   border-color: rgb(70 121 223 / 0.3);
+}
+html[data-theme="glass"] .border-blue-500\/40 {
+  border-color: rgb(70 121 223 / 0.4);
 }
 html[data-theme="glass"] .border-blue-500\/60 {
   border-color: rgb(70 121 223 / 0.6);
@@ -6095,6 +6236,9 @@ html[data-theme="glass"] .border-emerald-400\/40 {
 }
 html[data-theme="glass"] .border-emerald-500 {
   border-color: rgb(36 164 132 / 1);
+}
+html[data-theme="glass"] .border-emerald-500\/30 {
+  border-color: rgb(36 164 132 / 0.3);
 }
 html[data-theme="glass"] .border-emerald-500\/40 {
   border-color: rgb(36 164 132 / 0.4);
@@ -6435,6 +6579,9 @@ html[data-theme="glass"] .focus\:border-amber-500:focus {
 html[data-theme="glass"] .focus\:border-fuchsia-500:focus {
   border-color: rgb(193 74 218 / 1);
 }
+html[data-theme="glass"] .focus\:border-indigo-400:focus {
+  border-color: rgb(203 188 242 / 1);
+}
 html[data-theme="glass"] .focus\:border-indigo-500:focus {
   border-color: rgb(183 158 230 / 1);
 }
@@ -6640,6 +6787,9 @@ html[data-theme="glass"] .hover\:bg-gray-800\/80:hover {
 }
 html[data-theme="glass"] .hover\:bg-gray-900:hover {
   background-color: rgb(255 255 255 / 0.94);
+}
+html[data-theme="glass"] .hover\:bg-gray-900\/60:hover {
+  background-color: rgb(255 255 255 / 0.564);
 }
 html[data-theme="glass"] .hover\:bg-gray-900\/80:hover {
   background-color: rgb(255 255 255 / 0.752);
@@ -6963,6 +7113,9 @@ html[data-theme="glass"] .text-amber-400\/80 {
 html[data-theme="glass"] .text-amber-50 {
   color: rgb(168 84 30 / 1);
 }
+html[data-theme="glass"] .text-amber-950 {
+  color: rgb(75 36 25 / 1);
+}
 html[data-theme="glass"] .text-black {
   color: rgb(28 26 34 / 1);
 }
@@ -6992,6 +7145,9 @@ html[data-theme="glass"] .text-cyan-400 {
 }
 html[data-theme="glass"] .text-emerald-100 {
   color: rgb(20 115 96 / 1);
+}
+html[data-theme="glass"] .text-emerald-100\/90 {
+  color: rgb(20 115 96 / 0.9);
 }
 html[data-theme="glass"] .text-emerald-200 {
   color: rgb(20 115 96 / 1);
@@ -7305,6 +7461,9 @@ html[data-theme="porcelain"] .bg-amber-900 {
 html[data-theme="porcelain"] .bg-amber-900\/40 {
   background-color: rgb(254 240 185 / 0.4);
 }
+html[data-theme="porcelain"] .bg-amber-900\/60 {
+  background-color: rgb(254 240 185 / 0.6);
+}
 html[data-theme="porcelain"] .bg-amber-950 {
   background-color: rgb(254 245 206 / 1);
 }
@@ -7437,6 +7596,12 @@ html[data-theme="porcelain"] .bg-emerald-900\/50 {
 html[data-theme="porcelain"] .bg-emerald-950 {
   background-color: rgb(218 250 235 / 1);
 }
+html[data-theme="porcelain"] .bg-emerald-950\/20 {
+  background-color: rgb(218 250 235 / 0.2);
+}
+html[data-theme="porcelain"] .bg-emerald-950\/30 {
+  background-color: rgb(218 250 235 / 0.3);
+}
 html[data-theme="porcelain"] .bg-emerald-950\/35 {
   background-color: rgb(218 250 235 / 0.35);
 }
@@ -7467,8 +7632,14 @@ html[data-theme="porcelain"] .bg-fuchsia-600 {
 html[data-theme="porcelain"] .bg-fuchsia-950 {
   background-color: rgb(251 235 255 / 1);
 }
+html[data-theme="porcelain"] .bg-gray-200\/10 {
+  background-color: rgb(195 184 166 / 0.1);
+}
 html[data-theme="porcelain"] .bg-gray-500 {
   background-color: rgb(195 184 166 / 1);
+}
+html[data-theme="porcelain"] .bg-gray-600 {
+  background-color: rgb(222 214 200 / 1);
 }
 html[data-theme="porcelain"] .bg-gray-700 {
   background-color: rgb(234 228 218 / 1);
@@ -7821,6 +7992,9 @@ html[data-theme="porcelain"] .border-amber-600\/40 {
 html[data-theme="porcelain"] .border-amber-600\/50 {
   border-color: rgb(217 119 6 / 0.5);
 }
+html[data-theme="porcelain"] .border-amber-600\/60 {
+  border-color: rgb(217 119 6 / 0.6);
+}
 html[data-theme="porcelain"] .border-amber-600\/70 {
   border-color: rgb(217 119 6 / 0.7);
 }
@@ -7854,6 +8028,9 @@ html[data-theme="porcelain"] .border-amber-800\/80 {
 html[data-theme="porcelain"] .border-amber-900\/50 {
   border-color: rgb(120 53 15 / 0.5);
 }
+html[data-theme="porcelain"] .border-black\/20 {
+  border-color: rgb(216 206 192 / 0.2);
+}
 html[data-theme="porcelain"] .border-black\/40 {
   border-color: rgb(216 206 192 / 0.4);
 }
@@ -7865,6 +8042,9 @@ html[data-theme="porcelain"] .border-blue-500 {
 }
 html[data-theme="porcelain"] .border-blue-500\/30 {
   border-color: rgb(59 130 246 / 0.3);
+}
+html[data-theme="porcelain"] .border-blue-500\/40 {
+  border-color: rgb(59 130 246 / 0.4);
 }
 html[data-theme="porcelain"] .border-blue-500\/60 {
   border-color: rgb(59 130 246 / 0.6);
@@ -7907,6 +8087,9 @@ html[data-theme="porcelain"] .border-emerald-400\/40 {
 }
 html[data-theme="porcelain"] .border-emerald-500 {
   border-color: rgb(16 185 129 / 1);
+}
+html[data-theme="porcelain"] .border-emerald-500\/30 {
+  border-color: rgb(16 185 129 / 0.3);
 }
 html[data-theme="porcelain"] .border-emerald-500\/40 {
   border-color: rgb(16 185 129 / 0.4);
@@ -8247,6 +8430,9 @@ html[data-theme="porcelain"] .focus\:border-amber-500:focus {
 html[data-theme="porcelain"] .focus\:border-fuchsia-500:focus {
   border-color: rgb(217 70 239 / 1);
 }
+html[data-theme="porcelain"] .focus\:border-indigo-400:focus {
+  border-color: rgb(169 200 232 / 1);
+}
 html[data-theme="porcelain"] .focus\:border-indigo-500:focus {
   border-color: rgb(91 147 207 / 1);
 }
@@ -8452,6 +8638,9 @@ html[data-theme="porcelain"] .hover\:bg-gray-800\/80:hover {
 }
 html[data-theme="porcelain"] .hover\:bg-gray-900:hover {
   background-color: rgb(255 253 250 / 1);
+}
+html[data-theme="porcelain"] .hover\:bg-gray-900\/60:hover {
+  background-color: rgb(255 253 250 / 0.6);
 }
 html[data-theme="porcelain"] .hover\:bg-gray-900\/80:hover {
   background-color: rgb(255 253 250 / 0.8);
@@ -8775,6 +8964,9 @@ html[data-theme="porcelain"] .text-amber-400\/80 {
 html[data-theme="porcelain"] .text-amber-50 {
   color: rgb(180 83 9 / 1);
 }
+html[data-theme="porcelain"] .text-amber-950 {
+  color: rgb(69 26 3 / 1);
+}
 html[data-theme="porcelain"] .text-black {
   color: rgb(42 39 36 / 1);
 }
@@ -8804,6 +8996,9 @@ html[data-theme="porcelain"] .text-cyan-400 {
 }
 html[data-theme="porcelain"] .text-emerald-100 {
   color: rgb(4 120 87 / 1);
+}
+html[data-theme="porcelain"] .text-emerald-100\/90 {
+  color: rgb(4 120 87 / 0.9);
 }
 html[data-theme="porcelain"] .text-emerald-200 {
   color: rgb(4 120 87 / 1);

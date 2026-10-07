@@ -28,12 +28,15 @@
       "/sitemap.xml"
     ]
   },
-  // Hourly Cron Trigger: worker.ts's `scheduled` handler sweeps custom
-  // voice-import uploads whose 24h retention window has passed (R2 object +
-  // D1 bookkeeping row). This is the only expiry path for that storage.
-  // Without this `triggers` block the sweep never runs at all.
+  // Cron Triggers: worker.ts's `scheduled` handler dispatches on the
+  // expression. "0 * * * *" sweeps custom voice-import uploads whose 24h
+  // retention window has passed (R2 object + D1 bookkeeping row) — the only
+  // expiry path for that storage. "*/5 * * * *" drains the Email Centre's
+  // campaign queue: starts due scheduled campaigns and sends the next
+  // bounded batch of campaigns mid-send, so a large marketing send is never
+  // one unbounded synchronous request.
   "triggers": {
-    "crons": ["0 * * * *"]
+    "crons": ["0 * * * *", "*/5 * * * *"]
   },
   // Workers Logs: invocation logs, console output and errors in the
   // dashboard, with no tail command to keep running.

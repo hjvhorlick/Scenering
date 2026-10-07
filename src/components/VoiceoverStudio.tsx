@@ -20,6 +20,14 @@ import VoiceoverSwitch from "./VoiceoverSwitch";
 import { iconify } from "./icons/Icon";
 import Icon from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
+import { getNarrationHeaders } from "../lib/api-keys";
+import {
+  isGeminiKeyRequiredResponse,
+  noteGeminiKeyRequired,
+  openApiKeysModal,
+  useNarrationKeyStatus,
+} from "../lib/gemini-narration";
+import GeminiKeyNotice, { GeminiKeyHint } from "./GeminiKeyNotice";
 import { isPlanVoiceIncluded, type PlanSlug } from "../config/plans";
 import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 
@@ -185,6 +193,13 @@ export default function VoiceoverStudio({
     voiceId: string = selectedVoice,
     speed: number = globalSpeed
   ) => {
+    // Nothing can be auditioned without a narration key, so the press opens
+    // the place the key goes instead of failing quietly.
+    if (narrationKey.needsKey) {
+      openApiKeysModal();
+      return;
+    }
+
     if (playingId === id) {
       ttsPlayer.stop();
       setPlayingId(null);
@@ -489,6 +504,10 @@ export default function VoiceoverStudio({
 
       {voiceoverEnabled && (
         <>
+      {/* Narration is bring-your-own-key: without one, nothing here can
+          speak, so the explanation comes first rather than after a failure. */}
+      <GeminiKeyNotice />
+
       {/* Studio Header Banner */}
       <div className="bg-gradient-to-r from-gray-900 via-indigo-950/40 to-gray-900 border border-indigo-900/40 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

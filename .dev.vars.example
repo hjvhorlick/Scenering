@@ -8,6 +8,15 @@ SESSION_SECRET=local-development-secret-change-me-32-chars-minimum
 PUBLIC_APP_URL=http://localhost:8787
 SCENERING_OWNER_EMAIL=you@example.com
 
+# Email — console prints messages (verification links, campaign sends) to the
+# wrangler output instead of sending anything; resend sends for real and needs
+# the API key. EMAIL_REPLY_TO is an optional Reply-To override; the webhook
+# secret records Resend delivery events against Email Centre campaigns.
+EMAIL_PROVIDER=console
+RESEND_API_KEY=
+EMAIL_REPLY_TO=
+RESEND_WEBHOOK_SECRET=
+
 # Optional
 PEXELS_API_KEY=
 PIXABAY_API_KEY=

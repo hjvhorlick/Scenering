@@ -31,9 +31,17 @@ export default function SiteCornerMenu() {
   }, [open]);
 
   const go = (href: string) => { setOpen(false); navigate(href); };
-  const openAccount = () => {
+  /**
+   * One click must always be enough. The intent is recorded BEFORE the event
+   * or navigation, so if the studio is not listening yet (its chunk still
+   * loading or its listener not registered), it finds the intent when it
+   * mounts instead of the click silently vanishing — the "click Membership
+   * twice before anything happens" bug.
+   */
+  const openAccount = (focus?: "admin") => {
     setOpen(false);
-    if (inStudio) window.dispatchEvent(new Event("scenering-open-account"));
+    try { window.sessionStorage.setItem("scenering_account_intent", focus || "account"); } catch { /* storage unavailable */ }
+    if (inStudio) window.dispatchEvent(new CustomEvent("scenering-open-account", focus ? { detail: { focus } } : undefined));
     else navigate("/app?account=1");
   };
 
@@ -67,8 +75,9 @@ export default function SiteCornerMenu() {
 
       {!checking && (signedIn ? <div className="sc-corner-actions">
         {!inStudio && <button className="is-primary" onClick={() => go("/app")}>Open Studio</button>}
-        {account?.user.role === "admin" && <button onClick={openAccount}>Owner administration</button>}
-        <button onClick={openAccount}>Account, membership & billing</button>
+        {account?.user.role === "admin" && <button onClick={() => go("/admin/email-centre")}>Email Centre</button>}
+        {account?.user.role === "admin" && <button onClick={() => openAccount("admin")}>Owner administration</button>}
+        <button onClick={() => openAccount()}>Account, membership & billing</button>
         <button onClick={async () => { setOpen(false); await signOut(); navigate("/"); }}>Sign out</button>
       </div> : <div className="sc-corner-actions">
         <button className="is-primary" onClick={() => go("/register")}>Get Started Free</button>

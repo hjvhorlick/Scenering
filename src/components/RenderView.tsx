@@ -27,6 +27,9 @@ import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { PackedAudioTelemetry } from "../lib/audio-telemetry";
 import { requiredVisualizerFftSize } from "../lib/advanced-audio-visualizer";
 import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
+import { getNarrationHeaders } from "../lib/api-keys";
+import { isGeminiKeyRequiredResponse, noteGeminiKeyRequired } from "../lib/gemini-narration";
+import { GeminiKeyHint } from "./GeminiKeyNotice";
 import type { WordTiming } from "../lib/word-sync";
 import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
 import { loadSceneImage } from "../lib/scene-image-loader";
@@ -2957,6 +2960,10 @@ export default function RenderView({
         </div>
 
         <div className="order-1 lg:order-2 lg:col-span-8 space-y-4">
+          {/* Narration needs the account's own Google key. Saying so before
+              the render starts beats delivering a silent video after it. */}
+          <GeminiKeyHint />
+
 
           {/* ---------- RENDER PROFILE (read-only) ---------------------------
               Every choice below was made in Project Setup — this screen only

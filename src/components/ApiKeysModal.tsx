@@ -9,6 +9,27 @@ interface ApiKeysModalProps {
   onSaved?: () => void;
 }
 
+type KeyCheck = { valid: boolean; message: string };
+
+/**
+ * A single verification dot: green once the key answered, amber when the
+ * provider rejected it, grey while nothing has been checked. The same dot is
+ * used for all three keys so "is this one working?" is answered identically
+ * for photographs and for narration.
+ */
+function StatusDot({ state }: { state: "unknown" | "valid" | "invalid" }) {
+  const colour =
+    state === "valid" ? "bg-emerald-400" : state === "invalid" ? "bg-amber-400" : "bg-gray-600";
+  const label =
+    state === "valid" ? "Key verified" : state === "invalid" ? "Key not accepted" : "Not verified yet";
+  return <span className={`w-2 h-2 rounded-full ${colour}`} role="img" aria-label={label} title={label} />;
+}
+
+function dotState(result: KeyCheck | undefined, configured: boolean): "unknown" | "valid" | "invalid" {
+  if (!result) return configured ? "unknown" : "unknown";
+  return result.valid ? "valid" : "invalid";
+}
+
 export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalProps) {
   const [pexelsKey, setPexelsKey] = useState("");
   const [pixabayKey, setPixabayKey] = useState("");
@@ -23,6 +44,8 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
     speechify?: { valid: boolean; message: string };
   } | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  /** The owner administrator narrates with the server's own key. */
+  const { isOwner } = useNarrationKeyStatus();
 
   useEffect(() => {
     if (isOpen) {
@@ -180,6 +203,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-gray-200 uppercase tracking-wider flex items-center gap-2">
+                <StatusDot state={dotState(testResults?.pexels, Boolean(pexelsKey.trim()))} />
                 <span>Pexels API Key</span>
                 {pexelsKey.trim() ? (
                   <span className="text-[10px] bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
@@ -238,6 +262,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
           <div className="space-y-2 pt-2 border-t border-hairline">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-gray-200 uppercase tracking-wider flex items-center gap-2">
+                <StatusDot state={dotState(testResults?.pixabay, Boolean(pixabayKey.trim()))} />
                 <span>Pixabay API Key</span>
                 {pixabayKey.trim() ? (
                   <span className="text-[10px] bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
@@ -357,7 +382,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
               <Icon glyph="ℹ" /> Free Keyless Fallback
             </div>
             <p>
-              If no keys are entered or a search yields no results on Pexels/Pixabay, Scenering automatically searches Wikimedia Commons as a free fallback.
+              If no image keys are entered or a search yields no results on Pexels/Pixabay, Scenering automatically searches Wikimedia Commons as a free fallback. Narration has no such fallback — it always uses your own Google key.
             </p>
           </div>
 

@@ -5,21 +5,9 @@ import { BrandMark, Stat } from "./components/primitives";
 import BackToTop from "./components/BackToTop";
 import Hero from "./sections/Hero";
 import Showpiece from "./sections/Showpiece";
-import Questions from "./sections/Questions";
-import IdeaToVideo from "./sections/IdeaToVideo";
-import ScenesSection from "./sections/ScenesSection";
-import VisualResearch from "./sections/VisualResearch";
-import VoiceSection from "./sections/VoiceSection";
-import CaptionsSection from "./sections/CaptionsSection";
-import VideoStudioSection from "./sections/VideoStudioSection";
-import EffectsLibrary from "./sections/EffectsLibrary";
-import BeforeAfter from "./sections/BeforeAfter";
-import Control from "./sections/Control";
+import FeatureTour from "./sections/FeatureTour";
 import NoMeter from "./sections/NoMeter";
 import Examples from "./sections/Examples";
-import Formats from "./sections/Formats";
-import Devices from "./sections/Devices";
-import Sources from "./sections/Sources";
 import Pricing from "./sections/Pricing";
 import FinalCta from "./sections/FinalCta";
 import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES } from "./product-facts";
@@ -31,20 +19,21 @@ import SocialLinksRow from "../shared/SocialLinks";
 import { applyPageSeo } from "./seo";
 
 /**
- * The public website.
+ * The public website's front page — a sales page, not a manual.
  *
- * It is one page, and the page is the product story in the order a visitor
- * lives it (spec §34):
+ * It used to demonstrate the entire product in sequence: sixteen sections,
+ * most of them long interactive walkthroughs. Thorough, but it read like a
+ * training course, and the pricing — the thing a convinced visitor needs
+ * next — sat below three thousand pixels of tutorial. The walkthroughs have
+ * moved to /features, where the corner menu's shortcuts and the Features
+ * button lead, and the front page now makes the case the way a salesperson
+ * would:
  *
- *   hero → the five questions → workflow → scenes → visuals → voice →
- *   captions → Video Studio → effects → before/after → control → no meter →
- *   examples → formats → devices → sources → pricing → start
+ *   key art → the promise (hero) → proof in numbers → what you get
+ *   (six cards, each linking to its full demonstration) → what it costs
+ *   to run (nothing metered) → the plans → finished examples → start
  *
- * The questions band sits directly under the hero on purpose: a visitor
- * arrives with a doubt, not with an interest in features, and each question
- * jumps to the section that settles it.
- *
- * Everything below is composed from the same demonstration project and the
+ * Everything is still composed from the same demonstration project and the
  * app's own catalogues, so improving Scenering improves this page.
  */
 
@@ -153,26 +142,21 @@ export default function MarketingSite() {
           </div>
         </div>
 
-        <Questions />
+        {/* What you get — six cards, one benefit each, every one linking to
+            its full demonstration on /features. The demonstrations
+            themselves live there now, not here. */}
+        <FeatureTour />
 
-        <IdeaToVideo />
-        <ScenesSection />
-        <VisualResearch />
-        <VoiceSection />
-        <CaptionsSection />
-        <VideoStudioSection />
-        <EffectsLibrary />
-        <BeforeAfter />
-        <Control />
+        {/* The cost objection, answered before the price is shown… */}
         <NoMeter />
-        <Examples />
-        <Formats />
-        <Devices />
-        <Sources />
+
+        {/* …and then the plans, high on the page where the decision is
+            made — not at the bottom of a tour. */}
         <Pricing />
-        <section className="mkt-section" id="about"><div className="mkt-container pub-callout"><div><h2>Built for creators who want control without filming.</h2><p>Scenering brings scene planning, visual research, narration, captions and finishing into one guided workflow for education, storytelling, organizations, training, travel, business and social content.</p></div><a className="mkt-btn mkt-btn-primary" href="/about">About Scenering</a></div></section>
-        <section className="mkt-section" id="faq"><div className="mkt-container"><div className="mkt-section-head"><span className="mkt-eyebrow">FAQ</span><h2>Preview freely. Export when it is right.</h2><p>Free creates real finished videos. Paid plans add more creative capability and production capacity, and cancelling never automatically deletes projects.</p></div><p><a href="/faq">Read all frequently asked questions →</a></p></div></section>
-        <section className="mkt-section" id="contact"><div className="mkt-container pub-callout"><div><h2>Questions about the product, account or billing?</h2><p>Send a validated support request and choose the category that fits your question.</p></div><a className="mkt-btn mkt-btn-primary" href="/contact">Contact Scenering</a></div></section>
+
+        {/* Proof: the kinds of videos it makes. */}
+        <Examples />
+
         <FinalCta />
       </main>
 
@@ -192,9 +176,9 @@ export default function MarketingSite() {
             </div>
 
             <div>
-              <h4>The workflow</h4>
+              <h4>Explore</h4>
               <ul>
-                {NAV.slice(0, 6).map((item) => (
+                {NAV.map((item) => (
                   <li key={item.href}>
                     <a href={item.href}>{item.label}</a>
                   </li>

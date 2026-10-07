@@ -171,7 +171,9 @@ h.eq(
 
 // --------------------------------------------------- the drawer shows ten
 const editor = readFileSync(join(repoRoot, "src/components/SceneEditor.tsx"), "utf8");
-h.eq(NATURE_DECK_ON_SCREEN, 10, "the drawer shows ten bundled photos at a time");
+// Twelve, not ten: the shelf is two across on phones and four across on
+// desktop, and twelve divides evenly by both — ten left two empty cells.
+h.eq(NATURE_DECK_ON_SCREEN, 12, "the drawer shows twelve bundled photos at a time");
 h.ok(
   editor.includes("pickRandomSample(NATURE_FALLBACKS, NATURE_DECK_ON_SCREEN)"),
   "the drawer draws its ten from the whole library, in a fresh order"

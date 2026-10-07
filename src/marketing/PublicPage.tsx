@@ -1,7 +1,20 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type FeatureKey } from "../config/plans";
-import { navigate, STUDIO_PATH } from "../lib/route";
+import { isFeatureTourPath, navigate, STUDIO_PATH } from "../lib/route";
 import { BrandMark } from "./components/primitives";
+import Questions from "./sections/Questions";
+import IdeaToVideo from "./sections/IdeaToVideo";
+import ScenesSection from "./sections/ScenesSection";
+import VisualResearch from "./sections/VisualResearch";
+import VoiceSection from "./sections/VoiceSection";
+import CaptionsSection from "./sections/CaptionsSection";
+import VideoStudioSection from "./sections/VideoStudioSection";
+import EffectsLibrary from "./sections/EffectsLibrary";
+import BeforeAfter from "./sections/BeforeAfter";
+import Control from "./sections/Control";
+import Formats from "./sections/Formats";
+import Devices from "./sections/Devices";
+import Sources from "./sections/Sources";
 import { LEGAL_CONTACT_PATH, LEGAL_DOCUMENTS, LEGAL_EFFECTIVE_DATE, LEGAL_ORGANISATION, LEGAL_OWNER, type LegalKind } from "./legal-content";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 import SocialLinksRow from "../shared/SocialLinks";
@@ -13,13 +26,13 @@ const ManualPage = lazy(() => import("./ManualPage"));
 const NAV = [["/", "Home"], ["/features", "Features"], ["/how-it-works", "How It Works"], ["/pricing", "Pricing"], ["/about", "About"], ["/manual", "Manual"], ["/faq", "FAQ"], ["/contact", "Contact"]] as const;
 const FEATURE_LABELS: Partial<Record<FeatureKey, string>> = { scene_creation: "Scene creation", visual_research: "Visual research", basic_voice: "Voice options", voice_echo: "Voice echo & ambience", premium_captions: "All caption styles", full_video_studio: "Full Video Studio", filters: "Filters", text_templates: "Text templates", lower_thirds: "Lower thirds", advanced_cta: "Advanced CTA", stickers: "Expanded stickers", camera_movements: "Camera movements", background_music: "Background music", sound_effects: "Sound effects", sound_visualiser: "Sound visualisers", special_effects: "Special effects", horizontal_output: "16:9 output", vertical_output: "9:16 output", priority_processing: "Priority processing", bulk_workflow: "Bulk workflow" };
 
-export function isStandalonePublicPath(path: string) { return ["/features", "/how-it-works", "/pricing", "/about", "/faq", "/manual", "/contact", "/privacy", "/terms", "/cookies", "/verify-email", "/reset-password"].includes(path); }
+export function isStandalonePublicPath(path: string) { return ["/features", "/how-it-works", "/pricing", "/about", "/faq", "/manual", "/contact", "/privacy", "/terms", "/cookies", "/verify-email", "/reset-password", "/email-preferences", "/unsubscribe"].includes(path) || isFeatureTourPath(path); }
 
 export default function PublicPage({ path }: { path: string }) {
   usePageMeta(path);
   let content: ReactNode;
   if (path === "/pricing") content = <PricingPage />;
-  else if (path === "/features") content = <FeaturesPage />;
+  else if (path === "/features" || isFeatureTourPath(path)) content = <FeaturesPage />;
   else if (path === "/how-it-works") content = <HowPage />;
   else if (path === "/about") content = <AboutPage />;
   else if (path === "/faq") content = <Suspense fallback={<div className="pub-hero mkt-container" role="status">Loading the knowledge base…</div>}><FAQPage /></Suspense>;
@@ -27,6 +40,8 @@ export default function PublicPage({ path }: { path: string }) {
   else if (path === "/contact") content = <ContactPage />;
   else if (path === "/verify-email") content = <VerifyPage />;
   else if (path === "/reset-password") content = <ResetPage />;
+  else if (path === "/email-preferences") content = <EmailPreferencesPage />;
+  else if (path === "/unsubscribe") content = <UnsubscribePage />;
   else content = <LegalPage kind={path.slice(1) as "privacy" | "terms" | "cookies"} />;
   return <div className="mkt-root"><SiteCornerMenu /><PublicNav /><main id="main" className="pub-main">{content}</main><PublicFooter /></div>;
 }
@@ -35,7 +50,19 @@ function PublicNav() { return <nav className="mkt-nav" aria-label="Main"><div cl
 function PublicFooter() { return <footer className="mkt-footer"><div className="mkt-container pub-footer"><div><BrandMark height={28} /><p>Turn ideas, scripts and audio into polished faceless videos while keeping meaningful creative control.</p><SocialLinksRow size={48} style={{ margin: "12px 0" }} /><small>© 2026 Henry John Vincent Horlick. Scenering. All rights reserved.</small></div><div><h4>Product</h4><a href="/features">Features</a><a href="/how-it-works">How It Works</a><a href="/pricing">Pricing</a></div><div><h4>Help</h4><a href="/manual">Manual</a><a href="/faq">FAQ</a><a href="/contact">Contact</a></div><div><h4>Legal</h4><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/cookies">Cookies</a></div></div></footer>; }
 function PageHero({ eyebrow, title, lead }: { eyebrow: string; title: string; lead: string }) { return <header className="pub-hero mkt-container"><span className="mkt-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{lead}</p></header>; }
 
-function FeaturesPage() { const cards = [["Scenes", "Divide content into meaningful scenes, then edit the narration, timing and selected visual."], ["Visual Research", "Search configured sources—Pexels, Pixabay and Wikimedia Commons—with quality checks and replaceable selections."], ["Voice Over", "Preview available narrators, generate scene narration and work with word-level timing."], ["Captions", "Use readable caption styles with project-wide and per-scene control."], ["Video Studio", "Finish with available filters, text, lower thirds, CTA elements, movement, music and effects."], ["Final Export", "Preview as often as needed, then create a meaningful final export in horizontal or vertical formats."]]; return <><PageHero eyebrow="Features" title="Control the journey from script to finished video." lead="Scenering is not a one-click black box. Every important stage stays visible and editable." /><section className="mkt-container pub-grid">{cards.map(([title, text], i) => <article className="pub-card" key={title}><span className="pub-num">0{i + 1}</span><h2>{title}</h2><p>{text}</p></article>)}</section><section className="mkt-container pub-callout"><div><h2>Premium tools stay visible.</h2><p>Free members can preview locked voices, captions and studio tools before deciding whether SceneFlow or SceneForge fits their workflow.</p></div><a className="mkt-btn mkt-btn-primary" href="/pricing">Compare plans</a></section></>; }
+/**
+ * The full feature tour.
+ *
+ * These are the demonstrations that used to fill the front page — every
+ * stage of the workflow drawn live from the demonstration project. They
+ * made the front page read like a training course, so the front page now
+ * sells (six cards, one per stage) and this page explains. Each card on the
+ * front page, each "Jump to a section" shortcut in the corner menu, and
+ * every friendly deep link (/scenes, /captions, …) lands here on the exact
+ * area it names — isFeatureTourPath routes those paths to this page and
+ * MarketingSite's scroll effect finds the section id once it is rendered.
+ */
+function FeaturesPage() { return <><PageHero eyebrow="Features" title="The whole studio, demonstrated." lead="Everything below is the real workflow, drawn from a demonstration project — not a storyboard of promises. Start with the question on your mind, or walk the tour in order." /><Questions /><IdeaToVideo /><ScenesSection /><VisualResearch /><VoiceSection /><CaptionsSection /><VideoStudioSection /><EffectsLibrary /><BeforeAfter /><Control /><Formats /><Devices /><Sources /><section className="mkt-container pub-callout"><div><h2>Seen enough?</h2><p>Free creates real finished videos, and premium tools stay visible so you can preview locked voices, captions and studio tools before deciding whether SceneFlow or SceneForge fits your workflow.</p></div><a className="mkt-btn mkt-btn-primary" href="/pricing">Compare plans</a></section></>; }
 function HowPage() { const steps = ["Understand the supplied script or audio", "Build logical scenes around meaning and narration", "Research relevant visuals from configured sources", "Add and preview narration", "Style readable captions", "Finish with creative controls in Video Studio", "Preview, correct and create the final export"]; return <><PageHero eyebrow="How It Works" title="A clear workflow, not a mystery box." lead="Follow the video from source material to export, with room to make corrections at every stage." /><section className="mkt-container pub-steps">{steps.map((step, i) => <article key={step}><b>{i + 1}</b><div><h2>{step}</h2><p>{i === 2 ? "Scenering primarily uses fetched visual sources. Pexels and Pixabay work when configured; Wikimedia Commons and the bundled nature library provide fallbacks." : "Review the result, make changes and continue when it feels right."}</p></div></article>)}</section><section className="mkt-container pub-callout"><div><h2>Preview without using final-export allowance.</h2><p>Perfect scenes, visuals, voices, captions and effects first. Plan usage applies when you confirm a final export.</p></div><a className="mkt-btn mkt-btn-primary" href="/register">Start Free</a></section></>; }
 
 function PricingPage() { const [interval, setInterval] = useState<BillingInterval>("monthly"); const [compare, setCompare] = useState(false); return <><PageHero eyebrow="Pricing" title="Start free. Add capability when you need it." lead="Exactly three plans. Monthly and yearly are billing choices—not extra plans. Preview renders never consume final-export allowance." /><section className="mkt-container"><div className="pub-toggle" role="group" aria-label="Billing interval"><button className={interval === "monthly" ? "is-on" : ""} onClick={() => setInterval("monthly")}>Monthly</button><button className={interval === "yearly" ? "is-on" : ""} onClick={() => setInterval("yearly")}>Yearly · save up to $96</button></div><div className="pub-plans">{PLAN_ORDER.map((slug) => { const plan = PLAN_CONFIG[slug], price = plan.prices[interval]; return <article className={`pub-plan${slug === "sceneflow" ? " is-featured" : ""}`} key={slug}>{slug === "sceneflow" && <span className="pub-ribbon">Regular creators</span>}<h2>{plan.name}</h2><p>{plan.description}</p><div className="pub-price"><b>${price}</b><span>{price === 0 ? "forever" : `/${interval === "monthly" ? "month" : "year"}`}</span></div>{interval === "yearly" && price > 0 && <p className="pub-saving">${plan.annualMonthlyEquivalent}/month equivalent · save ${plan.annualSaving}/year</p>}<PlanHighlights slug={slug} /><a href={slug === "free" ? "/register" : `/register?plan=${slug}&interval=${interval}`} className="mkt-btn mkt-btn-primary">{slug === "free" ? "Get Started Free" : `Choose ${plan.name}`}</a></article>; })}</div><button className="pub-compare-btn" onClick={() => setCompare(!compare)} aria-expanded={compare}>{compare ? "Hide" : "Show"} complete feature comparison</button>{compare && <Comparison />}</section></>; }

@@ -14,17 +14,22 @@ const RESEND_API_URL = "https://api.resend.com/emails";
 const RESEND_FROM = "Scenering <noreply@scenering.com>";
 
 class ConsoleEmailProvider implements EmailProvider {
-  async send(message: EmailMessage) {
+  async send(message: EmailMessage): Promise<EmailSendResult> {
     // Safe development fallback: messages are never silently discarded and no
     // provider or credentials are invented. Configure EMAIL_PROVIDER in hosted environments.
     console.info(`[email:${message.kind}] to=${message.to} subject=${message.subject}\n${message.text}`);
+    return { messageId: null };
   }
 }
 
 class ResendEmailProvider implements EmailProvider {
   constructor(private readonly apiKey: string) {}
 
-  async send(message: EmailMessage) {
+  async send(message: EmailMessage): Promise<EmailSendResult> {
+    // RESEND_API_KEY exists only inside this class, constructed from the
+    // server-side secret — it is never returned, logged, or exposed to any
+    // response payload.
+    const replyTo = message.replyTo || (env().EMAIL_REPLY_TO ? String(env().EMAIL_REPLY_TO) : undefined);
     const response = await fetch(RESEND_API_URL, {
       method: "POST",
       headers: {
@@ -37,6 +42,8 @@ class ResendEmailProvider implements EmailProvider {
         subject: message.subject,
         text: message.text,
         ...(message.html ? { html: message.html } : {}),
+        ...(replyTo ? { reply_to: replyTo } : {}),
+        ...(message.tags && message.tags.length > 0 ? { tags: message.tags.slice(0, 10).map((tag) => tag.slice(0, 64)) } : {}),
       }),
     });
 
@@ -44,6 +51,18 @@ class ResendEmailProvider implements EmailProvider {
       const detail = (await response.text()).slice(0, 500);
       throw new Error(`Resend email request failed (${response.status})${detail ? `: ${detail}` : ""}`);
     }
+
+    // Resend answers { id: "email_..." } for an accepted message. A missing
+    // id is not a failure — the send succeeded — it only means delivery
+    // webhooks will not be able to match this particular message.
+    let messageId: string | null = null;
+    try {
+      const body = (await response.json()) as { id?: string } | null;
+      if (body && typeof body.id === "string" && body.id) messageId = body.id;
+    } catch {
+      // Non-JSON success body: keep messageId null.
+    }
+    return { messageId };
   }
 }
 

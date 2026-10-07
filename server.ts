@@ -10,6 +10,7 @@ import {
   registerPlatformRoutes,
   requirePlatformUser,
 } from "./server/platform.ts";
+import { registerEmailCentreRoutes, registerResendWebhook } from "./server/email-centre.ts";
 import {
   pexelsPhotoToCandidate,
   pixabayHitToCandidate,
@@ -319,11 +320,19 @@ export function createApp(): express.Express {
   });
 
   // Billing signatures must be verified against the untouched request bytes,
-  // so the webhook is registered before the general JSON parser.
+  // so the webhook is registered before the general JSON parser. The Resend
+  // delivery webhook is signed the same way (raw-body Svix HMAC).
   registerLemonSqueezyWebhook(app);
+  registerResendWebhook(app);
   const standardJson = express.json({ limit: "2mb" });
   app.use((req, res, next) => req.path === "/api/upload-audio" ? next() : standardJson(req, res, next));
   registerPlatformRoutes(app);
+  // The Admin Email Centre (marketing templates, campaigns, consented
+  // audiences, public unsubscribe/preferences endpoints) — registered after
+  // the JSON parser, mounted on the same admin middleware the owner's other
+  // /api/admin/* routes use. Strictly marketing mail; the transactional
+  // flows above are untouched by it.
+  registerEmailCentreRoutes(app);
 
   // Health check
   app.get("/api/health", (_req, res) => {
@@ -389,10 +398,11 @@ export function createApp(): express.Express {
 
   // Key verification endpoint so customer can test their entered keys
   app.post("/api/verify-keys", requirePlatformUser, platformRateLimit("verify-provider-key", 20, 3600000), async (req: express.Request, res: express.Response) => {
-    const { pexelsKey, pixabayKey } = req.body || {};
+    const { pexelsKey, pixabayKey, geminiKey } = req.body || {};
     const status: {
       pexels?: { valid: boolean; error?: string };
       pixabay?: { valid: boolean; error?: string };
+      gemini?: { valid: boolean; error?: string };
     } = {};
 
     if (pexelsKey && typeof pexelsKey === "string" && pexelsKey.trim()) {

@@ -163,6 +163,93 @@ export interface EmailPreference {
   updatedAt: string;
 }
 
+// --- Admin Email Centre entities (marketing mail only) ---
+
+/** The template categories offered in the admin editor. */
+export const EMAIL_TEMPLATE_CATEGORIES = [
+  "welcome", "getting_started", "training", "product_update",
+  "announcement", "promotion", "newsletter", "re_engagement",
+] as const;
+export type EmailTemplateCategory = (typeof EMAIL_TEMPLATE_CATEGORIES)[number];
+
+export type EmailTemplateStatus = "active" | "archived";
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: EmailTemplateCategory | string;
+  subject: string;
+  preheader: string;
+  htmlBody: string;
+  textBody: string;
+  heroImageUrl: string | null;
+  status: EmailTemplateStatus | string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+}
+
+export type EmailCampaignStatus =
+  | "draft" | "scheduled" | "sending" | "sent"
+  | "completed" | "partially_failed" | "failed" | "cancelled";
+
+export type EmailAudienceType =
+  | "all_consented" | "free_plan" | "paid_plan" | "registered_range"
+  | "training_step" | "manual" | "test_recipient";
+
+/** The audience parameters, stored as JSON in email_campaigns.audience_filter. */
+export interface EmailAudienceFilter {
+  registeredFrom?: string;
+  registeredTo?: string;
+  trainingStep?: number;
+  userIds?: string[];
+  testEmail?: string;
+}
+
+export interface EmailCampaign {
+  id: string;
+  name: string;
+  templateId: string;
+  subject: string;
+  audienceType: EmailAudienceType | string;
+  audienceFilter: EmailAudienceFilter;
+  status: EmailCampaignStatus | string;
+  recipientCount: number;
+  sentCount: number;
+  deliveredCount: number;
+  failedCount: number;
+  unsubscribedCount: number;
+  createdBy: string;
+  scheduledAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type EmailDeliveryStatus = "pending" | "sent" | "delivered" | "bounced" | "failed" | "unsubscribed";
+export interface EmailDelivery {
+  id: string;
+  campaignId: string;
+  userId: string | null;
+  email: string;
+  providerMessageId: string | null;
+  status: EmailDeliveryStatus | string;
+  failureReason: string | null;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A resolved campaign recipient — an account row shaped for rendering. */
+export interface EmailRecipient {
+  userId: string | null;
+  email: string;
+  displayName: string;
+}
+
 const nowIso = () => new Date().toISOString();
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().replace(/-/g, "")}`;
 
@@ -254,6 +341,30 @@ function rowToContact(row: any): ContactSubmission {
 function rowToEmailPreference(row: any): EmailPreference {
   return { userId: row.user_id, marketingConsent: row.marketing_consent === 1, consentTimestamp: row.consent_timestamp, consentSource: row.consent_source, consentVersion: row.consent_version, trainingStep: row.training_step, updatedAt: row.updated_at };
 }
+function rowToEmailTemplate(row: any): EmailTemplate {
+  return {
+    id: row.id, name: row.name, description: row.description, category: row.category, subject: row.subject,
+    preheader: row.preheader, htmlBody: row.html_body, textBody: row.text_body, heroImageUrl: row.hero_image_url,
+    status: row.status, createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at, archivedAt: row.archived_at,
+  };
+}
+function rowToEmailCampaign(row: any): EmailCampaign {
+  return {
+    id: row.id, name: row.name, templateId: row.template_id, subject: row.subject, audienceType: row.audience_type,
+    audienceFilter: parseJson<EmailAudienceFilter>(row.audience_filter) || {}, status: row.status,
+    recipientCount: row.recipient_count, sentCount: row.sent_count, deliveredCount: row.delivered_count,
+    failedCount: row.failed_count, unsubscribedCount: row.unsubscribed_count, createdBy: row.created_by,
+    scheduledAt: row.scheduled_at, startedAt: row.started_at, completedAt: row.completed_at,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+function rowToEmailDelivery(row: any): EmailDelivery {
+  return {
+    id: row.id, campaignId: row.campaign_id, userId: row.user_id, email: row.email, providerMessageId: row.provider_message_id,
+    status: row.status, failureReason: row.failure_reason, sentAt: row.sent_at, deliveredAt: row.delivered_at,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
 
 export const db = {
   newId,
@@ -292,6 +403,16 @@ export const db = {
   async listUsers(): Promise<User[]> {
     const result = await env().DB.prepare("SELECT * FROM users ORDER BY created_at ASC").all();
     return (result.results || []).map(rowToUser);
+  },
+  /** Display names for a batch of campaign deliveries — one query for the
+   *  whole batch, so per-recipient rendering costs no extra round trips. */
+  async findUserNamesByIds(userIds: string[]): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter((id) => typeof id === "string" && id.length <= 64))].slice(0, 100);
+    if (ids.length === 0) return new Map();
+    const result = await env().DB.prepare(
+      `SELECT id, display_name FROM users WHERE id IN (${ids.map(() => "?").join(", ")})`
+    ).bind(...ids).all();
+    return new Map((result.results || []).map((row: any) => [String(row.id), String(row.display_name || "")]));
   },
 
   // --- sessions ---
@@ -585,6 +706,363 @@ export const db = {
          consent_source = excluded.consent_source, consent_version = excluded.consent_version, training_step = excluded.training_step, updated_at = excluded.updated_at`
     ).bind(row.userId, row.marketingConsent ? 1 : 0, row.consentTimestamp, row.consentSource, row.consentVersion, row.trainingStep, row.updatedAt).run();
     return row;
+  },
+
+  /** Dashboard aggregates for the Email Centre's landing view — a fixed
+   *  handful of grouped queries (the admin-overview pattern), never a
+   *  per-row round trip. */
+  async emailCentreDashboardStats(): Promise<{
+    users: { total: number; consented: number; unsubscribed: number };
+    templates: { total: number; active: number };
+    campaignStatuses: Record<string, number>;
+    deliveryTotals: Record<string, number>;
+  }> {
+    const [users, consented, unsubscribed, templates, campaignStatuses, deliveryTotals] = await Promise.all([
+      env().DB.prepare("SELECT COUNT(*) AS n FROM users").first(),
+      env().DB.prepare("SELECT COUNT(*) AS n FROM users u JOIN email_preferences p ON p.user_id = u.id WHERE p.marketing_consent = 1").first(),
+      env().DB.prepare("SELECT COUNT(*) AS n FROM email_preferences WHERE marketing_consent = 0").first(),
+      env().DB.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active FROM email_templates").first(),
+      env().DB.prepare("SELECT status, COUNT(*) AS n FROM email_campaigns GROUP BY status").all(),
+      env().DB.prepare("SELECT status, COUNT(*) AS n FROM email_deliveries GROUP BY status").all(),
+    ]);
+    const byStatus: Record<string, number> = {};
+    for (const row of (campaignStatuses.results || [])) byStatus[String((row as any).status)] = Number((row as any).n);
+    const totals: Record<string, number> = {};
+    for (const row of (deliveryTotals.results || [])) totals[String((row as any).status)] = Number((row as any).n);
+    return {
+      users: { total: Number((users as any)?.n ?? 0), consented: Number((consented as any)?.n ?? 0), unsubscribed: Number((unsubscribed as any)?.n ?? 0) },
+      templates: { total: Number((templates as any)?.total ?? 0), active: Number((templates as any)?.active ?? 0) },
+      campaignStatuses: byStatus,
+      deliveryTotals: totals,
+    };
+  },
+
+  // --- email centre: templates ---
+  async findEmailTemplate(id: string): Promise<EmailTemplate | null> {
+    const row = await env().DB.prepare("SELECT * FROM email_templates WHERE id = ?").bind(id).first();
+    return row ? rowToEmailTemplate(row) : null;
+  },
+  async listEmailTemplates(): Promise<EmailTemplate[]> {
+    const result = await env().DB.prepare("SELECT * FROM email_templates ORDER BY updated_at DESC").all();
+    return (result.results || []).map(rowToEmailTemplate);
+  },
+  async createEmailTemplate(row: Omit<EmailTemplate, "createdAt" | "updatedAt" | "archivedAt" | "status"> & { status?: string }): Promise<EmailTemplate> {
+    const stamp = nowIso();
+    const full: EmailTemplate = { ...row, status: row.status || "active", createdAt: stamp, updatedAt: stamp, archivedAt: null };
+    await env().DB.prepare(
+      "INSERT INTO email_templates (id, name, description, category, subject, preheader, html_body, text_body, hero_image_url, status, created_by, created_at, updated_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(full.id, full.name, full.description, full.category, full.subject, full.preheader, full.htmlBody, full.textBody, full.heroImageUrl, full.status, full.createdBy, full.createdAt, full.updatedAt, full.archivedAt).run();
+    return full;
+  },
+  async updateEmailTemplate(id: string, updates: Partial<Pick<EmailTemplate, "name" | "description" | "category" | "subject" | "preheader" | "htmlBody" | "textBody" | "heroImageUrl" | "status" | "archivedAt">>): Promise<EmailTemplate | null> {
+    const map: Record<string, string> = {
+      name: "name", description: "description", category: "category", subject: "subject", preheader: "preheader",
+      htmlBody: "html_body", textBody: "text_body", heroImageUrl: "hero_image_url", status: "status", archivedAt: "archived_at",
+    };
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    for (const [key, column] of Object.entries(map)) {
+      if (!(key in updates)) continue;
+      setClauses.push(`${column} = ?`);
+      values.push((updates as any)[key]);
+    }
+    if (setClauses.length === 0) return db.findEmailTemplate(id);
+    setClauses.push("updated_at = ?"); values.push(nowIso());
+    values.push(id);
+    await env().DB.prepare(`UPDATE email_templates SET ${setClauses.join(", ")} WHERE id = ?`).bind(...values).run();
+    return db.findEmailTemplate(id);
+  },
+  async archiveEmailTemplate(id: string, archived: boolean): Promise<EmailTemplate | null> {
+    await env().DB.prepare(
+      archived
+        ? "UPDATE email_templates SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ?"
+        : "UPDATE email_templates SET status = 'active', archived_at = NULL, updated_at = ? WHERE id = ?"
+    ).bind(...(archived ? [nowIso(), nowIso(), id] : [nowIso(), id])).run();
+    return db.findEmailTemplate(id);
+  },
+  async deleteEmailTemplate(id: string): Promise<void> {
+    await env().DB.prepare("DELETE FROM email_templates WHERE id = ?").bind(id).run();
+  },
+  /** Campaign counts per template id — the "has this template ever been
+   *  used" guard for deletion, and the usage column in the admin list. */
+  async emailTemplateUsageCounts(): Promise<Map<string, number>> {
+    const result = await env().DB.prepare("SELECT template_id, COUNT(*) AS n FROM email_campaigns GROUP BY template_id").all();
+    return new Map((result.results || []).map((row: any) => [String(row.template_id), Number(row.n)]));
+  },
+
+  // --- email centre: campaigns ---
+  async findEmailCampaign(id: string): Promise<EmailCampaign | null> {
+    const row = await env().DB.prepare("SELECT * FROM email_campaigns WHERE id = ?").bind(id).first();
+    return row ? rowToEmailCampaign(row) : null;
+  },
+  async listEmailCampaigns(limit = 100): Promise<EmailCampaign[]> {
+    const result = await env().DB.prepare("SELECT * FROM email_campaigns ORDER BY created_at DESC LIMIT ?").bind(limit).all();
+    return (result.results || []).map(rowToEmailCampaign);
+  },
+  /** Campaigns with status 'scheduled' whose time has arrived (or passed). */
+  async listDueScheduledEmailCampaigns(limit = 20): Promise<EmailCampaign[]> {
+    const result = await env().DB.prepare(
+      "SELECT * FROM email_campaigns WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= ? ORDER BY scheduled_at ASC LIMIT ?"
+    ).bind(nowSql(), limit).all();
+    return (result.results || []).map(rowToEmailCampaign);
+  },
+  /** Campaigns mid-send — the queue the batch sender drains. */
+  async listSendingEmailCampaigns(limit = 20): Promise<EmailCampaign[]> {
+    const result = await env().DB.prepare("SELECT * FROM email_campaigns WHERE status = 'sending' ORDER BY started_at ASC LIMIT ?").bind(limit).all();
+    return (result.results || []).map(rowToEmailCampaign);
+  },
+  async createEmailCampaign(row: Omit<EmailCampaign, "createdAt" | "updatedAt" | "recipientCount" | "sentCount" | "deliveredCount" | "failedCount" | "unsubscribedCount" | "startedAt" | "completedAt" | "status"> & { status?: string }): Promise<EmailCampaign> {
+    const stamp = nowIso();
+    const full: EmailCampaign = {
+      ...row, status: row.status || "draft", recipientCount: 0, sentCount: 0, deliveredCount: 0, failedCount: 0,
+      unsubscribedCount: 0, startedAt: null, completedAt: null, createdAt: stamp, updatedAt: stamp,
+    };
+    await env().DB.prepare(
+      "INSERT INTO email_campaigns (id, name, template_id, subject, audience_type, audience_filter, status, recipient_count, sent_count, delivered_count, failed_count, unsubscribed_count, created_by, scheduled_at, started_at, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(
+      full.id, full.name, full.templateId, full.subject, full.audienceType, jsonOrNull(full.audienceFilter), full.status,
+      full.recipientCount, full.sentCount, full.deliveredCount, full.failedCount, full.unsubscribedCount, full.createdBy,
+      full.scheduledAt, full.startedAt, full.completedAt, full.createdAt, full.updatedAt
+    ).run();
+    return full;
+  },
+  async updateEmailCampaign(id: string, updates: Partial<Omit<EmailCampaign, "id" | "createdAt">>): Promise<void> {
+    const map: Record<string, string> = {
+      name: "name", templateId: "template_id", subject: "subject", audienceType: "audience_type", audienceFilter: "audience_filter",
+      status: "status", recipientCount: "recipient_count", sentCount: "sent_count", deliveredCount: "delivered_count",
+      failedCount: "failed_count", unsubscribedCount: "unsubscribed_count", scheduledAt: "scheduled_at", startedAt: "started_at",
+      completedAt: "completed_at",
+    };
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    for (const [key, column] of Object.entries(map)) {
+      if (!(key in updates)) continue;
+      const value = (updates as any)[key];
+      setClauses.push(`${column} = ?`);
+      values.push(key === "audienceFilter" ? jsonOrNull(value) : value);
+    }
+    if (setClauses.length === 0) return;
+    setClauses.push("updated_at = ?"); values.push(nowIso());
+    values.push(id);
+    await env().DB.prepare(`UPDATE email_campaigns SET ${setClauses.join(", ")} WHERE id = ?`).bind(...values).run();
+  },
+  /** The send path's idempotency guard: the campaign row is only updated
+   *  when its status is still one of `fromStatuses`. Two racing invocations
+   *  (admin double-click, cron overlapping a request) cannot both win —
+   *  exactly one sees changes === 1. Returns the updated campaign, or null
+   *  when this invocation lost the race. */
+  async transitionEmailCampaign(id: string, fromStatuses: string[], fields: Partial<Omit<EmailCampaign, "id" | "createdAt">>): Promise<EmailCampaign | null> {
+    const changes = await db.updateEmailCampaignWhere(id, fromStatuses, fields);
+    if (changes === 0) return null;
+    return db.findEmailCampaign(id);
+  },
+  /** updateEmailCampaign, restricted to campaigns still in one of the given
+   *  statuses. (transitionEmailCampaign is built on this plus a re-read.) */
+  async updateEmailCampaignWhere(id: string, fromStatuses: string[], fields: Partial<Omit<EmailCampaign, "id" | "createdAt">>): Promise<number> {
+    const map: Record<string, string> = {
+      status: "status", recipientCount: "recipient_count", sentCount: "sent_count", deliveredCount: "delivered_count",
+      failedCount: "failed_count", unsubscribedCount: "unsubscribed_count", startedAt: "started_at", completedAt: "completed_at",
+      scheduledAt: "scheduled_at", subject: "subject", name: "name", audienceType: "audience_type", audienceFilter: "audience_filter",
+    };
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    for (const [key, column] of Object.entries(map)) {
+      if (!(key in fields)) continue;
+      const value = (fields as any)[key];
+      setClauses.push(`${column} = ?`);
+      values.push(key === "audienceFilter" ? jsonOrNull(value) : value);
+    }
+    if (setClauses.length === 0) return 0;
+    setClauses.push("updated_at = ?"); values.push(nowIso());
+    values.push(id, ...fromStatuses);
+    const result = await env().DB.prepare(
+      `UPDATE email_campaigns SET ${setClauses.join(", ")} WHERE id = ? AND status IN (${fromStatuses.map(() => "?").join(", ")})`
+    ).bind(...values).run();
+    return Number((result.meta as any)?.changes ?? 0);
+  },
+
+  // --- email centre: deliveries ---
+  /** Bulk insert of pending delivery rows. D1 caps a query at 100 bound
+   *  parameters (7 per row here), so rows go in chunks — inside a single
+   *  batch() round trip per chunk where the binding supports it, which is
+   *  one subrequest instead of one per chunk. */
+  async createEmailDeliveries(rows: Array<Omit<EmailDelivery, "providerMessageId" | "failureReason" | "sentAt" | "deliveredAt" | "createdAt" | "updatedAt" | "status"> & { status?: string }>): Promise<void> {
+    const chunks: Array<{ sql: string; params: unknown[] }> = [];
+    const ROWS_PER_STATEMENT = 10; // 10 rows × 7 params = 70 bound params, under D1's 100.
+    for (let start = 0; start < rows.length; start += ROWS_PER_STATEMENT) {
+      const chunk = rows.slice(start, start + ROWS_PER_STATEMENT);
+      const stamp = nowIso();
+      const params: unknown[] = [];
+      for (const row of chunk) {
+        params.push(row.id, row.campaignId, row.userId, row.email, row.status || "pending", stamp, stamp);
+      }
+      chunks.push({
+        sql: `INSERT INTO email_deliveries (id, campaign_id, user_id, email, status, created_at, updated_at) VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(", ")}`,
+        params,
+      });
+    }
+    if (chunks.length === 0) return;
+    const d1 = env().DB as any;
+    if (typeof d1.batch === "function") {
+      // One batch call per ~100 statements keeps the array itself bounded.
+      for (let i = 0; i < chunks.length; i += 100) {
+        await d1.batch(chunks.slice(i, i + 100).map((chunk) => d1.prepare(chunk.sql).bind(...chunk.params)));
+      }
+      return;
+    }
+    for (const chunk of chunks) await d1.prepare(chunk.sql).bind(...chunk.params).run();
+  },
+  async listPendingEmailDeliveries(campaignId: string, limit: number): Promise<EmailDelivery[]> {
+    const result = await env().DB.prepare(
+      "SELECT * FROM email_deliveries WHERE campaign_id = ? AND status = 'pending' ORDER BY created_at ASC LIMIT ?"
+    ).bind(campaignId, limit).all();
+    return (result.results || []).map(rowToEmailDelivery);
+  },
+  /** Claims a pending delivery for sending: the row flips to 'sent' the
+   *  moment this invocation takes it, and the WHERE clause means only one
+   *  racing invocation (admin request + cron) can ever claim it — the
+   *  others see changes === 0 and skip it, so no recipient is emailed
+   *  twice. A crash after claiming leaves a row marked sent that was not
+   *  handed over — the conservative failure direction. */
+  async claimEmailDelivery(id: string): Promise<boolean> {
+    const result = await env().DB.prepare(
+      "UPDATE email_deliveries SET status = 'sent', sent_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'"
+    ).bind(nowIso(), nowIso(), id).run();
+    return Number((result.meta as any)?.changes ?? 0) > 0;
+  },
+  /** Records the provider's message id on a claimed delivery (the handle
+   *  delivery webhooks match against). Safe to call repeatedly. */
+  async markEmailDeliverySent(id: string, providerMessageId: string | null): Promise<void> {
+    if (!providerMessageId) return;
+    await env().DB.prepare("UPDATE email_deliveries SET provider_message_id = ?, updated_at = ? WHERE id = ?").bind(providerMessageId, nowIso(), id).run();
+  },
+  /** Marks a claimed delivery as failed, keeping the reason for the
+   *  campaign history view. */
+  async markEmailDeliveryFailed(id: string, reason: string | null): Promise<void> {
+    await env().DB.prepare("UPDATE email_deliveries SET status = 'failed', failure_reason = ?, updated_at = ? WHERE id = ? AND status IN ('pending', 'sent')").bind(reason ? reason.slice(0, 500) : null, nowIso(), id).run();
+  },
+  /** Provider callback path: delivered/bounced/unsubscribed by Resend's
+   *  message id, only ever moving a delivery forwards from 'sent'. */
+  async advanceEmailDeliveryByMessageId(providerMessageId: string, status: "delivered" | "bounced" | "unsubscribed", reason: string | null): Promise<boolean> {
+    const result = await env().DB.prepare(
+      "UPDATE email_deliveries SET status = ?, failure_reason = ?, delivered_at = ?, updated_at = ? WHERE provider_message_id = ? AND status IN ('pending', 'sent')"
+    ).bind(status, reason, nowIso(), nowIso(), providerMessageId).run();
+    return Number((result.meta as any)?.changes ?? 0) > 0;
+  },
+  async findEmailDeliveryByMessageId(providerMessageId: string): Promise<EmailDelivery | null> {
+    const row = await env().DB.prepare("SELECT * FROM email_deliveries WHERE provider_message_id = ?").bind(providerMessageId).first();
+    return row ? rowToEmailDelivery(row) : null;
+  },
+  /** Per-status delivery counts for one campaign — the progress numbers and
+   *  the final completed/partially_failed/failed decision. */
+  async emailDeliveryCounts(campaignId: string): Promise<Record<string, number>> {
+    const result = await env().DB.prepare(
+      "SELECT status, COUNT(*) AS n FROM email_deliveries WHERE campaign_id = ? GROUP BY status"
+    ).bind(campaignId).all();
+    const counts: Record<string, number> = {};
+    for (const row of result.results || []) counts[String((row as any).status)] = Number((row as any).n);
+    return counts;
+  },
+  /** Per-status delivery counts across every campaign — the dashboard's
+   *  sent/delivered/failed/unsubscribed totals. */
+  async emailDeliveryTotals(): Promise<Record<string, number>> {
+    const result = await env().DB.prepare("SELECT status, COUNT(*) AS n FROM email_deliveries GROUP BY status").all();
+    const counts: Record<string, number> = {};
+    for (const row of result.results || []) counts[String((row as any).status)] = Number((row as any).n);
+    return counts;
+  },
+  async listRecentEmailDeliveryFailures(campaignId: string, limit = 25): Promise<EmailDelivery[]> {
+    const result = await env().DB.prepare(
+      "SELECT * FROM email_deliveries WHERE campaign_id = ? AND status IN ('failed', 'bounced') ORDER BY updated_at DESC LIMIT ?"
+    ).bind(campaignId, limit).all();
+    return (result.results || []).map(rowToEmailDelivery);
+  },
+  /** Audience resolution for marketing mail. The SQL is assembled from
+   *  fixed per-audience-type fragments only — every value is a bound
+   *  parameter, never interpolated — and every variant is gated on
+   *  email_preferences.marketing_consent = 1. Deleted accounts are absent
+   *  from `users` entirely (deletes cascade), so they are excluded by
+   *  construction; a basic LIKE prefilter drops malformed addresses and the
+   *  caller re-validates each address in code before sending. */
+  async listEmailAudience(type: string, filter: EmailAudienceFilter, limit: number): Promise<EmailRecipient[]> {
+    if (type === "test_recipient") {
+      const email = String(filter.testEmail || "").trim().toLowerCase();
+      return email ? [{ userId: null, email, displayName: "" }] : [];
+    }
+    const fragments: string[] = ["u.email LIKE '%@%.%'", "p.marketing_consent = 1"];
+    const params: unknown[] = [];
+    if (type === "free_plan") {
+      fragments.push(
+        "u.role != 'admin'",
+        "NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.status = 'active' AND m.plan != 'free')",
+        "NOT EXISTS (SELECT 1 FROM complimentary_grants g WHERE g.user_id = u.id AND g.status = 'active' AND g.ends_at > ?)"
+      );
+      params.push(nowSql());
+    } else if (type === "paid_plan") {
+      fragments.push(
+        "(u.role = 'admin' OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.status = 'active' AND m.plan != 'free') OR EXISTS (SELECT 1 FROM complimentary_grants g WHERE g.user_id = u.id AND g.status = 'active' AND g.ends_at > ?))"
+      );
+      params.push(nowSql());
+    } else if (type === "registered_range") {
+      if (filter.registeredFrom) { fragments.push("u.created_at >= ?"); params.push(filter.registeredFrom); }
+      if (filter.registeredTo) { fragments.push("u.created_at <= ?"); params.push(filter.registeredTo); }
+    } else if (type === "training_step") {
+      fragments.push("p.training_step = ?"); params.push(Math.max(0, Math.trunc(Number(filter.trainingStep) || 0)));
+    } else if (type === "manual") {
+      const ids = (filter.userIds || []).filter((id) => typeof id === "string" && id.length <= 64).slice(0, 50);
+      if (ids.length === 0) return [];
+      fragments.push(`u.id IN (${ids.map(() => "?").join(", ")})`);
+      params.push(...ids);
+    } else if (type !== "all_consented") {
+      return [];
+    }
+    params.push(limit);
+    const result = await env().DB.prepare(
+      `SELECT u.id AS user_id, u.email, u.display_name FROM users u JOIN email_preferences p ON p.user_id = u.id WHERE ${fragments.join(" AND ")} ORDER BY u.created_at ASC LIMIT ?`
+    ).bind(...params).all();
+    return (result.results || []).map((row: any) => ({ userId: String(row.user_id), email: String(row.email), displayName: String(row.display_name || "") }));
+  },
+  async countEmailAudience(type: string, filter: EmailAudienceFilter): Promise<number> {
+    if (type === "test_recipient") return String(filter.testEmail || "").trim() ? 1 : 0;
+    const fragments: string[] = ["u.email LIKE '%@%.%'", "p.marketing_consent = 1"];
+    const params: unknown[] = [];
+    if (type === "free_plan") {
+      fragments.push(
+        "u.role != 'admin'",
+        "NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.status = 'active' AND m.plan != 'free')",
+        "NOT EXISTS (SELECT 1 FROM complimentary_grants g WHERE g.user_id = u.id AND g.status = 'active' AND g.ends_at > ?)"
+      );
+      params.push(nowSql());
+    } else if (type === "paid_plan") {
+      fragments.push(
+        "(u.role = 'admin' OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.status = 'active' AND m.plan != 'free') OR EXISTS (SELECT 1 FROM complimentary_grants g WHERE g.user_id = u.id AND g.status = 'active' AND g.ends_at > ?))"
+      );
+      params.push(nowSql());
+    } else if (type === "registered_range") {
+      if (filter.registeredFrom) { fragments.push("u.created_at >= ?"); params.push(filter.registeredFrom); }
+      if (filter.registeredTo) { fragments.push("u.created_at <= ?"); params.push(filter.registeredTo); }
+    } else if (type === "training_step") {
+      fragments.push("p.training_step = ?"); params.push(Math.max(0, Math.trunc(Number(filter.trainingStep) || 0)));
+    } else if (type === "manual") {
+      const ids = (filter.userIds || []).filter((id) => typeof id === "string" && id.length <= 64).slice(0, 50);
+      if (ids.length === 0) return 0;
+      fragments.push(`u.id IN (${ids.map(() => "?").join(", ")})`);
+      params.push(...ids);
+    } else if (type !== "all_consented") {
+      return 0;
+    }
+    const row = await env().DB.prepare(
+      `SELECT COUNT(*) AS n FROM users u JOIN email_preferences p ON p.user_id = u.id WHERE ${fragments.join(" AND ")}`
+    ).bind(...params).first();
+    return Number((row as any)?.n ?? 0);
+  },
+  /** Consent-holding accounts for the manual audience picker (searchable). */
+  async searchEmailRecipients(query: string, limit = 25): Promise<Array<{ id: string; email: string; displayName: string; createdAt: string; trainingStep: number }>> {
+    const like = `%${query.replace(/[%_]/g, "")}%`;
+    const result = await env().DB.prepare(
+      "SELECT u.id, u.email, u.display_name, u.created_at, p.training_step FROM users u JOIN email_preferences p ON p.user_id = u.id AND p.marketing_consent = 1 WHERE u.email LIKE '%@%.%' AND (u.email LIKE ? OR u.display_name LIKE ?) ORDER BY u.created_at DESC LIMIT ?"
+    ).bind(like, like, limit).all();
+    return (result.results || []).map((row: any) => ({ id: String(row.id), email: String(row.email), displayName: String(row.display_name || ""), createdAt: String(row.created_at), trainingStep: Number(row.training_step || 0) }));
   },
 
   // --- admin settings (generic key/value; used for e.g. social links) ---

@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased — The Email Centre: marketing email members actually asked for
+
+- **Admins can now write and send marketing email without leaving the app.**
+  A new Email Centre (admin corner-menu button → `/admin/email-centre`)
+  covers the whole loop: HTML templates with a live variable picker
+  (`{{first_name}}`, `{{display_name}}`, `{{email}}`, `{{unsubscribe_url}}`,
+  `{{preferences_url}}`, `{{current_year}}`), campaigns on seven audience
+  types (all consented, free plan, paid plan, registration date range,
+  training step, hand-picked, test recipient), a preview of the rendered
+  mail, a tagged test send, and delivery history per campaign.
+- **Consent is the front door, not a checkbox at the bottom.** Campaigns
+  resolve their audience, then remove anyone who hasn't ticked marketing
+  consent — every send carries a per-recipient unsubscribe link and a
+  preferences link, both signed, and the new public
+  `/email-preferences` and `/unsubscribe` pages act on them without a
+  login. The Account & Membership modal shows the same consent switch, so
+  opting out never requires finding an old email.
+- **Sends are queued, never one long request.** A campaign write its
+  recipients as delivery rows in D1, and a new five-minute Cron Trigger
+  drains them twenty at a time — a send to the whole member base can't
+  blow a Worker invocation's subrequest budget, and a crashed batch simply
+  resumes on the next tick. Sending twice is answered 409, a scheduled
+  campaign can be cancelled up to the minute it fires, and the per-tick
+  budget bounds the worst case even when several campaigns are mid-send.
+- **Campaigns can be scheduled up to 180 days ahead** — saved as a draft
+  or dated, started automatically by the same queue, and shown on the
+  dashboard as draft / scheduled / sending / completed / failed /
+  cancelled with recipient, sent and failed counts.
+- **Delivery history is honest by default and precise when wired.**
+  Without any setup a delivery is recorded as sent when the provider
+  accepts it; add the optional `RESEND_WEBHOOK_SECRET` and point Resend's
+  webhook at `/api/webhooks/resend` (HMAC-verified on raw bytes, like the
+  billing webhook), and delivered, bounced and complained events land
+  against the individual delivery rows. `EMAIL_REPLY_TO` now sets a
+  Reply-To on all outbound mail.
+- Local development prints every campaign mail — headers, both bodies,
+  the unsubscribe tokens — to the wrangler output via
+  `EMAIL_PROVIDER=console`, and the queue can be fired on demand with
+  wrangler's local scheduled trigger.
+
 ## Unreleased — Images that arrive framed, honest VIP exports, and a Fairy shelf
 
 - **Speechify BYOK narration replaces the old TTS providers.** The existing API

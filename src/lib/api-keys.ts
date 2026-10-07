@@ -6,6 +6,12 @@ export interface CustomerApiKeys {
 
 const STORAGE_KEY = "scenering_customer_api_keys";
 
+const EMPTY_KEYS: CustomerApiKeys = { pexelsKey: "", pixabayKey: "", geminiKey: "" };
+
+function readString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function getStoredApiKeys(): CustomerApiKeys {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -58,6 +64,22 @@ export function getApiKeysHeaders(): Record<string, string> {
     headers["X-Pixabay-Key"] = keys.pixabayKey;
   }
   return headers;
+}
+
+/** The saved narration key, or "" when the customer has not added one yet. */
+export function getStoredGeminiKey(): string {
+  return getStoredApiKeys().geminiKey;
+}
+
+/**
+ * Header carrying the customer's own narration key to `/api/tts`.
+ *
+ * Image-provider keys are deliberately left out: a speech request has no
+ * business carrying a photo-library credential, and vice versa.
+ */
+export function getNarrationHeaders(): Record<string, string> {
+  const geminiKey = getStoredGeminiKey();
+  return geminiKey ? { "X-Gemini-Key": geminiKey } : {};
 }
 
 /**
