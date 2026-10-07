@@ -60,7 +60,9 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
       fetch("/api/email-preferences").then((r) => r.ok ? r.json() : null),
     ]).then(([next, preferences]) => {
       setAccount(next);
-      setMarketingConsent(Boolean(preferences?.marketing_consent));
+      // The API returns the camelCase preference row (src/db.ts's mapper);
+      // both spellings are accepted in case a cached older shape appears.
+      setMarketingConsent(Boolean(preferences?.marketingConsent ?? preferences?.marketing_consent));
       if (next.user?.role === "admin") void refreshAdmin().catch((error) => setNotice(error.message));
     }).catch((error) => setNotice(error.message));
   }, [isOpen]);
@@ -201,6 +203,10 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
 
         {isOwnerAdmin && <section ref={adminRef} className="rounded-xl border border-blue-500/60 bg-blue-950/25 p-4 sm:p-5 space-y-5" aria-label="Owner administration">
           <div><span className="text-[10px] uppercase tracking-[.16em] text-blue-300 font-bold">Owner administrator</span><h3 className="text-lg font-bold mt-1">Scenering administration</h3><p className="text-xs text-gray-400">Full SceneForge access plus customer, contact, email-consent and production configuration visibility. Secrets and password hashes are never displayed.</p></div>
+          <div className="rounded-xl border border-indigo-400/50 bg-gray-950/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div><h4 className="text-sm font-bold">Email Centre</h4><p className="text-xs text-gray-400 mt-1">Branded marketing templates, consented audiences, campaigns with preview and test sends, and delivery history. Opens in its own admin page.</p></div>
+            <a href="/admin/email-centre" className="rounded-lg bg-indigo-600 hover:bg-indigo-500 px-3 py-2 text-xs font-bold whitespace-nowrap">Open Email Centre</a>
+          </div>
           <div className="rounded-xl border border-indigo-400/50 bg-gray-950/70 p-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div><h4 className="text-sm font-bold">Preview the Studio as a customer plan</h4><p className="text-xs text-gray-400 mt-1">Switch the interface to inspect Free, SceneFlow or SceneForge badges and upgrade prompts. This does not change your owner rights, billing or authoritative SceneForge access.</p></div>

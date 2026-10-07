@@ -75,6 +75,7 @@ export default function SiteCornerMenu() {
 
       {!checking && (signedIn ? <div className="sc-corner-actions">
         {!inStudio && <button className="is-primary" onClick={() => go("/app")}>Open Studio</button>}
+        {account?.user.role === "admin" && <button onClick={() => go("/admin/email-centre")}>Email Centre</button>}
         {account?.user.role === "admin" && <button onClick={() => openAccount("admin")}>Owner administration</button>}
         <button onClick={() => openAccount()}>Account, membership & billing</button>
         <button onClick={async () => { setOpen(false); await signOut(); navigate("/"); }}>Sign out</button>

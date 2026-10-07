@@ -1,6 +1,6 @@
 # Scenering on Cloudflare — Platform Compatibility Report
 
-*Last verified 2026-10-05 against the current Cloudflare Workers documentation,
+*Last verified 2026-10-06 against the current Cloudflare Workers documentation,
 and executed end to end under the real workerd runtime (`wrangler dev`) with
 every backend route exercised. See “Verification” at the bottom for the exact
 matrix.*
@@ -8,7 +8,8 @@ matrix.*
 **Verdict: the application is 100% Cloudflare-native.** It deploys as **one
 Worker** (the Express API, bridged via `cloudflare:node`), **one static-asset
 set** (`dist/`, served by Cloudflare's asset layer), **one D1 database**, **one
-KV namespace**, **one R2 bucket** and **one hourly Cron Trigger**. Nothing needs
+KV namespace**, **one R2 bucket** and **two Cron Triggers** (an hourly sweep
+and a five-minute email-queue drain). Nothing needs
 a Node.js server, a container, or any other host.
 
 > **One plan requirement:** run it on the **Workers Paid** plan ($5/month).
@@ -33,6 +34,7 @@ a Node.js server, a container, or any other host.
 | Narration (TTS) | `server.ts` | Outbound `fetch` to the Gemini API (no WebSocket TTS engines — the msedge-tts dependency was already removed) | ✅ verified (falls back Google-TTS → silent WAV by design) |
 | Image search (Pexels / Pixabay / Wikimedia) | `server.ts` | Outbound `fetch` with 12 s timeouts + provider clamps | ✅ verified (nature-library fallback when no keys) |
 | Email | `server/email.ts` | Resend HTTPS API in production (`EMAIL_PROVIDER=resend`, authenticated by the `RESEND_API_KEY` secret); `console` remains available for local development. SMTP is not available from Workers | ✅ |
+| Email Centre — templates, consented audiences, campaigns, delivery history, unsubscribe/preferences pages | `server/email-centre.ts` | **D1** (templates/campaigns/deliveries, `migrations/0002_email_centre.sql`) + the Resend provider above. Large sends are queued as D1 delivery rows and drained **20 at a time by the five-minute Cron Trigger** (never one long request); delivery outcomes recorded from **Resend's webhook** at `/api/webhooks/resend` (HMAC-verified raw bytes, optional) | ✅ verified |
 | Billing webhooks | `server/platform.ts` | Inbound HTTPS at `/api/webhooks/lemonsqueezy`, HMAC-verified against raw bytes | ✅ verified (503/401 paths) |
 | Scheduled email link expiry, token expiry | `src/db.ts` | D1, ISO-8601 comparisons (fixed — see §4) | ✅ verified |
 
@@ -76,12 +78,12 @@ Figures from the Workers docs
 | Memory per isolate | 128 MB | 128 MB | peak ≈ 50 MB transient (20 MB upload decode: ~27 MB JSON body + 20 MB buffer) | ~2.5× |
 | CPU per HTTP request | **10 ms** | 30 s (→ 5 min) | scrypt ≈ 50–100 ms on register/login; typical API ≈ 1–5 ms | **Paid plan required** |
 | CPU per cron trigger | 10 ms | 30 s (< 1 h interval) | sweep is I/O-bound (D1/R2 round trips); loop cost trivial | ✅ |
-| Subrequests / invocation | 50 | 10,000 | worst case ≈ 6 (image search: 3 providers + Wikimedia batching); admin overview now **~10 total** (was ~10 × user count — see §4) | ✅ |
+| Subrequests / invocation | 50 | 10,000 | worst case ≈ 6 (image search: 3 providers + Wikimedia batching); admin overview now **~10 total** (was ~10 × user count — see §4); an email-queue cron tick sends at most 20 + its D1 updates (per-tick budget) | ✅ |
 | Simultaneous open connections | 6 | 6 | ≤ 4 concurrent D1 reads per request (`accountPayload`); admin overview now reads in one bounded batch | ✅ |
 | Request body size | 100 MB (Cloudflare Free/Pro zone) | 200 MB (Business) | largest accepted upload ≈ 27 MB JSON (20 MB audio, base64) | ~3.7× |
 | Response body size | no enforced limit | no enforced limit | TTS WAV ≤ ~7 MB (2,000 chars) | ✅ |
 | Daily requests | 100,000/day | unlimited | — | plan-dependent |
-| Cron triggers / account | 5 | 250 | **1** (hourly sweep) | ✅ |
+| Cron triggers / account | 5 | 250 | **2** (hourly audio sweep + 5-min email queue) | ✅ |
 | Env vars (secrets+vars) / Worker | 64 | 128 | **~25** (see `.dev.vars.example`) | ✅ |
 | Env var size | 5 KB | 5 KB | longest is a checkout URL | ✅ |
 | D1 database size | 500 MB | 10 GB | rows are small text; webhook payload is a trimmed JSON blob | ✅ |
@@ -203,7 +205,13 @@ platform's documented behaviour, then re-verified under `wrangler dev`:
 - **Email sending** uses Resend's HTTPS API in production
   (`EMAIL_PROVIDER=resend`) and requires the server-side `RESEND_API_KEY`
   secret. Local development can select `console` to print verification/reset
-  links without sending mail.
+  links without sending mail. `EMAIL_REPLY_TO` optionally overrides the
+  Reply-To header on all outbound mail (transactional and marketing alike).
+- **Email Centre delivery history** is "accepted by provider" unless the
+  optional `RESEND_WEBHOOK_SECRET` is set and Resend's webhook points at
+  `/api/webhooks/resend` — then delivered/bounced/complained events are
+  HMAC-verified and recorded against campaign deliveries. The endpoint
+  answers 202 when unconfigured, so the feature degrades gracefully.
 - **`accountPayload` runs 4 D1 queries concurrently** (well within the 6-connection
   limit). A further micro-batch would save ~2 round trips per `/api/account`
   call; left alone deliberately to keep the diff small.
@@ -268,7 +276,15 @@ Then:
    marks, unmapped variants and unknown accounts answered 202 so the store
    stops retrying, checkout links tagged with `checkout[custom][user_id]` and
    `checkout[email]`, and the owner's checklist reporting ready.
-6. **Migrations** — `wrangler d1 migrations apply scenering-db --remote`
+6. **Resend** — campaign sends from the Email Centre use the same provider as
+   transactional mail: set the `RESEND_API_KEY` secret
+   (`EMAIL_PROVIDER=resend` is already the default var). Optional: set
+   `EMAIL_REPLY_TO` for a Reply-To override, and to record real delivery
+   outcomes in campaign history, add a Resend webhook pointing at
+   `https://<your-domain>/api/webhooks/resend` (the `delivery` events) and
+   copy its signing secret into `RESEND_WEBHOOK_SECRET`. The scheduled-send
+   queue drains on the five-minute Cron Trigger — no further wiring needed.
+7. **Migrations** — `wrangler d1 migrations apply scenering-db --remote`
    (the setup script does this; re-run after adding a migration).
 
 Local development:
@@ -279,14 +295,18 @@ npx wrangler d1 migrations apply scenering-db --local   # first run only
 ```
 
 `.dev.vars` (copied from `.dev.vars.example`, gitignored) holds local secrets.
-The hourly sweep can be fired manually with
-`curl http://localhost:8787/cdn-cgi/local/scheduled`.
+Neither cron fires automatically under `wrangler dev` — trigger them manually:
+
+```bash
+curl http://localhost:8787/cdn-cgi/local/scheduled                                  # hourly audio sweep
+curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=*/5%20*%20*%20*%20*"       # email campaign queue
+```
 
 ## 7. Verification performed for this report
 
-- `npm run verify` — both tsconfigs, **48/48 test suites** (~135k checks),
-  production build, `wrangler deploy --dry-run` (bundle 2.2 MiB, 177 assets,
-  all bindings resolved).
+- `npm run verify` — both tsconfigs, **50/50 test suites** (the Email Centre
+  suite alone is 125 checks), production build, `wrangler deploy --dry-run`
+  (bundle 2.2 MiB, 177 assets, all bindings resolved).
 - Full endpoint matrix against the real workerd runtime (`wrangler dev`,
   2026-10-05): health · SPA shell + fallback · robots.txt · sitemap.xml ·
   static assets · register (scrypt under workerd) · verify-email · login ·
@@ -306,6 +326,19 @@ The hourly sweep can be fired manually with
   paid-period rules, duplicate redelivery no-ops + log marks, 202s for
   unmatchable events, test-mode labelling, and the owner's go-live checklist
   reporting ready with the exact webhook URL.
+- **Email Centre (2026-10-06)** against the same runtime with seeded local
+  D1: dashboard stats · template CRUD (create, edit, duplicate, archive,
+  per-audience preview with `{{first_name}}`/`{{display_name}}`
+  substitution and the XSS guard) · audience resolution across all seven
+  audience types with consent filtering · test sends (tagged
+  `campaign-test:<id>`, `[Test]` subject prefix, no delivery rows) ·
+  campaign send to completion (6/6), including per-recipient unsubscribe
+  tokens in both HTML and plain text · the queued path: a 28-recipient
+  campaign drains 20 per invocation and finishes on the next tick, with
+  double-send answered 409 · scheduling (future-dated campaigns stay
+  scheduled; the queue starts them via the manual cron trigger) ·
+  unsubscribe link → preference flip, and the Resend webhook's
+  signature/replay contract.
 
 Documentation referenced: [Workers
 limits](https://developers.cloudflare.com/workers/platform/limits/) ·

@@ -15,7 +15,7 @@
  * needs on process.env (they are merged into the installed environment) and
  * BEFORE dynamically importing anything that touches `env()`.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
@@ -23,9 +23,13 @@ import { setEnv } from "../src/env.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** The real migration the deployed D1 database runs — no reimplementation
- *  to drift out of sync. */
-const MIGRATION_SQL = readFileSync(join(repoRoot, "migrations", "0001_init.sql"), "utf8");
+/** The real migrations the deployed D1 database runs — every file in
+ *  migrations/, in order, no reimplementation to drift out of sync. */
+const MIGRATION_SQL = readdirSync(join(repoRoot, "migrations"))
+  .filter((name) => name.endsWith(".sql"))
+  .sort()
+  .map((name) => readFileSync(join(repoRoot, "migrations", name), "utf8"))
+  .join("\n");
 
 type Row = Record<string, unknown>;
 
@@ -55,6 +59,12 @@ export function createTestD1() {
     prepare(sql: string) {
       const unbound = statementFor(sql, []);
       return { ...unbound, bind: (...params: unknown[]) => statementFor(sql, params) };
+    },
+    /** D1Database.batch() — the app uses it for chunked bulk writes. */
+    async batch(statements: unknown[]) {
+      const results = [];
+      for (const statement of statements as any[]) results.push(await statement.run());
+      return results;
     },
   };
 }

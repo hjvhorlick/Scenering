@@ -28,6 +28,10 @@ export type Env = {
   PUBLIC_APP_URL: string;
   EMAIL_PROVIDER: string;
   RESEND_API_KEY?: string;
+  /** Optional Reply-To for outbound mail (transactional and marketing). */
+  EMAIL_REPLY_TO?: string;
+  /** Optional Resend delivery-webhook signing secret (whsec_...). */
+  RESEND_WEBHOOK_SECRET?: string;
   SESSION_SECRET: string;
   SCENERING_OWNER_EMAIL: string;
   GEMINI_API_KEY?: string;

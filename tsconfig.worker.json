@@ -21,6 +21,7 @@
     "server.ts",
     "server/platform.ts",
     "server/email.ts",
+    "server/email-centre.ts",
     "src/env.ts",
     "src/db.ts",
     "src/rate-limiter.ts",
