@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import StepNav from "./StepNav";
 import type { CaptionsConfig, CustomerLogoConfig, Scene, TimelineInsert } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
-import { setCachedSceneAudio, getSharedAudioContext } from "../lib/tts-cache";
+import { setCachedSceneAudio, getSharedAudioContext, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
 import PhoneticDictionaryTab from "./PhoneticDictionaryTab";
 import { STUDIO_VOICE_PRESETS, type VoicePreset, resolveVoicePreset } from "../data/voice-presets";
@@ -74,7 +74,7 @@ export default function VoiceoverStudio({
 }: VoiceoverStudioProps) {
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
-  const [internalSelectedVoice, setInternalSelectedVoice] = useState("guy");
+  const [internalSelectedVoice, setInternalSelectedVoice] = useState("speechify_male_01");
   const selectedVoice = propSelectedVoice || internalSelectedVoice;
 
   const handleSelectVoice = (vId: string) => {
@@ -96,7 +96,7 @@ export default function VoiceoverStudio({
    * expects — one clipped buffer per scene, no mid-scene voice switch.
    */
   const [rotateVoices, setRotateVoices] = useState(false);
-  const [secondVoice, setSecondVoice] = useState("jenny");
+  const [secondVoice, setSecondVoice] = useState("speechify_female_01");
 
   /**
    * Which voice a given scene should be narrated in.
@@ -161,11 +161,14 @@ export default function VoiceoverStudio({
    * The catalogue as two columns: the ten male voices and the ten female
    * voices, each with the voice Free includes pinned to the top.
    *
-   * Order inside a column is otherwise the catalogue's own, so the studio
-   * voices still come before the narrator personas. Which voice is free is
-   * read from the plan configuration rather than a hard-coded pair, so this
-   * follows the plans if they ever change.
+   * The remaining profiles retain the curated style order. Which voice is
+   * free is read from the plan configuration rather than a hard-coded pair,
+   * so this follows the plans if they ever change.
    */
+  // --- Voice download / error notices ---
+  const [downloadingId, setDownloadingId] = useState<string | number | null>(null);
+  const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
+
   const VOICE_COLUMNS = useMemo(() => {
     const column = (gender: "male" | "female", label: string) => {
       const voices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === gender);
@@ -199,17 +202,12 @@ export default function VoiceoverStudio({
         setLoadingId((curr) => (curr === id ? null : curr));
       });
       setLoadingId(null);
-    } catch {
+    } catch (error: any) {
       setPlayingId(null);
       setLoadingId(null);
+      setDownloadNotice(error?.message || "Speechify voice preview failed. Check the key in API Keys.");
     }
   };
-
-  // --- Voice download state ---
-  const [downloadingId, setDownloadingId] = useState<string | number | null>(null);
-  const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
-  /** Set when the server reports the audio is a silent placeholder. */
-  const [ttsDegraded, setTtsDegraded] = useState(false);
 
   const announce = (msg: string) => {
     setDownloadNotice(msg);
@@ -255,46 +253,25 @@ export default function VoiceoverStudio({
     const voiceName = voicePreset?.name || voiceToUse;
 
     try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice: voiceToUse }),
-      });
-      if (!res.ok) {
-        let detail = `HTTP ${res.status}`;
-        try {
-          const body = await res.json();
-          if (body?.error) detail = body.error;
-        } catch {}
-        throw new Error(detail);
-      }
+      const withTimeline = await fetchSceneAudioWithTimeline(text, voiceToUse, { timeoutMs: 20000 });
+      if (!withTimeline) throw new Error("Speechify returned no audio for this scene.");
 
-      // The server tells us which engine produced the audio. "silent" means
-      // real speech could not be reached and the buffer is a placeholder, so
-      // the user is warned instead of silently shipping a mute video.
-      if (res.headers.get("X-TTS-Source") === "silent") setTtsDegraded(true);
-      else setTtsDegraded(false);
-
-      const contentType = res.headers.get("Content-Type") || "audio/mpeg";
-      const arrayBuf = await res.arrayBuffer();
-      const blob = new Blob([arrayBuf], { type: contentType });
+      const arrayBuf = withTimeline.rawBuffer;
+      const blob = new Blob([arrayBuf], { type: withTimeline.mimeType });
       const blobUrl = URL.createObjectURL(blob);
-
-      let spokenDuration = scene.duration || 10;
-      try {
-        const audioCtx = getSharedAudioContext();
-        const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-        spokenDuration = decoded.duration;
-        setCachedSceneAudio(scene.id, voiceToUse, text, {
-          audioBuffer: decoded,
-          blobUrl,
-          duration: decoded.duration,
-          voiceId: voiceToUse,
-          text,
-          rawBuffer: arrayBuf.slice(0),
-          blob,
-        });
-      } catch {}
+      const audioCtx = getSharedAudioContext();
+      const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+      const spokenDuration = decoded.duration;
+      setCachedSceneAudio(scene.id, voiceToUse, text, {
+        audioBuffer: decoded,
+        blobUrl,
+        duration: spokenDuration,
+        voiceId: voiceToUse,
+        text,
+        rawBuffer: arrayBuf.slice(0),
+        blob,
+        words: withTimeline.words,
+      });
 
       // The scene lasts exactly as long as the voice does (plus a short breath
       // so the cut does not clip the final word). It used to take
@@ -326,6 +303,7 @@ export default function VoiceoverStudio({
     onApplyVoiceToAll(voiceToUse, globalSpeed);
 
     const total = scenes.length;
+    const failedScenes: number[] = [];
     for (let i = 0; i < scenes.length; i++) {
       const scene = scenes[i];
       setGenerationProgress({ current: i + 1, total, sceneIndex: i });
@@ -333,13 +311,21 @@ export default function VoiceoverStudio({
       // Passing `voiceToUse` here instead would collapse the whole run back to
       // a single voice, which is exactly the behaviour rotation is meant to
       // avoid.
-      await generateVoiceoverForScene(scene, voiceForSceneIndex(i));
+      const audioUrl = await generateVoiceoverForScene(scene, voiceForSceneIndex(i));
+      if ((scene.text || "").trim() && !audioUrl) failedScenes.push(i + 1);
     }
 
     setIsGeneratingAll(false);
     setGenerationProgress(null);
-    setGenerationSuccess(true);
-    setTimeout(() => setGenerationSuccess(false), 5000);
+    if (failedScenes.length > 0) {
+      setGenerationSuccess(false);
+      const shown = failedScenes.slice(0, 5).join(", ");
+      const more = failedScenes.length > 5 ? ` and ${failedScenes.length - 5} more` : "";
+      announce(`Speechify could not generate scene${failedScenes.length === 1 ? "" : "s"} ${shown}${more}. Check the Speechify key in API Keys and retry.`);
+    } else {
+      setGenerationSuccess(true);
+      setTimeout(() => setGenerationSuccess(false), 5000);
+    }
   };
 
   const handleProceedNext = async (targetStep: string = "captions") => {
@@ -358,7 +344,8 @@ export default function VoiceoverStudio({
 
   const handleGenerateSingleScene = async (scene: Scene) => {
     setSingleGeneratingId(scene.id);
-    await generateVoiceoverForScene(scene, scene.voice_id || selectedVoice);
+    const audioUrl = await generateVoiceoverForScene(scene, scene.voice_id || selectedVoice);
+    if ((scene.text || "").trim() && !audioUrl) announce(`Speechify could not generate scene ${(scene.order_index ?? 0) + 1}. Check the key in API Keys and retry.`);
     setSingleGeneratingId(null);
   };
 
@@ -510,11 +497,11 @@ export default function VoiceoverStudio({
               <span className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-xl" aria-hidden="true"><Icon glyph="🎙️" /></span>
               <h2 className="text-xl font-bold text-white">Voiceover Studio</h2>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/80 border border-emerald-700/60 text-emerald-300">
-                10 Free Natural Voices Active
+                2 Free Speechify Voice Styles
               </span>
             </div>
             <p className="text-xs text-gray-300 max-w-xl">
-              Select from 10 authentic, natural speaking male & female voices or import your own prepared TTS audio file.
+              Choose from 20 Speechify-backed male and female style profiles, or import your own prepared audio.
             </p>
           </div>
 
@@ -572,27 +559,6 @@ export default function VoiceoverStudio({
             </button>
           </div>
         </div>
-
-        {/* The speech service could not be reached — the audio is a silent
-            placeholder, so say so rather than shipping a mute video. */}
-        {ttsDegraded && (
-          <div className="mt-3 p-3 bg-amber-950/80 border border-amber-600/80 rounded-xl text-amber-200 text-xs flex items-start justify-between gap-3 shadow-lg">
-            <span className="flex items-start gap-2 font-medium">
-              <Icon glyph="⚠" />
-              <span>
-                The neural speech service could not be reached, so the generated tracks are
-                silent placeholders of the right length. Check the machine's internet
-                connection and generate again — no re-editing is needed.
-              </span>
-            </span>
-            <button
-              onClick={() => setTtsDegraded(false)}
-              className="text-amber-400 hover:text-white text-sm font-bold"
-            >
-              ✕
-            </button>
-          </div>
-        )}
 
         {downloadNotice && (
           <div className="mt-3 p-3 bg-gray-900 border border-hairline rounded-xl text-gray-200 text-xs flex items-center justify-between gap-3 shadow-lg animate-fade-in">
@@ -846,7 +812,7 @@ export default function VoiceoverStudio({
         )}
       </div>
 
-      {/* TAB 1: 20 NATURAL SPEAKING VOICES (10 MALE AND 10 FEMALE) */}
+      {/* TAB 1: 20 SPEECHIFY-BASED STYLE PROFILES (10 MALE AND 10 FEMALE) */}
       {activeTab === "natural_voices" && (
         <div className="space-y-4">
           <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-xl space-y-4">
@@ -854,10 +820,10 @@ export default function VoiceoverStudio({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Icon glyph="🎭" /> 20 Natural Speaking Voices
+                  <Icon glyph="🎭" /> 20 Speechify Style Profiles
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  10 male and 10 female natural speaking voices with realistic human intonation — 10 studio voices plus 10 style-inspired narrator personas.
+                  10 male and 10 female profiles preserve Scenering’s familiar narrator archetypes, each bound to a voice in your Speechify catalogue.
                 </p>
               </div>
 

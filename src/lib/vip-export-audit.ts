@@ -105,6 +105,8 @@ export interface VipExportInput {
   motionStyle?: string;
   captionsConfig?: CaptionsConfig | null;
   selectedVoice?: string;
+  /** Per-scene voice IDs matter when a project mixes narrators. */
+  sceneVoices?: string[];
   voiceEcho?: VoiceEchoConfig;
 }
 
@@ -206,7 +208,8 @@ export function auditVipForExport(plan: PlanSlug, input: VipExportInput): VipFin
   }
 
   // The two that cannot simply be left out.
-  const voice = input.selectedVoice || "guy";
+  const outOfPlanSceneVoice = (input.sceneVoices || []).find((voiceId) => !isPlanVoiceIncluded(plan, voiceId));
+  const voice = outOfPlanSceneVoice || input.selectedVoice || "speechify_male_01";
   if (!isPlanVoiceIncluded(plan, voice)) {
     findings.push({
       id: "voice",

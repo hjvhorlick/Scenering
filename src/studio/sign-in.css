@@ -46,9 +46,19 @@
 
 .si-top {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.si-social {
+  margin-left: auto;
+}
+
+@media (max-width: 580px) {
+  .si-top { justify-content: flex-start; }
+  .si-social { margin-left: 0; }
 }
 
 .si-back {

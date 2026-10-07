@@ -20,6 +20,7 @@ import RenderView from "./components/RenderView";
 import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
 import { listVaultRenders, subscribeVault } from "./lib/render-vault";
 import VoiceoverStudio, { STUDIO_VOICE_PRESETS } from "./components/VoiceoverStudio";
+import { migrateLegacyVoiceId } from "./data/voice-presets";
 import CaptionsStudio from "./components/CaptionsStudio";
 import SetupStudio from "./components/SetupStudio";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./components/StepNav";
@@ -116,7 +117,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   scene_animation_enabled: false,
   single_scene: false,
   voiceover_enabled: true,
-  selected_voice: "guy",
+  selected_voice: "speechify_male_01",
   transition: "crossfade",
   customer_logo: {
     enabled: false,
@@ -208,8 +209,14 @@ export default function App() {
   const [currentPlayheadTime, setCurrentPlayheadTime] = useState<number>(0);
   const [selectedInsert, setSelectedInsert] = useState<TimelineInsert | null>(null);
   const [editingInsert, setEditingInsert] = useState<TimelineInsert | null>(null);
-  const [availableVoices, setAvailableVoices] = useState<{ id: string; name: string }[]>(() =>
-    STUDIO_VOICE_PRESETS.map((v) => ({ id: v.id, name: `${v.name} (${v.gender === "male" ? "Male" : "Female"} • ${v.accent})` }))
+  const [availableVoices, setAvailableVoices] = useState<{ id: string; name: string; gender?: "male" | "female"; accent?: string; locale?: string }[]>(() =>
+    STUDIO_VOICE_PRESETS.map((v) => ({
+      id: v.id,
+      name: `${v.name} (${v.gender === "male" ? "Male" : "Female"} • ${v.accent})`,
+      gender: v.gender,
+      accent: v.accent,
+      locale: v.locale,
+    }))
   );
   const [loading, setLoading] = useState(false);
   /** Explains why a phase change was refused (e.g. no project yet) */
@@ -237,7 +244,7 @@ export default function App() {
   const [focusedSceneId, setFocusedSceneId] = useState<number | null>(null);
   const [hasCustomKeys, setHasCustomKeys] = useState(() => {
     const k = getStoredApiKeys();
-    return Boolean(k.pexelsKey || k.pixabayKey);
+    return Boolean(k.pexelsKey || k.pixabayKey || k.speechifyKey);
   });
 
   const [customerLogo, setCustomerLogo] = useState<CustomerLogoConfig>(DEFAULT_PROJECT_SETTINGS.customer_logo);
@@ -623,7 +630,7 @@ export default function App() {
               animation: existing?.animation,
               audio_url: existing?.audio_url || null,
               audio_name: existing?.audio_name || null,
-              voice_id: existing?.voice_id,
+              voice_id: existing?.voice_id ? migrateLegacyVoiceId(existing.voice_id) : undefined,
               // Re-wording the script must never throw away the video the
               // user attached to the scene.
               video_url: existing?.video_url ?? null,
@@ -728,7 +735,7 @@ export default function App() {
   useEffect(() => {
     const checkKeys = () => {
       const k = getStoredApiKeys();
-      setHasCustomKeys(Boolean(k.pexelsKey || k.pixabayKey));
+      setHasCustomKeys(Boolean(k.pexelsKey || k.pixabayKey || k.speechifyKey));
     };
     window.addEventListener("scenering-api-keys-updated", checkKeys);
     return () => window.removeEventListener("scenering-api-keys-updated", checkKeys);
@@ -850,7 +857,7 @@ export default function App() {
       // Apply clean settings to state
       setCustomerLogo(freshSettings.customer_logo);
       setCaptionsConfig(freshSettings.captions_config);
-      setSelectedVoice(freshSettings.selected_voice);
+      setSelectedVoice(migrateLegacyVoiceId(freshSettings.selected_voice) || DEFAULT_PROJECT_SETTINGS.selected_voice);
       setVoiceEcho(resolveVoiceEcho(freshSettings.voice_echo));
       setAspectRatio(freshSettings.aspect_ratio);
       setResolution(freshSettings.resolution);
@@ -980,6 +987,7 @@ export default function App() {
           projectSettings = { ...projectSettings, ...JSON.parse(storedSettings) };
         }
       } catch {}
+      projectSettings.selected_voice = migrateLegacyVoiceId(projectSettings.selected_voice) || DEFAULT_PROJECT_SETTINGS.selected_voice;
 
       // Apply this project's setup and effects
       setNavNotice(null);
@@ -1024,6 +1032,7 @@ export default function App() {
         const finalDur = (merged.duration && merged.duration !== 4) ? merged.duration : projectSettings.scene_duration;
         return {
           ...merged,
+          voice_id: merged.voice_id ? migrateLegacyVoiceId(merged.voice_id) : merged.voice_id,
           transition: (merged.transition as SceneTransitionType) || projTransition,
           duration: finalDur,
         };
@@ -1577,7 +1586,7 @@ export default function App() {
 
           {/* The owner's configured social profiles — same strip as the
               website. Top row, after the logo and project title. */}
-          <SocialLinksRow size={18} className="hidden md:flex shrink-0" />
+          <SocialLinksRow size={36} className="flex shrink-0" />
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
           {/* Scrolls sideways like the Video Studio tab row rather than
@@ -1691,7 +1700,7 @@ export default function App() {
             <button
               onClick={() => setApiKeysModalOpen(true)}
               className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-hairline bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
-              title="Image search API keys (Pexels & Pixabay)"
+              title="Image search and Speechify voiceover API keys"
             >
               <span className="t-ico"><Icon glyph="🔑" /></span>
               <span className="hidden sm:inline">API Keys</span>

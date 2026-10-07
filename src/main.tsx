@@ -35,15 +35,15 @@ if (typeof window !== "undefined") initAnalytics();
 // MarketingSite effect and risking one frame of studio-wide base styles.
 if (typeof window !== "undefined" && routeForPath(window.location.pathname) === "site") {
   document.documentElement.setAttribute("data-mkt", "1");
-  const canonical = document.createElement("link");
+  const canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]') || document.createElement("link");
   canonical.rel = "canonical";
   canonical.href = new URL(window.location.pathname, window.location.origin).toString();
-  document.head.appendChild(canonical);
+  if (!canonical.isConnected) document.head.appendChild(canonical);
 } else if (typeof document !== "undefined") {
-  const robots = document.createElement("meta");
+  const robots = document.head.querySelector<HTMLMetaElement>('meta[name="robots"]') || document.createElement("meta");
   robots.name = "robots";
   robots.content = "noindex,nofollow";
-  document.head.appendChild(robots);
+  if (!robots.isConnected) document.head.appendChild(robots);
 }
 
 /** Quiet placeholder — one paint at most, so it must not flash anything loud. */

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import type { Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, PacingModeType } from "../types";
-import { EDGE_FUNCTION_BASE } from "../lib/supabase";
+import { fetchSpeechifyStudioVoices } from "../lib/speechify-client";
 import {
   getInsertBounds,
   getPresetCoords,
@@ -47,7 +47,7 @@ interface VideoPreviewProps {
   onUpdateInsert?: (updated: TimelineInsert) => void;
   /** Id of the insert currently open in the properties modal (gets drag/resize chrome) */
   selectedInsertId?: string;
-  onVoicesLoaded?: (voices: { id: string; name: string }[]) => void;
+  onVoicesLoaded?: (voices: { id: string; name: string; gender?: "male" | "female"; accent?: string; locale?: string }[]) => void;
   customerLogo?: CustomerLogoConfig;
   onPlayStateChange?: (isPlaying: boolean, togglePlay: () => void) => void;
   selectedVoice?: string;
@@ -174,8 +174,8 @@ export default function VideoPreview({
   const [progress, setProgress] = useState(0);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [audioStatus, setAudioStatus] = useState("");
-  const [selectedVoice, setSelectedVoice] = useState(propSelectedVoice || "en-US-ChristopherNeural");
-  const [voices, setVoices] = useState<{ id: string; name: string }[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState(propSelectedVoice || "speechify_male_01");
+  const [voices, setVoices] = useState<{ id: string; name: string; gender?: "male" | "female"; accent?: string; locale?: string }[]>([]);
   const currentPlayheadTimeRef = useRef(currentPlayheadTime);
 
   const aspectConfig = {
@@ -273,29 +273,20 @@ export default function VideoPreview({
   // A scene counts as renderable if it has a still OR a short video clip.
   const scenesWithImages = scenes.filter(sceneHasVisual);
 
-function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: number): SceneAudio {
-  const sampleRate = audioCtx.sampleRate || 44100;
-  const numSamples = Math.max(1, Math.floor(sampleRate * Math.max(1, durationSeconds)));
-  const buffer = audioCtx.createBuffer(1, numSamples, sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < numSamples; i++) {
-    const t = i / sampleRate;
-    data[i] = Math.sin(2 * Math.PI * 220 * t) * 0.02 * (Math.sin(2 * Math.PI * 3.5 * t) > 0 ? 1 : 0.2);
-  }
-  return { buffer, url: "" };
-}
 
-  // Load voice list on mount
+  // Bind local Scenering styles to the customer's Speechify catalogue directly.
   useEffect(() => {
-    fetch(`${EDGE_FUNCTION_BASE}/tts`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.voices) {
-          setVoices(data.voices);
-          onVoicesLoaded?.(data.voices);
-        }
+    let active = true;
+    fetchSpeechifyStudioVoices()
+      .then((voiceList) => {
+        if (!active) return;
+        setVoices(voiceList);
+        onVoicesLoaded?.(voiceList);
       })
-      .catch(() => {});
+      .catch((error) => {
+        if (active) console.warn("Could not load Speechify voices directly:", error);
+      });
+    return () => { active = false; };
   }, [onVoicesLoaded]);
 
   // Invalidate any cached scene audio whose voice_id or text has changed
@@ -354,13 +345,14 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
   // Synthesize audio for a single scene with per-scene voice support
   const synthesizeScene = useCallback(
-    async (scene: Scene, audioCtx: AudioContext): Promise<SceneAudio> => {
+    async (scene: Scene, audioCtx: AudioContext): Promise<SceneAudio | null> => {
       const activeVoice = propSelectedVoice || selectedVoice;
       const voiceToUse = scene.voice_id || activeVoice;
       const text = (scene.text || "").trim();
       const voiceKey = scene.audio_url ? `imported_${scene.audio_url}` : `${voiceToUse}_${text}`;
+      if (!text && !scene.audio_url) return null;
 
-      // 0. Check pre-generated/saved audio from Voiceover Studio cache, memory or IndexedDB
+      // 0. Check pre-generated/saved audio from Voiceover Studio cache, memory or IndexedDB.
       const resolved = await resolveSceneAudioBuffer(scene, audioCtx);
       if (resolved) {
         return {
@@ -370,68 +362,33 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
           words: resolved.words,
         };
       }
-
-      // 1. Synthesize only if audio was never generated before. The timeline
-      //    variant carries per-word spoken timings so the preview captions
-      //    track the voice exactly like the exported video.
-      try {
-        const withTimeline = await fetchSceneAudioWithTimeline(scene.text || "", voiceToUse, { timeoutMs: 15000 });
-        if (withTimeline) {
-          const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
-          const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
-          const url = URL.createObjectURL(blob);
-          setCachedSceneAudio(scene.id, voiceToUse, text, {
-            audioBuffer,
-            blobUrl: url,
-            duration: audioBuffer.duration,
-            voiceId: voiceToUse,
-            text,
-            rawBuffer: withTimeline.rawBuffer,
-            blob,
-            words: withTimeline.words,
-          });
-          return { buffer: audioBuffer, url, voiceKey, words: withTimeline.words };
-        }
-      } catch (err) {
-        console.warn("TTS timeline synthesis fallback for scene:", scene.id, err);
+      if (scene.audio_url) {
+        throw new Error(`The saved audio for scene ${(scene.order_index ?? 0) + 1} could not be loaded.`);
       }
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-
+      // Speechify is the only synthesis provider. Surface failures rather than
+      // substituting a browser voice, tone, silence, or another TTS service.
       try {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: scene.text, voice: voiceToUse }),
-          signal: controller.signal,
+        const withTimeline = await fetchSceneAudioWithTimeline(text, voiceToUse, { timeoutMs: 15000 });
+        if (!withTimeline) throw new Error("Speechify returned no audio for this scene.");
+        const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
+        const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
+        const url = URL.createObjectURL(blob);
+        setCachedSceneAudio(scene.id, voiceToUse, text, {
+          audioBuffer,
+          blobUrl: url,
+          duration: audioBuffer.duration,
+          voiceId: voiceToUse,
+          text,
+          rawBuffer: withTimeline.rawBuffer,
+          blob,
+          words: withTimeline.words,
         });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const arrayBuf = await res.arrayBuffer();
-          const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-          const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
-          const url = URL.createObjectURL(blob);
-          setCachedSceneAudio(scene.id, voiceToUse, text, {
-            audioBuffer,
-            blobUrl: url,
-            duration: audioBuffer.duration,
-            voiceId: voiceToUse,
-            text,
-            rawBuffer: arrayBuf,
-            blob,
-          });
-          return { buffer: audioBuffer, url, voiceKey };
-        }
-      } catch (err) {
-        clearTimeout(timeoutId);
-        console.warn("TTS synthesis fallback for scene:", scene.id, err);
+        return { buffer: audioBuffer, url, voiceKey, words: withTimeline.words };
+      } catch (error) {
+        console.warn(`Speechify synthesis failed for scene ${scene.id}:`, error);
+        throw error;
       }
-
-      // Safe fallback audio buffer matching scene timing so preview & visualizer continue seamlessly
-      const fallback = createFallbackSceneAudio(audioCtx, scene.duration || 4);
-      return { ...fallback, voiceKey };
     },
     [selectedVoice, propSelectedVoice]
   );
@@ -479,7 +436,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
         }
 
         const audio = await synthesizeScene(scene, audioCtx);
-        newBuffers.set(scene.id, audio);
+        if (audio) newBuffers.set(scene.id, audio);
         completedCount++;
         setAudioStatus(`Generating voice: ${completedCount}/${scenesWithImages.length} ready...`);
       })
@@ -1132,6 +1089,7 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
     // pressing play must not start synthesising one.
     const missingScenes = voiceoverEnabled
       ? scenesWithImages.filter((s) => {
+          if (!s.audio_url && !(s.text || "").trim()) return false;
           const existing = buffers.get(s.id);
           const expectedKey = s.audio_url
             ? `imported_${s.audio_url}`
@@ -1160,11 +1118,22 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
 
       // Only synthesize over the network if voiceover was never generated at all
       if (!allResolvedLocally) {
-        setAudioStatus("Syncing voice dialogue...");
-        const result = await generateAllAudio();
-        if (result) {
-          audioCtx = result.audioCtx;
-          buffers = result.buffers;
+        setAudioStatus("Syncing Speechify voice dialogue...");
+        try {
+          const result = await generateAllAudio();
+          if (result) {
+            audioCtx = result.audioCtx;
+            buffers = result.buffers;
+          }
+        } catch (error: any) {
+          if (!stale()) {
+            setAudioStatus(error?.message || "Speechify could not prepare the narration. Check the Speechify key in API Keys.");
+            setLoadingAudio(false);
+            setIsPlaying(false);
+            playingRef.current = false;
+            startingRef.current = false;
+          }
+          return;
         }
       }
     }
@@ -1662,15 +1631,6 @@ function createFallbackSceneAudio(audioCtx: AudioContext, durationSeconds: numbe
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
               <p className="text-white text-sm font-medium">{audioStatus}</p>
-              <button
-                onClick={() => {
-                  setLoadingAudio(false);
-                  setAudioStatus("Narration ready");
-                }}
-                className="mt-3 px-3 py-1 bg-gray-800 hover:bg-gray-700 border border-hairline text-xs text-gray-200 rounded-md transition-colors cursor-pointer"
-              >
-                Skip & Play Video
-              </button>
             </div>
           )}
         </div>

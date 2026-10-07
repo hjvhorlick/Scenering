@@ -1,237 +1,319 @@
 /**
- * Narrator catalogue — 20 natural speaking voices (10 male, 10 female):
- * 10 studio voices plus 10 narrator personas.
+ * Scenering's 20 Speechify narrator styles (10 male and 10 female).
  *
- * This lives in `src/data/` with the other catalogues (caption styles,
- * filters, templates…) so anything that needs the list — the Voiceover
- * studio, the per-scene voice import modal and the public website — reads the
- * same source of truth. `components/VoiceoverStudio.tsx` re-exports it for
- * backwards compatibility.
+ * These are Scenering style profiles, not provider voice names. At runtime the
+ * customer's Speechify catalogue, fetched directly in their browser, binds
+ * each style to a real Speechify voice with matching gender and a preferred
+ * locale. The first style in each gender group is the Free sample profile.
  */
-
 export interface VoicePreset {
+  /** Stable project ID; the browser resolves it to this customer's Speechify voice. */
   id: string;
   name: string;
   gender: "male" | "female";
+  locale: string;
   accent: string;
   tone: string;
   recommendedFor: string;
   sampleText: string;
+  /** Simba 3.x applies rate changes; pitch/volume are accepted but not applied. */
+  speechifyRate?: string;
 }
 
-// 20 High-Quality Natural Speaking Voices (10 Male and 10 Female) —
-// 10 studio voices plus 10 narrator personas.
+export const FREE_SPEECHIFY_VOICE_IDS = [
+  "speechify_male_01",
+  "speechify_female_01",
+] as const;
+
 export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
-  // 5 Male Natural Voices (Authentic Human Tone)
+  // Male voices — Warm Conversational is the Free male sample, pinned first.
   {
-    id: "guy",
-    name: "Guy",
+    id: "speechify_male_01",
+    name: "Warm Conversational",
     gender: "male",
-    accent: "American (US)",
-    tone: "Warm, Natural & Conversational",
-    recommendedFor: "Documentaries, Explainers & Engaging Stories",
-    sampleText: "Hello! I am Guy, a warm and conversational American male narrator with natural pacing.",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Warm, natural and conversational",
+    recommendedFor: "Documentaries, explainers and engaging stories",
+    sampleText: "Welcome. A good story makes room for curiosity, clarity and a human voice.",
   },
   {
-    id: "christopher",
-    name: "Christopher",
+    id: "speechify_male_02",
+    name: "Deep Cinematic",
     gender: "male",
-    accent: "American (US)",
-    tone: "Authoritative, Deep & Cinematic",
-    recommendedFor: "Dramatic Trailers, Movie Promos & Motivation",
-    sampleText: "In a world of infinite possibilities, every second shapes destiny. Christopher speaking.",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Authoritative, deep and cinematic",
+    recommendedFor: "Dramatic trailers, film promos and motivation",
+    sampleText: "Every choice leaves a mark. Every moment brings the next chapter closer.",
+    speechifyRate: "-8%",
   },
   {
-    id: "ryan",
-    name: "Ryan",
+    id: "speechify_male_03",
+    name: "British Distinguished",
     gender: "male",
-    accent: "British RP (UK)",
-    tone: "Articulate, Sophisticated & Distinguished",
-    recommendedFor: "History, Luxury Brands, Architecture & Academia",
-    sampleText: "Good day. I am Ryan, offering a refined British voice for sophisticated storytelling.",
+    locale: "en-GB",
+    accent: "British English",
+    tone: "Articulate, sophisticated and distinguished",
+    recommendedFor: "History, luxury brands, architecture and academia",
+    sampleText: "Across generations, ideas and craftsmanship shape the places we call home.",
+    speechifyRate: "-4%",
   },
   {
-    id: "william",
-    name: "William",
+    id: "speechify_male_04",
+    name: "Australian Charismatic",
     gender: "male",
-    accent: "Australian (AU)",
-    tone: "Crisp, Charismatic & Friendly",
-    recommendedFor: "Travel Vlogs, Tech Reviews & Casual Entertainment",
-    sampleText: "G'day! William here, bringing an upbeat and charismatic Australian narration to your video.",
+    locale: "en-AU",
+    accent: "Australian English",
+    tone: "Crisp, charismatic and friendly",
+    recommendedFor: "Travel, technology and casual entertainment",
+    sampleText: "G'day. Let's take a closer look at what makes this place unforgettable.",
+    speechifyRate: "+3%",
   },
   {
-    id: "brian",
-    name: "Brian",
+    id: "speechify_male_05",
+    name: "Documentary Professional",
     gender: "male",
-    accent: "American (US)",
-    tone: "Smooth, Relatable & Professional",
-    recommendedFor: "Educational Guides, How-Tos, Podcasts & Explanations",
-    sampleText: "Hi there! I am Brian, providing smooth, trustworthy professional narration for your project.",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Smooth, relatable and professional",
+    recommendedFor: "Documentaries, guides and educational videos",
+    sampleText: "The evidence is clear. Small changes can transform the way a community grows.",
+    speechifyRate: "-4%",
+  },
+  {
+    id: "speechify_male_06",
+    name: "Measured Naturalist",
+    gender: "male",
+    locale: "en-GB",
+    accent: "British English",
+    tone: "Measured, observant and quietly expressive",
+    recommendedFor: "Nature, science and documentary films",
+    sampleText: "At first light, the forest stirs, revealing a world that was hidden in the dark.",
+    speechifyRate: "-10%",
+  },
+  {
+    id: "speechify_male_07",
+    name: "Powerful Baritone",
+    gender: "male",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Monumental, resonant and commanding",
+    recommendedFor: "Cinematic openers, epics and moments of authority",
+    sampleText: "A new horizon appears. The journey begins with one decisive step.",
+    speechifyRate: "-10%",
+  },
+  {
+    id: "speechify_male_08",
+    name: "Energetic Presenter",
+    gender: "male",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Punchy, dynamic and assertive",
+    recommendedFor: "Promos, social clips and high-energy explainers",
+    sampleText: "Stay with us. The most surprising part is still just ahead.",
+    speechifyRate: "+6%",
+  },
+  {
+    id: "speechify_male_09",
+    name: "Irish Authority",
+    gender: "male",
+    locale: "en-IE",
+    accent: "Irish English",
+    tone: "Grounded, assured and distinctive",
+    recommendedFor: "Thrillers, motivation and dramatic storytelling",
+    sampleText: "Listen closely. The detail everyone missed changes the whole story.",
+    speechifyRate: "-8%",
+  },
+  {
+    id: "speechify_male_10",
+    name: "Warm Storyteller",
+    gender: "male",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Deep, warm and unhurried",
+    recommendedFor: "Brand films, long-form stories and reflective narration",
+    sampleText: "Some stories begin quietly, then stay with us long after they are told.",
+    speechifyRate: "-12%",
   },
 
-  // 5 Female Natural Voices (Authentic Human Tone)
+  // Female voices — Clear Conversational is the Free female sample, pinned first.
   {
-    id: "jenny",
-    name: "Jenny",
+    id: "speechify_female_01",
+    name: "Clear Conversational",
     gender: "female",
-    accent: "American (US)",
-    tone: "Clear, Friendly & Engaging",
-    recommendedFor: "Tutorials, Product Reviews, Guides & Lifestyle",
-    sampleText: "Hello there! I am Jenny, a clear and friendly American female voice for your videos.",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Clear, friendly and engaging",
+    recommendedFor: "Tutorials, reviews, guides and lifestyle videos",
+    sampleText: "Hello there. Let's make this simple, useful and enjoyable from the very first step.",
   },
   {
-    id: "aria",
-    name: "Aria",
+    id: "speechify_female_02",
+    name: "Bright Modern Presenter",
     gender: "female",
-    accent: "American (US)",
-    tone: "Crisp, Dynamic, Bright & Modern",
-    recommendedFor: "Viral Shorts, Reels, TikTok Highlights & Tech",
-    sampleText: "Hey everyone! Aria here with high-energy, vibrant narration to keep your viewers hooked.",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Crisp, dynamic, bright and modern",
+    recommendedFor: "Short-form video, social highlights and technology",
+    sampleText: "Here's the idea: clear choices, thoughtful design and a result you can use today.",
+    speechifyRate: "+5%",
   },
   {
-    id: "sonia",
-    name: "Sonia",
+    id: "speechify_female_03",
+    name: "British Elegant Narrator",
     gender: "female",
-    accent: "British RP (UK)",
-    tone: "Polished, Elegant & Expressive",
-    recommendedFor: "Audiobooks, Podcasts, Storytelling & Literature",
-    sampleText: "Welcome. I am Sonia, delivering an elegant and expressive British narration with emotional depth.",
+    locale: "en-GB",
+    accent: "British English",
+    tone: "Polished, expressive and elegant",
+    recommendedFor: "Audiobooks, podcasts, literature and storytelling",
+    sampleText: "Welcome. Every detail has its place, and every moment has a story to tell.",
+    speechifyRate: "-5%",
   },
   {
-    id: "natasha",
-    name: "Natasha",
+    id: "speechify_female_04",
+    name: "Australian Calm",
     gender: "female",
-    accent: "Australian (AU)",
-    tone: "Calm, Soothing & Resonant",
-    recommendedFor: "Meditation, Nature Docs, Wellness & Bedtime Stories",
-    sampleText: "Take a gentle breath and relax. Natasha here, sharing a calm and soothing Australian voice.",
+    locale: "en-AU",
+    accent: "Australian English",
+    tone: "Gentle, soothing and resonant",
+    recommendedFor: "Wellness, nature films and relaxed narration",
+    sampleText: "Take a slow breath. Let the sound of the waves carry you into the moment.",
+    speechifyRate: "-7%",
   },
   {
-    id: "ava",
-    name: "Ava",
+    id: "speechify_female_05",
+    name: "Peaceful Guide",
     gender: "female",
-    accent: "American (US)",
-    tone: "Peaceful, Balanced & Melodic",
-    recommendedFor: "Wellness, Relaxation, Ambient Guides & Reflection",
-    sampleText: "Hello. I am Ava, offering a gentle, peaceful voice designed to bring balance and clarity.",
-  },
-
-  // 5 Male Narrator Personas — neural voices tuned to a described delivery
-  {
-    id: "storyteller",
-    name: "The Storyteller",
-    gender: "male",
-    accent: "American (US)",
-    tone: "Deep, Resonant, Warm Storyteller",
-    recommendedFor: "Documentaries, Storytelling & Brand Films",
-    sampleText: "Some stories begin quietly, and slowly, they change everything. Let me tell you one.",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Peaceful, balanced and melodic",
+    recommendedFor: "Relaxation, reflection and ambient guides",
+    sampleText: "There is no need to rush. Give yourself a moment to notice what matters.",
+    speechifyRate: "-8%",
   },
   {
-    id: "naturalist",
-    name: "The Naturalist",
-    gender: "male",
-    accent: "British (UK)",
-    tone: "Breathy, Hushed Awe Nature Documentary",
-    recommendedFor: "Nature, Science & Documentary Films",
-    sampleText: "Here, in the remote corners of our planet, extraordinary things are waiting to be discovered.",
-  },
-  {
-    id: "titan",
-    name: "The Titan",
-    gender: "male",
-    accent: "American (US)",
-    tone: "Booming, Monumental Deep Bass",
-    recommendedFor: "Cinematic Openers, Epics & Authority",
-    sampleText: "In the beginning, there was a voice. And that voice carried the weight of kingdoms.",
-  },
-  {
-    id: "sentinel",
-    name: "The Sentinel",
-    gender: "male",
-    accent: "Irish (IE)",
-    tone: "Authoritative Irish Baritone & Gritty Gravitas",
-    recommendedFor: "Thrillers, Motivation & Dramatic Reads",
-    sampleText: "Listen carefully, because what you are about to hear will not soon be forgotten.",
-  },
-  {
-    id: "firebrand",
-    name: "The Firebrand",
-    gender: "male",
-    accent: "American (US)",
-    tone: "Punchy, Dynamic, Assertive Attitude",
-    recommendedFor: "High-Energy Promos, Reactions & Entertainment",
-    sampleText: "Hold on to your seats, because this story does not slow down for anybody.",
-  },
-
-  // 5 Female Narrator Personas — neural voices tuned to a described delivery
-  {
-    id: "raconteur",
-    name: "The Raconteur",
+    id: "speechify_female_06",
+    name: "Warm Articulate",
     gender: "female",
-    accent: "British (UK)",
-    tone: "Witty, Warm & Articulate British Charm",
-    recommendedFor: "Intelligent Explainers, Drama & Audiobooks",
-    sampleText: "Intelligence and warmth are not opposites — allow me to demonstrate, one story at a time.",
+    locale: "en-GB",
+    accent: "British English",
+    tone: "Witty, warm and articulate",
+    recommendedFor: "Intelligent explainers, drama and audiobooks",
+    sampleText: "A little patience and a fresh perspective can make an ordinary day remarkable.",
+    speechifyRate: "-5%",
   },
   {
-    id: "sovereign",
-    name: "The Sovereign",
+    id: "speechify_female_07",
+    name: "Stately Narrator",
     gender: "female",
-    accent: "British (UK)",
-    tone: "Stately, Regal & Poised British Dame",
-    recommendedFor: "Luxury Brands, History & Prestige",
-    sampleText: "Elegance is not about what you say. It is about how you say it.",
+    locale: "en-GB",
+    accent: "British English",
+    tone: "Poised, polished and quietly authoritative",
+    recommendedFor: "Luxury brands, history and prestige storytelling",
+    sampleText: "Elegance is not only what we see. It is also the care behind every choice.",
+    speechifyRate: "-7%",
   },
   {
-    id: "enigma",
-    name: "The Enigma",
+    id: "speechify_female_08",
+    name: "Velvet Sophisticate",
     gender: "female",
-    accent: "Australian (AU)",
-    tone: "Ethereal, Velvety & Hypnotic Sophistication",
-    recommendedFor: "Art, Culture & Sophisticated Narration",
-    sampleText: "Every frame, every silence, every glance carries meaning. Let us begin.",
+    locale: "en-AU",
+    accent: "Australian English",
+    tone: "Resonant, refined and contemplative",
+    recommendedFor: "Art, culture and sophisticated narration",
+    sampleText: "Every frame, every silence and every glance carries a meaning of its own.",
+    speechifyRate: "-6%",
   },
   {
-    id: "investigator",
-    name: "The Investigator",
+    id: "speechify_female_09",
+    name: "Documentary Authority",
     gender: "female",
-    accent: "American (US)",
-    tone: "Smoky, Grounded & Cool Documentary Authority",
-    recommendedFor: "Documentaries, Science & Investigative",
-    sampleText: "What we are about to witness is real, and it is extraordinary. Observe closely.",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Steady, grounded and assured",
+    recommendedFor: "Documentaries, science and investigative stories",
+    sampleText: "What we are about to see is real. The facts reveal a remarkable discovery.",
+    speechifyRate: "-6%",
   },
   {
-    id: "confidante",
-    name: "The Confidante",
+    id: "speechify_female_10",
+    name: "Radiant Storyteller",
     gender: "female",
-    accent: "American (US)",
-    tone: "Radiant, Smiling & Warm Conversational Lilt",
-    recommendedFor: "Conversational Vlogs, Lifestyle & Interviews",
-    sampleText: "Hey, come on in — grab a coffee and let me tell you a little story.",
+    locale: "en-US",
+    accent: "American English",
+    tone: "Radiant, warm and conversational",
+    recommendedFor: "Vlogs, lifestyle and friendly interviews",
+    sampleText: "Come on in, get comfortable, and let me share a story with you.",
+    speechifyRate: "+2%",
   },
 ];
 
 /**
- * The personas were once named after actors. They do not sound like those
- * actors, so the names now describe the delivery instead. Projects and cached
- * audio saved under the old ids still resolve through here.
+ * Import migration only. These historical project values are never presented
+ * as catalogue choices or sent to a speech provider as voice bindings.
  */
 export const LEGACY_VOICE_IDS: Record<string, string> = {
-  freeman: "storyteller",
-  attenborough: "naturalist",
-  jones: "titan",
-  neeson: "sentinel",
-  jackson: "firebrand",
-  thompson: "raconteur",
-  mirren: "sovereign",
-  blanchett: "enigma",
-  weaver: "investigator",
-  roberts: "confidante",
+  guy: "speechify_male_01",
+  christopher: "speechify_male_02",
+  ryan: "speechify_male_03",
+  william: "speechify_male_04",
+  brian: "speechify_male_05",
+  storyteller: "speechify_male_10",
+  freeman: "speechify_male_10",
+  naturalist: "speechify_male_06",
+  attenborough: "speechify_male_06",
+  titan: "speechify_male_07",
+  jones: "speechify_male_07",
+  firebrand: "speechify_male_08",
+  jackson: "speechify_male_08",
+  sentinel: "speechify_male_09",
+  neeson: "speechify_male_09",
+  jenny: "speechify_female_01",
+  aria: "speechify_female_02",
+  sonia: "speechify_female_03",
+  natasha: "speechify_female_04",
+  ava: "speechify_female_05",
+  raconteur: "speechify_female_06",
+  thompson: "speechify_female_06",
+  sovereign: "speechify_female_07",
+  mirren: "speechify_female_07",
+  enigma: "speechify_female_08",
+  blanchett: "speechify_female_08",
+  investigator: "speechify_female_09",
+  weaver: "speechify_female_09",
+  confidante: "speechify_female_10",
+  roberts: "speechify_female_10",
+  "en-us-guyneural": "speechify_male_01",
+  "en-us-christopherneural": "speechify_male_02",
+  "en-gb-ryanneural": "speechify_male_03",
+  "en-au-williammultilingualneural": "speechify_male_04",
+  "en-us-brianneural": "speechify_male_05",
+  "en-gb-thomasneural": "speechify_male_06",
+  "en-us-ericneural": "speechify_male_08",
+  "en-ie-connorneural": "speechify_male_09",
+  "en-us-jennyneural": "speechify_female_01",
+  "en-us-arianeural": "speechify_female_02",
+  "en-gb-sonianeural": "speechify_female_03",
+  "en-au-natashaneural": "speechify_female_04",
+  "en-us-avaneural": "speechify_female_05",
+  "en-gb-libbynural": "speechify_female_06",
+  "en-us-michelleneural": "speechify_female_09",
+  "en-us-emmamultilingualneural": "speechify_female_10",
 };
 
-/** The preset for an id, accepting ids saved before the rename. */
+/** Convert a historical voice identifier to its new Scenering profile ID. */
+export function migrateLegacyVoiceId(id: string | null | undefined): string {
+  const original = (id || "").trim();
+  const normalized = original.toLowerCase().replace(/^(browser:|web:)/, "");
+  // Preserve case for direct customer-owned Speechify IDs: provider IDs are
+  // opaque and may be case-sensitive. Only known historical IDs are rewritten.
+  return LEGACY_VOICE_IDS[normalized] || original;
+}
+
+/** Resolve a saved id to its Scenering Speechify style, including project migrations. */
 export function resolveVoicePreset(id: string | null | undefined): VoicePreset | undefined {
   if (!id) return undefined;
-  const wanted = LEGACY_VOICE_IDS[id] ?? id;
-  return STUDIO_VOICE_PRESETS.find((voice) => voice.id === wanted);
+  const migrated = migrateLegacyVoiceId(id).toLowerCase();
+  return STUDIO_VOICE_PRESETS.find((voice) => voice.id === migrated);
 }

@@ -33,7 +33,8 @@ for (const header of ["Content-Security-Policy", "Strict-Transport-Security", "X
 h.ok(server.includes("allowedImageHost"), "image proxy has an explicit host allowlist");
 h.ok(server.includes('parsed.protocol !== "https:"'), "image proxy accepts only HTTPS upstreams");
 h.ok(server.includes("Unsafe image redirect"), "image proxy revalidates redirects");
-h.ok(server.includes("requirePlatformUser") && server.includes("tts-synthesis"), "hosted TTS requires authentication and rate limiting");
+const speechifyClient = readFileSync("src/lib/speechify-client.ts", "utf8");
+h.ok(!server.includes("/api/tts") && !server.includes("X-Speechify-Key") && speechifyClient.includes("https://api.speechify.ai/v1"), "Speechify BYOK requests bypass the Worker and go directly from the browser to the provider");
 h.ok(server.includes("ownerId") && server.includes("randomBytes(18)"), "uploaded audio uses account ownership and cryptographic ids");
 const supabaseClient = readFileSync("src/lib/supabase.ts", "utf8");
 h.ok(supabaseClient.includes('EDGE_FUNCTION_BASE = "/api"'), "client cannot bypass the authenticated server through legacy Edge Functions");

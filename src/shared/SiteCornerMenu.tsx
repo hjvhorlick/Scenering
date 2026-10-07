@@ -98,7 +98,7 @@ export default function SiteCornerMenu() {
       {/* The owner's configured social profiles — the same strip the public
           footers show, so the studio carries them too. Renders nothing until
           links are saved in Owner administration. */}
-      <SocialLinksRow size={20} style={{ padding: "10px 14px 0" }} />
+      <SocialLinksRow size={40} style={{ padding: "10px 14px 0" }} />
       <div className="sc-corner-legal"><button onClick={() => go("/privacy")}>Privacy</button><button onClick={() => go("/terms")}>Terms</button><button onClick={() => go("/cookies")}>Cookies</button></div>
     </div>}
   </div>;

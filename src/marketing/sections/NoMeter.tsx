@@ -2,7 +2,7 @@ import { Section, SectionHead, Pill } from "../components/primitives";
 import { NO_METER, VISUAL_SOURCES } from "../product-facts";
 
 /**
- * "No credits. No tokens. No counter."
+ * "Your Speechify account. No Scenering TTS meter."
  *
  * The answer to the first question on the page, and the one claim most worth
  * getting exactly right. Every line is a statement about how the app is
@@ -11,9 +11,8 @@ import { NO_METER, VISUAL_SOURCES } from "../product-facts";
  * the pictures are photographs from the libraries listed below and the render
  * runs on the visitor's own machine.
  *
- * The one place a paid model can appear — an optional Gemini key for
- * narration — is printed here rather than buried, because a promise with a
- * hidden exception is worse than no promise.
+ * Speechify BYOK pricing and failure behavior are printed here rather than
+ * buried, because a promise with a hidden exception is worse than no promise.
  */
 export default function NoMeter() {
   const openSources = VISUAL_SOURCES.filter((source) => source.access !== "bundled");

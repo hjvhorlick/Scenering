@@ -2,6 +2,13 @@
 
 ## Unreleased — Images that arrive framed, honest VIP exports, and a Fairy shelf
 
+- **Speechify BYOK narration replaces the old TTS providers.** The existing API
+  Keys modal stores the customer's Speechify key in the browser and requests
+  audio and voice catalogues directly from Speechify; the key is not sent to
+  Scenering or Cloudflare. The voice picker has exactly ten male and ten female
+  Speechify-bound style profiles, with one Free voice first in each group.
+  Preview/export failures are surfaced; no alternate speech provider, browser
+  voice or silent audio placeholder is substituted.
 - **Fixed: Cloudflare deploys failed with `KV namespace '…' is not valid
   [10042]`.** `wrangler.jsonc` still carried placeholder resource ids — PR
   #35's placeholder round-trip had reverted the real KV namespace id, and the

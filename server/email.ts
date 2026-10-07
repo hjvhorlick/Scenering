@@ -1,6 +1,12 @@
 import { env } from "../src/env.ts";
+import {
+  buildBrandedTextEmail,
+  buildPasswordResetEmail,
+  buildVerificationEmail,
+  type EmailTemplateKind,
+} from "../src/lib/email-templates.ts";
 
-export type EmailKind = "verification" | "password_reset" | "subscription" | "security" | "training" | "marketing";
+export type EmailKind = EmailTemplateKind;
 export interface EmailMessage { to: string; subject: string; text: string; html?: string; kind: EmailKind }
 export interface EmailProvider { send(message: EmailMessage): Promise<void> }
 
@@ -53,16 +59,20 @@ function provider(): EmailProvider {
 }
 
 export async function sendTransactionalEmail(message: Omit<EmailMessage, "kind"> & { kind?: Exclude<EmailKind, "marketing" | "training"> }) {
-  return provider().send({ ...message, kind: message.kind || "security" });
+  const kind = message.kind || "security";
+  const html = message.html || buildBrandedTextEmail(kind, message.subject, message.text).html;
+  return provider().send({ ...message, kind, html });
 }
 export async function sendMarketingEmail(message: Omit<EmailMessage, "kind"> & { kind?: "marketing" | "training" }) {
-  return provider().send({ ...message, kind: message.kind || "marketing" });
+  const kind = message.kind || "marketing";
+  const html = message.html || buildBrandedTextEmail(kind, message.subject, message.text).html;
+  return provider().send({ ...message, kind, html });
 }
 export async function sendVerificationEmail(to: string, name: string, url: string) {
-  return sendTransactionalEmail({ to, kind: "verification", subject: "Verify your Scenering email", text: `Hello ${name},\n\nVerify your email to open Scenering:\n${url}\n\nThis link expires in 24 hours.` });
+  return sendTransactionalEmail({ to, kind: "verification", ...buildVerificationEmail(name, url) });
 }
 export async function sendPasswordResetEmail(to: string, name: string, url: string) {
-  return sendTransactionalEmail({ to, kind: "password_reset", subject: "Reset your Scenering password", text: `Hello ${name},\n\nReset your password here:\n${url}\n\nThis link expires in one hour. Ignore this message if you did not request it.` });
+  return sendTransactionalEmail({ to, kind: "password_reset", ...buildPasswordResetEmail(name, url) });
 }
 export async function sendSubscriptionEmail(to: string, subject: string, text: string) {
   return sendTransactionalEmail({ to, kind: "subscription", subject, text });
