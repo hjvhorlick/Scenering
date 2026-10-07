@@ -702,16 +702,10 @@ export function stopAllSoundPreviews(): void {
   currentActiveUrl = null;
   notifyAudioListeners(null, false, currentPreviewVolume);
 
-  // Also stop any TTS or SpeechSynthesis that might be speaking, so a preview
-  // never keeps talking over the next one.
+  // Stop any active Speechify preview so it never talks over the next sound.
   try {
     ttsPlayer.stop();
   } catch {}
-  if (typeof window !== "undefined" && "speechSynthesis" in window) {
-    try {
-      window.speechSynthesis.cancel();
-    } catch {}
-  }
 }
 
 // Adjust volume in real time for currently playing sound
@@ -869,8 +863,8 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
     doc += `🎙️ VOICEOVER & SPEECH SYNTHESIS (TTS):
 • Voice Profile: ${voiceName}
   Profile Type: ${voiceGender ? `${voiceGender.toUpperCase()} • ` : ""}${voiceAccent || "Studio Narration"}
-  Technology: ${voiceEngine || "Neural AI Speech & Web Speech API Standards"}
-  License: Royalty-Free Commercial & Personal Synthetic Audio Production License
+  Technology: ${voiceEngine || "Speechify text-to-speech (customer-provided API key)"}
+  License: ${!voiceEngine || /speechify/i.test(voiceEngine) ? "Subject to Speechify's current terms and the customer's account plan" : "The creator is responsible for the rights to imported audio"}
 
 `;
   }

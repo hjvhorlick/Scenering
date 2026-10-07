@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import type { Scene } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
-import { getNarrationHeaders } from "../lib/api-keys";
-import { isGeminiKeyRequiredResponse, noteGeminiKeyRequired } from "../lib/gemini-narration";
+import { getStoredApiKeys } from "../lib/api-keys";
+import { STUDIO_VOICE_PRESETS, migrateLegacyVoiceId } from "../data/voice-presets";
+import { isPlanVoiceIncluded } from "../config/plans";
+import { getInterfacePlan, useSession } from "../lib/session";
+import { buildSpeechifyVoiceDirectory, fetchSpeechifyVoiceCatalog, synthesizeSpeechify } from "../lib/speechify-client";
 import Icon, { iconify } from "./icons/Icon";
 
 interface VoiceImportModalProps {
@@ -15,160 +18,19 @@ interface VoiceImportModalProps {
   onApplyVoiceToAllScenes?: (voiceId: string) => void;
 }
 
-export const REAL_STUDIO_VOICES = [
-  // Male Profiles
-  {
-    id: "guy",
-    name: "Marcus (American Studio Baritone)",
-    gender: "male" as const,
-    accent: "American",
-    desc: "Warm, natural, conversational studio narrator. Perfect for explainers and documentaries.",
-    sampleText: "Welcome to the project. Every scene is crafted with authentic cinematic tone and timing.",
-  },
-  {
-    id: "christopher",
-    name: "Christopher (Deep Cinematic Trailer)",
-    gender: "male" as const,
-    accent: "American",
-    desc: "Deep, authoritative, epic movie trailer baritone with commanding resonance.",
-    sampleText: "In a world of infinite possibilities, only the boldest visions redefine history.",
-  },
-  {
-    id: "ryan",
-    name: "Arthur (British BBC Documentary)",
-    gender: "male" as const,
-    accent: "British RP",
-    desc: "Distinguished, articulate, and erudite narration for premium brands and history.",
-    sampleText: "Across the vast landscapes of imagination, elegance and precision illuminate every detail.",
-  },
-  {
-    id: "william",
-    name: "Liam (Australian Dynamic Presenter)",
-    gender: "male" as const,
-    accent: "Australian",
-    desc: "Upbeat, energetic, friendly commercial voice for travel and tech stories.",
-    sampleText: "G'day! Let's dive straight into the action and create something truly unforgettable.",
-  },
-
-  // Female Profiles
-  {
-    id: "jenny",
-    name: "Sarah (American Natural Storyteller)",
-    gender: "female" as const,
-    accent: "American",
-    desc: "Warm, clear, and engaging conversational storytelling with genuine emotion.",
-    sampleText: "Every great story starts with a spark of curiosity and a voice that connects directly to the heart.",
-  },
-  {
-    id: "aria",
-    name: "Chloe (Modern Bright Presenter)",
-    gender: "female" as const,
-    accent: "American",
-    desc: "Crisp, dynamic, bright, and vibrant voice for modern videos and social media.",
-    sampleText: "Hey there! Get ready for an electrifying showcase that will captivate your entire audience.",
-  },
-  {
-    id: "sonia",
-    name: "Emma (British Classic Storyteller)",
-    gender: "female" as const,
-    accent: "British RP",
-    desc: "Polished, expressive, and captivating audiobook narration with classical elegance.",
-    sampleText: "Chapter one: A journey through timeless elegance, where every spoken word paints an indelible portrait.",
-  },
-  {
-    id: "natasha",
-    name: "Maya (Australian Calming Narrator)",
-    gender: "female" as const,
-    accent: "Australian",
-    desc: "Gentle, soothing, resonant, and peaceful voice ideal for wellness and nature.",
-    sampleText: "Breathe in deeply, find stillness in the moment, and let the gentle rhythm guide your focus.",
-  },
-
-  // Persona Narrator Presets — style-inspired neural voices (not the actors)
-  {
-    id: "storyteller",
-    name: "The Storyteller (Deep Warm Storyteller)",
-    gender: "male" as const,
-    accent: "American",
-    desc: "Deep, warm, unhurried storytelling that makes any script feel important.",
-    sampleText: "Some stories begin quietly, and slowly, they change everything. Let me tell you one.",
-  },
-  {
-    id: "naturalist",
-    name: "The Naturalist (Calm Documentary)",
-    gender: "male" as const,
-    accent: "British",
-    desc: "Calm, measured British documentary narration for nature and science.",
-    sampleText: "Here, in the remote corners of our planet, extraordinary things are waiting to be discovered.",
-  },
-  {
-    id: "titan",
-    name: "The Titan (Deep Powerful)",
-    gender: "male" as const,
-    accent: "American",
-    desc: "Very deep, commanding and powerful voice for cinematic authority.",
-    sampleText: "In the beginning, there was a voice. And that voice carried the weight of kingdoms.",
-  },
-  {
-    id: "sentinel",
-    name: "The Sentinel (Strong Authoritative)",
-    gender: "male" as const,
-    accent: "Irish",
-    desc: "Authoritative Irish male baritone with calm, gritty cinematic gravitas.",
-    sampleText: "I have a particular set of skills. Listen carefully, because what you are about to hear will not soon be forgotten.",
-  },
-  {
-    id: "firebrand",
-    name: "The Firebrand (Energetic Distinctive)",
-    gender: "male" as const,
-    accent: "American",
-    desc: "Energetic, bright and distinctive delivery that commands attention.",
-    sampleText: "Hold on to your seats, because this story does not slow down for anybody.",
-  },
-  {
-    id: "raconteur",
-    name: "The Raconteur (Warm Intelligent)",
-    gender: "female" as const,
-    accent: "British",
-    desc: "Warm, intelligent British narration for explainers and drama.",
-    sampleText: "Intelligence and warmth are not opposites — allow me to demonstrate, one story at a time.",
-  },
-  {
-    id: "sovereign",
-    name: "The Sovereign (Elegant Authoritative)",
-    gender: "female" as const,
-    accent: "British",
-    desc: "Elegant, polished and authoritative voice for prestige content.",
-    sampleText: "Elegance is not about what you say. It is about how you say it.",
-  },
-  {
-    id: "enigma",
-    name: "The Enigma (Sophisticated Narrator)",
-    gender: "female" as const,
-    accent: "Australian",
-    desc: "Sophisticated, resonant narration for art and culture.",
-    sampleText: "Every frame, every silence, every glance carries meaning. Let us begin.",
-  },
-  {
-    id: "investigator",
-    name: "The Investigator (Strong Documentary)",
-    gender: "female" as const,
-    accent: "American",
-    desc: "Strong, steady documentary-style female narration.",
-    sampleText: "What we are about to witness is real, and it is extraordinary. Observe closely.",
-  },
-  {
-    id: "confidante",
-    name: "The Confidante (Warm Conversational)",
-    gender: "female" as const,
-    accent: "American",
-    desc: "Warm, friendly and conversational tone that feels like a friend.",
-    sampleText: "Hey, come on in — grab a coffee and let me tell you a little story.",
-  },
-];
+export const REAL_STUDIO_VOICES = STUDIO_VOICE_PRESETS.map((voice) => ({
+  id: voice.id,
+  name: voice.name,
+  gender: voice.gender,
+  accent: voice.accent,
+  desc: `${voice.tone}. ${voice.recommendedFor}.`,
+  sampleText: voice.sampleText,
+}));
 
 export interface RealVoiceItem {
+  /** Provider ID used for search/display; profileId routes through the plan-aware curated binding when available. */
   id: string;
+  profileId?: string;
   name: string;
   gender: "male" | "female";
   locale: string;
@@ -185,31 +47,72 @@ export default function VoiceImportModal({
   onAttachAudio,
   onApplyVoiceToAllScenes,
 }: VoiceImportModalProps) {
+  const { account } = useSession();
+  const currentPlan = getInterfacePlan(account);
+  const canBrowseAdvancedVoices = isPlanVoiceIncluded(currentPlan, "speechify_male_02");
   const [activeTab, setActiveTab] = useState<"library" | "all_directory" | "upload" | "record">("library");
   const [genderFilter, setGenderFilter] = useState<"all" | "male" | "female">("all");
-  const [selectedVoiceId, setSelectedVoiceId] = useState<string>(scene?.voice_id || "guy");
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>(migrateLegacyVoiceId(scene?.voice_id) || "speechify_male_01");
   const [previewPlayingId, setPreviewPlayingId] = useState<string | null>(null);
   const [loadingAudio, setLoadingAudio] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // 300+ Full Free Real Voices from Server
+  // The customer-owned Speechify key is used only for browser-to-Speechify
+  // requests; it is never attached to a Scenering/Cloudflare request.
   const [allVoicesList, setAllVoicesList] = useState<RealVoiceItem[]>([]);
   const [loadingVoicesList, setLoadingVoicesList] = useState(false);
+  const [voiceDirectoryError, setVoiceDirectoryError] = useState<string | null>(null);
+  const [hasSpeechifyKey, setHasSpeechifyKey] = useState(() => Boolean(getStoredApiKeys().speechifyKey));
 
   useEffect(() => {
-    if (isOpen && allVoicesList.length === 0) {
-      setLoadingVoicesList(true);
-      fetch("/api/tts/voices?all=true")
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.voices && Array.isArray(data.voices)) {
-            setAllVoicesList(data.voices);
-          }
-        })
-        .catch((err) => console.warn("Could not load all voices:", err))
-        .finally(() => setLoadingVoicesList(false));
+    if (!isOpen) return;
+    setSelectedVoiceId(migrateLegacyVoiceId(scene?.voice_id) || "speechify_male_01");
+    setAttachmentError(null);
+  }, [isOpen, scene?.voice_id]);
+
+  useEffect(() => {
+    const refreshProviderKey = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      const nextKey = typeof detail?.speechifyKey === "string"
+        ? detail.speechifyKey.trim()
+        : getStoredApiKeys().speechifyKey;
+      setHasSpeechifyKey(Boolean(nextKey));
+      setAllVoicesList([]);
+      setVoiceDirectoryError(null);
+    };
+    window.addEventListener("scenering-api-keys-updated", refreshProviderKey);
+    return () => window.removeEventListener("scenering-api-keys-updated", refreshProviderKey);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!hasSpeechifyKey) {
+      setAllVoicesList([]);
+      setLoadingVoicesList(false);
+      setVoiceDirectoryError(null);
+      return;
     }
-  }, [isOpen, allVoicesList.length]);
+    if (allVoicesList.length > 0) return;
+
+    let active = true;
+    setLoadingVoicesList(true);
+    setVoiceDirectoryError(null);
+    fetchSpeechifyVoiceCatalog()
+      .then((catalog) => buildSpeechifyVoiceDirectory(catalog, canBrowseAdvancedVoices))
+      .then((voices) => {
+        if (active) setAllVoicesList(voices);
+      })
+      .catch((error: any) => {
+        if (!active) return;
+        console.warn("Could not load Speechify voices directly:", error);
+        setVoiceDirectoryError(error?.message || "Could not load Speechify voices.");
+      })
+      .finally(() => {
+        if (active) setLoadingVoicesList(false);
+      });
+    return () => { active = false; };
+  }, [isOpen, allVoicesList.length, hasSpeechifyKey, canBrowseAdvancedVoices]);
 
   // File Upload State
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -255,8 +158,9 @@ export default function VoiceImportModal({
       await ttsPlayer.play(sampleText, voiceId, 1.0, 1.0, voiceId, () => {
         setPreviewPlayingId(null);
       });
-    } catch {
+    } catch (error: any) {
       setPreviewPlayingId(null);
+      setAttachmentError(error?.message || "Speechify voice preview failed. Check the key in API Keys.");
     }
   };
 
@@ -334,55 +238,40 @@ export default function VoiceImportModal({
     }
   };
 
-  // Attach selected library voice (synthesizes audio directly and caches it)
+  // Attach a selected Speechify voice to the scene. Errors are surfaced in
+  // this modal; a failed request must never leave a blank/placeholder track.
   const handleAttachLibraryVoice = async (applyAll = false) => {
     if (!scene && !applyAll) return;
     setLoadingAudio(true);
+    setAttachmentError(null);
 
     try {
       if (applyAll && onApplyVoiceToAllScenes) {
         onApplyVoiceToAllScenes(selectedVoiceId);
+        setLoadingAudio(false);
         onClose();
         return;
       }
 
       if (scene) {
-        // Fetch synthesized audio to attach directly
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...getNarrationHeaders() },
-          body: JSON.stringify({ text: scene.text, voice: selectedVoiceId }),
-        });
-
-        if (isGeminiKeyRequiredResponse(res)) noteGeminiKeyRequired();
-
-        if (res.ok) {
-          const blob = await res.blob();
-          const audioUrl = URL.createObjectURL(blob);
-          const audioObj = new Audio(audioUrl);
-
-          audioObj.onloadedmetadata = () => {
-            const dur = Math.ceil(audioObj.duration || scene.duration || 4);
-            onAttachAudio(scene.id, audioUrl, `Real Studio Voice (${selectedVoiceId})`, dur);
-            setLoadingAudio(false);
-            onClose();
-          };
-
-          audioObj.onerror = () => {
-            onAttachAudio(scene.id, audioUrl, `Real Studio Voice (${selectedVoiceId})`, scene.duration || 4);
-            setLoadingAudio(false);
-            onClose();
-          };
-        } else {
-          // Fallback: assign voice_id directly
-          onAttachAudio(scene.id, "", `Real Studio Voice (${selectedVoiceId})`, scene.duration || 4);
+        const synthesized = await synthesizeSpeechify(scene.text || "", selectedVoiceId);
+        const audioUrl = URL.createObjectURL(synthesized.blob);
+        const audioObj = new Audio(audioUrl);
+        audioObj.onloadedmetadata = () => {
+          const duration = Math.ceil(audioObj.duration || scene.duration || 4);
+          onAttachAudio(scene.id, audioUrl, `Speechify Voice (${selectedVoiceId})`, duration);
           setLoadingAudio(false);
           onClose();
-        }
+        };
+        audioObj.onerror = () => {
+          URL.revokeObjectURL(audioUrl);
+          setLoadingAudio(false);
+          setAttachmentError("The Speechify audio could not be decoded by this browser.");
+        };
       }
-    } catch {
+    } catch (error: any) {
       setLoadingAudio(false);
-      onClose();
+      setAttachmentError(error?.message || "Could not attach this Speechify voice.");
     }
   };
 
@@ -465,7 +354,7 @@ export default function VoiceImportModal({
             onClick={() => setActiveTab("all_directory")}
             className={`opt-btn ${activeTab === "all_directory" ? "opt-btn-on" : ""}`}
           >
-            <Icon glyph="🌐" /> 300+ Free Real Voices
+            <Icon glyph="🌐" /> {hasSpeechifyKey ? "Speechify Voice Library" : "More Voices"}
             {allVoicesList.length > 0 && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800">
                 {allVoicesList.length}
@@ -488,6 +377,16 @@ export default function VoiceImportModal({
 
         {/* Modal Body */}
         <div className="p-4 sm:p-5 space-y-4">
+          {attachmentError && (
+            <div role="alert" className="p-3 bg-amber-950/70 border border-amber-700/70 rounded-xl text-xs text-amber-200">
+              {attachmentError}
+            </div>
+          )}
+          {activeTab === "all_directory" && voiceDirectoryError && (
+            <div role="alert" className="p-3 bg-amber-950/70 border border-amber-700/70 rounded-xl text-xs text-amber-200">
+              {voiceDirectoryError}
+            </div>
+          )}
           {/* TAB 1: STUDIO REAL VOICES */}
           {activeTab === "library" && (
             <div className="space-y-4">
@@ -604,7 +503,7 @@ export default function VoiceImportModal({
             </div>
           )}
 
-          {/* TAB 2: 300+ FREE REAL VOICES DIRECTORY */}
+          {/* TAB 2: PROVIDER VOICE DIRECTORY */}
           {activeTab === "all_directory" && (
             <div className="space-y-4">
               {/* Filter and Search Bar */}
@@ -615,7 +514,7 @@ export default function VoiceImportModal({
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search 300+ voices by name, accent or country code (e.g. Guy, Christopher, Jenny, Ryan, US, UK, AU)..."
+                    placeholder={hasSpeechifyKey ? "Search Speechify voices by name, ID, or locale..." : "Search available voices by name, ID, or locale..."}
                     className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
@@ -630,7 +529,7 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-white"
                     }`}
                   >
-                    All ({allVoicesList.length || 322})
+                    All ({allVoicesList.length})
                   </button>
                   <button
                     onClick={() => setGenderFilter("male")}
@@ -640,7 +539,7 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-blue-300"
                     }`}
                   >
-                    <Icon glyph="👨" /> Male ({allVoicesList.filter((v) => v.gender === "male").length || 159})
+                    <Icon glyph="👨" /> Male ({allVoicesList.filter((v) => v.gender === "male").length})
                   </button>
                   <button
                     onClick={() => setGenderFilter("female")}
@@ -650,15 +549,21 @@ export default function VoiceImportModal({
                         : "bg-gray-800 text-gray-400 hover:text-pink-300"
                     }`}
                   >
-                    <Icon glyph="👩" /> Female ({allVoicesList.filter((v) => v.gender === "female").length || 163})
+                    <Icon glyph="👩" /> Female ({allVoicesList.filter((v) => v.gender === "female").length})
                   </button>
                 </div>
               </div>
 
+              {!hasSpeechifyKey && (
+                <div className="p-3 bg-indigo-950/50 border border-indigo-800/60 rounded-xl text-xs text-indigo-200">
+                  Add your Speechify API key in the top-right API Keys modal to browse the voice library and synthesize previews.
+                </div>
+              )}
+
               {loadingVoicesList ? (
                 <div className="p-8 text-center text-xs text-indigo-300 flex items-center justify-center gap-2">
                   <span className="animate-spin"><Icon glyph="⏳" /></span>
-                  <span>Loading full library of 300+ free natural voices...</span>
+                  <span>{hasSpeechifyKey ? "Loading Speechify voice library..." : "Loading available voices..."}</span>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -675,13 +580,14 @@ export default function VoiceImportModal({
                       );
                     })
                     .map((v) => {
-                      const isSelected = selectedVoiceId === v.id;
-                      const isPlaying = previewPlayingId === v.id;
-                      const cleanName = v.friendlyName.replace(/Microsoft |Online \(Natural\)/gi, "").trim();
+                      const voiceSelectionId = v.profileId || v.id;
+                      const isSelected = selectedVoiceId === voiceSelectionId || selectedVoiceId === v.id;
+                      const isPlaying = previewPlayingId === voiceSelectionId;
+                      const cleanName = v.friendlyName.trim();
                       return (
                         <div
                           key={v.id}
-                          onClick={() => setSelectedVoiceId(v.id)}
+                          onClick={() => setSelectedVoiceId(voiceSelectionId)}
                           className={`p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
                             isSelected
                               ? v.gender === "male"
@@ -715,8 +621,8 @@ export default function VoiceImportModal({
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handlePlayVoiceSample(
-                                  v.id,
-                                  `Hello! This is a natural human speaking test for ${cleanName}.`
+                                  voiceSelectionId,
+                                  `Hello! This is a Speechify voice sample for ${cleanName}.`
                                 );
                               }}
                               className={`text-xs font-semibold flex items-center gap-1 px-2.5 py-1 rounded-lg transition-colors ${

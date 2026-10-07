@@ -9,6 +9,7 @@
  * separation the design promises.
  */
 import { createHmac } from "node:crypto";
+import { EMAIL_TEMPLATE_STARTERS } from "../src/admin/email-centre-api.ts";
 import { createHarness } from "./harness.ts";
 
 const h = createHarness();
@@ -25,6 +26,26 @@ const { installTestPlatformEnv, testD1 } = await import("./platform-env.ts");
 installTestPlatformEnv();
 const platform = await import("../server/platform.ts");
 const emailCentre = await import("../server/email-centre.ts");
+
+// Starter copy must run through the existing campaign renderer, which adds
+// the single Scenering header, email-safe CTA and preference/unsubscribe footer.
+for (const starter of EMAIL_TEMPLATE_STARTERS) {
+  const rendered = emailCentre.renderCampaignMessage({
+    template: { ...starter, heroImageUrl: null } as any,
+    campaignSubject: starter.subject,
+    recipient: { userId: "starter-preview", email: "member@example.com", displayName: "Maya Chen" },
+    linkUserId: "starter-preview",
+    base: "https://scenering.test",
+    isTest: false,
+  });
+  h.ok(rendered.html.includes("scenering-logo.png"), `${starter.label} uses the shared Scenering email header`);
+  h.ok(rendered.html.includes("Maya"), `${starter.label} personalizes its message`);
+  h.ok(rendered.html.includes("background-color:#6366f1"), `${starter.label} gets the shared email-safe CTA styling`);
+  h.ok(rendered.html.includes("Manage your email preferences"), `${starter.label} includes the shared preferences footer`);
+  h.ok(rendered.html.includes("Unsubscribe"), `${starter.label} includes the shared unsubscribe footer`);
+  h.ok(!rendered.html.includes("{{"), `${starter.label} has no unresolved variables`);
+  h.ok(rendered.text.includes("Unsubscribe from marketing email"), `${starter.label} has a plain-text consent footer`);
+}
 
 const app = express();
 // The Resend webhook verifies the untouched raw bytes, so it mounts before

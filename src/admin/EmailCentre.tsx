@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 import {
-  AUDIENCE_TYPES, EMAIL_TEMPLATE_VARIABLES, TRAINING_STEPS, TEMPLATE_CATEGORIES,
+  AUDIENCE_TYPES, EMAIL_TEMPLATE_STARTERS, EMAIL_TEMPLATE_VARIABLES, TRAINING_STEPS, TEMPLATE_CATEGORIES,
   audienceLabel, categoryLabel, emailApi, fmtDateTime, fmtNumber,
   type AudienceType, type EmailCampaign, type EmailDashboard, type EmailTemplate, type RecipientOption, type RenderedPreview,
 } from "./email-centre-api";
@@ -340,14 +340,16 @@ function TemplatesTab({ templates, usage, refresh }: { templates: EmailTemplate[
 }
 
 function TemplateEditor({ template, onClose, onSaved }: { template: EmailTemplate | null; onClose: () => void; onSaved: () => Promise<void> }) {
-  const [name, setName] = useState(template?.name || "");
-  const [description, setDescription] = useState(template?.description || "");
-  const [category, setCategory] = useState(template?.category || "announcement");
-  const [subject, setSubject] = useState(template?.subject || "");
-  const [preheader, setPreheader] = useState(template?.preheader || "");
-  const [heroImageUrl, setHeroImageUrl] = useState(template?.heroImageUrl || "");
-  const [htmlBody, setHtmlBody] = useState(template?.htmlBody || defaultTemplateHtml());
-  const [textBody, setTextBody] = useState(template?.textBody || "");
+  const firstStarter = EMAIL_TEMPLATE_STARTERS[0]!;
+  const [starterId, setStarterId] = useState(template ? "custom" : firstStarter.id);
+  const [name, setName] = useState(template?.name ?? firstStarter.name);
+  const [description, setDescription] = useState(template?.description ?? firstStarter.description);
+  const [category, setCategory] = useState(template?.category ?? firstStarter.category);
+  const [subject, setSubject] = useState(template?.subject ?? firstStarter.subject);
+  const [preheader, setPreheader] = useState(template?.preheader ?? firstStarter.preheader);
+  const [heroImageUrl, setHeroImageUrl] = useState(template?.heroImageUrl ?? "");
+  const [htmlBody, setHtmlBody] = useState(template?.htmlBody ?? firstStarter.htmlBody);
+  const [textBody, setTextBody] = useState(template?.textBody ?? firstStarter.textBody);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -357,6 +359,20 @@ function TemplateEditor({ template, onClose, onSaved }: { template: EmailTemplat
 
   // The insert buttons write the variable at the caret of the field that
   // last held it, so the editor behaves like a real composer.
+  const applyStarter = (id: string) => {
+    const starter = EMAIL_TEMPLATE_STARTERS.find((entry) => entry.id === id);
+    if (!starter) return;
+    setStarterId(starter.id);
+    setName(starter.name);
+    setDescription(starter.description);
+    setCategory(starter.category);
+    setSubject(starter.subject);
+    setPreheader(starter.preheader);
+    setHeroImageUrl("");
+    setHtmlBody(starter.htmlBody);
+    setTextBody(starter.textBody);
+  };
+
   const insertVariable = (key: string) => {
     const active = document.activeElement;
     const target = active === textRef.current ? textRef.current : active === subjectRef.current ? subjectRef.current : htmlRef.current;
@@ -384,6 +400,14 @@ function TemplateEditor({ template, onClose, onSaved }: { template: EmailTemplat
 
   return (
     <Modal wide title={template ? `Edit template — ${template.name}` : "New template"} onClose={onClose}>
+      {!template && <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-3">
+        <Field label="Start from a professional template" hint="Choosing another starter replaces this unsaved draft. You can edit every field before saving.">
+          <select className={inputClass} value={starterId} onChange={(event) => applyStarter(event.target.value)}>
+            {EMAIL_TEMPLATE_STARTERS.map((starter) => <option key={starter.id} value={starter.id}>{starter.label}</option>)}
+          </select>
+        </Field>
+        <p className="mt-2 text-[11px] leading-relaxed text-gray-400">The existing Email Centre automatically adds Scenering’s branded header, responsive layout and consent/unsubscribe footer when you preview or send.</p>
+      </div>}
       <div className="grid sm:grid-cols-2 gap-4">
         <Field label="Name"><input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="October product update" maxLength={120} /></Field>
         <Field label="Category">
@@ -434,17 +458,6 @@ function TemplateEditor({ template, onClose, onSaved }: { template: EmailTemplat
       )}
     </Modal>
   );
-}
-
-function defaultTemplateHtml(): string {
-  return `<h2>Hello {{first_name}},</h2>
-<p>Write the message here. The Scenering layout wraps it with the logo, brand colours, and the footer with the unsubscribe link.</p>
-<ul>
-  <li>Use <b>safe HTML</b>: headings, paragraphs, lists, links and images.</li>
-  <li>Anything unsafe — scripts, event handlers, javascript: links — is stripped at render time.</li>
-</ul>
-<p><a class="cta" href="https://scenering.com/app">See what's new</a></p>
-<p>You are receiving this as <b>{{email}}</b>.</p>`;
 }
 
 // ---------------------------------------------------------------------------

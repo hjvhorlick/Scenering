@@ -107,6 +107,100 @@ export const TEMPLATE_CATEGORIES: Array<{ value: string; label: string }> = [
   { value: "re_engagement", label: "Re-engagement" },
 ];
 
+export interface EmailTemplateStarter {
+  id: string;
+  label: string;
+  name: string;
+  description: string;
+  category: string;
+  subject: string;
+  preheader: string;
+  htmlBody: string;
+  textBody: string;
+}
+
+/** Ready-to-edit content starters shown inside the existing Templates editor.
+ *  The Email Centre's server-side Scenering layout adds the logo header,
+ *  CTA styling, preferences link and consent-safe unsubscribe footer. */
+export const EMAIL_TEMPLATE_STARTERS: readonly EmailTemplateStarter[] = [
+  {
+    id: "welcome",
+    label: "Welcome & first steps",
+    name: "Welcome to Scenering",
+    description: "A warm introduction with a simple path to the first video.",
+    category: "welcome",
+    subject: "Welcome to Scenering, {{first_name}}",
+    preheader: "Your creative workspace is ready. Start your first video when you are.",
+    htmlBody: `<h2>Welcome, {{first_name}}.</h2>
+<p>Thanks for joining Scenering. Turn your script, idea or voice recording into a polished video, one clear step at a time.</p>
+<p><b>Your first steps</b></p>
+<ul>
+  <li>Start a project from a script or outline.</li>
+  <li>Shape your scenes and choose visuals.</li>
+  <li>Add narration, captions and finishing touches.</li>
+</ul>
+<p><a class="cta" href="https://scenering.com/app">Open Scenering</a></p>
+<p>Need a hand? Read the <a href="https://scenering.com/manual">quick guide</a>.</p>`,
+    textBody: `Welcome, {{first_name}}.\n\nThanks for joining Scenering. Turn your script, idea or voice recording into a polished video, one clear step at a time.\n\nYour first steps:\n- Start a project from a script or outline.\n- Shape your scenes and choose visuals.\n- Add narration, captions and finishing touches.\n\nOpen Scenering: https://scenering.com/app\nRead the quick guide: https://scenering.com/manual`,
+  },
+  {
+    id: "creator-tip",
+    label: "Creator tip",
+    name: "Creator tip: one idea per scene",
+    description: "A short, useful storytelling lesson for the training sequence.",
+    category: "training",
+    subject: "A storytelling tip for your next video",
+    preheader: "A small planning trick can make your edit feel more focused.",
+    htmlBody: `<p>Hello {{first_name}},</p>
+<h2>Give each scene one job.</h2>
+<p>Before you choose visuals, write down the one thing a viewer should understand or feel in this moment.</p>
+<ul>
+  <li>Keep one main point in each scene.</li>
+  <li>Choose a visual that supports that point.</li>
+  <li>Read the narration aloud and trim anything that distracts.</li>
+</ul>
+<p>A clear idea makes the pacing, captions and visual choices easier to bring together.</p>
+<p><a class="cta" href="https://scenering.com/app">Try it in Scenering</a></p>`,
+    textBody: `Hello {{first_name}},\n\nGive each scene one job. Before you choose visuals, write down the one thing a viewer should understand or feel in this moment.\n\n- Keep one main point in each scene.\n- Choose a visual that supports that point.\n- Read the narration aloud and trim anything that distracts.\n\nA clear idea makes the pacing, captions and visual choices easier to bring together.\n\nTry it in Scenering: https://scenering.com/app`,
+  },
+  {
+    id: "product-update",
+    label: "Product update",
+    name: "What's new at Scenering",
+    description: "An editable announcement for a feature, improvement or release.",
+    category: "product_update",
+    subject: "A new Scenering update for you",
+    preheader: "Take a look at what is new in your creative workspace.",
+    htmlBody: `<h2>What's new at Scenering</h2>
+<p>Hello {{first_name}},</p>
+<p>We have been working to make it easier to turn an idea into a finished video. Here is the latest update:</p>
+<p><b>[Add a clear one-sentence summary of your update.]</b></p>
+<p>[Explain what changed, who it helps and how to try it.]</p>
+<p><a class="cta" href="https://scenering.com/app">Explore Scenering</a></p>
+<p>Thanks for creating with us.</p>`,
+    textBody: `What's new at Scenering\n\nHello {{first_name}},\n\nWe have been working to make it easier to turn an idea into a finished video. Here is the latest update:\n\n[Add a clear one-sentence summary of your update.]\n\n[Explain what changed, who it helps and how to try it.]\n\nExplore Scenering: https://scenering.com/app\n\nThanks for creating with us.`,
+  },
+  {
+    id: "newsletter",
+    label: "Monthly roundup",
+    name: "Your Scenering creative roundup",
+    description: "A tidy newsletter with space for news, a tip and a next step.",
+    category: "newsletter",
+    subject: "Your latest creative roundup from Scenering",
+    preheader: "Fresh ideas and updates for your next script-to-video project.",
+    htmlBody: `<h2>Your Scenering creative roundup</h2>
+<p>Hello {{first_name}}, here are a few things to explore in your next project.</p>
+<p><b>Feature to explore</b></p>
+<p>[Add one feature and explain how it helps.]</p>
+<p><b>Creator tip</b></p>
+<p>[Share one practical idea the reader can use today.]</p>
+<p><b>What's next</b></p>
+<p>[Add a short, accurate update or invitation.]</p>
+<p><a class="cta" href="https://scenering.com/app">Open your Studio</a></p>`,
+    textBody: `Your Scenering creative roundup\n\nHello {{first_name}}, here are a few things to explore in your next project.\n\nFeature to explore\n[Add one feature and explain how it helps.]\n\nCreator tip\n[Share one practical idea the reader can use today.]\n\nWhat's next\n[Add a short, accurate update or invitation.]\n\nOpen your Studio: https://scenering.com/app`,
+  },
+];
+
 export const TRAINING_STEPS = [
   "Welcome", "Getting Started", "Create Your First Project", "Understanding Scenes", "Finding Visuals",
   "Voice Over", "Captions", "Video Studio", "Rendering", "Advanced Features",

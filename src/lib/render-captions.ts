@@ -16,8 +16,8 @@ import {
 /**
  * Optional real-time sync data for the captions.
  *
- * When the scene's narration was synthesised with word boundaries (Edge TTS
- * reports them), `wordTimings` holds the *actual* spoken moment of every word
+ * When the scene's narration was synthesised with speech marks, `wordTimings`
+ * holds the *actual* spoken moment of every word
  * and `audioTimeSec` is the current position in that audio. The karaoke
  * highlight then follows the voice word-for-word instead of a syllable-weight
  * estimate, which is what used to run ahead and lag behind.

@@ -1,9 +1,7 @@
 import JSZip from "jszip";
 import type { Scene } from "../types";
-import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { sceneHasVisual } from "../lib/scene-framing";
-import { getNarrationHeaders } from "../lib/api-keys";
-import { isGeminiKeyRequiredResponse, noteGeminiKeyRequired } from "../lib/gemini-narration";
+import { synthesizeSpeechify } from "./speechify-client";
 
 interface ZipOptions {
   title: string;
@@ -103,30 +101,14 @@ export async function createProjectZip(options: ZipOptions): Promise<Blob> {
 
     if (onProgress) onProgress(`Generating narration ${i + 1}/${scenesWithImages.length}...`, fileCount / totalFiles);
 
-    try {
-      const res = await fetch(`${EDGE_FUNCTION_BASE}/tts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...getNarrationHeaders() },
-        body: JSON.stringify({ text: scene.text, voice }),
-      });
-
-      if (isGeminiKeyRequiredResponse(res)) noteGeminiKeyRequired();
-
-      if (res.ok) {
-        const audioBlob = await res.blob();
-        audioFolder.file(fileName, audioBlob);
-      } else {
-        audioFolder.file(
-          `scene_${String(i + 1).padStart(2, "0")}_narration.txt`,
-          `(Audio generation failed for: "${scene.text}")`
-        );
+    const text = (scene.text || "").trim();
+    if (text) {
+      try {
+        const audio = await synthesizeSpeechify(text, scene.voice_id || voice);
+        audioFolder.file(fileName, audio.blob);
+      } catch (error: any) {
+        throw new Error(`Speechify synthesis failed for scene ${i + 1}: ${error?.message || "Unknown provider error."}`);
       }
-    } catch (err) {
-      console.error(`Failed to generate audio for scene ${i + 1}:`, err);
-      audioFolder.file(
-        `scene_${String(i + 1).padStart(2, "0")}_narration.txt`,
-        `(Audio generation failed for: "${scene.text}")`
-      );
     }
     reportProgress();
   }

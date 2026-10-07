@@ -34,7 +34,6 @@ export type Env = {
   RESEND_WEBHOOK_SECRET?: string;
   SESSION_SECRET: string;
   SCENERING_OWNER_EMAIL: string;
-  GEMINI_API_KEY?: string;
   PEXELS_API_KEY?: string;
   PIXABAY_API_KEY?: string;
   // Matches the names already used in .env.example, src/config/plans.ts and

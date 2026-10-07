@@ -50,7 +50,7 @@ import { normalizePath, routeForPath, sectionForPath, SITE_SECTIONS, SITE_SECTIO
 
 import { CAPTION_STYLES } from "../src/data/caption-styles";
 import { PROJECT_PHASES } from "../src/components/StepNav";
-import { STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
+import { FREE_SPEECHIFY_VOICE_IDS, STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
 import { VIDEO_FILTERS, FILTER_GROUPS, getFilterCss, makeFilterConfig } from "../src/data/video-filters";
 import { TEXT_TEMPLATES, TEMPLATE_BY_ID } from "../src/data/text-templates";
 import { CTA_PLATFORMS, CTA_GROUPS } from "../src/data/cta-library";
@@ -477,69 +477,50 @@ ok(
 }
 
 /*
- * "No credits. No tokens. No counter." is the strongest claim on the site, so
- * it is checked against the code rather than trusted. If Scenering ever grows
- * a language model that writes or draws for the user, these fail.
+ * Speechify BYOK is the only generated-narration path. Keep the catalogue,
+ * key transport, failure behavior and public disclosure in sync.
  */
 {
   const server = read("server.ts");
   const splitter = read("src/lib/duration-utils.ts");
   const topics = read("src/lib/topic-extract.ts");
+  const apiKeys = read("src/lib/api-keys.ts");
+  const speechifyClient = read("src/lib/speechify-client.ts");
+  const apiKeysModal = read("src/components/ApiKeysModal.tsx");
+  const preview = read("src/components/VideoPreview.tsx");
+  const render = read("src/components/RenderView.tsx");
 
-  ok(
-    splitter.includes("export function splitScriptIntoScenes"),
-    "the script is still divided arithmetically"
-  );
-  ok(
-    topics.includes("No NLP model is available"),
-    "search terms are still extracted structurally, not by a model"
-  );
+  ok(splitter.includes("export function splitScriptIntoScenes"), "the script is still divided arithmetically");
+  ok(topics.includes("No NLP model is available"), "search terms are extracted structurally, not by a model");
+  h.eq(STUDIO_VOICE_PRESETS.length, 20, "the Speechify catalogue has exactly twenty profiles");
+  const maleVoices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === "male");
+  const femaleVoices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === "female");
+  h.eq(maleVoices.length, 10, "the Speechify catalogue has ten male profiles");
+  h.eq(femaleVoices.length, 10, "the Speechify catalogue has ten female profiles");
+  h.eq(FREE_SPEECHIFY_VOICE_IDS[0], "speechify_male_01", "the free male Speechify profile is first");
+  h.eq(FREE_SPEECHIFY_VOICE_IDS[1], "speechify_female_01", "the free female Speechify profile is first in its group");
+  h.eq(maleVoices[0]?.id, FREE_SPEECHIFY_VOICE_IDS[0], "the free male profile is first in the male group");
+  h.eq(femaleVoices[0]?.id, FREE_SPEECHIFY_VOICE_IDS[1], "the free female profile is first in the female group");
+  ok(speechifyClient.includes('https://api.speechify.ai/v1'), "Speechify API requests go directly to the provider host");
+  ok(speechifyClient.includes('Authorization: `Bearer ${apiKey}`'), "the customer key is sent only in the direct Speechify authorization header");
+  ok(speechifyClient.includes('const SPEECHIFY_MODEL = "simba-3.2"'), "the browser uses the selected Speechify model");
+  ok(speechifyClient.includes("synthesizeSpeechify"), "Speechify is the only generated-narration provider");
+  ok(speechifyClient.includes("parseSpeechifySpeechMarks"), "direct Speechify speech marks are used when available");
+  ok(speechifyClient.includes("SPEECHIFY_KEY_REQUIRED"), "a missing key returns an actionable error");
+  ok(!server.includes("X-Speechify-Key") && !server.includes("/api/tts"), "the Cloudflare Worker has no Speechify key or synthesis route");
+  ok(!apiKeys.includes("X-Speechify-Key"), "the shared key helper cannot attach Speechify credentials to Scenering requests");
+  ok(apiKeysModal.includes("verifySpeechifyApiKey") && !apiKeysModal.includes("speechifyKey: keysToSave.speechifyKey"), "the existing modal validates Speechify directly without sending it in the Worker verification payload");
+  ok(preview.includes("fetchSceneAudioWithTimeline") && !preview.includes("createFallbackSceneAudio"), "preview synthesis has no tone or provider fallback");
+  ok(render.includes("fetchSceneAudioWithTimeline") && !render.includes("audioCtx.createBuffer(1, numSamples"), "export has no silent-buffer fallback");
+  ok(NO_METER.caveat.includes("your Speechify API key"), "the page discloses the customer key requirement");
+  ok(NO_METER.caveat.includes("does not receive or store the key"), "the page discloses that Scenering never receives the Speechify key");
+  ok(NO_METER.caveat.includes("usage and billing"), "the page discloses provider-account usage");
+  ok(!/generateContent\(|GEMINI_API_KEY|msedge-tts|parseEdgeWordBoundaries/.test(server + apiKeys + preview + render), "legacy TTS providers are absent from synthesis paths");
 
-  // The only model call in the whole server is speech synthesis…
-  const generateCalls = (server.match(/generateContent\(/g) || []).length;
-  h.eq(generateCalls, 1, "the server makes exactly one model call");
-  const call = server.slice(server.indexOf("generateContent("), server.indexOf("generateContent(") + 400);
-  ok(call.includes('responseModalities: ["AUDIO"]'), "…and it asks for audio, not words");
-  ok(
-    server.includes("synthesizeGeminiTTS"),
-    "…inside the text-to-speech path"
-  );
-  // …and the key behind it belongs to whoever is narrating: the customer's
-  // own free Google key, or the server's secret for the owner administrator.
-  ok(
-    server.includes("env().GEMINI_API_KEY"),
-    "the owner's narration uses the key the operator supplies"
-  );
-  ok(
-    server.includes('"GEMINI_KEY_REQUIRED"'),
-    "a customer with no key of their own is told so rather than metered"
-  );
-  ok(
-    NO_METER.caveat.includes("Gemini"),
-    "the page names that exception instead of hiding it"
-  );
-  ok(
-    NO_METER.caveat.includes("your own free Google AI Studio key"),
-    "…and says whose key pays for it"
-  );
-  ok(
-    NO_METER.caveat.includes("never charges") && NO_METER.caveat.includes("without any key at all"),
-    "…that Scenering adds no charge, and that the rest needs no key"
-  );
-
-  // The claim must not overreach into "no AI at all" — the narrators are
-  // neural voices and the page says so.
   const noMeterSource = JSON.stringify(NO_METER);
-  ok(
-    noMeterSource.includes("neural text-to-speech"),
-    "the narration is described as what it is"
-  );
-  ok(!/no AI\b/i.test(noMeterSource), "the page never claims there is no AI anywhere");
-
-  ok(
-    read("src/marketing/sections/NoMeter.tsx").includes('<Section id="no-meter"'),
-    "the answer has a section of its own to jump to"
-  );
+  ok(noMeterSource.includes("Speechify"), "the narration provider is named accurately");
+  ok(!/free speech synthesis|never hard-fails/i.test(noMeterSource), "narration copy does not promise free or fallback audio");
+  ok(read("src/marketing/sections/NoMeter.tsx").includes('<Section id="no-meter"'), "the answer has a section of its own to jump to");
 }
 
 /* ------------------------- 6b. the demonstration names real things */
@@ -649,6 +630,9 @@ ok(
   main.includes('lazy(() => import("./studio/StudioEntry"))'),
   "the account and studio entry is a separate lazy bundle"
 );
+ok(main.includes('lazy(() => import("./admin/AdminEntry"))'), "the Email Centre has its own authenticated lazy entry");
+ok(main.includes('if (route === "admin")'), "the admin route mounts the existing Email Centre entry");
+ok(main.includes("<AdminEntry />"), "the admin route does not fall through to the marketing pages");
 ok(main.includes('routeForPath(window.location.pathname) === "studio"'), "the heavy studio is preloaded only on account or studio routes");
 ok(
   main.includes('document.documentElement.setAttribute("data-mkt", "1")'),
@@ -823,6 +807,8 @@ h.eq(routeForPath(""), "site", "empty path is the website");
 h.eq(routeForPath("/app"), "studio", "/app is the studio");
 h.eq(routeForPath("/app/"), "studio", "/app/ is the studio");
 h.eq(routeForPath("/app/project/7"), "studio", "deep studio paths stay in the studio");
+h.eq(routeForPath("/admin"), "admin", "the owner admin surface has its own route");
+h.eq(routeForPath("/admin/email-centre"), "admin", "the existing Email Centre path mounts the admin surface");
 h.eq(routeForPath("/pricing"), "site", "marketing paths stay on the website");
 h.eq(normalizePath("/Pricing/"), "/pricing", "paths normalise");
 h.eq(sectionForPath("/pricing"), "pricing", "/pricing deep-links to the pricing section");

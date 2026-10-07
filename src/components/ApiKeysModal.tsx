@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { getStoredApiKeys, saveStoredApiKeys, clearStoredApiKeys, CustomerApiKeys } from "../lib/api-keys";
-import { GEMINI_KEY_HELP_URL, useNarrationKeyStatus } from "../lib/gemini-narration";
+import { verifySpeechifyApiKey } from "../lib/speechify-client";
 import Icon, { iconify } from "./icons/Icon";
 
 interface ApiKeysModalProps {
@@ -9,50 +9,27 @@ interface ApiKeysModalProps {
   onSaved?: () => void;
 }
 
-type KeyCheck = { valid: boolean; message: string };
-
-/**
- * A single verification dot: green once the key answered, amber when the
- * provider rejected it, grey while nothing has been checked. The same dot is
- * used for all three keys so "is this one working?" is answered identically
- * for photographs and for narration.
- */
-function StatusDot({ state }: { state: "unknown" | "valid" | "invalid" }) {
-  const colour =
-    state === "valid" ? "bg-emerald-400" : state === "invalid" ? "bg-amber-400" : "bg-gray-600";
-  const label =
-    state === "valid" ? "Key verified" : state === "invalid" ? "Key not accepted" : "Not verified yet";
-  return <span className={`w-2 h-2 rounded-full ${colour}`} role="img" aria-label={label} title={label} />;
-}
-
-function dotState(result: KeyCheck | undefined, configured: boolean): "unknown" | "valid" | "invalid" {
-  if (!result) return configured ? "unknown" : "unknown";
-  return result.valid ? "valid" : "invalid";
-}
-
 export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalProps) {
   const [pexelsKey, setPexelsKey] = useState("");
   const [pixabayKey, setPixabayKey] = useState("");
-  const [geminiKey, setGeminiKey] = useState("");
+  const [speechifyKey, setSpeechifyKey] = useState("");
   const [showPexels, setShowPexels] = useState(false);
   const [showPixabay, setShowPixabay] = useState(false);
-  const [showGemini, setShowGemini] = useState(false);
+  const [showSpeechify, setShowSpeechify] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResults, setTestResults] = useState<{
-    pexels?: KeyCheck;
-    pixabay?: KeyCheck;
-    gemini?: KeyCheck;
+    pexels?: { valid: boolean; message: string };
+    pixabay?: { valid: boolean; message: string };
+    speechify?: { valid: boolean; message: string };
   } | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  /** The owner administrator narrates with the server's own key. */
-  const { isOwner } = useNarrationKeyStatus();
 
   useEffect(() => {
     if (isOpen) {
       const current = getStoredApiKeys();
       setPexelsKey(current.pexelsKey);
       setPixabayKey(current.pixabayKey);
-      setGeminiKey(current.geminiKey);
+      setSpeechifyKey(current.speechifyKey);
       setTestResults(null);
       setSaveSuccess(false);
     }
@@ -69,49 +46,54 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
     const keysToSave: CustomerApiKeys = {
       pexelsKey: pexelsKey.trim(),
       pixabayKey: pixabayKey.trim(),
-      geminiKey: geminiKey.trim(),
+      speechifyKey: speechifyKey.trim(),
     };
 
     const results: {
-      pexels?: KeyCheck;
-      pixabay?: KeyCheck;
-      gemini?: KeyCheck;
+      pexels?: { valid: boolean; message: string };
+      pixabay?: { valid: boolean; message: string };
+      speechify?: { valid: boolean; message: string };
     } = {};
 
     try {
-      if (keysToSave.pexelsKey || keysToSave.pixabayKey || keysToSave.geminiKey) {
+      // Only image-search keys are sent to Scenering's existing image-key
+      // verifier. Speechify is tested below with a direct browser request.
+      if (keysToSave.pexelsKey || keysToSave.pixabayKey) {
         const res = await fetch("/api/verify-keys", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(keysToSave),
+          body: JSON.stringify({
+            pexelsKey: keysToSave.pexelsKey,
+            pixabayKey: keysToSave.pixabayKey,
+          }),
         });
+        const data = await res.json().catch(() => null);
+        if (keysToSave.pexelsKey) {
+          results.pexels = {
+            valid: data?.status?.pexels?.valid ?? false,
+            message: data?.status?.pexels?.valid
+              ? "Valid key! Pexels HD search enabled."
+              : (data?.status?.pexels?.error || "Key could not be verified with Pexels."),
+          };
+        }
+        if (keysToSave.pixabayKey) {
+          results.pixabay = {
+            valid: data?.status?.pixabay?.valid ?? false,
+            message: data?.status?.pixabay?.valid
+              ? "Valid key! Pixabay search enabled."
+              : (data?.status?.pixabay?.error || "Key could not be verified with Pixabay."),
+          };
+        }
+      }
 
-        if (res.ok) {
-          const data = await res.json();
-          if (keysToSave.pexelsKey) {
-            results.pexels = {
-              valid: data.status?.pexels?.valid ?? false,
-              message: data.status?.pexels?.valid
-                ? "Valid key! Pexels HD search enabled."
-                : (data.status?.pexels?.error || "Key rejected by Pexels API."),
-            };
-          }
-          if (keysToSave.pixabayKey) {
-            results.pixabay = {
-              valid: data.status?.pixabay?.valid ?? false,
-              message: data.status?.pixabay?.valid
-                ? "Valid key! Pixabay search enabled."
-                : (data.status?.pixabay?.error || "Key rejected by Pixabay API."),
-            };
-          }
-          if (keysToSave.geminiKey) {
-            results.gemini = {
-              valid: data.status?.gemini?.valid ?? false,
-              message: data.status?.gemini?.valid
-                ? "Valid key! Gemini narration enabled for every voice, preview and export."
-                : (data.status?.gemini?.error || "Key rejected by Google AI Studio."),
-            };
-          }
+      if (keysToSave.speechifyKey) {
+        try {
+          results.speechify = await verifySpeechifyApiKey(keysToSave.speechifyKey);
+        } catch (error: any) {
+          results.speechify = {
+            valid: false,
+            message: error?.message || "Speechify could not verify this API key directly.",
+          };
         }
       }
 
@@ -130,11 +112,11 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
   };
 
   const handleClear = () => {
-    if (confirm("Clear all saved API keys?")) {
+    if (confirm("Clear all saved provider API keys?")) {
       clearStoredApiKeys();
       setPexelsKey("");
       setPixabayKey("");
-      setGeminiKey("");
+      setSpeechifyKey("");
       setTestResults(null);
       setSaveSuccess(true);
       if (onSaved) onSaved();
@@ -162,9 +144,9 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
               🔑
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">Your API Keys</h2>
+              <h2 className="text-base font-semibold text-white">Provider API Keys</h2>
               <p className="text-xs text-gray-400">
-                Your own Pexels & Pixabay keys for stock imagery, and your own Google key for narration
+                Add your own stock-image and Speechify voiceover keys
               </p>
             </div>
           </div>
@@ -186,7 +168,11 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
               <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              <span>API keys have been stored in your browser and will be used for all searches and narration.</span>
+              <span>
+                {pexelsKey.trim() || pixabayKey.trim() || speechifyKey.trim()
+                  ? "Keys are saved in this browser. Speechify requests go directly to Speechify; Pexels and Pixabay keys are used for stock-image search."
+                  : "All provider keys have been cleared from this browser."}
+              </span>
             </div>
           )}
 
@@ -194,7 +180,6 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-gray-200 uppercase tracking-wider flex items-center gap-2">
-                <StatusDot state={dotState(testResults?.pexels, Boolean(pexelsKey.trim()))} />
                 <span>Pexels API Key</span>
                 {pexelsKey.trim() ? (
                   <span className="text-[10px] bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
@@ -253,7 +238,6 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
           <div className="space-y-2 pt-2 border-t border-hairline">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-gray-200 uppercase tracking-wider flex items-center gap-2">
-                <StatusDot state={dotState(testResults?.pixabay, Boolean(pixabayKey.trim()))} />
                 <span>Pixabay API Key</span>
                 {pixabayKey.trim() ? (
                   <span className="text-[10px] bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
@@ -308,34 +292,28 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
             </p>
           </div>
 
-          {/* Gemini Section — narration is bring-your-own-key, so this is the
-              one key the app genuinely needs before a voice will speak. */}
+          {/* Speechify Section */}
           <div className="space-y-2 pt-2 border-t border-hairline">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <label className="text-xs font-semibold text-gray-200 uppercase tracking-wider flex items-center gap-2">
-                <StatusDot state={dotState(testResults?.gemini, Boolean(geminiKey.trim()))} />
-                <span>Gemini API Key</span>
-                {geminiKey.trim() ? (
+                <span>Speechify API Key</span>
+                {speechifyKey.trim() ? (
                   <span className="text-[10px] bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
                     Configured
                   </span>
-                ) : isOwner ? (
-                  <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded font-normal normal-case">
-                    Optional
-                  </span>
-                ) : (
-                  <span className="text-[10px] bg-amber-900/60 text-amber-300 border border-amber-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
-                    Needed for narration
-                  </span>
-                )}
+                  ) : (
+                    <span className="text-[10px] bg-amber-950/60 text-amber-300 px-1.5 py-0.5 rounded font-normal normal-case">
+                      Required for voiceover
+                    </span>
+                  )}
               </label>
               <a
-                href={GEMINI_KEY_HELP_URL}
+                href="https://platform.speechify.ai/api-keys"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-indigo-400 hover:text-indigo-300 underline inline-flex items-center gap-1"
+                className="text-xs text-indigo-400 hover:text-indigo-300 underline inline-flex items-center gap-1 whitespace-nowrap"
               >
-                Get free Google key
+                Get Speechify key
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>
@@ -343,34 +321,33 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
             </div>
             <div className="relative">
               <input
-                type={showGemini ? "text" : "password"}
-                value={geminiKey}
-                onChange={(e) => setGeminiKey(e.target.value)}
-                placeholder="Paste your Google AI Studio (Gemini) API key..."
+                type={showSpeechify ? "text" : "password"}
+                value={speechifyKey}
+                onChange={(e) => setSpeechifyKey(e.target.value)}
+                placeholder="Paste your Speechify API key..."
+                autoComplete="off"
                 className="w-full pl-3 pr-10 py-2.5 bg-gray-800/80 border border-hairline rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono"
               />
               <button
                 type="button"
-                onClick={() => setShowGemini(!showGemini)}
+                onClick={() => setShowSpeechify(!showSpeechify)}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 text-xs px-1"
               >
-                {showGemini ? "Hide" : "Show"}
+                {showSpeechify ? "Hide" : "Show"}
               </button>
             </div>
-            {testResults?.gemini && (
+            {testResults?.speechify && (
               <p
                 className={`text-xs ${
-                  testResults.gemini.valid ? "text-emerald-400" : "text-amber-400"
+                  testResults.speechify.valid ? "text-emerald-400" : "text-amber-400"
                 } flex items-center gap-1.5 pt-0.5`}
               >
-                <span>{iconify(testResults.gemini.valid ? "✓" : "⚠")}</span>
-                {testResults.gemini.message}
+                <span>{iconify(testResults.speechify.valid ? "✓" : "⚠")}</span>
+                {testResults.speechify.message}
               </p>
             )}
             <p className="text-[11px] text-gray-400">
-              {isOwner
-                ? "Narration for this owner account uses the server's configured key, so this field can stay empty."
-                : "The narrators speak with Google's Gemini voices using your own key. A key from Google AI Studio is free and takes about a minute to create."}
+              Used for voiceovers and voice previews. The key stays in this browser and goes directly from your browser to Speechify; Scenering and Cloudflare do not receive it.
             </p>
           </div>
 
@@ -380,7 +357,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
               <Icon glyph="ℹ" /> Free Keyless Fallback
             </div>
             <p>
-              If no image keys are entered or a search yields no results on Pexels/Pixabay, Scenering automatically searches Wikimedia Commons as a free fallback. Narration has no such fallback — it always uses your own Google key.
+              If no keys are entered or a search yields no results on Pexels/Pixabay, Scenering automatically searches Wikimedia Commons as a free fallback.
             </p>
           </div>
 
@@ -389,7 +366,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
             <button
               type="button"
               onClick={handleClear}
-              disabled={testing || (!pexelsKey && !pixabayKey && !geminiKey)}
+              disabled={testing || (!pexelsKey && !pixabayKey && !speechifyKey)}
               className="px-3 py-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Clear Keys

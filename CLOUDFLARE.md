@@ -31,7 +31,7 @@ a Node.js server, a container, or any other host.
 | 24 h expiry sweep for those uploads | `worker.ts` `scheduled` handler | **Cron Trigger** — hourly, `triggers.crons` in `wrangler.jsonc` | ✅ verified |
 | SPA shell + hashed bundles + `/sounds`, `/videos`, `/nature`, `/marketing` (221 MB, 151 files) | Vite build → `dist/` | **Workers Static Assets** with `single-page-application` fallback | ✅ verified |
 | Bundled nature library from inside the API | `server.ts` proxy route | **`ASSETS` binding** (`env.ASSETS.fetch`) — no filesystem on Workers | ✅ verified |
-| Narration (TTS) | `server.ts` | Outbound `fetch` to the Gemini API (no WebSocket TTS engines — the msedge-tts dependency was already removed) | ✅ verified (falls back Google-TTS → silent WAV by design) |
+| Narration (TTS) | Browser (`src/lib/speechify-client.ts`) | Direct browser `fetch` to Speechify; the customer's key never reaches the Worker | ✅ No Worker proxy; Simba 3.2 audio and speech marks; errors are surfaced with no alternate-provider or silent-audio fallback |
 | Image search (Pexels / Pixabay / Wikimedia) | `server.ts` | Outbound `fetch` with 12 s timeouts + provider clamps | ✅ verified (nature-library fallback when no keys) |
 | Email | `server/email.ts` | Resend HTTPS API in production (`EMAIL_PROVIDER=resend`, authenticated by the `RESEND_API_KEY` secret); `console` remains available for local development. SMTP is not available from Workers | ✅ |
 | Email Centre — templates, consented audiences, campaigns, delivery history, unsubscribe/preferences pages | `server/email-centre.ts` | **D1** (templates/campaigns/deliveries, `migrations/0002_email_centre.sql`) + the Resend provider above. Large sends are queued as D1 delivery rows and drained **20 at a time by the five-minute Cron Trigger** (never one long request); delivery outcomes recorded from **Resend's webhook** at `/api/webhooks/resend` (HMAC-verified raw bytes, optional) | ✅ verified |
@@ -205,22 +205,22 @@ platform's documented behaviour, then re-verified under `wrangler dev`:
 - **Email sending** uses Resend's HTTPS API in production
   (`EMAIL_PROVIDER=resend`) and requires the server-side `RESEND_API_KEY`
   secret. Local development can select `console` to print verification/reset
-  links without sending mail. `EMAIL_REPLY_TO` optionally overrides the
-  Reply-To header on all outbound mail (transactional and marketing alike).
-- **Email Centre delivery history** is "accepted by provider" unless the
-  optional `RESEND_WEBHOOK_SECRET` is set and Resend's webhook points at
-  `/api/webhooks/resend` — then delivered/bounced/complained events are
-  HMAC-verified and recorded against campaign deliveries. The endpoint
-  answers 202 when unconfigured, so the feature degrades gracefully.
+  links without sending mail. Account and opt-in update messages use a shared,
+  responsive Scenering HTML layout with inline styles and a plain-text fallback;
+  verification and password-reset links are escaped and retain their one-time,
+  expiring behavior.
 - **`accountPayload` runs 4 D1 queries concurrently** (well within the 6-connection
   limit). A further micro-batch would save ~2 round trips per `/api/account`
   call; left alone deliberately to keep the diff small.
 - **`Express + nodejs_compat` bridge limitations** (from Cloudflare's docs):
   no trailers, early hints or 1xx responses; TLS-specific server options are
   ignored; the http Agent is a no-op. None are used by this app.
-- **Gemini TTS model name** (`gemini-3.1-flash-tts-preview`) is a provider
-  concern, not a platform one; the synthesis waterfall already degrades
-  gracefully (Google TTS → silent track) if the model is retired.
+- **Speechify Simba 3.2** is called directly from the customer's browser to
+  `api.speechify.ai`. The Speechify key is read from this browser's local
+  storage and is never sent to the Scenering API or Cloudflare Worker. The
+  Worker has no Speechify key header or synthesis route. If Speechify refuses
+  direct browser access (for example, due to CORS), the app reports that
+  failure; it does not proxy the key or fall back to another provider or silent audio.
 - **KV eventual consistency** (§3) — accepted for abuse mitigation.
 
 ## 6. Deploying
@@ -312,8 +312,8 @@ curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=*/5%20*%20*%20*%20*"   
   static assets · register (scrypt under workerd) · verify-email · login ·
   cookie session · account · entitlements · export check/reserve/complete with
   plan enforcement · contact · social links · image search (provider
-  waterfall → nature fallback) · TTS voices (plan-filtered) · TTS synthesis
-  (fallback chain to silent WAV) · image proxy (ASSETS binding, host
+  waterfall → nature fallback) · TTS voices (Speechify-key authenticated and
+  plan-filtered) · TTS synthesis (explicit upstream/error paths, no audio fallback) · image proxy (ASSETS binding, host
   allowlist, blocked-host placeholder) · audio upload (R2 write + D1 row) ·
   audio read-back + ownership 401 · webhook 503/401 paths · rate-limit 429 ·
   **20-request same-second burst with zero failures** · admin overview

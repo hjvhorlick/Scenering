@@ -16,6 +16,7 @@ import IconSprite from "../components/icons/IconSprite";
 import PublicPage, { isStandalonePublicPath } from "./PublicPage";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 import SocialLinksRow from "../shared/SocialLinks";
+import { applyPageSeo } from "./seo";
 
 /**
  * The public website's front page — a sales page, not a manual.
@@ -48,6 +49,8 @@ const NAV = [
 ];
 
 export default function MarketingSite() {
+  const publicPath = typeof window === "undefined" ? "/" : (window.location.pathname.replace(/\/+$/, "") || "/");
+
   // The studio themes paint the document dark; the website is its own light
   // surface, and this flag lets the stylesheet claim <html> while it is open.
   useEffect(() => {
@@ -79,9 +82,14 @@ export default function MarketingSite() {
     };
   }, []);
 
+  // Section aliases such as /voice and /captions are anchors on the homepage,
+  // not separate documents. Give them the homepage metadata and canonical URL.
+  useEffect(() => {
+    if (!isStandalonePublicPath(publicPath)) applyPageSeo("/", "/");
+  }, [publicPath]);
+
   const conceptCount = MARKETING_ASSETS.filter((asset) => asset.status === "concept").length;
   const renderedCount = MARKETING_ASSETS.filter((asset) => asset.status === "rendered").length;
-  const publicPath = typeof window === "undefined" ? "/" : (window.location.pathname.replace(/\/+$/, "") || "/");
 
   if (isStandalonePublicPath(publicPath)) return <PublicPage path={publicPath} />;
 
@@ -111,7 +119,7 @@ export default function MarketingSite() {
 
           {/* The owner's configured social profiles, in the header as well as
               the footer. Hidden on narrow screens by .mkt-nav-social. */}
-          <SocialLinksRow size={18} tone="light" className="mkt-nav-social" />
+          <SocialLinksRow size={36} tone="light" className="mkt-nav-social" />
 
           {/* The shared corner menu owns public navigation and account actions
               on every Scenering surface. This spacer keeps the fixed button
@@ -164,7 +172,7 @@ export default function MarketingSite() {
               <p style={{ marginTop: 10, fontSize: 13.5, maxWidth: 380, color: "#98a1b8" }}>
                 {MESSAGES.hero} {HONESTY.localNote}
               </p>
-              <SocialLinksRow size={24} style={{ marginTop: 14 }} />
+              <SocialLinksRow size={48} style={{ marginTop: 14 }} />
             </div>
 
             <div>

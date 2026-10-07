@@ -1,6 +1,6 @@
 {
   "name": "Scenering",
-  "description": "Script to video maker that generates scenes, image visuals, and narration previews.",
+  "description": "Create scene-based faceless videos from scripts or prepared audio, with visual research, voiceover, synced captions, creative editing, and export.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }

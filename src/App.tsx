@@ -20,6 +20,7 @@ import RenderView from "./components/RenderView";
 import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
 import { listVaultRenders, subscribeVault } from "./lib/render-vault";
 import VoiceoverStudio, { STUDIO_VOICE_PRESETS } from "./components/VoiceoverStudio";
+import { migrateLegacyVoiceId } from "./data/voice-presets";
 import CaptionsStudio from "./components/CaptionsStudio";
 import SetupStudio from "./components/SetupStudio";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./components/StepNav";
@@ -116,7 +117,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   scene_animation_enabled: false,
   single_scene: false,
   voiceover_enabled: true,
-  selected_voice: "guy",
+  selected_voice: "speechify_male_01",
   transition: "crossfade",
   customer_logo: {
     enabled: false,
@@ -208,8 +209,14 @@ export default function App() {
   const [currentPlayheadTime, setCurrentPlayheadTime] = useState<number>(0);
   const [selectedInsert, setSelectedInsert] = useState<TimelineInsert | null>(null);
   const [editingInsert, setEditingInsert] = useState<TimelineInsert | null>(null);
-  const [availableVoices, setAvailableVoices] = useState<{ id: string; name: string }[]>(() =>
-    STUDIO_VOICE_PRESETS.map((v) => ({ id: v.id, name: `${v.name} (${v.gender === "male" ? "Male" : "Female"} • ${v.accent})` }))
+  const [availableVoices, setAvailableVoices] = useState<{ id: string; name: string; gender?: "male" | "female"; accent?: string; locale?: string }[]>(() =>
+    STUDIO_VOICE_PRESETS.map((v) => ({
+      id: v.id,
+      name: `${v.name} (${v.gender === "male" ? "Male" : "Female"} • ${v.accent})`,
+      gender: v.gender,
+      accent: v.accent,
+      locale: v.locale,
+    }))
   );
   const [loading, setLoading] = useState(false);
   /** Explains why a phase change was refused (e.g. no project yet) */
@@ -228,11 +235,9 @@ export default function App() {
   useEffect(() => {
     /**
      * One-click guarantee for the corner menu's account buttons. The menu
-     * records the intent in sessionStorage BEFORE dispatching its event or
-     * navigating, so a click that lands while this listener is not yet
-     * registered (the studio chunk still mounting) is honoured here when it
-     * is — instead of silently vanishing, which is what made Membership and
-     * Owner administration need two clicks.
+     * records the intent in sessionStorage before dispatching its event or
+     * navigating, so a click that lands while the studio chunk is mounting
+     * is still honoured when this listener registers.
      */
     const consumeIntent = (): string | null => {
       try {
@@ -257,8 +262,6 @@ export default function App() {
       }
     };
     openFromNavigation();
-    // navigate() announces every route change as popstate; re-checking here
-    // covers /app?account=1 arriving while the studio is already mounted.
     window.addEventListener("popstate", openFromNavigation);
     return () => {
       window.removeEventListener("scenering-open-account", openAccount);
@@ -269,7 +272,7 @@ export default function App() {
   const [focusedSceneId, setFocusedSceneId] = useState<number | null>(null);
   const [hasCustomKeys, setHasCustomKeys] = useState(() => {
     const k = getStoredApiKeys();
-    return Boolean(k.pexelsKey || k.pixabayKey || k.geminiKey);
+    return Boolean(k.pexelsKey || k.pixabayKey || k.speechifyKey);
   });
 
   const [customerLogo, setCustomerLogo] = useState<CustomerLogoConfig>(DEFAULT_PROJECT_SETTINGS.customer_logo);
@@ -655,7 +658,7 @@ export default function App() {
               animation: existing?.animation,
               audio_url: existing?.audio_url || null,
               audio_name: existing?.audio_name || null,
-              voice_id: existing?.voice_id,
+              voice_id: existing?.voice_id ? migrateLegacyVoiceId(existing.voice_id) : undefined,
               // Re-wording the script must never throw away the video the
               // user attached to the scene.
               video_url: existing?.video_url ?? null,
@@ -760,19 +763,10 @@ export default function App() {
   useEffect(() => {
     const checkKeys = () => {
       const k = getStoredApiKeys();
-      setHasCustomKeys(Boolean(k.pexelsKey || k.pixabayKey || k.geminiKey));
+      setHasCustomKeys(Boolean(k.pexelsKey || k.pixabayKey || k.speechifyKey));
     };
     window.addEventListener("scenering-api-keys-updated", checkKeys);
     return () => window.removeEventListener("scenering-api-keys-updated", checkKeys);
-  }, []);
-
-  /* Any part of the studio can ask for the API Keys modal — the narration
-     prompts shown when an account has no Google key of its own do exactly
-     that, so the key can be pasted without hunting for the toolbar. */
-  useEffect(() => {
-    const openKeys = () => setApiKeysModalOpen(true);
-    window.addEventListener("scenering-open-api-keys", openKeys);
-    return () => window.removeEventListener("scenering-open-api-keys", openKeys);
   }, []);
 
   const fetchProjects = useCallback(async () => {
@@ -799,10 +793,8 @@ export default function App() {
   }, [fetchProjects]);
 
   /**
-   * Where the user is working, per browser tab. If the studio reloads anyway
-   * (a stray pull-to-refresh on a browser that ignores overscroll-behavior,
-   * a crashed tab brought back, an accidental F5), the editor reopens the
-   * same project at the same step instead of dumping them on Setup.
+   * Where the user is working, per browser tab. If the studio reloads, reopen
+   * the same project and editor phase rather than dropping them at Setup.
    */
   useEffect(() => {
     try {
@@ -814,12 +806,7 @@ export default function App() {
     } catch { /* storage unavailable */ }
   }, [view, editorStep, currentProject]);
 
-  /**
-   * One-shot restore of that position once the project list has arrived.
-   * The saved value is read during the FIRST render — before the persist
-   * effect above can clear it (the studio always boots in the "create"
-   * view, which that effect treats as "nothing to resume").
-   */
+  /** Read the saved position before the persistence effect can clear it. */
   const resumeStateRef = useRef<{ projectId?: number; step?: EditorStep } | null | "unread">("unread");
   if (resumeStateRef.current === "unread") {
     try { resumeStateRef.current = JSON.parse(window.sessionStorage.getItem("scenering_resume") || "null"); }
@@ -832,7 +819,7 @@ export default function App() {
     if (view !== "create" || currentProject) return;
     const saved = resumeStateRef.current;
     if (saved === "unread" || !saved?.projectId) return;
-    const project = projects.find((p) => p.id === saved.projectId);
+    const project = projects.find((item) => item.id === saved.projectId);
     if (!project) return;
     const step = saved.step;
     void handleSelectProject(project).then(() => {
@@ -934,7 +921,7 @@ export default function App() {
       // Apply clean settings to state
       setCustomerLogo(freshSettings.customer_logo);
       setCaptionsConfig(freshSettings.captions_config);
-      setSelectedVoice(freshSettings.selected_voice);
+      setSelectedVoice(migrateLegacyVoiceId(freshSettings.selected_voice) || DEFAULT_PROJECT_SETTINGS.selected_voice);
       setVoiceEcho(resolveVoiceEcho(freshSettings.voice_echo));
       setAspectRatio(freshSettings.aspect_ratio);
       setResolution(freshSettings.resolution);
@@ -1064,6 +1051,7 @@ export default function App() {
           projectSettings = { ...projectSettings, ...JSON.parse(storedSettings) };
         }
       } catch {}
+      projectSettings.selected_voice = migrateLegacyVoiceId(projectSettings.selected_voice) || DEFAULT_PROJECT_SETTINGS.selected_voice;
 
       // Apply this project's setup and effects
       setNavNotice(null);
@@ -1108,6 +1096,7 @@ export default function App() {
         const finalDur = (merged.duration && merged.duration !== 4) ? merged.duration : projectSettings.scene_duration;
         return {
           ...merged,
+          voice_id: merged.voice_id ? migrateLegacyVoiceId(merged.voice_id) : merged.voice_id,
           transition: (merged.transition as SceneTransitionType) || projTransition,
           duration: finalDur,
         };
@@ -1644,8 +1633,8 @@ export default function App() {
           <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />
 
           {/* The owner's configured social profiles — same strip as the
-              website. Top row, after the logo. */}
-          <SocialLinksRow size={18} className="hidden md:flex shrink-0" />
+              website. Top row, after the logo and project title. */}
+          <SocialLinksRow size={36} className="flex shrink-0" />
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
           {/* Scrolls sideways like the Video Studio tab row rather than
@@ -1759,7 +1748,7 @@ export default function App() {
             <button
               onClick={() => setApiKeysModalOpen(true)}
               className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-hairline bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
-              title="Your API keys — Pexels & Pixabay for images, Google Gemini for narration"
+              title="Image search and Speechify voiceover API keys"
             >
               <span className="t-ico"><Icon glyph="🔑" /></span>
               <span className="hidden sm:inline">API Keys</span>
@@ -1771,15 +1760,10 @@ export default function App() {
             </button>
           </div>
 
-          {/* The project's name, on its own line under the logo and phase
-              tabs. It used to sit inline between the logo and the tabs with
-              a width clamp, which meant a long name — even a clamped one —
-              competed with the tabs and the right-hand buttons for the same
-              row and pushed them off the edge of a laptop screen. A full-
-              width second line can never do that: order-last puts it after
-              everything else in the flex-wrap row, w-full forces the wrap,
-              and truncate keeps even a novel-length title to one line. The
-              full name is in the tooltip for the rare case it is cut. */}
+          {/* The project title gets a full-width row under the logo and phase
+              tabs. It cannot compete with the buttons in the header, and
+              truncate plus the tooltip keep unusually long names usable.
+              The full title remains available in the tooltip. */}
           <h2
             className="order-last w-full min-w-0 truncate font-semibold text-xs sm:text-sm text-gray-200"
             title={currentProject ? currentProject.title : "Start a New Project"}

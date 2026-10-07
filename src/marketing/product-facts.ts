@@ -206,17 +206,10 @@ export const SEARCH_POLICY: { step: string; detail: string }[] = [
   { step: "Use", detail: "Only the selected visual is downloaded into the project." },
 ];
 
-/** How a narrated scene is produced, in order (README). */
+/** Speechify BYOK synthesis; failures are surfaced instead of falling back. */
 export const NARRATION_CHAIN: { name: string; detail: string }[] = [
-  {
-    name: "Your own free Google key",
-    detail: "One key from Google AI Studio, free and about a minute to create, pasted into API Keys",
-  },
-  {
-    name: "Gemini narration",
-    detail: "Every narrator is a Gemini neural voice, spoken with your key — Scenering never meters it",
-  },
-  { name: "Silent track", detail: "Exact scene length, so the video still renders if speech cannot be reached" },
+  { name: "Your Speechify key", detail: "Add your customer-owned key in API Keys. It stays in this browser and is sent directly from your browser to Speechify, never through Scenering or Cloudflare." },
+  { name: "Speechify Simba 3.2", detail: "Speechify generates the selected narrator profile. Any provider usage or charges are governed by your Speechify account." },
 ];
 
 /* ------------------------------------------------------------- effects map */
@@ -626,23 +619,13 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
 /* ------------------------------------------------------------- no metering */
 
 /**
- * Why there is no counter — the honest version.
- *
- * Every line here is a statement about the code, and the tests check the code
- * still matches: the script is divided by `splitScriptIntoScenes()`, the search
- * terms come from `topic-extract.ts` (which says in its own header that no NLP
- * model is available), the pictures are photographs fetched from stock
- * libraries, and the render runs on the visitor's own machine.
- *
- * What we must NOT say is "no AI anywhere": the narrators are neural
- * text-to-speech spoken by Gemini, using the customer's own free Google AI
- * Studio key. That is speech synthesis, not a model writing the video, and
- * it is spelled out rather than hidden.
+ * Clear disclosure of Scenering's BYOK narration model. No other service or
+ * silent placeholder is substituted when Speechify synthesis fails.
  */
 export const NO_METER = {
-  message: "No credits. No tokens. No counter.",
+  message: "Your Speechify account. No Scenering TTS meter.",
   lead:
-    "There is no language model at the centre of Scenering — nothing writes your script or invents your pictures, so there is nothing to meter.",
+    "Scenering does not bill per narration or use a server-owned Speechify key. You provide your Speechify key, and provider usage or charges follow your Speechify account.",
   points: [
     {
       label: "Your script stays your script",
@@ -655,18 +638,18 @@ export const NO_METER = {
         "Search terms come from the scene's own nouns and names, and real photographs are fetched from free libraries.",
     },
     {
-      label: "The narration uses your own free Google key",
+      label: "Narration uses your Speechify key",
       detail:
-        "The narrators are neural text-to-speech voices spoken with your own Google AI Studio key — free to create, and never metered by Scenering.",
+        "Speechify generates audio for the selected narrator profile. Add your key in API Keys; Scenering reports synthesis errors instead of switching providers or inserting silence.",
     },
     {
       label: "The video is made on your machine",
       detail:
-        "The render runs in your browser, frame by frame — no queue, no upload, no per-minute charge.",
+        "The render runs in your browser, frame by frame — no queue and no upload of your project video.",
     },
   ],
   caveat:
-    "One exception, stated plainly: the voices are Google's Gemini narrators, and they speak with your own free Google AI Studio key — a key takes about a minute to get, costs nothing, and Scenering never charges or counts against it. That is text-to-speech, not a model writing your video, and everything else here — the scenes, the photographs, the render — works without any key at all.",
+    "Generated narration requires your Speechify API key. It is held in this browser and sent directly from your browser to Speechify; Scenering does not receive or store the key. Speechify usage and billing are subject to your Speechify account. If Speechify blocks direct browser requests, the app reports that error and does not proxy the key through Cloudflare.",
 } as const;
 
 /** Honest, repeated everywhere it matters. */

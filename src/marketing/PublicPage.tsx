@@ -18,6 +18,7 @@ import Sources from "./sections/Sources";
 import { LEGAL_CONTACT_PATH, LEGAL_DOCUMENTS, LEGAL_EFFECTIVE_DATE, LEGAL_ORGANISATION, LEGAL_OWNER, type LegalKind } from "./legal-content";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 import SocialLinksRow from "../shared/SocialLinks";
+import { applyPageSeo } from "./seo";
 
 const FAQPage = lazy(() => import("./FAQPage"));
 const ManualPage = lazy(() => import("./ManualPage"));
@@ -45,8 +46,8 @@ export default function PublicPage({ path }: { path: string }) {
   return <div className="mkt-root"><SiteCornerMenu /><PublicNav /><main id="main" className="pub-main">{content}</main><PublicFooter /></div>;
 }
 
-function PublicNav() { return <nav className="mkt-nav" aria-label="Main"><div className="mkt-container mkt-nav-inner"><a href="/" className="mkt-nav-logo"><BrandMark height={26} /></a><div className="pub-navlinks">{NAV.map(([href, label]) => <a key={href} href={href} className="mkt-nav-link">{label}</a>)}</div><span className="mkt-nav-spacer" /><SocialLinksRow size={18} tone="light" className="mkt-nav-social" /><span style={{ width: 92 }} aria-hidden="true" /></div></nav>; }
-function PublicFooter() { return <footer className="mkt-footer"><div className="mkt-container pub-footer"><div><BrandMark height={28} /><p>Turn ideas, scripts and audio into polished faceless videos while keeping meaningful creative control.</p><SocialLinksRow size={24} style={{ margin: "12px 0" }} /><small>© 2026 Henry John Vincent Horlick. Scenering. All rights reserved.</small></div><div><h4>Product</h4><a href="/features">Features</a><a href="/how-it-works">How It Works</a><a href="/pricing">Pricing</a></div><div><h4>Help</h4><a href="/manual">Manual</a><a href="/faq">FAQ</a><a href="/contact">Contact</a></div><div><h4>Legal</h4><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/cookies">Cookies</a></div></div></footer>; }
+function PublicNav() { return <nav className="mkt-nav" aria-label="Main"><div className="mkt-container mkt-nav-inner"><a href="/" className="mkt-nav-logo"><BrandMark height={26} /></a><div className="pub-navlinks">{NAV.map(([href, label]) => <a key={href} href={href} className="mkt-nav-link">{label}</a>)}</div><span className="mkt-nav-spacer" /><SocialLinksRow size={36} tone="light" className="mkt-nav-social" /><span style={{ width: 92 }} aria-hidden="true" /></div></nav>; }
+function PublicFooter() { return <footer className="mkt-footer"><div className="mkt-container pub-footer"><div><BrandMark height={28} /><p>Turn ideas, scripts and audio into polished faceless videos while keeping meaningful creative control.</p><SocialLinksRow size={48} style={{ margin: "12px 0" }} /><small>© 2026 Henry John Vincent Horlick. Scenering. All rights reserved.</small></div><div><h4>Product</h4><a href="/features">Features</a><a href="/how-it-works">How It Works</a><a href="/pricing">Pricing</a></div><div><h4>Help</h4><a href="/manual">Manual</a><a href="/faq">FAQ</a><a href="/contact">Contact</a></div><div><h4>Legal</h4><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/cookies">Cookies</a></div></div></footer>; }
 function PageHero({ eyebrow, title, lead }: { eyebrow: string; title: string; lead: string }) { return <header className="pub-hero mkt-container"><span className="mkt-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{lead}</p></header>; }
 
 /**
@@ -142,5 +143,9 @@ function UnsubscribePage() {
       <p className="pub-legal-note">Prefer to choose categories? <a href={token ? `/email-preferences?token=${encodeURIComponent(token)}` : "/email-preferences"}>Manage your email preferences</a></p>
     </div></>;
 }
-function usePageMeta(path: string) { useEffect(() => { const label = NAV.find(([href]) => href === path)?.[1] || (isFeatureTourPath(path) ? "Features" : path === "/privacy" ? "Privacy" : path === "/terms" ? "Terms" : "Scenering"); document.title = `${label} — Scenering`; let meta = document.querySelector('meta[name="description"]'); if (meta) meta.setAttribute("content", `Scenering ${label}: turn scripts and audio into scene-based faceless videos with meaningful creative control.`); let canonical = document.querySelector('link[rel="canonical"]'); canonical?.setAttribute("href", path); }, [path]); }
 
+function usePageMeta(path: string) {
+  useEffect(() => {
+    applyPageSeo(path);
+  }, [path]);
+}

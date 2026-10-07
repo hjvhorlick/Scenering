@@ -2,7 +2,7 @@ import { Section, SectionHead, Pill } from "../components/primitives";
 import { NO_METER, VISUAL_SOURCES } from "../product-facts";
 
 /**
- * "No credits. No tokens. No counter."
+ * "Your Speechify account. No Scenering TTS meter."
  *
  * The answer to the first question on the page, and the one claim most worth
  * getting exactly right. Every line is a statement about how the app is
@@ -11,9 +11,8 @@ import { NO_METER, VISUAL_SOURCES } from "../product-facts";
  * the pictures are photographs from the libraries listed below and the render
  * runs on the visitor's own machine.
  *
- * The one key the product genuinely needs — the customer's own free Google
- * key for narration — is printed here rather than buried, because a promise
- * with a hidden exception is worse than no promise.
+ * Speechify BYOK pricing and failure behavior are printed here rather than
+ * buried, because a promise with a hidden exception is worse than no promise.
  */
 export default function NoMeter() {
   const openSources = VISUAL_SOURCES.filter((source) => source.access !== "bundled");
@@ -55,12 +54,6 @@ export default function NoMeter() {
           ))}
           . Two of them ask you to bring your own key, which is free to get and takes a minute —
           Scenering tells you where to put it.
-        </p>
-        <p className="mkt-small" style={{ marginTop: 8 }}>
-          Narration works the same way: it is spoken by Google's Gemini voices using{" "}
-          <b>your own free Google AI Studio key</b>. Creating one takes about a minute and costs
-          nothing, and Scenering puts no counter on top of it — paste the key once under API Keys and
-          every narrator, preview and export speaks.
         </p>
       </div>
     </Section>

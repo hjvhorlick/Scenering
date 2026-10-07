@@ -32,7 +32,13 @@ try {
   h.eq(body.to[0], "person@example.com", "mail is addressed to the requested recipient");
   h.eq(body.subject, "A test message", "the subject reaches Resend");
   h.eq(body.text, "Plain-text body", "the text body reaches Resend");
-  h.eq(body.html, "<p>HTML body</p>", "an optional HTML body reaches Resend");
+  h.eq(body.html, "<p>HTML body</p>", "an explicitly supplied HTML body reaches Resend");
+
+  await sendTransactionalEmail({ to: "person@example.com", subject: "A branded notice", text: "A plain-text notice.", kind: "security" });
+  const brandedBody = JSON.parse(String(requestInit?.body));
+  h.ok(brandedBody.html.includes("Scenering"), "transactional messages without custom HTML receive the branded email template");
+  h.ok(brandedBody.html.includes("Need a hand?"), "the default transactional layout includes the shared footer");
+  h.eq(brandedBody.text, "A plain-text notice.", "the branded HTML layout keeps the plain-text fallback unchanged");
 
   setEnv({ EMAIL_PROVIDER: "resend" });
   await sendTransactionalEmail({ to: "person@example.com", subject: "No key", text: "test" })
