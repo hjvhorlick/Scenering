@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 
 /**
- * Two-surface routing.
+ * Three-surface routing.
  *
- * Scenering ships one bundle with two front doors:
+ * Scenering ships one bundle with three front doors:
  *
  *   /        the public website — what Scenering is, shown by demonstrating
  *            the real workflow (src/marketing/**)
  *   /app     the studio itself — the application (src/App.tsx)
+ *   /admin   the owner's admin surfaces — currently the Email Centre
+ *            (src/admin/**), mounted only for signed-in administrators
  *
  * They remain separate render surfaces, but main.tsx starts both downloads on
  * the public page. The website stays in front while the studio is prepared in
@@ -17,12 +19,14 @@ import { useEffect, useState } from "react";
  * page, so "routing" is one path check plus a popstate listener.
  */
 
-export type SiteRoute = "site" | "studio";
+export type SiteRoute = "site" | "studio" | "admin";
 
 /** Where the application lives. */
 export const STUDIO_PATH = "/app";
 /** Where the public website lives. */
 export const SITE_PATH = "/";
+/** Where the owner's admin surfaces live (the Email Centre today). */
+export const ADMIN_PATH = "/admin";
 
 /**
  * The areas of the front page, in the order they appear on it.
@@ -111,6 +115,7 @@ export function normalizePath(pathname: string): string {
 /** Which surface a path belongs to. Unknown paths fall back to the website. */
 export function routeForPath(pathname: string): SiteRoute {
   const path = normalizePath(pathname);
+  if (path === ADMIN_PATH || path.startsWith(`${ADMIN_PATH}/`)) return "admin";
   return path === STUDIO_PATH || path.startsWith(`${STUDIO_PATH}/`) || ["/login", "/register", "/forgot-password"].includes(path) ? "studio" : "site";
 }
 

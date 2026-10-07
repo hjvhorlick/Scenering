@@ -19,6 +19,9 @@ import { initAnalytics } from "./lib/analytics";
  */
 const MarketingSite = lazy(() => import("./marketing/MarketingSite"));
 const StudioEntry = lazy(() => import("./studio/StudioEntry"));
+// The owner's admin surfaces (the Email Centre) — a separate chunk, loaded
+// only on /admin/* paths, mounted only for signed-in administrators.
+const AdminEntry = lazy(() => import("./admin/AdminEntry"));
 
 // Keep the public website lightweight. The large editor/renderer bundle starts
 // only at an account or studio route; marketing visuals are their own lazy assets.
@@ -74,6 +77,14 @@ function Root() {
     return (
       <Suspense fallback={<Loading label="Opening the studio…" />}>
         <StudioEntry />
+      </Suspense>
+    );
+  }
+
+  if (route === "admin") {
+    return (
+      <Suspense fallback={<Loading label="Opening the Email Centre…" />}>
+        <AdminEntry />
       </Suspense>
     );
   }

@@ -235,7 +235,11 @@ function clearSessionCookie(res: Response) { res.setHeader("Set-Cookie", `scener
 
 type Auth = { user: User; plan: PlanSlug };
 
-async function findSession(req: Request): Promise<Auth | null> {
+/** Resolves the signed-in user (and plan) for a request, or null. Exported
+ *  for the Email Centre's preference endpoints, which accept EITHER a
+ *  session OR the signed token a marketing email carries — so they cannot
+ *  simply mount requireUser. */
+export async function findSession(req: Request): Promise<Auth | null> {
   const raw = cookies(req).scenering_session;
   if (raw) {
     const session = await db.findSessionByToken(hashToken(raw));
@@ -280,6 +284,10 @@ function requireAdminMiddleware(req: Request, res: Response, next: NextFunction)
 const requireUser = requireUserMiddleware;
 const requireAdmin = requireAdminMiddleware;
 export const requirePlatformUser = requireUserMiddleware;
+/** The admin-only middleware the Email Centre (server/email-centre.ts) and
+ *  any other owner surface mounts — identical to what /api/admin/* uses
+ *  here: 401 without a session, 403 unless the account's role is admin. */
+export const requirePlatformAdmin = requireAdminMiddleware;
 
 /** Synchronous — safe to call from any handler that runs after
  *  requireUser/requireAdmin, because the plan was already resolved once by
@@ -833,12 +841,11 @@ export function registerPlatformRoutes(app: Express) {
     res.json({ links: await publicSocialLinks() });
   }));
 
-  app.get("/api/email-preferences", requireUser, asyncHandlerVoid(async (req, res) => { const { user } = (req as any).auth as Auth; res.json(await db.findEmailPreference(user.id)); }));
-  app.put("/api/email-preferences", requireUser, asyncHandlerVoid(async (req, res) => {
-    const { user } = (req as any).auth as Auth;
-    const pref = await db.upsertEmailPreference({ userId: user.id, marketingConsent: Boolean(req.body?.marketingConsent), consentTimestamp: now(), consentSource: "account_settings", consentVersion: "2026-10", trainingStep: (await db.findEmailPreference(user.id))?.trainingStep || 0, updatedAt: now() });
-    res.json(pref);
-  }));
+  /* /api/email-preferences (GET/PUT) and /api/email/unsubscribe are
+     registered by the Email Centre (server/email-centre.ts): they accept
+     BOTH a signed-in session and the signed token that marketing emails
+     carry, so a recipient can manage preferences without signing in while
+     the account-settings path keeps working exactly as before. */
 
   app.post("/api/contact", rateLimit("contact", 5, 3600000), asyncHandlerVoid(async (req, res) => {
     const { name, email, subject, message, category, website } = req.body || {};
@@ -851,3 +858,32 @@ export function registerPlatformRoutes(app: Express) {
 }
 
 function baseUrl(req: Request) { return (env().PUBLIC_APP_URL as string) || `${req.protocol}://${req.get("host")}`; }
+export { baseUrl as publicBaseUrl };
+
+/**
+ * Tamper-proof tokens for the email preference links that ride inside
+ * marketing mail ({{unsubscribe_url}}, {{preferences_url}}). Recipients
+ * click them signed-out, so they cannot be session-scoped: the token is
+ * `userId.expiry.hmac`, signed with the same server secret as sessions and
+ * expiring after 30 days — long enough for any campaign, short enough that
+ * a forwarded link does not live forever. Only the preference it names can
+ * be changed with it; it grants no other access.
+ */
+const EMAIL_PREFERENCE_TOKEN_TTL_MS = 30 * 24 * 3600000;
+export function signEmailPreferenceToken(userId: string, atMs = Date.now()): string {
+  const expiry = atMs + EMAIL_PREFERENCE_TOKEN_TTL_MS;
+  const payload = `${userId}.${expiry}`;
+  const mac = createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
+  return `${payload}.${mac}`;
+}
+export function verifyEmailPreferenceToken(token: string): string | null {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3) return null;
+  const [userId, expiryRaw, mac] = parts;
+  const expiry = Number(expiryRaw);
+  if (!userId || !mac || !Number.isFinite(expiry) || expiry <= Date.now()) return null;
+  const expected = createHmac("sha256", sessionSecret()).update(`${userId}.${expiryRaw}`).digest("base64url");
+  const a = Buffer.from(mac);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b) ? userId : null;
+}
