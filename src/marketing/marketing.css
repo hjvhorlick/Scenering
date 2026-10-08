@@ -1993,6 +1993,218 @@ html[data-mkt="1"][data-theme] body {
   width: 100%;
 }
 
+/* The complete workflow workspace is useful on a wide screen, but it asks a
+   phone to display too much editor furniture at once. The compact composition
+   below keeps the same six selectable phases as a small animated glimpse. */
+.mkt-workflow-mobile,
+.mkt-workflow-mobile-copy {
+  display: none;
+}
+
+@media (width <= 719px) {
+  .mkt-workflow-split {
+    gap: 12px;
+  }
+
+  .mkt-workflow-split .mkt-rail {
+    flex-direction: row;
+    gap: 5px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 5px;
+    border: 1px solid var(--mkt-line);
+    border-radius: 14px;
+    background: var(--mkt-surface);
+    box-shadow: var(--mkt-sh-1);
+  }
+
+  .mkt-workflow-split .mkt-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mkt-workflow-split .mkt-rail .mkt-opt {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 44px;
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .mkt-workflow-desktop,
+  .mkt-workflow-desktop-copy {
+    display: none;
+  }
+
+  .mkt-workflow-mobile,
+  .mkt-workflow-mobile-copy {
+    display: block;
+  }
+
+  .mkt-workflow-mobile-copy {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--mkt-line);
+    border-radius: var(--mkt-r);
+    background: linear-gradient(135deg, var(--mkt-surface), var(--mkt-bg));
+    box-shadow: var(--mkt-sh-1);
+  }
+
+  .mkt-workflow-mobile-kicker {
+    margin: 0 0 4px;
+    color: var(--mkt-accent-ink);
+    font-size: 10.5px;
+    font-weight: 760;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .mkt-workflow-mobile-copy h3 {
+    margin: 0;
+    color: var(--mkt-ink);
+    font-family: var(--mkt-serif);
+    font-size: 19px;
+    line-height: 1.18;
+  }
+
+  .mkt-workflow-mobile-copy > p:last-child {
+    display: -webkit-box;
+    margin: 6px 0 0;
+    overflow: hidden;
+    color: var(--mkt-ink-2);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  .mkt-workflow-mobile-demo {
+    overflow: hidden;
+    border: 1px solid var(--mkt-line);
+    border-radius: var(--mkt-r-lg);
+    background: var(--mkt-surface);
+    box-shadow: var(--mkt-sh-2);
+    animation: mkt-workflow-swap 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .mkt-workflow-mobile-demo-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--mkt-line);
+    color: var(--mkt-ink-2);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .mkt-workflow-mobile-demo-number {
+    display: inline-grid;
+    flex: none;
+    width: 23px;
+    height: 20px;
+    place-items: center;
+    border-radius: 6px;
+    background: var(--mkt-accent-soft);
+    color: var(--mkt-accent-ink);
+    font-size: 10px;
+  }
+
+  .mkt-workflow-mobile-demo-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    color: var(--mkt-ink-4);
+    font-size: 10px;
+    font-weight: 650;
+  }
+
+  .mkt-workflow-mobile-demo-state i {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--mkt-teal);
+    animation: mkt-workflow-ping 1.4s ease-in-out infinite;
+  }
+
+  .mkt-workflow-mobile-demo .mkt-player {
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .mkt-workflow-mobile-demo .mkt-player-badge {
+    font-size: 9.5px;
+  }
+
+  .mkt-workflow-mobile-demo .mkt-player-cap {
+    bottom: 17%;
+  }
+
+  .mkt-workflow-mobile-signal {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 35px;
+    padding: 7px 11px;
+    overflow: hidden;
+    background: linear-gradient(90deg, var(--mkt-bg), var(--mkt-surface-2));
+    color: var(--mkt-ink-3);
+    font-size: 11px;
+    font-weight: 650;
+  }
+
+  .mkt-workflow-mobile-signal > :not(.mkt-workflow-mobile-sweep) {
+    position: relative;
+    z-index: 1;
+  }
+
+  .mkt-workflow-mobile-signal .mkt-dots {
+    width: min(170px, 58vw);
+  }
+
+  .mkt-workflow-mobile-sweep {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 34%;
+    background: linear-gradient(90deg, transparent, rgb(91 153 211 / 0.18), transparent);
+    animation: mkt-workflow-sweep 2.3s ease-in-out infinite;
+  }
+}
+
+@keyframes mkt-workflow-swap {
+  from {
+    opacity: 0.35;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes mkt-workflow-ping {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes mkt-workflow-sweep {
+  from {
+    left: -34%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
 /* feature list */
 .mkt-list {
   display: flex;

@@ -350,6 +350,20 @@ ok(
   WORKFLOW_STAGES[1].body.toLowerCase().includes("search"),
   "…and the Scenes step says the searching happens there"
 );
+// Phones use a purpose-built workflow glimpse rather than squeezing a full
+// desktop editor into a narrow viewport. The same phase tabs remain available
+// and it advances only while visible, unless the visitor selects a step.
+{
+  const workflow = read("src/marketing/sections/IdeaToVideo.tsx");
+  const css = read("src/marketing/marketing.css");
+  ok(workflow.includes("CompactWorkflowPreview"), "workflow has a compact phone preview");
+  ok(workflow.includes('useMediaQuery("(width <= 719px)")'), "workflow selects the compact preview at the phone breakpoint");
+  ok(workflow.includes("useStageSequence(WORKFLOW_STAGES.length"), "compact workflow keeps a visible-stage animation");
+  ok(workflow.includes("active: compact && inView"), "phone animation runs only while its section is visible");
+  ok(workflow.includes("mobileSequence.goTo"), "selecting a phone step pauses the automatic sequence");
+  ok(css.includes(".mkt-workflow-mobile-demo") && css.includes("@keyframes mkt-workflow-swap"), "compact preview has a small transition animation");
+  ok(css.includes(".mkt-workflow-desktop-copy") && css.includes(".mkt-workflow-mobile-copy"), "desktop detail is replaced by concise phone copy");
+}
 // Nothing may still claim a seventh stage.
 for (const { name, text } of marketingFiles) {
   ok(
