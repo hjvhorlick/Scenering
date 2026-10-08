@@ -31,6 +31,7 @@
 import type { InsertVisualOptions } from "../types";
 import type { BarsResult } from "./audio-reactive";
 import { hash01, mixColors, rgba, roundRectPath, softGlow } from "./visualizer-colors";
+import { drawBottomLight, drawGlassBar, drawGlassRadialStroke, resolveSpacedBarLayout, sampleMaterialBand } from "./visualizer-materials";
 
 /* ------------------------------------------------------------------ *
  * Family table
@@ -671,6 +672,9 @@ export interface PixabayScene {
   bars: BarsResult;
   beat: number;
   compact: boolean;
+  /** Shared material controls supplied by the studio insert. */
+  barGap?: number;
+  barShine?: number;
 }
 
 /** Level of band `i` of `count`, comfortably in 0..1.3 */
@@ -698,48 +702,65 @@ function barRow(
     radius?: number;
   }
 ) {
-  const { from, to, baseline, maxH, dir, count, width, gap, glow, rainbow, cap, radius } = opts;
+  const { from, to, baseline, maxH, dir, count: requestedCount, width, gap, glow, rainbow, cap } = opts;
   const span = to - from;
-  const slot = span / count;
-  const bw = Math.max(1.5, Math.min(width, slot - gap));
+  const layout = resolveSpacedBarLayout({
+    width: span,
+    count: requestedCount,
+    requestedWidth: width,
+    requestedGap: Math.max(gap, width * (0.24 + Math.max(0, Math.min(0.86, s.barGap ?? 0.44)) * 0.85)),
+    minWidth: 1.5,
+  });
+  const { count, slot, barWidth: bw, gap: materialGap } = layout;
+  drawBottomLight(ctx, {
+    y: baseline,
+    width: span * 0.54,
+    height: Math.max(3, maxH * 0.11),
+    primary: s.primary,
+    secondary: s.secondary,
+    accent: s.accent,
+    intensity: 0.2 + glow * 0.34,
+  });
   for (let i = 0; i < count; i++) {
-    const v = band(s, i, count);
-    // every bar keeps a visible block: the Pixabay racks always show a floor of
-    // light even between hits, which is what makes them read as a meter
+    const v = Math.max(0, Math.min(1.3, sampleMaterialBand(s.bars.values, i, count)));
+    // Every bar keeps a visible body; quiet passages still read as a glass meter.
     const h = Math.max(bw, Math.max(maxH * 0.07, Math.pow(v, 0.86) * maxH));
-    const x = from + i * slot + (slot - bw) / 2;
+    const x = from + i * slot + materialGap / 2;
     const y = dir < 0 ? baseline - h : baseline;
-    const body = rainbow
-      ? (() => {
-          const g = ctx.createLinearGradient(0, baseline, 0, baseline + dir * -maxH);
-          g.addColorStop(0, "#2563eb");
-          g.addColorStop(0.35, "#06b6d4");
-          g.addColorStop(0.6, "#10b981");
-          g.addColorStop(0.82, "#f59e0b");
-          g.addColorStop(1, "#ef4444");
-          return g;
-        })()
-      : (() => {
-          const g = ctx.createLinearGradient(0, baseline, 0, baseline + dir * -maxH);
-          g.addColorStop(0, rgba(s.primary, 0.55));
-          g.addColorStop(0.4, s.primary);
-          g.addColorStop(0.85, mixColors(s.primary, s.secondary, 0.55));
-          g.addColorStop(1, s.accent);
-          return g;
-        })();
-    if (glow > 0.05) {
-      ctx.shadowColor = rgba(s.primary, 0.9);
-      ctx.shadowBlur = (10 + v * 22) * glow;
+    const t = i / Math.max(1, count - 1);
+    const colour = rainbow
+      ? mixColors(mixColors("#2563eb", "#10b981", Math.min(1, t * 1.8)), "#ef4444", Math.max(0, t * 1.45 - 0.45))
+      : mixColors(s.primary, s.secondary, t * 0.42);
+    drawGlassBar(ctx, {
+      x,
+      y,
+      width: bw,
+      height: h,
+      primary: colour,
+      secondary: s.secondary,
+      accent: s.accent,
+      glow,
+      value: v,
+      roundness: 1,
+      shine: Math.max(0.72, Math.min(1, s.barShine ?? 0.9)),
+    });
+    if (cap) {
+      const peak = Math.max(0, Math.min(1.3, sampleMaterialBand(s.bars.peaks, i, count)));
+      const capY = dir < 0 ? baseline - peak * maxH - Math.max(3, bw * 0.25) : baseline + peak * maxH;
+      drawGlassBar(ctx, {
+        x: x + bw * 0.14,
+        y: capY,
+        width: Math.max(1, bw * 0.72),
+        height: Math.max(1.6, Math.min(3.2, bw * 0.24)),
+        primary: s.accent,
+        secondary: colour,
+        accent: "#ffffff",
+        glow: glow * 0.65,
+        value: peak,
+        roundness: 1,
+        shine: 1,
+      });
     }
-    ctx.fillStyle = body;
-    if (radius && radius > 0) roundRectPath(ctx, x, y, bw, h, radius);
-    else ctx.beginPath(), ctx.rect(x, y, bw, h);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // glass highlight down the left edge of the bar
-    ctx.fillStyle = "rgba(255,255,255,0.16)";
-    ctx.fillRect(x + bw * 0.12, y, Math.max(0.8, bw * 0.22), h);
   }
 }
 
@@ -1097,36 +1118,60 @@ function drawSpectrumFamily(s: PixabayScene, variant: string) {
         const pk = Math.min(1, s.bars.peaks[i % s.bars.peaks.length] || 0);
         const cw = Math.max(3, slot * 0.5);
         const y = -Math.pow(pk, 0.86) * maxH - Math.max(4, h * 0.008);
-        ctx.fillStyle = rgba(s.accent, 0.9);
-        roundRectPath(ctx, -span / 2 + i * slot + (slot - cw) / 2, y, cw, Math.max(2.5, h * 0.006), 2);
-        ctx.fill();
+        drawGlassBar(ctx, {
+          x: -span / 2 + i * slot + (slot - cw) / 2,
+          y,
+          width: cw,
+          height: Math.max(2.5, h * 0.006),
+          primary: s.accent,
+          secondary: s.primary,
+          accent: "#ffffff",
+          glow: s.glow * 0.65,
+          value: pk,
+          roundness: 1,
+          shine: 1,
+        });
       }
       break;
     }
 
     /* --- hair-thin needles with heavy bloom --- */
     case "needles": {
-      const count = s.compact ? 64 : 110;
-      const slot = span / count;
-      for (let i = 0; i < count; i++) {
-        const v = band(s, i, count);
+      const sourceCount = s.compact ? 64 : 110;
+      const layout = resolveSpacedBarLayout({
+        width: span,
+        count: sourceCount,
+        requestedWidth: Math.max(2, (span / sourceCount) * 0.62),
+        requestedGap: Math.max(2, (span / sourceCount) * 0.42),
+        minWidth: 1.4,
+      });
+      drawBottomLight(ctx, {
+        y: 0,
+        width: span * 0.6,
+        height: Math.max(3, maxH * 0.11),
+        primary: s.primary,
+        secondary: s.secondary,
+        accent: s.accent,
+        intensity: 0.24 + s.glow * 0.34,
+      });
+      for (let i = 0; i < layout.count; i++) {
+        const v = Math.max(0, Math.min(1.3, sampleMaterialBand(s.bars.values, i, layout.count)));
         const bh = Math.max(2, Math.pow(v, 0.92) * maxH * 1.15);
-        const x = -span / 2 + i * slot + slot * 0.5;
-        const g = ctx.createLinearGradient(0, 0, 0, -bh);
-        g.addColorStop(0, rgba(s.secondary, 0.85));
-        g.addColorStop(0.5, rgba(s.primary, 0.95));
-        g.addColorStop(1, rgba(s.accent, 1));
-        ctx.strokeStyle = g;
-        ctx.lineWidth = Math.max(1, slot * 0.34);
-        if (s.glow > 0.05) {
-          ctx.shadowColor = s.primary;
-          ctx.shadowBlur = (8 + v * 26) * s.glow;
-        }
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, -bh);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
+        const x = -span / 2 + i * layout.slot + layout.gap / 2;
+        const colour = mixColors(s.primary, s.accent, i / Math.max(1, layout.count - 1));
+        drawGlassBar(ctx, {
+          x,
+          y: -bh,
+          width: layout.barWidth,
+          height: bh,
+          primary: colour,
+          secondary: s.secondary,
+          accent: s.accent,
+          glow: s.glow,
+          value: v,
+          roundness: 1,
+          shine: Math.max(0.78, Math.min(1, s.barShine ?? 0.9)),
+        });
       }
       break;
     }
@@ -1161,29 +1206,53 @@ function drawSpectrumFamily(s: PixabayScene, variant: string) {
 
     /* --- chunky LED blocks --- */
     case "blocks": {
-      const count = 34;
+      const sourceCount = 34;
+      const layout = resolveSpacedBarLayout({
+        width: span,
+        count: sourceCount,
+        requestedWidth: Math.max(5, (span / sourceCount) * 0.76),
+        requestedGap: Math.max(3, (span / sourceCount) * 0.34),
+        minWidth: 4,
+      });
       const seg = 16;
-      const slot = span / count;
-      const bw = Math.max(4, slot * 0.66);
-      const segH = maxH / seg;
-      for (let i = 0; i < count; i++) {
-        const v = band(s, i, count);
-        const lit = Math.round(Math.min(seg, v * seg));
-        for (let k = 0; k < seg; k++) {
-          const on = k < lit;
-          const t = k / seg;
-          const y = -segH * (k + 1);
-          ctx.fillStyle = on
-            ? rgba(mixColors(s.primary, s.accent, t), 0.95)
-            : rgba(s.secondary, 0.16);
-          if (on && s.glow > 0.05) {
-            ctx.shadowColor = s.primary;
-            ctx.shadowBlur = 10 * s.glow * (0.5 + t);
-          }
-          roundRectPath(ctx, -span / 2 + i * slot + (slot - bw) / 2, y, bw, segH * 0.78, 2);
-          ctx.fill();
-          ctx.shadowBlur = 0;
+      drawBottomLight(ctx, {
+        y: 0,
+        width: span * 0.6,
+        height: Math.max(3, maxH * 0.12),
+        primary: s.primary,
+        secondary: s.secondary,
+        accent: s.accent,
+        intensity: 0.26 + s.glow * 0.32,
+      });
+      for (let i = 0; i < layout.count; i++) {
+        const v = Math.max(0, Math.min(1.3, sampleMaterialBand(s.bars.values, i, layout.count)));
+        const h = Math.max(layout.barWidth, Math.min(maxH, v * maxH));
+        const x = -span / 2 + i * layout.slot + layout.gap / 2;
+        drawGlassBar(ctx, {
+          x,
+          y: -h,
+          width: layout.barWidth,
+          height: h,
+          primary: mixColors(s.primary, s.secondary, i / Math.max(1, layout.count - 1) * 0.42),
+          secondary: s.secondary,
+          accent: s.accent,
+          glow: s.glow,
+          value: v,
+          roundness: 1,
+          shine: Math.max(0.78, Math.min(1, s.barShine ?? 0.92)),
+        });
+        const lit = Math.max(1, Math.round(Math.min(seg, v * seg)));
+        ctx.save();
+        ctx.strokeStyle = "rgba(6, 10, 18, 0.34)";
+        ctx.lineWidth = Math.max(0.5, layout.barWidth * 0.09);
+        for (let k = 1; k < lit; k++) {
+          const y = -k * (h / lit);
+          ctx.beginPath();
+          ctx.moveTo(x + layout.barWidth * 0.14, y);
+          ctx.lineTo(x + layout.barWidth * 0.86, y);
+          ctx.stroke();
         }
+        ctx.restore();
       }
       break;
     }
@@ -1698,9 +1767,18 @@ function drawGridFamily(s: PixabayScene, variant: string) {
 
     /* --- isometric bars with lit tops --- */
     case "iso": {
-      const count = s.compact ? 18 : 26;
+      const count = s.compact ? 14 : 20;
       const slot = w / count;
       const baseY = h * 0.22;
+      drawBottomLight(ctx, {
+        y: baseY,
+        width: w * 0.62,
+        height: Math.max(4, h * 0.055),
+        primary: s.primary,
+        secondary: s.secondary,
+        accent: s.accent,
+        intensity: 0.28 + s.glow * 0.32,
+      });
       const depth = slot * 0.32;
       for (let i = 0; i < count; i++) {
         const v = band(s, i, count);
@@ -1723,6 +1801,21 @@ function drawGridFamily(s: PixabayScene, variant: string) {
         face.addColorStop(1, rgba(s.secondary, 0.75));
         ctx.fillStyle = face;
         ctx.fill();
+        // A clear rounded core gives the isometric silhouette the same material
+        // as the flat racks while the diamond top preserves its depth cue.
+        drawGlassBar(ctx, {
+          x: cx - hw * 0.6,
+          y: topY,
+          width: hw * 1.2,
+          height: bh,
+          primary: s.primary,
+          secondary: s.secondary,
+          accent: s.accent,
+          glow: s.glow,
+          value: v,
+          roundness: 1,
+          shine: Math.max(0.78, Math.min(1, s.barShine ?? 0.92)),
+        });
         // lit top diamond
         ctx.beginPath();
         ctx.moveTo(cx - hw, topY);
@@ -1790,7 +1883,7 @@ function drawCircularFamily(s: PixabayScene, variant: string) {
   switch (variant) {
     /* --- spikes whose hue rotates as the wheel turns --- */
     case "wheel": {
-      const spokes = s.compact ? 72 : 128;
+      const spokes = s.compact ? 48 : 88;
       const spin = s.elapsed * 0.32;
       softGlow(ctx, 0, 0, R * 2.4, rgba(s.accent, 0.16 + s.bars.low * 0.16), rgba(s.primary, 0.08), 1);
       for (let i = 0; i < spokes; i++) {
@@ -1799,17 +1892,21 @@ function drawCircularFamily(s: PixabayScene, variant: string) {
         const a = t * Math.PI * 2 + spin;
         const len = R * 0.16 + Math.pow(v, 0.88) * maxLen;
         const hue = mixColors(s.primary, s.accent, (t + s.elapsed * 0.12) % 1);
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(a) * R, Math.sin(a) * R);
-        ctx.lineTo(Math.cos(a) * (R + len), Math.sin(a) * (R + len));
-        ctx.strokeStyle = hue;
-        ctx.lineWidth = Math.max(1.2, (Math.PI * 2 * R) / spokes * 0.5);
-        if (s.glow > 0.05) {
-          ctx.shadowColor = hue;
-          ctx.shadowBlur = (8 + v * 22) * s.glow;
-        }
-        ctx.stroke();
-        ctx.shadowBlur = 0;
+        drawGlassRadialStroke(ctx, {
+          x1: Math.cos(a) * R,
+          y1: Math.sin(a) * R,
+          x2: Math.cos(a) * (R + len),
+          y2: Math.sin(a) * (R + len),
+          baseX: Math.cos(a) * R,
+          baseY: Math.sin(a) * R,
+          width: Math.max(1.35, (Math.PI * 2 * R) / spokes * 0.58),
+          primary: hue,
+          accent: s.accent,
+          glow: s.glow,
+          value: v,
+          shine: Math.max(0.72, Math.min(1, s.barShine ?? 0.9)),
+          round: true,
+        });
       }
       ctx.beginPath();
       ctx.arc(0, 0, R, 0, Math.PI * 2);
@@ -1821,7 +1918,7 @@ function drawCircularFamily(s: PixabayScene, variant: string) {
 
     /* --- long thin rays from a white-hot core --- */
     case "sunburst": {
-      const rays = s.compact ? 64 : 110;
+      const rays = s.compact ? 46 : 76;
       const spin = s.elapsed * 0.16;
       softGlow(ctx, 0, 0, R * 2.6, rgba(s.accent, 0.24 + s.bars.low * 0.24), rgba(s.primary, 0.12), 1);
       for (let i = 0; i < rays; i++) {
@@ -1830,26 +1927,21 @@ function drawCircularFamily(s: PixabayScene, variant: string) {
         const a = t * Math.PI * 2 + spin;
         const inner = R * 0.22;
         const len = inner + Math.pow(v, 0.85) * maxLen * 1.25 + R * 0.1;
-        const g = ctx.createLinearGradient(
-          Math.cos(a) * inner,
-          Math.sin(a) * inner,
-          Math.cos(a) * len,
-          Math.sin(a) * len
-        );
-        g.addColorStop(0, rgba(s.accent, 0.9));
-        g.addColorStop(0.5, rgba(s.primary, 0.85));
-        g.addColorStop(1, rgba(s.secondary, 0.15));
-        ctx.strokeStyle = g;
-        ctx.lineWidth = Math.max(1, R * 0.012);
-        if (s.glow > 0.05) {
-          ctx.shadowColor = s.primary;
-          ctx.shadowBlur = (10 + v * 24) * s.glow;
-        }
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
-        ctx.lineTo(Math.cos(a) * len, Math.sin(a) * len);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
+        drawGlassRadialStroke(ctx, {
+          x1: Math.cos(a) * inner,
+          y1: Math.sin(a) * inner,
+          x2: Math.cos(a) * len,
+          y2: Math.sin(a) * len,
+          baseX: Math.cos(a) * inner,
+          baseY: Math.sin(a) * inner,
+          width: Math.max(1.15, R * 0.017),
+          primary: s.primary,
+          accent: s.accent,
+          glow: s.glow,
+          value: v,
+          shine: Math.max(0.72, Math.min(1, s.barShine ?? 0.86)),
+          round: true,
+        });
       }
       const core = ctx.createRadialGradient(0, 0, 1, 0, 0, R * 0.34);
       core.addColorStop(0, "#ffffff");
@@ -1864,13 +1956,13 @@ function drawCircularFamily(s: PixabayScene, variant: string) {
 
     /* --- chunky radial wedges --- */
     case "bars": {
-      const wedges = s.compact ? 32 : 44;
+      const wedges = s.compact ? 24 : 34;
       const spin = s.elapsed * 0.08;
       const inner = R * 0.9;
       for (let i = 0; i < wedges; i++) {
         const v = band(s, i, wedges);
         const a0 = (i / wedges) * Math.PI * 2 + spin;
-        const a1 = ((i + 0.72) / wedges) * Math.PI * 2 + spin;
+        const a1 = ((i + 0.62) / wedges) * Math.PI * 2 + spin;
         const outer = inner + R * 0.12 + Math.pow(v, 0.85) * maxLen * 1.05;
         ctx.beginPath();
         ctx.arc(0, 0, inner, a0, a1);
@@ -1887,6 +1979,22 @@ function drawCircularFamily(s: PixabayScene, variant: string) {
         }
         ctx.fill();
         ctx.shadowBlur = 0;
+        const mid = (a0 + a1) * 0.5;
+        drawGlassRadialStroke(ctx, {
+          x1: Math.cos(mid) * inner,
+          y1: Math.sin(mid) * inner,
+          x2: Math.cos(mid) * outer,
+          y2: Math.sin(mid) * outer,
+          baseX: Math.cos(mid) * inner,
+          baseY: Math.sin(mid) * inner,
+          width: Math.max(2, (Math.PI * 2 * inner) / wedges * 0.48),
+          primary: s.primary,
+          accent: s.accent,
+          glow: s.glow,
+          value: v,
+          shine: Math.max(0.72, Math.min(1, s.barShine ?? 0.92)),
+          round: true,
+        });
       }
       ctx.beginPath();
       ctx.arc(0, 0, inner * 0.96, 0, Math.PI * 2);

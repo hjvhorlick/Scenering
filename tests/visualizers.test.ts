@@ -88,16 +88,18 @@ function makeInsert(type: string, overrides: Partial<TimelineInsert> = {}): Time
 }
 
 // ------------------------------------------------------------------ catalogue
-h.eq(VISUALISERS.length, 52, `curated catalogue contains 52 distinct visualisers`);
+h.eq(VISUALISERS.length, 59, `curated catalogue contains 59 distinct visualisers including glass, smoke and glitter effects`);
 h.eq(RETIRED_VISUALIZER_TYPES.length, 10, "ten visually repeated designs are retired from the picker");
 for (const type of RETIRED_VISUALIZER_TYPES) {
   h.ok(!VISUALISERS.some((item) => item.type === type), `${type} is not offered as a duplicate card`);
 }
 h.eq(VISUALISERS[0]?.type, "fine_radial_bars", "the catalogue begins with the advanced fine radial spectrum");
 h.eq(VISUALISERS[1]?.type, "fine_radial_bars_3d", "the 3D radial variation sits beside the original advanced ring");
-h.eq(VISUALISERS[9]?.type, "particle_ring_3d", "the advanced engine block includes particle, bar and wave variations");
-h.eq(VISUALISERS[10]?.type, "audio_orb", "the original centrepiece ring remains directly after the advanced engine block");
-h.eq(VISUALISERS[11]?.type, "spectrum", "the duplicate second ring is gone; a distinct rack follows");
+h.eq(VISUALISERS[9]?.type, "particle_ring_3d", "the original advanced engine block includes particle, bar and wave variations");
+h.eq(VISUALISERS[10]?.type, "glass_orbit_bubbles", "glass bubble options extend the original moving-ball visualisers");
+h.eq(VISUALISERS[16]?.type, "glitter_opal_dust", "gold, silver and opal pixie-dust options complete the advanced effects block");
+h.eq(VISUALISERS[17]?.type, "audio_orb", "the original centrepiece ring follows the extended advanced engine block");
+h.eq(VISUALISERS[18]?.type, "spectrum", "a distinct rack follows the centrepiece");
 h.ok(VISUALISERS.some((item) => item.type === "glow_pills"), "Glow Pills remains in the curated catalogue");
 h.ok(
   !(RETIRED_VISUALIZER_TYPES as readonly string[]).includes("glow_pills"),
@@ -127,7 +129,7 @@ for (const v of VISUALISERS) {
   }
 }
 
-h.eq(bySub.get("advanced") || 0, 10, `ten native advanced engine visualiser variations`);
+h.eq(bySub.get("advanced") || 0, 17, `seventeen native advanced engine visualiser variations including glass, smoke and glitter`);
 h.eq(bySub.get("immersive") || 0, 6, `six non-repeating immersive scenes`);
 h.eq(bySub.get("centre") || 0, 1, `one distinctive centre-stage ring`);
 h.eq(bySub.get("waves") || 0, 8, `eight distinct audio waves and bar racks`);
@@ -163,8 +165,8 @@ for (const type of ADVANCED_VISUALIZER_TYPES) {
 {
   const advancedRenderer = read("src/lib/advanced-audio-visualizer.ts");
   h.ok(
-    !advancedRenderer.includes("threeD ? 0.72 : 1") && advancedRenderer.includes("slot * (1 - settings.barGap"),
-    "advanced circular previews stay round, and linear bar gap settings visibly affect the drawn bar width"
+    !advancedRenderer.includes("threeD ? 0.72 : 1") && advancedRenderer.includes("resolveSpacedBarLayout"),
+    "advanced circular previews stay round, while linear racks use a shared wider-bar / wider-gap layout"
   );
   h.ok(
     advancedRenderer.includes("activityCentre") &&
@@ -174,9 +176,17 @@ for (const type of ADVANCED_VISUALIZER_TYPES) {
       advancedRenderer.includes("spectrumWidth") &&
       advancedRenderer.includes("barRoundness") &&
       advancedRenderer.includes("barShine") &&
-      advancedRenderer.includes("roundedRect(ctx, sx") &&
+      advancedRenderer.includes("drawGlassBar") &&
+      advancedRenderer.includes("drawBottomLight") &&
       !advancedRenderer.includes("freqPos = Math.abs"),
-    "linear spectrum bars fill the graph without becoming a strict mirror, and expose left/right, stretch, width, pill and shine controls"
+    "linear spectrum bars retain framing controls while sharing rounded clear glass and coloured under-light"
+  );
+  h.ok(
+    advancedRenderer.includes("renderCircularSmoke") &&
+      advancedRenderer.includes("renderGlitterSwirl") &&
+      advancedRenderer.includes("renderGlassBubbles") &&
+      advancedRenderer.includes("drawLustrousSparkle"),
+    "smoke, pixie dust and expanded glass-ball styles are drawn by the advanced render engine"
   );
 }
 
@@ -188,6 +198,90 @@ for (const type of IMMERSIVE_VISUALIZER_TYPES) {
       (RETIRED_VISUALIZER_TYPES as readonly string[]).includes(type),
     `immersive type ${type} is offered or intentionally retired`
   );
+}
+
+// ------------------------------------------------------ polished effects
+const POLISHED_EFFECT_TYPES = [
+  "glass_orbit_bubbles",
+  "glass_pulse_marbles",
+  "smoke_orbit",
+  "smoke_bloom",
+  "glitter_gold_swirl",
+  "glitter_silver_vortex",
+  "glitter_opal_dust",
+];
+for (const type of POLISHED_EFFECT_TYPES) {
+  const card = VISUALISERS.find((item) => item.type === type);
+  h.ok(Boolean(card), `${type} is customer-facing in the studio catalogue`);
+  h.eq(card?.subCategory, "advanced", `${type} uses the shared advanced preview/export path`);
+  h.eq(card?.defaultVisualOptions?.fullWidth, false, `${type} is a compact circular effect`);
+  h.ok((card?.defaultVisualOptions?.particleScale || 0) > 0, `${type} exposes effect scale options`);
+  h.ok((card?.defaultVisualOptions?.effectDensity || 0) > 0, `${type} exposes effect density options`);
+  h.ok(isRoundVisualizer(type), `${type} is classified as a draggable circular visualiser`);
+}
+h.eq(
+  VISUALISERS.find((item) => item.type === "glitter_gold_swirl")?.defaultVisualOptions?.colorTheme,
+  "molten_gold",
+  "golden pixie dust defaults to the lustrous gold palette"
+);
+h.eq(
+  VISUALISERS.find((item) => item.type === "glitter_silver_vortex")?.defaultVisualOptions?.colorTheme,
+  "silver_chrome",
+  "silver star dust defaults to the polished chrome palette"
+);
+{
+  const materials = read("src/lib/visualizer-materials.ts");
+  const legacyRenderer = read("src/lib/render-visualizers.ts");
+  const pixabayRenderer = read("src/lib/pixabay-styles.ts");
+  h.ok(
+    materials.includes("drawGlassBar") && materials.includes("drawGlassOrb") && materials.includes("drawBottomLight") && materials.includes("drawLustrousSparkle"),
+    "one reusable material layer defines glass, bottom-light and lustrous sparkle primitives"
+  );
+  h.ok(
+    legacyRenderer.includes("drawGlassBar") && pixabayRenderer.includes("drawGlassBar") && pixabayRenderer.includes("drawGlassRadialStroke"),
+    "legacy, Pixabay-inspired and advanced visualisers share the polished bar material language"
+  );
+}
+
+// The new atmosphere styles use the same production dispatch as previews and
+// export. Prove that real music telemetry changes their Canvas operations and
+// that their studio size/density controls remain safe at their allowed limits.
+for (const type of POLISHED_EFFECT_TYPES) {
+  const paintAtLevel = (level: number) => {
+    const value = Math.round(level * 255);
+    const item = makeInsert(type, { id: `effect-${type}-${value}` });
+    const frame = {
+      music: {
+        level,
+        freq: new Uint8Array(1024).fill(value),
+        wave: new Uint8Array(2048).fill(128 + Math.round(level * 70)),
+      },
+      voice: { level: 0, freq: null, wave: null },
+    };
+    const { ctx, opsWithArgs } = createStubContext(1280, 720);
+    renderAudioVisualizer({ ctx, item, x: 640, y: 360, canvasWidth: 1280, canvasHeight: 720, elapsed: 2.4, frame });
+    return opsWithArgs.join("|");
+  };
+  h.ok(paintAtLevel(0.08) !== paintAtLevel(0.9), `${type} visibly responds to quiet versus loud music`);
+  const extreme = makeInsert(type, {
+    id: `effect-extreme-${type}`,
+    size: 2.4,
+    visualOptions: {
+      ...(VISUALISERS.find((item) => item.type === type)?.defaultVisualOptions || {}),
+      particleScale: 3,
+      effectDensity: 2.4,
+      radialRadius: 0.42,
+      maxBarHeight: 0.38,
+      barThickness: 36,
+    },
+  });
+  const { ctx } = createStubContext(720, 1280);
+  try {
+    renderAudioVisualizer({ ctx, item: extreme, x: 360, y: 640, canvasWidth: 720, canvasHeight: 1280, elapsed: 3.2, frame: null });
+    h.ok(true, `${type} safely renders at maximum particle scale and density`);
+  } catch (error) {
+    h.ok(false, `${type} broke at maximum particle scale and density: ${error}`);
+  }
 }
 
 // ------------------------------------------------------------------ palettes
@@ -920,9 +1014,9 @@ for (const v of speechVisualisers) {
     renderer.indexOf('case "orbit_disc"')
   );
   h.ok(
-    radialHelper.includes("roundRectPath") && radialHelper.includes("ringRadius + ringWidth") &&
-      radialHelper.includes("ctx.fill()"),
-    "radial frequencies are filled rounded bars growing outward from the ring"
+    radialHelper.includes("drawGlassRadialStroke") && radialHelper.includes("ringRadius + ringWidth") &&
+      radialHelper.includes("sourceCount * 0.74"),
+    "radial frequencies use wider spaced clear-glass bars growing outward from the ring"
   );
   h.ok(
     audioOrb.includes("drawRadialBarSpectrum(") && audioOrb.includes("mirroredValues"),

@@ -321,7 +321,7 @@ export interface InsertVisualOptions {
   /** accent colour (hot cores, spike tips, flashes) used by the immersive styles */
   accentColor?: string;
   /** ---- Advanced Audio Visualiser Engine ---- */
-  visualizerStyle?: "fine_radial_bars" | "fine_radial_bars_3d" | "flat_circular_spectrum" | "circular_waveform" | "circular_pulse" | "advanced_spectrum_bars" | "advanced_mirror_spectrum" | "advanced_waveform" | "particle_ring" | "particle_ring_3d" | string;
+  visualizerStyle?: "fine_radial_bars" | "fine_radial_bars_3d" | "flat_circular_spectrum" | "circular_waveform" | "circular_pulse" | "advanced_spectrum_bars" | "advanced_mirror_spectrum" | "advanced_waveform" | "particle_ring" | "particle_ring_3d" | "glass_orbit_bubbles" | "glass_pulse_marbles" | "smoke_orbit" | "smoke_bloom" | "glitter_gold_swirl" | "glitter_silver_vortex" | "glitter_opal_dust" | string;
   visualizerPreset?: string;
   frequencyMapping?: "linear" | "logarithmic" | "musical";
   minFrequency?: number;
@@ -355,6 +355,10 @@ export interface InsertVisualOptions {
   barRoundness?: number;
   /** 0 = flat colour, 1 = polished metallic/3D bevel highlights. */
   barShine?: number;
+  /** Relative scale for glass bubbles, smoke puffs and glitter particles. */
+  particleScale?: number;
+  /** Atmospheric effect density without changing the analyser's band mapping. */
+  effectDensity?: number;
   /**
    * Draw the user's own logo in the middle of a centre visualiser (audio orb,
    * orbit disc, circular analysers). Defaults to on for the orb and the disc,

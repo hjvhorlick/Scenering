@@ -340,7 +340,7 @@ export default function VideoStudio({
                       </span>
                     </div>
                     <p className="text-xs text-gray-300 mt-0.5">
-                      This tab is intentionally filtered to the new professional engine so it does not look like the old visualiser library. Add radial bars, 3D rings, circular waves, pulse rings, spectrum bars, mirrored bars, waveform scopes or particle rings, then click the block on the timeline and press Edit to tune mapping, attack/release, colour and glow.
+                      This tab is intentionally filtered to the professional engine. Add rounded glass bars, moving bubbles, circular smoke, lustrous glitter, 3D rings, waves or spectrum racks, then click the block on the timeline and press Edit to tune mapping, attack/release, colour, glow and effect density.
                     </p>
                   </div>
                 </div>

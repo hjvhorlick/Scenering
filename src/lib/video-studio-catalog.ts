@@ -92,7 +92,12 @@ export const PIXABAY_CATALOG_ITEMS: CatalogItem[] = PIXABAY_FAMILIES.flatMap((fa
       has3DLook: true,
       reactivity: style.reactivity,
       bandCount: style.bandCount,
-      barThickness: style.thickness,
+      // The renderer decimates only the displayed geometry, not the analyser,
+      // so these wider glass bars retain detail while gaining breathing room.
+      barThickness: Math.max(style.thickness ?? 6, 6),
+      barGap: 0.44,
+      barRoundness: 1,
+      barShine: 0.9,
       floatShadow: true,
       ...(style.options || {}),
     },
@@ -492,7 +497,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       name: "Fine Radial Bars",
       icon: "◎",
       description:
-        "Professional dense circular spectrum with 256 very fine independent bars, logarithmic frequency mapping, attack/release smoothing, transparent background and optional centre logo. Designed for music videos, podcasts and narration overlays.",
+        "A polished circular spectrum with spaced, rounded clear-glass bars. Coloured light rises from the inner ring while logarithmic mapping and attack/release smoothing keep every beat precise.",
       defaultDuration: 8.0,
       defaultPosition: "center",
       defaultSize: 1.18,
@@ -658,6 +663,125 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
         ...FINE_RADIAL_PRESET_PATCHES.particle_ring_3d,
       },
     },
+    {
+      type: "glass_orbit_bubbles",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Glass Orbit Bubbles",
+      icon: "🫧",
+      description:
+        "Clear glossy bubbles orbit a branded hub, bouncing outward with each frequency band while coloured under-light climbs through every sphere.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.14,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.glass_orbit_bubbles,
+      },
+    },
+    {
+      type: "glass_pulse_marbles",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Glass Pulse Marbles",
+      icon: "🔮",
+      description:
+        "Larger rounded glass marbles weave through a double orbit and surge out on the beat, with a luminous colour source shining from below.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.16,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.glass_pulse_marbles,
+      },
+    },
+    {
+      type: "smoke_orbit",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Circular Smoke Orbit",
+      icon: "🌫️",
+      description:
+        "Transparent coloured smoke curls in three circular arms around the centre, swelling outward with bass and flashing a soft halo on each beat.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.18,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.smoke_orbit,
+      },
+    },
+    {
+      type: "smoke_bloom",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Expanding Smoke Bloom",
+      icon: "☁️",
+      description:
+        "Five luminous smoke streams braid into a circular bloom, then pulse and expand outward in response to the track.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.2,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.smoke_bloom,
+      },
+    },
+    {
+      type: "glitter_gold_swirl",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Golden Pixie Swirl",
+      icon: "✨",
+      description:
+        "Lustrous gold pixie dust spirals in bright, audio-reactive arms; bass releases glitter outward and high notes set the tiny stars sparkling.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.16,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.glitter_gold_swirl,
+      },
+    },
+    {
+      type: "glitter_silver_vortex",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Silver Starlight Vortex",
+      icon: "✦",
+      description:
+        "Polished silver stars and clear flecks trace a four-arm vortex, shifting shape and bursting farther from the centre with the sound.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.16,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.glitter_silver_vortex,
+      },
+    },
+    {
+      type: "glitter_opal_dust",
+      category: "audio_visualizers",
+      subCategory: "advanced",
+      name: "Opal Glitter Dust",
+      icon: "✺",
+      description:
+        "Iridescent pink, blue and pearl dust follows five flowing paths, with varied star and bead shapes reacting independently to the music.",
+      defaultDuration: 8.0,
+      defaultPosition: "center",
+      defaultSize: 1.18,
+      defaultAudioSource: "music",
+      spansFullVideo: true,
+      defaultVisualOptions: {
+        ...FINE_RADIAL_PRESET_PATCHES.glitter_opal_dust,
+      },
+    },
 
     // Subcategory: centre — the round centrepiece styles, with room for your own logo
     {
@@ -675,7 +799,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultSize: 1.25,
       defaultAudioSource: "music",
       spansFullVideo: true,
-      defaultVisualOptions: { fullWidth: false, centreLogo: true, colorTheme: "neon", glowIntensity: 0.95, has3DLook: true, reactivity: 1.2, bandCount: 64, barThickness: 8 },
+      defaultVisualOptions: { fullWidth: false, centreLogo: true, colorTheme: "neon", glowIntensity: 0.95, has3DLook: true, reactivity: 1.2, bandCount: 48, barThickness: 11, barGap: 0.46, barRoundness: 1, barShine: 0.92 },
     },
     {
       type: "orbit_disc",
@@ -706,7 +830,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultSize: 1.0,
       defaultAudioSource: "music",
       spansFullVideo: true,
-      defaultVisualOptions: { fullWidth: true, barThickness: 13, glowIntensity: 0.9, has3DLook: true, floatShadow: true },
+      defaultVisualOptions: { fullWidth: true, barThickness: 18, barGap: 0.46, barRoundness: 1, barShine: 0.94, glowIntensity: 0.9, has3DLook: true, floatShadow: true },
     },
     {
       type: "equalizer_bars",
@@ -720,7 +844,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultSize: 1.0,
       defaultAudioSource: "music",
       spansFullVideo: true,
-      defaultVisualOptions: { fullWidth: true, barThickness: 14, glowIntensity: 0.8, has3DLook: true, primaryColor: "#22d3ee", secondaryColor: "#a855f7", floatShadow: true },
+      defaultVisualOptions: { fullWidth: true, barThickness: 18, barGap: 0.46, barRoundness: 1, barShine: 0.94, glowIntensity: 0.8, has3DLook: true, primaryColor: "#22d3ee", secondaryColor: "#a855f7", floatShadow: true },
     },
     {
       type: "led_meter_wall",
@@ -734,7 +858,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultSize: 1.0,
       defaultAudioSource: "music",
       spansFullVideo: true,
-      defaultVisualOptions: { fullWidth: true, barThickness: 16, glowIntensity: 0.8, has3DLook: true, primaryColor: "#22c55e", secondaryColor: "#facc15", floatShadow: true },
+      defaultVisualOptions: { fullWidth: true, barThickness: 20, barGap: 0.5, barRoundness: 1, barShine: 0.94, glowIntensity: 0.8, has3DLook: true, primaryColor: "#22c55e", secondaryColor: "#facc15", floatShadow: true },
     },
     {
       type: "neon_ribbon",
@@ -776,7 +900,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultSize: 1.0,
       defaultAudioSource: "music",
       spansFullVideo: true,
-      defaultVisualOptions: { fullWidth: true, barThickness: 12, glowIntensity: 0.8, has3DLook: true, primaryColor: "#06b6d4", secondaryColor: "#f43f5e", floatShadow: true },
+      defaultVisualOptions: { fullWidth: true, barThickness: 18, barGap: 0.48, barRoundness: 1, barShine: 0.94, glowIntensity: 0.8, has3DLook: true, primaryColor: "#06b6d4", secondaryColor: "#f43f5e", floatShadow: true },
     },
     {
       type: "dot_matrix_eq",
@@ -790,7 +914,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultSize: 1.0,
       defaultAudioSource: "music",
       spansFullVideo: true,
-      defaultVisualOptions: { fullWidth: true, barThickness: 12, glowIntensity: 0.8, has3DLook: true, primaryColor: "#22d3ee", secondaryColor: "#e879f9", floatShadow: true },
+      defaultVisualOptions: { fullWidth: true, barThickness: 16, barGap: 0.46, barRoundness: 1, barShine: 0.9, glowIntensity: 0.8, has3DLook: true, primaryColor: "#22d3ee", secondaryColor: "#e879f9", floatShadow: true },
     },
     {
       type: "oscilloscope",
@@ -864,7 +988,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultSize: 1.0,
       defaultAudioSource: "music",
       spansFullVideo: true,
-      defaultVisualOptions: { fullWidth: true, colorTheme: "vaporwave", barThickness: 18, glowIntensity: 0.9, has3DLook: true, reactivity: 1.2, bandCount: 32 },
+      defaultVisualOptions: { fullWidth: true, colorTheme: "vaporwave", barThickness: 22, barGap: 0.5, barRoundness: 1, barShine: 0.96, glowIntensity: 0.9, has3DLook: true, reactivity: 1.2, bandCount: 28 },
     },
     {
       type: "particle_swarm",
@@ -940,7 +1064,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       defaultSize: 0.9,
       defaultAudioSource: "voice",
       spansFullVideo: true,
-      defaultVisualOptions: { fullWidth: true, barThickness: 13, glowIntensity: 0.8, has3DLook: true, primaryColor: "#8b5cf6", secondaryColor: "#ec4899", floatShadow: true },
+      defaultVisualOptions: { fullWidth: true, barThickness: 18, barGap: 0.46, barRoundness: 1, barShine: 0.94, glowIntensity: 0.8, has3DLook: true, primaryColor: "#8b5cf6", secondaryColor: "#ec4899", floatShadow: true },
     },
     {
       type: "voice_pulse",

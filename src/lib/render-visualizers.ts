@@ -20,6 +20,7 @@ import {
   pickBus,
 } from "./audio-reactive";
 import { resolveVisualizerPalette } from "./visualizer-palettes";
+import { drawBottomLight, drawGlassBar, drawGlassRadialStroke, resolveSpacedBarLayout, sampleMaterialBand } from "./visualizer-materials";
 import {
   advancedVisualizerFitScale,
   advancedVisualizerFootprint,
@@ -87,6 +88,13 @@ const ROUND_TYPES = new Set([
   "circular_pulse",
   "particle_ring",
   "particle_ring_3d",
+  "glass_orbit_bubbles",
+  "glass_pulse_marbles",
+  "smoke_orbit",
+  "smoke_bloom",
+  "glitter_gold_swirl",
+  "glitter_silver_vortex",
+  "glitter_opal_dust",
   "circular_wave",
   "voice_pulse",
   "energy_ring",
@@ -107,6 +115,13 @@ export const CENTRE_VISUALIZER_TYPES = [
   "circular_pulse",
   "particle_ring",
   "particle_ring_3d",
+  "glass_orbit_bubbles",
+  "glass_pulse_marbles",
+  "smoke_orbit",
+  "smoke_bloom",
+  "glitter_gold_swirl",
+  "glitter_silver_vortex",
+  "glitter_opal_dust",
   "audio_orb",
   "orbit_disc",
   "circular_wave",
@@ -123,6 +138,13 @@ const CENTRE_LOGO_TYPES = new Set<string>([
   "circular_pulse",
   "particle_ring",
   "particle_ring_3d",
+  "glass_orbit_bubbles",
+  "glass_pulse_marbles",
+  "smoke_orbit",
+  "smoke_bloom",
+  "glitter_gold_swirl",
+  "glitter_silver_vortex",
+  "glitter_opal_dust",
   "audio_orb",
   "orbit_disc",
   "circular_wave",
@@ -524,6 +546,8 @@ interface RackOptions {
   secondary: string;
   has3D: boolean;
   glow: number;
+  /** User-adjustable clear-glass specular strength. */
+  shine?: number;
   mirror?: boolean;
   segments?: number;
   rainbow?: boolean;
@@ -533,47 +557,48 @@ interface RackOptions {
 
 function drawBarRack(ctx: CanvasRenderingContext2D, o: RackOptions) {
   const {
-    width, count, barWidth, gap, maxHeight, values, peaks,
-    primary, secondary, has3D, glow, mirror, segments, rainbow, dots, rows,
+    width, count: requestedCount, barWidth, gap: requestedGap, maxHeight, values, peaks,
+    primary, secondary, has3D, glow, shine, mirror, segments, rainbow, dots, rows,
   } = o;
-  const slot = width / count;
-  const bw = Math.max(1.5, Math.min(barWidth, slot - gap));
+  const glassShine = Math.max(0.7, Math.min(1, Number(shine ?? (has3D ? 0.94 : 0.84))));
+  // The shared material layout makes space for a bar's clear-glass rim and its
+  // coloured under-light instead of packing every rack into a solid wall.
+  const layout = resolveSpacedBarLayout({
+    width,
+    count: requestedCount,
+    requestedWidth: barWidth,
+    requestedGap: Math.max(requestedGap, barWidth * 0.34),
+    minWidth: 1.5,
+  });
+  const { count, slot, barWidth: bw, gap } = layout;
   const startX = -width / 2 + (slot - bw) / 2;
-
-  // One shared vertical gradient for every bar: cheaper and more uniform
-  const bodyGrad = rainbow
-    ? (() => {
-        const g = ctx.createLinearGradient(0, 0, 0, -maxHeight);
-        g.addColorStop(0, "#2563eb");
-        g.addColorStop(0.3, "#06b6d4");
-        g.addColorStop(0.55, "#10b981");
-        g.addColorStop(0.78, "#f59e0b");
-        g.addColorStop(1, "#ef4444");
-        return g;
-      })()
-    : (() => {
-        const g = ctx.createLinearGradient(0, 4, 0, -maxHeight);
-        g.addColorStop(0, rgba(primary, 0.55));
-        g.addColorStop(0.35, primary);
-        g.addColorStop(0.82, mixColors(primary, secondary, 0.55));
-        g.addColorStop(1, secondary);
-        return g;
-      })();
-
   const segCount = segments && segments > 0 ? segments : 0;
   const rowCount = rows && rows > 0 ? rows : 0;
 
+  drawBottomLight(ctx, {
+    y: mirror ? 0 : 2,
+    width: width * 0.62,
+    height: Math.max(4, maxHeight * 0.13),
+    primary,
+    secondary,
+    intensity: 0.24 + glow * 0.34,
+  });
+
   for (let i = 0; i < count; i++) {
-    const v = Math.max(0, values[i]);
+    const v = Math.max(0, sampleMaterialBand(values, i, count));
+    const sampledPeak = sampleMaterialBand(peaks, i, count);
     const bx = startX + i * slot;
     const hUp = Math.max(2, Math.min(maxHeight, v * maxHeight));
-    const peakH = Math.max(2, Math.min(maxHeight * 1.04, (peaks[i] || 0) * maxHeight));
+    const peakH = Math.max(2, Math.min(maxHeight * 1.04, sampledPeak * maxHeight));
+    const t = i / Math.max(1, count - 1);
+    const color = rainbow ? rainbowRackColor(t) : mixColors(primary, secondary, t * 0.38);
+    const accent = rainbow ? mixColors(color, "#ffffff", 0.52) : secondary;
 
     if (dots && rowCount > 0) {
-      // dot-matrix column
+      // Dot-matrix rows deliberately stay dots, but the less-dense shared
+      // column layout creates the same wider breathing room as glass bars.
       const cell = maxHeight / rowCount;
       const dotR = Math.max(1.2, Math.min(bw, cell) * 0.44);
-      // at least a couple of dots stay lit so the full row reads as a live meter
       const lit = Math.max(2, Math.round((hUp / maxHeight) * rowCount));
       for (let r = 0; r < rowCount; r++) {
         const cy = -cell * (r + 0.5);
@@ -581,9 +606,7 @@ function drawBarRack(ctx: CanvasRenderingContext2D, o: RackOptions) {
         ctx.beginPath();
         ctx.arc(bx + bw / 2, cy, dotR, 0, Math.PI * 2);
         if (on) {
-          ctx.fillStyle = rainbow
-            ? `hsl(${190 + (r / rowCount) * 150 + i * 1.5}, 92%, 62%)`
-            : mixColors(primary, secondary, r / Math.max(1, rowCount - 1));
+          ctx.fillStyle = mixColors(color, accent, r / Math.max(1, rowCount - 1));
           ctx.shadowColor = ctx.fillStyle as string;
           ctx.shadowBlur = (r === lit - 1 ? 8 : 3) * glow;
           ctx.fill();
@@ -597,66 +620,75 @@ function drawBarRack(ctx: CanvasRenderingContext2D, o: RackOptions) {
     }
 
     if (segCount > 0) {
-      // segmented LED column
-      const segH = Math.max(2.5, maxHeight / segCount - 2.5);
-      const lit = Math.round((hUp / maxHeight) * segCount);
-      for (let s = 0; s < segCount; s++) {
-        const sy = -segH * (s + 1) - 2.5 * s;
-        const on = s < lit;
-        const t = s / Math.max(1, segCount - 1);
-        ctx.fillStyle = on
-          ? rainbow
-            ? `hsl(${180 + t * 160}, 92%, 60%)`
-            : mixColors(primary, secondary, t)
-          : "rgba(255, 255, 255, 0.06)";
-        if (on) {
-          ctx.shadowColor = ctx.fillStyle as string;
-          ctx.shadowBlur = 6 * glow;
-        }
-        roundRectPath(ctx, bx, sy, bw, segH, Math.min(2.5, bw * 0.4));
-        ctx.fill();
-        ctx.shadowBlur = 0;
+      // The LED wall gets one clear glass carrier per band. Fine separator
+      // lines retain its meter language while avoiding hundreds of flat blocks.
+      const top = -hUp;
+      drawGlassBar(ctx, {
+        x: bx,
+        y: top,
+        width: bw,
+        height: mirror ? hUp * 2 : hUp,
+        primary: color,
+        secondary,
+        accent,
+        glow,
+        value: v,
+        roundness: 1,
+        shine: glassShine,
+      });
+      const lit = Math.max(1, Math.round((hUp / maxHeight) * segCount));
+      const dividerH = hUp / lit;
+      ctx.save();
+      ctx.strokeStyle = "rgba(7, 11, 22, 0.3)";
+      ctx.lineWidth = Math.max(0.5, Math.min(1.3, bw * 0.12));
+      for (let segment = 1; segment < lit; segment++) {
+        const y = -segment * dividerH;
+        ctx.beginPath();
+        ctx.moveTo(bx + bw * 0.14, y);
+        ctx.lineTo(bx + bw * 0.86, y);
+        ctx.stroke();
       }
-      // cap the lit column with a hot pixel
-      ctx.fillStyle = "rgba(255,255,255,0.92)";
-      ctx.shadowColor = primary;
-      ctx.shadowBlur = 8 * glow;
-      roundRectPath(ctx, bx, -(lit / segCount) * maxHeight - 1.5, bw, 2.5, 1.2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
+      ctx.restore();
       continue;
     }
 
-    // solid rounded bar (optionally mirrored around the baseline)
-    roundRectPath(ctx, bx, -hUp, bw, mirror ? hUp * 2 : hUp, Math.min(bw / 2, 5));
-    ctx.fillStyle = bodyGrad;
-    if (glow > 0.05) {
-      ctx.shadowColor = rgba(primary, 0.9);
-      ctx.shadowBlur = 12 * glow;
-    }
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    // Every solid rack uses the same transparent rounded glass material.
+    drawGlassBar(ctx, {
+      x: bx,
+      y: -hUp,
+      width: bw,
+      height: mirror ? hUp * 2 : hUp,
+      primary: color,
+      secondary,
+      accent,
+      glow,
+      value: v,
+      roundness: 1,
+      shine: glassShine,
+    });
 
-    if (has3D) {
-      // left specular highlight + right shaded edge = extruded 3D bar
-      ctx.fillStyle = "rgba(255, 255, 255, 0.42)";
-      ctx.fillRect(bx + 1, -hUp + 2, Math.max(1, bw * 0.16), hUp - 2);
-      ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
-      ctx.fillRect(bx + bw - Math.max(1, bw * 0.16) - 1, -hUp + 2, Math.max(1, bw * 0.16), hUp - 2);
-      // glossy cap
-      ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
-      roundRectPath(ctx, bx + bw * 0.18, -hUp + 1.5, bw * 0.64, 2.4, 1.2);
-      ctx.fill();
-    }
-
-    // peak cap riding the held peak
-    ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-    ctx.shadowColor = secondary;
-    ctx.shadowBlur = 9 * glow;
-    roundRectPath(ctx, bx, -peakH - 4, bw, 2.6, 1.3);
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    // Peak caps remain small bright glass slivers rather than opaque white bars.
+    drawGlassBar(ctx, {
+      x: bx + bw * 0.12,
+      y: -peakH - Math.max(3, bw * 0.22),
+      width: Math.max(1, bw * 0.76),
+      height: Math.max(1.8, Math.min(3.4, bw * 0.23)),
+      primary: accent,
+      secondary: color,
+      accent: "#ffffff",
+      glow: glow * 0.72,
+      value: sampledPeak,
+      roundness: 1,
+      shine: 1,
+    });
   }
+}
+
+function rainbowRackColor(t: number): string {
+  const stops = ["#2563eb", "#06b6d4", "#10b981", "#f59e0b", "#ef4444"];
+  const scaled = Math.max(0, Math.min(0.9999, t)) * (stops.length - 1);
+  const index = Math.floor(scaled);
+  return mixColors(stops[index], stops[Math.min(stops.length - 1, index + 1)], scaled - index);
 }
 
 /* ------------------------------------------------------------------ *
@@ -771,11 +803,13 @@ function drawRadialBarSpectrum(
   colours: { primary: string; secondary: string; accent: string },
   options: { glow: number; rotation?: number; beat?: number; minLength?: number }
 ) {
-  const count = Math.max(12, values.length);
+  const sourceCount = Math.max(12, values.length);
+  // Fewer displayed spokes gives the shared clear-glass material enough width
+  // and air to read; source bands are still sampled across the full spectrum.
+  const count = Math.max(12, Math.min(sourceCount, Math.round(sourceCount * 0.74)));
   const rotation = options.rotation || 0;
   const ringWidth = Math.max(0.9, ringRadius * 0.014);
 
-  // The unbroken zero line remains visible between the bars.
   ctx.beginPath();
   ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
   ctx.strokeStyle = rgba(mixColors(colours.primary, "#ffffff", 0.48), 0.82);
@@ -788,11 +822,15 @@ function drawRadialBarSpectrum(
   ctx.shadowBlur = 0;
 
   const circumferenceSlot = (Math.PI * 2 * ringRadius) / count;
-  const barWidth = Math.max(1.8, circumferenceSlot * 0.54);
+  const barWidth = Math.max(1.8, circumferenceSlot * 0.58);
   const minimum = Math.max(barWidth * 0.75, options.minLength || 0);
 
   for (let i = 0; i < count; i++) {
-    const v = Math.max(0, Math.min(1.45, values[i % values.length] || 0));
+    const sourcePosition = ((i + 0.5) / count) * (values.length - 1);
+    const low = Math.max(0, Math.floor(sourcePosition));
+    const high = Math.min(values.length - 1, Math.ceil(sourcePosition));
+    const f = sourcePosition - low;
+    const v = Math.max(0, Math.min(1.45, (values[low] || 0) * (1 - f) + (values[high] || 0) * f));
     const length = minimum + Math.pow(v, 0.82) * maxLength;
     const t = i / count;
     const color = mixColors(colours.primary, colours.secondary, t);
@@ -800,17 +838,21 @@ function drawRadialBarSpectrum(
     ctx.save();
     ctx.rotate(t * Math.PI * 2 + rotation);
     const start = ringRadius + ringWidth * 0.65;
-    const gradient = ctx.createLinearGradient(0, start, 0, start + length);
-    gradient.addColorStop(0, rgba(color, 0.92));
-    gradient.addColorStop(0.68, rgba(mixColors(color, colours.accent, v * 0.55), 0.96));
-    gradient.addColorStop(1, rgba(colours.accent, 0.98));
-    ctx.fillStyle = gradient;
-    if (options.glow > 0.05) {
-      ctx.shadowColor = rgba(color, 0.82);
-      ctx.shadowBlur = (5 + v * 18 + (options.beat || 0) * 8) * options.glow;
-    }
-    roundRectPath(ctx, -barWidth / 2, start, barWidth, length, barWidth / 2);
-    ctx.fill();
+    drawGlassRadialStroke(ctx, {
+      x1: 0,
+      y1: start,
+      x2: 0,
+      y2: start + length,
+      baseX: 0,
+      baseY: start,
+      width: barWidth,
+      primary: color,
+      accent: colours.accent,
+      glow: options.glow * (1 + (options.beat || 0) * 0.24),
+      value: v,
+      shine: 0.9,
+      round: true,
+    });
     ctx.restore();
   }
   ctx.shadowBlur = 0;
@@ -1069,68 +1111,75 @@ function drawGlowPills(s: SceneCtx) {
   const { ctx, w, h } = s;
   const values = s.bands.values;
   const peaks = s.bands.peaks;
-  const count = Math.max(10, Math.min(72, values.length));
-  const slot = w / count;
-  const pillW = Math.max(4, slot * 0.62);
+  const sourceCount = Math.max(10, Math.min(72, values.length));
+  const layout = resolveSpacedBarLayout({
+    width: w,
+    count: sourceCount,
+    requestedWidth: Math.max(6, w / Math.max(1, sourceCount) * 0.72),
+    requestedGap: Math.max(3, w / Math.max(1, sourceCount) * 0.28),
+    minWidth: 4,
+  });
+  const { count, slot, barWidth: pillW, gap } = layout;
   const maxH = h * 0.56 * Math.max(0.6, Math.min(1.5, s.reactive));
   const base = h * 0.24;
   const energy = Math.max(0, Math.min(1.4, s.bands.energy));
 
-  // stage glow under the rack
-  const stage = ctx.createRadialGradient(0, base, 4, 0, base, w * 0.5);
-  stage.addColorStop(0, rgba(s.primary, 0.3 + energy * 0.2));
-  stage.addColorStop(0.5, rgba(s.secondary, 0.12));
-  stage.addColorStop(1, "rgba(0, 0, 0, 0)");
-  ctx.fillStyle = stage;
-  ctx.fillRect(-w / 2, base - h * 0.3, w, h * 0.6);
+  drawBottomLight(ctx, {
+    y: base,
+    width: w * 0.66,
+    height: Math.max(5, h * 0.055),
+    primary: s.primary,
+    secondary: s.secondary,
+    accent: s.accent,
+    intensity: 0.46 + energy * 0.22 + s.beat * 0.16,
+  });
 
   for (let i = 0; i < count; i++) {
-    const v = Math.max(0, values[i] || 0);
-    const pk = Math.max(0, peaks[i] || 0);
-    const x = -w / 2 + slot * (i + 0.5);
+    const v = Math.max(0, sampleMaterialBand(values, i, count));
+    const pk = Math.max(0, sampleMaterialBand(peaks, i, count));
+    const x = -w / 2 + slot * i + gap / 2;
     const height = Math.max(pillW, v * maxH);
     const top = base - height;
 
-    // reflection first, so the pill sits on top of it
+    // Reflection first, so the transparent glass capsule has a real floor.
     const reflH = Math.min(height * 0.55, h * 0.22);
     const refl = ctx.createLinearGradient(0, base, 0, base + reflH);
-    refl.addColorStop(0, rgba(s.primary, 0.3));
+    refl.addColorStop(0, rgba(s.primary, 0.28));
     refl.addColorStop(1, "rgba(0, 0, 0, 0)");
     ctx.fillStyle = refl;
-    roundRectPath(ctx, x - pillW / 2, base + 2, pillW, reflH, pillW / 2);
+    roundRectPath(ctx, x, base + 2, pillW, reflH, pillW / 2);
     ctx.fill();
 
-    // the pill body
-    const body = ctx.createLinearGradient(x, base, x, top);
-    body.addColorStop(0, rgba(s.primary, 0.55));
-    body.addColorStop(0.35, s.primary);
-    body.addColorStop(0.8, mixColors(s.primary, s.secondary, 0.55));
-    body.addColorStop(1, s.accent);
-    if (s.glow > 0.05) {
-      ctx.shadowColor = rgba(s.primary, 0.9);
-      ctx.shadowBlur = (18 + s.beat * 22) * s.glow;
-    }
-    ctx.fillStyle = body;
-    roundRectPath(ctx, x - pillW / 2, top, pillW, height, pillW / 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    drawGlassBar(ctx, {
+      x,
+      y: top,
+      width: pillW,
+      height,
+      primary: mixColors(s.primary, s.secondary, i / Math.max(1, count - 1) * 0.34),
+      secondary: s.secondary,
+      accent: s.accent,
+      glow: s.glow,
+      value: v + s.beat * 0.2,
+      roundness: 1,
+      shine: 0.94,
+    });
 
-    // glass highlight down the left side of the capsule
-    ctx.save();
-    roundRectPath(ctx, x - pillW / 2, top, pillW, height, pillW / 2);
-    ctx.clip();
-    ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
-    ctx.fillRect(x - pillW / 2, top, Math.max(1, pillW * 0.26), height);
-    ctx.restore();
-
-    // floating cap that marks the band's peak
     const capY = base - Math.max(pillW, pk * maxH) - pillW * 0.85;
-    ctx.fillStyle = rgba(s.accent, 0.75);
-    roundRectPath(ctx, x - pillW * 0.36, capY, pillW * 0.72, Math.max(2.5, pillW * 0.3), pillW * 0.2);
-    ctx.fill();
+    drawGlassBar(ctx, {
+      x: x + pillW * 0.14,
+      y: capY,
+      width: Math.max(1, pillW * 0.72),
+      height: Math.max(2, pillW * 0.3),
+      primary: s.accent,
+      secondary: s.primary,
+      accent: "#ffffff",
+      glow: s.glow * 0.72,
+      value: pk,
+      roundness: 1,
+      shine: 1,
+    });
   }
 }
-
 /* ---------------- 4. PARTICLE SWARM ---------------- */
 /** A rotating sphere of particles that swells with the bass and bursts on the beat. */
 function drawParticleSwarm(s: SceneCtx) {
@@ -1480,9 +1529,14 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
   const secondary = palette.secondary;
   const accent = palette.accent;
   const has3D = opts3d.has3DLook !== false;
+  const glassShine = Math.max(0.7, Math.min(1, Number(opts3d.barShine ?? (has3D ? 0.94 : 0.84))));
   const glow = Math.max(0, Math.min(1, opts3d.glowIntensity ?? 0.85));
   const reactivity = Math.max(0.2, Math.min(2.4, opts3d.reactivity ?? 1));
   const thickness = Math.max(2, Math.min(24, opts3d.barThickness ?? 8));
+  // Legacy racks share this breathing-room control with the advanced engine.
+  // The material helper still protects a useful visual gap when an old project
+  // has no saved barGap value.
+  const glassGap = Math.max(2, thickness * (0.38 + Math.max(0, Math.min(0.86, Number(opts3d.barGap ?? 0.34))) * 0.56));
   const fullWidth = isVisualizerFullWidth(item);
   const body = visualizerBodyHeight(item, canvasHeight);
   const beat = reactiveBeat(elapsed, bus, source);
@@ -1546,6 +1600,8 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       bars,
       beat: Math.max(beat, bars.beat * 0.85),
       compact,
+      barGap: Number(opts3d.barGap ?? 0.44),
+      barShine: Number(opts3d.barShine ?? (has3D ? 0.94 : 0.84)),
     };
     ctx.save();
     ctx.lineJoin = "round";
@@ -1789,7 +1845,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         width,
         count,
         barWidth: bar,
-        gap: Math.max(1.5, bar * 0.6),
+        gap: Math.max(glassGap, bar * 0.6),
         maxHeight: maxH,
         values: bars.values,
         peaks: bars.peaks,
@@ -1797,6 +1853,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         secondary,
         has3D,
         glow,
+        shine: glassShine,
         mirror: true,
       });
       ctx.beginPath();
@@ -1832,7 +1889,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         width,
         count,
         barWidth: bar,
-        gap: Math.max(1.5, bar * 0.5),
+        gap: Math.max(glassGap, bar * 0.5),
         maxHeight: maxH,
         values: bars.values,
         peaks: bars.peaks,
@@ -1840,6 +1897,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         secondary,
         has3D,
         glow,
+        shine: glassShine,
         rainbow,
       });
       drawReflection(ctx, width, body * 0.3, primary, secondary, fullWidth);
@@ -1863,7 +1921,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         width,
         count,
         barWidth: Math.max(3, bar),
-        gap: Math.max(2, bar * 0.7),
+        gap: Math.max(glassGap, bar * 0.7),
         maxHeight: maxH,
         values: bars.values,
         peaks: bars.peaks,
@@ -1871,6 +1929,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         secondary,
         has3D,
         glow,
+        shine: glassShine,
         segments,
       });
       drawReflection(ctx, width, body * 0.28, primary, secondary, fullWidth);
@@ -1894,7 +1953,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         width,
         count,
         barWidth: bar,
-        gap: Math.max(1.5, bar * 0.6),
+        gap: Math.max(glassGap, bar * 0.6),
         maxHeight: maxH,
         values: bars.values,
         peaks: bars.peaks,
@@ -1902,6 +1961,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         secondary,
         has3D,
         glow,
+        shine: glassShine,
         dots: true,
         rows,
       });
@@ -2250,7 +2310,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         width,
         count,
         barWidth: thickness,
-        gap: Math.max(2, thickness * 0.45),
+        gap: Math.max(glassGap, thickness * 0.45),
         maxHeight: body * 0.8,
         values: bars.values,
         peaks: bars.peaks,
@@ -2258,6 +2318,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         secondary,
         has3D,
         glow,
+        shine: glassShine,
       });
       break;
     }
