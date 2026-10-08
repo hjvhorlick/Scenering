@@ -10,6 +10,35 @@ import type { AudioBus, AudioFrame } from "./audio-reactive";
  * makes the allocation predictable up front, and lets each frame expose cheap
  * views into the packed storage only while it is being painted.
  */
+/**
+ * How many rendered frames each analyser sample stands for.
+ *
+ * The offline pass exists to give the visualisers a level and a spectrum per
+ * video frame, and it can only read the analysers while the offline context is
+ * suspended — one cross-thread suspend/resume round trip per sample, on the
+ * main thread, plus the analyser reads themselves. Sampling every single frame
+ * of a nine-minute video is ~16,000 round trips for data that the analysers
+ * have already smoothed (smoothingTimeConstant 0.72): consecutive frames differ
+ * by very little.
+ *
+ * Sampling every third frame (10/s at 30fps) and filling the frames in between
+ * from that sample cuts the round trips by two thirds with no visible change —
+ * and it is the "audio render + telemetry" stage the render's own stopwatch
+ * reports, so the saving is measurable rather than asserted.
+ */
+export const TELEMETRY_SAMPLE_STRIDE = 3;
+
+/** The frame indices the offline pass has to suspend at, for `totalFrames`. */
+export function telemetrySampleFrames(totalFrames: number, stride = TELEMETRY_SAMPLE_STRIDE): number[] {
+  const step = Math.max(1, Math.floor(stride));
+  const frames: number[] = [];
+  // Frame 0 is never sampled: a suspend at time zero is not accepted by every
+  // implementation, and a video that opens on silence reads better than one
+  // that opens on a full-scale analyser row.
+  for (let frame = 1; frame < totalFrames; frame += step) frames.push(frame);
+  return frames;
+}
+
 export class PackedAudioTelemetry {
   readonly frameCount: number;
   readonly frequencyBins: number;
@@ -79,6 +108,38 @@ export class PackedAudioTelemetry {
     copyBins(musicFrequency, this.musicFrequency, index * this.frequencyBins, this.frequencyBins);
     copyBins(voiceWaveform, this.voiceWaveform, index * this.waveformBins, this.waveformBins, 128);
     copyBins(musicWaveform, this.musicWaveform, index * this.waveformBins, this.waveformBins, 128);
+  }
+
+  /**
+   * Fill frames [from, to) from a single analyser sample.
+   *
+   * The offline pass samples every TELEMETRY_SAMPLE_STRIDE-th frame and holds
+   * that sample across the frames it stands for, so every frame still has a
+   * row and `frame()` needs no knowledge of the stride.
+   */
+  setAnalyserSpan(
+    from: number,
+    to: number,
+    voiceLevel: number,
+    voiceFrequency: Uint8Array,
+    voiceWaveform: Uint8Array,
+    musicLevel: number,
+    musicFrequency: Uint8Array,
+    musicWaveform: Uint8Array,
+  ): void {
+    const start = Math.max(0, Math.floor(from));
+    const end = Math.min(this.frameCount, Math.max(start + 1, Math.floor(to)));
+    for (let index = start; index < end; index++) {
+      this.setAnalyserFrame(
+        index,
+        voiceLevel,
+        voiceFrequency,
+        voiceWaveform,
+        musicLevel,
+        musicFrequency,
+        musicWaveform,
+      );
+    }
   }
 
   frame(index: number): AudioFrame {

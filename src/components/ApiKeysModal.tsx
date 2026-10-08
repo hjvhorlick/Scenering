@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { getStoredApiKeys, saveStoredApiKeys, clearStoredApiKeys, CustomerApiKeys } from "../lib/api-keys";
 import { verifySpeechifyApiKey } from "../lib/speechify-client";
 import Icon, { iconify } from "./icons/Icon";
@@ -123,9 +124,22 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
     }
   };
 
-  return (
+  /*
+   * Rendered into <body>, not into whichever surface opened it.
+   *
+   * The dialog is opened from the corner menu (a fixed, z-indexed box) and from
+   * the account & membership panel (an overlay that carries a backdrop-filter).
+   * A fixed child of either is laid out inside that ancestor and, when the
+   * ancestor has a filter or a transform, its own dimming can composite
+   * transparent — the fogged, see-through overlay that appeared on the first
+   * open. Portalling to the document body removes the ancestor from the
+   * question: the dialog always covers the viewport and always sits above the
+   * menu's 200 layer and the account panel's 210.
+   */
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-[300] overflow-y-auto bg-black/80"
     >
       <div
         className="min-h-full flex items-start justify-center p-0 sm:p-6"
@@ -134,7 +148,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
         }}
       >
       <div
-        className="bg-gray-900 border border-hairline rounded-t-2xl sm:rounded-2xl w-full max-w-xl sm:my-4 shadow-xl animate-slide-in"
+        className="bg-gray-900 border border-hairline rounded-t-2xl sm:rounded-2xl w-full max-w-xl sm:my-4 shadow-xl animate-dialog-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -402,6 +416,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
         </form>
       </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

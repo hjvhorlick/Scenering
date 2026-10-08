@@ -1,79 +1,21 @@
-import type { EditorStep } from "../types";
 import Icon from "./icons/Icon";
+import {
+  PROJECT_PHASES,
+  getPhase,
+  phaseIndex,
+  type ProjectPhase,
+  type ProjectPhaseDef,
+} from "../lib/phase-gate";
+
+export { PROJECT_PHASES, getPhase };
+export type { ProjectPhase, ProjectPhaseDef };
 
 /**
- * Single source of truth for the project phases.
- * Order matters — the header tabs and the Previous / Next controls on every
- * screen are generated from this list.
+ * The phase list and every rule about moving between phases live in
+ * src/lib/phase-gate.ts — see the note there for the ordered gate the owner
+ * asked for (Next commits a section, going back locks the ones after it).
+ * This file is only the control.
  */
-export type ProjectPhase = "setup" | "scenes" | "voiceover" | "captions" | "studio" | "render";
-
-export interface ProjectPhaseDef {
-  id: ProjectPhase;
-  /** Short label used in the header tabs */
-  tab: string;
-  /** Full phase name used by the Previous / Next buttons */
-  phase: string;
-  icon: string;
-  /** What the user does in this phase — shown as the Next button hint */
-  purpose: string;
-  /** Editor step to activate (setup is handled by the setup view) */
-  editorStep: EditorStep;
-}
-
-export const PROJECT_PHASES: ProjectPhaseDef[] = [
-  {
-    id: "setup",
-    tab: "Setup",
-    phase: "Project Setup",
-    icon: "⚙️",
-    purpose: "Choose the project, write the script and set the format",
-    editorStep: "scenes",
-  },
-  {
-    id: "scenes",
-    tab: "Scenes",
-    phase: "Scenes",
-    icon: "📝",
-    purpose: "Configure each scene's image, filter, motion and caption overlay",
-    editorStep: "scenes",
-  },
-  {
-    id: "voiceover",
-    tab: "Voiceover",
-    phase: "Voiceover",
-    icon: "🎙️",
-    purpose: "Pick the narrator voice and generate narration audio",
-    editorStep: "voiceover",
-  },
-  {
-    id: "captions",
-    tab: "Captions",
-    phase: "Captions",
-    icon: "💬",
-    purpose: "Style the on-screen subtitles and burn-in captions",
-    editorStep: "captions",
-  },
-  {
-    id: "studio",
-    tab: "Studio",
-    phase: "Video Studio & Timeline",
-    icon: "🎬",
-    purpose: "Add intros, music, sound effects, stickers and overlays",
-    editorStep: "studio",
-  },
-  {
-    id: "render",
-    tab: "Render",
-    phase: "Render & Export",
-    icon: "🚀",
-    purpose: "Render the finished video and download it",
-    editorStep: "render",
-  },
-];
-
-export const getPhase = (id: ProjectPhase) =>
-  PROJECT_PHASES.find((p) => p.id === id) || PROJECT_PHASES[0];
 
 interface StepNavProps {
   current: ProjectPhase;
@@ -103,7 +45,7 @@ export default function StepNav({
   busyLabel,
   note,
 }: StepNavProps) {
-  const index = PROJECT_PHASES.findIndex((p) => p.id === current);
+  const index = phaseIndex(current);
   const prevPhase = index > 0 ? PROJECT_PHASES[index - 1] : null;
   const nextPhase = index >= 0 && index < PROJECT_PHASES.length - 1 ? PROJECT_PHASES[index + 1] : null;
   const busy = Boolean(busyLabel);

@@ -38,6 +38,37 @@
     overscroll-behavior-y: none;
   }
 
+  /* ---------------------------------------------------------------- *
+   * The studio on a phone, and on a phone held sideways.
+   *
+   * Two things had to give. The header is ~56px of chrome and a phone held
+   * sideways is only ~360px tall, so in landscape the header and its padding
+   * collapse to the smallest still-tappable sizes; and because the corner menu
+   * is fixed over the header's right-hand end, the header reserves that width
+   * (--sc-corner-reserve, defined beside the menu itself) instead of letting
+   * its own controls slide underneath it.
+   * ---------------------------------------------------------------- */
+  @media (max-height: 560px) {
+    .t-app-hdr {
+      min-height: 44px;
+      padding-top: 2px;
+      padding-bottom: 2px;
+    }
+    .t-app-hdr img {
+      height: 26px;
+    }
+  }
+
+  /* A phone: the corner menu floats over the top-right of the page, so the
+     fixed-position panel is the only thing allowed to keep a comfortable
+     inset — everything in the flow tightens up. */
+  @media (max-width: 560px) {
+    .t-app-hdr {
+      padding-left: 8px;
+      gap: 6px;
+    }
+  }
+
   /* Scrollbars are made as unobtrusive as possible — thin translucent
      lines instead of the chunky "up and down sliders" the default theme
      renders on every overflow box. */
@@ -132,6 +163,23 @@
 
 .animate-slide-in {
   animation: slideIn 0.4s ease-out forwards;
+}
+
+/* Dialog entrance.
+   The provider-key dialog used the two animations above: a half-second fade on
+   the full-screen dim (re-blurred every frame, because that layer carries a
+   backdrop-filter) plus a two-fifths-second slide on the card. Nothing in the
+   open itself is slow — the dialog is already on the page — so the wait was
+   entirely the entrance: the layer was still nearly transparent when the click
+   had finished. The dim now paints on the click's own frame and only the card
+   moves, for a sixth of a second. */
+@keyframes dialogIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-dialog-in {
+  animation: dialogIn 0.15s ease-out forwards;
 }
 
 .animate-pulse-slow {

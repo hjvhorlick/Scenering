@@ -22,6 +22,7 @@ import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
 import { renderSection } from "../lib/render-section";
 import type { SectionConfig } from "../data/intro-outro";
+import { startVoiceSource, type VoiceSourceHandle } from "../lib/voice-fade";
 import {
   VoiceEchoConfig,
   VoiceEchoGraph,
@@ -219,7 +220,8 @@ export default function VideoPreview({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const musicAnalyserRef = useRef<AnalyserNode | null>(null);
   const audioBuffersRef = useRef<Map<number, SceneAudio>>(new Map());
-  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  /** The narration line currently sounding, with its click-free gain. */
+  const currentSourceRef = useRef<VoiceSourceHandle | null>(null);
   // The narration's echo chain for the current playback session. It is kept
   // alive between scenes so the tail rings on instead of being chopped off.
   const echoGraphRef = useRef<{ ctx: AudioContext; graph: VoiceEchoGraph } | null>(null);
@@ -1264,11 +1266,22 @@ export default function VideoPreview({
     setProgress(totalDur > 0 ? safeStartTime / totalDur : 0);
     playingRef.current = true;
 
-    let currentAudioSource: AudioBufferSourceNode | null = null;
+    let currentAudioSource: VoiceSourceHandle | null = null;
 
+    /**
+     * Start one scene's narration — and close the previous line instead of
+     * cutting it.
+     *
+     * Both halves matter. The old code called stop() on a source that was
+     * mid-waveform and started the next one at full gain: two steps in the
+     * signal per scene change, heard as crackling. Now the outgoing line fades
+     * out over ~18ms (its hard stop is scheduled for the end of that fade, so
+     * nothing overlaps) and the incoming line opens from silence over ~12ms.
+     */
     const playSceneAudio = (idx: number, offset: number = 0) => {
       if (currentAudioSource) {
-        try { currentAudioSource.stop(); } catch {}
+        currentAudioSource.stop();
+        currentAudioSource = null;
       }
       if (!audioCtx) return;
 
@@ -1276,27 +1289,14 @@ export default function VideoPreview({
       if (!scene) return;
       const sceneAudio = buffers.get(scene.id);
       if (sceneAudio) {
-        const source = audioCtx.createBufferSource();
-        source.buffer = sceneAudio.buffer;
         const echo = echoGraphRef.current;
-        if (echo && echo.ctx === audioCtx && voiceEchoIsActive(echoRef.current)) {
+        const destination = echo && echo.ctx === audioCtx && voiceEchoIsActive(echoRef.current)
           // Dry voice + echo tail, both landing on the voice bus
-          source.connect(echo.graph.input);
-        } else if (analyserRef.current) {
-          source.connect(analyserRef.current);
-        } else {
-          source.connect(audioCtx.destination);
-        }
-        // Release the node when the line finishes. Without this every scene
-        // left its source connected to the voice bus for the whole preview,
-        // so a long project ran with a steadily growing audio graph.
-        source.onended = () => {
-          try { source.disconnect(); } catch {}
-        };
-        const safeOffset = Math.max(0, Math.min(sceneAudio.buffer.duration - 0.05, offset));
-        source.start(0, safeOffset);
-        currentAudioSource = source;
-        currentSourceRef.current = source;
+          ? echo.graph.input
+          : analyserRef.current || audioCtx.destination;
+        const handle = startVoiceSource(audioCtx, sceneAudio.buffer, destination, { offsetSeconds: offset });
+        currentAudioSource = handle;
+        currentSourceRef.current = handle;
       }
     };
 
@@ -1357,7 +1357,7 @@ export default function VideoPreview({
     const animate = () => {
       // A superseded playback must not keep drawing or driving audio.
       if (!playingRef.current || stale()) {
-        if (currentAudioSource) try { currentAudioSource.stop(); } catch {}
+        currentAudioSource?.stop();
         return;
       }
 
@@ -1370,7 +1370,7 @@ export default function VideoPreview({
       } catch {}
 
       if (totalElapsed >= totalDur) {
-        if (currentAudioSource) try { currentAudioSource.stop(); } catch {}
+        currentAudioSource?.stop();
         insertMixerRef.current?.stop();
         insertMixerRef.current = null;
         setIsPlaying(false);
@@ -1420,7 +1420,7 @@ export default function VideoPreview({
       // 2. OUTRO SEGMENT: Full screen insert, NO captions, NO speech voiceover
       if (outroSec && totalElapsed >= introDur + scriptDur) {
         if (currentAudioSource) {
-          try { currentAudioSource.stop(); } catch {}
+          currentAudioSource.stop();
           currentAudioSource = null;
         }
         const outroElapsed = totalElapsed - introDur - scriptDur;
@@ -1520,9 +1520,8 @@ export default function VideoPreview({
     setIsPlaying(false);
     clipPoolRef.current.pauseAll();
     cancelAnimationFrame(animFrameRef.current);
-    if (currentSourceRef.current) {
-      try { currentSourceRef.current.stop(); } catch {}
-    }
+    currentSourceRef.current?.stop();
+    currentSourceRef.current = null;
     // dispose() stops every slot *and* unhooks the mixer's master gain from
     // the music bus, so nothing of this playback stays wired to the graph.
     try { insertMixerRef.current?.dispose(); } catch {}
@@ -1586,9 +1585,8 @@ export default function VideoPreview({
     return () => {
       playingRef.current = false;
       cancelAnimationFrame(animFrameRef.current);
-      if (currentSourceRef.current) {
-        try { currentSourceRef.current.stop(); } catch {}
-      }
+      currentSourceRef.current?.stop();
+      currentSourceRef.current = null;
     };
   }, []);
 

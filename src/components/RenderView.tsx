@@ -15,6 +15,7 @@ import {
   type VipFinding,
 } from "../lib/vip-export-audit";
 import { isCtaCustomised, isFreeCtaInsert } from "../data/cta-library";
+import { startVoiceSource } from "../lib/voice-fade";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
@@ -24,7 +25,7 @@ import {
 import { getSceneCameraTransform, renderSceneAnimationEffects } from "../lib/scene-animation";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
-import { PackedAudioTelemetry } from "../lib/audio-telemetry";
+import { PackedAudioTelemetry, TELEMETRY_SAMPLE_STRIDE } from "../lib/audio-telemetry";
 import { requiredVisualizerFftSize } from "../lib/advanced-audio-visualizer";
 import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import type { WordTiming } from "../lib/word-sync";
@@ -1710,10 +1711,13 @@ export default function RenderView({
           for (const entry of sceneSchedule) {
             const item = audioBuffers.get(entry.scene.id);
             if (!item) continue;
-            const source = offlineCtx.createBufferSource();
-            source.buffer = item.buffer;
-            source.connect(offlineEcho ? offlineEcho.input : voiceAnalyser);
-            source.start(entry.startTime + entry.speechOffset);
+            /* Each narration line opens from silence over ~12ms through its own
+               gain, exactly as the preview does — so the exported soundtrack
+               cannot carry the step-in of a buffer starting at full gain, and
+               the preview and the file sound like the same performance. */
+            startVoiceSource(offlineCtx, item.buffer, offlineEcho ? offlineEcho.input : voiceAnalyser, {
+              whenSeconds: entry.startTime + entry.speechOffset,
+            });
           }
 
           // Legacy render-page ambient bed (normally timeline inserts now).
@@ -1785,21 +1789,30 @@ export default function RenderView({
            */
           const captureTelemetry = () => new Promise<void>((resolve, reject) => {
             const WINDOW_FRAMES = Math.max(30, Math.round(fpsUsed * 4));
+            const STRIDE = TELEMETRY_SAMPLE_STRIDE;
             let settled = false;
             const fail = (error: unknown) => {
               if (settled) return;
               settled = true;
               reject(error);
             };
+            /** The last frame this window suspends at (every STRIDE-th frame). */
+            const lastSampleIn = (start: number, end: number) =>
+              start + Math.floor((end - 1 - start) / STRIDE) * STRIDE;
             const scheduleWindow = (start: number) => {
               const end = Math.min(totalFrames, start + WINDOW_FRAMES);
-              for (let frame = start; frame < end; frame++) {
+              const lastSample = lastSampleIn(start, end);
+              for (let frame = start; frame <= lastSample; frame += STRIDE) {
                 offlineCtx.suspend(frame / fpsUsed).then(async () => {
                   if (abortControllerRef.current) throw new Error("Render cancelled");
                   const voiceLevel = readLevel(voiceAnalyser, voiceFreq, voiceWave);
                   const musicLevel = readLevel(offlineMusicAnalyser, musicFreq, musicWave);
-                  telemetry.setAnalyserFrame(
+                  /* One sample covers the frames it stands for: three times
+                     fewer suspend/resume round trips on the main thread, and
+                     every frame still has its row. */
+                  telemetry.setAnalyserSpan(
                     frame,
+                    frame + STRIDE,
                     voiceLevel,
                     voiceFreq,
                     voiceWave,
@@ -1810,9 +1823,9 @@ export default function RenderView({
                   offlineMastering.updateVoiceLevel(voiceLevel, offlineCtx.currentTime);
 
                   // Extend the runway while the context is safely suspended.
-                  if (frame === end - 1 && end < totalFrames) scheduleWindow(end);
+                  if (frame === lastSample && end < totalFrames) scheduleWindow(end);
                   await offlineCtx.resume();
-                  if (frame === totalFrames - 1 && !settled) {
+                  if (end >= totalFrames && frame === lastSample && !settled) {
                     settled = true;
                     resolve();
                   }

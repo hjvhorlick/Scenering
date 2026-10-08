@@ -158,6 +158,27 @@ export function scrollToSection(id: string): boolean {
   target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
   target.classList.add("is-answering");
   window.setTimeout(() => target.classList.remove("is-answering"), 2200);
+
+  /*
+   * Re-aim once the page has settled.
+   *
+   * The front page skips the layout of off-screen sections until they are
+   * approached (`content-visibility: auto`), and images below the fold arrive
+   * late, so at the moment of the jump the target may still be standing at its
+   * estimated height rather than its real one — a section that measured 900px
+   * can grow by several hundred once its pictures have decoded, leaving the
+   * jump short of the heading it promised to land on.
+   *
+   * So: after a frame AND after a slightly longer grace period, re-measure the
+   * target and correct if the page has moved it. The correction is a plain
+   * scroll (never another jump), so it cannot fight the browser's own scroll.
+   */
+  const settle = (behavior: ScrollBehavior) => {
+    const top = target.getBoundingClientRect().top + window.scrollY;
+    if (Math.abs(window.scrollY - top) > 12) window.scrollTo({ top, behavior });
+  };
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => settle("auto")));
+  window.setTimeout(() => settle("auto"), 320);
   return true;
 }
 

@@ -70,7 +70,9 @@ const customerCookie = await createSignedInUser("customer@example.com", "Ordinar
   h.eq(data.links.facebook, "", "no Facebook link is published before the owner saves one");
   h.eq(data.links.linkedin, "", "no LinkedIn link is published before the owner saves one");
   h.eq(data.links.x, "", "no X link is published before the owner saves one");
-  ok(Array.isArray(data.platforms) && data.platforms.length === 4, "the four supported platforms are listed");
+  h.eq(data.links.tiktok, "", "no TikTok link is published before the owner saves one");
+  ok(Array.isArray(data.platforms) && data.platforms.length === 5, "the five supported platforms are listed");
+  ok(data.platforms.some((platform: { id: string }) => platform.id === "tiktok"), "TikTok is one of the owner's fields");
 }
 
 /* ------------------------------------------------------------------ */
@@ -94,6 +96,8 @@ const customerCookie = await createSignedInUser("customer@example.com", "Ordinar
   const wrongHost = await fetch(`${base}/api/admin/social-links`, { method: "PUT", headers: { "Content-Type": "application/json", Cookie: ownerCookie }, body: JSON.stringify({ linkedin: "https://example.com/company/scenering" }) });
   h.eq(wrongHost.status, 400, "a LinkedIn link on a foreign domain is refused");
 
+  const wrongTikTok = await fetch(`${base}/api/admin/social-links`, { method: "PUT", headers: { "Content-Type": "application/json", Cookie: ownerCookie }, body: JSON.stringify({ tiktok: "https://example.com/@scenering" }) });
+  h.eq(wrongTikTok.status, 400, "a TikTok link on a foreign domain is refused");
   const notAUrl = await fetch(`${base}/api/admin/social-links`, { method: "PUT", headers: { "Content-Type": "application/json", Cookie: ownerCookie }, body: JSON.stringify({ facebook: "scenering on facebook" }) });
   h.eq(notAUrl.status, 400, "free text is refused for the Facebook field");
 
@@ -113,12 +117,14 @@ const customerCookie = await createSignedInUser("customer@example.com", "Ordinar
       facebook: "https://www.facebook.com/scenering",
       linkedin: "https://www.linkedin.com/company/scenering",
       x: "https://twitter.com/scenering",
+      tiktok: "https://www.tiktok.com/@scenering",
     }),
   });
-  h.eq(saved.status, 200, "the owner can save all four links");
+  h.eq(saved.status, 200, "the owner can save every link, TikTok included");
   const data = await saved.json();
   h.eq(data.links.youtube, "https://www.youtube.com/@scenering", "the YouTube link is stored as pasted");
   ok(data.links.x.startsWith("https://twitter.com/"), "a twitter.com address is accepted for X");
+  h.eq(data.links.tiktok, "https://www.tiktok.com/@scenering", "the TikTok link is stored as pasted");
 
   const read = await (await fetch(`${base}/api/social-links`)).json();
   h.eq(read.links.facebook, "https://www.facebook.com/scenering", "a visitor reads the saved Facebook link");
@@ -161,6 +167,11 @@ ok(socialSource.includes("#1877F2"), "the Facebook icon keeps its brand blue");
 ok(socialSource.includes("M20.447 20.452"), "the LinkedIn icon uses the original 'in' path");
 ok(socialSource.includes("#0A66C2"), "the LinkedIn icon keeps its brand blue");
 ok(socialSource.includes("M18.244 2.25"), "the X icon uses the original wordmark path");
+ok(socialSource.includes("M12.525.02"), "the TikTok icon uses the original note path");
+ok(socialSource.includes('{ id: "x", label: "X", color: "currentColor", adaptive: true'), "the X mark takes the surface ink instead of a fixed grey");
+ok(socialSource.includes('{ id: "tiktok", label: "TikTok", color: "currentColor", adaptive: true'), "the TikTok mark takes the surface ink instead of a fixed grey");
+ok(!socialSource.includes("#E7E9EA"), "no near-white mark can end up invisible on a light header");
+ok(socialSource.includes('icon.adaptive ? "currentColor" : icon.color'), "monochrome marks follow the surface; brand colours stay fixed");
 ok(socialSource.includes('rel="noopener noreferrer"'), "social links open safely in a new tab");
 ok(socialSource.includes("if (active.length === 0) return null"), "nothing renders until a link is configured");
 ok(marketingSource.includes("<SocialLinksRow"), "the front-page footer carries the social strip");
@@ -168,7 +179,8 @@ ok(publicPageSource.includes("<SocialLinksRow"), "the standalone public pages' f
 ok(cornerMenuSource.includes("<SocialLinksRow"), "the app's corner menu carries the social strip");
 ok(modalSource.includes("/api/admin/social-links"), "the administration panel saves to the admin endpoint");
 ok(modalSource.includes("saveSocialLinks"), "the administration panel has a save action for social links");
-ok(modalSource.includes('inputMode="url"'), "the administration panel uses URL-keyboard inputs for the four addresses");
+ok(modalSource.includes('inputMode="url"'), "the administration panel uses URL-keyboard inputs for every address");
+ok(modalSource.includes("EMPTY_SOCIAL_LINKS"), "the administration form is built from the shared platform list, so a new platform needs no form edit");
 ok(modalSource.includes("socialStatus"), "save feedback is shown inline, next to the save button");
 ok(modalSource.includes("invalidateSocialLinks"), "a save refreshes the icons without a page reload");
 

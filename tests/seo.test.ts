@@ -19,9 +19,11 @@ h.eq(SEO_PAGES["/verify-email"].indexable, false, "email verification is not ind
 h.eq(SEO_PAGES["/reset-password"].indexable, false, "password reset is not indexable");
 
 const html = read("index.html");
-for (const asset of ["/favicon.svg", "/favicon.ico", "/favicon-32.png", "/apple-touch-icon.png"]) {
+for (const asset of ["/favicon.ico", "/favicon-32.png", "/apple-touch-icon.png", "/site.webmanifest"]) {
   h.ok(html.includes(asset) && existsSync(`public${asset}`), `${asset} is linked and present in public assets`);
 }
+h.ok(!html.includes("favicon.svg"), "the tab icon is the owner's artwork, not the retired vector mark");
+h.ok(existsSync("public/icon-192.png") && existsSync("public/marketing/logo-scenering-512.png"), "the manifest and schema icons ship with the artwork");
 h.ok(html.includes('rel="canonical" href="https://scenering.com/"'), "the static homepage has a production canonical URL");
 h.ok(html.includes('property="og:url" content="https://scenering.com/"'), "Open Graph has an absolute page URL");
 h.ok(html.includes('property="og:image" content="https://scenering.com/marketing/og-card.jpg"'), "Open Graph uses an absolute share image URL");
@@ -63,10 +65,29 @@ const app = read("src/App.tsx");
 const corner = read("src/shared/SiteCornerMenu.tsx");
 const signIn = read("src/studio/SignIn.tsx");
 const signInCss = read("src/studio/sign-in.css");
-h.ok(app.includes('SocialLinksRow size={36} className="flex shrink-0"'), "large social links are visible in the studio header on small and large screens");
+/* Tablet width and up: on a phone the five 36px marks are ~220px of a 360px
+   header, which is what pushed the studio's own controls under the corner menu
+   — the owner's "the header is cutoff" report. The strip still renders on
+   phones, in the corner menu panel and the footers. */
+h.ok(
+  app.includes('SocialLinksRow size={36} className="hidden md:flex shrink-0"'),
+  "large social links are visible in the studio header, from tablet width up"
+);
+h.ok(
+  /SocialLinksRow size=\{40\}/.test(corner),
+  "the corner menu still carries the strip on every width, phones included"
+);
 h.ok(corner.includes("SocialLinksRow size={40}"), "the shared menu has enlarged social links");
 h.ok(signIn.includes("SocialLinksRow size={40}"), "the sign-in page has enlarged social links");
 h.ok(signInCss.includes("@media (max-width: 580px)") && signInCss.includes(".si-social { margin-left: 0; }"), "sign-in social links get narrow-screen spacing");
-h.ok(publicPage.includes("SocialLinksRow size={36}") && publicPage.includes("SocialLinksRow size={48}"), "public navigation and footer social links are enlarged");
+h.ok(
+  publicPage.includes('BrandMark height={26}') && publicPage.includes('SocialLinksRow size={26} tone="light" className="mkt-nav-social"'),
+  "the public header's social marks are drawn at the wordmark's own height"
+);
+h.ok(
+  marketingSite.includes('SocialLinksRow size={26} tone="light" className="mkt-nav-social"'),
+  "the front page header draws the same marks at the same height"
+);
+h.ok(publicPage.includes("SocialLinksRow size={48}"), "the footer keeps its larger social links");
 
 h.done("SEO and brand visibility");
