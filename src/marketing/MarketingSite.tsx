@@ -107,6 +107,15 @@ export default function MarketingSite() {
             <BrandMark height={26} />
           </button>
 
+          {/* The owner's configured social profiles, in the header as well as
+              the footer, directly right of the wordmark. They used to sit past
+              the flex spacer, which parked them at the far edge of the bar
+              where the fixed corner menu covers them. Hidden on narrow screens
+              by .mkt-nav-social. */}
+          <SocialLinksRow size={26} tone="light" className="mkt-nav-social" />
+
+          <span className="mkt-nav-spacer" />
+
           <div className="mkt-nav-links">
             {NAV.map((item) => (
               <a key={item.href} className="mkt-nav-link" href={item.href}>
@@ -115,16 +124,10 @@ export default function MarketingSite() {
             ))}
           </div>
 
-          <span className="mkt-nav-spacer" />
-
-          {/* The owner's configured social profiles, in the header as well as
-              the footer. Hidden on narrow screens by .mkt-nav-social. */}
-          <SocialLinksRow size={36} tone="light" className="mkt-nav-social" />
-
           {/* The shared corner menu owns public navigation and account actions
               on every Scenering surface. This spacer keeps the fixed button
               clear of the wordmark and desktop link rail. */}
-          <span style={{ width: 92 }} aria-hidden="true" />
+          <span className="sc-corner-reserve" aria-hidden="true" />
         </div>
       </nav>
 

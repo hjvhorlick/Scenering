@@ -258,9 +258,18 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
   // the live video preview
   const preview = read("src/components/VideoPreview.tsx");
   h.ok(preview.includes("createVoiceEchoGraph"), "the video preview builds the echo chain");
+  /*
+   * The preview now plays each line through its own faded gain (so a scene
+   * change cannot click), so the echo chain is chosen as that source's
+   * destination rather than being connected to directly.
+   */
   h.ok(
-    preview.includes("source.connect(echo.graph.input)"),
-    "scene narration is played through the echo chain in the preview"
+    preview.includes("startVoiceSource(audioCtx, sceneAudio.buffer, destination"),
+    "scene narration in the preview is started through the faded voice source"
+  );
+  h.ok(
+    /const destination = echo && echo\.ctx === audioCtx && voiceEchoIsActive\(echoRef\.current\)[\s\S]{0,200}echo\.graph\.input/.test(preview),
+    "…whose destination is the echo chain whenever the echo is on"
   );
 
   // the render — this is the one that decides what lands in the file

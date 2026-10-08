@@ -303,7 +303,11 @@ export function createApp(): express.Express {
     }
     next();
   });
-  // Cookie-authenticated state changes are same-origin only. Lemon Squeezy's
+  // Cookie-authenticated state changes are same-origin only: the browser's
+  // Origin must be the configured application origin, or the host the request
+  // actually arrived on — which is what a deployment reached through an alias
+  // looks like (a preview host, a staging domain, www. against the apex), and
+  // a page served from anywhere else can never claim it. Lemon Squeezy's
   // signed webhook has no browser Origin and remains independently verified.
   app.use((req, res, next) => {
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path === "/api/webhooks/lemonsqueezy") return next();
@@ -315,7 +319,13 @@ export function createApp(): express.Express {
     const requestHost = String(req.get("host") || "").toLowerCase();
     const forwardedHost = env().TRUST_PROXY === "1" ? String(req.get("x-forwarded-host") || "").split(",")[0].trim().toLowerCase() : "";
     const sameHost = supplied.host.toLowerCase() === requestHost || Boolean(forwardedHost && supplied.host.toLowerCase() === forwardedHost);
-    if ((configured && origin !== configured) || (!configured && !sameHost)) return res.status(403).json({ error: "Cross-origin request rejected" });
+    if (origin !== configured && !sameHost) {
+      // Development servers are reached through preview proxies, so a rejection
+      // here is usually a misconfigured tunnel rather than an attack. Record
+      // what actually arrived; production stays silent.
+      if (env().NODE_ENV !== "production") console.warn(`[origin-guard] rejected ${req.method} ${req.originalUrl} origin=${origin} host=${requestHost} x-forwarded-host=${forwardedHost || "-"}`);
+      return res.status(403).json({ error: "Cross-origin request rejected" });
+    }
     next();
   });
 

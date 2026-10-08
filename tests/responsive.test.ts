@@ -273,4 +273,142 @@ ok(
   );
 }
 
+/* =====================================================================
+ * Fitting the phone: the corner menu, the headers, and the sections that
+ * were wider than the screen.
+ *
+ * The owner's report, in their words: "the header is cutoff and does not show
+ * the full menu … if i turn my phone side ways it sould adapt to that view …
+ * the front page and some other pages have very large sections that falls
+ * outside the cell phone area of view."
+ *
+ * Three things had to be true for that to stop happening, and all three are
+ * structural rather than cosmetic, so they are pinned here:
+ *
+ *   1. The corner button's width and the space every header keeps clear for it
+ *      come from ONE definition. A header that guesses the width gets it wrong
+ *      the moment the button grows a plan badge — which is exactly when the
+ *      studio's theme picker and the website's last nav item disappeared under
+ *      it.
+ *   2. On a phone the button is the ☰ glyph alone, with the name on
+ *      aria-label, so a 320px header is not a third spent on one control.
+ *   3. Anything on the website that could not shrink to a phone's width either
+ *      became a layout that does fit (the plan comparison becomes cards) or
+ *      gained its own sideways scroll. Nothing is left to `overflow-x: clip`
+ *      to silently swallow.
+ * ===================================================================== */
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const read = (rel: string) => readFileSync(join(root, rel), "utf8");
+  const mkt = read("src/marketing/marketing.css");
+  const menu = read("src/shared/site-corner-menu.css");
+  const chrome = read("src/index.css");
+  const app = read("src/App.tsx");
+  const marketingSite = read("src/marketing/MarketingSite.tsx");
+  const publicPage = read("src/marketing/PublicPage.tsx");
+
+  // --- 1. one source of truth for the menu's footprint -------------------
+  ok(/:root\s*\{[^}]*--sc-corner-reserve:/s.test(menu), "the corner-menu footprint is defined once, as variables");
+  ok(
+    /\.sc-corner-reserve\s*\{[^}]*width:\s*var\(--sc-corner-reserve\)/s.test(menu),
+    "…and one class keeps that width clear"
+  );
+  ok(
+    /\.sc-corner\s*\{[^}]*top:\s*var\(--sc-corner-inset-y\)/s.test(menu) &&
+      /\.sc-corner\s*\{[^}]*right:\s*var\(--sc-corner-inset-x\)/s.test(menu),
+    "the button positions itself from the same variables"
+  );
+  ok(
+    /\.sc-corner-trigger\s*\{[^}]*height:\s*var\(--sc-corner-height\)/s.test(menu),
+    "and sizes itself from them too"
+  );
+  ok(
+    menu.includes("env(safe-area-inset-right)") && menu.includes("env(safe-area-inset-top)"),
+    "a phone turned sideways keeps the button clear of the notch"
+  );
+
+  // every header reserves it, and none of them hardcodes the old 92px
+  ok(app.includes("pr-[var(--sc-corner-reserve)]"), "the studio header reserves the menu's width");
+  ok(marketingSite.includes('className="sc-corner-reserve"'), "the front-page nav reserves it");
+  ok(publicPage.includes('className="sc-corner-reserve"'), "the standalone-page nav reserves it");
+  ok(!/style=\{\{ width: 92 \}\}/.test(marketingSite + publicPage), "no header guesses the width any more");
+
+  // --- 2. a phone gets the glyph, and keeps the name ---------------------
+  ok(
+    /\.sc-corner-trigger \.sc-corner-word[^{]*\{[^}]*display: none/s.test(menu),
+    "a phone shows the ☰ glyph without the word"
+  );
+  ok(read("src/shared/SiteCornerMenu.tsx").includes('aria-label="Menu"'), "…and the control keeps its accessible name");
+  ok(
+    /\.sc-corner-trigger em \{[^}]*display: none/s.test(menu.slice(menu.indexOf("@media (max-width: 560px)"), menu.indexOf("@media (prefers-reduced-motion"))),
+    "the plan badge is not drawn on a phone either"
+  );
+  ok(
+    /\.sc-corner-trigger \.sc-corner-word,\s*\n\s*\.sc-corner-trigger em/.test(menu),
+    "both are hidden by the same rule, so they cannot drift apart"
+  );
+
+  // --- the studio header on a phone -------------------------------------
+  ok(
+    app.includes('<SocialLinksRow size={36} className="hidden md:flex shrink-0" />'),
+    "the studio header keeps its social strip for tablet width and up only"
+  );
+  ok(
+    /@media \(max-height: 560px\)[^{]*\{[^@]*\.t-app-hdr/s.test(chrome),
+    "the studio header compacts when the phone is sideways"
+  );
+  ok(
+    /@media \(max-height: 560px\)[^{]*\{[^@]*\.t-app-hdr img/s.test(chrome),
+    "…and the wordmark shrinks with it rather than wrapping the row"
+  );
+
+  // --- the website, sideways -------------------------------------------
+  ok(
+    /@media \(max-height: 560px\)[^{]*\{[^@]*\.mkt-nav-inner[^}]*min-height: 48px/s.test(mkt),
+    "the website header compacts when the phone is sideways"
+  );
+  ok(
+    /@media \(max-height: 560px\)[^{]*\{[^@]*\.mkt-section[^}]*padding-top: 30px/s.test(mkt),
+    "…and the front page stops paying desktop section padding in landscape"
+  );
+
+  // --- 3. the sections that fell off the side ---------------------------
+  ok(
+    /\.pub-table-wrap \{[^}]*overflow-x: auto/s.test(mkt),
+    "the plan comparison still scrolls on a desktop where it is a table"
+  );
+  ok(
+    /@media \(width <= 780px\)[\s\S]{0,900}\.pub-table tbody tr \{[^}]*border-radius/s.test(mkt),
+    "…and becomes one card per row on a phone"
+  );
+  ok(
+    /\.pub-table tbody td\[data-label\]::before \{[^}]*content: attr\(data-label\)/s.test(mkt),
+    "each cell on a phone says which plan it answers for"
+  );
+  ok(
+    /\.pub-table tbody th\[scope="row"\],[\s\S]{0,120}\.pub-table tbody td:first-child/s.test(mkt),
+    "the row's own name heads its card"
+  );
+  ok(
+    (publicPage.match(/data-label=/g) || []).length >= 9,
+    "the markup carries the plan labels the phone layout reads"
+  );
+  ok(
+    !/overflow-x: clip[\s\S]{0,80}(fixed|absolute)/.test(mkt),
+    "clipping is a safety net, not the layout"
+  );
+
+  // --- the long front page is not all live at once ----------------------
+  ok(
+    /\.mkt-section \{[^}]*content-visibility: auto/s.test(mkt),
+    "off-screen front-page sections are skipped until they are approached"
+  );
+  ok(
+    /\.mkt-section \{[^}]*contain-intrinsic-size: auto/s.test(mkt),
+    "…with a remembered placeholder height, so the scrollbar does not jump"
+  );
+  const fixedInSections = [...read("src/marketing/components/primitives.tsx").matchAll(/position:\s*fixed/g)];
+  ok(fixedInSections.length === 0, "nothing inside a contained section is positioned against the viewport");
+}
+
 h.done("responsive");

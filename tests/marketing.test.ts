@@ -164,6 +164,8 @@ if (existsSync(publicMarketing)) {
   );
   // The link-preview card is referenced by index.html, not by the registry.
   known.add("og-card.jpg");
+  // The brand logo a crawler reads, referenced by structured data rather than the registry.
+  known.add("logo-scenering-512.png");
   for (const file of readdirSync(publicMarketing)) {
     ok(known.has(file), `public/marketing/${file} belongs to a registered asset`);
     const bytes = statSync(join(publicMarketing, file)).size;

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "../config/plans";
 import { getInterfacePlan, getSession, setAdminPlanPreview, useSession } from "../lib/session";
-import { invalidateSocialLinks, SocialIcon, SOCIAL_ICONS, type SocialLinkSet } from "../shared/SocialLinks";
+import { EMPTY_SOCIAL_LINKS, invalidateSocialLinks, SocialIcon, SOCIAL_ICONS, type SocialLinkSet } from "../shared/SocialLinks";
 import Icon from "./icons/Icon";
+import ApiKeysModal from "./ApiKeysModal";
+import { useApiKeysConfigured } from "../shared/api-key-status";
 
 type AccountPayload = {
   user: { email: string; displayName: string; emailVerified: boolean; role: "user" | "admin" };
@@ -29,15 +31,19 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
   const [codeValidity, setCodeValidity] = useState<7 | 30 | 90>(30);
   const [generatedCode, setGeneratedCode] = useState<{ code: string; redeemUrl: string; expiresAt: string } | null>(null);
   const [redeemCode, setRedeemCode] = useState("");
-  const [socialLinks, setSocialLinks] = useState<SocialLinkSet>({ youtube: "", facebook: "", linkedin: "", x: "" });
+  const [socialLinks, setSocialLinks] = useState<SocialLinkSet>({ ...EMPTY_SOCIAL_LINKS });
   const [socialStatus, setSocialStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  /* The provider-key dialog. It is opened from here as well as from the corner
+     menu; both entries lead to the same dialog and the same stored keys. */
+  const [keysOpen, setKeysOpen] = useState(false);
+  const hasOwnKeys = useApiKeysConfigured();
 
   async function refreshAdmin() {
     const response = await fetch("/api/admin/overview");
     if (!response.ok) throw new Error("Admin overview could not be loaded.");
     setAdminData(await response.json());
     const links = await fetch("/api/social-links").then((r) => r.ok ? r.json() : null).catch(() => null);
-    if (links?.links) setSocialLinks({ youtube: "", facebook: "", linkedin: "", x: "", ...links.links });
+    if (links?.links) setSocialLinks({ ...EMPTY_SOCIAL_LINKS, ...links.links });
   }
 
   async function saveSocialLinks() {
@@ -201,6 +207,24 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
           </div>
         </section>
 
+        {/* Provider keys. Optional, browser-held (never sent anywhere but the
+            provider's own verification call), and useful to exactly the people
+            who come looking for them — so they are offered here rather than
+            occupying a button in the studio's top bar. */}
+        <section className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-xl border border-hairline bg-gray-900/60 p-4" aria-label="API keys">
+          <div className="flex items-start gap-3">
+            <span className="text-xl"><Icon glyph="🔑" /></span>
+            <div>
+              <h3 className="text-sm font-bold">Pexels, Pixabay and Speechify keys</h3>
+              <p className="text-xs text-gray-400 mt-1">Optional personal keys for live HD stock search and Speechify voiceover. They are stored in this browser, and server-configured keys are used wherever yours are absent.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 md:flex-shrink-0">
+            <span className={`text-[10px] uppercase tracking-wider ${hasOwnKeys ? "text-emerald-300" : "text-amber-300"}`}>{hasOwnKeys ? "Keys saved" : "Not set"}</span>
+            <button type="button" className="opt-btn" onClick={() => setKeysOpen(true)}>{hasOwnKeys ? "Manage keys" : "Add keys"}</button>
+          </div>
+        </section>
+
         {isOwnerAdmin && <section ref={adminRef} className="rounded-xl border border-blue-500/60 bg-blue-950/25 p-4 sm:p-5 space-y-5" aria-label="Owner administration">
           <div><span className="text-[10px] uppercase tracking-[.16em] text-blue-300 font-bold">Owner administrator</span><h3 className="text-lg font-bold mt-1">Scenering administration</h3><p className="text-xs text-gray-400">Full SceneForge access plus customer, contact, email-consent and production configuration visibility. Secrets and password hashes are never displayed.</p></div>
           <div className="rounded-xl border border-indigo-400/50 bg-gray-950/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -239,7 +263,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
                     inputMode="url"
                     autoComplete="off"
                     spellCheck={false}
-                    placeholder={platform.id === "youtube" ? "https://www.youtube.com/@yourchannel" : platform.id === "facebook" ? "https://www.facebook.com/yourpage" : platform.id === "linkedin" ? "https://www.linkedin.com/company/yourcompany" : "https://x.com/yourhandle"}
+                    placeholder={platform.placeholder}
                     value={socialLinks[platform.id]}
                     onChange={(event) => setSocialLinks((previous) => ({ ...previous, [platform.id]: event.target.value }))}
                     className="mt-1.5 w-full rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs text-gray-100 placeholder:text-gray-600"
@@ -320,5 +344,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
         </section>
       </div>
     </div>
+
+    <ApiKeysModal isOpen={keysOpen} onClose={() => setKeysOpen(false)} />
   </div>;
 }

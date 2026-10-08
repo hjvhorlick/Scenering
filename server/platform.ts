@@ -18,13 +18,14 @@ export const SOCIAL_LINK_PLATFORMS = [
   { id: "facebook", label: "Facebook", hosts: ["facebook.com", "fb.com"] },
   { id: "linkedin", label: "LinkedIn", hosts: ["linkedin.com"] },
   { id: "x", label: "X", hosts: ["x.com", "twitter.com"] },
+  { id: "tiktok", label: "TikTok", hosts: ["tiktok.com"] },
 ] as const;
 export type SocialPlatformId = (typeof SOCIAL_LINK_PLATFORMS)[number]["id"];
 type SocialLinks = Record<SocialPlatformId, string>;
 const SOCIAL_LINKS_SETTING_KEY = "social_links";
 
 /**
- * Validates and normalizes the four social-link fields. An empty string
+ * Validates and normalizes the social-link fields. An empty string
  * clears a link. A link pasted without a scheme ("www.youtube.com/@x") is
  * treated as https, because that is how addresses are copied from a browser
  * bar or a profile page. Returns the clean record, or a human-readable error
@@ -52,7 +53,13 @@ export function sanitizeSocialLinks(input: unknown): { links: SocialLinks } | { 
 async function publicSocialLinks(): Promise<SocialLinks> {
   const raw = await db.getSetting(SOCIAL_LINKS_SETTING_KEY);
   const stored = raw ? (JSON.parse(raw) as Partial<SocialLinks>) : {};
-  return { youtube: stored.youtube || "", facebook: stored.facebook || "", linkedin: stored.linkedin || "", x: stored.x || "" };
+  /* Built from SOCIAL_LINK_PLATFORMS, not a literal: a platform added to that
+     one list is published, sanitized and defaulted here with no second edit,
+     and a stored record saved before the platform existed still answers with
+     an empty string rather than `undefined`. */
+  return Object.fromEntries(
+    SOCIAL_LINK_PLATFORMS.map((platform) => [platform.id, stored[platform.id] || ""])
+  ) as SocialLinks;
 }
 
 const now = () => new Date().toISOString();

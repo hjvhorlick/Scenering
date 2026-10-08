@@ -1,0 +1,52 @@
+# Headers for files served straight from the asset layer.
+#
+# Read by Cloudflare Workers static assets (and `wrangler dev`); the file itself
+# is never served. Rules here apply ONLY to static files — a response the Worker
+# generates, including every HTML page whose head it injects, carries its own
+# headers (see server/platform.ts).
+#
+# The three inspection pages are development tools that happen to be published:
+# brand-check.html draws the brand mark, icon-sheet.html draws every icon, and
+# render-probe.html exercises canvas output. They are useful to a maintainer and
+# meaningless to a visitor, so crawlers are told to skip them — the same job
+# robots.txt does for the app, but this one also covers crawlers that ignore
+# robots.txt, and it keeps them out of the index without hiding the pages.
+#
+# Each page is listed twice on purpose. Cloudflare's asset layer serves
+# /brand-check from brand-check.html and 307-redirects the explicit .html URL,
+# so the extensionless path is the one a crawler actually resolves; the .html
+# rule is what a static server that keeps the extension (a bare `dist/`, a
+# local preview) needs. tests/seo.test.ts holds both to the files on disk.
+
+/brand-check
+  X-Robots-Tag: noindex, nofollow
+
+/brand-check.html
+  X-Robots-Tag: noindex, nofollow
+
+/icon-sheet
+  X-Robots-Tag: noindex, nofollow
+
+/icon-sheet.html
+  X-Robots-Tag: noindex, nofollow
+
+/render-probe
+  X-Robots-Tag: noindex, nofollow
+
+/render-probe.html
+  X-Robots-Tag: noindex, nofollow
+
+# The brand tile and the icons never change between deployments: the artwork
+# behind them is committed and the filenames are stable, so they can be cached
+# hard. Google's favicon guidance asks for a stable URL — this is how stable.
+/favicon.ico
+  Cache-Control: public, max-age=604800
+
+/apple-touch-icon.png
+  Cache-Control: public, max-age=604800
+
+/icon-192.png
+  Cache-Control: public, max-age=604800
+
+/marketing/logo-scenering-512.png
+  Cache-Control: public, max-age=604800
