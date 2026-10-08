@@ -40,6 +40,7 @@ import {
   HONESTY,
 } from "../src/marketing/product-facts";
 import { COMMON_QUESTIONS, NO_METER } from "../src/marketing/product-facts";
+import { DEVICE_PERFORMANCE } from "../src/marketing/device-guidance";
 import {
   DEMO_SCENES,
   DEMO_SEARCH_RESULTS,
@@ -392,7 +393,7 @@ ok(
   "the specification's example scene is used verbatim"
 );
 
-/* ------------------------- 6a. the five questions, and the answer to the first */
+/* ------------------------- 6a. the six questions, including device performance */
 
 /*
  * The band at the top of the page is a table of contents for doubts, so every
@@ -400,7 +401,7 @@ ok(
  * answers have to be true on their own — most visitors will never click.
  */
 {
-  h.eq(COMMON_QUESTIONS.length, 5, "five questions, as many as anyone reads");
+  h.eq(COMMON_QUESTIONS.length, 6, "six questions cover the core first-time concerns");
 
   const siteSource = read("src/marketing/MarketingSite.tsx");
   const renderedIds = new Set<string>();
@@ -416,6 +417,16 @@ ok(
     ok(renderedIds.has(q.section), `"${q.id}" points at #${q.section}, a section the page renders`);
     ok(q.cue.length > 0, `"${q.id}" says where it goes`);
   }
+
+  const computerQuestion = COMMON_QUESTIONS.find((q) => q.id === "computer");
+  h.eq(computerQuestion?.section, "devices", "computer question lands on the device guidance");
+  ok(computerQuestion?.answer.includes("2-core Celeron with 4 GB RAM") ?? false, "computer question names the tested low-spec system");
+  ok(computerQuestion?.answer.includes("faster modern PC") ?? false, "computer question recommends faster hardware for smoother work");
+  const deviceSection = read("src/marketing/sections/Devices.tsx");
+  ok(deviceSection.includes("DEVICE_PERFORMANCE.testedSystem"), "device section publishes the tested-system guidance");
+  ok(deviceSection.includes("DEVICE_PERFORMANCE.persistentRender"), "device section explains persistent rendering");
+  ok(deviceSection.includes("DEVICE_PERFORMANCE.recommendation"), "device section gives the modern-PC recommendation");
+  ok(DEVICE_PERFORMANCE.lowerSpecExpectation.includes("may struggle with demanding projects"), "shared guidance honestly qualifies demanding work on modest hardware");
 
   // The jump has to work without the script, and must not steal modified clicks.
   const questions = read("src/marketing/sections/Questions.tsx");

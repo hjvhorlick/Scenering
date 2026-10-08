@@ -35,7 +35,7 @@ import SocialLinksRow from "../shared/SocialLinks";
  * It is one page, and the page is the product story in the order a visitor
  * lives it (spec §34):
  *
- *   hero → the five questions → workflow → scenes → visuals → voice →
+ *   hero → the six questions → workflow → scenes → visuals → voice →
  *   captions → Video Studio → effects → before/after → control → no meter →
  *   examples → formats → devices → sources → pricing → start
  *

@@ -3,12 +3,12 @@ import { COMMON_QUESTIONS } from "../product-facts";
 import Icon from "../../components/icons/Icon";
 
 /**
- * The five worries, at the top of the page.
+ * The six worries, at the top of the page.
  *
  * A visitor does not arrive wanting a feature list; they arrive with a
  * specific doubt about whether this is for them — will it cost me credits, do
- * I have to be on camera, do I need a voice, may I use the pictures, can I
- * even do this. Each one is answered in a line here and properly by the
+ * I have to be on camera, do I need a voice, may I use the pictures, will it
+ * run on my computer, can I even do this. Each one is answered in a line here and properly by the
  * section it points at, so clicking takes you to the explanation instead of
  * to a marketing page.
  *
@@ -34,7 +34,7 @@ export default function Questions() {
       <SectionHead
         id="questions"
         eyebrow="Before you start"
-        title="The five things people ask first."
+        title="The six things people ask first."
         lead="Pick the one you were about to ask."
       />
 

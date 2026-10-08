@@ -60,7 +60,7 @@ ok(html.length > 50_000, `the page has substance (${html.length} chars of markup
 /* --------------------------------------------------------- structure */
 
 const SECTIONS = [
-  // the five worries, before anything is explained
+  // the six worries, before anything is explained
   "questions",
   "workflow",
   "scenes",
@@ -135,6 +135,9 @@ ok(html.includes("Example created for demonstration"), "examples are labelled");
 ok(html.includes("Coming soon"), "planned features are labelled on the page");
 ok(html.includes("Paid checkout requires configured Lemon Squeezy credentials"), "the plan configuration status is stated");
 ok(html.includes("Preview renders do not use final-export allowance"), "preview usage is stated");
+ok(html.includes("2-core Celeron with 4 GB RAM"), "the tested low-spec Celeron configuration is visible on the marketing page");
+ok(html.includes("persistent render engine"), "the marketing page explains persistent rendering for modest hardware");
+ok(html.includes("faster modern PC is recommended"), "the marketing page recommends faster hardware for smoother renders");
 ok(html.includes("Pexels") && html.includes("Wikimedia Commons"), "the real visual sources are named");
 ok(!/guarantee|go viral|instant success/i.test(html), "no exaggerated claims in the rendered copy");
 

@@ -57,7 +57,7 @@ export default function ManualPage() {
       <main className="manual-content" id="manual-content">
         {normalized ? <section className="manual-results">
           <div className="manual-kicker">Reference search</div><h2>{results.length} result{results.length === 1 ? "" : "s"} for “{query}”</h2>
-          {results.length ? results.map((result) => <button key={`${result.chapterId}-${result.id}`} onClick={() => openChapter(result.chapterId, result.id)}><span>{result.chapterNumber}. {result.chapterTitle}</span><b>{result.title}</b><p>{result.summary}</p><small>{result.keywords.join(" · ")}</small></button>) : <div className="manual-empty"><b>No matching manual section.</b><p>Try a shorter technical term or search the 500-question FAQ.</p><a href="/faq">Open FAQ knowledge base</a></div>}
+          {results.length ? results.map((result) => <button key={`${result.chapterId}-${result.id}`} onClick={() => openChapter(result.chapterId, result.id)}><span>{result.chapterNumber}. {result.chapterTitle}</span><b>{result.title}</b><p>{result.summary}</p><small>{result.keywords.join(" · ")}</small></button>) : <div className="manual-empty"><b>No matching manual section.</b><p>Try a shorter technical term or search the FAQ knowledge base.</p><a href="/faq">Open FAQ knowledge base</a></div>}
         </section> : <article className="manual-article">
           <header><div className="manual-kicker">Chapter {chapter.number} of {MANUAL_CHAPTERS.length}</div><h2>{chapter.title}</h2><p>{chapter.description}</p></header>
           <nav className="manual-on-page" aria-label="On this page"><b>On this page</b>{chapter.sections.map((section) => <a href={`#${section.id}`} key={section.id}>{section.title}</a>)}</nav>
