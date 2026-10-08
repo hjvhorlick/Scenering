@@ -1,5 +1,27 @@
 @import "./porcelain.css";
 
+/*
+ * The corner menu's footprint, in one place.
+ *
+ * The ☰ button is fixed to the top-right of the viewport on every surface, so
+ * it floats OVER whatever that surface puts in its own top-right corner: the
+ * studio's theme picker, the website's menu toggle, the last nav link. That is
+ * what "the header is cut off and does not show the full menu" described, and
+ * it was worst when signed in, because the plan badge makes the button wider
+ * than the space those headers were leaving for it.
+ *
+ * So the button's size and the space every header reserves for it come from the
+ * same variables: a header cannot reserve the wrong amount, because it is not
+ * the header that decides. `--sc-corner-reserve` is the width to keep clear,
+ * and `.sc-corner-reserve` is the element that keeps it.
+ */
+:root {
+  --sc-corner-inset-x: 14px;
+  --sc-corner-inset-y: 12px;
+  --sc-corner-height: 42px;
+  --sc-corner-reserve: 152px;
+}
+
 /* Shared Scenering corner navigation. The navy/white brand palette is stable;
    corner geometry and layered control shadows follow the active app theme. */
 .sc-corner {
@@ -18,8 +40,11 @@
   --sc-menu-radius: var(--pc-r);
   --sc-menu-focus: rgb(47 111 181 / .28);
   position: fixed;
-  top: 12px;
-  right: 14px;
+  top: var(--sc-corner-inset-y);
+  /* Notched phones turn sideways: the notch is where this button would be. */
+  top: max(var(--sc-corner-inset-y), env(safe-area-inset-top));
+  right: var(--sc-corner-inset-x);
+  right: max(var(--sc-corner-inset-x), env(safe-area-inset-right));
   z-index: 200;
   color: var(--sc-menu-ink);
   font-family: var(--pc-sans);
@@ -45,7 +70,7 @@ html[data-mkt="1"] .sc-corner {
 }
 
 .sc-corner-trigger {
-  height: 42px;
+  height: var(--sc-corner-height);
   display: flex;
   align-items: center;
   gap: 9px;
@@ -193,10 +218,44 @@ html[data-theme="porcelain"]:not([data-mkt]) .sc-corner {
 }
 
 @keyframes sc-menu-in { from { opacity: 0; transform: translateY(-6px) scale(.98); } to { opacity: 1; transform: none; } }
+/* The header that owns the top-right corner keeps this much clear. */
+.sc-corner-reserve {
+  flex: 0 0 auto;
+  width: var(--sc-corner-reserve);
+  align-self: stretch;
+  pointer-events: none;
+}
+
+/*
+ * A phone: the button is the ☰ glyph alone.
+ *
+ * The word "Menu" and the plan pill together cost about 90px, which on a 320px
+ * screen is a third of the header spent on a control whose icon already says
+ * what it is. The panel still opens with the account, plan and every section
+ * in it, so nothing is lost — the label lives on `aria-label` instead, where a
+ * screen reader still reads it and the layout does not pay for it.
+ */
 @media (max-width: 560px) {
-  .sc-corner { top: 8px; right: 8px; }
-  .sc-corner-trigger { height: 40px; padding: 0 11px; }
+  :root {
+    --sc-corner-inset-x: 8px;
+    --sc-corner-inset-y: 8px;
+    --sc-corner-height: 40px;
+    --sc-corner-reserve: 56px;
+  }
+  .sc-corner-trigger { padding: 0 11px; }
+  .sc-corner-trigger .sc-corner-word,
+  .sc-corner-trigger em { display: none; }
   .sc-corner-panel { top: 46px; width: calc(100vw - 16px); max-height: calc(100vh - 62px); max-height: calc(100dvh - 62px); }
+}
+
+/*
+ * A phone held sideways: very little height to spare, so the menu loses height
+ * before it loses the panel — a 36px button still meets the touch target on a
+ * coarse pointer, and the panel below it starts four pixels higher.
+ */
+@media (max-height: 560px) {
+  :root { --sc-corner-inset-y: 6px; --sc-corner-height: 36px; }
+  .sc-corner-panel { top: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .sc-corner-panel { animation: none; }
@@ -211,7 +270,7 @@ html[data-theme="porcelain"]:not([data-mkt]) .sc-corner {
 }
 /* A phone held sideways: the panel is the only thing that may scroll. */
 @media (max-height: 560px) {
-  .sc-corner-panel { max-height: calc(100dvh - 56px); overscroll-behavior: contain; }
+  .sc-corner-panel { max-height: calc(100dvh - 52px); overscroll-behavior: contain; }
 }
 /* Finger-sized rows on touch screens. */
 @media (pointer: coarse) {

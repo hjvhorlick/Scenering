@@ -36,12 +36,13 @@ for (const key of ["scenering_projects_v1", "scenering_scenes_v1", "scenering_pr
   h.ok(content.includes(key), `legal copy names ${key}`);
   h.ok(sourceAll.includes(key.replace("_<id>", "")), `${key} is backed by an app storage reference`);
 }
-for (const provider of ["Google Gemini", "gemini-3.1-flash-tts-preview", "Edge neural", "Wikimedia Commons", "Pexels", "Pixabay", "Google Translate", "Google Fonts", "Lemon Squeezy"]) {
+for (const provider of ["Speechify", "your Speechify API key", "Wikimedia Commons", "Pexels", "Pixabay", "Google Translate", "Google Fonts", "Lemon Squeezy"]) {
   h.ok(content.includes(provider), `legal copy names ${provider}`);
 }
-for (const source of ["gemini", "msedge", "wikimedia", "pexels", "pixabay", "translate", "fonts.googleapis.com", "lemonsqueezy"]) {
+for (const source of ["speechify", "wikimedia", "pexels", "pixabay", "translate", "fonts.googleapis.com", "lemonsqueezy"]) {
   h.ok((sourceAll + serverAll).toLowerCase().includes(source), `code contains a call path for ${source}`);
 }
+h.ok(!serverAll.toLowerCase().includes("gemini") && !serverAll.toLowerCase().includes("msedge"), "no Gemini or Edge TTS synthesis remains in the application");
 h.ok(content.includes("20 MB") && content.includes("5 files") && content.includes("20 files") && content.includes("24 hours"), "imported voice limits are stated");
 h.ok(content.includes("scenering_session") && content.includes("30 days") && content.includes("HttpOnly") && content.includes("SameSite=Lax") && content.includes("Path=/") && content.includes("Secure"), "cookie properties are stated");
 h.ok(platform.includes("scenering_session") && platform.includes("Max-Age=2592000") && platform.includes("HttpOnly; SameSite=Lax"), "cookie page matches setSessionCookie");
@@ -56,7 +57,8 @@ for (const allowance of ["3/week", "two up to 1 minute", "one up to 5 minutes", 
 h.ok(plans.includes('monthly: 19') && plans.includes('monthly: 39'), "terms prices have plan source values");
 h.ok(plans.includes("finalExportsPerWeek: 3") && plans.includes("finalExportsPerWeek: 15"), "terms allowances have plan source values");
 const freeCatalog = plans.match(/const FREE_CATALOG = \{[\s\S]*?\n\} as const;/)?.[0] || "";
-for (const voice of ["guy", "jenny"]) h.ok(freeCatalog.includes(`"${voice}"`) && content.toLowerCase().includes(voice), `free voice ${voice} is catalogued and documented`);
+for (const voice of ["speechify_male_01", "speechify_female_01"]) h.ok(freeCatalog.includes(`"${voice}"`), `free Speechify voice ${voice} is catalogued`);
+h.ok(content.includes("Warm Conversational (male)") && content.includes("Clear Conversational (female)"), "the free male and female profile names are documented");
 for (const item of ["newsroom_clean", "cinema_classic", "bgm_divider", "bgm_candlepower", "fine_radial_bars", "fine_radial_bars_3d", "cta_youtube_subscribe"]) h.ok(freeCatalog.includes(item), `free catalogue contains ${item}`);
 
 h.ok(page.includes("LEGAL_DOCUMENTS[kind]"), "page selects the document by kind");

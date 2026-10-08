@@ -1,3 +1,5 @@
+import { migrateLegacyVoiceId } from "../data/voice-presets";
+
 export type PlanSlug = "free" | "sceneflow" | "sceneforge";
 export type BillingInterval = "monthly" | "yearly";
 
@@ -117,7 +119,7 @@ export type ExportCreativeManifest = {
 export const CUSTOMISED_CTA_SUFFIX = ":custom";
 
 const FREE_CATALOG = {
-  voices: ["guy", "jenny"],
+  voices: ["speechify_male_01", "speechify_female_01"],
   captionStyles: ["newsroom_clean", "cinema_classic"],
   backgroundMusic: ["bgm_divider", "bgm_candlepower"],
   audioVisualisers: ["fine_radial_bars", "fine_radial_bars_3d"],
@@ -125,7 +127,8 @@ const FREE_CATALOG = {
 } as const;
 
 export function isPlanVoiceIncluded(slug: PlanSlug, voiceId: string): boolean {
-  return slug !== "free" || FREE_CATALOG.voices.includes(voiceId.toLowerCase() as (typeof FREE_CATALOG.voices)[number]);
+  const normalized = migrateLegacyVoiceId(voiceId).toLowerCase();
+  return slug !== "free" || FREE_CATALOG.voices.includes(normalized as (typeof FREE_CATALOG.voices)[number]);
 }
 
 export function isPlanCaptionIncluded(slug: PlanSlug, styleId: string): boolean {
@@ -149,7 +152,7 @@ export function validateExportCreativeManifest(slug: PlanSlug, manifest: ExportC
   if (deniedFeature) return `${deniedFeature.replace(/_/g, " ")} is not included in ${plan.name}`;
   if (slug !== "free") return null;
   const allowed = (value: string, values: readonly string[]) => values.includes(value.toLowerCase());
-  if (!allowed(manifest.voice || "guy", FREE_CATALOG.voices)) return "This voice is outside the Free sample selection";
+  if (!isPlanVoiceIncluded("free", manifest.voice || "speechify_male_01")) return "This voice is outside the Free sample selection";
   if (!allowed(manifest.captionStyle || "newsroom_clean", FREE_CATALOG.captionStyles)) return "This caption style is outside the Free sample selection";
   if (manifest.backgroundMusic.some((value) => !allowed(value, FREE_CATALOG.backgroundMusic))) return "This music track is outside the Free two-track selection";
   if (manifest.audioVisualisers.some((value) => !allowed(value, FREE_CATALOG.audioVisualisers))) return "This audio visualiser is outside the Free sample selection";

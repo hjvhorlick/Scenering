@@ -182,12 +182,71 @@ for (const name of [
   "src/components/VoiceImportModal.tsx",
 ]) {
   const entry = sources.find((s) => s.name === name);
-  ok(Boolean(entry && entry.text.includes("overflow-y-auto")) || Boolean(entry), `${name}: exists`);
+  ok(Boolean(entry), `${name}: exists`);
+  /* z-50 is the baseline; a surface that must outrank another overlay raises it
+     (the account panel is z-[210], the portalled key dialog z-[300]), so the
+     rule is "the overlay scrolls", not one particular layer. */
   ok(
-    Boolean(entry && entry.text.includes("fixed inset-0 z-50 overflow-y-auto")),
+    Boolean(entry && /fixed inset-0 z-(?:\[[0-9]+\]|[0-9]+) overflow-y-auto/.test(entry.text)),
     `${name}: overlay itself scrolls`
   );
   ok(Boolean(entry && !entry.text.includes("max-h-[92vh]")), `${name}: no fixed-height card`);
+}
+
+/*
+ * The provider-key dialog is portalled to <body>.
+ *
+ * It is opened from the corner menu — a fixed, z-indexed box — and from the
+ * account & membership panel, whose overlay carries a backdrop-filter. A fixed
+ * child of either is laid out inside that ancestor, and nesting it under a
+ * filter is what made the dialog composite transparent on its first open. The
+ * portal is the fix, so it is pinned here.
+ */
+{
+  const keysModal = sources.find((s) => s.name === "src/components/ApiKeysModal.tsx")?.text || "";
+  ok(keysModal.includes("createPortal"), "the API-keys dialog is rendered through a portal");
+  ok(keysModal.includes("document.body"), "…into the document body, not into the surface that opened it");
+  ok(keysModal.includes("z-[300]"), "…above the corner menu (200) and the account panel (210)");
+  ok(!keysModal.includes("fixed inset-0 z-50"), "…so it cannot be trapped in an ancestor's layer again");
+  ok(keysModal.includes('typeof document === "undefined"'), "…and renders nothing where there is no DOM");
+  /*
+   * The dialog must also be *immediate*. Opening it does no work that could
+   * take time — nothing is fetched, the code is already on the page — so the
+   * only thing between the click and a settled dialog used to be its entrance:
+   * a 0.5s fade on the full-screen dim (re-blurred every frame, since that
+   * layer carried a backdrop-filter) and a 0.4s slide on the card. The dim now
+   * paints on the click's own frame and only the card moves, for 0.15s.
+   */
+  ok(keysModal.includes("animate-dialog-in"), "the card uses the short dialog entrance");
+  ok(!/fixed inset-0 z-\[300\][^"]*animate-fade-in/.test(keysModal), "the dim does not fade in over half a second");
+  ok(!/fixed inset-0 z-\[300\][^"]*backdrop-blur/.test(keysModal), "the dim does not blur the whole viewport");
+  ok(/z-\[300\][^"]*bg-black\/80/.test(keysModal), "the dim is opaque enough to read as a dim, not a ghost");
+  ok(
+    /\.animate-dialog-in\s*\{[^}]*animation:\s*dialogIn\s+0\.1[0-9]?s/.test(css),
+    "index.css: the dialog entrance is a sixth of a second, not half a second"
+  );
+}
+
+{
+  const corner = sources.find((s) => s.name === "src/shared/SiteCornerMenu.tsx")?.text || "";
+  const account = sources.find((s) => s.name === "src/components/AccountMembershipModal.tsx")?.text || "";
+  ok(corner.includes("API keys") && corner.includes("<ApiKeysModal"), "the corner menu offers the provider keys and mounts the dialog");
+  /*
+   * …but only where they can actually be used. The owner's rule: the entry is
+   * an app-surface control. On the public website it was clickable and did
+   * nothing, which is what "it does not work when I am in the website sections"
+   * described; the website now carries navigation only.
+   */
+  {
+    const gate = corner.indexOf("inAppArea && <button");
+    const entry = corner.indexOf("API keys");
+    ok(gate > -1, "the corner menu knows which surfaces are the app");
+    ok(gate > -1 && entry > gate, "the provider-keys entry is offered on app surfaces only");
+    ok(corner.includes('path === "/admin"'), "the admin pages count as an app surface");
+  }
+  ok(account.includes('aria-label="API keys"') && account.includes("<ApiKeysModal"), "the account & membership panel offers the same dialog");
+  const studio = sources.find((s) => s.name === "src/App.tsx")?.text || "";
+  ok(!studio.includes("ApiKeysModal"), "the studio top bar no longer carries a permanent key button");
 }
 
 h.done("ui-chrome");

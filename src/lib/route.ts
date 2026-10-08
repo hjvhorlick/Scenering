@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 
 /**
- * Two-surface routing.
+ * Three-surface routing.
  *
- * Scenering ships one bundle with two front doors:
+ * Scenering ships one bundle with three front doors:
  *
  *   /        the public website — what Scenering is, shown by demonstrating
  *            the real workflow (src/marketing/**)
  *   /app     the studio itself — the application (src/App.tsx)
+ *   /admin   the owner's admin surfaces — currently the Email Centre
+ *            (src/admin/**), mounted only for signed-in administrators
  *
  * They remain separate render surfaces, but main.tsx starts both downloads on
  * the public page. The website stays in front while the studio is prepared in
@@ -17,12 +19,14 @@ import { useEffect, useState } from "react";
  * page, so "routing" is one path check plus a popstate listener.
  */
 
-export type SiteRoute = "site" | "studio";
+export type SiteRoute = "site" | "studio" | "admin";
 
 /** Where the application lives. */
 export const STUDIO_PATH = "/app";
 /** Where the public website lives. */
 export const SITE_PATH = "/";
+/** Where the owner's admin surfaces live (the Email Centre today). */
+export const ADMIN_PATH = "/admin";
 
 /**
  * The areas of the front page, in the order they appear on it.
@@ -70,6 +74,37 @@ export const SITE_SECTION_PATHS: Readonly<Record<string, string>> = {
   "/product": "workflow",
 };
 
+/**
+ * The areas that live on the /features tour rather than on the front page.
+ *
+ * The front page used to demonstrate everything; it is now a sales page and
+ * the full demonstrations moved to /features. A deep link like /captions has
+ * to open the page that actually renders #captions, so the router needs to
+ * know which page that is. Everything not in this list (no-meter, examples,
+ * pricing) still lives on the front page.
+ */
+export const FEATURE_TOUR_SECTION_IDS: readonly string[] = [
+  "questions",
+  "workflow",
+  "scenes",
+  "visuals",
+  "voice",
+  "captions",
+  "video-studio",
+  "effects",
+  "before-after",
+  "control",
+  "formats",
+  "devices",
+  "sources",
+];
+
+/** True when a path deep-links to an area of the /features tour. */
+export function isFeatureTourPath(pathname: string): boolean {
+  const id = sectionForPath(pathname);
+  return id !== null && FEATURE_TOUR_SECTION_IDS.includes(id);
+}
+
 /** Lower-cased, trailing-slash-free path. `""` and `"/"` both become `"/"`. */
 export function normalizePath(pathname: string): string {
   if (!pathname) return "/";
@@ -80,6 +115,7 @@ export function normalizePath(pathname: string): string {
 /** Which surface a path belongs to. Unknown paths fall back to the website. */
 export function routeForPath(pathname: string): SiteRoute {
   const path = normalizePath(pathname);
+  if (path === ADMIN_PATH || path.startsWith(`${ADMIN_PATH}/`)) return "admin";
   return path === STUDIO_PATH || path.startsWith(`${STUDIO_PATH}/`) || ["/login", "/register", "/forgot-password"].includes(path) ? "studio" : "site";
 }
 
@@ -122,6 +158,27 @@ export function scrollToSection(id: string): boolean {
   target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
   target.classList.add("is-answering");
   window.setTimeout(() => target.classList.remove("is-answering"), 2200);
+
+  /*
+   * Re-aim once the page has settled.
+   *
+   * The front page skips the layout of off-screen sections until they are
+   * approached (`content-visibility: auto`), and images below the fold arrive
+   * late, so at the moment of the jump the target may still be standing at its
+   * estimated height rather than its real one — a section that measured 900px
+   * can grow by several hundred once its pictures have decoded, leaving the
+   * jump short of the heading it promised to land on.
+   *
+   * So: after a frame AND after a slightly longer grace period, re-measure the
+   * target and correct if the page has moved it. The correction is a plain
+   * scroll (never another jump), so it cannot fight the browser's own scroll.
+   */
+  const settle = (behavior: ScrollBehavior) => {
+    const top = target.getBoundingClientRect().top + window.scrollY;
+    if (Math.abs(window.scrollY - top) > 12) window.scrollTo({ top, behavior });
+  };
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => settle("auto")));
+  window.setTimeout(() => settle("auto"), 320);
   return true;
 }
 

@@ -23,7 +23,8 @@ import {
   voiceEchoIsActive,
   voiceEchoPresetConfig,
 } from "../src/lib/voice-echo";
-import { isMaleVoiceIdentifier } from "../src/lib/tts-player";
+import { FREE_SPEECHIFY_VOICE_IDS, STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
+import { isPlanVoiceIncluded } from "../src/config/plans";
 
 const h = createHarness();
 const here = dirname(fileURLToPath(import.meta.url));
@@ -257,9 +258,18 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
   // the live video preview
   const preview = read("src/components/VideoPreview.tsx");
   h.ok(preview.includes("createVoiceEchoGraph"), "the video preview builds the echo chain");
+  /*
+   * The preview now plays each line through its own faded gain (so a scene
+   * change cannot click), so the echo chain is chosen as that source's
+   * destination rather than being connected to directly.
+   */
   h.ok(
-    preview.includes("source.connect(echo.graph.input)"),
-    "scene narration is played through the echo chain in the preview"
+    preview.includes("startVoiceSource(audioCtx, sceneAudio.buffer, destination"),
+    "scene narration in the preview is started through the faded voice source"
+  );
+  h.ok(
+    /const destination = echo && echo\.ctx === audioCtx && voiceEchoIsActive\(echoRef\.current\)[\s\S]{0,200}echo\.graph\.input/.test(preview),
+    "…whose destination is the echo chain whenever the echo is on"
   );
 
   // the render — this is the one that decides what lands in the file
@@ -283,113 +293,48 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
 }
 
 // ---------------------------------------------------------------------------
-// Persona narrator presets — 10 style-inspired voices (5 male, 5 female).
-// The TTS engine only has stock neural voices, so each preset is named after
-// the narrator whose DELIVERY it evokes ("The Storyteller"), never
-// presented as the actor. These checks keep that honest and keep the voice
-// wired through every surface: the voice tab, the per-scene import modal and
-// the server's synthesis mapping.
+// Speechify narrator profiles — twenty style archetypes bound to Speechify IDs.
 {
   const studio = read("src/components/VoiceoverStudio.tsx");
   const importModal = read("src/components/VoiceImportModal.tsx");
+  const speechifyClient = read("src/lib/speechify-client.ts");
   const server = read("server.ts");
+  const maleVoices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === "male");
+  const femaleVoices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === "female");
 
-  const PERSONAS: Array<[id: string, name: string, gender: "male" | "female", neural: string]> = [
-    ["storyteller", "The Storyteller", "male", "en-US-ChristopherNeural"],
-    ["naturalist", "The Naturalist", "male", "en-GB-ThomasNeural"],
-    ["titan", "The Titan", "male", "en-US-ChristopherNeural"],
-    ["sentinel", "The Sentinel", "male", "en-IE-ConnorNeural"],
-    ["firebrand", "The Firebrand", "male", "en-US-EricNeural"],
-    ["raconteur", "The Raconteur", "female", "en-GB-LibbyNeural"],
-    ["sovereign", "The Sovereign", "female", "en-GB-SoniaNeural"],
-    ["enigma", "The Enigma", "female", "en-AU-NatashaNeural"],
-    ["investigator", "The Investigator", "female", "en-US-MichelleNeural"],
-    ["confidante", "The Confidante", "female", "en-US-EmmaMultilingualNeural"],
+  h.eq(STUDIO_VOICE_PRESETS.length, 20, "the voice tab holds exactly 20 profiles");
+  h.eq(new Set(STUDIO_VOICE_PRESETS.map((voice) => voice.id)).size, 20, "Speechify profile IDs are unique");
+  h.eq(maleVoices.length, 10, "the Speechify list has 10 male profiles");
+  h.eq(femaleVoices.length, 10, "the Speechify list has 10 female profiles");
+  h.eq(maleVoices[0]?.id, FREE_SPEECHIFY_VOICE_IDS[0], "the free male voice is first in its group");
+  h.eq(femaleVoices[0]?.id, FREE_SPEECHIFY_VOICE_IDS[1], "the free female voice is first in its group");
+  h.ok(STUDIO_VOICE_PRESETS.every((voice) => voice.id.startsWith("speechify_")), "all displayed profiles use new Speechify IDs");
+
+  const archetypes = [
+    "Warm Conversational", "Deep Cinematic", "British Distinguished", "Australian Charismatic",
+    "Documentary Professional", "Measured Naturalist", "Powerful Baritone", "Energetic Presenter",
+    "Irish Authority", "Warm Storyteller", "Clear Conversational", "Bright Modern Presenter",
+    "British Elegant Narrator", "Australian Calm", "Peaceful Guide", "Warm Articulate",
+    "Stately Narrator", "Velvet Sophisticate", "Documentary Authority", "Radiant Storyteller",
   ];
-
-  // The voice tab list: 20 presets, split 10 male / 10 female, ids unique.
-  // The catalogue lives in src/data/ with the other catalogues; the studio
-  // re-exports it, which is what the count assertions below check.
-  const presets = read("src/data/voice-presets.ts");
-  h.ok(
-    studio.includes('export { STUDIO_VOICE_PRESETS } from "../data/voice-presets"'),
-    "VoiceoverStudio re-exports the shared voice catalogue"
-  );
-  const arraySrc = presets.slice(
-    presets.indexOf("export const STUDIO_VOICE_PRESETS"),
-    presets.indexOf("];", presets.indexOf("export const STUDIO_VOICE_PRESETS"))
-  );
-  const ids = [...arraySrc.matchAll(/id: "([a-z_]+)"/g)].map((m) => m[1]);
-  h.eq(ids.length, 20, "voice tab holds 20 presets");
-  h.eq(new Set(ids).size, 20, "voice preset ids are unique");
-  h.eq(arraySrc.match(/gender: "male"/g)?.length ?? 0, 10, "10 male presets");
-  h.eq(arraySrc.match(/gender: "female"/g)?.length ?? 0, 10, "10 female presets");
-
-  for (const [id, name, gender, neural] of PERSONAS) {
-    h.ok(ids.includes(id), `${name} is on the voice tab`);
-    h.ok(
-      new RegExp(`id: "${id}",\\s*\\n\\s*name: "${name.replace(/\$/g, "\\$")}",\\s*\\n\\s*gender: "${gender}"`).test(arraySrc),
-      `${name} is listed as ${gender} on the voice tab`
-    );
-    h.ok(
-      new RegExp(`id: "${id}",[\\s\\S]*?name: "${name}`.replace(/\$/g, "\\$")).test(importModal),
-      `${name} is in the per-scene voice import modal`
-    );
-    h.ok(
-      server.includes(`if (clean === "${id}") return "${neural}";`),
-      `${name} synthesizes with a real ${neural} neural voice`
-    );
-    h.ok(server.includes(`id: "${id}",`), `${name} is served by the TTS voice API`);
-    h.ok(
-      !RETIRED_ACTOR_NAMES.some((actor) => name.toLowerCase().includes(actor)),
-      `${name} is named for how it sounds, not after an actor`
-    );
+  for (const name of archetypes) {
+    h.ok(STUDIO_VOICE_PRESETS.some((voice) => voice.name === name), `${name} style archetype is preserved`);
   }
+  h.ok(studio.includes('export { STUDIO_VOICE_PRESETS } from "../data/voice-presets"'), "VoiceoverStudio re-exports the shared catalogue");
+  h.ok(importModal.includes("STUDIO_VOICE_PRESETS"), "the import modal uses the same Speechify profiles");
+  h.ok(speechifyClient.includes("buildSpeechifyVoiceProfiles"), "the browser binds style profiles to the customer's real voices");
+  h.ok(speechifyClient.includes("resolveSpeechifyVoiceId"), "the browser resolves profile and provider voice IDs directly");
+  h.ok(!server.includes("/api/tts") && !server.includes("X-Speechify-Key"), "no Speechify key proxy remains in the Worker");
+  h.ok(!/en-US-[A-Za-z]+Neural|en-GB-[A-Za-z]+Neural|synthesizeGeminiTTS|browser:/i.test(server), "legacy provider bindings are absent from synthesis");
+  h.ok(isPlanVoiceIncluded("free", FREE_SPEECHIFY_VOICE_IDS[0]), "free male profile is plan-included");
+  h.ok(isPlanVoiceIncluded("free", FREE_SPEECHIFY_VOICE_IDS[1]), "free female profile is plan-included");
+  h.ok(!isPlanVoiceIncluded("free", "speechify_female_02"), "other voice profiles remain plan-gated");
 
-  // Gender detection used by the browser fallback and the credits doc.
-  const malePersonaIds = PERSONAS.filter((p) => p[2] === "male").map((p) => p[0]);
-  const femalePersonaIds = PERSONAS.filter((p) => p[2] === "female").map((p) => p[0]);
-  h.ok(
-    malePersonaIds.every((id) => isMaleVoiceIdentifier(id)),
-    "male persona presets are detected as male"
-  );
-  h.ok(
-    femalePersonaIds.every((id) => !isMaleVoiceIdentifier(id)),
-    "female persona presets are detected as female"
-  );
-  h.ok(isMaleVoiceIdentifier("brian"), "the Brian preset is detected as male (credits doc gender)");
-
-  // The tab's advertised counts must match the list.
-  h.ok(studio.includes("All ({STUDIO_VOICE_PRESETS.length})"), "All filter count derives from the list");
-  h.ok(
-    studio.includes("{STUDIO_VOICE_PRESETS.filter((v) => v.gender === \"male\").length} Male"),
-    "male filter count derives from the list"
-  );
-
-  // The catalogue is two columns - male on the left, female on the right -
-  // and the voice a Free member can export sits at the top of each column.
+  // The app uses a two-column grid and derives ordering from the plan catalogue.
   h.ok(studio.includes("const VOICE_COLUMNS = useMemo("), "the voice list is grouped into columns");
-  h.ok(
-    studio.includes("return [column(\"male\", \"Male voices\"), column(\"female\", \"Female voices\")]"),
-    "male column is built first, so it renders on the left"
-  );
-  h.ok(
-    studio.includes("isPlanVoiceIncluded(\"free\", voice.id)"),
-    "the free voice is pinned to the top of its column, read from the plan config"
-  );
-  h.ok(
-    !studio.includes("filteredVoices"),
-    "the old single ungrouped grid is gone"
-  );
-  h.ok(
-    studio.includes("genderFilter === \"all\" ? \"grid-cols-1 md:grid-cols-2\" : \"grid-cols-1\"") &&
-      studio.includes("genderFilter === \"all\" || genderFilter === column.gender"),
-    "picking one gender collapses the layout to that single full-width column"
-  );
-
-  // Each column has a voice Free can export, so the pinned slot is never empty.
-  h.ok(ids.includes("guy"), "the free male voice (guy) is in the catalogue");
-  h.ok(ids.includes("jenny"), "the free female voice (jenny) is in the catalogue");
+  h.ok(studio.includes("return [column(\"male\", \"Male voices\"), column(\"female\", \"Female voices\")]"), "the male column is first");
+  h.ok(studio.includes("isPlanVoiceIncluded(\"free\", voice.id)"), "the free voice is pinned to the top of each column");
+  h.ok(!studio.includes("filteredVoices"), "the old ungrouped voice grid is gone");
 }
 
 h.done("voice-echo");

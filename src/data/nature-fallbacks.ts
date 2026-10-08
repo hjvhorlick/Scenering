@@ -61,13 +61,15 @@ export function natureBackgroundsFor(
 /**
  * How many bundled photos the drawer puts on screen at once.
  *
- * The deck is deliberately deeper than this: a fixed ten would be the same
- * ten on every project, which is what the drawer looked like before. Ten are
- * drawn from the deck each time it opens, so the shelf stays a tidy size
- * while the library behind it has enough variety to look different on the
- * next open.
+ * The deck is deliberately deeper than this: a fixed twelve would be the
+ * same twelve on every project, which is what the drawer looked like before.
+ * Twelve are drawn from the deck each time it opens, so the shelf stays a
+ * tidy size while the library behind it has enough variety to look different
+ * on the next open. Twelve rather than ten because the shelf is drawn two
+ * across on phones and four across on desktop, and twelve divides evenly by
+ * both — ten left two empty cells at the end of the grid.
  */
-export const NATURE_DECK_ON_SCREEN = 10;
+export const NATURE_DECK_ON_SCREEN = 12;
 
 /**
  * The bundled nature library.

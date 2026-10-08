@@ -16,7 +16,7 @@ h.ok(Object.values(PLAN_CONFIG.sceneforge.features).every(Boolean), "SceneForge 
 
 const freeSample: ExportCreativeManifest = {
   features: ["background_music", "sound_visualiser"],
-  voice: "guy",
+  voice: "speechify_male_01",
   captionStyle: "newsroom_clean",
   backgroundMusic: ["bgm_divider", "bgm_candlepower"],
   audioVisualisers: ["fine_radial_bars"],
@@ -27,7 +27,7 @@ h.ok(Boolean(validateExportCreativeManifest("free", { ...freeSample, backgroundM
 h.ok(Boolean(validateExportCreativeManifest("free", { ...freeSample, captionStyle: "premium_style" })), "Free rejects captions outside its two-style sample");
 h.ok(Boolean(validateExportCreativeManifest("free", { ...freeSample, callsToAction: ["cta_instagram_follow"] })), "Free rejects CTAs other than animated Subscribe");
 h.eq(validateExportCreativeManifest("sceneflow", { ...freeSample, backgroundMusic: ["bgm_custom_track"], captionStyle: "premium_style", callsToAction: ["cta_instagram_follow"] }), null, "SceneFlow permits the complete creative catalog");
-h.ok(isPlanVoiceIncluded("free", "guy") && !isPlanVoiceIncluded("free", "premium_narrator"), "voice cards distinguish Free samples from VIP choices");
+h.ok(isPlanVoiceIncluded("free", "speechify_male_01") && isPlanVoiceIncluded("free", "speechify_female_01") && !isPlanVoiceIncluded("free", "speechify_male_02"), "voice cards distinguish the two Speechify Free samples from VIP choices");
 h.ok(isPlanCaptionIncluded("free", "newsroom_clean") && !isPlanCaptionIncluded("free", "premium_style"), "caption cards distinguish Free samples from VIP choices");
 h.ok(isPlanCatalogItemIncluded("free", "call_to_action", "cta_youtube_subscribe"), "animated Subscribe CTA remains available on Free");
 h.ok(!isPlanCatalogItemIncluded("free", "call_to_action", "cta_instagram_follow"), "other CTA cards are VIP choices on Free");

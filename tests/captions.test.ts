@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHarness, createStubContext } from "./harness";
 import {
-  parseEdgeWordBoundaries,
   alignWordTimings,
   activeWordIndexAt,
   alignedWordTimingsCached,
@@ -24,48 +23,10 @@ import {
  *
  * The karaoke highlight used to be driven by a syllable-weight estimate of
  * when each word is spoken, which ran ahead of and lagged behind the real
- * voice. It is now driven by the TTS engine's own word boundaries, aligned
+ * voice. It now consumes provider speech marks when available, aligned
  * onto the caption words. These checks pin the alignment maths down.
  */
 const h = createHarness();
-
-// ------------------------------------------------- Edge metadata parsing
-const FRAME = (words: [string, number, number][]) =>
-  JSON.stringify({
-    Metadata: words.map(([text, offset, duration]) => ({
-      Type: "WordBoundary",
-      Data: {
-        Offset: Math.round(offset * 1e7),
-        Duration: Math.round(duration * 1e7),
-        text: { Text: text, Length: text.length, BoundaryType: "WordBoundary" },
-      },
-    })),
-  });
-
-const parsed = parseEdgeWordBoundaries([
-  FRAME([
-    ["The", 0.05, 0.12],
-    ["sunrise", 0.18, 0.34],
-  ]),
-  // A session-end frame must be ignored, not crash the parser.
-  JSON.stringify({ Metadata: [{ Type: "SessionEnd", Data: {} }] }),
-  // Neither must a truncated frame.
-  "{not json",
-]);
-h.eq(parsed.length, 2, "two word boundaries parsed");
-h.near(parsed[0].start, 0.05, 1e-6, "offset converted from 100ns ticks to seconds");
-h.near(parsed[0].end, 0.17, 1e-6, "end = start + duration");
-h.near(parsed[1].start, 0.18, 1e-6, "second word start");
-h.eq(parseEdgeWordBoundaries([]).length, 0, "no frames → no words");
-
-// Legacy string form of the text field.
-const legacy = parseEdgeWordBoundaries([
-  JSON.stringify({
-    Metadata: [{ Type: "WordBoundary", Data: { Offset: 1e7, Duration: 5e6, text: "hello" } }],
-  }),
-]);
-h.eq(legacy.length, 1, "legacy text-as-string shape parsed");
-h.near(legacy[0].start, 1.0, 1e-6, "legacy offset in seconds");
 
 // ------------------------------------------------- alignment: exact words
 const words = "THE SUNRISE PAINTED THE MOUNTAINS".split(" ");

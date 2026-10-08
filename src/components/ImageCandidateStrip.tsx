@@ -7,7 +7,7 @@
  * ragged half-row with empty cells.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ImageCandidate } from "../lib/image-search";
 import { proxyImageUrl } from "../lib/image-search";
 import Icon, { iconify } from "./icons/Icon";
@@ -58,13 +58,25 @@ export default function ImageCandidateStrip({
   /**
    * What is in the box. It follows the active query when that changes
    * underneath (a Replace, or going back to the scene's words), but never
-   * while the user is mid-sentence in it.
+   * otherwise.
+   *
+   * This used to also reset the draft whenever the box lost focus, which
+   * broke the Search button entirely: clicking the button blurs the input
+   * first, the reset snapped the draft back to the old query, and then the
+   * click submitted that old query — so typing new words and pressing
+   * Search re-ran the original search every time. The Enter key worked,
+   * which is why the bug was so confusing. Now the draft only ever snaps
+   * to `query` when `query` itself changes, which is the one moment the
+   * box genuinely needs to catch up with the world.
    */
   const [draft, setDraft] = useState(query);
-  const [focused, setFocused] = useState(false);
+  const lastQueryRef = useRef(query);
   useEffect(() => {
-    if (!focused) setDraft(query);
-  }, [query, focused]);
+    if (query !== lastQueryRef.current) {
+      lastQueryRef.current = query;
+      setDraft(query);
+    }
+  }, [query]);
 
   const submit = () => {
     const wanted = draft.trim();
@@ -121,8 +133,6 @@ export default function ImageCandidateStrip({
                 type="text"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -137,6 +147,10 @@ export default function ImageCandidateStrip({
             <button
               type="button"
               onClick={submit}
+              /* Keep the input focused through the click — a blur between
+                 mousedown and click re-renders mid-gesture, and on some
+                 browsers the click then lands on stale state. */
+              onMouseDown={(e) => e.preventDefault()}
               disabled={loading || draft.trim().length === 0}
               className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-white text-[11px] font-semibold transition-colors shrink-0"
               title="Search for photos matching what you typed"

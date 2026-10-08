@@ -3,6 +3,7 @@ import { createApp } from "./server";
 import { setEnv } from "./src/env";
 import type { Env } from "./src/env";
 import { audioStore } from "./src/audio-store";
+import { processEmailCampaignQueue } from "./server/email-centre.ts";
 
 // Express has no native `fetch(Request): Response` interface — it only
 // understands Node's `(req: IncomingMessage, res: ServerResponse)` pair.
@@ -37,13 +38,25 @@ export default {
     return nodeHandler.fetch!(request as any, env, ctx);
   },
 
-  // Cron Trigger (see wrangler.jsonc's `triggers.crons`): sweeps custom
-  // voice-import uploads whose 24h retention window has passed — the R2
-  // object and its D1 bookkeeping row. This is the only expiry path for
-  // that storage; there is no per-request sweep on Workers the way the old
-  // JSON-file server had one.
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  // Cron Triggers (see wrangler.jsonc's `triggers.crons`):
+  //  - "0 * * * *"    sweeps custom voice-import uploads whose 24h
+  //                    retention window has passed — the R2 object and its
+  //                    D1 bookkeeping row. The only expiry path for that
+  //                    storage; there is no per-request sweep on Workers
+  //                    the way the old JSON-file server had one.
+  //  - "*/5 * * * *"  drains the Email Centre's campaign queue: starts
+  //                    scheduled campaigns whose time has arrived and sends
+  //                    the next bounded batch of any campaign mid-send.
+  //                    Large campaigns are therefore never pushed through
+  //                    one long synchronous request — they are queued in D1
+  //                    (email_deliveries rows) and drained a batch at a
+  //                    time, inside each cron tick's limits.
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     setEnv(env);
+    if (event.cron === "*/5 * * * *") {
+      ctx.waitUntil(processEmailCampaignQueue());
+      return;
+    }
     ctx.waitUntil(audioStore.cleanupExpired());
   },
 } satisfies ExportedHandler<Env>;

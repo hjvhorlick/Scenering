@@ -70,8 +70,8 @@ export default function VoiceSection() {
               ))}
             </ul>
             <p className="mkt-small" style={{ marginTop: 12 }}>
-              Narration never hard-fails: with no voice service reachable the scene still gets a track of the right
-              length, so the video renders.
+              If the Speechify key is missing, invalid or out of credits, Scenering shows the synthesis error. It never
+              substitutes another provider, browser speech or a silent placeholder.
             </p>
           </div>
 

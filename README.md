@@ -50,22 +50,25 @@ deployment checklist — is in **[CLOUDFLARE.md](CLOUDFLARE.md)**. Note that the
 production deployment should be on the Workers Paid plan: password hashing
 (scrypt) needs more than the Free plan's 10 ms CPU ceiling.
 
-## Optional API keys
+## API keys and narration
 
-The app works without any of these. Locally, copy `.dev.vars.example` to
-`.dev.vars` and fill in whichever you want; in production set them with
-`wrangler secret put <NAME>` (the names match `.env.example`):
+The top-right **API Keys** modal keeps its three provider fields: Pexels,
+Pixabay and Speechify. Your Speechify key is stored in this browser and is sent
+directly from the browser to `api.speechify.ai` in the provider authorization
+header. It is not sent to Scenering or Cloudflare. Speechify usage and charges
+are governed by your Speechify account. If Speechify blocks direct browser
+requests (for example, through CORS policy), the app reports that error rather
+than proxying your key through Scenering or switching providers, using browser
+speech, or inserting a silent track.
+
+The operator may optionally configure stock-image defaults in `.dev.vars` or
+Cloudflare Worker secrets (the names match `.env.example`):
 
 | Key | What it adds | Without it |
 |---|---|---|
-| `GEMINI_API_KEY` | Highest-quality narration | Free Edge voices, then a silent track |
-| `PEXELS_API_KEY` | Stock photo search | Wikimedia Commons |
-| `PIXABAY_API_KEY` | More stock photos | Wikimedia Commons |
+| `PEXELS_API_KEY` | Default stock photo search key | Customer's Pexels key or Wikimedia Commons |
+| `PIXABAY_API_KEY` | Default stock photo search key | Customer's Pixabay key or Wikimedia Commons |
 | `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` | Projects sync across devices | Saved in your browser |
-
-Narration falls back in that order automatically, so it never hard-fails — if
-every option is unavailable you get a silent track of the right length and the
-video still renders.
 
 Image search has a hard quality gate: only photo-like images are used (no
 black-and-white shots, diagrams or flat artwork — thumbnails are analysed
@@ -378,11 +381,10 @@ The band under the hero is five real objections — credits, being on camera,
 not wanting to record a voice, whether the pictures are allowed, never having
 edited before. Each answers in one true line and links to the section that
 explains it, which then flashes so the answer is found rather than hunted.
-The strongest of them, "No credits. No tokens. No counter.", is checked
-against the code by `tests/marketing.test.ts`: the script is split by
-`splitScriptIntoScenes()`, the search terms come from `topic-extract.ts`, the
-only model call in `server.ts` asks for audio, and the optional Gemini key is
-named on the page rather than hidden.
+The narration disclosure is checked against the code by
+`tests/marketing.test.ts`: the script is split by `splitScriptIntoScenes()`,
+the search terms come from `topic-extract.ts`, and Speechify synthesis uses
+the customer-provided key with no alternate-provider or silent-track fallback.
 
 ### The door
 

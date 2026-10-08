@@ -20,14 +20,32 @@ export default function StudioEntry() {
   useEffect(() => {
     if (!signedIn || LoadedStudio) return;
     let active = true;
-    preloadStudio()
-      .then((component) => {
-        if (active) setStudio(() => component);
-      })
-      .catch(() => {
-        // preloadStudio resets its request after a failure, so returning to the
-        // front page and trying again can make a fresh request.
-      });
+    let attempt = 0;
+    const load = () => {
+      preloadStudio()
+        .then((component) => {
+          if (active) setStudio(() => component);
+          try { window.sessionStorage.removeItem("scenering_studio_reloaded"); } catch { /* ignore */ }
+        })
+        .catch(() => {
+          // A dropped connection — or a chunk whose hashed filename changed
+          // after a redeploy — used to fail ONCE and leave this door dead:
+          // "Opening the studio…" forever, and the corner menu's account
+          // buttons appearing to do nothing. Retry briefly, then reload once
+          // to pick up fresh asset names (guarded so a truly offline client
+          // does not reload in a loop).
+          if (!active) return;
+          attempt += 1;
+          if (attempt < 3) { window.setTimeout(load, 700 * attempt); return; }
+          try {
+            if (!window.sessionStorage.getItem("scenering_studio_reloaded")) {
+              window.sessionStorage.setItem("scenering_studio_reloaded", "1");
+              window.location.reload();
+            }
+          } catch { /* storage unavailable — stay on the loading screen */ }
+        });
+    };
+    load();
     return () => {
       active = false;
     };

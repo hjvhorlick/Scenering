@@ -29,11 +29,15 @@ h.ok(
 h.ok(platform.includes('const period = "year" as const'), "access codes always grant one year rather than a selectable month");
 h.ok(platform.includes("unknown_variant"), "unknown billing variants grant no membership");
 h.ok(server.includes("Cross-origin request rejected"), "state-changing browser requests have origin enforcement");
+h.ok(server.includes("origin !== configured && !sameHost"), "origin enforcement accepts the host the request actually arrived on, so preview and alias domains keep working");
+h.ok(server.includes('env().TRUST_PROXY === "1"') && server.includes("x-forwarded-host"), "origin enforcement derives the public host behind a trusted proxy, so proxied previews match too");
+h.ok(server.includes('const configured = env().PUBLIC_APP_URL ? new URL(env().PUBLIC_APP_URL as string).origin : null'), "origin enforcement still honours a configured application origin");
 for (const header of ["Content-Security-Policy", "Strict-Transport-Security", "X-Content-Type-Options", "X-Frame-Options", "Permissions-Policy"]) h.ok(server.includes(header), `${header} is configured`);
 h.ok(server.includes("allowedImageHost"), "image proxy has an explicit host allowlist");
 h.ok(server.includes('parsed.protocol !== "https:"'), "image proxy accepts only HTTPS upstreams");
 h.ok(server.includes("Unsafe image redirect"), "image proxy revalidates redirects");
-h.ok(server.includes("requirePlatformUser") && server.includes("tts-synthesis"), "hosted TTS requires authentication and rate limiting");
+const speechifyClient = readFileSync("src/lib/speechify-client.ts", "utf8");
+h.ok(!server.includes("/api/tts") && !server.includes("X-Speechify-Key") && speechifyClient.includes("https://api.speechify.ai/v1"), "Speechify BYOK requests bypass the Worker and go directly from the browser to the provider");
 h.ok(server.includes("ownerId") && server.includes("randomBytes(18)"), "uploaded audio uses account ownership and cryptographic ids");
 const supabaseClient = readFileSync("src/lib/supabase.ts", "utf8");
 h.ok(supabaseClient.includes('EDGE_FUNCTION_BASE = "/api"'), "client cannot bypass the authenticated server through legacy Edge Functions");

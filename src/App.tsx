@@ -10,7 +10,6 @@ import SceneEditor from "./components/SceneEditor";
 import VideoPreview from "./components/VideoPreview";
 import { loadCaptionFonts } from "./data/caption-styles";
 import ProjectList from "./components/ProjectList";
-import ApiKeysModal from "./components/ApiKeysModal";
 import Timeline from "./components/Timeline";
 import VideoStudio from "./components/VideoStudio";
 import { pickRandomImageUrl, rawImageUrl } from "./lib/image-picker";
@@ -20,9 +19,24 @@ import RenderView from "./components/RenderView";
 import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
 import { listVaultRenders, subscribeVault } from "./lib/render-vault";
 import VoiceoverStudio, { STUDIO_VOICE_PRESETS } from "./components/VoiceoverStudio";
+import { migrateLegacyVoiceId } from "./data/voice-presets";
 import CaptionsStudio from "./components/CaptionsStudio";
 import SetupStudio from "./components/SetupStudio";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./components/StepNav";
+import {
+  commitLabel,
+  commitStorageKey,
+  getPhase,
+  isPhaseLocked,
+  nextPhase,
+  parsePhaseCommits,
+  phaseIndex,
+  phaseToStep,
+  recordPhaseCommit,
+  sceneRowsForCommit,
+  stepToPhase,
+  type PhaseCommits,
+} from "./lib/phase-gate";
 import ThemeSwitcher from "./components/ThemeSwitcher";
 import AccountMembershipModal from "./components/AccountMembershipModal";
 import { redeemComplimentaryCode } from "./lib/entitlements";
@@ -34,7 +48,7 @@ import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
 import { loadCustomVideos } from "./lib/custom-video";
 import { loadCustomImages } from "./lib/custom-image";
 import { getSession } from "./lib/session";
-import { getApiKeysHeaders, getApiKeysQueryParams, getStoredApiKeys } from "./lib/api-keys";
+import { getApiKeysHeaders, getApiKeysQueryParams } from "./lib/api-keys";
 import {
   calculateDynamicDuration,
   calibrateTextToTargetDuration,
@@ -116,7 +130,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   scene_animation_enabled: false,
   single_scene: false,
   voiceover_enabled: true,
-  selected_voice: "guy",
+  selected_voice: "speechify_male_01",
   transition: "crossfade",
   customer_logo: {
     enabled: false,
@@ -208,37 +222,74 @@ export default function App() {
   const [currentPlayheadTime, setCurrentPlayheadTime] = useState<number>(0);
   const [selectedInsert, setSelectedInsert] = useState<TimelineInsert | null>(null);
   const [editingInsert, setEditingInsert] = useState<TimelineInsert | null>(null);
-  const [availableVoices, setAvailableVoices] = useState<{ id: string; name: string }[]>(() =>
-    STUDIO_VOICE_PRESETS.map((v) => ({ id: v.id, name: `${v.name} (${v.gender === "male" ? "Male" : "Female"} • ${v.accent})` }))
+  const [availableVoices, setAvailableVoices] = useState<{ id: string; name: string; gender?: "male" | "female"; accent?: string; locale?: string }[]>(() =>
+    STUDIO_VOICE_PRESETS.map((v) => ({
+      id: v.id,
+      name: `${v.name} (${v.gender === "male" ? "Male" : "Female"} • ${v.accent})`,
+      gender: v.gender,
+      accent: v.accent,
+      locale: v.locale,
+    }))
   );
   const [loading, setLoading] = useState(false);
   /** Explains why a phase change was refused (e.g. no project yet) */
   const [navNotice, setNavNotice] = useState<string | null>(null);
+
+  /**
+   * The section the view is in. Setup and Scenes share the scenes editor step,
+   * so the step alone is not enough to tell them apart — the setup frame is
+   * what makes it Project Setup.
+   */
+  const currentPhase = stepToPhase(editorStep, view === "create");
+  const currentPhaseIndex = phaseIndex(currentPhase);
   const [fetchingImages, setFetchingImages] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [apiKeysModalOpen, setApiKeysModalOpen] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountModalFocusPlans, setAccountModalFocusPlans] = useState(false);
+  const [accountModalFocusAdmin, setAccountModalFocusAdmin] = useState(false);
   useEffect(() => {
     const accessCode = new URLSearchParams(window.location.search).get("code");
     if (!accessCode) return;
     void redeemComplimentaryCode(accessCode).then(() => { setNavNotice("Complimentary membership activated. Your plan access is now available."); history.replaceState({}, "", "/app"); window.location.reload(); }).catch((error) => { setNavNotice(error.message || "The complimentary access code could not be redeemed."); history.replaceState({}, "", "/app"); });
   }, []);
   useEffect(() => {
+    /**
+     * One-click guarantee for the corner menu's account buttons. The menu
+     * records the intent in sessionStorage before dispatching its event or
+     * navigating, so a click that lands while the studio chunk is mounting
+     * is still honoured when this listener registers.
+     */
+    const consumeIntent = (): string | null => {
+      try {
+        const intent = window.sessionStorage.getItem("scenering_account_intent");
+        if (intent) window.sessionStorage.removeItem("scenering_account_intent");
+        return intent;
+      } catch { return null; }
+    };
     const openAccount = (event: Event) => {
-      setAccountModalFocusPlans(event instanceof CustomEvent && event.detail?.focus === "plans");
+      const intent = consumeIntent();
+      const focus = event instanceof CustomEvent ? event.detail?.focus : undefined;
+      setAccountModalFocusPlans(focus === "plans");
+      setAccountModalFocusAdmin(focus === "admin" || (!focus && intent === "admin"));
       setAccountModalOpen(true);
     };
     window.addEventListener("scenering-open-account", openAccount);
-    if (new URLSearchParams(window.location.search).get("account") === "1") setAccountModalOpen(true);
-    return () => window.removeEventListener("scenering-open-account", openAccount);
+    const openFromNavigation = () => {
+      const intent = consumeIntent();
+      if (intent || new URLSearchParams(window.location.search).get("account") === "1") {
+        setAccountModalFocusAdmin(intent === "admin");
+        setAccountModalOpen(true);
+      }
+    };
+    openFromNavigation();
+    window.addEventListener("popstate", openFromNavigation);
+    return () => {
+      window.removeEventListener("scenering-open-account", openAccount);
+      window.removeEventListener("popstate", openFromNavigation);
+    };
   }, []);
   /** Scene jumped-to from the timeline — briefly highlighted in Scene Editor */
   const [focusedSceneId, setFocusedSceneId] = useState<number | null>(null);
-  const [hasCustomKeys, setHasCustomKeys] = useState(() => {
-    const k = getStoredApiKeys();
-    return Boolean(k.pexelsKey || k.pixabayKey);
-  });
 
   const [customerLogo, setCustomerLogo] = useState<CustomerLogoConfig>(DEFAULT_PROJECT_SETTINGS.customer_logo);
   const [captionsConfig, setCaptionsConfig] = useState<CaptionsConfig>(DEFAULT_PROJECT_SETTINGS.captions_config);
@@ -623,7 +674,7 @@ export default function App() {
               animation: existing?.animation,
               audio_url: existing?.audio_url || null,
               audio_name: existing?.audio_name || null,
-              voice_id: existing?.voice_id,
+              voice_id: existing?.voice_id ? migrateLegacyVoiceId(existing.voice_id) : undefined,
               // Re-wording the script must never throw away the video the
               // user attached to the scene.
               video_url: existing?.video_url ?? null,
@@ -725,15 +776,6 @@ export default function App() {
     loadCustomImages().catch(() => {});
   }, []);
 
-  useEffect(() => {
-    const checkKeys = () => {
-      const k = getStoredApiKeys();
-      setHasCustomKeys(Boolean(k.pexelsKey || k.pixabayKey));
-    };
-    window.addEventListener("scenering-api-keys-updated", checkKeys);
-    return () => window.removeEventListener("scenering-api-keys-updated", checkKeys);
-  }, []);
-
   const fetchProjects = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -756,6 +798,42 @@ export default function App() {
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
+
+  /**
+   * Where the user is working, per browser tab. If the studio reloads, reopen
+   * the same project and editor phase rather than dropping them at Setup.
+   */
+  useEffect(() => {
+    try {
+      if (view === "editor" && currentProject) {
+        window.sessionStorage.setItem("scenering_resume", JSON.stringify({ projectId: currentProject.id, step: editorStep }));
+      } else if (view === "create") {
+        window.sessionStorage.removeItem("scenering_resume");
+      }
+    } catch { /* storage unavailable */ }
+  }, [view, editorStep, currentProject]);
+
+  /** Read the saved position before the persistence effect can clear it. */
+  const resumeStateRef = useRef<{ projectId?: number; step?: EditorStep } | null | "unread">("unread");
+  if (resumeStateRef.current === "unread") {
+    try { resumeStateRef.current = JSON.parse(window.sessionStorage.getItem("scenering_resume") || "null"); }
+    catch { resumeStateRef.current = null; }
+  }
+  const resumeAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (resumeAttemptedRef.current || projects.length === 0) return;
+    resumeAttemptedRef.current = true;
+    if (view !== "create" || currentProject) return;
+    const saved = resumeStateRef.current;
+    if (saved === "unread" || !saved?.projectId) return;
+    const project = projects.find((item) => item.id === saved.projectId);
+    if (!project) return;
+    const step = saved.step;
+    void handleSelectProject(project).then(() => {
+      if (step && ["scenes", "voiceover", "captions", "studio", "render"].includes(step)) setEditorStep(step);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects]);
 
   // Save inserts to localStorage whenever they change
   useEffect(() => {
@@ -850,7 +928,7 @@ export default function App() {
       // Apply clean settings to state
       setCustomerLogo(freshSettings.customer_logo);
       setCaptionsConfig(freshSettings.captions_config);
-      setSelectedVoice(freshSettings.selected_voice);
+      setSelectedVoice(migrateLegacyVoiceId(freshSettings.selected_voice) || DEFAULT_PROJECT_SETTINGS.selected_voice);
       setVoiceEcho(resolveVoiceEcho(freshSettings.voice_echo));
       setAspectRatio(freshSettings.aspect_ratio);
       setResolution(freshSettings.resolution);
@@ -929,9 +1007,139 @@ export default function App() {
       setNavNotice("Create a project on this screen first — then the other phases open up.");
       return;
     }
+    /* The ordered gate. A section beyond the one you are in is locked, whether
+       you reached for it in the tab row or in a Previous/Next control: only the
+       current section's own Next opens the next one, and that press commits the
+       section you are leaving (see commitAndAdvance below). */
+    if (isPhaseLocked(phase, currentPhase)) {
+      setNavNotice(
+        `“${getPhase(phase).phase}” opens after you press Next in ${getPhase(currentPhase).phase} — that press saves this section.`
+      );
+      return;
+    }
     setView("editor");
     setEditorStep(getPhaseDef(phase).editorStep);
   };
+
+  /* ------------------------------------------------------------------ *
+   * The ordered section gate — see src/lib/phase-gate.ts for the rules.
+   *
+   * A project is walked in order. Everything up to the section you are in is
+   * open; everything after it is locked. The ONLY way forward is a Next press
+   * (the section's own Next, or its own "save and continue" button), and that
+   * press first commits the section: the per-project settings snapshot, the
+   * scene rows in one batch, and a commit stamp the section can report.
+   *
+   * Going back needs no commit, but it retracts the gate — back in Scenes,
+   * Voiceover is locked again until Next is pressed, which is the behaviour
+   * that was asked for.
+   * ------------------------------------------------------------------ */
+  const [committingPhase, setCommittingPhase] = useState<ProjectPhase | null>(null);
+  const [phaseCommits, setPhaseCommits] = useState<PhaseCommits>({});
+
+  useEffect(() => {
+    if (!currentProject) {
+      setPhaseCommits({});
+      return;
+    }
+    try {
+      setPhaseCommits(parsePhaseCommits(localStorage.getItem(commitStorageKey(currentProject.id))));
+    } catch {
+      setPhaseCommits({});
+    }
+  }, [currentProject]);
+
+  /** Writes this section's work down, and says whether it landed. */
+  const commitPhaseEffects = useCallback(async (phase: ProjectPhase): Promise<boolean> => {
+    if (!currentProject) return true;
+    /* 1. The settings snapshot — everything a section can change about the
+       project. Written on change too, but the commit is what makes the
+       section's state authoritative before the next one opens. */
+    saveCurrentProjectSettings({
+      scene_duration: sceneDuration,
+      resolution,
+      aspect_ratio: aspectRatio,
+      pacing_mode: pacingMode,
+      motion_style: motionStyle,
+      scene_animation_enabled: sceneAnimationEnabled,
+      single_scene: singleScene,
+      voiceover_enabled: voiceoverEnabled,
+      selected_voice: selectedVoice,
+      captions_config: captionsConfig,
+      video_filter: videoFilter,
+      intro_section: introSection,
+      outro_section: outroSection,
+      voice_echo: voiceEcho,
+      transition: videoTransition,
+      render_profile: renderProfile,
+    });
+    /* 2. The scene rows, one batch. Only the core script/image/timing fields
+       live in the database; the studio metadata is written as it changes. */
+    const rows = sceneRowsForCommit(scenes);
+    let saved = true;
+    if (rows.length) {
+      try {
+        const { error } = await supabase.from("scenes").upsert(rows);
+        if (error) throw error;
+      } catch (err) {
+        saved = false;
+        console.error("Section commit could not write the scenes:", err);
+      }
+    }
+    /* 3. The stamp, so the section can report its own state after a reload. */
+    if (saved) {
+      const at = new Date().toISOString();
+      setPhaseCommits((prev) => {
+        const updated = recordPhaseCommit(prev, phase, at);
+        try { localStorage.setItem(commitStorageKey(currentProject.id), JSON.stringify(updated)); } catch { /* storage unavailable */ }
+        return updated;
+      });
+    }
+    return saved;
+  }, [
+    currentProject, saveCurrentProjectSettings, sceneDuration, resolution, aspectRatio, pacingMode,
+    motionStyle, sceneAnimationEnabled, singleScene, voiceoverEnabled, selectedVoice, captionsConfig,
+    videoFilter, introSection, outroSection, voiceEcho, videoTransition, renderProfile, scenes,
+  ]);
+
+  /**
+   * The only way past the gate: commit the section you are in, then open the
+   * one asked for. Reports either outcome in the notice strip rather than
+   * moving on silently when the save failed.
+   */
+  const commitAndAdvance = useCallback(async (target: ProjectPhase) => {
+    if (committingPhase) return;
+    const from = currentPhase;
+    if (!currentProject) {
+      navigateToPhase(target);
+      return;
+    }
+    setCommittingPhase(from);
+    const saved = await commitPhaseEffects(from);
+    setCommittingPhase(null);
+    setView("editor");
+    setEditorStep(phaseToStep(target));
+    setNavNotice(
+      saved
+        ? `${getPhase(from).phase} committed — ${getPhase(target).phase} is open.`
+        : `${getPhase(from).phase} could not be saved. Check your connection, then press Next again.`
+    );
+  }, [committingPhase, currentPhase, currentProject, commitPhaseEffects]);
+
+  /**
+   * A section's own Next / "save and continue". Forward presses commit and
+   * open the next section; backward presses (the Previous button, a "fix this
+   * in Captions" link) simply move.
+   */
+  const handleStepRequest = useCallback((step: EditorStep) => {
+    const target = stepToPhase(step, false);
+    if (currentProject && isPhaseLocked(target, currentPhase)) {
+      void commitAndAdvance(target);
+      return;
+    }
+    setEditorStep(step);
+    setView("editor");
+  }, [currentProject, currentPhase, commitAndAdvance]);
 
   /** Clears the editor so the setup frame starts a brand new project */
   const getPhaseDef = (phase: ProjectPhase) =>
@@ -980,6 +1188,7 @@ export default function App() {
           projectSettings = { ...projectSettings, ...JSON.parse(storedSettings) };
         }
       } catch {}
+      projectSettings.selected_voice = migrateLegacyVoiceId(projectSettings.selected_voice) || DEFAULT_PROJECT_SETTINGS.selected_voice;
 
       // Apply this project's setup and effects
       setNavNotice(null);
@@ -1024,6 +1233,7 @@ export default function App() {
         const finalDur = (merged.duration && merged.duration !== 4) ? merged.duration : projectSettings.scene_duration;
         return {
           ...merged,
+          voice_id: merged.voice_id ? migrateLegacyVoiceId(merged.voice_id) : merged.voice_id,
           transition: (merged.transition as SceneTransitionType) || projTransition,
           duration: finalDur,
         };
@@ -1541,7 +1751,7 @@ export default function App() {
           window whenever a row inside is too wide to fit. */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="t-app-hdr relative z-40 min-h-14 min-w-0 border-b border-hairline flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
+        <div className="t-app-hdr relative z-40 min-h-14 min-w-0 border-b border-hairline flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 pr-[var(--sc-corner-reserve)] py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
           {/* Logo */}
           <button
             onClick={() => setView("create")}
@@ -1555,29 +1765,20 @@ export default function App() {
             />
           </button>
 
+          {/* The owner's configured social profiles — the same strip as the
+              website, immediately right of the wordmark so the brand cluster
+              reads logo then social marks on every surface.
+
+              From the tablet width up. On a phone five 36px marks are ~220px of
+              a 360px header, which is what pushed the studio's own controls
+              under the corner menu; the strip is still in the corner menu panel
+              and in every footer, so nothing is lost where there is no room. */}
+          <SocialLinksRow size={36} className="hidden md:flex shrink-0" />
+
           {/* Website navigation, account, membership and sign-out now live in
               the same fixed corner menu used on every public page. */}
           <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />
 
-          {/* The project's name. It used to be cut off at 220px on every
-              screen, so a desktop with room to spare still showed
-              "My Documentary About The..." — the clamp only exists to stop a
-              long name from crushing the phase tabs, which is a phone
-              problem, not a desktop one. The ceiling now widens with the
-              window and is lifted entirely on large screens; the tab row
-              scrolls sideways, so a very long name can still never push
-              anything off the edge. The full name is in the tooltip at every
-              size, for the rare case where it is still shortened. */}
-          <h2
-            className="font-semibold text-xs sm:text-sm truncate max-w-[40vw] sm:max-w-[220px] md:max-w-[360px] lg:max-w-[560px] xl:max-w-none"
-            title={currentProject ? currentProject.title : "Start a New Project"}
-          >
-            {currentProject ? currentProject.title : "Start a New Project"}
-          </h2>
-
-          {/* The owner's configured social profiles — same strip as the
-              website. Top row, after the logo and project title. */}
-          <SocialLinksRow size={18} className="hidden md:flex shrink-0" />
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
           {/* Scrolls sideways like the Video Studio tab row rather than
@@ -1594,14 +1795,19 @@ export default function App() {
               return PROJECT_PHASES.map((phase, i) => {
                 const isActive = i === activeIdx;
                 const isNext = activeIdx >= 0 && i === activeIdx + 1;
-                const isLocked = phase.id !== "setup" && !currentProject;
+                /* Two reasons a step is closed: there is no project yet, or it
+                   lies beyond the section you are in — the ordered gate. */
+                const isLocked = (phase.id !== "setup" && !currentProject) || isPhaseLocked(phase.id, currentPhase);
                 return (
                   <button
                     key={phase.id}
                     onClick={() => navigateToPhase(phase.id)}
+                    aria-disabled={isLocked || undefined}
                     title={
                       isLocked
-                        ? "Create a project on the Setup screen first"
+                        ? !currentProject
+                          ? "Create a project on the Setup screen first"
+                          : `Press Next in ${getPhase(currentPhase).phase} to commit it and open this section`
                         : phase.purpose
                     }
                     className={`t-tab opt-btn ${isActive
@@ -1636,6 +1842,12 @@ export default function App() {
               <span className="opt-hint ml-auto shrink-0 hidden lg:inline-flex pr-1" title="Steps 2–6 edit a project's scenes, voices and video — they unlock as soon as you create or select a project in Setup">
                 <Icon glyph="🔓" />
                 <span>create or select a project to unlock steps 2–6</span>
+              </span>
+            )}
+            {currentProject && currentPhaseIndex < PROJECT_PHASES.length - 1 && (
+              <span className="opt-hint ml-auto shrink-0 hidden lg:inline-flex pr-1" title="Each section is committed by its own Next button. Going back to an earlier section closes the ones after it, so Next is the way forward again.">
+                <Icon glyph="🔒" />
+                <span>Next in {getPhase(currentPhase).phase} unlocks the next section</span>
               </span>
             )}
           </div>
@@ -1687,21 +1899,23 @@ export default function App() {
 
             {/* Theme picker — top right corner */}
             <ThemeSwitcher />
-
-            <button
-              onClick={() => setApiKeysModalOpen(true)}
-              className="px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border border-hairline bg-gray-800/80 text-gray-200 hover:bg-gray-750 hover:text-white transition-all flex items-center gap-1.5"
-              title="Image search API keys (Pexels & Pixabay)"
-            >
-              <span className="t-ico"><Icon glyph="🔑" /></span>
-              <span className="hidden sm:inline">API Keys</span>
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  hasCustomKeys ? "bg-emerald-400" : "bg-amber-400"
-                }`}
-              />
-            </button>
+            {/* The provider-key button that used to sit here now lives in the
+                corner menu and the account & membership panel — see
+                src/shared/SiteCornerMenu.tsx. It was a permanent button for a
+                setting most people touch once, and the studio header has more
+                useful things to do with the width. */}
           </div>
+
+          {/* The project title gets a full-width row under the logo and phase
+              tabs. It cannot compete with the buttons in the header, and
+              truncate plus the tooltip keep unusually long names usable.
+              The full title remains available in the tooltip. */}
+          <h2
+            className="order-last w-full min-w-0 truncate font-semibold text-xs sm:text-sm text-gray-200"
+            title={currentProject ? currentProject.title : "Start a New Project"}
+          >
+            {currentProject ? currentProject.title : "Start a New Project"}
+          </h2>
         </div>
 
         {/* Content Body */}
@@ -1750,10 +1964,7 @@ export default function App() {
                 onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
                 onFitScenesToSpeech={handleFitAllScenesDurationToSpeech}
                 onUpdateMotionStyle={handleUpdateMotionStyle}
-                onNavigateToStep={(step) => {
-                  setEditorStep(step);
-                  setView("editor");
-                }}
+                onNavigateToStep={handleStepRequest}
               />
             </div>
           )}
@@ -1804,7 +2015,7 @@ export default function App() {
                 voiceEcho={voiceEcho}
                 onOpenSetup={() => setView("create")}
                 onBack={() => setEditorStep("studio")}
-                onNavigateToStep={setEditorStep}
+                onNavigateToStep={handleStepRequest}
                 onNavigatePhase={(phase) => navigateToPhase(phase)}
               />
             </div>
@@ -1819,7 +2030,11 @@ export default function App() {
                   <StepNav
                     current="scenes"
                     onNavigate={(phase) => navigateToPhase(phase)}
-                    note={`${scenes.length} scene(s) · setup values are shown read-only here`}
+                    /* Next is the gate: it commits this section, then opens the
+                       next one. The Previous button above stays plain. */
+                    onNext={() => { const target = nextPhase("scenes"); if (target) void commitAndAdvance(target); }}
+                    busyLabel={committingPhase === "scenes" ? "Committing this section…" : undefined}
+                    note={`${scenes.length} scene(s) · setup values are shown read-only here · ${commitLabel(phaseCommits, "scenes")}`}
                   />
 
                   {/* Top Controls & Presets Bar */}
@@ -2049,7 +2264,7 @@ export default function App() {
                   scenes={scenes}
                   onUpdateScene={handleUpdateScene}
                   onApplyVoiceToAll={handleApplyVoiceToAll}
-                  onNavigateToStep={setEditorStep}
+                  onNavigateToStep={handleStepRequest}
                   selectedVoice={selectedVoice}
                   onSelectVoice={handleSelectVoice}
                   voiceEcho={voiceEcho}
@@ -2070,7 +2285,7 @@ export default function App() {
                   onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
                   onUpdateScene={handleUpdateScene}
                   onApplyStyleToAll={handleApplyCaptionStyleToAll}
-                  onNavigateToStep={setEditorStep}
+                  onNavigateToStep={handleStepRequest}
                 />
               ) : (
                 /* Step 4: Video Studio & Timeline View */
@@ -2078,7 +2293,9 @@ export default function App() {
                   <StepNav
                     current="studio"
                     onNavigate={(phase) => navigateToPhase(phase)}
-                    note={`${inserts.length} timeline insert(s)`}
+                    onNext={() => { const target = nextPhase("studio"); if (target) void commitAndAdvance(target); }}
+                    busyLabel={committingPhase === "studio" ? "Committing this section…" : undefined}
+                    note={`${inserts.length} timeline insert(s) · ${commitLabel(phaseCommits, "studio")}`}
                   />
                   <div className="flex items-center justify-between">
                     <div>
@@ -2162,13 +2379,8 @@ export default function App() {
       <AccountMembershipModal
         isOpen={accountModalOpen}
         focusPlans={accountModalFocusPlans}
-        onClose={() => { setAccountModalOpen(false); setAccountModalFocusPlans(false); }}
-      />
-
-      {/* Provider API Keys Configuration Modal */}
-      <ApiKeysModal
-        isOpen={apiKeysModalOpen}
-        onClose={() => setApiKeysModalOpen(false)}
+        focusAdmin={accountModalFocusAdmin}
+        onClose={() => { setAccountModalOpen(false); setAccountModalFocusPlans(false); setAccountModalFocusAdmin(false); }}
       />
 
       {/* Insert Properties & Content Modal */}

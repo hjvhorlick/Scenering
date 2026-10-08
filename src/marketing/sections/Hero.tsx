@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { scrollToSection } from "../../lib/route";
 import { useInView, useStageSequence } from "../hooks";
 import { MarketingImage, Pill } from "../components/primitives";
 import AppFrame from "../components/AppFrame";
@@ -69,13 +70,23 @@ export default function Hero() {
             <p className="mkt-lead">{MESSAGES.heroSub}</p>
 
             {/* No shortcut into the studio here — signing in is a decision
-                for the top of the page, not something to trip over. */}
+                for the top of the page, not something to trip over. The
+                second button goes to the plans further down this page: the
+                price is part of the pitch, not a secret for the footer. */}
             <div className="mkt-hero-cta">
               <a className="mkt-btn mkt-btn-primary mkt-btn-lg" href="/register">
                 Start Free
               </a>
-              <a className="mkt-btn mkt-btn-lg" href="/how-it-works">
-                See How It Works
+              <a
+                className="mkt-btn mkt-btn-lg"
+                href="#pricing"
+                onClick={(event) => {
+                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+                  event.preventDefault();
+                  scrollToSection("pricing");
+                }}
+              >
+                See Plans &amp; Pricing
               </a>
             </div>
 

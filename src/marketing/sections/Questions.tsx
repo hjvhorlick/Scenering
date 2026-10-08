@@ -1,31 +1,32 @@
 import { Section, SectionHead } from "../components/primitives";
 import { COMMON_QUESTIONS } from "../product-facts";
+import { goToSection, SITE_SECTIONS } from "../../lib/route";
 import Icon from "../../components/icons/Icon";
 
 /**
- * The six worries, at the top of the page.
+ * The six worries, at the top of the features tour.
  *
  * A visitor does not arrive wanting a feature list; they arrive with a
  * specific doubt about whether this is for them — will it cost me credits, do
  * I have to be on camera, do I need a voice, may I use the pictures, will it
- * run on my computer, can I even do this. Each one is answered in a line here and properly by the
- * section it points at, so clicking takes you to the explanation instead of
+ * run on my computer, can I even do this. Each one is answered in a line here
+ * and properly by the area it points at, so clicking takes you to the explanation instead of
  * to a marketing page.
  *
- * They are plain anchors: they work with JavaScript switched off, they can be
- * opened in a new tab, and the keyboard reaches them in reading order. The
- * only thing the script adds is a brief highlight on the section that answers
- * the question, so nobody lands mid-page wondering where the answer went.
+ * They are plain anchors to each area's friendly URL (/voice, /no-meter and
+ * so on), so they work with JavaScript switched off, can be opened in a new
+ * tab, and the keyboard reaches them in reading order. The script only makes
+ * the trip smoother: `goToSection` scrolls when the answer is on this page
+ * (honouring prefers-reduced-motion) and navigates when it lives on another,
+ * then flashes the area so nobody lands mid-page wondering where the answer
+ * went. Since the band moved to the features tour, some answers (what it
+ * costs, the examples) live on the front page — the cross-page jump is the
+ * point.
  */
 
-function jumpTo(sectionId: string) {
-  const target = document.getElementById(sectionId);
-  if (!target) return;
-  const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
-  // A short flash so the eye lands on the answer rather than the whole page.
-  target.classList.add("is-answering");
-  window.setTimeout(() => target.classList.remove("is-answering"), 2200);
+/** The friendly URL for a section id, for clicks the script never sees. */
+function pathFor(sectionId: string): string {
+  return SITE_SECTIONS.find((section) => section.id === sectionId)?.path ?? `/${sectionId}`;
 }
 
 export default function Questions() {
@@ -43,12 +44,12 @@ export default function Questions() {
           <li key={item.id}>
             <a
               className="mkt-q"
-              href={`#${item.section}`}
+              href={pathFor(item.section)}
               onClick={(event) => {
                 // Let modified clicks (new tab, new window) behave normally.
                 if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
                 event.preventDefault();
-                jumpTo(item.section);
+                goToSection(item.section);
               }}
             >
               <span className="mkt-q-ask">{item.question}</span>

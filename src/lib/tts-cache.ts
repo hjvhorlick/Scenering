@@ -1,6 +1,5 @@
-import { EDGE_FUNCTION_BASE } from "./supabase";
 import type { Scene } from "../types";
-import { sanitizeTextForSpeech } from "./speech-sanitizer";
+import { synthesizeSpeechify } from "./speechify-client";
 import type { WordTiming } from "./word-sync";
 
 export interface CachedAudioItem {
@@ -151,7 +150,7 @@ export async function resolveSceneAudioBuffer(
   audioCtx: AudioContext
 ): Promise<{ buffer: AudioBuffer; duration: number; url: string; words?: WordTiming[] } | null> {
   const text = (scene.text || "").trim();
-  const voiceId = scene.voice_id || "guy";
+  const voiceId = scene.voice_id || "speechify_male_01";
   const key = getAudioCacheKey(scene.id, voiceId, text);
 
   // 1. Resolve only the CURRENT selection. The old scene-id fallback ignored
@@ -238,12 +237,7 @@ export async function resolveSceneAudioBuffer(
   return null;
 }
 
-/**
- * Fetches narration with the per-word spoken timeline from the TTS API.
- *
- * Returns null when the request fails or comes back without usable audio —
- * callers then fall back to the plain audio request or a silent buffer.
- */
+/** Fetch Speechify narration and its word timings directly from Speechify. */
 export async function fetchSceneAudioWithTimeline(
   text: string,
   voice: string,
@@ -251,37 +245,14 @@ export async function fetchSceneAudioWithTimeline(
 ): Promise<{ rawBuffer: ArrayBuffer; mimeType: string; words: WordTiming[] } | null> {
   const cleanText = (text || "").trim();
   if (!cleanText) return null;
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), opts.timeoutMs ?? 20000);
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: cleanText, voice, withTimeline: true }),
-      signal: opts.signal ?? controller.signal,
-    });
-    clearTimeout(timeoutId);
-    if (!res.ok) return null;
-    const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) return null;
-    const data = await res.json();
-    if (!data?.audio) return null;
-    const rawBuffer = Uint8Array.from(atob(String(data.audio)), (c) => c.charCodeAt(0)).buffer;
-    const words = Array.isArray(data.words)
-      ? (data.words as WordTiming[]).filter(
-          (w) => w && typeof w.start === "number" && Number.isFinite(w.start) && typeof w.text === "string"
-        )
-      : [];
-    return { rawBuffer, mimeType: data.mimeType || "audio/mpeg", words };
-  } catch {
-    return null;
-  }
+  const audio = await synthesizeSpeechify(cleanText, voice, opts);
+  return { rawBuffer: audio.rawBuffer, mimeType: audio.mimeType, words: audio.words };
 }
 
 // Pre-generate and cache TTS audio for all scenes in memory
 export async function pregenerateAllScenesAudio(
   scenes: Scene[],
-  defaultVoice: string = "guy",
+  defaultVoice: string = "speechify_male_01",
   onProgress?: (completed: number, total: number) => void
 ): Promise<Map<number, CachedAudioItem>> {
   const audioCtx = getSharedAudioContext();
@@ -317,79 +288,47 @@ export async function pregenerateAllScenesAudio(
       // 1. If scene has an imported real audio file
       if (scene.audio_url) {
         const res = await fetch(scene.audio_url);
-        if (res.ok) {
-          const arrayBuf = await res.arrayBuffer();
-          const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-          const item: CachedAudioItem = {
-            audioBuffer: decoded,
-            blobUrl: scene.audio_url,
-            duration: decoded.duration,
-            voiceId: "imported",
-            text,
-            rawBuffer: arrayBuf,
-          };
-          setCachedSceneAudio(scene.id, voiceId, text, item);
-          results.set(scene.id, item);
-          completed++;
-          onProgress?.(completed, total);
-          continue;
-        }
-      }
-
-      // 2. Synthesize via /api/tts (with the word timeline for captions)
-      const withTimeline = await fetchSceneAudioWithTimeline(text, voiceId, { timeoutMs: 15000 });
-      if (withTimeline) {
-        const decoded = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
-        const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
-        const blobUrl = URL.createObjectURL(blob);
-
+        if (!res.ok) throw new Error(`Saved audio for scene ${scene.id} could not be loaded.`);
+        const arrayBuf = await res.arrayBuffer();
+        const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
         const item: CachedAudioItem = {
           audioBuffer: decoded,
-          blobUrl,
+          blobUrl: scene.audio_url,
           duration: decoded.duration,
-          voiceId,
+          voiceId: "imported",
           text,
-          rawBuffer: withTimeline.rawBuffer,
-          blob,
-          words: withTimeline.words,
+          rawBuffer: arrayBuf,
         };
-
         setCachedSceneAudio(scene.id, voiceId, text, item);
         results.set(scene.id, item);
-      } else {
-        const cleanText = sanitizeTextForSpeech(text);
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000);
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: cleanText, voice: voiceId }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const arrayBuf = await res.arrayBuffer();
-          const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-          const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
-          const blobUrl = URL.createObjectURL(blob);
-
-          const item: CachedAudioItem = {
-            audioBuffer: decoded,
-            blobUrl,
-            duration: decoded.duration,
-            voiceId,
-            text,
-            rawBuffer: arrayBuf,
-            blob,
-          };
-
-          setCachedSceneAudio(scene.id, voiceId, text, item);
-          results.set(scene.id, item);
-        }
+        completed++;
+        onProgress?.(completed, total);
+        continue;
       }
-    } catch (err) {
-      console.warn(`Background audio cache failed for scene ${scene.id}:`, err);
+
+      // 2. Synthesize directly with Speechify (including word timings for captions)
+      const withTimeline = await fetchSceneAudioWithTimeline(text, voiceId, { timeoutMs: 15000 });
+      if (!withTimeline) throw new Error(`Speechify returned no audio for scene ${scene.id}.`);
+      const decoded = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
+      const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
+      const blobUrl = URL.createObjectURL(blob);
+
+      const item: CachedAudioItem = {
+        audioBuffer: decoded,
+        blobUrl,
+        duration: decoded.duration,
+        voiceId,
+        text,
+        rawBuffer: withTimeline.rawBuffer,
+        blob,
+        words: withTimeline.words,
+      };
+
+      setCachedSceneAudio(scene.id, voiceId, text, item);
+      results.set(scene.id, item);
+    } catch (error) {
+      console.warn(`Speechify audio preparation failed for scene ${scene.id}:`, error);
+      throw error;
     }
 
     completed++;

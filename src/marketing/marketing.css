@@ -2920,7 +2920,69 @@ html[data-mkt="1"][data-theme] body {
 .pub-steps { max-width: 900px; display: grid; gap: 14px; }.pub-steps article { display: grid; grid-template-columns: 54px 1fr; gap: 20px; background: #fff; border: 1px solid var(--mkt-line); padding: 22px; border-radius: 18px; }.pub-steps article > b { width: 46px; height: 46px; border-radius: 50%; background: var(--mkt-accent-soft); color: var(--mkt-accent); display: grid; place-items: center; }.pub-steps h2 { font-size: 1.1rem; margin: 0 0 5px; }.pub-steps p { margin: 0; color: var(--mkt-muted); }
 .pub-toggle { display: flex; width: max-content; margin: 0 auto 28px; padding: 5px; border-radius: 999px; background: #ebe7e0; }.pub-toggle button { border: 0; background: transparent; padding: 10px 18px; border-radius: 999px; color: var(--mkt-muted); cursor: pointer; font-weight: 700; }.pub-toggle button.is-on { background: #fff; color: var(--mkt-ink); box-shadow: 0 3px 12px rgba(0,0,0,.08); }
 .pub-plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: stretch; }.pub-plan { padding: 28px; position: relative; display: flex; flex-direction: column; }.pub-plan.is-featured { border: 2px solid var(--mkt-accent); transform: translateY(-6px); }.pub-plan h2, .pub-plan h3 { font-size: 1.5rem; margin: 0 0 7px; }.pub-plan > p { color: var(--mkt-muted); min-height: 46px; }.pub-ribbon { position: absolute; top: -13px; right: 20px; background: var(--mkt-accent); color: white; border-radius: 999px; padding: 6px 11px; font-size: .73rem; font-weight: 800; }.pub-price { margin: 22px 0 4px; display: flex; align-items: baseline; gap: 5px; }.pub-price b { font-size: 2.7rem; letter-spacing: -.05em; }.pub-price span { color: var(--mkt-muted); }.pub-saving { min-height: 22px !important; color: #19704e !important; font-size: .84rem; font-weight: 700; }.pub-checks { list-style: none; padding: 0; margin: 20px 0 26px; display: grid; gap: 11px; line-height: 1.4; flex: 1; }.pub-checks li { color: var(--mkt-muted); }.pub-compare-btn { display: block; margin: 30px auto 18px; padding: 12px 20px; border: 1px solid var(--mkt-line); border-radius: 999px; background: white; cursor: pointer; font-weight: 750; }.pub-table-wrap { overflow-x: auto; border: 1px solid var(--mkt-line); border-radius: 18px; background: #fff; }.pub-table { width: max(100%, 780px); border-collapse: collapse; }.pub-table th,.pub-table td { text-align: left; padding: 14px 16px; border-bottom: 1px solid var(--mkt-line); }.pub-table th { background: #f5f1eb; }.pub-table td:not(:first-child) { font-size: .86rem; }
-.pub-legal-date { margin: 0 0 22px; color: var(--mkt-muted); font-size: .86rem; font-weight: 750; letter-spacing: .01em; }
+
+/*
+ * The plan comparison on a phone.
+ *
+ * The table is `width: max(100%, 780px)` because a comparison of four columns
+ * needs 780px to be readable — and it is, inside its scroll box, on a desktop.
+ * On a 360px phone that box is a window onto a table whose first column (the
+ * names of the things being compared) scrolls out of sight the moment you go
+ * looking for the columns, which reads as a section that falls off the screen.
+ *
+ * So below 780px each ROW becomes a card: the row's own label as its heading,
+ * then one line per plan, each prefixed with the plan it belongs to. Nothing is
+ * removed and nothing scrolls sideways. The labels come from the `data-label`
+ * attributes the markup already carries for this purpose.
+ */
+@media (width <= 780px) {
+  .pub-table-wrap {
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .pub-table { width: 100%; display: block; }
+  .pub-table thead { display: none; }
+  .pub-table tbody { display: grid; gap: 12px; }
+  .pub-table tbody tr {
+    display: grid;
+    gap: 2px;
+    padding: 12px 14px 14px;
+    border: 1px solid var(--mkt-line);
+    border-radius: 16px;
+    background: #fff;
+  }
+  .pub-table th,
+  .pub-table td {
+    display: grid;
+    gap: 4px;
+    padding: 8px 0;
+    border: 0;
+    font-size: .92rem;
+  }
+  /* The first cell of a row is the row's name. */
+  .pub-table tbody th[scope="row"],
+  .pub-table tbody td:first-child {
+    padding-bottom: 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--mkt-line);
+    font-weight: 800;
+    font-size: .8rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--mkt-ink-slate, var(--mkt-ink));
+  }
+  /* Every other cell says which plan it answers for. */
+  .pub-table tbody td[data-label]::before {
+    content: attr(data-label);
+    font-size: .72rem;
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--mkt-accent);
+  }
+}.pub-legal-date { margin: 0 0 22px; color: var(--mkt-muted); font-size: .86rem; font-weight: 750; letter-spacing: .01em; }
 .pub-legal-summary { margin: 0 0 34px; padding: 24px 26px; border: 1px solid #e8d8bf; border-radius: 16px; background: #fffaf2; }
 .pub-legal-summary h2 { margin-top: 0; }
 .pub-prose section + section { margin-top: 34px; padding-top: 28px; border-top: 1px solid var(--mkt-line); }
@@ -2968,7 +3030,7 @@ html[data-mkt="1"][data-theme] body {
 .manual-keywords { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 22px 0 6px; color: var(--mkt-ink-5); font-size: .67rem; }.manual-keywords button { border: 1px solid var(--mkt-line); border-radius: 999px; padding: 4px 7px; background: var(--mkt-surface); color: var(--mkt-accent-ink); font: 700 .64rem/1 var(--mkt-font); cursor: pointer; }.manual-keywords button:hover { border-color: var(--mkt-accent); }
 .manual-pager { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding-top: 34px; }.manual-pager button { display: grid; gap: 4px; border: 1px solid var(--mkt-line-2); border-radius: var(--mkt-r); padding: 14px 16px; background: var(--mkt-surface); color: var(--mkt-ink); text-align: left; font-weight: 800; cursor: pointer; }.manual-pager button.is-next { text-align: right; }.manual-pager button span { color: var(--mkt-ink-5); font-size: .65rem; text-transform: uppercase; letter-spacing: .1em; }.manual-pager button:hover { border-color: var(--mkt-accent-mid); box-shadow: var(--mkt-sh-1); }
 .manual-results > h2 { margin-bottom: 22px; }.manual-results > button { width: 100%; display: grid; gap: 5px; margin: 0 0 10px; border: 1px solid var(--mkt-line); border-radius: var(--mkt-r); padding: 16px 18px; background: var(--mkt-surface); color: var(--mkt-ink); text-align: left; cursor: pointer; }.manual-results > button:hover { border-color: var(--mkt-accent-mid); box-shadow: var(--mkt-sh-1); }.manual-results > button span { color: var(--mkt-accent); font-size: .68rem; font-weight: 850; }.manual-results > button b { font-size: 1rem; }.manual-results > button p { margin: 0; color: var(--mkt-ink-3); }.manual-results > button small { color: var(--mkt-ink-5); }.manual-empty { padding: 30px; border: 1px dashed var(--mkt-line-2); border-radius: var(--mkt-r); }.manual-empty p { color: var(--mkt-ink-3); }
-@media (width <= 860px) { .manual-shell { padding: 68px 14px 70px; }.manual-top { grid-template-columns: 1fr; padding-inline: 8px; }.manual-nav-toggle { display: block; width: max-content; }.manual-layout { display: block; }.manual-nav { display: none; position: fixed; z-index: 170; inset: 125px 12px 16px; max-height: none; padding: 14px; border: 1px solid var(--mkt-line-2); border-radius: var(--mkt-r); background: var(--mkt-surface); box-shadow: var(--mkt-sh-5); }.manual-nav.is-open { display: block; }.manual-content { padding: 34px 8px; max-width: none; }.manual-anchor { left: 0; top: 20px; }.manual-section { padding-top: 48px; } }
+@media (width <= 860px) { .manual-shell { padding: 68px 14px 70px; }.manual-top { grid-template-columns: 1fr; padding-inline: 8px; }.manual-nav-toggle { display: block; width: max-content; }.manual-layout { display: block; }.manual-nav { display: none; position: fixed; z-index: 170; inset: 125px 12px 16px; max-height: none; padding: 14px; border: 1px solid var(--mkt-line-2); border-radius: var(--mkt-r); background: var(--mkt-surface); box-shadow: var(--mkt-sh-5); }.manual-nav.is-open { display: block; }.manual-content { padding: 34px 8px; max-width: none; }.manual-anchor { left: 6px; top: 20px; opacity: 1; }.manual-section { padding-top: 48px; } }
 @media (width <= 520px) { .manual-pager { grid-template-columns: 1fr; }.manual-pager button.is-next { text-align: left; }.manual-on-page { display: grid; }.manual-top h1 { font-size: 2.2rem; } }
 
 
@@ -3042,6 +3104,19 @@ html[data-mkt="1"][data-theme] body {
    Nothing is too narrow here, but anything pinned to the top with a drop
    panel can be taller than the window. Every one of those panels gets a
    ceiling and its own scroll, so the page behind it never has to move. */
+/*
+ * A phone held sideways has very little height to give: the header, the hero's
+ * top padding and the section padding all shrink so the content still has a
+ * window worth looking through, and the nav keeps its own scroll for the drop
+ * panels (below).
+ */
+@media (max-height: 560px) {
+  .mkt-nav-inner { min-height: 48px; padding-top: 4px; padding-bottom: 4px; }
+  .mkt-hero { padding-top: 26px; padding-bottom: 26px; }
+  .pub-hero { padding-top: 56px; padding-bottom: 24px; }
+  .mkt-section { padding-top: 30px; padding-bottom: 30px; }
+  .manual-section { padding-top: 26px; }
+}
 @media (max-height: 560px) {
   .mkt-nav-panel {
     max-height: calc(100dvh - 92px);
@@ -3130,6 +3205,98 @@ html[data-mkt="1"][data-theme] body {
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+}
+
+/* ---- the feature tour on the front page ----
+   Six cards, one benefit each, every one a link to its full demonstration
+   on /features. minmax(min(100%, 250px), 1fr) is the phone-safety part:
+   a plain minmax(250px, 1fr) refuses to shrink below 250px and pushes the
+   grid off the edge of a 320px screen. */
+.mkt-tour {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 14px;
+}
+.mkt-tour-card {
+  display: block;
+  min-width: 0;
+  border: 1px solid var(--mkt-line);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--mkt-surface);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.mkt-tour-card:hover,
+.mkt-tour-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--mkt-accent-line);
+  box-shadow: 0 10px 28px rgba(20, 16, 8, 0.1);
+}
+.mkt-tour-card .mkt-thumb,
+.mkt-tour-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 0;
+}
+.mkt-tour-body {
+  padding: 13px 15px 15px;
+}
+.mkt-tour-body h3 {
+  margin: 0 0 5px;
+  font-size: 15.5px;
+  letter-spacing: -0.01em;
+}
+.mkt-tour-body p {
+  margin: 0;
+  color: var(--mkt-ink-3);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.mkt-tour-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 750;
+  color: var(--mkt-accent);
+}
+.mkt-tour-card:hover .mkt-tour-cue {
+  text-decoration: underline;
+}
+
+/* ---- phone overflow guard ----
+   Nothing on the website may drag the page sideways. Wide furniture — the
+   plan table, the phase tab rows — scrolls inside its own container; this
+   is the backstop for anything that forgets, so a too-wide element is
+   clipped at the page edge instead of making the whole site pan. */
+.mkt-root {
+  overflow-x: clip;
+}
+
+/*
+ * The front page is long on purpose, and every section of it used to be laid
+ * out, painted and kept live whether or not it was anywhere near the window.
+ * On a phone that is the difference between a page that answers the first
+ * scroll immediately and one that stutters through it — and layout work on
+ * off-screen content is exactly the kind of thing a page-speed audit counts.
+ *
+ * `content-visibility: auto` lets the browser skip a section entirely until it
+ * approaches the viewport, and `contain-intrinsic-size` gives the skipped
+ * section a placeholder height so the scrollbar does not jump. The `auto` in
+ * the value means the real height is remembered after the first render, so the
+ * placeholder is a first-paint estimate only.
+ *
+ * Nothing inside a section is positioned against the viewport (the corner menu
+ * and the nav are the only fixed things on the page, and both sit outside), so
+ * containment cannot trap anything.
+ */
+.mkt-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 900px;
 }
 
 /* ---- printing ----

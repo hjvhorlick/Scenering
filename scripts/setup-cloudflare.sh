@@ -127,7 +127,7 @@ fi
 say "🔐 Step 6/6: optional secrets (Enter to skip each)"
 # Names must match what src/env.ts and server/platform.ts actually read — a
 # secret set under any other name is silently ignored by the app.
-for SECRET in GEMINI_API_KEY PEXELS_API_KEY PIXABAY_API_KEY \
+for SECRET in PEXELS_API_KEY PIXABAY_API_KEY \
   LEMON_SQUEEZY_API_KEY LEMON_SQUEEZY_STORE_ID LEMON_SQUEEZY_WEBHOOK_SECRET \
   LEMON_SQUEEZY_SCENEFLOW_MONTHLY_VARIANT_ID LEMON_SQUEEZY_SCENEFLOW_YEARLY_VARIANT_ID \
   LEMON_SQUEEZY_SCENEFORGE_MONTHLY_VARIANT_ID LEMON_SQUEEZY_SCENEFORGE_YEARLY_VARIANT_ID \

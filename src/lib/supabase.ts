@@ -4,10 +4,10 @@ import type { Project, Scene } from "../types";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Hosted media and synthesis requests always pass through Scenering's own
-// cookie-authenticated server. Legacy public Supabase Edge Functions are
-// intentionally not a fallback because they cannot validate this platform's
-// custom HttpOnly session and would create an entitlement bypass.
+// Platform media/API requests use Scenering's own cookie-authenticated
+// server. Speechify synthesis is intentionally different: the user's key and
+// request go directly from their browser to Speechify, never through this API.
+// Legacy public Supabase Edge Functions remain disabled.
 export const EDGE_FUNCTION_BASE = "/api";
 
 // --- Local Storage Mock for Supabase ---

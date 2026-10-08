@@ -51,7 +51,7 @@ import { normalizePath, routeForPath, sectionForPath, SITE_SECTIONS, SITE_SECTIO
 
 import { CAPTION_STYLES } from "../src/data/caption-styles";
 import { PROJECT_PHASES } from "../src/components/StepNav";
-import { STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
+import { FREE_SPEECHIFY_VOICE_IDS, STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
 import { VIDEO_FILTERS, FILTER_GROUPS, getFilterCss, makeFilterConfig } from "../src/data/video-filters";
 import { TEXT_TEMPLATES, TEMPLATE_BY_ID } from "../src/data/text-templates";
 import { CTA_PLATFORMS, CTA_GROUPS } from "../src/data/cta-library";
@@ -165,6 +165,8 @@ if (existsSync(publicMarketing)) {
   );
   // The link-preview card is referenced by index.html, not by the registry.
   known.add("og-card.jpg");
+  // The brand logo a crawler reads, referenced by structured data rather than the registry.
+  known.add("logo-scenering-512.png");
   for (const file of readdirSync(publicMarketing)) {
     ok(known.has(file), `public/marketing/${file} belongs to a registered asset`);
     const bytes = statSync(join(publicMarketing, file)).size;
@@ -297,9 +299,36 @@ ok(HONESTY.localNote.includes("Preview renders do not use final-export allowance
 
 /* -------------------------------------------------- 6. structure */
 
+/*
+ * The front page sells; the features page explains. The front page used to
+ * carry every demonstration in sequence and read like a training course with
+ * the price at the bottom; now it makes the case — promise, proof, what you
+ * get, what it costs to run, the plans, examples, start — and the full
+ * demonstrations live on /features where the Features button and the corner
+ * menu shortcuts lead.
+ */
 const site = read("src/marketing/MarketingSite.tsx");
 const STORY = [
   "Hero",
+  "FeatureTour",
+  "NoMeter",
+  "Pricing",
+  "Examples",
+  "FinalCta",
+];
+let cursor = -1;
+for (const section of STORY) {
+  const at = site.indexOf(`<${section} />`);
+  ok(at > cursor, `${section} appears in sales order on the front page`);
+  cursor = at;
+}
+for (const moved of ["IdeaToVideo", "ScenesSection", "VisualResearch", "VoiceSection", "CaptionsSection", "VideoStudioSection", "EffectsLibrary", "BeforeAfter", "Control", "Formats", "Devices", "Sources", "Questions"]) {
+  ok(!site.includes(`<${moved} />`), `${moved} no longer crowds the front page`);
+}
+
+const featuresPage = read("src/marketing/PublicPage.tsx");
+const TOUR_STORY = [
+  "Questions",
   "IdeaToVideo",
   "ScenesSection",
   "VisualResearch",
@@ -309,19 +338,30 @@ const STORY = [
   "EffectsLibrary",
   "BeforeAfter",
   "Control",
-  "Examples",
   "Formats",
   "Devices",
   "Sources",
-  "Pricing",
-  "FinalCta",
 ];
-let cursor = -1;
-for (const section of STORY) {
-  const at = site.indexOf(`<${section} />`);
-  ok(at > cursor, `${section} appears in story order`);
+cursor = -1;
+for (const section of TOUR_STORY) {
+  const at = featuresPage.indexOf(`<${section} />`);
+  ok(at > cursor, `${section} appears in tour order on the features page`);
   cursor = at;
 }
+// The front page's shop window: one card per stage, each linking to the
+// demonstration of exactly that stage.
+{
+  const tour = read("src/marketing/sections/FeatureTour.tsx");
+  for (const path of ["/scenes", "/visuals", "/voice", "/captions", "/video-studio", "/effects"]) {
+    ok(tour.includes(`path: "${path}"`), `the feature tour links a card to ${path}`);
+  }
+  ok(tour.includes('href="/features"'), "the feature tour offers the full tour");
+  ok(tour.includes("MarketingImage"), "each card reuses the demonstration project's artwork");
+}
+// Pricing is part of the pitch: it sits in the page's top half, directly
+// after the cost answer, and the hero's second button goes straight to it.
+ok(site.indexOf("<Pricing />") < site.indexOf("<Examples />"), "the plans come before the closing proof, not at the bottom");
+ok(read("src/marketing/sections/Hero.tsx").includes('href="#pricing"'), "the hero offers the plans directly");
 /*
  * The workflow the page tells is the workflow the app has — one step per
  * phase, in the phase rail's own order. Finding the visuals lives inside
@@ -442,74 +482,72 @@ ok(
   ok(deviceSection.includes("DEVICE_PERFORMANCE.recommendation"), "device section gives the modern-PC recommendation");
   ok(DEVICE_PERFORMANCE.lowerSpecExpectation.includes("may struggle with demanding projects"), "shared guidance honestly qualifies demanding work on modest hardware");
 
-  // The jump has to work without the script, and must not steal modified clicks.
+  // The jump has to work without the script, and must not steal modified
+  // clicks. The band lives on the features tour now, and two of its answers
+  // (what it costs, the examples) live on the front page — so each question
+  // links its area's friendly URL, and the script upgrades that to a
+  // cross-page-aware scroll via the shared goToSection helper (which honours
+  // reduced motion in route.ts).
   const questions = read("src/marketing/sections/Questions.tsx");
-  ok(questions.includes('href={`#${item.section}`}'), "each question is a real anchor");
+  ok(questions.includes("href={pathFor(item.section)}"), "each question is a real link to the area's own URL");
   ok(questions.includes("event.metaKey || event.ctrlKey"), "open-in-new-tab still works");
-  ok(questions.includes("prefers-reduced-motion"), "the jump honours reduced motion");
+  ok(questions.includes("goToSection(item.section)"), "the jump works across pages, not just within one");
+  ok(read("src/lib/route.ts").includes("prefers-reduced-motion"), "the shared jump honours reduced motion");
 
-  ok(siteSource.includes("<Questions />"), "the band is on the page");
+  ok(!siteSource.includes("<Questions />"), "the band no longer crowds the front page");
+  const tourPage = read("src/marketing/PublicPage.tsx");
+  ok(tourPage.includes("<Questions />"), "the band opens the features tour");
   ok(
-    siteSource.indexOf("<Questions />") < siteSource.indexOf("<IdeaToVideo />"),
-    "…directly under the hero, before anything is explained"
+    tourPage.indexOf("<Questions />") < tourPage.indexOf("<IdeaToVideo />"),
+    "…before anything is explained"
   );
 }
 
 /*
- * "No credits. No tokens. No counter." is the strongest claim on the site, so
- * it is checked against the code rather than trusted. If Scenering ever grows
- * a language model that writes or draws for the user, these fail.
+ * Speechify BYOK is the only generated-narration path. Keep the catalogue,
+ * key transport, failure behavior and public disclosure in sync.
  */
 {
   const server = read("server.ts");
   const splitter = read("src/lib/duration-utils.ts");
   const topics = read("src/lib/topic-extract.ts");
+  const apiKeys = read("src/lib/api-keys.ts");
+  const speechifyClient = read("src/lib/speechify-client.ts");
+  const apiKeysModal = read("src/components/ApiKeysModal.tsx");
+  const preview = read("src/components/VideoPreview.tsx");
+  const render = read("src/components/RenderView.tsx");
 
-  ok(
-    splitter.includes("export function splitScriptIntoScenes"),
-    "the script is still divided arithmetically"
-  );
-  ok(
-    topics.includes("No NLP model is available"),
-    "search terms are still extracted structurally, not by a model"
-  );
+  ok(splitter.includes("export function splitScriptIntoScenes"), "the script is still divided arithmetically");
+  ok(topics.includes("No NLP model is available"), "search terms are extracted structurally, not by a model");
+  h.eq(STUDIO_VOICE_PRESETS.length, 20, "the Speechify catalogue has exactly twenty profiles");
+  const maleVoices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === "male");
+  const femaleVoices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === "female");
+  h.eq(maleVoices.length, 10, "the Speechify catalogue has ten male profiles");
+  h.eq(femaleVoices.length, 10, "the Speechify catalogue has ten female profiles");
+  h.eq(FREE_SPEECHIFY_VOICE_IDS[0], "speechify_male_01", "the free male Speechify profile is first");
+  h.eq(FREE_SPEECHIFY_VOICE_IDS[1], "speechify_female_01", "the free female Speechify profile is first in its group");
+  h.eq(maleVoices[0]?.id, FREE_SPEECHIFY_VOICE_IDS[0], "the free male profile is first in the male group");
+  h.eq(femaleVoices[0]?.id, FREE_SPEECHIFY_VOICE_IDS[1], "the free female profile is first in the female group");
+  ok(speechifyClient.includes('https://api.speechify.ai/v1'), "Speechify API requests go directly to the provider host");
+  ok(speechifyClient.includes('Authorization: `Bearer ${apiKey}`'), "the customer key is sent only in the direct Speechify authorization header");
+  ok(speechifyClient.includes('const SPEECHIFY_MODEL = "simba-3.2"'), "the browser uses the selected Speechify model");
+  ok(speechifyClient.includes("synthesizeSpeechify"), "Speechify is the only generated-narration provider");
+  ok(speechifyClient.includes("parseSpeechifySpeechMarks"), "direct Speechify speech marks are used when available");
+  ok(speechifyClient.includes("SPEECHIFY_KEY_REQUIRED"), "a missing key returns an actionable error");
+  ok(!server.includes("X-Speechify-Key") && !server.includes("/api/tts"), "the Cloudflare Worker has no Speechify key or synthesis route");
+  ok(!apiKeys.includes("X-Speechify-Key"), "the shared key helper cannot attach Speechify credentials to Scenering requests");
+  ok(apiKeysModal.includes("verifySpeechifyApiKey") && !apiKeysModal.includes("speechifyKey: keysToSave.speechifyKey"), "the existing modal validates Speechify directly without sending it in the Worker verification payload");
+  ok(preview.includes("fetchSceneAudioWithTimeline") && !preview.includes("createFallbackSceneAudio"), "preview synthesis has no tone or provider fallback");
+  ok(render.includes("fetchSceneAudioWithTimeline") && !render.includes("audioCtx.createBuffer(1, numSamples"), "export has no silent-buffer fallback");
+  ok(NO_METER.caveat.includes("your Speechify API key"), "the page discloses the customer key requirement");
+  ok(NO_METER.caveat.includes("does not receive or store the key"), "the page discloses that Scenering never receives the Speechify key");
+  ok(NO_METER.caveat.includes("usage and billing"), "the page discloses provider-account usage");
+  ok(!/generateContent\(|GEMINI_API_KEY|msedge-tts|parseEdgeWordBoundaries/.test(server + apiKeys + preview + render), "legacy TTS providers are absent from synthesis paths");
 
-  // The only model call in the whole server is speech synthesis…
-  const generateCalls = (server.match(/generateContent\(/g) || []).length;
-  h.eq(generateCalls, 1, "the server makes exactly one model call");
-  const call = server.slice(server.indexOf("generateContent("), server.indexOf("generateContent(") + 400);
-  ok(call.includes('responseModalities: ["AUDIO"]'), "…and it asks for audio, not words");
-  ok(
-    server.includes("synthesizeGeminiTTS"),
-    "…inside the text-to-speech path"
-  );
-  // …and it is optional.
-  ok(
-    server.includes("env().GEMINI_API_KEY"),
-    "that voice needs a key the operator supplies"
-  );
-  ok(
-    NO_METER.caveat.includes("Gemini"),
-    "the page names that exception instead of hiding it"
-  );
-  ok(
-    NO_METER.caveat.includes("works fully without it"),
-    "…and says the app does not need it"
-  );
-
-  // The claim must not overreach into "no AI at all" — the narrators are
-  // neural voices and the page says so.
   const noMeterSource = JSON.stringify(NO_METER);
-  ok(
-    noMeterSource.includes("neural text-to-speech"),
-    "the narration is described as what it is"
-  );
-  ok(!/no AI\b/i.test(noMeterSource), "the page never claims there is no AI anywhere");
-
-  ok(
-    read("src/marketing/sections/NoMeter.tsx").includes('<Section id="no-meter"'),
-    "the answer has a section of its own to jump to"
-  );
+  ok(noMeterSource.includes("Speechify"), "the narration provider is named accurately");
+  ok(!/free speech synthesis|never hard-fails/i.test(noMeterSource), "narration copy does not promise free or fallback audio");
+  ok(read("src/marketing/sections/NoMeter.tsx").includes('<Section id="no-meter"'), "the answer has a section of its own to jump to");
 }
 
 /* ------------------------- 6b. the demonstration names real things */
@@ -619,6 +657,9 @@ ok(
   main.includes('lazy(() => import("./studio/StudioEntry"))'),
   "the account and studio entry is a separate lazy bundle"
 );
+ok(main.includes('lazy(() => import("./admin/AdminEntry"))'), "the Email Centre has its own authenticated lazy entry");
+ok(main.includes('if (route === "admin")'), "the admin route mounts the existing Email Centre entry");
+ok(main.includes("<AdminEntry />"), "the admin route does not fall through to the marketing pages");
 ok(main.includes('routeForPath(window.location.pathname) === "studio"'), "the heavy studio is preloaded only on account or studio routes");
 ok(
   main.includes('document.documentElement.setAttribute("data-mkt", "1")'),
@@ -793,6 +834,8 @@ h.eq(routeForPath(""), "site", "empty path is the website");
 h.eq(routeForPath("/app"), "studio", "/app is the studio");
 h.eq(routeForPath("/app/"), "studio", "/app/ is the studio");
 h.eq(routeForPath("/app/project/7"), "studio", "deep studio paths stay in the studio");
+h.eq(routeForPath("/admin"), "admin", "the owner admin surface has its own route");
+h.eq(routeForPath("/admin/email-centre"), "admin", "the existing Email Centre path mounts the admin surface");
 h.eq(routeForPath("/pricing"), "site", "marketing paths stay on the website");
 h.eq(normalizePath("/Pricing/"), "/pricing", "paths normalise");
 h.eq(sectionForPath("/pricing"), "pricing", "/pricing deep-links to the pricing section");

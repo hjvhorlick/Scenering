@@ -10,6 +10,7 @@ import { initAnalytics } from "./lib/analytics";
  *
  *   /      the public front page (src/marketing)
  *   /app   the studio, behind its sign-in (src/studio → src/App)
+ *   /admin the owner-only Email Centre (src/admin)
  *
  * The surfaces remain separate chunks, but their requests start together.
  * While somebody reads the landing page or types a passphrase, the browser is
@@ -19,6 +20,7 @@ import { initAnalytics } from "./lib/analytics";
  */
 const MarketingSite = lazy(() => import("./marketing/MarketingSite"));
 const StudioEntry = lazy(() => import("./studio/StudioEntry"));
+const AdminEntry = lazy(() => import("./admin/AdminEntry"));
 
 // Keep the public website lightweight. The large editor/renderer bundle starts
 // only at an account or studio route; marketing visuals are their own lazy assets.
@@ -35,15 +37,15 @@ if (typeof window !== "undefined") initAnalytics();
 // MarketingSite effect and risking one frame of studio-wide base styles.
 if (typeof window !== "undefined" && routeForPath(window.location.pathname) === "site") {
   document.documentElement.setAttribute("data-mkt", "1");
-  const canonical = document.createElement("link");
+  const canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]') || document.createElement("link");
   canonical.rel = "canonical";
   canonical.href = new URL(window.location.pathname, window.location.origin).toString();
-  document.head.appendChild(canonical);
+  if (!canonical.isConnected) document.head.appendChild(canonical);
 } else if (typeof document !== "undefined") {
-  const robots = document.createElement("meta");
+  const robots = document.head.querySelector<HTMLMetaElement>('meta[name="robots"]') || document.createElement("meta");
   robots.name = "robots";
   robots.content = "noindex,nofollow";
-  document.head.appendChild(robots);
+  if (!robots.isConnected) document.head.appendChild(robots);
 }
 
 /** Quiet placeholder — one paint at most, so it must not flash anything loud. */
@@ -74,6 +76,14 @@ function Root() {
     return (
       <Suspense fallback={<Loading label="Opening the studio…" />}>
         <StudioEntry />
+      </Suspense>
+    );
+  }
+
+  if (route === "admin") {
+    return (
+      <Suspense fallback={<Loading label="Opening the Email Centre…" />}>
+        <AdminEntry />
       </Suspense>
     );
   }

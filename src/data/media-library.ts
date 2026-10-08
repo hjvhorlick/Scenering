@@ -702,16 +702,10 @@ export function stopAllSoundPreviews(): void {
   currentActiveUrl = null;
   notifyAudioListeners(null, false, currentPreviewVolume);
 
-  // Also stop any TTS or SpeechSynthesis that might be speaking, so a preview
-  // never keeps talking over the next one.
+  // Stop any active Speechify preview so it never talks over the next sound.
   try {
     ttsPlayer.stop();
   } catch {}
-  if (typeof window !== "undefined" && "speechSynthesis" in window) {
-    try {
-      window.speechSynthesis.cancel();
-    } catch {}
-  }
 }
 
 // Adjust volume in real time for currently playing sound
@@ -771,31 +765,38 @@ export function toggleSoundPreview(
     audio.volume = safeVol;
     currentActiveAudio = audio;
 
-    audio.onended = () => {
-      if (currentActiveUrl === url) {
-        currentActiveAudio = null;
-        currentActiveUrl = null;
-        notifyAudioListeners(null, false, currentPreviewVolume);
-        onStateChange?.(false);
-      }
-    };
-
-    audio.onerror = () => {
-      console.warn("Audio file playback error:", url);
+    /**
+     * Release the manager's state ONLY if this audio element is still the
+     * one it is tracking. The end/error/rejection callbacks below are
+     * asynchronous: by the time one fires, the user may already be playing
+     * the NEXT track. The old code cleared the shared state unconditionally,
+     * which orphaned that next track — it kept playing, the manager believed
+     * nothing was playing, so another copy could start on top of it and no
+     * stop button could reach it until the file ran out.
+     */
+    const releaseIfCurrent = () => {
+      if (currentActiveAudio !== audio) return;
       currentActiveAudio = null;
       currentActiveUrl = null;
       notifyAudioListeners(null, false, currentPreviewVolume);
       onStateChange?.(false);
     };
 
+    audio.onended = releaseIfCurrent;
+
+    audio.onerror = () => {
+      console.warn("Audio file playback error:", url);
+      releaseIfCurrent();
+    };
+
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
         console.warn("Autoplay blocked or playback error:", err);
-        currentActiveAudio = null;
-        currentActiveUrl = null;
-        notifyAudioListeners(null, false, currentPreviewVolume);
-        onStateChange?.(false);
+        // Always silence THIS element (it is safe even when already paused),
+        // but only clear the shared state if it still belongs to it.
+        try { audio.pause(); } catch {}
+        releaseIfCurrent();
       });
     }
 
@@ -862,8 +863,8 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
     doc += `🎙️ VOICEOVER & SPEECH SYNTHESIS (TTS):
 • Voice Profile: ${voiceName}
   Profile Type: ${voiceGender ? `${voiceGender.toUpperCase()} • ` : ""}${voiceAccent || "Studio Narration"}
-  Technology: ${voiceEngine || "Neural AI Speech & Web Speech API Standards"}
-  License: Royalty-Free Commercial & Personal Synthetic Audio Production License
+  Technology: ${voiceEngine || "Speechify text-to-speech (customer-provided API key)"}
+  License: ${!voiceEngine || /speechify/i.test(voiceEngine) ? "Subject to Speechify's current terms and the customer's account plan" : "The creator is responsible for the rights to imported audio"}
 
 `;
   }

@@ -3,7 +3,7 @@ import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
 import { cancelFinalExport, completeFinalExport, getEntitlements, reserveFinalExport } from "../lib/entitlements";
-import { CUSTOMISED_CTA_SUFFIX, type FeatureKey } from "../config/plans";
+import { CUSTOMISED_CTA_SUFFIX, isPlanVoiceIncluded, type FeatureKey } from "../config/plans";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { openMembershipPlans } from "./VipFeatureBadge";
 import {
@@ -15,6 +15,7 @@ import {
   type VipFinding,
 } from "../lib/vip-export-audit";
 import { isCtaCustomised, isFreeCtaInsert } from "../data/cta-library";
+import { startVoiceSource } from "../lib/voice-fade";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
@@ -24,7 +25,7 @@ import {
 import { getSceneCameraTransform, renderSceneAnimationEffects } from "../lib/scene-animation";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
-import { PackedAudioTelemetry } from "../lib/audio-telemetry";
+import { PackedAudioTelemetry, TELEMETRY_SAMPLE_STRIDE } from "../lib/audio-telemetry";
 import { requiredVisualizerFftSize } from "../lib/advanced-audio-visualizer";
 import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import type { WordTiming } from "../lib/word-sync";
@@ -32,7 +33,6 @@ import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
 import { loadSceneImage } from "../lib/scene-image-loader";
 import { resolveLegacyLocalImage } from "../lib/nature-library-compat";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
-import { isMaleVoiceIdentifier } from "../lib/tts-player";
 import {
   formatDuration,
   narrationLeadIn,
@@ -164,7 +164,7 @@ interface RenderViewProps {
   scenes: Scene[];
   inserts: TimelineInsert[];
   selectedVoice?: string;
-  availableVoices?: { id: string; name: string }[];
+  availableVoices?: { id: string; name: string; gender?: "male" | "female"; accent?: string; locale?: string }[];
   aspectRatio?: AspectRatioType;
   resolution?: ResolutionType;
   pacingMode?: PacingModeType;
@@ -251,7 +251,7 @@ export default function RenderView({
   project,
   scenes,
   inserts,
-  selectedVoice = "guy",
+  selectedVoice = "speechify_male_01",
   availableVoices = [],
   aspectRatio = "16:9",
   resolution: propResolution = "1080p",
@@ -278,6 +278,10 @@ export default function RenderView({
 }: RenderViewProps) {
   // Scenes with a short video clip are renderable even without a still image.
   const scenesWithImages = scenes.filter(sceneHasVisual);
+  const sceneVoiceIds = useMemo(
+    () => scenes.filter(sceneHasVisual).map((scene) => scene.voice_id).filter((voiceId): voiceId is string => Boolean(voiceId)),
+    [scenes]
+  );
   const activeLook = getPreset(videoFilter?.id);
 
   /* ---------------------------------------------------------------- VIP
@@ -298,9 +302,10 @@ export default function RenderView({
         motionStyle,
         captionsConfig,
         selectedVoice,
+        sceneVoices: sceneVoiceIds,
         voiceEcho,
       }),
-    [currentPlan, inserts, videoFilter, sceneAnimationEnabled, motionStyle, captionsConfig, selectedVoice, voiceEcho]
+    [currentPlan, inserts, videoFilter, sceneAnimationEnabled, motionStyle, captionsConfig, selectedVoice, sceneVoiceIds, voiceEcho]
   );
   const vipBlocking = useMemo(() => blockingVipFindings(vipFindings), [vipFindings]);
   const vipOmittable = useMemo(() => omittableVipFindings(vipFindings), [vipFindings]);
@@ -351,6 +356,8 @@ export default function RenderView({
 
   // Render execution state
   const [isRendering, setIsRendering] = useState(false);
+  const [isPreparingRender, setIsPreparingRender] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderStage, setRenderStage] = useState("");
   /** Where the last render spent its time, shown on screen when it finishes. */
@@ -619,6 +626,8 @@ export default function RenderView({
   /** Shares a single in-flight image request between preview and an export. */
   const watermarkLoadRef = useRef<Promise<HTMLImageElement | null> | null>(null);
   const customerLogoImgRef = useRef<HTMLImageElement | null>(null);
+  /** Locks out a second click while async export authorization/render cleanup is in flight. */
+  const renderStartPendingRef = useRef(false);
   const abortControllerRef = useRef<boolean>(false);
   /** Frame pacing for the export — vsync-locked, worker-driven when hidden. */
   const frameTickerRef = useRef<FrameTicker | null>(null);
@@ -758,7 +767,9 @@ export default function RenderView({
     /** Set once the creator has seen, and accepted, the VIP warning below. */
     vipAcknowledged = false
   ): Promise<{ blob: Blob; container: "mp4" | "webm" } | null> => {
-    if (scenesWithImages.length === 0 || isRendering) return null;
+    if (scenesWithImages.length === 0 || isRendering || renderStartPendingRef.current) return null;
+    renderStartPendingRef.current = true;
+    setIsPreparingRender(true);
 
     // The watermark is Free-plan policy, not a best-effort visual detail. Do
     // not produce a file if its required, fixed mark failed to load.
@@ -789,6 +800,8 @@ export default function RenderView({
           or a stale answer from the server. */
     if (isFinalExport && vipFindings.length > 0 && !vipAcknowledged) {
       setVipPrompt({ format: targetFormat, plan });
+      renderStartPendingRef.current = false;
+      setIsPreparingRender(false);
       return null;
     }
     /* Cleaned for EVERY render, draft included. A draft is a cheap, unmetered
@@ -806,6 +819,7 @@ export default function RenderView({
       motionStyle,
       captionsConfig,
       selectedVoice,
+      sceneVoices: sceneVoiceIds,
       voiceEcho,
     });
     const exportInserts = exportSafe.inserts;
@@ -824,7 +838,8 @@ export default function RenderView({
         // will contain — not on the project, which may still hold VIP work
         // the creator wants to keep for when they upgrade.
         const required = new Set<FeatureKey>();
-        if (!/^(guy|jenny)$/i.test(selectedVoice || "guy")) required.add("advanced_voice");
+        const narrationVoices = [selectedVoice || "speechify_male_01", ...sceneVoiceIds];
+        if (narrationVoices.some((voiceId) => !isPlanVoiceIncluded("free", voiceId))) required.add("advanced_voice");
         if (captionsConfig?.enabled && !["newsroom_clean", "cinema_classic"].includes(captionsConfig.preset || "newsroom_clean")) required.add("premium_captions");
         if (exportMotionStyle && !["dynamic", "static", "none"].includes(exportMotionStyle)) required.add("camera_movements");
         if (exportSceneAnimation) required.add("special_effects");
@@ -845,7 +860,7 @@ export default function RenderView({
         if (denied) throw new Error(`Your current membership does not include ${denied.replace(/_/g, " ")} in a Final Export. You can still preview it or change membership.`);
         const creativeManifest = {
           features: [...required],
-          voice: selectedVoice || "guy",
+          voice: sceneVoiceIds.find((voiceId) => !isPlanVoiceIncluded("free", voiceId)) || selectedVoice || "speechify_male_01",
           captionStyle: captionsConfig?.preset || "newsroom_clean",
           backgroundMusic: exportInserts.filter((insert) => insert.category === "background_music").map((insert) => insert.type),
           audioVisualisers: exportInserts.filter((insert) => insert.category === "audio_visualizers" || insert.category === "speech_reactive").map((insert) => insert.type),
@@ -861,11 +876,15 @@ export default function RenderView({
         const message = authorizationError?.message || "This final export could not be authorized.";
         setRenderError(message);
         setRenderStatus({ active: false, error: message, stage: "Export authorization required" });
+        renderStartPendingRef.current = false;
+        setIsPreparingRender(false);
         return null;
       }
     }
 
     setIsRendering(true);
+    setIsPreparingRender(false);
+    setIsCancelling(false);
     setRenderTiming(null);
     setTimingCopied(false);
     reportProgress(0);
@@ -971,83 +990,42 @@ export default function RenderView({
 
         // 1. Resolve directly from the saved voiceover section (memory, IndexedDB, or audio_url)
         let resolved = await resolveSceneAudioBuffer(s, audioCtx);
-
-        // 2. Only if the scene was never generated, synthesize via /api/tts.
-        //    The timeline variant carries the per-word spoken timings, which is
-        //    what locks the karaoke captions to the voice word-for-word.
-        if (!resolved) {
-          try {
-            const withTimeline = await fetchSceneAudioWithTimeline(s.text || "", sceneVoice, { timeoutMs: 20000 });
-            if (withTimeline) {
-              const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
-              const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
-              const blobUrl = URL.createObjectURL(blob);
-              setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
-                audioBuffer,
-                blobUrl,
-                duration: audioBuffer.duration,
-                voiceId: sceneVoice,
-                text: (s.text || "").trim(),
-                rawBuffer: withTimeline.rawBuffer,
-                blob,
-                words: withTimeline.words,
-              });
-              resolved = {
-                buffer: audioBuffer,
-                duration: audioBuffer.duration,
-                url: blobUrl,
-                words: withTimeline.words,
-              };
-            }
-          } catch (e) {
-            console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
+        if (!resolved && voiceoverEnabled) {
+          if (s.audio_url) {
+            throw new Error(`The saved audio for scene ${i + 1} could not be loaded. Re-import or regenerate that track.`);
           }
-          if (!resolved) {
-            try {
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 12000);
-              const res = await fetch("/api/tts", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: s.text, voice: sceneVoice }),
-                signal: controller.signal,
-              });
-              clearTimeout(timeoutId);
-
-              if (res.ok) {
-                const arrayBuf = await res.arrayBuffer();
-                const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-                const blob = new Blob([arrayBuf], { type: "audio/mpeg" });
-                const blobUrl = URL.createObjectURL(blob);
-                setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
-                  audioBuffer,
-                  blobUrl,
-                  duration: audioBuffer.duration,
-                  voiceId: sceneVoice,
-                  text: (s.text || "").trim(),
-                  rawBuffer: arrayBuf,
-                  blob,
-                });
-                resolved = { buffer: audioBuffer, duration: audioBuffer.duration, url: blobUrl };
-              }
-            } catch (e) {
-              console.warn(`TTS generation fallback for scene ${i + 1}:`, e);
-            }
+          if ((s.text || "").trim()) {
+            const withTimeline = await fetchSceneAudioWithTimeline(s.text || "", sceneVoice, { timeoutMs: 20000 });
+            if (!withTimeline) throw new Error(`Speechify returned no audio for scene ${i + 1}.`);
+            const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
+            const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
+            const blobUrl = URL.createObjectURL(blob);
+            setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
+              audioBuffer,
+              blobUrl,
+              duration: audioBuffer.duration,
+              voiceId: sceneVoice,
+              text: (s.text || "").trim(),
+              rawBuffer: withTimeline.rawBuffer,
+              blob,
+              words: withTimeline.words,
+            });
+            resolved = {
+              buffer: audioBuffer,
+              duration: audioBuffer.duration,
+              url: blobUrl,
+              words: withTimeline.words,
+            };
           }
         }
-
         if (resolved) {
           audioBuffers.set(s.id, {
             buffer: resolved.buffer,
             duration: resolved.duration,
             words: resolved.words && resolved.words.length > 0 ? resolved.words : undefined,
           });
-        } else {
-          const sampleRate = audioCtx.sampleRate || 44100;
-          const fallbackDur = getEffectiveSceneDuration(s);
-          const numSamples = Math.max(1, Math.floor(sampleRate * fallbackDur));
-          const fallbackBuf = audioCtx.createBuffer(1, numSamples, sampleRate);
-          audioBuffers.set(s.id, { buffer: fallbackBuf, duration: fallbackDur });
+        } else if ((s.text || "").trim()) {
+          throw new Error(`No narration audio is available for scene ${i + 1}.`);
         }
 
         reportProgress(0.08 + (i / scenesWithImages.length) * 0.18);
@@ -1734,10 +1712,13 @@ export default function RenderView({
           for (const entry of sceneSchedule) {
             const item = audioBuffers.get(entry.scene.id);
             if (!item) continue;
-            const source = offlineCtx.createBufferSource();
-            source.buffer = item.buffer;
-            source.connect(offlineEcho ? offlineEcho.input : voiceAnalyser);
-            source.start(entry.startTime + entry.speechOffset);
+            /* Each narration line opens from silence over ~12ms through its own
+               gain, exactly as the preview does — so the exported soundtrack
+               cannot carry the step-in of a buffer starting at full gain, and
+               the preview and the file sound like the same performance. */
+            startVoiceSource(offlineCtx, item.buffer, offlineEcho ? offlineEcho.input : voiceAnalyser, {
+              whenSeconds: entry.startTime + entry.speechOffset,
+            });
           }
 
           // Legacy render-page ambient bed (normally timeline inserts now).
@@ -1809,21 +1790,30 @@ export default function RenderView({
            */
           const captureTelemetry = () => new Promise<void>((resolve, reject) => {
             const WINDOW_FRAMES = Math.max(30, Math.round(fpsUsed * 4));
+            const STRIDE = TELEMETRY_SAMPLE_STRIDE;
             let settled = false;
             const fail = (error: unknown) => {
               if (settled) return;
               settled = true;
               reject(error);
             };
+            /** The last frame this window suspends at (every STRIDE-th frame). */
+            const lastSampleIn = (start: number, end: number) =>
+              start + Math.floor((end - 1 - start) / STRIDE) * STRIDE;
             const scheduleWindow = (start: number) => {
               const end = Math.min(totalFrames, start + WINDOW_FRAMES);
-              for (let frame = start; frame < end; frame++) {
+              const lastSample = lastSampleIn(start, end);
+              for (let frame = start; frame <= lastSample; frame += STRIDE) {
                 offlineCtx.suspend(frame / fpsUsed).then(async () => {
                   if (abortControllerRef.current) throw new Error("Render cancelled");
                   const voiceLevel = readLevel(voiceAnalyser, voiceFreq, voiceWave);
                   const musicLevel = readLevel(offlineMusicAnalyser, musicFreq, musicWave);
-                  telemetry.setAnalyserFrame(
+                  /* One sample covers the frames it stands for: three times
+                     fewer suspend/resume round trips on the main thread, and
+                     every frame still has its row. */
+                  telemetry.setAnalyserSpan(
                     frame,
+                    frame + STRIDE,
                     voiceLevel,
                     voiceFreq,
                     voiceWave,
@@ -1834,9 +1824,9 @@ export default function RenderView({
                   offlineMastering.updateVoiceLevel(voiceLevel, offlineCtx.currentTime);
 
                   // Extend the runway while the context is safely suspended.
-                  if (frame === end - 1 && end < totalFrames) scheduleWindow(end);
+                  if (frame === lastSample && end < totalFrames) scheduleWindow(end);
                   await offlineCtx.resume();
-                  if (frame === totalFrames - 1 && !settled) {
+                  if (end >= totalFrames && frame === lastSample && !settled) {
                     settled = true;
                     resolve();
                   }
@@ -2442,8 +2432,14 @@ export default function RenderView({
 
       return await finishSuccessfulExport(finalBlob, recordedContainer, mimeType || "video/webm");
     } catch (err: any) {
-      console.error("Render failed:", err);
       const message = err?.message || "Failed to render video";
+      if (abortControllerRef.current || message === "Render cancelled") {
+        setRenderError(null);
+        setFailureReport(null);
+        setRenderStatus({ active: false, progress: 0, stage: "Render cancelled", error: null });
+        return null;
+      }
+      console.error("Render failed:", err);
       // Never show a bare "Rendering failed": translate the failure into a
       // human explanation, keep the raw log under Advanced Details, and
       // offer an automatic retry with a compatible profile.
@@ -2454,9 +2450,11 @@ export default function RenderView({
       setRenderStatus({ active: false, error: message, stage: "Render failed" });
       return null;
     } finally {
-      if (exportReservationId && !exportCompleted) await cancelFinalExport(exportReservationId);
-      setIsRendering(false);
-      await releaseWakeLock();
+      if (exportReservationId && !exportCompleted) {
+        try { await cancelFinalExport(exportReservationId); }
+        catch (cleanupError) { console.warn("Could not release the unused export reservation:", cleanupError); }
+      }
+      try { await releaseWakeLock(); } catch (cleanupError) { console.warn("Could not release the render wake lock:", cleanupError); }
       setRenderHealth((health) => ({
         ...health,
         elapsedMs: health.startedAt ? Date.now() - health.startedAt : health.elapsedMs,
@@ -2479,6 +2477,12 @@ export default function RenderView({
         }
       } catch {}
       renderAudioContext = null;
+      // Keep the cancel state and start lock until *all* asynchronous cleanup
+      // has settled, so a second render cannot inherit old audio or wake-lock work.
+      renderStartPendingRef.current = false;
+      setIsPreparingRender(false);
+      setIsRendering(false);
+      setIsCancelling(false);
     }
   };
 
@@ -2554,16 +2558,14 @@ export default function RenderView({
       .filter((u): u is string => Boolean(u));
 
     const currentVoice = availableVoices?.find((v) => v.id === selectedVoice);
-    const voiceDisplay = currentVoice ? currentVoice.name : (selectedVoice || "Studio AI Voice");
-    const isBrowserVoice = selectedVoice?.startsWith("browser:");
-    const isMale = isMaleVoiceIdentifier(selectedVoice || "");
-
+    const voiceDisplay = currentVoice ? currentVoice.name : (selectedVoice || "Speechify narrator");
     const isCustomImport = selectedVoice?.startsWith("custom:") || selectedVoice?.startsWith("import:");
-
-    // Persona presets are named after the narrator whose delivery they evoke.
-    // The credits must say so honestly: an AI neural voice in that style —
-    // never the named actor.
-    const isPersonaStyle = / style/i.test(voiceDisplay);
+    const isSpeechifyStyle = Boolean(currentVoice?.id.startsWith("speechify_"));
+    const voiceGender = currentVoice?.gender === "male"
+      ? "Male Narrator"
+      : currentVoice?.gender === "female"
+        ? "Female Narrator"
+        : "Narrator";
 
     // Only the image sources this project's scenes actually use are credited;
     // anything unused stays out of the document.
@@ -2610,21 +2612,15 @@ export default function RenderView({
       imageSources: [...usedImageSources],
       graphicsUsed: [...usedGraphics],
       voiceName: voiceDisplay,
-      voiceGender: isCustomImport ? "User Prepared Voice" : isMale ? "Male Narrator" : "Female Narrator",
+      voiceGender: isCustomImport ? "User Prepared Voice" : voiceGender,
       voiceAccent: isCustomImport
-        ? "Custom Imported TTS Audio File"
-        : isBrowserVoice
-        ? "Browser / Web Speech Voice"
-        : isPersonaStyle
-        ? "Style-Inspired AI Narration Profile"
-        : "Natural Neural Voice Profile",
+        ? "Custom Imported Audio File"
+        : currentVoice?.accent || currentVoice?.locale || (isSpeechifyStyle ? "Scenering style profile" : "Speechify voice"),
       voiceEngine: isCustomImport
-        ? "User-Prepared Custom TTS Audio File (Imported Track)"
-        : isBrowserVoice
-        ? "W3C Web Speech API Standards"
-        : isPersonaStyle
-        ? "AI Neural Speech Synthesis — narrator style preset (not the named actor)"
-        : "Natural Human Neural Speech Engine (Free Attribution Cleared License)",
+        ? "User-Prepared Audio File (Imported Track)"
+        : isSpeechifyStyle
+          ? "Speechify text-to-speech — customer-provided API key, Scenering style profile"
+          : "Speechify text-to-speech — customer-provided API key",
     });
   };
 
@@ -2670,10 +2666,15 @@ export default function RenderView({
   };
 
   const cancelRender = () => {
+    if (!isRendering || isCancelling) return;
     abortControllerRef.current = true;
-    setIsRendering(false);
-    reportStage("Render cancelled");
-    setRenderStatus({ active: false, progress: 0, stage: "Render cancelled" });
+    setIsCancelling(true);
+    reportStage("Stopping render…");
+  };
+
+  const toggleRender = () => {
+    if (isRendering) cancelRender();
+    else if (!isPreparingRender) void handleStartRender();
   };
 
   // ==================== MASTER RENDER PROFILE ==========================
@@ -2903,7 +2904,7 @@ export default function RenderView({
                 icon="🎙️"
                 label="Voiceover"
                 value={voiceDisplayName}
-                hint={selectedVoice?.startsWith("browser:") ? "Browser voice" : "Neural voice"}
+                hint="Speechify voice"
               />
               <SummaryRow
                 icon="🔊"
@@ -3401,12 +3402,6 @@ export default function RenderView({
                     </p>
                   </div>
 
-                  <button
-                    onClick={cancelRender}
-                    className="mt-5 px-3 py-1 bg-red-600/70 hover:bg-red-600 text-white text-xs rounded-lg transition-colors"
-                  >
-                    Cancel Render
-                  </button>
                 </div>
               )}
             </div>
@@ -3554,18 +3549,37 @@ export default function RenderView({
               {!renderedUrl ? (
                 <div className="space-y-1.5">
                   <button
-                    onClick={() => void handleStartRender()}
-                    disabled={isRendering || scenesWithImages.length === 0}
-                    className="t-btn-hero w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 text-sm"
+                    type="button"
+                    onClick={toggleRender}
+                    disabled={isPreparingRender || isCancelling || (!isRendering && scenesWithImages.length === 0)}
+                    aria-pressed={isRendering || isPreparingRender}
+                    aria-label={isRendering ? (isCancelling ? "Cancelling video render" : "Cancel video render") : isPreparingRender ? "Preparing video render" : "Start video render"}
+                    className={`t-btn-hero w-full py-3.5 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 text-sm ${
+                      isRendering
+                        ? "bg-rose-700 hover:bg-rose-600"
+                        : isPreparingRender
+                          ? "bg-amber-700"
+                          : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
+                    }`}
                   >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                      {isRendering ? (
+                        <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none" />
+                      ) : (
+                        <>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </>
+                      )}
                     </svg>
                     <span>
-                      {settings.quality === "draft"
-                        ? `Quick Preview Render (${getDimensions("720p").width} × ${getDimensions("720p").height})`
-                        : `Start Video Render (${resLabel.split(" ")[0]})`}
+                      {isRendering
+                        ? isCancelling ? "Cancelling Render…" : "Cancel Render"
+                        : isPreparingRender
+                          ? "Preparing Render…"
+                          : settings.quality === "draft"
+                            ? `Quick Preview Render (${getDimensions("720p").width} × ${getDimensions("720p").height})`
+                            : `Start Video Render (${resLabel.split(" ")[0]})`}
                     </span>
                   </button>
                   <p className="text-[10px] text-gray-500 text-center leading-relaxed">
@@ -3586,11 +3600,20 @@ export default function RenderView({
                       </span>
                     </span>
                     <button
-                      onClick={() => void handleStartRender()}
-                      disabled={isRendering}
-                      className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-xs border border-hairline transition-colors"
+                      type="button"
+                      onClick={toggleRender}
+                      disabled={isPreparingRender || isCancelling}
+                      aria-pressed={isRendering || isPreparingRender}
+                      aria-label={isRendering ? (isCancelling ? "Cancelling video render" : "Cancel video render") : isPreparingRender ? "Preparing video render" : "Re-render video"}
+                      className={`px-2.5 py-1.5 rounded text-xs border transition-colors ${
+                        isRendering
+                          ? "bg-rose-700 hover:bg-rose-600 border-rose-500 text-white"
+                          : isPreparingRender
+                            ? "bg-amber-700 border-amber-500 text-white"
+                            : "bg-gray-800 hover:bg-gray-700 border-hairline text-gray-200"
+                      } disabled:opacity-60 disabled:cursor-not-allowed`}
                     >
-                      <Icon glyph="🔄" /> Re-render
+                      <Icon glyph={isRendering ? "■" : isPreparingRender ? "…" : "🔄"} /> {isRendering ? (isCancelling ? "Cancelling…" : "Cancel Render") : isPreparingRender ? "Preparing Render…" : "Re-render"}
                     </button>
                   </div>
 

@@ -5,21 +5,9 @@ import { BrandMark, Stat } from "./components/primitives";
 import BackToTop from "./components/BackToTop";
 import Hero from "./sections/Hero";
 import Showpiece from "./sections/Showpiece";
-import Questions from "./sections/Questions";
-import IdeaToVideo from "./sections/IdeaToVideo";
-import ScenesSection from "./sections/ScenesSection";
-import VisualResearch from "./sections/VisualResearch";
-import VoiceSection from "./sections/VoiceSection";
-import CaptionsSection from "./sections/CaptionsSection";
-import VideoStudioSection from "./sections/VideoStudioSection";
-import EffectsLibrary from "./sections/EffectsLibrary";
-import BeforeAfter from "./sections/BeforeAfter";
-import Control from "./sections/Control";
+import FeatureTour from "./sections/FeatureTour";
 import NoMeter from "./sections/NoMeter";
 import Examples from "./sections/Examples";
-import Formats from "./sections/Formats";
-import Devices from "./sections/Devices";
-import Sources from "./sections/Sources";
 import Pricing from "./sections/Pricing";
 import FinalCta from "./sections/FinalCta";
 import { CATALOG_COUNTS, HONESTY, LIVE_COUNTS, MESSAGES } from "./product-facts";
@@ -28,22 +16,24 @@ import IconSprite from "../components/icons/IconSprite";
 import PublicPage, { isStandalonePublicPath } from "./PublicPage";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 import SocialLinksRow from "../shared/SocialLinks";
+import { applyPageSeo } from "./seo";
 
 /**
- * The public website.
+ * The public website's front page — a sales page, not a manual.
  *
- * It is one page, and the page is the product story in the order a visitor
- * lives it (spec §34):
+ * It used to demonstrate the entire product in sequence: sixteen sections,
+ * most of them long interactive walkthroughs. Thorough, but it read like a
+ * training course, and the pricing — the thing a convinced visitor needs
+ * next — sat below three thousand pixels of tutorial. The walkthroughs have
+ * moved to /features, where the corner menu's shortcuts and the Features
+ * button lead, and the front page now makes the case the way a salesperson
+ * would:
  *
- *   hero → the six questions → workflow → scenes → visuals → voice →
- *   captions → Video Studio → effects → before/after → control → no meter →
- *   examples → formats → devices → sources → pricing → start
+ *   key art → the promise (hero) → proof in numbers → what you get
+ *   (six cards, each linking to its full demonstration) → what it costs
+ *   to run (nothing metered) → the plans → finished examples → start
  *
- * The questions band sits directly under the hero on purpose: a visitor
- * arrives with a doubt, not with an interest in features, and each question
- * jumps to the section that settles it.
- *
- * Everything below is composed from the same demonstration project and the
+ * Everything is still composed from the same demonstration project and the
  * app's own catalogues, so improving Scenering improves this page.
  */
 
@@ -59,6 +49,8 @@ const NAV = [
 ];
 
 export default function MarketingSite() {
+  const publicPath = typeof window === "undefined" ? "/" : (window.location.pathname.replace(/\/+$/, "") || "/");
+
   // The studio themes paint the document dark; the website is its own light
   // surface, and this flag lets the stylesheet claim <html> while it is open.
   useEffect(() => {
@@ -90,9 +82,14 @@ export default function MarketingSite() {
     };
   }, []);
 
+  // Section aliases such as /voice and /captions are anchors on the homepage,
+  // not separate documents. Give them the homepage metadata and canonical URL.
+  useEffect(() => {
+    if (!isStandalonePublicPath(publicPath)) applyPageSeo("/", "/");
+  }, [publicPath]);
+
   const conceptCount = MARKETING_ASSETS.filter((asset) => asset.status === "concept").length;
   const renderedCount = MARKETING_ASSETS.filter((asset) => asset.status === "rendered").length;
-  const publicPath = typeof window === "undefined" ? "/" : (window.location.pathname.replace(/\/+$/, "") || "/");
 
   if (isStandalonePublicPath(publicPath)) return <PublicPage path={publicPath} />;
 
@@ -110,6 +107,15 @@ export default function MarketingSite() {
             <BrandMark height={26} />
           </button>
 
+          {/* The owner's configured social profiles, in the header as well as
+              the footer, directly right of the wordmark. They used to sit past
+              the flex spacer, which parked them at the far edge of the bar
+              where the fixed corner menu covers them. Hidden on narrow screens
+              by .mkt-nav-social. */}
+          <SocialLinksRow size={26} tone="light" className="mkt-nav-social" />
+
+          <span className="mkt-nav-spacer" />
+
           <div className="mkt-nav-links">
             {NAV.map((item) => (
               <a key={item.href} className="mkt-nav-link" href={item.href}>
@@ -118,16 +124,10 @@ export default function MarketingSite() {
             ))}
           </div>
 
-          <span className="mkt-nav-spacer" />
-
-          {/* The owner's configured social profiles, in the header as well as
-              the footer. Hidden on narrow screens by .mkt-nav-social. */}
-          <SocialLinksRow size={18} tone="light" className="mkt-nav-social" />
-
           {/* The shared corner menu owns public navigation and account actions
               on every Scenering surface. This spacer keeps the fixed button
               clear of the wordmark and desktop link rail. */}
-          <span style={{ width: 92 }} aria-hidden="true" />
+          <span className="sc-corner-reserve" aria-hidden="true" />
         </div>
       </nav>
 
@@ -145,26 +145,21 @@ export default function MarketingSite() {
           </div>
         </div>
 
-        <Questions />
+        {/* What you get — six cards, one benefit each, every one linking to
+            its full demonstration on /features. The demonstrations
+            themselves live there now, not here. */}
+        <FeatureTour />
 
-        <IdeaToVideo />
-        <ScenesSection />
-        <VisualResearch />
-        <VoiceSection />
-        <CaptionsSection />
-        <VideoStudioSection />
-        <EffectsLibrary />
-        <BeforeAfter />
-        <Control />
+        {/* The cost objection, answered before the price is shown… */}
         <NoMeter />
-        <Examples />
-        <Formats />
-        <Devices />
-        <Sources />
+
+        {/* …and then the plans, high on the page where the decision is
+            made — not at the bottom of a tour. */}
         <Pricing />
-        <section className="mkt-section" id="about"><div className="mkt-container pub-callout"><div><h2>Built for creators who want control without filming.</h2><p>Scenering brings scene planning, visual research, narration, captions and finishing into one guided workflow for education, storytelling, organizations, training, travel, business and social content.</p></div><a className="mkt-btn mkt-btn-primary" href="/about">About Scenering</a></div></section>
-        <section className="mkt-section" id="faq"><div className="mkt-container"><div className="mkt-section-head"><span className="mkt-eyebrow">FAQ</span><h2>Preview freely. Export when it is right.</h2><p>Free creates real finished videos. Paid plans add more creative capability and production capacity, and cancelling never automatically deletes projects.</p></div><p><a href="/faq">Read all frequently asked questions →</a></p></div></section>
-        <section className="mkt-section" id="contact"><div className="mkt-container pub-callout"><div><h2>Questions about the product, account or billing?</h2><p>Send a validated support request and choose the category that fits your question.</p></div><a className="mkt-btn mkt-btn-primary" href="/contact">Contact Scenering</a></div></section>
+
+        {/* Proof: the kinds of videos it makes. */}
+        <Examples />
+
         <FinalCta />
       </main>
 
@@ -180,13 +175,13 @@ export default function MarketingSite() {
               <p style={{ marginTop: 10, fontSize: 13.5, maxWidth: 380, color: "#98a1b8" }}>
                 {MESSAGES.hero} {HONESTY.localNote}
               </p>
-              <SocialLinksRow size={24} style={{ marginTop: 14 }} />
+              <SocialLinksRow size={48} style={{ marginTop: 14 }} />
             </div>
 
             <div>
-              <h4>The workflow</h4>
+              <h4>Explore</h4>
               <ul>
-                {NAV.slice(0, 6).map((item) => (
+                {NAV.map((item) => (
                   <li key={item.href}>
                     <a href={item.href}>{item.label}</a>
                   </li>

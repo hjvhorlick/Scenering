@@ -18,13 +18,14 @@ export const SOCIAL_LINK_PLATFORMS = [
   { id: "facebook", label: "Facebook", hosts: ["facebook.com", "fb.com"] },
   { id: "linkedin", label: "LinkedIn", hosts: ["linkedin.com"] },
   { id: "x", label: "X", hosts: ["x.com", "twitter.com"] },
+  { id: "tiktok", label: "TikTok", hosts: ["tiktok.com"] },
 ] as const;
 export type SocialPlatformId = (typeof SOCIAL_LINK_PLATFORMS)[number]["id"];
 type SocialLinks = Record<SocialPlatformId, string>;
 const SOCIAL_LINKS_SETTING_KEY = "social_links";
 
 /**
- * Validates and normalizes the four social-link fields. An empty string
+ * Validates and normalizes the social-link fields. An empty string
  * clears a link. A link pasted without a scheme ("www.youtube.com/@x") is
  * treated as https, because that is how addresses are copied from a browser
  * bar or a profile page. Returns the clean record, or a human-readable error
@@ -52,10 +53,22 @@ export function sanitizeSocialLinks(input: unknown): { links: SocialLinks } | { 
 async function publicSocialLinks(): Promise<SocialLinks> {
   const raw = await db.getSetting(SOCIAL_LINKS_SETTING_KEY);
   const stored = raw ? (JSON.parse(raw) as Partial<SocialLinks>) : {};
-  return { youtube: stored.youtube || "", facebook: stored.facebook || "", linkedin: stored.linkedin || "", x: stored.x || "" };
+  /* Built from SOCIAL_LINK_PLATFORMS, not a literal: a platform added to that
+     one list is published, sanitized and defaulted here with no second edit,
+     and a stored record saved before the platform existed still answers with
+     an empty string rather than `undefined`. */
+  return Object.fromEntries(
+    SOCIAL_LINK_PLATFORMS.map((platform) => [platform.id, stored[platform.id] || ""])
+  ) as SocialLinks;
 }
 
 const now = () => new Date().toISOString();
+/** Verification links are intentionally long-lived enough for users who only
+ * check email once a day, while still limiting the lifetime of a bearer
+ * token. Keep this value shared by registration and resend so the email copy
+ * and the database check cannot drift apart. */
+export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const DEVELOPMENT_SESSION_SECRET = "scenering-local-development-secret";
 function isProduction() { return env().NODE_ENV === "production"; }
 function sessionSecret() {
@@ -229,12 +242,22 @@ function clearSessionCookie(res: Response) { res.setHeader("Set-Cookie", `scener
 
 type Auth = { user: User; plan: PlanSlug };
 
-async function findSession(req: Request): Promise<Auth | null> {
+/** Resolves the signed-in user (and plan) for a request, or null. Exported
+ *  for the Email Centre's preference endpoints, which accept EITHER a
+ *  session OR the signed token a marketing email carries — so they cannot
+ *  simply mount requireUser. */
+export async function findSession(req: Request): Promise<Auth | null> {
   const raw = cookies(req).scenering_session;
   if (raw) {
     const session = await db.findSessionByToken(hashToken(raw));
     const user = session && (await db.findUserById(session.userId));
-    if (user) { const resolved = await ensureOwnerPrivileges(user); return { user: resolved, plan: await getUserPlan(resolved) }; }
+    // A session may have been issued before verification enforcement was
+    // deployed, or a user may have been unverified by an administrative data
+    // repair. Never let an existing cookie bypass the verification gate.
+    if (user && user.isVerified) { const resolved = await ensureOwnerPrivileges(user); return { user: resolved, plan: await getUserPlan(resolved) }; }
+    // Revoke any legacy session that belongs to an unverified account. This
+    // prevents it becoming usable if verification state changes later.
+    if (session && user && !user.isVerified) await db.deleteSessionByToken(session.token);
   }
   /* DEV_AUTO_OWNER=1 — development previews only. Some browsers refuse to
      store any cookie for an embedded or proxied preview, which makes
@@ -245,7 +268,7 @@ async function findSession(req: Request): Promise<Auth | null> {
   if (!isProduction() && env().DEV_AUTO_OWNER === "1") {
     const ownerEmail = configuredOwnerEmail();
     const owner = ownerEmail && (await db.findUserByEmail(ownerEmail));
-    if (owner && owner.role === "admin") return { user: owner, plan: "sceneforge" };
+    if (owner && owner.role === "admin" && owner.isVerified) return { user: owner, plan: "sceneforge" };
   }
   return null;
 }
@@ -268,6 +291,10 @@ function requireAdminMiddleware(req: Request, res: Response, next: NextFunction)
 const requireUser = requireUserMiddleware;
 const requireAdmin = requireAdminMiddleware;
 export const requirePlatformUser = requireUserMiddleware;
+/** The admin-only middleware the Email Centre (server/email-centre.ts) and
+ *  any other owner surface mounts — identical to what /api/admin/* uses
+ *  here: 401 without a session, 403 unless the account's role is admin. */
+export const requirePlatformAdmin = requireAdminMiddleware;
 
 /** Synchronous — safe to call from any handler that runs after
  *  requireUser/requireAdmin, because the plan was already resolved once by
@@ -496,7 +523,7 @@ function asyncHandlerVoid(handler: (req: Request, res: Response) => Promise<unkn
 }
 
 export function registerPlatformRoutes(app: Express) {
-  app.get("/robots.txt", (req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /app\nDisallow: /login\nDisallow: /register\nSitemap: ${baseUrl(req)}/sitemap.xml\n`));
+  app.get("/robots.txt", (req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /app\nDisallow: /login\nDisallow: /register\nDisallow: /forgot-password\nDisallow: /verify-email\nDisallow: /reset-password\nDisallow: /api/\nDisallow: /functions/\nSitemap: ${baseUrl(req)}/sitemap.xml\n`));
   app.get("/sitemap.xml", (req, res) => { const root = baseUrl(req); const pages = ["", "/features", "/how-it-works", "/pricing", "/about", "/manual", "/faq", "/contact", "/privacy", "/terms", "/cookies"]; res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${pages.map((page) => `<url><loc>${root}${page || "/"}</loc></url>`).join("")}</urlset>`); });
   app.get("/api/plans", (_req, res) => res.json({ plans: PLAN_ORDER.map((slug) => PLAN_CONFIG[slug]) }));
 
@@ -509,7 +536,8 @@ export function registerPlatformRoutes(app: Express) {
     await db.createMembership(user.id, isOwner ? "sceneforge" : "free");
     await db.upsertEmailPreference({ userId: user.id, marketingConsent: Boolean(req.body?.marketingConsent), consentTimestamp: now(), consentSource: "registration", consentVersion: "2026-10", trainingStep: 0, updatedAt: now() });
     const raw = randomBytes(32).toString("base64url");
-    await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + 24 * 3600000).toISOString());
+    await db.deleteVerificationTokensForUser(user.id, "verify");
+    await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
     await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(raw)}`);
     return res.status(201).json({ message: "Account created. Check your email to verify it.", requiresVerification: true, ...(!isProduction() ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(raw)}` } : {}) });
   }));
@@ -552,7 +580,8 @@ export function registerPlatformRoutes(app: Express) {
     const user = await db.findUserByEmail(email);
     if (user && !user.isVerified) {
       const raw = randomBytes(32).toString("base64url");
-      await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + 24 * 3600000).toISOString());
+      await db.deleteVerificationTokensForUser(user.id, "verify");
+      await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
       await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(raw)}`);
     }
     res.json({ message: "If the account exists, a verification message has been sent." });
@@ -564,7 +593,8 @@ export function registerPlatformRoutes(app: Express) {
     let developmentResetUrl = "";
     if (user) {
       const raw = randomBytes(32).toString("base64url");
-      await db.createVerificationToken(user.id, hashToken(raw), "reset", new Date(Date.now() + 3600000).toISOString());
+      await db.deleteVerificationTokensForUser(user.id, "reset");
+      await db.createVerificationToken(user.id, hashToken(raw), "reset", new Date(Date.now() + PASSWORD_RESET_TTL_MS).toISOString());
       developmentResetUrl = `/reset-password?token=${encodeURIComponent(raw)}`;
       await sendPasswordResetEmail(user.email, user.displayName, `${baseUrl(req)}${developmentResetUrl}`);
     }
@@ -818,12 +848,11 @@ export function registerPlatformRoutes(app: Express) {
     res.json({ links: await publicSocialLinks() });
   }));
 
-  app.get("/api/email-preferences", requireUser, asyncHandlerVoid(async (req, res) => { const { user } = (req as any).auth as Auth; res.json(await db.findEmailPreference(user.id)); }));
-  app.put("/api/email-preferences", requireUser, asyncHandlerVoid(async (req, res) => {
-    const { user } = (req as any).auth as Auth;
-    const pref = await db.upsertEmailPreference({ userId: user.id, marketingConsent: Boolean(req.body?.marketingConsent), consentTimestamp: now(), consentSource: "account_settings", consentVersion: "2026-10", trainingStep: (await db.findEmailPreference(user.id))?.trainingStep || 0, updatedAt: now() });
-    res.json(pref);
-  }));
+  /* /api/email-preferences (GET/PUT) and /api/email/unsubscribe are
+     registered by the Email Centre (server/email-centre.ts): they accept
+     BOTH a signed-in session and the signed token that marketing emails
+     carry, so a recipient can manage preferences without signing in while
+     the account-settings path keeps working exactly as before. */
 
   app.post("/api/contact", rateLimit("contact", 5, 3600000), asyncHandlerVoid(async (req, res) => {
     const { name, email, subject, message, category, website } = req.body || {};
@@ -836,3 +865,32 @@ export function registerPlatformRoutes(app: Express) {
 }
 
 function baseUrl(req: Request) { return (env().PUBLIC_APP_URL as string) || `${req.protocol}://${req.get("host")}`; }
+export { baseUrl as publicBaseUrl };
+
+/**
+ * Tamper-proof tokens for the email preference links that ride inside
+ * marketing mail ({{unsubscribe_url}}, {{preferences_url}}). Recipients
+ * click them signed-out, so they cannot be session-scoped: the token is
+ * `userId.expiry.hmac`, signed with the same server secret as sessions and
+ * expiring after 30 days — long enough for any campaign, short enough that
+ * a forwarded link does not live forever. Only the preference it names can
+ * be changed with it; it grants no other access.
+ */
+const EMAIL_PREFERENCE_TOKEN_TTL_MS = 30 * 24 * 3600000;
+export function signEmailPreferenceToken(userId: string, atMs = Date.now()): string {
+  const expiry = atMs + EMAIL_PREFERENCE_TOKEN_TTL_MS;
+  const payload = `${userId}.${expiry}`;
+  const mac = createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
+  return `${payload}.${mac}`;
+}
+export function verifyEmailPreferenceToken(token: string): string | null {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3) return null;
+  const [userId, expiryRaw, mac] = parts;
+  const expiry = Number(expiryRaw);
+  if (!userId || !mac || !Number.isFinite(expiry) || expiry <= Date.now()) return null;
+  const expected = createHmac("sha256", sessionSecret()).update(`${userId}.${expiryRaw}`).digest("base64url");
+  const a = Buffer.from(mac);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b) ? userId : null;
+}

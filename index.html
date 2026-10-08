@@ -3,7 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Scenering — From idea to video</title>
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="canonical" href="https://scenering.com/" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <title>Scenering | Faceless Video Maker from Script to Video</title>
     <!-- Caption typefaces, first wave only: the handful of faces the default
          styles use, requested here so the first caption paints in the right
          font. The full catalogue (sixty-odd families, including the strange
@@ -21,11 +27,11 @@
     />
     <meta
       name="description"
-      content="Scenering turns a script into scenes, finds a visual for each one, gives them a voice, adds captions and finishes the video in Video Studio. Runs on your own machine."
+      content="Make faceless videos from scripts or prepared audio with Scenering. Build scenes, research visuals, add voiceover and synced captions, then edit and export for social platforms."
     />
     <meta name="author" content="Henry John Vincent Horlick" />
     <meta name="copyright" content="Copyright © 2026 Henry John Vincent Horlick. All rights reserved." />
-    <meta name="theme-color" content="#faf7f2" />
+    <meta name="theme-color" content="#0b2347" />
     <!-- Apply the saved UI theme before first paint to avoid a flash of the
          default theme. Kept in sync with src/lib/themes.ts. -->
     <script>
@@ -39,43 +45,57 @@
         }
       })();
     </script>
-    <!-- Link previews. og:image is relative because this app ships without a
-         fixed domain; set it to an absolute URL when you deploy one. The card
-         is built by scripts/make-og-card.mjs from our own artwork. -->
+    <!-- Absolute URLs are required by social-card crawlers, which do not run
+         the SPA JavaScript. The card is built from Scenering's own artwork. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Scenering" />
-    <meta property="og:title" content="Scenering — From idea to video" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://scenering.com/" />
+    <meta property="og:title" content="Scenering | Faceless Video Maker from Script to Video" />
     <meta
       property="og:description"
-      content="Turn your script into scenes, find visuals that fit the story, give every scene a voice, add captions, and finish in Video Studio."
+      content="Make faceless videos from scripts or prepared audio. Build scenes, research visuals, add voiceover and synced captions, then edit and export for social platforms."
     />
-    <meta property="og:image" content="/marketing/og-card.jpg" />
+    <meta property="og:image" content="https://scenering.com/marketing/og-card.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Scenering — from idea to video. A script becomes scenes, visuals, voice and captions." />
+    <meta property="og:image:alt" content="Scenering turns scripts into scene-based faceless videos with researched visuals, voiceover and synced captions." />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Scenering — From idea to video" />
+    <meta name="twitter:title" content="Scenering | Faceless Video Maker from Script to Video" />
     <meta
       name="twitter:description"
-      content="Turn your script into scenes, find visuals that fit the story, give every scene a voice, add captions, and finish in Video Studio."
+      content="Make faceless videos from scripts or prepared audio. Build scenes, research visuals, add voiceover and synced captions, then edit and export for social platforms."
     />
-    <meta name="twitter:image" content="/marketing/og-card.jpg" />
+    <meta name="twitter:image" content="https://scenering.com/marketing/og-card.jpg" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "Scenering",
+        "url": "https://scenering.com/",
+        "image": "https://scenering.com/marketing/og-card.jpg",
         "applicationCategory": "MultimediaApplication",
-        "operatingSystem": "Web",
-        "description": "Create scene-based faceless videos from scripts and audio with visual research, voice-over, captions and creative finishing tools.",
+        "applicationSubCategory": "Video editing and script-to-video software",
+        "operatingSystem": "Web browser",
+        "description": "Create scene-based faceless videos from scripts or prepared audio. Research visuals, add narration and synced captions, edit the video, and export for social platforms.",
+        "featureList": [
+          "Script-to-scene planning",
+          "Visual research and selection",
+          "Speechify voiceover with a customer-provided API key",
+          "Word-synced captions",
+          "Video Studio editing and effects",
+          "MP4 and WebM export"
+        ],
         "offers": [
-          { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD" },
-          { "@type": "Offer", "name": "SceneFlow monthly", "price": "19", "priceCurrency": "USD" },
-          { "@type": "Offer", "name": "SceneForge monthly", "price": "39", "priceCurrency": "USD" }
+          { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD", "url": "https://scenering.com/pricing" },
+          { "@type": "Offer", "name": "SceneFlow monthly", "price": "19", "priceCurrency": "USD", "url": "https://scenering.com/pricing" },
+          { "@type": "Offer", "name": "SceneFlow yearly", "price": "180", "priceCurrency": "USD", "url": "https://scenering.com/pricing" },
+          { "@type": "Offer", "name": "SceneForge monthly", "price": "39", "priceCurrency": "USD", "url": "https://scenering.com/pricing" },
+          { "@type": "Offer", "name": "SceneForge yearly", "price": "372", "priceCurrency": "USD", "url": "https://scenering.com/pricing" }
         ]
       }
     </script>
-</head>
+  </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

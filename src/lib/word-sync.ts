@@ -1,15 +1,10 @@
 /**
  * Word-level caption ↔ voice synchronisation.
  *
- * The Edge TTS websocket reports a `WordBoundary` metadata frame for every
- * word it speaks, with the word's offset and duration in the *audio*
- * timeline. That is the only ground truth for "which word is being said
- * right now" — every estimate (even a syllable-weighted one) drifts ahead of
- * or behind the real voice because engines pause at punctuation, stretch
- * numbers and rush short connector words.
- *
- * This module turns those frames into a per-caption-word timeline and answers
- * "which caption word is active at audio time t".
+ * Speechify can return word-level speech marks with each synthesis response.
+ * Those marks are converted upstream to seconds and aligned to the displayed
+ * caption words here. If marks are absent, the renderer uses its local timing
+ * estimate instead.
  *
  * It is deliberately pure (no DOM, no network) so the alignment maths can be
  * unit-tested in plain Node.
@@ -26,57 +21,6 @@ export interface WordTiming {
 
 /** A caption word's resolved timing; `null` when it could not be aligned. */
 export type AlignedWord = { start: number; end: number } | null;
-
-/** Edge TTS reports offsets in 100-nanosecond ticks. */
-const TICKS_PER_SECOND = 1e7;
-
-/**
- * Parses the raw JSON metadata frames emitted by the Edge TTS websocket
- * (`Path:audio.metadata` messages) into word timings.
- *
- * The frames look like:
- *   {"Metadata":[{"Type":"WordBoundary","Data":{
- *      "Offset":1250000,"Duration":2260000,
- *      "text":{"Text":"Hello","Length":5,"BoundaryType":"WordBoundary"}}}]}
- *
- * Both the modern (`Data.text.Text`) and legacy (`Data.text` as a plain
- * string) shapes are accepted, and non-word metadata (session ends, sentence
- * boundaries) is skipped. Anything unparseable is ignored rather than thrown:
- * a bad frame must never take the whole voiceover down.
- */
-export function parseEdgeWordBoundaries(frames: readonly (string | Uint8Array | Buffer)[]): WordTiming[] {
-  const words: WordTiming[] = [];
-  for (const frame of frames) {
-    if (!frame) continue;
-    const text = typeof frame === "string" ? frame : BufferCompat.toString(frame);
-    let parsed: any;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      continue;
-    }
-    const entries = parsed?.Metadata;
-    if (!Array.isArray(entries)) continue;
-    for (const entry of entries) {
-      const type = String(entry?.Type || "");
-      if (!/wordboundary/i.test(type)) continue;
-      const data = entry?.Data || {};
-      const spoken =
-        typeof data?.text === "object" && data?.text !== null
-          ? String(data.text.Text ?? "")
-          : String(data?.text ?? "");
-      const offsetTicks = Number(data?.Offset);
-      const durationTicks = Number(data?.Duration);
-      if (!Number.isFinite(offsetTicks) || !spoken) continue;
-      const start = Math.max(0, offsetTicks / TICKS_PER_SECOND);
-      const dur = Number.isFinite(durationTicks) && durationTicks > 0 ? durationTicks / TICKS_PER_SECOND : 0;
-      words.push({ text: spoken, start, end: start + dur });
-    }
-  }
-  // Safety: enforce monotonic order (network frames should already be sorted).
-  words.sort((a, b) => a.start - b.start);
-  return words;
-}
 
 /** Normalises a word for fuzzy matching: lowercase, alphanumeric only. */
 function normalizeWord(word: string): string {
@@ -218,15 +162,3 @@ export function alignedWordTimingsCached(
   }
   return aligned;
 }
-
-/** Node Buffer / browser Uint8Array toString shim (this file is engine-agnostic). */
-const BufferCompat = {
-  toString(bytes: Uint8Array): string {
-    let out = "";
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      out += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    return out;
-  },
-};

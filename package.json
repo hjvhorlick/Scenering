@@ -24,7 +24,6 @@
     "brand:check": "esbuild src/lib/render-effects.ts --bundle --format=esm --outfile=public/brand-mark.mjs --loader:.png=dataurl --loader:.jpg=dataurl --log-level=silent"
   },
   "dependencies": {
-    "@google/genai": "^2.22.0",
     "@supabase/supabase-js": "^2.45.4",
     "express": "^5.2.1",
     "jszip": "^3.10.1",
