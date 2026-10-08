@@ -108,7 +108,7 @@ if (width === height) {
 /* Every size from that same square, through the same two steps, so the set is
    consistent: the tab icon, the manifest, the home screen and the logo a
    search engine reads.
- 
+
    1. Lanczos down to the size. Nothing else about the drawing changes — no
       recolour, no trim, no crop, and the letter is the letter the master
       draws.

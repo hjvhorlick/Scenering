@@ -1,18 +1,37 @@
+import { DEVICE_PERFORMANCE } from "./device-guidance";
+
 export interface FaqEntry { id: string; category: string; question: string; answer: string; keywords: string }
-interface Concept { category: string; term: string; meaning: string; purpose: string; control: string; caution: string; export: string }
+type QuestionDimension = "meaning" | "purpose" | "control" | "caution" | "export";
+interface Concept { category: string; term: string; meaning: string; purpose: string; control: string; caution: string; export: string; questionOverrides?: Partial<Record<QuestionDimension, string>> }
 const c = (category: string, term: string, meaning: string, purpose: string, control: string, caution: string, output: string): Concept => ({ category, term, meaning, purpose, control, caution, export: output });
 
 /**
- * One hundred and ten real concepts from the Scenering workflow. Every concept
+ * One hundred and eleven real concepts from the Scenering workflow. Every concept
  * covers meaning, control, common errors and final-output impact; the first
  * sixty also answer the separate “why use it?” uncertainty. This produces
- * exactly 500 useful, searchable answers without dropping specialist terms.
+ * 504 useful, searchable answers without dropping specialist terms.
  */
 const CONCEPTS: Concept[] = [
   c("Getting started", "Scenering", "Scenering is a web application that turns a script or prepared audio into an editable, scene-based faceless video.", "It brings visual research, narration, captions, finishing and export into one guided workflow.", "Begin with Get Started Free, verify your email, then create a project in Setup.", "Do not expect a one-click black box; review each stage so the finished video reflects your intent.", "Scenering produces a video file using the format and quality selected in Project Setup."),
   c("Getting started", "the six-step workflow", "The studio moves through Setup, Scenes, Voiceover, Captions, Video Studio and Render.", "The order prevents later styling decisions from hiding problems in the script or scene structure.", "Use the numbered phase bar at the top; completed work remains editable when you move backward.", "Do not treat moving forward as permanent—return to an earlier step whenever something needs correction.", "All six stages contribute to the final file, but previews between them do not count as final exports."),
   c("Getting started", "a faceless video", "A faceless video communicates with visuals, narration, captions and graphics without requiring the creator to appear on camera.", "It suits education, information, storytelling, training and channels where filming is impractical.", "Use relevant scene imagery, a suitable narrator and readable captions to carry the story.", "Faceless does not mean impersonal; generic visuals and monotone narration can still weaken the result.", "The final export contains the assembled media, not a recording of you using the editor."),
   c("Getting started", "browser-based editing", "Browser-based editing means Scenering runs in a modern web browser rather than requiring desktop installation.", "It makes the studio accessible across common computers while using browser media capabilities.", "Use a current Chromium-based browser for the broadest rendering support and keep the tab open during export.", "Private browsing, aggressive storage clearing and unsupported browsers can remove local project media or limit rendering.", "Rendering capability and speed depend partly on the browser and device."),
+  {
+    category: "Getting started",
+    term: "computer performance",
+    meaning: `${DEVICE_PERFORMANCE.testedSystem} ${DEVICE_PERFORMANCE.lowerSpecExpectation}`,
+    purpose: `${DEVICE_PERFORMANCE.persistentRender} ${DEVICE_PERFORMANCE.recommendation}`,
+    control: `Use a current Chromium-based browser and follow the render guidance. ${DEVICE_PERFORMANCE.modestMachineTips}`,
+    caution: "Do not treat one successful low-spec run as a promise of speed: media-heavy scenes, high-resolution output and many effects can make a 2-core Celeron with 4 GB RAM work slowly or reach a browser limit.",
+    export: "A slower computer can lengthen the final render even when the output profile is unchanged. Scenering’s persistent render engine helps an active job keep working as you navigate the studio, but a faster modern PC will generally finish sooner.",
+    questionOverrides: {
+      meaning: "Can Scenering run on a low-spec computer?",
+      purpose: "Why does computer performance matter in Scenering?",
+      control: "How can I make Scenering easier to use on a modest PC?",
+      caution: "What should I expect from a 2-core Celeron with 4 GB RAM?",
+      export: "How does a slower computer affect a Scenering render?",
+    },
+  },
   c("Getting started", "the Setup screen", "Setup is the project control room for title, source content, format, pacing, motion and render profile.", "Decisions made here establish the canvas and initial scene structure before detailed editing.", "Review destination, aspect ratio, resolution and narration choices before creating scenes.", "Changing format late is possible, but may require reframing images, captions and overlays.", "Setup choices determine the dimensions, frame rate and encoding plan used by final export."),
 
   c("Accounts and security", "registration", "Registration creates a Scenering account with email, display name and a securely hashed password.", "An account provides membership, session, usage and billing identity without merging those concepts together.", "Choose Get Started Free, complete the form and follow the verification link.", "Do not reuse a weak password or enter an email you cannot access.", "Registration itself does not consume usage or create a paid subscription."),
@@ -155,7 +174,7 @@ export const FAQ_LIBRARY: FaqEntry[] = CONCEPTS.flatMap((concept, conceptIndex) 
   return dimensions.map((dimension) => ({
     id: `faq-${String(conceptIndex + 1).padStart(3, "0")}-${dimension.key}`,
     category: concept.category,
-    question: dimension.q(concept.term),
+    question: concept.questionOverrides?.[dimension.key] || dimension.q(concept.term),
     answer: dimension.a(concept),
     keywords: `${concept.category} ${concept.term} ${concept.meaning}`.toLowerCase(),
   }));
@@ -163,6 +182,6 @@ export const FAQ_LIBRARY: FaqEntry[] = CONCEPTS.flatMap((concept, conceptIndex) 
 
 export const FAQ_CATEGORIES = ["All", ...Array.from(new Set(CONCEPTS.map((entry) => entry.category)))] as const;
 
-if (FAQ_LIBRARY.length !== 500) {
-  throw new Error(`FAQ library must contain exactly 500 entries; found ${FAQ_LIBRARY.length}`);
+if (FAQ_LIBRARY.length !== 504) {
+  throw new Error(`FAQ library must contain exactly 504 entries; found ${FAQ_LIBRARY.length}`);
 }

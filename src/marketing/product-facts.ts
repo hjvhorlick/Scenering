@@ -24,6 +24,7 @@ import { STUDIO_VOICE_PRESETS } from "../data/voice-presets";
 import { TRANSITION_OPTIONS } from "../lib/scene-transition";
 import { PROJECT_PHASES } from "../components/StepNav";
 import { NATURE_FALLBACKS } from "../data/nature-fallbacks";
+import { DEVICE_PERFORMANCE } from "./device-guidance";
 
 /* ------------------------------------------------------------------ counts */
 
@@ -59,7 +60,7 @@ export const CATALOG_COUNTS = {
   musicTracks: 30,
   soundEffects: 12,
   /** src/lib/video-studio-catalog.ts → CATALOG_ITEMS.audio_visualizers */
-  visualisers: 52,
+  visualisers: 59,
   /** src/lib/video-studio-catalog.ts → SCENE_MOTIONS */
   sceneMotions: 5,
   /** src/lib/video-studio-catalog.ts → STUDIO_CATEGORIES */
@@ -553,7 +554,7 @@ export const MESSAGES = {
   control: "You stay in control.",
 } as const;
 
-/* ------------------------------------------------- the first five worries */
+/* -------------------------------------------------- the first six worries */
 
 export interface CommonQuestion {
   id: string;
@@ -568,7 +569,8 @@ export interface CommonQuestion {
 }
 
 /**
- * What people want to know before they will read anything else.
+ * What people want to know before they will read anything else, including whether
+ * their current computer is enough to get started.
  *
  * Each one is a real objection, answered in one line here and properly by the
  * section it points at — so the band at the top of the page is a table of
@@ -613,6 +615,13 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
     answer: `You work through ${WORKFLOW_STAGES.length} steps and the first version is made for you. Change what you want; leave the rest.`,
     section: "workflow",
     cue: "Walk through it",
+  },
+  {
+    id: "computer",
+    question: "Will Scenering run on my computer?",
+    answer: `${DEVICE_PERFORMANCE.testedSystem} Demanding projects can take longer. ${DEVICE_PERFORMANCE.recommendation}`,
+    section: "devices",
+    cue: "See performance guidance",
   },
 ];
 

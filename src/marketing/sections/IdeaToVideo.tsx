@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Section, SectionHead, Pill, MarketingImage, FigureNote } from "../components/primitives";
-import { useRovingTabs } from "../hooks";
+import { useInView, useMediaQuery, useRovingTabs, useStageSequence } from "../hooks";
 import AppFrame from "../components/AppFrame";
 import SceneCard from "../components/SceneCard";
 import Waveform from "../components/Waveform";
@@ -189,71 +189,149 @@ function StagePanel({ id }: { id: string }) {
   }
 }
 
+/**
+ * The phone version of the workflow is intentionally a small moving glimpse,
+ * not a scaled-down copy of a full desktop workspace. The six tabs still
+ * expose every phase and the active step advances while this section is in
+ * view; choosing a tab hands control to the visitor and stops the sequence.
+ */
+function CompactWorkflowPreview({ stage }: { stage: (typeof WORKFLOW_STAGES)[number] }) {
+  const stageIndex = Math.max(0, WORKFLOW_STAGES.findIndex((entry) => entry.id === stage.id));
+  const scene = DEMO_SCENES[stageIndex % DEMO_SCENES.length];
+  const captionStage = stage.id === "captions" || stage.id === "studio" || stage.id === "render";
+  const signal =
+    stage.id === "setup"
+      ? "Script · format · pacing"
+      : stage.id === "scenes"
+        ? `${DEMO_SCENES.length} scenes · visual search`
+        : stage.id === "voiceover"
+          ? "Narration is taking shape"
+          : stage.id === "captions"
+            ? "Caption style · word timing"
+            : stage.id === "studio"
+              ? "Timeline · sound · finishing"
+              : "MP4 · 1080p · saved to Vault";
+
+  return (
+    <div className="mkt-workflow-mobile-demo">
+      <div className="mkt-workflow-mobile-demo-bar">
+        <span className="mkt-workflow-mobile-demo-number">{stage.number}</span>
+        <span>{stage.appTab}</span>
+        <span className="mkt-workflow-mobile-demo-state" aria-hidden="true">
+          <i /> Active
+        </span>
+      </div>
+      <PlayerFrame
+        assetId={scene.assetId}
+        caption={captionStage ? scene.caption : undefined}
+        captionStyle={captionStage ? DEMO_CAPTION_STYLE : undefined}
+        highlightWord={captionStage ? 1 : undefined}
+        progress={(stageIndex + 1) / WORKFLOW_STAGES.length}
+        badge={stage.id === "render" ? "Rendered" : stage.name}
+        grade={stage.id === "studio" ? DEMO_TIMELINE_EXTRAS.filter.css : undefined}
+        captionSize={11}
+        sizes="(min-width: 720px) 520px, 92vw"
+      />
+      <div className="mkt-workflow-mobile-signal">
+        {stage.id === "voiceover" ? (
+          <Waveform seed="workflow-mobile-voice" variant="dots" height={20} live />
+        ) : (
+          <span>{signal}</span>
+        )}
+        <span className="mkt-workflow-mobile-sweep" aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
 export default function IdeaToVideo() {
-  const [active, setActive] = useState(1);
-  const { setRef, onKeyDown } = useRovingTabs(WORKFLOW_STAGES.length, active, setActive);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const inView = useInView(hostRef);
+  const compact = useMediaQuery("(width <= 719px)");
+  const [desktopActive, setDesktopActive] = useState(1);
+  const mobileSequence = useStageSequence(WORKFLOW_STAGES.length, {
+    intervalMs: 2300,
+    active: compact && inView,
+    loop: true,
+  });
+  const active = compact ? mobileSequence.stage : desktopActive;
+  const selectStage = compact ? mobileSequence.goTo : setDesktopActive;
+  const { setRef, onKeyDown } = useRovingTabs(WORKFLOW_STAGES.length, active, selectStage);
   const stage = WORKFLOW_STAGES[active];
 
   return (
     <Section id="workflow" tone="white">
-      <SectionHead
-        id="workflow"
-        eyebrow="From idea to video"
-        title={`${WORKFLOW_STAGES.length} steps, one project.`}
-        lead="Pick a step to see the part of the studio that handles it. One project, carried the whole way."
-      />
+      <div className="mkt-workflow" ref={hostRef}>
+        <SectionHead
+          id="workflow"
+          eyebrow="From idea to video"
+          title={`${WORKFLOW_STAGES.length} steps, one project.`}
+          lead="Pick a step to see the part of the studio that handles it. One project, carried the whole way."
+        />
 
-      <div className="mkt-split">
-        <div>
-          <div className="mkt-rail" role="tablist" aria-label="Workflow stages" onKeyDown={onKeyDown}>
-            {WORKFLOW_STAGES.map((entry, index) => (
-              <button
-                key={entry.id}
-                type="button"
-                role="tab"
-                ref={setRef(index)}
-                className="mkt-opt"
-                aria-selected={active === index}
-                aria-controls="workflow-panel"
-                id={`workflow-tab-${entry.id}`}
-                tabIndex={active === index ? 0 : -1}
-                onClick={() => setActive(index)}
-              >
-                <span className="mkt-opt-no">{entry.number}</span>
-                {entry.name}
-              </button>
-            ))}
+        <div className="mkt-split mkt-workflow-split">
+          <div className="mkt-workflow-copy">
+            <div className="mkt-rail" role="tablist" aria-label="Workflow stages" onKeyDown={onKeyDown}>
+              {WORKFLOW_STAGES.map((entry, index) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  role="tab"
+                  ref={setRef(index)}
+                  className="mkt-opt"
+                  aria-selected={active === index}
+                  aria-controls="workflow-panel"
+                  id={`workflow-tab-${entry.id}`}
+                  tabIndex={active === index ? 0 : -1}
+                  onClick={() => selectStage(index)}
+                >
+                  <span className="mkt-opt-no">{entry.number}</span>
+                  {entry.name}
+                </button>
+              ))}
+            </div>
+
+            <div className="mkt-workflow-desktop-copy mkt-panel-flat mkt-pad" style={{ marginTop: 14 }}>
+              <h3 className="mkt-h3">{stage.message}</h3>
+              <p className="mkt-lead" style={{ fontSize: 14.5, marginTop: 8 }}>
+                {stage.body}
+              </p>
+              <p className="mkt-small" style={{ marginTop: 10 }}>
+                <em>“{stage.thought}”</em>
+              </p>
+            </div>
+
+            <div className="mkt-workflow-mobile-copy">
+              <p className="mkt-workflow-mobile-kicker">Step {stage.number} of {WORKFLOW_STAGES.length} · {stage.appTab}</p>
+              <h3>{stage.message}</h3>
+              <p>{stage.body}</p>
+            </div>
           </div>
 
-          <div className="mkt-panel-flat mkt-pad" style={{ marginTop: 14 }}>
-            <h3 className="mkt-h3">{stage.message}</h3>
-            <p className="mkt-lead" style={{ fontSize: 14.5, marginTop: 8 }}>
-              {stage.body}
-            </p>
-            <p className="mkt-small" style={{ marginTop: 10 }}>
-              <em>“{stage.thought}”</em>
-            </p>
-          </div>
+          <figure style={{ margin: 0 }}>
+            <div
+              id="workflow-panel"
+              role="tabpanel"
+              aria-labelledby={`workflow-tab-${stage.id}`}
+              tabIndex={-1}
+            >
+              <div className="mkt-workflow-desktop">
+                <AppFrame title={`${DEMO_PROJECT.title} · ${stage.name}`} phase={stage.id as ProjectPhase}>
+                  <StagePanel id={stage.id} />
+                </AppFrame>
+              </div>
+              <div className="mkt-workflow-mobile">
+                <CompactWorkflowPreview key={stage.id} stage={stage} />
+              </div>
+            </div>
+            <FigureNote>
+              <Pill>{HONESTY.conceptLabel}</Pill>
+              <span>
+                Step {stage.number} — {stage.name} · the <b>{stage.appTab}</b> tab in the studio
+              </span>
+            </FigureNote>
+          </figure>
         </div>
-
-        <figure style={{ margin: 0 }}>
-          <div
-            id="workflow-panel"
-            role="tabpanel"
-            aria-labelledby={`workflow-tab-${stage.id}`}
-            tabIndex={-1}
-          >
-            <AppFrame title={`${DEMO_PROJECT.title} · ${stage.name}`} phase={stage.id as ProjectPhase}>
-              <StagePanel id={stage.id} />
-            </AppFrame>
-          </div>
-          <FigureNote>
-            <Pill>{HONESTY.conceptLabel}</Pill>
-            <span>
-              Step {stage.number} — {stage.name} · the <b>{stage.appTab}</b> tab in the studio
-            </span>
-          </FigureNote>
-        </figure>
       </div>
     </Section>
   );

@@ -33,7 +33,8 @@ import {
 import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import { loadSceneImage } from "../lib/scene-image-loader";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
-import { getWatermarkLayout } from "../lib/watermark-layout";
+import { drawSceneringWatermark, planRequiresSceneringWatermark } from "../lib/scenering-watermark";
+import { getInterfacePlan, useSession } from "../lib/session";
 import Icon from "./icons/Icon";
 
 interface VideoPreviewProps {
@@ -137,6 +138,9 @@ export default function VideoPreview({
   outroSection = null,
   voiceEcho,
 }: VideoPreviewProps) {
+  const { account } = useSession();
+  /** Product branding follows the account plan and has no project/user switch. */
+  const showPlanWatermark = planRequiresSceneringWatermark(getInterfacePlan(account));
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // kept in a ref so the draw loop always grades with the latest settings
   // without having to rebuild every callback while the sliders are dragged
@@ -232,15 +236,30 @@ export default function VideoPreview({
   // Repaint the canvas once the caption typefaces arrive
   const [fontsLoadedCounter, setFontsLoadedCounter] = useState<number>(0);
 
-  // Preload Crisp Logo Watermark
+  // Load product branding only when the active plan requires it. The final
+  // render independently waits for this asset before exporting a Free file.
   useEffect(() => {
+    if (!showPlanWatermark) {
+      watermarkImgRef.current = null;
+      return;
+    }
     const img = new Image();
-    img.src = "/scenering-logo.png";
     img.onload = () => {
       watermarkImgRef.current = img;
       setLogoLoadedCounter((c) => c + 1);
     };
-  }, []);
+    img.src = "/scenering-logo.png";
+    return () => {
+      img.onload = null;
+      img.onerror = null;
+    };
+  }, [showPlanWatermark]);
+
+  /** Keep the Free-plan product mark above all creator-owned preview layers. */
+  const drawPlanWatermark = useCallback((ctx: CanvasRenderingContext2D) => {
+    if (!showPlanWatermark) return;
+    drawSceneringWatermark(ctx, watermarkImgRef.current, ctx.canvas.width, ctx.canvas.height);
+  }, [showPlanWatermark]);
 
   // Preload Customer Brand Logo (Top-Right)
   useEffect(() => {
@@ -683,29 +702,6 @@ export default function VideoPreview({
         });
       }
 
-      // Crisp Scenering Logo Watermark in Top-Left Corner (Transparent background, no borders)
-      if (watermarkImgRef.current && (watermarkImgRef.current.complete || watermarkImgRef.current.naturalWidth > 0)) {
-        ctx.save();
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-
-        const watermark = getWatermarkLayout(
-          w,
-          h,
-          watermarkImgRef.current.naturalWidth,
-          watermarkImgRef.current.naturalHeight
-        );
-
-        // Subtle soft shadow so transparent logo stands out cleanly on any video scene
-        ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-        ctx.shadowBlur = watermark.shadowBlur;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = watermark.shadowOffsetY;
-
-        ctx.drawImage(watermarkImgRef.current, watermark.x, watermark.y, watermark.width, watermark.height);
-        ctx.restore();
-      }
-
       // Customer Brand Logo in Top-Right Corner (Transparent background, no borders)
       let customerLogoHeight = 0;
       if (
@@ -784,6 +780,9 @@ export default function VideoPreview({
         });
       }
 
+      // Product branding is composited after every creator-controlled layer.
+      drawPlanWatermark(ctx);
+
       // Selection chrome: dashed frame + corner resize handle for the element
       // currently open in the properties modal, so it can be moved and resized in place.
       if (selectedInsertId && inserts) {
@@ -821,7 +820,7 @@ export default function VideoPreview({
       ctx.fillStyle = "#6366f1";
       ctx.fillRect(0, h - 4, w * sceneProgress, 4);
     },
-    [scenesWithImages.length, inserts, customerLogo, captionsConfig, selectedInsertId, fontsLoadedCounter, sceneAnimationEnabled]
+    [scenesWithImages.length, inserts, customerLogo, captionsConfig, selectedInsertId, fontsLoadedCounter, sceneAnimationEnabled, drawPlanWatermark]
   );
 
   // Redraw when user scrubs playhead while paused OR when logo/captions/scene changes
@@ -850,10 +849,12 @@ export default function VideoPreview({
     if (introSec && scrubTime < introDur) {
       const p = scrubTime / Math.max(0.1, introDur);
       renderSection(ctx, introSec, canvas.width, canvas.height, scrubTime, p);
+      drawPlanWatermark(ctx);
       return;
     } else if (outroSec && scrubTime >= introDur + scriptDur) {
       const oe = scrubTime - introDur - scriptDur;
       renderSection(ctx, outroSec, canvas.width, canvas.height, oe, oe / Math.max(0.1, outroDur));
+      drawPlanWatermark(ctx);
       return;
     } else {
       const scriptTime = Math.max(0, scrubTime - introDur);
@@ -907,6 +908,7 @@ export default function VideoPreview({
     activeOutro,
     introDuration,
     outroDuration,
+    drawPlanWatermark,
   ]);
 
   /** Snap a normalized position to safe-area margins / centre lines */
@@ -1411,6 +1413,7 @@ export default function VideoPreview({
       if (introSec && totalElapsed < introDur) {
         const introProgress = totalElapsed / Math.max(0.1, introDur);
         renderSection(ctx, introSec, canvas.width, canvas.height, totalElapsed, introProgress);
+        drawPlanWatermark(ctx);
         setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
         onSeek?.(totalElapsed);
         animFrameRef.current = requestAnimationFrame(animate);
@@ -1426,6 +1429,7 @@ export default function VideoPreview({
         const outroElapsed = totalElapsed - introDur - scriptDur;
         const outroProgress = outroElapsed / Math.max(0.1, outroDur);
         renderSection(ctx, outroSec, canvas.width, canvas.height, outroElapsed, outroProgress);
+        drawPlanWatermark(ctx);
         setProgress(totalDur > 0 ? totalElapsed / totalDur : 0);
         onSeek?.(totalElapsed);
         animFrameRef.current = requestAnimationFrame(animate);
@@ -1509,7 +1513,7 @@ export default function VideoPreview({
     };
 
     animFrameRef.current = requestAnimationFrame(animate);
-  }, [scenesWithImages, drawScene, generateAllAudio, onSeek, pacingMode]);
+  }, [scenesWithImages, drawScene, generateAllAudio, onSeek, pacingMode, drawPlanWatermark]);
 
   const stopPreview = useCallback(() => {
     // Invalidate any playback still preparing in the background, so a decode

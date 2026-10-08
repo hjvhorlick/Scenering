@@ -30,6 +30,28 @@ export function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
+/**
+ * Keep a responsive interaction in sync with its CSS breakpoint.
+ *
+ * The initial false value preserves server/client markup during hydration;
+ * the effect immediately corrects it in a browser and listens for rotation
+ * or resizing afterwards.
+ */
+export function useMediaQuery(queryText: string): boolean {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const query = window.matchMedia(queryText);
+    const update = () => setMatches(query.matches);
+    update();
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, [queryText]);
+
+  return matches;
+}
+
 /** True once (and while) the element is on screen. */
 export function useInView<T extends Element>(
   ref: React.RefObject<T>,

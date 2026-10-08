@@ -111,6 +111,8 @@ const SLIDER_HINTS = {
   bloom: "Adds soft light around the visualiser. Higher makes the preview glow more; lower keeps it cleaner.",
   reaction: "Overall sensitivity. Higher makes bars, waves and particles move more for the same audio; lower calms them down.",
   glow: "Changes the brightness of neon edges and highlights in the preview.",
+  particleScale: "Makes each glass bubble, smoke puff or glitter star larger or smaller without changing its audio timing.",
+  effectDensity: "Adds or removes the visible smoke, bubbles or pixie-dust layers while preserving the same sound reaction.",
 } as const;
 
 function makeEditPreviewAudioFrame(t: number, source: ReactionSource): AudioFrame {
@@ -764,6 +766,17 @@ function InsertPropertiesContent({
   const isAdvancedSpectrumBars = advancedStyle === "advanced_spectrum_bars" || advancedStyle === "advanced_mirror_spectrum";
   const isAdvancedBarVisualizer =
     isAdvancedSpectrumBars || advancedStyle === "fine_radial_bars" || advancedStyle === "fine_radial_bars_3d";
+  const isAdvancedAtmosphericVisualizer = [
+    "particle_ring",
+    "particle_ring_3d",
+    "glass_orbit_bubbles",
+    "glass_pulse_marbles",
+    "smoke_orbit",
+    "smoke_bloom",
+    "glitter_gold_swirl",
+    "glitter_silver_vortex",
+    "glitter_opal_dust",
+  ].includes(advancedStyle);
   const advancedPresetKey =
     advancedStyle === "fine_radial_bars"
       ? "professional"
@@ -1929,7 +1942,7 @@ function InsertPropertiesContent({
                     )}
                     <p className="text-[11px] text-gray-400">
                       {isAdvancedVisualizer
-                        ? "The advanced engine can drive bars, waves, pulse rings and particle rings. 256 is a strong default; 512 adds detail but costs more at high resolutions."
+                        ? "The advanced engine can drive clear-glass bars, bubbles, smoke, glitter, waves and rings. Around 128 elements is a polished default; higher settings add detail but cost more at high resolutions."
                         : "The scenes (terrain, starfield, plasma, jellyfish, ring of fire) use this many frequency bands for their detail, so every part of the music has its own place in the picture."}
                     </p>
                   </div>
@@ -2083,6 +2096,29 @@ function InsertPropertiesContent({
                               <input type="range" min={0.04} max={0.38} step={0.005} value={data.visualOptions?.maxBarHeight ?? 0.18} onChange={(e) => updateVisualOptions("maxBarHeight", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                             </SliderWithHelp>
                           </label>
+                        </div>
+                      )}
+
+                      {isAdvancedAtmosphericVisualizer && (
+                        <div className="space-y-2 rounded-lg border border-cyan-400/20 bg-cyan-950/20 p-3">
+                          <div>
+                            <span className="text-[11px] font-semibold text-cyan-100 block">Bubbles, smoke & glitter</span>
+                            <span className="text-[10px] text-gray-400">Tune the physical size and richness of this sound-reactive effect.</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="space-y-1">
+                              <span className="text-[10px] text-gray-400">Particle Size: {Math.round((data.visualOptions?.particleScale ?? 1) * 100)}%</span>
+                              <SliderWithHelp hint={SLIDER_HINTS.particleScale}>
+                                <input type="range" min={0.35} max={3} step={0.05} value={data.visualOptions?.particleScale ?? 1} onChange={(e) => updateVisualOptions("particleScale", parseFloat(e.target.value))} className="w-full accent-cyan-400" />
+                              </SliderWithHelp>
+                            </label>
+                            <label className="space-y-1">
+                              <span className="text-[10px] text-gray-400">Effect Density: {Math.round((data.visualOptions?.effectDensity ?? 1) * 100)}%</span>
+                              <SliderWithHelp hint={SLIDER_HINTS.effectDensity}>
+                                <input type="range" min={0.35} max={2.4} step={0.05} value={data.visualOptions?.effectDensity ?? 1} onChange={(e) => updateVisualOptions("effectDensity", parseFloat(e.target.value))} className="w-full accent-cyan-400" />
+                              </SliderWithHelp>
+                            </label>
+                          </div>
                         </div>
                       )}
 

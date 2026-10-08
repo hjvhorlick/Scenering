@@ -20,6 +20,11 @@ for (const chapter of MANUAL_CHAPTERS) {
 }
 const all = JSON.stringify(MANUAL_CHAPTERS).toLowerCase();
 for (const term of ["registration", "setup", "scenes", "visual research", "cropping", "voiceover", "captions", "timeline", "audio visualisers", "rendering", "vault", "download", "attribution"]) h.ok(all.includes(term), `manual covers ${term}`);
+const performance = MANUAL_SECTIONS.find((section) => section.id === "working-method");
+h.ok(Boolean(performance), "manual includes the working-method performance guidance");
+h.ok(/2-core Celeron with 4 GB RAM/.test(`${performance?.summary} ${performance?.paragraphs.join(" ")}`), "manual records the successful low-spec Celeron run");
+h.ok(/persistent render engine/.test(performance?.paragraphs.join(" ") || ""), "manual explains why persistent rendering helps modest machines");
+h.ok(/faster modern PC is recommended/.test(performance?.paragraphs.join(" ") || ""), "manual recommends faster hardware for smoother, shorter renders");
 const page = readFileSync("src/marketing/ManualPage.tsx", "utf8");
 h.ok(page.includes("manual-nav"), "manual has left chapter navigation");
 h.ok(page.includes("Search the manual by keyword"), "manual has keyword search");

@@ -14,9 +14,9 @@ export default function FAQPage() {
   const changeCategory = (next: string) => { setCategory(next); setVisible(40); };
 
   return <>
-    <header className="pub-hero mkt-container"><span className="mkt-eyebrow">500-question knowledge base</span><h1>Every step explained in plain language.</h1><p>Search the complete Scenering workflow, account and billing, visual research, editing terminology, audio, motion, captions, rendering and platform formats.</p></header>
+    <header className="pub-hero mkt-container"><span className="mkt-eyebrow">{FAQ_LIBRARY.length}-question knowledge base</span><h1>Every step explained in plain language.</h1><p>Search the complete Scenering workflow, account and billing, visual research, editing terminology, audio, motion, captions, rendering, computer performance and platform formats.</p></header>
     <section className="mkt-container pub-faq-tools" aria-label="FAQ search and categories">
-      <label className="pub-faq-search"><span>Search 500 questions</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisible(40); }} placeholder="Try cropping, panning, visualiser, bitrate…" /></label>
+      <label className="pub-faq-search"><span>Search {FAQ_LIBRARY.length} questions</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisible(40); }} placeholder="Try cropping, panning, Celeron, bitrate…" /></label>
       <div className="pub-faq-categories" role="group" aria-label="FAQ categories">{FAQ_CATEGORIES.map((item) => <button key={item} className={category === item ? "is-on" : ""} onClick={() => changeCategory(item)}>{item}</button>)}</div>
       <p className="pub-faq-count" role="status">Showing {Math.min(shown.length, results.length)} of {results.length} matching questions · {FAQ_LIBRARY.length} total</p>
     </section>

@@ -12,6 +12,14 @@ import {
 } from "./audio-reactive";
 import { rgba, mixColors, softGlow } from "./visualizer-colors";
 import { resolveVisualizerPalette } from "./visualizer-palettes";
+import {
+  drawBottomLight,
+  drawGlassBar,
+  drawGlassOrb,
+  drawGlassRadialStroke,
+  drawLustrousSparkle,
+  resolveSpacedBarLayout,
+} from "./visualizer-materials";
 
 /**
  * Scenering-native advanced visualiser engine.
@@ -33,6 +41,13 @@ export const ADVANCED_VISUALIZER_TYPES = [
   "advanced_waveform",
   "particle_ring",
   "particle_ring_3d",
+  "glass_orbit_bubbles",
+  "glass_pulse_marbles",
+  "smoke_orbit",
+  "smoke_bloom",
+  "glitter_gold_swirl",
+  "glitter_silver_vortex",
+  "glitter_opal_dust",
 ] as const;
 export type AdvancedVisualizerType = (typeof ADVANCED_VISUALIZER_TYPES)[number];
 
@@ -81,6 +96,10 @@ export interface AdvancedFineRadialSettings {
   centreOpacity: number;
   barRoundness: number;
   barShine: number;
+  /** Multiplies the size of glass bubbles, smoke puffs and lustrous dust. */
+  particleScale: number;
+  /** Multiplies the number of atmospheric particle layers without changing audio mapping. */
+  effectDensity: number;
 }
 
 export interface AdvancedBandSnapshot {
@@ -107,9 +126,9 @@ const ASSUMED_SAMPLE_RATE = 48_000;
 const TAU = Math.PI * 2;
 
 export const FINE_RADIAL_PROFESSIONAL_DEFAULTS: AdvancedFineRadialSettings = {
-  barCount: 256,
-  barThickness: 2,
-  barGap: 0.42,
+  barCount: 128,
+  barThickness: 4,
+  barGap: 0.48,
   radiusRatio: 0.245,
   maxHeightRatio: 0.18,
   minHeightRatio: 0.006,
@@ -134,7 +153,9 @@ export const FINE_RADIAL_PROFESSIONAL_DEFAULTS: AdvancedFineRadialSettings = {
   centreScale: 1,
   centreOpacity: 1,
   barRoundness: 1,
-  barShine: 0.55,
+  barShine: 0.86,
+  particleScale: 1,
+  effectDensity: 1,
 };
 
 export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOptions>> = {
@@ -142,10 +163,10 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     visualizerStyle: "fine_radial_bars",
     visualizerPreset: "professional",
     colorTheme: "gold",
-    bandCount: 256,
-    elementCount: 256,
-    barThickness: 2,
-    barGap: 0.42,
+    bandCount: 128,
+    elementCount: 128,
+    barThickness: 4,
+    barGap: 0.48,
     radialRadius: 0.245,
     maxBarHeight: 0.18,
     minBarHeight: 0.006,
@@ -168,7 +189,7 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     centreScale: 1,
     centreOpacity: 1,
     barRoundness: 1,
-    barShine: 0.68,
+    barShine: 0.9,
     fullWidth: false,
     has3DLook: false,
     floatShadow: true,
@@ -177,10 +198,10 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     visualizerStyle: "fine_radial_bars",
     visualizerPreset: "minimal_voice",
     colorTheme: "mono",
-    bandCount: 192,
-    elementCount: 192,
-    barThickness: 2,
-    barGap: 0.55,
+    bandCount: 96,
+    elementCount: 96,
+    barThickness: 4,
+    barGap: 0.52,
     radialRadius: 0.225,
     maxBarHeight: 0.13,
     radialDirection: "both",
@@ -201,10 +222,10 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     visualizerStyle: "fine_radial_bars",
     visualizerPreset: "neon_spectrum",
     colorTheme: "neon",
-    bandCount: 256,
-    elementCount: 256,
-    barThickness: 2,
-    barGap: 0.36,
+    bandCount: 144,
+    elementCount: 144,
+    barThickness: 4,
+    barGap: 0.46,
     radialRadius: 0.235,
     maxBarHeight: 0.2,
     radialDirection: "outward",
@@ -224,10 +245,10 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     visualizerStyle: "fine_radial_bars_3d",
     visualizerPreset: "fine_radial_3d",
     colorTheme: "arctic",
-    bandCount: 192,
-    elementCount: 192,
-    barThickness: 3,
-    barGap: 0.34,
+    bandCount: 112,
+    elementCount: 112,
+    barThickness: 5,
+    barGap: 0.48,
     radialRadius: 0.225,
     maxBarHeight: 0.18,
     frequencyMapping: "logarithmic",
@@ -245,9 +266,10 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     visualizerStyle: "flat_circular_spectrum",
     visualizerPreset: "flat_circular_spectrum",
     colorTheme: "ocean",
-    bandCount: 192,
-    elementCount: 192,
-    barThickness: 3,
+    bandCount: 112,
+    elementCount: 112,
+    barThickness: 5,
+    barGap: 0.5,
     radialRadius: 0.23,
     maxBarHeight: 0.14,
     frequencyMapping: "logarithmic",
@@ -295,10 +317,10 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     visualizerStyle: "advanced_spectrum_bars",
     visualizerPreset: "advanced_spectrum_bars",
     colorTheme: "molten_gold",
-    bandCount: 56,
-    elementCount: 56,
-    barThickness: 18,
-    barGap: 0.14,
+    bandCount: 40,
+    elementCount: 40,
+    barThickness: 22,
+    barGap: 0.3,
     maxBarHeight: 0.27,
     frequencyMapping: "logarithmic",
     fftSize: 2048,
@@ -310,8 +332,8 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     spectrumStretch: 1.2,
     spectrumWidth: 1,
     barRoundness: 1,
-    barShine: 0.85,
-    glowIntensity: 0.28,
+    barShine: 0.96,
+    glowIntensity: 0.44,
     bloomIntensity: 0.18,
     fullWidth: true,
     has3DLook: true,
@@ -320,10 +342,10 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     visualizerStyle: "advanced_mirror_spectrum",
     visualizerPreset: "advanced_mirror_spectrum",
     colorTheme: "silver_chrome",
-    bandCount: 64,
-    elementCount: 64,
-    barThickness: 16,
-    barGap: 0.18,
+    bandCount: 42,
+    elementCount: 42,
+    barThickness: 22,
+    barGap: 0.32,
     maxBarHeight: 0.24,
     frequencyMapping: "musical",
     fftSize: 2048,
@@ -335,8 +357,8 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     spectrumStretch: 1.15,
     spectrumWidth: 1,
     barRoundness: 1,
-    barShine: 0.9,
-    glowIntensity: 0.3,
+    barShine: 0.96,
+    glowIntensity: 0.46,
     bloomIntensity: 0.2,
     fullWidth: true,
     has3DLook: true,
@@ -360,8 +382,9 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     visualizerStyle: "particle_ring",
     visualizerPreset: "particle_ring",
     colorTheme: "aurora",
-    bandCount: 192,
-    elementCount: 192,
+    bandCount: 84,
+    elementCount: 84,
+    barThickness: 6,
     radialRadius: 0.23,
     maxBarHeight: 0.16,
     fftSize: 2048,
@@ -370,14 +393,17 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     glowIntensity: 0.55,
     bloomIntensity: 0.28,
     beatResponse: true,
+    particleScale: 0.95,
+    effectDensity: 1,
     fullWidth: false,
   },
   particle_ring_3d: {
     visualizerStyle: "particle_ring_3d",
     visualizerPreset: "particle_ring_3d",
     colorTheme: "synthwave",
-    bandCount: 224,
-    elementCount: 224,
+    bandCount: 96,
+    elementCount: 96,
+    barThickness: 6,
     radialRadius: 0.22,
     maxBarHeight: 0.17,
     fftSize: 2048,
@@ -386,7 +412,157 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     glowIntensity: 0.62,
     bloomIntensity: 0.32,
     beatResponse: true,
+    particleScale: 1.05,
+    effectDensity: 1.15,
     has3DLook: true,
+    fullWidth: false,
+  },
+  glass_orbit_bubbles: {
+    visualizerStyle: "glass_orbit_bubbles",
+    visualizerPreset: "glass_orbit_bubbles",
+    colorTheme: "diamond_bright",
+    bandCount: 72,
+    elementCount: 72,
+    barThickness: 10,
+    radialRadius: 0.22,
+    maxBarHeight: 0.16,
+    fftSize: 2048,
+    reactivity: 1.18,
+    smoothing: 0.42,
+    glowIntensity: 0.56,
+    bloomIntensity: 0.3,
+    beatResponse: true,
+    beatExpansion: 0.075,
+    particleScale: 1.15,
+    effectDensity: 1,
+    centreLogo: true,
+    fullWidth: false,
+  },
+  glass_pulse_marbles: {
+    visualizerStyle: "glass_pulse_marbles",
+    visualizerPreset: "glass_pulse_marbles",
+    colorTheme: "vaporwave",
+    bandCount: 44,
+    elementCount: 44,
+    barThickness: 16,
+    radialRadius: 0.19,
+    maxBarHeight: 0.2,
+    fftSize: 1024,
+    reactivity: 1.25,
+    smoothing: 0.34,
+    glowIntensity: 0.7,
+    bloomIntensity: 0.42,
+    beatResponse: true,
+    beatExpansion: 0.1,
+    particleScale: 1.35,
+    effectDensity: 0.9,
+    centreLogo: true,
+    has3DLook: true,
+    fullWidth: false,
+  },
+  smoke_orbit: {
+    visualizerStyle: "smoke_orbit",
+    visualizerPreset: "smoke_orbit",
+    colorTheme: "vaporwave",
+    bandCount: 88,
+    elementCount: 88,
+    barThickness: 8,
+    radialRadius: 0.22,
+    maxBarHeight: 0.2,
+    fftSize: 2048,
+    reactivity: 1.22,
+    smoothing: 0.64,
+    glowIntensity: 0.74,
+    bloomIntensity: 0.62,
+    beatResponse: true,
+    beatExpansion: 0.1,
+    particleScale: 1.1,
+    effectDensity: 1.1,
+    centreLogo: true,
+    fullWidth: false,
+  },
+  smoke_bloom: {
+    visualizerStyle: "smoke_bloom",
+    visualizerPreset: "smoke_bloom",
+    colorTheme: "aurora",
+    bandCount: 72,
+    elementCount: 72,
+    barThickness: 10,
+    radialRadius: 0.18,
+    maxBarHeight: 0.24,
+    fftSize: 2048,
+    reactivity: 1.32,
+    smoothing: 0.56,
+    glowIntensity: 0.78,
+    bloomIntensity: 0.7,
+    beatResponse: true,
+    beatExpansion: 0.13,
+    particleScale: 1.28,
+    effectDensity: 1.2,
+    centreLogo: true,
+    fullWidth: false,
+  },
+  glitter_gold_swirl: {
+    visualizerStyle: "glitter_gold_swirl",
+    visualizerPreset: "glitter_gold_swirl",
+    colorTheme: "molten_gold",
+    bandCount: 104,
+    elementCount: 104,
+    barThickness: 5,
+    radialRadius: 0.2,
+    maxBarHeight: 0.22,
+    fftSize: 2048,
+    reactivity: 1.22,
+    smoothing: 0.38,
+    glowIntensity: 0.7,
+    bloomIntensity: 0.4,
+    beatResponse: true,
+    beatExpansion: 0.11,
+    particleScale: 1.05,
+    effectDensity: 1.18,
+    centreLogo: true,
+    fullWidth: false,
+  },
+  glitter_silver_vortex: {
+    visualizerStyle: "glitter_silver_vortex",
+    visualizerPreset: "glitter_silver_vortex",
+    colorTheme: "silver_chrome",
+    bandCount: 112,
+    elementCount: 112,
+    barThickness: 5,
+    radialRadius: 0.21,
+    maxBarHeight: 0.2,
+    fftSize: 2048,
+    reactivity: 1.16,
+    smoothing: 0.46,
+    glowIntensity: 0.62,
+    bloomIntensity: 0.38,
+    beatResponse: true,
+    beatExpansion: 0.09,
+    particleScale: 0.95,
+    effectDensity: 1.24,
+    centreLogo: true,
+    fullWidth: false,
+  },
+  glitter_opal_dust: {
+    visualizerStyle: "glitter_opal_dust",
+    visualizerPreset: "glitter_opal_dust",
+    colorTheme: "candyfloss",
+    bandCount: 96,
+    elementCount: 96,
+    barThickness: 6,
+    radialRadius: 0.19,
+    maxBarHeight: 0.24,
+    fftSize: 2048,
+    reactivity: 1.28,
+    smoothing: 0.35,
+    glowIntensity: 0.76,
+    bloomIntensity: 0.48,
+    beatResponse: true,
+    beatExpansion: 0.12,
+    particleScale: 1.1,
+    effectDensity: 1.12,
+    centreLogo: true,
     fullWidth: false,
   },
 };
@@ -427,6 +603,8 @@ export function advancedVisualizerSettings(vo: InsertVisualOptions | undefined):
     centreOpacity: clamp(Number(vo?.centreOpacity ?? d.centreOpacity), 0, 1),
     barRoundness: clamp(Number(vo?.barRoundness ?? d.barRoundness), 0, 1),
     barShine: clamp(Number(vo?.barShine ?? (vo?.has3DLook ? Math.max(d.barShine, 0.72) : d.barShine)), 0, 1),
+    particleScale: clamp(Number(vo?.particleScale ?? d.particleScale), 0.35, 3),
+    effectDensity: clamp(Number(vo?.effectDensity ?? d.effectDensity), 0.35, 2.4),
   };
 }
 
@@ -447,7 +625,17 @@ function rawAdvancedVisualizerFootprint(
   const radius = minDim * s.radiusRatio * size;
   const maxH = minDim * s.maxHeightRatio * size;
   const glowPad = minDim * (0.03 + s.glow * 0.035 + s.bloom * 0.025);
-  const outer = radius + maxH + glowPad + s.barThickness * 2;
+  const atmospheric = [
+    "glass_orbit_bubbles",
+    "glass_pulse_marbles",
+    "smoke_orbit",
+    "smoke_bloom",
+    "glitter_gold_swirl",
+    "glitter_silver_vortex",
+    "glitter_opal_dust",
+  ].includes(item.type);
+  const atmosphericSpread = atmospheric ? 1.55 : 1;
+  const outer = (radius + maxH) * atmosphericSpread + glowPad + s.barThickness * 2 * (atmospheric ? s.particleScale : 1);
   return { w: outer * 2, h: outer * 2 };
 }
 
@@ -537,6 +725,27 @@ export function renderAdvancedAudioVisualizer(opts: AdvancedVisualizerRenderOpti
     case "particle_ring_3d":
       renderParticleRing(opts, true);
       return;
+    case "glass_orbit_bubbles":
+      renderGlassBubbles(opts, false);
+      return;
+    case "glass_pulse_marbles":
+      renderGlassBubbles(opts, true);
+      return;
+    case "smoke_orbit":
+      renderCircularSmoke(opts, false);
+      return;
+    case "smoke_bloom":
+      renderCircularSmoke(opts, true);
+      return;
+    case "glitter_gold_swirl":
+      renderGlitterSwirl(opts, "gold");
+      return;
+    case "glitter_silver_vortex":
+      renderGlitterSwirl(opts, "silver");
+      return;
+    case "glitter_opal_dust":
+      renderGlitterSwirl(opts, "opal");
+      return;
     default:
       renderFineRadialBars(opts);
   }
@@ -559,10 +768,12 @@ function renderFineRadialBars({ ctx, item, canvasWidth, canvasHeight, elapsed, f
   const maxHeight = minDim * settings.maxHeightRatio * size;
   const minHeight = Math.max(0, minDim * settings.minHeightRatio * size);
   const rotation = (settings.rotationDeg * Math.PI) / 180;
-  const count = settings.barCount;
+  // Preserve the analyser's requested resolution, then display a deliberately
+  // airier subset so even saved dense presets become wider, separated glass bars.
+  const count = Math.max(16, Math.min(settings.barCount, Math.round(settings.barCount * 0.72)));
   const circumferenceSlot = (TAU * Math.max(1, radius)) / count;
-  const fineWidth = circumferenceSlot * (1 - settings.barGap);
-  const barWidth = clamp(Math.min(settings.barThickness * frameScale(canvasHeight), fineWidth), 0.55, Math.max(0.75, circumferenceSlot * 0.92));
+  const fineWidth = circumferenceSlot * (1 - Math.max(settings.barGap, 0.42));
+  const barWidth = clamp(Math.min(settings.barThickness * frameScale(canvasHeight) * 1.28, fineWidth), 0.75, Math.max(0.9, circumferenceSlot * 0.78));
   const direction = settings.direction;
   const glow = compact ? settings.glow * 0.42 : settings.glow;
   const bloom = compact ? 0 : settings.bloom;
@@ -610,7 +821,7 @@ function renderFineRadialBars({ ctx, item, canvasWidth, canvasHeight, elapsed, f
   for (let i = 0; i < count; i++) {
     const t = i / count;
     const angle = t * TAU + rotation;
-    const v = clamp(bands.values[i] || 0, 0, 1.6);
+    const v = clamp(sampleBandValue(bands.values, (i + 0.5) / count), 0, 1.6);
     const shaped = Math.pow(v, settings.voiceMode ? 0.92 : 0.78);
     const length = minHeight + shaped * maxHeight;
     const colour = colourForBand(palette.primary, palette.secondary, palette.accent, t, shaped, vo.frequencyColorMode || "gradient");
@@ -626,7 +837,7 @@ function renderFineRadialBars({ ctx, item, canvasWidth, canvasHeight, elapsed, f
       outerR = radius + length;
     }
 
-    drawRadialLine(ctx, angle, innerR, outerR, barWidth, colour, palette.accent, glow, shaped, bands.beat, settings.beatGlow, settings.barRoundness, settings.barShine);
+    drawRadialLine(ctx, angle, innerR, outerR, radius, barWidth, colour, palette.accent, glow, shaped, bands.beat, settings.beatGlow, settings.barRoundness, settings.barShine);
   }
 
   drawFineRadialCentre(ctx, {
@@ -656,9 +867,9 @@ function renderFineRadialBars3D(opts: AdvancedVisualizerRenderOptions) {
   const radius = minDim * settings.radiusRatio * size * (1 + bands.beat * settings.beatExpansion);
   const maxHeight = minDim * settings.maxHeightRatio * size;
   const rotation = (settings.rotationDeg * Math.PI) / 180 + elapsed * 0.04;
-  const count = settings.barCount;
+  const count = Math.max(16, Math.min(settings.barCount, Math.round(settings.barCount * 0.72)));
   const slot = (TAU * Math.max(1, radius)) / count;
-  const barWidth = clamp(Math.min(settings.barThickness * frameScale(canvasHeight) * 1.15, slot * (1 - settings.barGap)), 0.7, slot * 0.92);
+  const barWidth = clamp(Math.min(settings.barThickness * frameScale(canvasHeight) * 1.45, slot * (1 - Math.max(settings.barGap, 0.42))), 0.85, slot * 0.78);
   const depth = minDim * 0.018 * size * (1 + bands.beat * 0.8);
   const glow = compact ? settings.glow * 0.35 : settings.glow;
 
@@ -681,7 +892,7 @@ function renderFineRadialBars3D(opts: AdvancedVisualizerRenderOptions) {
   for (const i of order) {
     const t = i / count;
     const angle = t * TAU + rotation;
-    const v = clamp(bands.values[i] || 0, 0, 1.6);
+    const v = clamp(sampleBandValue(bands.values, (i + 0.5) / count), 0, 1.6);
     const len = settings.minHeightRatio * minDim + Math.pow(v, 0.78) * maxHeight;
     const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, v, vo.frequencyColorMode || "gradient");
     drawRadialPrism(ctx, angle, radius, radius + len, barWidth, depth, color, palette.accent, glow, v, settings.barRoundness, settings.barShine);
@@ -828,18 +1039,30 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
   const palette = resolveVisualizerPalette(vo);
   const source: ReactionSource = (item.audioSource as ReactionSource) || "music";
   const bus = pickBus(frame || EMPTY_FRAME, source);
-  const count = Math.max(16, Math.min(192, settings.barCount));
-  const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:linear`, { ...settings, barCount: count }, elapsed, bus, source);
+  const sourceCount = Math.max(16, Math.min(192, settings.barCount));
+  const bands = analyseAdvancedBands(
+    `advanced:${item.id || item.type}:linear`,
+    { ...settings, barCount: sourceCount },
+    elapsed,
+    bus,
+    source
+  );
   const minDim = Math.min(canvasWidth, canvasHeight);
   const size = clamp(Number(item.size || 1), 0.35, 2.4);
   const widthScale = clamp(Number(vo.spectrumWidth ?? 1), 0.45, 1.6);
   const baseWidth = item.visualOptions?.fullWidth === false ? Math.min(canvasWidth * 0.82, minDim * 1.35 * size) : canvasWidth * 0.92;
   const width = Math.min(canvasWidth * 1.6, baseWidth * widthScale);
   const maxH = minDim * settings.maxHeightRatio * size;
-  const slot = width / count;
-  const thicknessGain = clamp(settings.barThickness / 12, 0.18, 3.2);
-  const barW = clamp(slot * (1 - settings.barGap * 0.88) * thicknessGain, 1.5, slot * 0.97);
-  const gap = Math.max(0, slot - barW);
+  // Wider clear bars need actual air between them. Preserve spectrum detail in
+  // the source data, then sample it into the material-aware display layout.
+  const layout = resolveSpacedBarLayout({
+    width,
+    count: sourceCount,
+    requestedWidth: settings.barThickness,
+    requestedGap: Math.max(2, settings.barThickness * (0.28 + settings.barGap * 0.45)),
+    minWidth: 1.5,
+  });
+  const { count, slot, barWidth: barW, gap } = layout;
   const glow = compact ? settings.glow * 0.35 : settings.glow;
   const balance = clamp(Number(vo.spectrumBalance ?? 0), -1, 1);
   const spectrumStretch = clamp(Number(vo.spectrumStretch ?? 1.25), 0.5, 2);
@@ -847,6 +1070,15 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
 
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
+  drawBottomLight(ctx, {
+    y: 2,
+    width: width * 0.62,
+    height: Math.max(6, maxH * 0.15),
+    primary: palette.primary,
+    secondary: palette.secondary,
+    accent: palette.accent,
+    intensity: (0.34 + bands.bass * 0.3 + bands.beat * 0.18) * (0.55 + glow * 0.45),
+  });
   ctx.beginPath();
   ctx.moveTo(-width / 2, 0);
   ctx.lineTo(width / 2, 0);
@@ -872,11 +1104,12 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
     const x = -width / 2 + i * slot + gap / 2;
     const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, v, vo.frequencyColorMode || "gradient");
     drawVerticalBar(ctx, x, 0, barW, h, color, palette.accent, glow, v, false, settings.barRoundness, settings.barShine);
-    if (mirror) drawVerticalBar(ctx, x, 0, barW, h * 0.88, mixColors(color, palette.secondary, 0.35), palette.accent, glow * 0.75, v, true, settings.barRoundness, settings.barShine);
+    if (mirror) {
+      drawVerticalBar(ctx, x, 0, barW, h * 0.88, mixColors(color, palette.secondary, 0.35), palette.accent, glow * 0.75, v, true, settings.barRoundness, settings.barShine);
+    }
   }
   ctx.restore();
 }
-
 function renderAdvancedWaveform(opts: AdvancedVisualizerRenderOptions) {
   const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact } = opts;
   const vo = item.visualOptions || {};
@@ -926,51 +1159,303 @@ function renderParticleRing(opts: AdvancedVisualizerRenderOptions, threeD: boole
   const size = clamp(Number(item.size || 1), 0.35, 2.4);
   const base = minDim * settings.radiusRatio * size * (1 + bands.beat * settings.beatExpansion);
   const spread = minDim * settings.maxHeightRatio * size;
-  const count = compact ? Math.min(128, settings.barCount) : settings.barCount;
+  const count = Math.max(18, Math.min(compact ? 42 : 92, Math.round(settings.barCount * settings.effectDensity)));
   const glow = compact ? settings.glow * 0.45 : settings.glow;
   const spin = elapsed * (threeD ? 0.36 : 0.12);
 
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
+  drawBottomLight(ctx, {
+    y: base * 0.88,
+    width: base * 2.35,
+    height: Math.max(5, base * 0.24),
+    primary: palette.primary,
+    secondary: palette.secondary,
+    accent: palette.accent,
+    intensity: 0.24 + glow * 0.22 + bands.bass * 0.2,
+  });
   softGlow(ctx, 0, 0, base + spread * 1.8, rgba(palette.primary, 0.08 + bands.bass * 0.06), rgba(palette.secondary, 0.05), glow);
   const particles = Array.from({ length: count }, (_, i) => {
-    const band = bands.values[i % bands.values.length] || 0;
+    const band = sampleBandValue(bands.values, (i + 0.5) / count);
     const a = (i / count) * TAU + spin * (0.7 + hash01(i) * 0.4);
     const jitter = (hash01(i * 17) - 0.5) * spread * 0.28;
     const r = base + Math.pow(band, 0.78) * spread + jitter;
     const z = threeD ? Math.sin(a * 1.1 + elapsed * 0.45 + hash01(i) * TAU) * base * 0.45 : 0;
-    const perspective = threeD ? 1 / (1 + z / (base * 3.2)) : 1;
+    const perspective = threeD ? 1 / (1 + z / Math.max(1, base * 3.2)) : 1;
     return { i, a, r, z, perspective, band };
   }).sort((a, b) => a.z - b.z);
 
   for (const p of particles) {
     const x = Math.cos(p.a) * p.r * p.perspective;
     const y = Math.sin(p.a) * p.r * p.perspective;
-    const t = p.i / count;
+    const t = p.i / Math.max(1, count - 1);
     const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, p.band, vo.frequencyColorMode || "gradient");
-    const dot = Math.max(1.2, (settings.barThickness * 0.8 + p.band * 4.5) * frameScale(canvasHeight) * p.perspective);
-    ctx.beginPath();
-    ctx.arc(x, y, dot, 0, TAU);
-    ctx.fillStyle = rgba(color, 0.46 + p.band * 0.44);
-    ctx.shadowColor = rgba(color, 0.8);
-    ctx.shadowBlur = (4 + p.band * 14) * glow;
-    ctx.fill();
-    if (!compact && p.i % 5 === 0) {
-      const x2 = Math.cos(p.a + 0.025) * (base + p.band * spread) * p.perspective;
-      const y2 = Math.sin(p.a + 0.025) * (base + p.band * spread) * p.perspective;
+    const orb = Math.max(1.4, (settings.barThickness * 0.36 + p.band * 6.4) * frameScale(canvasHeight) * settings.particleScale * p.perspective);
+    drawGlassOrb(ctx, {
+      x,
+      y,
+      radius: orb,
+      primary: color,
+      secondary: palette.secondary,
+      accent: palette.accent,
+      glow,
+      value: p.band,
+      shine: settings.barShine,
+    });
+    if (!compact && p.i % 6 === 0) {
+      const x2 = Math.cos(p.a + 0.035) * (base + p.band * spread) * p.perspective;
+      const y2 = Math.sin(p.a + 0.035) * (base + p.band * spread) * p.perspective;
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.lineTo(x2, y2);
-      ctx.strokeStyle = rgba(color, 0.2 + p.band * 0.18);
-      ctx.lineWidth = Math.max(0.6, dot * 0.22);
+      ctx.strokeStyle = rgba(color, 0.14 + p.band * 0.16);
+      ctx.lineWidth = Math.max(0.55, orb * 0.16);
       ctx.stroke();
     }
   }
-  ctx.shadowBlur = 0;
-  drawFineRadialCentre(ctx, { radius: base, minDim, settings, palette, logo: settings.centreLogo ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
+  drawFineRadialCentre(ctx, {
+    radius: base,
+    minDim,
+    settings,
+    palette,
+    logo: settings.centreLogo ? logo || null : null,
+    beat: bands.beat,
+    energy: bands.energy,
+    low: bands.bass,
+  });
   ctx.restore();
 }
 
+/** Two additional ball-based options: a floating glass orbit and a larger beat-pulsed marble set. */
+function renderGlassBubbles(opts: AdvancedVisualizerRenderOptions, marbles: boolean) {
+  const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact, logo } = opts;
+  const vo = item.visualOptions || {};
+  const settings = advancedVisualizerSettings(vo);
+  const palette = resolveVisualizerPalette(vo);
+  const source: ReactionSource = (item.audioSource as ReactionSource) || "music";
+  const bus = pickBus(frame || EMPTY_FRAME, source);
+  const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:glass-bubbles`, settings, elapsed, bus, source);
+  const minDim = Math.min(canvasWidth, canvasHeight);
+  const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  const base = minDim * settings.radiusRatio * size * (1 + bands.beat * settings.beatExpansion);
+  const spread = minDim * settings.maxHeightRatio * size;
+  const count = Math.max(14, Math.min(compact ? 30 : marbles ? 56 : 76, Math.round(settings.barCount * settings.effectDensity)));
+  const glow = compact ? settings.glow * 0.46 : settings.glow;
+  const spin = elapsed * (marbles ? 0.33 : 0.18);
+
+  ctx.save();
+  ctx.globalAlpha *= settings.opacity;
+  drawBottomLight(ctx, {
+    y: base + spread * 0.45,
+    width: (base + spread) * 2.15,
+    height: Math.max(6, minDim * 0.045),
+    primary: palette.primary,
+    secondary: palette.secondary,
+    accent: palette.accent,
+    intensity: 0.38 + bands.bass * 0.22 + bands.beat * 0.2,
+  });
+  softGlow(ctx, 0, 0, base + spread * 1.95, rgba(palette.accent, 0.1 + bands.bass * 0.09), rgba(palette.primary, 0.05), glow);
+  for (let i = 0; i < count; i++) {
+    const t = i / count;
+    const band = sampleBandValue(bands.values, t);
+    const arm = marbles ? i % 2 : 0;
+    const a = t * TAU + spin * (1 + arm * 0.38) + arm * Math.PI;
+    const rise = Math.sin(elapsed * (1.5 + hash01(i * 9) * 0.75) + i * 0.71) * spread * (0.08 + band * 0.1);
+    const radial = base + spread * (0.14 + Math.pow(band, 0.72) * (marbles ? 0.96 : 0.7)) + (marbles ? Math.sin(a * 2 + elapsed) * spread * 0.13 : 0);
+    const x = Math.cos(a) * radial;
+    const y = Math.sin(a) * radial + rise;
+    const colour = colourForBand(palette.primary, palette.secondary, palette.accent, t, band, vo.frequencyColorMode || "gradient");
+    const radius = Math.max(
+      2,
+      (settings.barThickness * (marbles ? 0.48 : 0.34) + band * (marbles ? 10 : 7)) * frameScale(canvasHeight) * settings.particleScale
+    );
+    drawGlassOrb(ctx, {
+      x,
+      y,
+      radius,
+      primary: colour,
+      secondary: palette.secondary,
+      accent: palette.accent,
+      glow,
+      value: band + bands.beat * 0.3,
+      shine: Math.max(settings.barShine, 0.82),
+    });
+  }
+  if (bands.beat > 0.16) {
+    const phase = (elapsed * 0.9) % 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, base + phase * (spread * 1.9 + base * 0.4), 0, TAU);
+    ctx.strokeStyle = rgba(palette.accent, bands.beat * (1 - phase) * 0.32);
+    ctx.lineWidth = Math.max(0.7, minDim * 0.004 * (1 - phase));
+    ctx.stroke();
+  }
+  drawFineRadialCentre(ctx, {
+    radius: base * 0.92,
+    minDim,
+    settings,
+    palette,
+    logo: settings.centreLogo ? logo || null : null,
+    beat: bands.beat,
+    energy: bands.energy,
+    low: bands.bass,
+  });
+  ctx.restore();
+}
+
+/** Coloured translucent smoke circulates in arms and opens outward on the beat. */
+function renderCircularSmoke(opts: AdvancedVisualizerRenderOptions, bloomStyle: boolean) {
+  const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact, logo } = opts;
+  const vo = item.visualOptions || {};
+  const settings = advancedVisualizerSettings(vo);
+  const palette = resolveVisualizerPalette(vo);
+  const source: ReactionSource = (item.audioSource as ReactionSource) || "music";
+  const bus = pickBus(frame || EMPTY_FRAME, source);
+  const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:smoke`, settings, elapsed, bus, source);
+  const minDim = Math.min(canvasWidth, canvasHeight);
+  const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  const base = minDim * settings.radiusRatio * size;
+  const spread = minDim * settings.maxHeightRatio * size;
+  const puffCount = Math.max(30, Math.min(compact ? 48 : 112, Math.round(settings.barCount * settings.effectDensity)));
+  const arms = bloomStyle ? 5 : 3;
+  const glow = compact ? settings.glow * 0.42 : settings.glow;
+  const expansion = 1 + bands.beat * (bloomStyle ? 0.36 : 0.24);
+
+  ctx.save();
+  ctx.globalAlpha *= settings.opacity;
+  ctx.globalCompositeOperation = "lighter";
+  softGlow(ctx, 0, 0, (base + spread * 2.2) * expansion, rgba(palette.primary, 0.12 + bands.bass * 0.12), rgba(palette.secondary, 0.06), glow);
+  for (let i = 0; i < puffCount; i++) {
+    const t = i / puffCount;
+    const arm = i % arms;
+    const local = Math.floor(i / arms) / Math.max(1, Math.ceil(puffCount / arms));
+    const band = sampleBandValue(bands.values, (t + arm / arms * 0.21) % 1);
+    const spin = elapsed * (0.36 + arm * 0.045 + bands.mid * 0.16);
+    const angle = arm * (TAU / arms) + local * TAU * (bloomStyle ? 1.7 : 1.18) + spin;
+    const wave = Math.sin(elapsed * 1.9 + i * 0.77) * spread * (0.08 + band * 0.12);
+    const radius = (base * (0.76 + local * 0.37) + spread * (0.22 + Math.pow(band, 0.78)) + wave) * expansion;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    const puffR = Math.max(2, minDim * (0.011 + hash01(i * 5 + arm) * 0.014) * settings.particleScale * (0.85 + band * 0.95));
+    const colour = colourForBand(palette.primary, palette.secondary, palette.accent, (t + local * 0.25) % 1, band, vo.frequencyColorMode || "gradient");
+    const puff = ctx.createRadialGradient(x - puffR * 0.18, y - puffR * 0.22, puffR * 0.04, x, y, puffR);
+    puff.addColorStop(0, rgba(mixColors(colour, palette.accent, 0.34), 0.22 + band * 0.18));
+    puff.addColorStop(0.42, rgba(colour, 0.13 + band * 0.13));
+    puff.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = puff;
+    ctx.beginPath();
+    ctx.arc(x, y, puffR, 0, TAU);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = "source-over";
+  if (bands.beat > 0.1) {
+    const phase = (elapsed * (bloomStyle ? 0.82 : 1.05)) % 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, (base + phase * (spread * 2.2 + base * 0.65)) * expansion, 0, TAU);
+    ctx.strokeStyle = rgba(palette.accent, bands.beat * (1 - phase) * 0.34);
+    ctx.lineWidth = Math.max(0.8, minDim * 0.005 * (1 - phase));
+    ctx.stroke();
+  }
+  drawFineRadialCentre(ctx, {
+    radius: base * 0.86,
+    minDim,
+    settings,
+    palette,
+    logo: settings.centreLogo ? logo || null : null,
+    beat: bands.beat,
+    energy: bands.energy,
+    low: bands.bass,
+  });
+  ctx.restore();
+}
+
+/** Gold, silver and opal pixie dust spiral through distinct audio-driven arms. */
+function renderGlitterSwirl(opts: AdvancedVisualizerRenderOptions, finish: "gold" | "silver" | "opal") {
+  const { ctx, item, canvasWidth, canvasHeight, elapsed, frame, compact, logo } = opts;
+  const vo = item.visualOptions || {};
+  const settings = advancedVisualizerSettings(vo);
+  const palette = resolveVisualizerPalette(vo);
+  const source: ReactionSource = (item.audioSource as ReactionSource) || "music";
+  const bus = pickBus(frame || EMPTY_FRAME, source);
+  const bands = analyseAdvancedBands(`advanced:${item.id || item.type}:glitter`, settings, elapsed, bus, source);
+  const minDim = Math.min(canvasWidth, canvasHeight);
+  const size = clamp(Number(item.size || 1), 0.35, 2.4);
+  const base = minDim * settings.radiusRatio * size;
+  const spread = minDim * settings.maxHeightRatio * size;
+  const count = Math.max(34, Math.min(compact ? 56 : 136, Math.round(settings.barCount * settings.effectDensity)));
+  const arms = finish === "opal" ? 5 : finish === "silver" ? 4 : 3;
+  const glow = compact ? settings.glow * 0.46 : settings.glow;
+  const spin = elapsed * (0.46 + bands.mid * 0.25);
+
+  ctx.save();
+  ctx.globalAlpha *= settings.opacity;
+  drawBottomLight(ctx, {
+    y: base + spread * 0.54,
+    width: (base + spread) * 2.05,
+    height: Math.max(5, minDim * 0.036),
+    primary: palette.primary,
+    secondary: palette.secondary,
+    accent: palette.accent,
+    intensity: 0.24 + bands.bass * 0.19 + bands.beat * 0.24,
+  });
+  softGlow(ctx, 0, 0, base + spread * 2.35, rgba(palette.accent, 0.1 + bands.energy * 0.09), rgba(palette.primary, 0.05), glow);
+  for (let i = 0; i < count; i++) {
+    const t = i / count;
+    const arm = i % arms;
+    const local = Math.floor(i / arms) / Math.max(1, Math.ceil(count / arms));
+    const band = sampleBandValue(bands.values, (local + arm * 0.11) % 1);
+    const angle = arm * (TAU / arms) + local * TAU * (1.2 + arm * 0.08) + spin * (0.75 + hash01(i) * 0.45);
+    const burst = bands.beat * (0.2 + hash01(i * 17) * 0.38);
+    const radial = base * (0.26 + local * 1.05) + spread * (0.18 + Math.pow(band, 0.7) * 1.15 + burst);
+    const wobble = Math.sin(elapsed * 2.5 + i * 1.63) * spread * 0.12 * (0.4 + bands.treble);
+    const x = Math.cos(angle) * (radial + wobble);
+    const y = Math.sin(angle) * (radial + wobble);
+    const colour = colourForBand(palette.primary, palette.secondary, palette.accent, (t + arm * 0.17) % 1, band, vo.frequencyColorMode || "gradient");
+    const sparkleR = Math.max(0.9, minDim * (0.0026 + band * 0.006 + (i % 7 === 0 ? 0.004 : 0)) * settings.particleScale);
+    if (i % 5 === 0) {
+      drawGlassOrb(ctx, {
+        x,
+        y,
+        radius: sparkleR * 0.82,
+        primary: colour,
+        secondary: palette.secondary,
+        accent: palette.accent,
+        glow: glow * 0.72,
+        value: band,
+        shine: settings.barShine,
+      });
+    } else {
+      drawLustrousSparkle(ctx, {
+        x,
+        y,
+        radius: sparkleR,
+        primary: colour,
+        accent: palette.accent,
+        glow,
+        rotation: angle + elapsed * (0.65 + hash01(i) * 0.5),
+        opacity: 0.4 + band * 0.52 + bands.treble * 0.16,
+      });
+    }
+  }
+  if (bands.beat > 0.12) {
+    const phase = (elapsed * 1.1) % 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, base * 0.55 + phase * (base + spread * 1.65), 0, TAU);
+    ctx.strokeStyle = rgba(palette.accent, bands.beat * (1 - phase) * 0.36);
+    ctx.lineWidth = Math.max(0.6, minDim * 0.0035 * (1 - phase));
+    ctx.stroke();
+  }
+  drawFineRadialCentre(ctx, {
+    radius: base * 0.72,
+    minDim,
+    settings,
+    palette,
+    logo: settings.centreLogo ? logo || null : null,
+    beat: bands.beat,
+    energy: bands.energy,
+    low: bands.bass,
+  });
+  ctx.restore();
+}
 function analyseAdvancedBands(
   key: string,
   settings: AdvancedFineRadialSettings,
@@ -1157,6 +1642,24 @@ function drawRadialPrism(
   ctx.closePath();
   ctx.fillStyle = rgba(mixColors(color, "#ffffff", 0.2), 0.22);
   ctx.fill();
+  // Keep the prism depth, then lay the shared clear-glass material over its
+  // face so the 3D variation belongs to the same bottom-lit family as every
+  // other bar style.
+  drawGlassRadialStroke(ctx, {
+    x1: c * innerR,
+    y1: s * innerR,
+    x2: c * outerR,
+    y2: s * outerR,
+    baseX: c * innerR,
+    baseY: s * innerR,
+    width: Math.max(0.8, width * 0.66),
+    primary: color,
+    accent,
+    glow: glow * 0.75,
+    value,
+    shine,
+    round: roundness >= 0.5,
+  });
   ctx.restore();
 }
 
@@ -1213,53 +1716,19 @@ function drawVerticalBar(
   const rawBottom = mirror ? y + height : y;
   const top = Math.round(Math.min(rawTop, rawBottom));
   const h = Math.max(2, Math.round(Math.abs(rawBottom - rawTop)));
-  const sx = Math.round(x);
-  const sw = Math.max(2, Math.round(width));
-  const radius = Math.min(sw * 0.5, h * 0.5, Math.max(0, roundness) * sw * 0.52);
-  const glossy = clamp(shine, 0, 1);
-  const outerGlow = glow * (1 - glossy * 0.38);
-  const grad = ctx.createLinearGradient(0, top, 0, top + h);
-  grad.addColorStop(0, rgba(mixColors(accent, "#ffffff", 0.5 + glossy * 0.34), 0.98));
-  grad.addColorStop(0.18, rgba(mixColors(color, "#ffffff", glossy * 0.28), 0.98));
-  grad.addColorStop(0.64, rgba(color, 0.92));
-  grad.addColorStop(1, rgba(mixColors(color, "#000000", 0.2 + glossy * 0.18), 0.74));
-  ctx.save();
-  if (outerGlow > 0.02) {
-    ctx.shadowColor = rgba(color, 0.62);
-    ctx.shadowBlur = (1.4 + value * 7) * outerGlow;
-  }
-  roundedRect(ctx, sx, top, sw, h, radius);
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  if (glossy > 0.02) {
-    ctx.save();
-    roundedRect(ctx, sx, top, sw, h, radius);
-    ctx.clip();
-    const bevel = ctx.createLinearGradient(sx, 0, sx + sw, 0);
-    bevel.addColorStop(0, rgba("#ffffff", 0.5 * glossy));
-    bevel.addColorStop(0.16, rgba("#ffffff", 0.18 * glossy));
-    bevel.addColorStop(0.48, "rgba(255,255,255,0)");
-    bevel.addColorStop(0.78, rgba("#000000", 0.22 * glossy));
-    bevel.addColorStop(1, rgba("#ffffff", 0.28 * glossy));
-    ctx.fillStyle = bevel;
-    ctx.fillRect(sx, top, sw, h);
-    const hot = ctx.createLinearGradient(0, top, 0, top + Math.max(4, h * 0.32));
-    hot.addColorStop(0, rgba("#ffffff", 0.65 * glossy));
-    hot.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = hot;
-    ctx.fillRect(sx + Math.max(1, sw * 0.08), top + 1, Math.max(1, sw * 0.84), Math.max(2, h * 0.28));
-    ctx.restore();
-  }
-
-  roundedRect(ctx, sx + 0.5, top + 0.5, Math.max(1, sw - 1), Math.max(1, h - 1), Math.max(0, radius - 0.5));
-  ctx.strokeStyle = rgba(mixColors(accent, "#ffffff", 0.46), 0.42 + glossy * 0.34);
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.restore();
+  drawGlassBar(ctx, {
+    x: Math.round(x),
+    y: top,
+    width: Math.max(2, Math.round(width)),
+    height: h,
+    primary: color,
+    accent,
+    glow,
+    value,
+    roundness,
+    shine,
+  });
 }
-
 function drawLinearWaveTrace(
   ctx: CanvasRenderingContext2D,
   wave: Float32Array,
@@ -1289,21 +1758,6 @@ function drawLinearWaveTrace(
   ctx.restore();
 }
 
-function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const radius = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + w - radius, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-  ctx.lineTo(x + w, y + h - radius);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-  ctx.lineTo(x + radius, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
-  ctx.closePath();
-}
-
 function hash01(n: number): number {
   const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
   return x - Math.floor(x);
@@ -1314,6 +1768,7 @@ function drawRadialLine(
   angle: number,
   innerR: number,
   outerR: number,
+  baseR: number,
   width: number,
   color: string,
   accent: string,
@@ -1326,48 +1781,22 @@ function drawRadialLine(
 ) {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
-  const x1 = c * innerR;
-  const y1 = s * innerR;
-  const x2 = c * outerR;
-  const y2 = s * outerR;
-  const glossy = clamp(shine, 0, 1);
-  const grad = ctx.createLinearGradient(x1, y1, x2, y2);
-  grad.addColorStop(0, rgba(color, 0.64));
-  grad.addColorStop(0.52, rgba(mixColors(color, accent, value * 0.42), 0.95));
-  grad.addColorStop(1, rgba(mixColors(accent, "#ffffff", 0.28 + Math.min(0.55, value * 0.44 + glossy * 0.25)), 0.99));
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.strokeStyle = grad;
-  ctx.lineWidth = Math.max(1, width);
-  ctx.lineCap = roundness >= 0.5 ? "round" : "butt";
-  ctx.lineJoin = roundness >= 0.5 ? "round" : "miter";
-  const crispGlow = glow * (1 - glossy * 0.34);
-  if (crispGlow > 0.02) {
-    ctx.shadowColor = rgba(color, 0.6);
-    ctx.shadowBlur = (1.5 + value * 8 + beat * beatGlow * 9) * crispGlow;
-  }
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-  if (glossy > 0.04 && width > 1.4) {
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.strokeStyle = rgba("#ffffff", 0.22 + glossy * 0.38);
-    ctx.lineWidth = Math.max(0.7, width * 0.22);
-    ctx.lineCap = roundness >= 0.5 ? "round" : "butt";
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x1 - s * width * 0.34, y1 + c * width * 0.34);
-    ctx.lineTo(x2 - s * width * 0.34, y2 + c * width * 0.34);
-    ctx.strokeStyle = rgba(mixColors(accent, "#ffffff", 0.55), 0.2 + glossy * 0.24);
-    ctx.lineWidth = Math.max(0.6, width * 0.12);
-    ctx.stroke();
-  }
-  ctx.restore();
+  drawGlassRadialStroke(ctx, {
+    x1: c * innerR,
+    y1: s * innerR,
+    x2: c * outerR,
+    y2: s * outerR,
+    baseX: c * baseR,
+    baseY: s * baseR,
+    width: Math.max(1, width),
+    primary: color,
+    accent,
+    glow: glow * (1 + beat * beatGlow * 0.5),
+    value,
+    shine,
+    round: roundness >= 0.5,
+  });
 }
-
 function drawFineRadialCentre(
   ctx: CanvasRenderingContext2D,
   opts: {

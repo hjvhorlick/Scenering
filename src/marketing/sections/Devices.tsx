@@ -4,6 +4,7 @@ import TimelineMock from "../components/TimelineMock";
 import SceneCard from "../components/SceneCard";
 import { DEMO_SCENES } from "../demo-project";
 import { HONESTY } from "../product-facts";
+import { DEVICE_PERFORMANCE } from "../device-guidance";
 
 /**
  * Desktop, tablet, phone.
@@ -80,6 +81,20 @@ export default function Devices() {
           screen, and the phone layout is built for reviewing and adjusting scenes.
         </span>
       </FigureNote>
+
+      <aside className="mkt-device-performance mkt-panel mkt-pad" aria-labelledby="device-performance-title">
+        <div>
+          <Pill>Performance guidance</Pill>
+          <h3 id="device-performance-title">Start with the PC you have.</h3>
+          <p>
+            <strong>{DEVICE_PERFORMANCE.testedSystem}</strong> {DEVICE_PERFORMANCE.lowerSpecExpectation}
+          </p>
+        </div>
+        <div className="mkt-device-performance-details">
+          <p>{DEVICE_PERFORMANCE.persistentRender}</p>
+          <p><strong>Recommended:</strong> {DEVICE_PERFORMANCE.recommendation}</p>
+        </div>
+      </aside>
     </Section>
   );
 }

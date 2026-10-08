@@ -75,8 +75,7 @@ export default function CaptionsSection() {
             <li>
               <span className="mkt-tick is-lock" aria-hidden="true"><Icon glyph="🔒" /></span>
               <span>
-                <b>{freeStyleCount} styles on Free, all {LIVE_COUNTS.captionStyles} on SceneFlow.</b> Nothing is
-                watermarked to make a point.
+                <b>{freeStyleCount} styles on Free, all {LIVE_COUNTS.captionStyles} on SceneFlow.</b> Free exports carry a fixed Scenering watermark; paid exports do not.
               </span>
             </li>
           </ul>
