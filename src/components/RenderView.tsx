@@ -103,7 +103,7 @@ import { createFrameBudget } from "../lib/yield-to-browser";
 import { RenderTimer, formatMs } from "../lib/render-timing";
 import { holdRenderWakeLock, type RenderWakeLockState } from "../lib/render-wake-lock";
 import { formatStorageBytes, type RenderOutputStorageMode } from "../lib/render-output-store";
-import { getWatermarkLayout } from "../lib/watermark-layout";
+import { drawSceneringWatermark, planRequiresSceneringWatermark } from "../lib/scenering-watermark";
 import Icon, { iconify } from "./icons/Icon";
 
 /**
@@ -118,9 +118,6 @@ export interface RenderSettings {
   resolution: "720p" | "1080p" | "2k" | "4k" | "shorts_9_16" | "square_1_1" | "4:3";
   fps: FrameRateChoice;
   quality: EncodingQuality;
-  includeWatermark: boolean;
-  watermarkOpacity: number;
-  watermarkScale: number;
   includeSubtitles: boolean;
   subtitleStyle: "karaoke" | "normal";
   backgroundMusic: "none" | "lofi" | "cinematic" | "ambient" | "energetic";
@@ -290,6 +287,8 @@ export default function RenderView({
      the notice on screen is never stale. */
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
+  /** Product branding is plan policy, never a creator-controlled render setting. */
+  const showPlanWatermark = planRequiresSceneringWatermark(currentPlan);
   const vipFindings = useMemo(
     () =>
       auditVipForExport(currentPlan, {
@@ -320,9 +319,6 @@ export default function RenderView({
     resolution: propResolution || "1080p",
     fps: renderProfile.fps,
     quality: renderProfile.quality,
-    includeWatermark: true,
-    watermarkOpacity: 1.0,
-    watermarkScale: 1.0,
     includeSubtitles: captionsConfig?.enabled ?? false,
     subtitleStyle: captionsConfig?.mode ?? "karaoke",
     // Music is added in Video Studio as timeline inserts, so this page stays free of settings
@@ -362,6 +358,8 @@ export default function RenderView({
   const [timingCopied, setTimingCopied] = useState(false);
   const [renderedBlob, setRenderedBlob] = useState<Blob | null>(propRenderedBlob || null);
   const [renderedUrl, setRenderedUrl] = useState<string | null>(propRenderedUrl || null);
+  /** Lets the idle canvas repaint when the required Free-plan mark finishes loading. */
+  const [watermarkLoaded, setWatermarkLoaded] = useState(false);
   /** The container the finished render was ACTUALLY recorded in. The download
    *  extension always matches this — a mislabelled file is what made the
    *  download "not work" before. */
@@ -555,22 +553,6 @@ export default function RenderView({
         paintVideoFilter(ctx, videoFilter, width, height, progress * LOOP_SECONDS);
       } catch {}
 
-      // Watermark + brand logo, same placement as the export
-      if (watermarkImgRef.current && watermarkImgRef.current.naturalWidth > 0) {
-        ctx.save();
-        const watermark = getWatermarkLayout(
-          width,
-          height,
-          watermarkImgRef.current.naturalWidth,
-          watermarkImgRef.current.naturalHeight
-        );
-        ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-        ctx.shadowBlur = watermark.shadowBlur;
-        ctx.shadowOffsetY = watermark.shadowOffsetY;
-        ctx.drawImage(watermarkImgRef.current, watermark.x, watermark.y, watermark.width, watermark.height);
-        ctx.restore();
-      }
-
       if (settings.includeSubtitles && (first.burn_caption ?? true) && first.text) {
         try {
           renderCanvasCaptions(
@@ -582,6 +564,12 @@ export default function RenderView({
             height
           );
         } catch {}
+      }
+
+      // The Free-plan mark is deliberately the final preview layer, matching
+      // export and preventing project content from covering it.
+      if (showPlanWatermark) {
+        drawSceneringWatermark(ctx, watermarkImgRef.current, width, height);
       }
     };
 
@@ -618,7 +606,7 @@ export default function RenderView({
       if (rafId && typeof cancelAnimationFrame === "function") cancelAnimationFrame(rafId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRendering, renderedUrl, scenesWithImages, videoFilter, settings.resolution, settings.includeSubtitles, captionsConfig, aspectRatio, propResolution, sceneAnimationEnabled]);
+  }, [isRendering, renderedUrl, scenesWithImages, videoFilter, settings.resolution, settings.includeSubtitles, captionsConfig, aspectRatio, propResolution, sceneAnimationEnabled, showPlanWatermark, watermarkLoaded]);
 
   // Attribution state - default collapsed ("do not open it yet")
   const [copiedAttribution, setCopiedAttribution] = useState(false);
@@ -628,6 +616,8 @@ export default function RenderView({
   /** Clip decoders in use by the current export, released when it ends. */
   const clipPoolRef = useRef<ClipPool | null>(null);
   const watermarkImgRef = useRef<HTMLImageElement | null>(null);
+  /** Shares a single in-flight image request between preview and an export. */
+  const watermarkLoadRef = useRef<Promise<HTMLImageElement | null> | null>(null);
   const customerLogoImgRef = useRef<HTMLImageElement | null>(null);
   const abortControllerRef = useRef<boolean>(false);
   /** Frame pacing for the export — vsync-locked, worker-driven when hidden. */
@@ -638,14 +628,42 @@ export default function RenderView({
    *  so a failed row can say what went wrong (state updates are async). */
   const lastRenderErrorRef = useRef<string>("");
 
-  // Pre-load watermark logo image
-  useEffect(() => {
-    const img = new Image();
-    img.src = "/scenering-logo.png";
-    img.onload = () => {
-      watermarkImgRef.current = img;
-    };
+  /**
+   * Free output must never begin until its required product mark is available.
+   * This also avoids loading the image at all for paid plans.
+   */
+  const ensureWatermarkImage = useCallback((): Promise<HTMLImageElement | null> => {
+    const existing = watermarkImgRef.current;
+    if (existing && existing.naturalWidth > 0 && existing.naturalHeight > 0) {
+      return Promise.resolve(existing);
+    }
+    if (watermarkLoadRef.current) return watermarkLoadRef.current;
+
+    const image = new Image();
+    const pending = new Promise<HTMLImageElement | null>((resolve) => {
+      image.onload = () => {
+        watermarkImgRef.current = image;
+        watermarkLoadRef.current = null;
+        setWatermarkLoaded(true);
+        resolve(image);
+      };
+      image.onerror = () => {
+        watermarkImgRef.current = null;
+        watermarkLoadRef.current = null;
+        setWatermarkLoaded(false);
+        resolve(null);
+      };
+    });
+    watermarkLoadRef.current = pending;
+    image.src = "/scenering-logo.png";
+    return pending;
   }, []);
+
+  // Warm the mark for a Free-plan preview. The final-export path below also
+  // awaits it, so a fast click cannot produce an unbranded Free render.
+  useEffect(() => {
+    if (showPlanWatermark) void ensureWatermarkImage();
+  }, [showPlanWatermark, ensureWatermarkImage]);
 
   // Pre-load customer logo image cleanly using safe proxy to prevent canvas tainting
   useEffect(() => {
@@ -687,7 +705,7 @@ export default function RenderView({
    * A scene photo that cannot be loaded resolves the preview's gradient
    * "Scene N" card instead of null, so the exported video can never show a
    * black frame where the preview showed a picture. Logos opt out of the
-   * fallback (a missing watermark should simply not be drawn).
+   * fallback; the required product watermark is loaded and gated separately.
    */
   const loadImage = (url: string): Promise<HTMLImageElement | null> =>
     loadSceneImage(url, 0, { fallback: "none" }).then((r) => r?.img ?? null);
@@ -741,6 +759,16 @@ export default function RenderView({
     vipAcknowledged = false
   ): Promise<{ blob: Blob; container: "mp4" | "webm" } | null> => {
     if (scenesWithImages.length === 0 || isRendering) return null;
+
+    // The watermark is Free-plan policy, not a best-effort visual detail. Do
+    // not produce a file if its required, fixed mark failed to load.
+    if (showPlanWatermark && !(await ensureWatermarkImage())) {
+      const message = "The required Scenering watermark could not load. Check your connection and try again.";
+      lastRenderErrorRef.current = message;
+      setRenderError(message);
+      setRenderStatus({ active: false, error: message, stage: "Watermark unavailable" });
+      return null;
+    }
 
     // Draft is an unmetered preview. Every other encode reserves allowance
     // atomically before expensive work starts, preventing parallel-tab races.
@@ -1227,11 +1255,8 @@ export default function RenderView({
       // reaches them.
       await ensureVisualWindow(0);
 
-      // Watermark image
-      if (!watermarkImgRef.current) {
-        const wm = await loadImage("/scenering-logo.png");
-        if (wm) watermarkImgRef.current = wm;
-      }
+      // A Free-plan export already awaited its mandatory watermark before
+      // spending work on scene assets. Paid plans intentionally skip it.
 
       // Preload customer brand logo if enabled to ensure it is decoded and ready
       if (customerLogo?.enabled && customerLogo.url) {
@@ -1263,6 +1288,12 @@ export default function RenderView({
             : frameTelemetry.music;
           const frameAudioLevel = audioFrame ? Math.min(1, 0.15 + loudestFrameBus.level * 2.6) : 0.4;
           const frameFreqData = audioFrame ? (loudestFrameBus.freq as Uint8Array) || null : null;
+          /** Product branding is always painted after project content. */
+          const drawPlanWatermark = () => {
+            if (showPlanWatermark) {
+              drawSceneringWatermark(ctx, watermarkImgRef.current, width, height);
+            }
+          };
         // ==========================================
         // PHASE 1: INTRO SEGMENT
         // ==========================================
@@ -1287,6 +1318,7 @@ export default function RenderView({
               });
           }
 
+          drawPlanWatermark();
           return;
         }
 
@@ -1315,6 +1347,7 @@ export default function RenderView({
               });
           }
 
+          drawPlanWatermark();
           return;
         }
 
@@ -1493,42 +1526,6 @@ export default function RenderView({
           console.warn("Video filter notice:", filterErr);
         }
 
-        // --- Crisp Logo Watermark in Top-Left Corner ---
-        if (
-          settings.includeWatermark &&
-          watermarkImgRef.current &&
-          watermarkImgRef.current.naturalWidth > 0 &&
-          watermarkImgRef.current.naturalHeight > 0
-        ) {
-          ctx.save();
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = "high";
-
-          const wmOpacity = Math.max(0.1, Math.min(1.0, settings.watermarkOpacity ?? 1.0));
-          ctx.globalAlpha = wmOpacity;
-          const watermark = getWatermarkLayout(
-            width,
-            height,
-            watermarkImgRef.current.naturalWidth,
-            watermarkImgRef.current.naturalHeight,
-            settings.watermarkScale ?? 1
-          );
-
-          // Subtle soft shadow so transparent logo stands out cleanly on any video scene (matches preview 1:1)
-          ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-          ctx.shadowBlur = watermark.shadowBlur;
-          ctx.shadowOffsetX = 0;
-          ctx.shadowOffsetY = watermark.shadowOffsetY;
-
-          // Draw crisp transparent watermark logo
-          try {
-            ctx.drawImage(watermarkImgRef.current, watermark.x, watermark.y, watermark.width, watermark.height);
-          } catch (wmDrawErr) {
-            console.warn("Watermark draw notice:", wmDrawErr);
-          }
-          ctx.restore();
-        }
-
         // --- Customer Brand Logo in Top-Right Corner (if enabled) ---
         if (
           customerLogo?.enabled &&
@@ -1625,6 +1622,10 @@ export default function RenderView({
             console.warn("Timeline inserts notice:", insertsErr);
           }
         }
+
+        // Always paint the Free-plan mark after captions, logos and every
+        // timeline insert so project content cannot cover or remove it.
+        drawPlanWatermark();
         } catch (frameErr) {
           console.error("Frame render recoverable error:", frameErr);
         }
