@@ -1,4 +1,6 @@
-import { STUDIO_VOICE_PRESETS, migrateLegacyVoiceId, type VoicePreset } from "../data/voice-presets";
+import { SIMBA_32_VOICE_IDS, STUDIO_VOICE_PRESETS, migrateLegacyVoiceId, type VoicePreset } from "../data/voice-presets";
+
+const BUILT_FOR_SIMBA_32 = new Set<string>(SIMBA_32_VOICE_IDS);
 import type { WordTiming } from "./word-sync";
 
 export type SpeechifyVoiceGender = "male" | "female" | "not_specified";
@@ -64,11 +66,13 @@ function localeLabel(locale: string, fallback: string): string {
 }
 
 /**
- * Bind the 20 Scenering style profiles to real, distinct Speechify voices.
- * The selection is deterministic per customer catalogue: each profile prefers
- * its declared locale, then the closest available English locale, then the
- * next unused voice of the same gender. The voice styles themselves stay
- * familiar while the provider voices and provider IDs come only from Speechify.
+ * Bind the 20 Scenering style profiles to real Speechify voices. Each style is
+ * cast with one of the eight voices Speechify built for Simba 3.2
+ * (`speechifyVoiceId`); several styles share one. If that voice is missing
+ * from this customer's catalogue, another of the eight with the same gender
+ * (same locale first) stands in. Only when none of the eight are reachable
+ * does the earlier rule apply: the next distinct, unused catalogue voice of the
+ * same gender, preferring the declared locale. Deterministic per catalogue.
  */
 export function buildSpeechifyVoiceProfiles(
   catalog: readonly SpeechifyVoice[],
@@ -91,8 +95,14 @@ export function buildSpeechifyVoiceProfiles(
     const unused = candidates.filter((voice) => !usedByGender[gender].has(voice.id));
     const preferredLocale = template.locale.toLowerCase();
     const language = preferredLocale.split("-")[0];
+    const cast = template.speechifyVoiceId?.toLowerCase();
+    const builtForModel = candidates.filter((voice) => BUILT_FOR_SIMBA_32.has(voice.id.toLowerCase()));
 
     const selected =
+      (cast ? candidates.find((voice) => voice.id.toLowerCase() === cast) : undefined) ||
+      builtForModel.find((voice) => voice.locale.toLowerCase() === preferredLocale) ||
+      builtForModel.find((voice) => voice.locale.toLowerCase().startsWith(`${language}-`)) ||
+      builtForModel[0] ||
       unused.find((voice) => voice.locale.toLowerCase() === preferredLocale) ||
       unused.find((voice) => voice.locale.toLowerCase().startsWith(`${language}-`)) ||
       unused[0] ||

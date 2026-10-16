@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createHarness } from "./harness";
-import { FREE_SPEECHIFY_VOICE_IDS, STUDIO_VOICE_PRESETS, migrateLegacyVoiceId } from "../src/data/voice-presets";
+import { FREE_SPEECHIFY_VOICE_IDS, SIMBA_32_VOICE_IDS, STUDIO_VOICE_PRESETS, migrateLegacyVoiceId, sameSpeechifySpeaker } from "../src/data/voice-presets";
+import { buildSpeechifyVoiceDirectory } from "../src/lib/speechify-client";
 import { isPlanVoiceIncluded } from "../src/config/plans";
 import { activeWordIndexAt, alignWordTimings } from "../src/lib/word-sync";
 import {
@@ -52,6 +53,82 @@ h.eq(migrateLegacyVoiceId("CUSTOM_CaseSensitive_Voice"), "CUSTOM_CaseSensitive_V
 h.ok(isPlanVoiceIncluded("free", FREE_SPEECHIFY_VOICE_IDS[0]), "free male Speechify profile is plan-included");
 h.ok(isPlanVoiceIncluded("free", FREE_SPEECHIFY_VOICE_IDS[1]), "free female Speechify profile is plan-included");
 h.ok(!isPlanVoiceIncluded("free", "speechify_male_02"), "advanced Speechify profile is plan-gated");
+
+// ── Casting: every style is spoken by one of the eight voices built for Simba 3.2.
+const builtForModel: SpeechifyVoice[] = [
+  { id: "wyatt_32", display_name: "Wyatt", gender: "male", locale: "en-US" },
+  { id: "dominic_32", display_name: "Dominic", gender: "male", locale: "en-US" },
+  { id: "hugh_32", display_name: "Hugh", gender: "male", locale: "en-GB" },
+  { id: "edmund_32", display_name: "Edmund", gender: "male", locale: "en-GB" },
+  { id: "geffen_32", display_name: "Geffen", gender: "female", locale: "en-US" },
+  { id: "harper_32", display_name: "Harper", gender: "female", locale: "en-US" },
+  { id: "beatrice_32", display_name: "Beatrice", gender: "female", locale: "en-GB" },
+  { id: "imogen_32", display_name: "Imogen", gender: "female", locale: "en-GB" },
+];
+// Zero-shot catalogue voices that sort first alphabetically — what the old rule picked.
+const imitated: SpeechifyVoice[] = [
+  { id: "aaron", display_name: "Aaron", gender: "male", locale: "en-US" },
+  { id: "abbie", display_name: "Abbie", gender: "female", locale: "en-US" },
+  { id: "alfie", display_name: "Alfie", gender: "male", locale: "en-GB" },
+  { id: "amelia", display_name: "Amelia", gender: "female", locale: "en-GB" },
+  { id: "bruce", display_name: "Bruce", gender: "male", locale: "en-AU" },
+  { id: "ciara", display_name: "Ciara", gender: "female", locale: "en-IE" },
+];
+const fullCatalog = [...imitated, ...rows, ...builtForModel];
+const cast = buildSpeechifyVoiceProfiles(fullCatalog);
+const builtIds = new Set<string>(SIMBA_32_VOICE_IDS);
+h.eq(SIMBA_32_VOICE_IDS.length, 8, "the eight voices built for Simba 3.2 are listed");
+h.ok(STUDIO_VOICE_PRESETS.every((preset) => !!preset.speechifyVoiceId && builtIds.has(preset.speechifyVoiceId)), "every style is cast with a built-for-Simba-3.2 voice");
+h.ok(cast.every((profile) => profile.providerVoiceId === STUDIO_VOICE_PRESETS.find((preset) => preset.id === profile.id)?.speechifyVoiceId), "each style binds to the voice it is cast with");
+h.eq(new Set(cast.map((profile) => profile.providerVoiceId)).size, 8, "all eight voices are used across the twenty styles");
+h.ok(cast.every((profile) => builtIds.has(profile.providerVoiceId)), "no style falls back to an imitated catalogue voice");
+h.eq(cast.length, 20, "the picker still has twenty styles");
+h.eq(cast[0].providerVoiceId, "wyatt_32", "the Free male style (Warm Conversational) is Wyatt");
+h.eq(cast[10].providerVoiceId, "geffen_32", "the Free female style (Clear Conversational) is Geffen");
+h.eq(cast[0].name, "Wyatt · Warm Conversational", "the picker shows the Speechify voice name with the style");
+const castCounts = new Map<string, number>();
+for (const profile of cast) castCounts.set(profile.providerVoiceId, (castCounts.get(profile.providerVoiceId) || 0) + 1);
+h.ok([...castCounts.values()].every((count) => count >= 2 && count <= 3), "each voice covers two or three styles");
+h.ok(cast.every((profile) => {
+  const voice = builtForModel.find((v) => v.id === profile.providerVoiceId)!;
+  return voice.gender === profile.gender;
+}), "every style keeps its gender");
+h.ok(cast.filter((profile) => profile.locale === "en-US").every((profile) => profile.providerLocale === "en-US"), "American styles are spoken by American voices");
+h.ok(cast.filter((profile) => profile.locale === "en-GB").every((profile) => profile.providerLocale === "en-GB"), "British styles are spoken by British voices");
+const formerlyAustralianOrIrish = ["speechify_male_04", "speechify_male_09", "speechify_female_04", "speechify_female_08"];
+h.ok(formerlyAustralianOrIrish.every((id) => cast.find((profile) => profile.id === id)?.providerLocale === "en-GB"), "the Australian and Irish styles are spoken by British voices");
+h.ok(formerlyAustralianOrIrish.every((id) => STUDIO_VOICE_PRESETS.find((preset) => preset.id === id)?.accent === "British English"), "their cards say British English, matching the speaker");
+h.ok(STUDIO_VOICE_PRESETS.every((preset) => builtForModel.find((voice) => voice.id === preset.speechifyVoiceId)?.locale === preset.locale), "every card's accent matches the voice that speaks it");
+h.eq(cast.find((profile) => profile.id === "speechify_male_04")?.accent, "British English", "the accent shown follows the voice actually speaking");
+h.eq(resolveSpeechifyVoiceId("speechify_female_07", fullCatalog, cast), "imogen_32", "a saved style resolves to its cast voice for synthesis");
+
+// If Speechify withdraws one of the eight, another of the eight stands in.
+const withoutHugh = buildSpeechifyVoiceProfiles(fullCatalog.filter((voice) => voice.id !== "hugh_32"));
+h.eq(withoutHugh.find((profile) => profile.id === "speechify_male_03")?.providerVoiceId, "edmund_32", "a missing British voice is replaced by the other British voice built for the model");
+h.ok(withoutHugh.every((profile) => builtIds.has(profile.providerVoiceId)), "a withdrawn voice never drops a style to an imitated voice while others of the eight remain");
+const withoutWyatt = buildSpeechifyVoiceProfiles(fullCatalog.filter((voice) => voice.id !== "wyatt_32"));
+h.eq(withoutWyatt[0].providerVoiceId, "dominic_32", "a missing American voice is replaced by the other American voice built for the model");
+
+// Directory picks map to the Free style first, so Free users keep their voices.
+const freeDirectory = buildSpeechifyVoiceDirectory(fullCatalog, false);
+h.eq(freeDirectory.map((voice) => voice.id).sort().join(","), "geffen_32,wyatt_32", "the Free directory offers exactly the two Free voices");
+h.eq(freeDirectory.find((voice) => voice.id === "wyatt_32")?.profileId, "speechify_male_01", "picking Wyatt maps to the Free male style, not a paid style sharing the voice");
+h.eq(freeDirectory.find((voice) => voice.id === "geffen_32")?.profileId, "speechify_female_01", "picking Geffen maps to the Free female style");
+h.ok(isPlanVoiceIncluded("free", freeDirectory.find((voice) => voice.id === "wyatt_32")!.profileId!), "the Free directory pick passes the plan check");
+const paidDirectory = buildSpeechifyVoiceDirectory(fullCatalog, true);
+h.eq(paidDirectory.find((voice) => voice.id === "dominic_32")?.profileId, "speechify_male_05", "a shared voice maps to the first style cast with it");
+
+// Two-voice rotation needs two different speakers, not just two style names.
+h.ok(sameSpeechifySpeaker("speechify_male_01", "speechify_male_02"), "Warm Conversational and Deep Cinematic are the same speaker");
+h.ok(sameSpeechifySpeaker("speechify_female_03", "speechify_female_08"), "two styles cast with Imogen are the same speaker");
+h.ok(sameSpeechifySpeaker("speechify_male_01", "wyatt_32"), "a style and its voice picked from the directory are the same speaker");
+h.ok(sameSpeechifySpeaker("speechify_male_03", "speechify_male_03"), "the same style is the same speaker");
+h.ok(!sameSpeechifySpeaker("speechify_male_01", "speechify_male_05"), "Wyatt and Dominic are different speakers");
+h.ok(!sameSpeechifySpeaker("speechify_male_01", "speechify_female_01"), "the two Free voices are different speakers");
+h.ok(!sameSpeechifySpeaker("speechify_male_01", undefined), "an empty selection is never the same speaker");
+const voiceoverSource = readFileSync("src/components/VoiceoverStudio.tsx", "utf8");
+h.ok(voiceoverSource.includes("sameSpeechifySpeaker(selectedVoice, secondVoice)") && !voiceoverSource.includes("selectedVoice === secondVoice"), "the rotation warning compares speakers");
+h.ok(voiceoverSource.includes("Both sides are the same voice — rotation will sound like a single"), "the rotation warning keeps its existing wording");
 
 const words = parseSpeechifySpeechMarks([
   {

@@ -5,11 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <link rel="manifest" href="/site.webmanifest" />
-    <link rel="canonical" href="https://scenering.com/" />
-    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
-    <title>Scenering | Faceless Video Maker from Script to Video</title>
+    <!-- Search and link-preview tags: title, description, robots, canonical URL,
+         Open Graph / X cards (the hero image) and structured data. They are
+         written per page at build time from src/marketing/seo.ts by
+         src/marketing/seo-head.ts (see vite.config.ts): dist/index.html gets the
+         front page's, dist/pricing.html the pricing page's, and so on. Do not
+         type tags here; edit the table in seo.ts. -->
+    <!-- seo:start -->
+    <!-- seo:end -->
     <!-- Caption typefaces, first wave only: the handful of faces the default
          styles use, requested here so the first caption paints in the right
          font. The full catalogue (sixty-odd families, including the strange
@@ -24,10 +30,6 @@
       rel="stylesheet"
       data-caption-fonts="true"
       href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400..700&family=Cormorant+Garamond:wght@400..700&family=Cinzel:wght@400..800&family=Inter:wght@400..800&family=Anton&family=Permanent+Marker&family=Caveat:wght@400..700&family=Monoton&family=Bangers&family=Baloo+2:wght@400..800&display=swap"
-    />
-    <meta
-      name="description"
-      content="Make faceless videos from scripts or prepared audio with Scenering. Build scenes, research visuals, add voiceover and synced captions, then edit and export for social platforms."
     />
     <meta name="author" content="Henry John Vincent Horlick" />
     <meta name="copyright" content="Copyright © 2026 Henry John Vincent Horlick. All rights reserved." />
@@ -45,59 +47,9 @@
         }
       })();
     </script>
-    <!-- Absolute URLs are required by social-card crawlers, which do not run
-         the SPA JavaScript. The card is built from Scenering's own artwork. -->
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Scenering" />
-    <meta property="og:locale" content="en_US" />
-    <meta property="og:url" content="https://scenering.com/" />
-    <meta property="og:title" content="Scenering | Faceless Video Maker from Script to Video" />
-    <meta
-      property="og:description"
-      content="Make faceless videos from scripts or prepared audio. Build scenes, research visuals, add voiceover and synced captions, then edit and export for social platforms."
-    />
-    <meta property="og:image" content="https://scenering.com/marketing/og-card.jpg" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Scenering turns scripts into scene-based faceless videos with researched visuals, voiceover and synced captions." />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Scenering | Faceless Video Maker from Script to Video" />
-    <meta
-      name="twitter:description"
-      content="Make faceless videos from scripts or prepared audio. Build scenes, research visuals, add voiceover and synced captions, then edit and export for social platforms."
-    />
-    <meta name="twitter:image" content="https://scenering.com/marketing/og-card.jpg" />
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "Scenering",
-        "url": "https://scenering.com/",
-        "image": "https://scenering.com/marketing/og-card.jpg",
-        "applicationCategory": "MultimediaApplication",
-        "applicationSubCategory": "Video editing and script-to-video software",
-        "operatingSystem": "Web browser",
-        "description": "Create scene-based faceless videos from scripts or prepared audio. Research visuals, add narration and synced captions, edit the video, and export for social platforms.",
-        "featureList": [
-          "Script-to-scene planning",
-          "Visual research and selection",
-          "Speechify voiceover with a customer-provided API key",
-          "Word-synced captions",
-          "Video Studio editing and effects",
-          "MP4 and WebM export"
-        ],
-        "offers": [
-          { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD", "url": "https://scenering.com/pricing" },
-          { "@type": "Offer", "name": "SceneFlow monthly", "price": "19", "priceCurrency": "USD", "url": "https://scenering.com/pricing" },
-          { "@type": "Offer", "name": "SceneFlow yearly", "price": "180", "priceCurrency": "USD", "url": "https://scenering.com/pricing" },
-          { "@type": "Offer", "name": "SceneForge monthly", "price": "39", "priceCurrency": "USD", "url": "https://scenering.com/pricing" },
-          { "@type": "Offer", "name": "SceneForge yearly", "price": "372", "priceCurrency": "USD", "url": "https://scenering.com/pricing" }
-        ]
-      }
-    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><!-- seo-page:start --><!-- seo-page:end --></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

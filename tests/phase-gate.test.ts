@@ -17,15 +17,16 @@ import {
 } from "../src/lib/phase-gate";
 
 /**
- * The ordered section gate.
+ * The project sections and moving between them.
  *
- * The owner's rule: "Section Next must commit that section's effects; going
- * back requires pressing Next again; later sections stay locked until then."
+ * The owner's rule (2026-10-16), replacing the ordered gate of 2026-10-08:
+ * "the user can go forward and backward as they want and all sections will be
+ * open. The only section closed is the start, and that will start a new
+ * project or choose an old project."
  *
- * The rules are pure functions, so they are pinned here — including the awkward
- * half of the rule that is easy to lose in a refactor: the section IMMEDIATELY
- * after the current one is locked too. The next section is not a tab you may
- * click; it is opened by the current section's Next.
+ * So the only lock left is the start: with no project open, every section but
+ * Setup is closed. With a project open, nothing is — and leaving a section by
+ * any route commits it.
  */
 
 const h = createHarness();
@@ -54,17 +55,17 @@ h.eq(previousPhase("setup"), null, "nothing precedes Setup");
 
 /* ---- what is open, what is locked -------------------------------------- */
 
-h.eq(isPhaseLocked("scenes", "scenes"), false, "the section you are in is open");
-h.eq(isPhaseLocked("setup", "scenes"), false, "earlier sections stay open — you may go back");
-h.eq(isPhaseLocked("voiceover", "scenes"), true, "the NEXT section is locked too, until Next is pressed");
-h.eq(isPhaseLocked("render", "scenes"), true, "later sections stay locked");
-h.eq(isPhaseLocked("render", "studio"), true, "…and stay locked nearer the end");
-h.eq(isPhaseLocked("studio", "render"), false, "from Render, going back is allowed");
-
-/* Going back retracts the gate: the same pair that was open on the way
-   forward is locked again, which is what "going back requires pressing Next
-   again" means in practice. */
-h.eq(isPhaseLocked("voiceover", "scenes"), true, "after going back to Scenes, Voiceover is locked again");
+for (const phase of PROJECT_PHASES) {
+  h.eq(isPhaseLocked(phase.id, true), false, `with a project open, ${phase.tab} is open`);
+}
+h.eq(isPhaseLocked("render", true), false, "the last section is open straight away — no walking in order");
+h.eq(isPhaseLocked("voiceover", true), false, "the section after the current one is open without pressing Next");
+h.eq(isPhaseLocked("setup", true), false, "Setup stays open with a project, to edit it or start another");
+h.eq(isPhaseLocked("setup", false), false, "with no project, the start is open");
+for (const phase of PROJECT_PHASES.filter((p) => p.id !== "setup")) {
+  h.eq(isPhaseLocked(phase.id, false), true, `with no project, ${phase.tab} is closed until a project is created or chosen`);
+}
+h.eq(isPhaseLocked("nope" as never, true), true, "an unknown section is never opened");
 
 /* ---- which phase a step belongs to ------------------------------------- */
 
@@ -112,31 +113,41 @@ h.eq(Object.keys(rows[0]).sort().join(","), "duration,id,image_query,image_url,o
 /* ---- and the app obeys the rules --------------------------------------- */
 
 const app = read("src/App.tsx");
-h.ok(app.includes("isPhaseLocked(phase, currentPhase)"), "the tab row is gated by the same rule");
-h.ok(app.includes("commitAndAdvance"), "there is one commit-and-advance path");
+h.ok(app.includes("isPhaseLocked(phase.id, Boolean(currentProject))"), "the tab row is opened by the same rule");
+h.ok(app.includes("isPhaseLocked(target, Boolean(currentProject))"), "navigation is opened by the same rule");
+h.ok(!app.includes("unlocks the next section"), "the tab row no longer claims Next unlocks the next section");
+h.ok(!app.includes("opens after you press Next"), "no section refuses to open until Next is pressed");
+h.ok(!app.includes("to commit it and open this section"), "no tab tooltip describes the old lock");
+h.ok(app.includes("const goToPhase = async"), "one navigation entry point");
+h.ok(/const navigateToPhase = \(phase: ProjectPhase\) => \{\s+void goToPhaseRef\.current\(phase\);/.test(app), "tabs and Previous go through it");
+h.ok(/const commitAndAdvance = useCallback\(async \(target: ProjectPhase\) => \{\s+await goToPhaseRef\.current\(target, \{ viaNext: true \}\);/.test(app), "Next goes through it");
+h.ok(app.includes("void goToPhaseRef.current(target, { viaNext: phaseIndex(target) > phaseIndex(currentPhase) })"), "sections' own steps go through it");
+h.ok(/if \(currentProject && from !== target\) \{[\s\S]*?const saved = await commitPhaseEffects\(from\);/.test(app), "leaving a section by any route commits it");
+h.ok(app.includes('handleUpdateScript(pendingScript, "if-changed", sceneDuration, singleScene)'), "leaving Setup applies a script edited there, only if it changed");
+h.ok(app.includes('const rows = phase === "setup" ? [] : sceneRowsForCommit(scenes);'), "leaving Setup never writes back the scene list from before a rebuild");
 h.ok(/commitPhaseEffects/.test(app) && /scenes"\)\.upsert/.test(app), "committing writes the scene rows in one batch");
 h.ok(app.includes("commitStorageKey(currentProject.id)"), "the commit stamp is written per project");
-h.ok(app.includes("handleStepRequest"), "sections navigate through the gate, not around it");
-h.ok(!app.includes("onNavigateToStep={setEditorStep}"), "no section bypasses the gate with a raw step change");
-h.ok(app.includes("Next in {getPhase(currentPhase).phase} unlocks the next section"), "the tab row says how to open the next section");
-h.ok(/onNext=\{\(\) => \{ const target = nextPhase\("scenes"\);/.test(app), "the Scenes Next button is the gate that opens Voiceover");
-h.ok(/onNext=\{\(\) => \{ const target = nextPhase\("studio"\);/.test(app), "the Studio Next button is the gate that opens Render");
+h.ok(app.includes("handleStepRequest"), "sections navigate through the app, not around it");
+h.ok(!app.includes("onNavigateToStep={setEditorStep}"), "no section bypasses the app with a raw step change");
+h.ok(app.includes("create or select a project to unlock steps 2–6"), "with no project, the tab row says how to open the other steps");
+h.ok(/onNext=\{\(\) => \{ const target = nextPhase\("scenes"\);/.test(app), "the Scenes Next button saves and opens Voiceover");
+h.ok(/onNext=\{\(\) => \{ const target = nextPhase\("studio"\);/.test(app), "the Studio Next button saves and opens Render");
 h.ok(app.includes("busyLabel={committingPhase ==="), "the Next button reports the commit while it runs");
-h.ok(app.includes("committed — "), "a successful commit is confirmed on screen");
-h.ok(app.includes("could not be saved"), "a failed commit is reported instead of silently advancing");
+h.ok(app.includes("committed — "), "a successful Next is confirmed on screen");
+h.ok(app.includes("could not be saved"), "a failed save is reported instead of moving on silently");
 
 const stepNav = read("src/components/StepNav.tsx");
-h.ok(stepNav.includes('from "../lib/phase-gate"'), "the control renders the list it is gated by");
+h.ok(stepNav.includes('from "../lib/phase-gate"'), "the control renders the one phase list");
 h.ok(/export \{ PROJECT_PHASES, getPhase \}/.test(stepNav), "the phase list still has one home");
 
-/* Every section's own Next is wired to move through the gate. */
+/* Every section's own Next is wired through the app's navigation. */
 for (const [file, needle] of [
   ["src/components/SetupStudio.tsx", "onNext={handleStartProject}"],
   ["src/components/VoiceoverStudio.tsx", 'onNext={() => handleProceedNext("captions")}'],
   ["src/components/CaptionsStudio.tsx", "onNavigate={onNavigateToStep}"],
   ["src/components/RenderView.tsx", "onNavigatePhase(phase)"],
 ] as const) {
-  h.ok(read(file).includes(needle), `${file}: its Next still goes through the app's gate`);
+  h.ok(read(file).includes(needle), `${file}: its Next still goes through the app's navigation`);
 }
 
 h.done("phase gate");

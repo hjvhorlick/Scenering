@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { registerAccount, resendVerification, signIn } from "../lib/session";
+import { refreshSession, registerAccount, resendVerification, signIn } from "../lib/session";
 import { preloadStudio } from "./studio-loader";
 import { redeemComplimentaryCode } from "../lib/entitlements";
 import logo from "../assets/scenering-logo.png";
@@ -43,8 +43,13 @@ export default function SignIn() {
       await preloadStudio().catch(() => null); await signIn(email, password);
       const intendedCode = localStorage.getItem("scenering_intended_access_code");
       if (intendedCode) {
-        await redeemComplimentaryCode(intendedCode);
+        // Forgotten before it is tried: a code that cannot be used (used up,
+        // expired) must not be tried again at every later sign-in.
         localStorage.removeItem("scenering_intended_access_code");
+        await redeemComplimentaryCode(intendedCode);
+        // The studio opened with the account as it was at sign-in. Read it
+        // again so the gifted plan applies straight away, not after a reload.
+        await refreshSession();
       }
       const intended = localStorage.getItem("scenering_intended_checkout");
       if (intended) {

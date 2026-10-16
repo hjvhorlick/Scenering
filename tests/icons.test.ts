@@ -260,8 +260,43 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
   [
     // The account-menu resume comments were shortened while retaining the
     // actual project-title text and tooltip; this is developer commentary.
+    // 2026-10-16: the owner opened every section once a project is open, so
+    // the tab row's lock hint and its tooltip — "Each section is committed by
+    // its own Next button. Going back to an earlier section closes the ones
+    // after it, so Next is the way forward again." — described a rule that no
+    // longer exists and were removed (src/lib/phase-gate.ts).
     "src/App.tsx",
-    new Set(["The", "My", "Documentary", "About"]),
+    new Set([
+      "The", "My", "Documentary", "About",
+      "to", "the", "button", "is", "Each", "section", "committed", "by", "its", "own", "Next",
+      "Going", "back", "an", "earlier", "closes", "ones", "after", "it", "so", "way", "forward", "again",
+    ]),
+  ],
+  [
+    // 2026-10-16, owner: the front page's pricing section promised
+    // "Narration with your own free Google key" on every plan card, with a
+    // line about a free Google AI Studio key under them, while the rest of the
+    // page (and the product) uses the customer's own Speechify key. The cards
+    // now say "Narration with your own Speechify key" and the Google line is
+    // gone. The developer note under it — "Paid checkout requires configured
+    // Lemon Squeezy credentials. Verified subscription status—not a checkout
+    // return page—controls paid access." — was never meant for visitors, and
+    // Lemon Squeezy is being replaced; it is gone too.
+    "src/marketing/sections/Pricing.tsx",
+    new Set([
+      "return", "and", "Narration", "your", "own", "free", "Google", "key", "uses", "AI", "Studio", "on",
+      "every", "plan", "including", "Free", "takes", "about", "minute", "to", "create", "costs", "nothing",
+      "Scenering", "never", "meters", "it", "Paid", "checkout", "requires", "configured", "Lemon", "Squeezy",
+      "credentials", "Verified", "subscription", "status", "not", "page", "controls", "paid", "access",
+    ]),
+  ],
+  [
+    // 2026-10-16: every voice style is spoken by one of Speechify's eight
+    // Simba 3.2 voices, none of them Australian or Irish. The four styles
+    // that had those accents are spoken by British voices, so their accent
+    // labels say "British English"; the style names themselves are unchanged.
+    "src/data/voice-presets.ts",
+    new Set(["Australian", "Irish"]),
   ],
   [
     // The website's phase rail stopped marking its own state with `is-on` and
@@ -399,6 +434,20 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     // device-performance guidance, rather than the old five-question copy.
     "src/marketing/sections/Questions.tsx",
     new Set(["five"]),
+  ],
+  [
+    // Contact messages moved to the Email Centre inbox (/admin, one place
+    // to read and answer them by email). The Account window keeps the
+    // "Contact inbox" heading and its empty-state sentence, but no longer
+    // lists each message with a new/open/resolved/closed picker, so those
+    // option words and the picker's error message left this file. The
+    // second line is the removed picker's class names, which the prose
+    // reader above counts as words (they hold a "/15" or a digit).
+    "src/components/AccountMembershipModal.tsx",
+    new Set([
+      "new", "open", "resolved", "closed", "Contact", "status", "could", "not", "be", "updated",
+      "text-", "px", "px-", "text-xs", "text-gray-", "bg-gray-", "border", "border-white", "rounded-md",
+    ]),
   ],
 ]);
 

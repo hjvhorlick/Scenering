@@ -12,8 +12,8 @@ export type { ProjectPhase, ProjectPhaseDef };
 
 /**
  * The phase list and every rule about moving between phases live in
- * src/lib/phase-gate.ts — see the note there for the ordered gate the owner
- * asked for (Next commits a section, going back locks the ones after it).
+ * src/lib/phase-gate.ts — see the note there for the owner's rule (with a
+ * project open every section is open; leaving one by any route commits it).
  * This file is only the control.
  */
 

@@ -1,4 +1,4 @@
-import { FREE_SPEECHIFY_VOICE_IDS, STUDIO_VOICE_PRESETS, migrateLegacyVoiceId } from "../data/voice-presets";
+import { FREE_SPEECHIFY_VOICE_IDS, SIMBA_32_VOICE_IDS, STUDIO_VOICE_PRESETS, migrateLegacyVoiceId } from "../data/voice-presets";
 import { getStoredApiKeys } from "./api-keys";
 import { sanitizeTextForSpeech } from "./speech-sanitizer";
 import {
@@ -14,6 +14,19 @@ import type { WordTiming } from "./word-sync";
 /** Browser-to-provider requests only: customer keys never pass through Scenering's Worker. */
 export const SPEECHIFY_API_BASE = "https://api.speechify.ai/v1";
 export const SPEECHIFY_MODEL = "simba-3.2";
+/**
+ * Speechify's maximum-fidelity MP3: 160 kbps is the ceiling at Simba's native
+ * 24 kHz. Named explicitly because an unnamed bitrate is Speechify's choice
+ * (64 kbps until 2026-08-18, 128 since) and "not part of the contract".
+ */
+export const SPEECHIFY_OUTPUT_FORMAT = "mp3_24000_160";
+/**
+ * How generated narration is made: the voice casting in voice-presets.ts plus
+ * the audio settings sent with each request. Cached scene audio is filed under
+ * it, so bump it whenever either changes — every scene is then re-generated
+ * once instead of replaying narration made the old way.
+ */
+export const SPEECHIFY_RENDITION = "simba32-cast-v1";
 const REQUEST_TIMEOUT_MS = 20_000;
 const CATALOG_TTL_MS = 10 * 60_000;
 const INPUT_LIMIT = 2_000;
@@ -51,12 +64,15 @@ export interface SpeechifyDirectoryVoice {
 export class SpeechifyClientError extends Error {
   status: number;
   code?: string;
+  /** Speechify's per-field validation messages (`error.fields`), when sent. */
+  fields?: Record<string, unknown>;
 
-  constructor(status: number, message: string, code?: string) {
+  constructor(status: number, message: string, code?: string, fields?: Record<string, unknown>) {
     super(message);
     this.name = "SpeechifyClientError";
     this.status = status;
     this.code = code;
+    this.fields = fields;
   }
 }
 
@@ -91,6 +107,12 @@ function describeProviderError(status: number, payload: any): string {
       ? payload.message
       : "";
   return detail ? `Speechify request failed: ${detail.slice(0, 240)}` : `Speechify request failed (${status}).`;
+}
+
+/** A 400 that names `output_format`: this workspace refused the explicit audio format. */
+function refusesOutputFormat(error: unknown): boolean {
+  if (!(error instanceof SpeechifyClientError) || error.status !== 400) return false;
+  return /output_format/i.test(error.message) || Object.keys(error.fields || {}).some((field) => /output_format/i.test(field));
 }
 
 function makeRequestSignal(timeoutMs: number, externalSignal?: AbortSignal): {
@@ -152,7 +174,8 @@ async function requestSpeechifyJson(
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     const code = typeof payload?.error?.code === "string" ? payload.error.code : undefined;
-    throw new SpeechifyClientError(response.status, describeProviderError(response.status, payload), code);
+    const fields = payload?.error?.fields && typeof payload.error.fields === "object" ? payload.error.fields : undefined;
+    throw new SpeechifyClientError(response.status, describeProviderError(response.status, payload), code, fields);
   }
   return payload;
 }
@@ -165,6 +188,50 @@ function voicesUrl(limit?: number): string {
   return url.toString();
 }
 
+/** One voice by id: `null` only when Speechify says it does not exist (404). */
+async function fetchSpeechifyVoiceById(id: string, key: string, timeoutMs?: number): Promise<SpeechifyVoice | null> {
+  try {
+    const payload = await requestSpeechifyJson(
+      `${SPEECHIFY_API_BASE}/voices/${encodeURIComponent(id)}`,
+      key,
+      { method: "GET" },
+      timeoutMs
+    );
+    const [voice] = parseSpeechifyVoices({ voices: [payload] });
+    return voice && voice.id.toLowerCase() === id.toLowerCase() ? voice : null;
+  } catch (error) {
+    if (error instanceof SpeechifyClientError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+async function loadSpeechifyVoiceCatalog(key: string, timeoutMs?: number): Promise<SpeechifyVoice[]> {
+  const payload = await requestSpeechifyJson(voicesUrl(), key, { method: "GET" }, timeoutMs);
+  const listed = parseSpeechifyVoices(payload);
+
+  // The list is paged (the first 50 voices since API version 2026-07-16), so
+  // the eight voices built for Simba 3.2 may not be on it. Fetch any that are
+  // missing, one at a time to stay inside small Speechify plans' limits. A 404
+  // means Speechify withdrew that voice and the binder recasts its styles;
+  // anything else is thrown, so nothing is cached and a passing error can
+  // never recast a style for the next ten minutes.
+  const listedIds = new Set(listed.map((voice) => voice.id.toLowerCase()));
+  const builtForModel: SpeechifyVoice[] = [];
+  for (const id of SIMBA_32_VOICE_IDS) {
+    if (listedIds.has(id)) continue;
+    const voice = await fetchSpeechifyVoiceById(id, key, timeoutMs);
+    if (voice && voice.locale.toLowerCase().startsWith("en")) builtForModel.push(voice);
+  }
+
+  const voices = [...listed, ...builtForModel].filter((voice) => voice.gender === "male" || voice.gender === "female");
+  if (voices.length === 0) {
+    throw new SpeechifyClientError(502, "Speechify returned no English voices compatible with Simba 3.2.", "empty_voice_catalog");
+  }
+  return voices;
+}
+
+let catalogInFlight: { fingerprint: string; promise: Promise<SpeechifyVoice[]> } | null = null;
+
 /** Fetch the customer's own Speechify catalogue directly from Speechify. */
 export async function fetchSpeechifyVoiceCatalog(apiKey?: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<SpeechifyVoice[]> {
   const key = getApiKey(apiKey);
@@ -174,18 +241,26 @@ export async function fetchSpeechifyVoiceCatalog(apiKey?: string, options: { tim
     cachedCatalog = null;
   }
 
-  const payload = await requestSpeechifyJson(
-    voicesUrl(),
-    key,
-    { method: "GET" },
-    options.timeoutMs,
-    options.signal
-  );
-  const voices = parseSpeechifyVoices(payload).filter((voice) => voice.gender === "male" || voice.gender === "female");
-  if (voices.length === 0) {
-    throw new SpeechifyClientError(502, "Speechify returned no English voices compatible with Simba 3.2.", "empty_voice_catalog");
+  // Screens that load together share one catalogue request. It is not tied to
+  // any one caller's abort signal, so cancelling one request cannot fail the
+  // others; an aborted caller still stops here.
+  let request = fingerprint && catalogInFlight?.fingerprint === fingerprint ? catalogInFlight.promise : null;
+  if (!request) {
+    const promise = loadSpeechifyVoiceCatalog(key, options.timeoutMs).then((voices) => {
+      if (fingerprint) cachedCatalog = { fingerprint, expiresAt: Date.now() + CATALOG_TTL_MS, voices };
+      return voices;
+    });
+    if (fingerprint) {
+      catalogInFlight = { fingerprint, promise };
+      promise.then(
+        () => { if (catalogInFlight?.promise === promise) catalogInFlight = null; },
+        () => { if (catalogInFlight?.promise === promise) catalogInFlight = null; }
+      );
+    }
+    request = promise;
   }
-  if (fingerprint) cachedCatalog = { fingerprint, expiresAt: Date.now() + CATALOG_TTL_MS, voices };
+  const voices = await request;
+  if (options.signal?.aborted) throw directConnectionError({ name: "AbortError" });
   return voices;
 }
 
@@ -234,9 +309,14 @@ export function buildSpeechifyVoiceDirectory(
       .map((profile) => profile.providerVoiceId)
       .filter(Boolean)
   );
-  const profileIdByProviderVoice = new Map(
-    profiles.filter((profile) => profile.providerVoiceId).map((profile) => [profile.providerVoiceId, profile.id])
-  );
+  // Several styles share one voice; a directory pick maps to the first of
+  // them, which in each gender group is the Free style.
+  const profileIdByProviderVoice = new Map<string, string>();
+  for (const profile of profiles) {
+    if (profile.providerVoiceId && !profileIdByProviderVoice.has(profile.providerVoiceId)) {
+      profileIdByProviderVoice.set(profile.providerVoiceId, profile.id);
+    }
+  }
   return (includeAdvancedVoices ? catalog : catalog.filter((voice) => freeProviderIds.has(voice.id)))
     .map((voice) => ({
       id: voice.id,
@@ -278,10 +358,12 @@ export async function synthesizeSpeechify(
   }
 
   const normalizedRequested = migrateLegacyVoiceId(requestedVoice);
-  const styleProfile = profiles.find((profile) =>
-    profile.id.toLowerCase() === normalizedRequested.toLowerCase() ||
-    profile.providerVoiceId.toLowerCase() === providerVoiceId.toLowerCase()
-  );
+  // The requested style decides the speaking rate. Several styles share one
+  // voice, so match the style itself first; a voice picked directly takes the
+  // first style cast with it (in each gender group, the Free style).
+  const styleProfile =
+    profiles.find((profile) => profile.id.toLowerCase() === normalizedRequested.toLowerCase()) ||
+    profiles.find((profile) => profile.providerVoiceId.toLowerCase() === providerVoiceId.toLowerCase());
   const escaped = cleanText
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -295,24 +377,41 @@ export async function synthesizeSpeechify(
     throw new SpeechifyClientError(413, "Speechify accepts up to 2,000 characters per request. Shorten this scene and try again.", "payload_too_large");
   }
 
-  const payload = await requestSpeechifyJson(
+  const requestBody: Record<string, unknown> = {
+    input,
+    voice_id: providerVoiceId,
+    model: SPEECHIFY_MODEL,
+    audio_format: "mp3",
+    output_format: SPEECHIFY_OUTPUT_FORMAT,
+    language: providerVoice.locale,
+    // Loudness normalization evens every voice out at -14 LUFS / -2 dBTP.
+    // Without it each voice keeps its own level, which Speechify warns "may
+    // vary significantly and be either too quiet or too loud".
+    options: { text_normalization: true, loudness_normalization: true },
+  };
+  const requestSpeech = (body: Record<string, unknown>) => requestSpeechifyJson(
     `${SPEECHIFY_API_BASE}/audio/speech`,
     key,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        input,
-        voice_id: providerVoiceId,
-        model: SPEECHIFY_MODEL,
-        audio_format: "mp3",
-        language: providerVoice.locale,
-        options: { text_normalization: true },
-      }),
+      body: JSON.stringify(body),
     },
     options.timeoutMs,
     options.signal
   );
+  let payload: any;
+  try {
+    payload = await requestSpeech(requestBody);
+  } catch (error) {
+    // Speechify documents new output_format values as additive (accepted on
+    // every pinned API version). Should a workspace refuse it anyway, narration
+    // still works at Speechify's default MP3 instead of failing outright.
+    if (!refusesOutputFormat(error)) throw error;
+    const defaultFormat = { ...requestBody };
+    delete defaultFormat.output_format;
+    payload = await requestSpeech(defaultFormat);
+  }
 
   const audioBase64 = typeof payload?.audio_data === "string" ? payload.audio_data.replace(/^data:[^,]+,/, "") : "";
   if (!audioBase64) throw new SpeechifyClientError(502, "Speechify returned no audio data.", "upstream_failure");

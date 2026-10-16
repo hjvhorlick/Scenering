@@ -3,8 +3,12 @@ import express from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { sendMarketingEmail } from "./email.ts";
 import { env } from "../src/env.ts";
-import { db, EMAIL_TEMPLATE_CATEGORIES, type EmailAudienceFilter, type EmailAudienceType, type EmailCampaign, type EmailRecipient, type EmailTemplate, type User } from "../src/db.ts";
+import { clampInactiveDays, db, EMAIL_TEMPLATE_CATEGORIES, type EmailAudienceFilter, type EmailAudienceType, type EmailCampaign, type EmailRecipient, type EmailTemplate, type User } from "../src/db.ts";
 import { findSession, platformRateLimit, publicBaseUrl, requirePlatformAdmin, signEmailPreferenceToken, verifyEmailPreferenceToken } from "./platform.ts";
+import { campaignFromIdentity, getInboxSettings, headerSafe, type InboxSettings } from "./inbox-settings.ts";
+import { ensureInboxSchema } from "./inbox-core.ts";
+import { inboxDb } from "../src/inbox-db.ts";
+import { programsDb } from "../src/programs-db.ts";
 
 /**
  * The Admin Email Centre — marketing mail for Scenering.
@@ -283,6 +287,8 @@ interface LayoutOptions {
   unsubscribeUrl: string;
   preferencesUrl: string;
   isTest: boolean;
+  /** Business identification for the footer (name · address · phone · email). */
+  senderLine?: string;
 }
 
 /**
@@ -294,7 +300,7 @@ interface LayoutOptions {
  * unsubscribe / manage-preferences links.
  */
 function renderSceneringLayout(options: LayoutOptions): string {
-  const { subject, preheader, bodyHtml, heroImageUrl, base, unsubscribeUrl, preferencesUrl, isTest } = options;
+  const { subject, preheader, bodyHtml, heroImageUrl, base, unsubscribeUrl, preferencesUrl, isTest, senderLine } = options;
   const year = new Date().getUTCFullYear();
   const hero = heroImageUrl
     ? `<tr><td style="padding:0;"><a href="${escapeHtml(base)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;"><img src="${escapeHtml(heroImageUrl)}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;"></a></td></tr>`
@@ -342,7 +348,8 @@ ${bodyHtml}
   &nbsp;·&nbsp;
   <a href="${escapeHtml(unsubscribeUrl)}" target="_blank" rel="noopener noreferrer" style="color:${BRAND.primary};text-decoration:underline;">Unsubscribe</a><br>
   Questions? <a href="${escapeHtml(base)}/contact" target="_blank" rel="noopener noreferrer" style="color:${BRAND.primary};text-decoration:underline;">Contact Scenering support</a><br>
-  <span style="color:${BRAND.muted};">© ${year} Henry John Vincent Horlick · Horlick Group · Scenering</span>
+  <span style="color:${BRAND.muted};">© ${year} Henry John Vincent Horlick · Horlick Group · Scenering</span>${senderLine ? `<br>
+  <span style="color:${BRAND.muted};">${escapeHtml(senderLine)}</span>` : ""}
 </td></tr>
 </table>
 </td></tr>
@@ -380,6 +387,89 @@ function resolveHeroUrl(heroImageUrl: string | null | undefined, base: string): 
 /** Renders one campaign message for one recipient. The same path serves
  *  previews (sample recipient), tests (banner + subject prefix, no
  *  delivery rows) and real sends. */
+/**
+ * The sender identification every marketing email carries: business name,
+ * physical address, phone number and an email address for opt-out requests
+ * (POPIA s69(4) and the Consumer Protection Act regulations of April 2026).
+ * Edited in the Email Centre's email settings.
+ */
+export interface CampaignSender { name: string; address: string; phone: string; email: string }
+
+export function campaignSenderFromSettings(settings: InboxSettings): CampaignSender {
+  return {
+    name: settings.businessName,
+    address: settings.businessAddress,
+    phone: settings.businessPhone,
+    // The inbox address appears once the owner has reviewed and saved the
+    // email settings, i.e. once it is an address that is really read.
+    email: settings.updatedAt ? settings.address : "",
+  };
+}
+
+function campaignSenderLine(sender: CampaignSender | null | undefined): string {
+  if (!sender) return "";
+  return [sender.name, sender.address, sender.phone, sender.email].map((part) => cleanValue(String(part || ""))).filter(Boolean).join(" · ").slice(0, 400);
+}
+
+async function currentCampaignSender(): Promise<CampaignSender | null> {
+  try {
+    return campaignSenderFromSettings(await getInboxSettings());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The From (and Reply-To) of campaign emails: the address chosen in the
+ * email settings, or nothing, which keeps the no-reply sender. Never
+ * throws: a campaign must not stop because settings could not load.
+ */
+async function currentCampaignFrom(): Promise<{ from: string; replyTo: string } | null> {
+  try {
+    const identity = campaignFromIdentity(await getInboxSettings());
+    if (!identity) return null;
+    const name = headerSafe(identity.displayName, 80);
+    return { from: name ? `${name} <${identity.address}>` : identity.address, replyTo: identity.address };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * RFC 8058 one-click unsubscribe. Gmail and Yahoo show an "Unsubscribe"
+ * button for these headers and POST to the URL themselves; the token is
+ * the same signed preference token the footer link carries.
+ */
+export function listUnsubscribeHeaders(base: string, userId: string | null): Record<string, string> | undefined {
+  if (!userId) return undefined;
+  const token = signEmailPreferenceToken(userId);
+  return {
+    "List-Unsubscribe": `<${base}/api/email/unsubscribe/one-click?token=${encodeURIComponent(token)}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+}
+
+/** What every marketing send needs once per run: links base, footer sender and From. */
+export interface MarketingContext { base: string; sender: CampaignSender | null; from: { from: string; replyTo: string } | null }
+export async function marketingContext(): Promise<MarketingContext> {
+  return { base: emailBaseUrl(), sender: await currentCampaignSender(), from: await currentCampaignFrom() };
+}
+
+/**
+ * Sends one template to one member exactly as a campaign would: the same
+ * rendering and cleaning, unsubscribe footer and headers, business details
+ * and From. Used by email programmes (server/programs.ts). The caller has
+ * already checked consent.
+ */
+export async function sendTemplateEmail(context: MarketingContext, template: EmailTemplate, recipient: EmailRecipient, tags: string[]) {
+  const rendered = renderCampaignMessage({ template, campaignSubject: template.subject, recipient, linkUserId: recipient.userId, base: context.base, isTest: false, sender: context.sender });
+  return sendMarketingEmail({
+    to: recipient.email, subject: rendered.subject, text: rendered.text, html: rendered.html,
+    kind: kindForTemplate(template), tags, headers: listUnsubscribeHeaders(context.base, recipient.userId),
+    ...(context.from || {}),
+  });
+}
+
 export function renderCampaignMessage(input: {
   template: EmailTemplate;
   campaignSubject: string;
@@ -389,8 +479,11 @@ export function renderCampaignMessage(input: {
   linkUserId: string | null;
   base: string;
   isTest: boolean;
+  /** Who is sending, printed in the footer (see campaignSenderFromSettings). */
+  sender?: CampaignSender | null;
 }): RenderedEmail {
   const { template, campaignSubject, recipient, linkUserId, base, isTest } = input;
+  const senderLine = campaignSenderLine(input.sender);
   const vars = emailVariables(recipient, linkUserId, base);
   const subjectBase = interpolateText(String(campaignSubject || template.subject || ""), vars) || "(no subject)";
   const subject = isTest ? `[Test] ${subjectBase}` : subjectBase;
@@ -407,13 +500,14 @@ export function renderCampaignMessage(input: {
     `Unsubscribe from marketing email: ${vars.unsubscribe_url}`,
     `Contact Scenering support: ${base}/contact`,
     `© ${vars.current_year} Henry John Vincent Horlick · Horlick Group · Scenering`,
+    senderLine ? `Sent by ${senderLine}` : "",
   ].filter(Boolean).join("\n");
   return {
     subject,
     html: renderSceneringLayout({
       subject, preheader, bodyHtml: sanitizedBody,
       heroImageUrl: resolveHeroUrl(template.heroImageUrl, base),
-      base, unsubscribeUrl: vars.unsubscribe_url, preferencesUrl: vars.preferences_url, isTest,
+      base, unsubscribeUrl: vars.unsubscribe_url, preferencesUrl: vars.preferences_url, isTest, senderLine,
     }),
     text: `${textBody.trim()}\n\n${footer}`,
   };
@@ -431,6 +525,8 @@ export const EMAIL_AUDIENCE_TYPES: Array<{ value: EmailAudienceType; label: stri
   { value: "training_step", label: "Users at a selected training step" },
   { value: "manual", label: "Manually selected users" },
   { value: "test_recipient", label: "Test recipient only" },
+  { value: "no_video_yet", label: "Users who have not made a video yet" },
+  { value: "inactive", label: "Users with no video download lately" },
 ];
 
 const TRAINING_STEP_LABELS = [
@@ -454,6 +550,8 @@ export function describeAudience(type: string, filter: EmailAudienceFilter): str
     }
     case "manual": return `${(filter.userIds || []).length} manually selected user${(filter.userIds || []).length === 1 ? "" : "s"} (consent still required)`;
     case "test_recipient": return `Test recipient only (${String(filter.testEmail || "no address set")})`;
+    case "no_video_yet": return "Marketing-consented members who have not downloaded a finished video yet";
+    case "inactive": return `Marketing-consented members with no video download in the last ${clampInactiveDays(filter.inactiveDays)} days`;
     default: return "Unknown audience";
   }
 }
@@ -489,6 +587,11 @@ function parseAudienceFilter(type: string, body: any): { filter: EmailAudienceFi
     const email = String(body?.testEmail || body?.filter?.testEmail || "").trim().toLowerCase();
     if (!isValidEmail(email)) return { error: "Enter a valid test recipient email address." };
     filter.testEmail = email;
+  } else if (type === "inactive") {
+    const raw = body?.inactiveDays ?? body?.filter?.inactiveDays;
+    const days = raw === undefined || raw === null || raw === "" ? 30 : Number(raw);
+    if (!Number.isInteger(days) || days < 7 || days > 365) return { error: "Choose between 7 and 365 days without a download." };
+    filter.inactiveDays = days;
   }
   return { filter };
 }
@@ -651,6 +754,8 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
 
   const names = await db.findUserNamesByIds(deliveries.map((d) => d.userId).filter((id): id is string => Boolean(id)));
   const base = emailBaseUrl();
+  const sender = await currentCampaignSender();
+  const fromIdentity = await currentCampaignFrom();
   let processed = 0;
   for (const delivery of deliveries) {
     // Claim first, send second: this is what makes concurrent drainers
@@ -666,6 +771,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
         linkUserId: delivery.userId,
         base,
         isTest: false,
+        sender,
       });
       const result = await sendMarketingEmail({
         to: delivery.email,
@@ -674,6 +780,8 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
         html: rendered.html,
         kind: kindForTemplate(template),
         tags: [`campaign:${campaign.id}`],
+        headers: listUnsubscribeHeaders(base, delivery.userId),
+        ...(fromIdentity || {}),
       });
       await db.markEmailDeliverySent(delivery.id, result.messageId);
     } catch (error: any) {
@@ -903,7 +1011,7 @@ export function registerEmailCentreRoutes(app: Express) {
     const body = {
       registeredFrom: req.query.registeredFrom, registeredTo: req.query.registeredTo,
       trainingStep: req.query.trainingStep, userIds: String(req.query.userIds || "").split(",").map((id) => id.trim()).filter(Boolean),
-      testEmail: req.query.testEmail,
+      testEmail: req.query.testEmail, inactiveDays: req.query.inactiveDays,
     };
     const parsed = parseAudienceFilter(type, body);
     if ("error" in parsed) return bad(res, parsed.error);
@@ -994,11 +1102,14 @@ export function registerEmailCentreRoutes(app: Express) {
       linkUserId: admin.id,
       base: emailBaseUrl(req),
       isTest: true,
+      sender: await currentCampaignSender(),
     });
     try {
       const result = await sendMarketingEmail({
         to, subject: rendered.subject, text: rendered.text, html: rendered.html,
         kind: kindForTemplate(template), tags: [`campaign-test:${campaign.id}`],
+        headers: listUnsubscribeHeaders(emailBaseUrl(req), admin.id),
+        ...((await currentCampaignFrom()) || {}),
       });
       // Deliberately no delivery rows: a test send must never count as a
       // campaign delivery.
@@ -1096,6 +1207,30 @@ export function registerEmailCentreRoutes(app: Express) {
     res.json(preference);
   }));
 
+  // RFC 8058 one-click: mail apps POST "List-Unsubscribe=One-Click" here
+  // from their own servers, often many from the same few addresses, so a
+  // valid signed token is honoured without the per-IP limit; only invalid
+  // attempts are rate limited. A GET (a person opening the link) goes to
+  // the normal confirmation page instead of unsubscribing silently.
+  const oneClickInvalid = rateLimit("email-one-click-invalid", 30, 3600000);
+  app.post("/api/email/unsubscribe/one-click", express.urlencoded({ extended: false, limit: "4kb" }), asyncHandlerVoid(async (req, res) => {
+    const token = String((req.query && req.query.token) || (req.body && req.body.token) || "");
+    const userId = token ? verifyEmailPreferenceToken(token) : null;
+    const user = userId ? await db.findUserById(userId) : null;
+    if (!user) {
+      return oneClickInvalid(req, res, () => { bad(res, "This unsubscribe link is invalid or has expired. Sign in to manage preferences from your account."); });
+    }
+    const existing = await db.findEmailPreference(user.id);
+    await db.upsertEmailPreference({
+      userId: user.id, marketingConsent: false, consentTimestamp: nowIso(), consentSource: "one_click_unsubscribe",
+      consentVersion: "2026-10", trainingStep: existing?.trainingStep || 0, updatedAt: nowIso(),
+    });
+    res.json({ ok: true, message: "You have been unsubscribed from Scenering marketing email. Account and security messages are unaffected." });
+  }));
+  app.get("/api/email/unsubscribe/one-click", (req: Request, res: Response) => {
+    res.redirect(302, `/unsubscribe?token=${encodeURIComponent(String(req.query.token || ""))}`);
+  });
+
   app.post("/api/email/unsubscribe", rateLimit("email-unsubscribe", 30, 3600000), asyncHandlerVoid(async (req, res) => {
     const token = String(req.body?.token || "");
     let user: User | null = null;
@@ -1172,16 +1307,56 @@ export function registerResendWebhook(app: Express) {
       await db.recordWebhookEvent({ providerEventId: svixId, eventName: `resend:${type}`, status, payload: { email_id: emailId, subject: String(event?.data?.subject || "").slice(0, 200) } });
       return status;
     };
-    const handled = type === "email.delivered" ? "delivered" : type === "email.bounced" ? "bounced" : type === "email.unsubscribed" ? "unsubscribed" : null;
+    // Replies sent from the inbox are tracked too: their delivery state
+    // shows next to the message in the conversation.
+    const inboxState = type === "email.delivered" ? "delivered" : type === "email.bounced" ? "bounced" : type === "email.failed" ? "failed" : type === "email.complained" ? "complained" : null;
+    if (inboxState && emailId) {
+      try {
+        await ensureInboxSchema();
+        const reason = type === "email.bounced" ? `Provider reported a bounce (${String(event?.data?.bounce_type || "unspecified")})` : type === "email.failed" ? "The provider could not send this message" : null;
+        if (await inboxDb.advanceDeliveryByProviderId(emailId, inboxState, reason)) return res.json({ received: true, status: await record("processed") });
+      } catch (error) {
+        console.error("[inbox] delivery event not applied:", (error as Error)?.message || error);
+      }
+    }
+
+    // Programme emails (server/programs.ts): a bounce is noted on the send,
+    // and an unsubscribe or spam complaint withdraws consent like any other.
+    if (emailId && (type === "email.bounced" || type === "email.complained" || type === "email.unsubscribed")) {
+      try {
+        const programSend = await programsDb.findByProviderMessageId(emailId);
+        if (programSend) {
+          if (type === "email.bounced") {
+            await programsDb.markFailed(programSend.id, `Provider reported a bounce (${String(event?.data?.bounce_type || "unspecified")})`);
+          } else {
+            const existing = await db.findEmailPreference(programSend.userId);
+            await db.upsertEmailPreference({
+              userId: programSend.userId, marketingConsent: false, consentTimestamp: nowIso(), consentSource: type === "email.complained" ? "spam_complaint" : "unsubscribe_link",
+              consentVersion: "2026-10", trainingStep: existing?.trainingStep || 0, updatedAt: nowIso(),
+            });
+          }
+          return res.json({ received: true, status: await record("processed") });
+        }
+      } catch {
+        // No programme has sent anything yet (its tables may not exist).
+      }
+    }
+
+    // A spam complaint ("report spam" in the recipient's mail app) is an
+    // opt-out and is honoured exactly like an unsubscribe.
+    const complained = type === "email.complained";
+    const handled = type === "email.delivered" ? "delivered" : type === "email.bounced" ? "bounced" : type === "email.unsubscribed" || complained ? "unsubscribed" : null;
     if (!handled || !emailId) return res.json({ received: true, status: await record("ignored") });
 
-    const advanced = await db.advanceEmailDeliveryByMessageId(emailId, handled, type === "email.bounced" ? `Provider reported a bounce (${String(event?.data?.bounce_type || "unspecified")})` : null);
+    const advanced = complained
+      ? await db.markEmailDeliveryComplainedByMessageId(emailId)
+      : await db.advanceEmailDeliveryByMessageId(emailId, handled, type === "email.bounced" ? `Provider reported a bounce (${String(event?.data?.bounce_type || "unspecified")})` : null);
     const delivery = await db.findEmailDeliveryByMessageId(emailId);
     if (handled === "unsubscribed" && delivery?.userId) {
       // A provider-level opt-out is honoured exactly like our own link.
       const existing = await db.findEmailPreference(delivery.userId);
       await db.upsertEmailPreference({
-        userId: delivery.userId, marketingConsent: false, consentTimestamp: nowIso(), consentSource: "unsubscribe_link",
+        userId: delivery.userId, marketingConsent: false, consentTimestamp: nowIso(), consentSource: complained ? "spam_complaint" : "unsubscribe_link",
         consentVersion: "2026-10", trainingStep: existing?.trainingStep || 0, updatedAt: nowIso(),
       });
     }

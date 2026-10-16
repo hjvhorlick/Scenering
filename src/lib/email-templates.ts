@@ -1,4 +1,4 @@
-export type EmailTemplateKind = "verification" | "password_reset" | "subscription" | "security" | "training" | "marketing";
+export type EmailTemplateKind = "verification" | "password_reset" | "subscription" | "security" | "training" | "marketing" | "conversation" | "inbox_alert";
 
 export interface RenderedEmail {
   subject: string;
@@ -16,6 +16,8 @@ const EYEBROW: Record<EmailTemplateKind, string> = {
   security: "SECURITY NOTICE",
   training: "CREATOR TIPS",
   marketing: "SCENERING NEWS",
+  conversation: "MESSAGE",
+  inbox_alert: "NEW MESSAGE",
 };
 
 /** Escape data before placing it in an HTML email or an HTML attribute. */

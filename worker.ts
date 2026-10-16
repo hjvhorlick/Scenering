@@ -4,6 +4,8 @@ import { setEnv } from "./src/env";
 import type { Env } from "./src/env";
 import { audioStore } from "./src/audio-store";
 import { processEmailCampaignQueue } from "./server/email-centre.ts";
+import { processEmailPrograms } from "./server/programs.ts";
+import { handleInboundEmail } from "./server/inbox-core.ts";
 
 // Express has no native `fetch(Request): Response` interface — it only
 // understands Node's `(req: IncomingMessage, res: ServerResponse)` pair.
@@ -50,13 +52,29 @@ export default {
   //                    Large campaigns are therefore never pushed through
   //                    one long synchronous request — they are queued in D1
   //                    (email_deliveries rows) and drained a batch at a
-  //                    time, inside each cron tick's limits.
+  //                    time, inside each cron tick's limits. Then the
+  //                    switched-on email programmes: new members are added
+  //                    and the emails that are due go out, a few per tick
+  //                    (server/programs.ts). One after the other, so a tick
+  //                    never runs both at once.
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     setEnv(env);
     if (event.cron === "*/5 * * * *") {
-      ctx.waitUntil(processEmailCampaignQueue());
+      ctx.waitUntil(processEmailCampaignQueue().then(() => processEmailPrograms()));
       return;
     }
     ctx.waitUntil(audioStore.cleanupExpired());
+  },
+
+  // Email Routing: mail sent to the owner's Scenering address (for example
+  // vincent@scenering.com) arrives here when the address's routing rule
+  // is "Send to a Worker" → scenering. The message is stored in the Email
+  // Centre inbox and a copy is forwarded to the owner's own mailbox; see
+  // server/inbox-core.ts. Throwing tells the sending server delivery
+  // failed, which only happens if the message could be neither stored nor
+  // forwarded.
+  async email(message: ForwardableEmailMessage, env: Env, _ctx: ExecutionContext): Promise<void> {
+    setEnv(env);
+    await handleInboundEmail(message);
   },
 } satisfies ExportedHandler<Env>;

@@ -1,4 +1,6 @@
 node_modules/
+# Local TypeScript build metadata (not application source).
+*.tsbuildinfo
 .env
 .data/
 .wrangler/

@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 598 utility
+   Colour matrix for every non-classic theme. 600 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -332,6 +332,9 @@ html[data-theme="apple"] .bg-green-900\/50 {
 }
 html[data-theme="apple"] .bg-green-950\/50 {
   background-color: rgb(229 252 237 / 0.5);
+}
+html[data-theme="apple"] .bg-indigo-400 {
+  background-color: rgb(77 163 255 / 1);
 }
 html[data-theme="apple"] .bg-indigo-500 {
   background-color: rgb(10 132 255 / 1);
@@ -1016,6 +1019,9 @@ html[data-theme="apple"] .disabled\:text-gray-500:disabled {
 }
 html[data-theme="apple"] .disabled\:text-gray-600:disabled {
   color: rgb(142 142 147 / 1);
+}
+html[data-theme="apple"] .focus-visible\:bg-gray-800\/60:focus-visible {
+  background-color: rgb(255 255 255 / 0.6);
 }
 html[data-theme="apple"] .focus\:border-amber-500:focus {
   border-color: rgb(245 158 11 / 1);
@@ -2178,6 +2184,9 @@ html[data-theme="windows"] .bg-green-900\/50 {
 html[data-theme="windows"] .bg-green-950\/50 {
   background-color: rgb(7 44 22 / 0.5);
 }
+html[data-theme="windows"] .bg-indigo-400 {
+  background-color: rgb(106 168 242 / 1);
+}
 html[data-theme="windows"] .bg-indigo-500 {
   background-color: rgb(59 131 236 / 1);
 }
@@ -2861,6 +2870,9 @@ html[data-theme="windows"] .disabled\:text-gray-500:disabled {
 }
 html[data-theme="windows"] .disabled\:text-gray-600:disabled {
   color: rgb(125 139 162 / 1);
+}
+html[data-theme="windows"] .focus-visible\:bg-gray-800\/60:focus-visible {
+  background-color: rgb(32 43 60 / 0.468);
 }
 html[data-theme="windows"] .focus\:border-amber-500:focus {
   border-color: rgb(231 154 25 / 1);
@@ -4023,6 +4035,9 @@ html[data-theme="playful"] .bg-green-900\/50 {
 html[data-theme="playful"] .bg-green-950\/50 {
   background-color: rgb(0 52 22 / 0.5);
 }
+html[data-theme="playful"] .bg-indigo-400 {
+  background-color: rgb(255 134 188 / 1);
+}
 html[data-theme="playful"] .bg-indigo-500 {
   background-color: rgb(255 94 168 / 1);
 }
@@ -4706,6 +4721,9 @@ html[data-theme="playful"] .disabled\:text-gray-500:disabled {
 }
 html[data-theme="playful"] .disabled\:text-gray-600:disabled {
   color: rgb(151 135 196 / 1);
+}
+html[data-theme="playful"] .focus-visible\:bg-gray-800\/60:focus-visible {
+  background-color: rgb(39 30 63 / 0.6);
 }
 html[data-theme="playful"] .focus\:border-amber-500:focus {
   border-color: rgb(255 162 6 / 1);
@@ -5868,6 +5886,9 @@ html[data-theme="glass"] .bg-green-900\/50 {
 html[data-theme="glass"] .bg-green-950\/50 {
   background-color: rgb(237 253 243 / 0.5);
 }
+html[data-theme="glass"] .bg-indigo-400 {
+  background-color: rgb(217 204 247 / 1);
+}
 html[data-theme="glass"] .bg-indigo-500 {
   background-color: rgb(201 184 240 / 1);
 }
@@ -6551,6 +6572,9 @@ html[data-theme="glass"] .disabled\:text-gray-500:disabled {
 }
 html[data-theme="glass"] .disabled\:text-gray-600:disabled {
   color: rgb(124 122 132 / 1);
+}
+html[data-theme="glass"] .focus-visible\:bg-gray-800\/60:focus-visible {
+  background-color: rgb(255 255 255 / 0.558);
 }
 html[data-theme="glass"] .focus\:border-amber-500:focus {
   border-color: rgb(215 143 40 / 1);
@@ -7713,6 +7737,9 @@ html[data-theme="porcelain"] .bg-green-900\/50 {
 html[data-theme="porcelain"] .bg-green-950\/50 {
   background-color: rgb(226 252 235 / 0.5);
 }
+html[data-theme="porcelain"] .bg-indigo-400 {
+  background-color: rgb(107 161 216 / 1);
+}
 html[data-theme="porcelain"] .bg-indigo-500 {
   background-color: rgb(59 124 196 / 1);
 }
@@ -8396,6 +8423,9 @@ html[data-theme="porcelain"] .disabled\:text-gray-500:disabled {
 }
 html[data-theme="porcelain"] .disabled\:text-gray-600:disabled {
   color: rgb(154 146 135 / 1);
+}
+html[data-theme="porcelain"] .focus-visible\:bg-gray-800\/60:focus-visible {
+  background-color: rgb(255 253 250 / 0.6);
 }
 html[data-theme="porcelain"] .focus\:border-amber-500:focus {
   border-color: rgb(245 158 11 / 1);

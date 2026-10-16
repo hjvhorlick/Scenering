@@ -1,10 +1,13 @@
 /**
  * Scenering's 20 Speechify narrator styles (10 male and 10 female).
  *
- * These are Scenering style profiles, not provider voice names. At runtime the
- * customer's Speechify catalogue, fetched directly in their browser, binds
- * each style to a real Speechify voice with matching gender and a preferred
- * locale. The first style in each gender group is the Free sample profile.
+ * These are Scenering style profiles, not provider voice names. Every style is
+ * cast with one of the eight voices Speechify built for Simba 3.2 — its
+ * clearest voices — so several styles share a speaker and differ by speaking
+ * rate. Speechify serves every other catalogue voice on Simba 3.2 by zero-shot
+ * imitation, which sounds duller; those are only a fallback if one of the
+ * eight is ever missing from a customer's catalogue (see speechify.ts). The
+ * first style in each gender group is the Free sample profile.
  */
 export interface VoicePreset {
   /** Stable project ID; the browser resolves it to this customer's Speechify voice. */
@@ -18,7 +21,26 @@ export interface VoicePreset {
   sampleText: string;
   /** Simba 3.x applies rate changes; pitch/volume are accepted but not applied. */
   speechifyRate?: string;
+  /** The Simba 3.2 voice (one of SIMBA_32_VOICE_IDS) that speaks this style. */
+  speechifyVoiceId?: string;
 }
+
+/**
+ * The eight voices Speechify built for Simba 3.2. Since 2026-09-08 the model
+ * also speaks the other ~950 catalogue voices, but through zero-shot training
+ * rather than these voices' own (Speechify changelog, "simba-3.2 serves every
+ * English voice"). Changing a style's voice means bumping SPEECHIFY_RENDITION.
+ */
+export const SIMBA_32_VOICE_IDS = [
+  "wyatt_32",
+  "dominic_32",
+  "hugh_32",
+  "edmund_32",
+  "geffen_32",
+  "harper_32",
+  "beatrice_32",
+  "imogen_32",
+] as const;
 
 export const FREE_SPEECHIFY_VOICE_IDS = [
   "speechify_male_01",
@@ -36,6 +58,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     tone: "Warm, natural and conversational",
     recommendedFor: "Documentaries, explainers and engaging stories",
     sampleText: "Welcome. A good story makes room for curiosity, clarity and a human voice.",
+    speechifyVoiceId: "wyatt_32",
   },
   {
     id: "speechify_male_02",
@@ -47,6 +70,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Dramatic trailers, film promos and motivation",
     sampleText: "Every choice leaves a mark. Every moment brings the next chapter closer.",
     speechifyRate: "-8%",
+    speechifyVoiceId: "wyatt_32",
   },
   {
     id: "speechify_male_03",
@@ -58,17 +82,19 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "History, luxury brands, architecture and academia",
     sampleText: "Across generations, ideas and craftsmanship shape the places we call home.",
     speechifyRate: "-4%",
+    speechifyVoiceId: "hugh_32",
   },
   {
     id: "speechify_male_04",
     name: "Australian Charismatic",
     gender: "male",
-    locale: "en-AU",
-    accent: "Australian English",
+    locale: "en-GB",
+    accent: "British English",
     tone: "Crisp, charismatic and friendly",
     recommendedFor: "Travel, technology and casual entertainment",
     sampleText: "G'day. Let's take a closer look at what makes this place unforgettable.",
     speechifyRate: "+3%",
+    speechifyVoiceId: "edmund_32",
   },
   {
     id: "speechify_male_05",
@@ -80,6 +106,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Documentaries, guides and educational videos",
     sampleText: "The evidence is clear. Small changes can transform the way a community grows.",
     speechifyRate: "-4%",
+    speechifyVoiceId: "dominic_32",
   },
   {
     id: "speechify_male_06",
@@ -91,6 +118,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Nature, science and documentary films",
     sampleText: "At first light, the forest stirs, revealing a world that was hidden in the dark.",
     speechifyRate: "-10%",
+    speechifyVoiceId: "edmund_32",
   },
   {
     id: "speechify_male_07",
@@ -102,6 +130,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Cinematic openers, epics and moments of authority",
     sampleText: "A new horizon appears. The journey begins with one decisive step.",
     speechifyRate: "-10%",
+    speechifyVoiceId: "dominic_32",
   },
   {
     id: "speechify_male_08",
@@ -113,17 +142,19 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Promos, social clips and high-energy explainers",
     sampleText: "Stay with us. The most surprising part is still just ahead.",
     speechifyRate: "+6%",
+    speechifyVoiceId: "dominic_32",
   },
   {
     id: "speechify_male_09",
     name: "Irish Authority",
     gender: "male",
-    locale: "en-IE",
-    accent: "Irish English",
+    locale: "en-GB",
+    accent: "British English",
     tone: "Grounded, assured and distinctive",
     recommendedFor: "Thrillers, motivation and dramatic storytelling",
     sampleText: "Listen closely. The detail everyone missed changes the whole story.",
     speechifyRate: "-8%",
+    speechifyVoiceId: "hugh_32",
   },
   {
     id: "speechify_male_10",
@@ -135,6 +166,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Brand films, long-form stories and reflective narration",
     sampleText: "Some stories begin quietly, then stay with us long after they are told.",
     speechifyRate: "-12%",
+    speechifyVoiceId: "wyatt_32",
   },
 
   // Female voices — Clear Conversational is the Free female sample, pinned first.
@@ -147,6 +179,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     tone: "Clear, friendly and engaging",
     recommendedFor: "Tutorials, reviews, guides and lifestyle videos",
     sampleText: "Hello there. Let's make this simple, useful and enjoyable from the very first step.",
+    speechifyVoiceId: "geffen_32",
   },
   {
     id: "speechify_female_02",
@@ -158,6 +191,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Short-form video, social highlights and technology",
     sampleText: "Here's the idea: clear choices, thoughtful design and a result you can use today.",
     speechifyRate: "+5%",
+    speechifyVoiceId: "geffen_32",
   },
   {
     id: "speechify_female_03",
@@ -169,17 +203,19 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Audiobooks, podcasts, literature and storytelling",
     sampleText: "Welcome. Every detail has its place, and every moment has a story to tell.",
     speechifyRate: "-5%",
+    speechifyVoiceId: "imogen_32",
   },
   {
     id: "speechify_female_04",
     name: "Australian Calm",
     gender: "female",
-    locale: "en-AU",
-    accent: "Australian English",
+    locale: "en-GB",
+    accent: "British English",
     tone: "Gentle, soothing and resonant",
     recommendedFor: "Wellness, nature films and relaxed narration",
     sampleText: "Take a slow breath. Let the sound of the waves carry you into the moment.",
     speechifyRate: "-7%",
+    speechifyVoiceId: "beatrice_32",
   },
   {
     id: "speechify_female_05",
@@ -191,6 +227,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Relaxation, reflection and ambient guides",
     sampleText: "There is no need to rush. Give yourself a moment to notice what matters.",
     speechifyRate: "-8%",
+    speechifyVoiceId: "harper_32",
   },
   {
     id: "speechify_female_06",
@@ -202,6 +239,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Intelligent explainers, drama and audiobooks",
     sampleText: "A little patience and a fresh perspective can make an ordinary day remarkable.",
     speechifyRate: "-5%",
+    speechifyVoiceId: "beatrice_32",
   },
   {
     id: "speechify_female_07",
@@ -213,17 +251,19 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Luxury brands, history and prestige storytelling",
     sampleText: "Elegance is not only what we see. It is also the care behind every choice.",
     speechifyRate: "-7%",
+    speechifyVoiceId: "imogen_32",
   },
   {
     id: "speechify_female_08",
     name: "Velvet Sophisticate",
     gender: "female",
-    locale: "en-AU",
-    accent: "Australian English",
+    locale: "en-GB",
+    accent: "British English",
     tone: "Resonant, refined and contemplative",
     recommendedFor: "Art, culture and sophisticated narration",
     sampleText: "Every frame, every silence and every glance carries a meaning of its own.",
     speechifyRate: "-6%",
+    speechifyVoiceId: "imogen_32",
   },
   {
     id: "speechify_female_09",
@@ -235,6 +275,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Documentaries, science and investigative stories",
     sampleText: "What we are about to see is real. The facts reveal a remarkable discovery.",
     speechifyRate: "-6%",
+    speechifyVoiceId: "geffen_32",
   },
   {
     id: "speechify_female_10",
@@ -246,6 +287,7 @@ export const STUDIO_VOICE_PRESETS: VoicePreset[] = [
     recommendedFor: "Vlogs, lifestyle and friendly interviews",
     sampleText: "Come on in, get comfortable, and let me share a story with you.",
     speechifyRate: "+2%",
+    speechifyVoiceId: "harper_32",
   },
 ];
 
@@ -316,4 +358,15 @@ export function resolveVoicePreset(id: string | null | undefined): VoicePreset |
   if (!id) return undefined;
   const migrated = migrateLegacyVoiceId(id).toLowerCase();
   return STUDIO_VOICE_PRESETS.find((voice) => voice.id === migrated);
+}
+
+/**
+ * True when two selections are spoken by the same Speechify voice: the same
+ * style, two styles cast with one voice, or a style and that voice picked
+ * directly from the directory. Two-voice rotation needs two speakers.
+ */
+export function sameSpeechifySpeaker(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const speaker = (id: string) => (resolveVoicePreset(id)?.speechifyVoiceId || migrateLegacyVoiceId(id)).toLowerCase();
+  return speaker(a) === speaker(b);
 }

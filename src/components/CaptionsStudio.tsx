@@ -24,8 +24,11 @@ import Icon, { iconify } from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { isPlanCaptionIncluded, type PlanSlug } from "../config/plans";
 import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
+import { oneOf, useRememberedChoice } from "../lib/section-memory";
 
 interface CaptionsStudioProps {
+  /** The open project: this section's choices are remembered per project. */
+  projectId?: number | null;
   scenes: Scene[];
   captionsConfig?: CaptionsConfig;
   onUpdateCaptionsConfig?: (config: CaptionsConfig) => void;
@@ -37,6 +40,7 @@ interface CaptionsStudioProps {
 export type CaptionPresetType = string;
 
 export default function CaptionsStudio({
+  projectId = null,
   scenes,
   captionsConfig,
   onUpdateCaptionsConfig,
@@ -106,10 +110,12 @@ export default function CaptionsStudio({
   const [metal, setMetal] = useState<MetalFinish>(
     captionsConfig?.metal ?? getCaptionStyle(captionsConfig?.preset).metal ?? "none"
   );
-  /** Magnification of the close-up preview. */
-  const [zoom, setZoom] = useState(3);
-  /** Which shelf of the style catalogue is on screen. */
-  const [styleFilter, setStyleFilter] = useState<CaptionStyleCategory | "All">("All");
+  /** Magnification of the close-up preview — remembered per project. */
+  const [zoom, setZoom] = useRememberedChoice<number>(projectId, "captions", "previewZoom", 3, oneOf<number>([2, 3, 4, 6]));
+  /** Which shelf of the style catalogue is on screen — remembered per project. */
+  const [styleFilter, setStyleFilter] = useRememberedChoice<CaptionStyleCategory | "All">(
+    projectId, "captions", "styleShelf", "All", oneOf(["All", ...CAPTION_STYLE_ORDER] as const)
+  );
 
   /**
    * Single source of truth for the caption look. Both the live preview below and

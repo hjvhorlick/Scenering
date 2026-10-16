@@ -22,9 +22,12 @@ import type { SectionConfig } from "../data/intro-outro";
 import Icon, { iconify } from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { isPlanCatalogItemIncluded, type PlanSlug } from "../config/plans";
+import { numberBetween, useRememberedChoice } from "../lib/section-memory";
 import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 
 interface VideoStudioProps {
+  /** The open project: this section's choices are remembered per project. */
+  projectId?: number | null;
   currentPlayheadTime: number;
   totalDuration?: number;
   onInsertItem: (insert: TimelineInsert) => void;
@@ -42,7 +45,32 @@ interface VideoStudioProps {
   onUpdateOutroSection?: (cfg: SectionConfig | null) => void;
 }
 
+/** The library shelf on screen and its sub-filter. */
+interface LibraryView {
+  category: string;
+  subcategory: string;
+}
+
+/** A remembered shelf is restored only while it still exists in the library. */
+const isLibraryView = (value: unknown): value is LibraryView => {
+  if (!value || typeof value !== "object") return false;
+  const { category, subcategory } = value as Record<string, unknown>;
+  if (typeof category !== "string" || typeof subcategory !== "string") return false;
+  const shelf = VIDEO_STUDIO_CATEGORIES.find((cat) => cat.id === category);
+  if (!shelf) return false;
+  if (subcategory === "all") return true;
+  if (category === "audio_visualizers") return subcategory === "advanced";
+  return Boolean(shelf.subcategories?.some((sub) => sub.id === subcategory));
+};
+
+const isVolumeMap = (value: unknown): value is Record<string, number> =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  Object.values(value as Record<string, unknown>).every(numberBetween(0, 1));
+
 export default function VideoStudio({
+  projectId = null,
   currentPlayheadTime,
   totalDuration = 60,
   onInsertItem,
@@ -59,13 +87,19 @@ export default function VideoStudio({
 }: VideoStudioProps) {
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
-  // Default to the first of the tabs: "logo"
-  const [selectedCategory, setSelectedCategory] = useState<string>("logo");
-  const [selectedSubcategory, setSelectedSubcategory] = useState<string>("all");
+  // The open shelf and its sub-filter, remembered per project. Default to the
+  // first of the tabs: "logo".
+  const [libraryView, setLibraryView] = useRememberedChoice<LibraryView>(
+    projectId, "studio", "library", { category: "logo", subcategory: "all" }, isLibraryView
+  );
+  const selectedCategory = libraryView.category;
+  const selectedSubcategory = libraryView.subcategory;
+  const setSelectedCategory = (category: string) => setLibraryView((view) => ({ ...view, category }));
+  const setSelectedSubcategory = (subcategory: string) => setLibraryView((view) => ({ ...view, subcategory }));
   const [searchQuery, setSearchQuery] = useState("");
   const [currentlyPlayingAudio, setCurrentlyPlayingAudio] = useState<string | null>(null);
-  const [studioVolume, setStudioVolume] = useState<number>(0.8);
-  const [itemVolumes, setItemVolumes] = useState<Record<string, number>>({});
+  const [studioVolume, setStudioVolume] = useRememberedChoice(projectId, "studio", "defaultVolume", 0.8, numberBetween(0, 1));
+  const [itemVolumes, setItemVolumes] = useRememberedChoice<Record<string, number>>(projectId, "studio", "itemVolumes", {}, isVolumeMap);
 
   useEffect(() => {
     const unsubscribe = subscribeToAudioPreview((url, isPlaying) => {

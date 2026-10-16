@@ -35,6 +35,9 @@ a Node.js server, a container, or any other host.
 | Image search (Pexels / Pixabay / Wikimedia) | `server.ts` | Outbound `fetch` with 12 s timeouts + provider clamps | ✅ verified (nature-library fallback when no keys) |
 | Email | `server/email.ts` | Resend HTTPS API in production (`EMAIL_PROVIDER=resend`, authenticated by the `RESEND_API_KEY` secret); `console` remains available for local development. SMTP is not available from Workers | ✅ |
 | Email Centre — templates, consented audiences, campaigns, delivery history, unsubscribe/preferences pages | `server/email-centre.ts` | **D1** (templates/campaigns/deliveries, `migrations/0002_email_centre.sql`) + the Resend provider above. Large sends are queued as D1 delivery rows and drained **20 at a time by the five-minute Cron Trigger** (never one long request); delivery outcomes recorded from **Resend's webhook** at `/api/webhooks/resend` (HMAC-verified raw bytes, optional) | ✅ verified |
+| Email Centre inbox — contact-form messages and email to the owner's address (vincent@scenering.com), answered from `/admin` → Inbox, with attachments, saved replies and owner alerts | `server/inbox.ts`, `server/inbox-core.ts`, `server/inbox-settings.ts`, `src/inbox-db.ts` | **Email Routing** → the Worker's `email()` handler (`worker.ts`) for incoming mail; **D1** (`migrations/0003_inbox.sql`, which the Worker also creates itself on first use); **R2** (`AUDIO_BUCKET`, `inbox/` prefix) for attachments; replies go out through the Resend provider above | ✅ verified locally (wrangler `/cdn-cgi/handler/email`); needs the one-time Email Routing setup in step 8 |
+| Email Centre members and gift codes — the member list with plans and videos, free time given to one member, and shareable gift codes with their results (`/admin` → Members, Gifts) | `server/members.ts`, `server/gift-codes.ts`, `src/members-db.ts`, `src/gifts-db.ts` | **D1** (`migrations/0004_gift_codes.sql`, which the Worker also creates itself on first use); a used gift code is an ordinary complimentary grant, redeemed through the existing `/api/complimentary-codes/redeem` | ✅ verified locally |
+| Email Centre programmes — emails that go out by themselves to each member at their own moment (after joining, before a gift ends) (`/admin` → Programmes) | `server/programs.ts`, `src/programs-db.ts` | **D1** (`migrations/0005_programs.sql`, created by the Worker on first use); run by the **five-minute Cron Trigger** after the campaign queue, at most 10 emails per run, through the Resend provider above | ✅ verified locally (wrangler `/cdn-cgi/handler/scheduled`) |
 | Billing webhooks | `server/platform.ts` | Inbound HTTPS at `/api/webhooks/lemonsqueezy`, HMAC-verified against raw bytes | ✅ verified (503/401 paths) |
 | Scheduled email link expiry, token expiry | `src/db.ts` | D1, ISO-8601 comparisons (fixed — see §4) | ✅ verified |
 
@@ -281,11 +284,34 @@ Then:
    (`EMAIL_PROVIDER=resend` is already the default var). Optional: set
    `EMAIL_REPLY_TO` for a Reply-To override, and to record real delivery
    outcomes in campaign history, add a Resend webhook pointing at
-   `https://<your-domain>/api/webhooks/resend` (the `delivery` events) and
+   `https://<your-domain>/api/webhooks/resend` (the `delivered`, `bounced`,
+   `complained` and `failed` events: a spam complaint counts as an
+   unsubscribe, and inbox replies show their delivery state) and
    copy its signing secret into `RESEND_WEBHOOK_SECRET`. The scheduled-send
    queue drains on the five-minute Cron Trigger — no further wiring needed.
 7. **Migrations** — `wrangler d1 migrations apply scenering-db --remote`
    (the setup script does this; re-run after adding a migration).
+8. **Inbox email (vincent@scenering.com)** — one-time setup in the dashboard:
+   **Compute → Email Service → Email Routing → Onboard Domain**, choose
+   `scenering.com` (Cloudflare adds the MX, SPF and DKIM records; they do not
+   clash with Resend's records, which live on the `send` subdomain).
+   **Destination Addresses**: add the owner's own mailbox and click the
+   verification link (copies of incoming email are forwarded there).
+   **Routing Rules → Create routing rule**: pattern `vincent`, action
+   **Send to a Worker**, Worker `scenering`. Create one more rule the same way
+   for each other address kept in **Email settings → Other addresses**
+   (`support`, `hello` and `billing` out of the box); replies can be sent from
+   any of them straight away, but customers' email to one only arrives once its
+   rule exists. Test from a different account
+   than the copy destination; the message appears in `/admin` → Inbox, whose
+   **Connect address** panel shows the live status. Then switch on "Replies to
+   automatic Scenering emails" in **Email settings**, and fill in the business
+   address and phone shown in every marketing email footer. Recommended: a
+   DMARC record, `_dmarc` TXT `v=DMARC1; p=none; rua=mailto:vincent@scenering.com`.
+   The inbox tables (migration 0003) are created by the Worker on first use,
+   so the contact form keeps working before step 7 is re-run; running it
+   afterwards records 0003 as applied (every statement is idempotent). The
+   same goes for the gift-code table (0004) and the programme tables (0005).
 
 Local development:
 

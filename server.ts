@@ -11,6 +11,9 @@ import {
   requirePlatformUser,
 } from "./server/platform.ts";
 import { registerEmailCentreRoutes, registerResendWebhook } from "./server/email-centre.ts";
+import { registerInboxRoutes } from "./server/inbox.ts";
+import { registerMembersRoutes } from "./server/members.ts";
+import { registerProgramRoutes } from "./server/programs.ts";
 import {
   pexelsPhotoToCandidate,
   pixabayHitToCandidate,
@@ -343,6 +346,15 @@ export function createApp(): express.Express {
   // /api/admin/* routes use. Strictly marketing mail; the transactional
   // flows above are untouched by it.
   registerEmailCentreRoutes(app);
+  // The Email Centre inbox: contact-form messages and email to the owner's
+  // Scenering address, answered from /admin (server/inbox.ts). Admin-only.
+  registerInboxRoutes(app);
+  // The Email Centre's Members and Gifts: the member list with plans and
+  // activity, and gift codes with their results (server/members.ts). Admin-only.
+  registerMembersRoutes(app);
+  // Email programmes: emails that go out by themselves to each member at
+  // their own moment, sent by the five-minute cron (server/programs.ts). Admin-only.
+  registerProgramRoutes(app);
 
   // Health check
   app.get("/api/health", (_req, res) => {
