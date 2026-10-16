@@ -447,7 +447,77 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     new Set([
       "new", "open", "resolved", "closed", "Contact", "status", "could", "not", "be", "updated",
       "text-", "px", "px-", "text-xs", "text-gray-", "bg-gray-", "border", "border-white", "rounded-md",
+      // 2026-10-16: Paddle replaced Lemon Squeezy as the payment provider, so
+      // the provider's name left the billing panel. Three tiles changed with
+      // it: "Webhook signing secret" reads "Webhook secret key" (what Paddle
+      // calls it), "Store id" became "Environment" (Paddle has no store id —
+      // sandbox and live are separate accounts, and which one you are pointed
+      // at is the thing worth seeing), and "variant id set/missing" reads
+      // "price id set/missing" because a Paddle price is what a Lemon Squeezy
+      // variant was. The events line reads "Events to subscribe to" rather
+      // than "Events to tick", which is Paddle's own wording for its
+      // notification destinations.
+      "Lemon", "Squeezy", "tick", "signing", "Store", "id",
     ]),
+  ],
+  [
+    // 2026-10-16: Paddle replaced Lemon Squeezy as the payment provider. The
+    // owner manual's billing answers name the provider a customer is sent to,
+    // so the name changed in all sixteen places; three ordinary words went with
+    // the sentences that were rewritten around it. "tick" and "order" belonged
+    // to "the events under *Events to tick*" and "find their order" — Paddle
+    // says *subscribe to* and calls the thing a transaction. "payment" lost one
+    // occurrence because "Failed payments are tried again by Lemon Squeezy"
+    // reads "by Paddle" now, and the sentence that used to say the provider
+    // "takes the payments and is the seller of record" says "seller of record"
+    // once rather than describing the payment twice.
+    "src/admin/admin-manual.ts",
+    new Set(["Lemon", "Squeezy", "tick", "order", "payment"]),
+  ],
+  [
+    // Same replacement, one sentence: paid checkout is available only when the
+    // provider has been configured. Only the provider's name changed.
+    "src/components/SetupStudio.tsx",
+    new Set(["Lemon", "Squeezy"]),
+  ],
+  [
+    // Not a copy change — nothing here is rendered. `prose()` harvests the text
+    // between one `<` and the next, which in a TypeScript interface means the
+    // type annotations too. `variantEnv` became `priceEnv` (a Paddle price is
+    // what a Lemon Squeezy variant was), and documenting both members with a
+    // comment each split the span that used to run from
+    // `Record<BillingInterval, number>` down to `Record<BillingInterval,
+    // string>`, so the identifiers inside it stopped being counted as prose.
+    // Every member is still there: prices, annualMonthlyEquivalent,
+    // annualSaving, checkoutEnv, priceEnv, limits, features.
+    "src/config/plans.ts",
+    new Set(["annualMonthlyEquivalent", "number", "annualSaving", "checkoutEnv", "Record", "variantEnv"]),
+  ],
+  [
+    // Same replacement in the public FAQ. "configured" lost one occurrence
+    // because "complete configured Lemon Squeezy checkout" was not a sentence
+    // a visitor should have to parse, and now reads "complete the secure Paddle
+    // checkout".
+    "src/marketing/faq-data.ts",
+    new Set(["Lemon", "Squeezy", "configured"]),
+  ],
+  [
+    // Same replacement in the legal copy, where the provider is named as the
+    // merchant of record. The card words left one privacy bullet on purpose:
+    // Paddle sends no card brand or last four on a subscription webhook, so
+    // claiming to store them would have been a false statement in a privacy
+    // policy. "portal" went because Paddle's equivalent is a pair of
+    // management links (cancel, update card) reached from the account window,
+    // not a portal.
+    "src/marketing/legal-content.ts",
+    new Set(["Lemon", "Squeezy", "card", "brand", "last", "four", "digits", "portal"]),
+  ],
+  [
+    // The developer note about which provider's credentials checkout needs. It
+    // is not shown to visitors (tests/marketing-render.test.ts asserts that),
+    // but the fact is part of the product data, so it names Paddle now.
+    "src/marketing/product-facts.ts",
+    new Set(["Lemon", "Squeezy"]),
   ],
 ]);
 

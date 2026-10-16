@@ -70,6 +70,12 @@
   ],
   "vars": {
     "PUBLIC_APP_URL": "https://scenering.com",
-    "EMAIL_PROVIDER": "resend"
+    "EMAIL_PROVIDER": "resend",
+    // Paddle's environment selector: "sandbox" or "live". A plain var, not a
+    // secret — it names which Paddle account the secrets belong to, and the
+    // owner's billing checklist shows it. Flip to "live" only once the live
+    // API key, price ids, approved checkout URLs and webhook secret key have
+    // all been set with `wrangler secret put` (see PADDLE.md).
+    "PADDLE_ENVIRONMENT": "sandbox"
   }
 }

@@ -152,7 +152,7 @@ export default function SiteCornerMenu() {
           footers show, so the studio carries them too. Renders nothing until
           links are saved in Owner administration. */}
       <SocialLinksRow size={40} style={{ padding: "10px 14px 0" }} />
-      <div className="sc-corner-legal"><button onClick={() => go("/privacy")}>Privacy</button><button onClick={() => go("/terms")}>Terms</button><button onClick={() => go("/cookies")}>Cookies</button></div>
+      <div className="sc-corner-legal"><button onClick={() => go("/privacy")}>Privacy</button><button onClick={() => go("/terms")}>Terms</button><button onClick={() => go("/cookies")}>Cookies</button><button onClick={() => go("/refunds")}>Refunds</button></div>
     </div>}
     {/* Outside the panel on purpose: closing the menu (which happens the moment
         the entry above is clicked, and again whenever the panel loses focus)

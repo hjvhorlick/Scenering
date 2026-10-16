@@ -19,8 +19,14 @@ export interface PlanConfig {
   prices: Record<BillingInterval, number>;
   annualMonthlyEquivalent: number;
   annualSaving: number;
+  /** Environment variable holding the Paddle *approved checkout URL* for this
+   *  plan and interval. The server creates the Paddle transaction and passes
+   *  this as `checkout.url`, so the customer lands on a link that already
+   *  carries their account id. */
   checkoutEnv: Record<BillingInterval, string>;
-  variantEnv: Record<BillingInterval, string>;
+  /** Environment variable holding the Paddle price id (`pri_…`) for this plan
+   *  and interval. This is what a webhook maps a purchase back to. */
+  priceEnv: Record<BillingInterval, string>;
   limits: {
     /** Null means no Scenering-imposed weekly export-count ceiling. */
     finalExportsPerWeek: number | null;
@@ -59,7 +65,7 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
   free: {
     id: "free", name: "Free", description: "Test real creative tools and export two Shorts plus one long video every week — no payment required.",
     prices: { monthly: 0, yearly: 0 }, annualMonthlyEquivalent: 0, annualSaving: 0,
-    checkoutEnv: { monthly: "", yearly: "" }, variantEnv: { monthly: "", yearly: "" },
+    checkoutEnv: { monthly: "", yearly: "" }, priceEnv: { monthly: "", yearly: "" },
     limits: { finalExportsPerWeek: 3, shortExportsPerWeek: 2, longExportsPerWeek: 1,
       maxShortMinutes: 1, maxLongMinutes: 5, projectCapacity: null, visualResearchCapacity: "standard",
       voicePresets: 2, captionStyles: 2, backgroundMusicTracks: 2, audioVisualiserStyles: 2 },
@@ -68,8 +74,8 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
   sceneflow: {
     id: "sceneflow", name: "SceneFlow", description: "All creative features with 15 final video downloads every week.",
     prices: { monthly: 19, yearly: 180 }, annualMonthlyEquivalent: 15, annualSaving: 48,
-    checkoutEnv: { monthly: "LEMON_SQUEEZY_SCENEFLOW_MONTHLY_CHECKOUT_URL", yearly: "LEMON_SQUEEZY_SCENEFLOW_YEARLY_CHECKOUT_URL" },
-    variantEnv: { monthly: "LEMON_SQUEEZY_SCENEFLOW_MONTHLY_VARIANT_ID", yearly: "LEMON_SQUEEZY_SCENEFLOW_YEARLY_VARIANT_ID" },
+    checkoutEnv: { monthly: "PADDLE_SCENEFLOW_MONTHLY_CHECKOUT_URL", yearly: "PADDLE_SCENEFLOW_YEARLY_CHECKOUT_URL" },
+    priceEnv: { monthly: "PADDLE_SCENEFLOW_MONTHLY_PRICE_ID", yearly: "PADDLE_SCENEFLOW_YEARLY_PRICE_ID" },
     limits: { finalExportsPerWeek: 15, shortExportsPerWeek: null, longExportsPerWeek: null,
       maxShortMinutes: null, maxLongMinutes: null, projectCapacity: null, visualResearchCapacity: "expanded",
       voicePresets: null, captionStyles: null, backgroundMusicTracks: null, audioVisualiserStyles: null },
@@ -78,8 +84,8 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
   sceneforge: {
     id: "sceneforge", name: "SceneForge", description: "All creative features with unlimited final downloads, subject to fetched/upstream API service limits.",
     prices: { monthly: 39, yearly: 372 }, annualMonthlyEquivalent: 31, annualSaving: 96,
-    checkoutEnv: { monthly: "LEMON_SQUEEZY_SCENEFORGE_MONTHLY_CHECKOUT_URL", yearly: "LEMON_SQUEEZY_SCENEFORGE_YEARLY_CHECKOUT_URL" },
-    variantEnv: { monthly: "LEMON_SQUEEZY_SCENEFORGE_MONTHLY_VARIANT_ID", yearly: "LEMON_SQUEEZY_SCENEFORGE_YEARLY_VARIANT_ID" },
+    checkoutEnv: { monthly: "PADDLE_SCENEFORGE_MONTHLY_CHECKOUT_URL", yearly: "PADDLE_SCENEFORGE_YEARLY_CHECKOUT_URL" },
+    priceEnv: { monthly: "PADDLE_SCENEFORGE_MONTHLY_PRICE_ID", yearly: "PADDLE_SCENEFORGE_YEARLY_PRICE_ID" },
     limits: { finalExportsPerWeek: null, shortExportsPerWeek: null, longExportsPerWeek: null,
       maxShortMinutes: null, maxLongMinutes: null, projectCapacity: null, visualResearchCapacity: "high",
       voicePresets: null, captionStyles: null, backgroundMusicTracks: null, audioVisualiserStyles: null },

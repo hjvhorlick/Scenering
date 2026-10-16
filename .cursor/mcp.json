@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "paddle-docs": {
+      "url": "https://paddlehq.mcp.kapa.ai"
+    },
+    "paddle-live": {
+      "url": "https://mcp.paddle.com/mcp"
+    },
+    "paddle-sandbox": {
+      "url": "https://sandbox-mcp.paddle.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:PADDLE_SANDBOX_API_KEY}"
+      }
+    }
+  }
+}
