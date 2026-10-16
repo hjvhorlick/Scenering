@@ -85,6 +85,10 @@ export const SEO_PAGES: Readonly<Record<string, PageSeo>> = {
     title: "Scenering Terms of Service",
     description: "Review the terms for using Scenering's video creation application, including accounts, content, subscriptions, exports and third-party services.",
   },
+  "/refunds": {
+    title: "Scenering Refund and Cancellation Policy",
+    description: "Cancel a Scenering subscription any time and see when a refund is possible, who processes it, and how long a refund takes to reach you.",
+  },
   "/cookies": {
     title: "Scenering Cookie Policy",
     description: "See how Scenering uses essential, analytics and preference cookies to support account access and the operation of its video creation application.",

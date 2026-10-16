@@ -665,7 +665,7 @@ export const NO_METER = {
 export const HONESTY = {
   demoLabel: "Example created for demonstration",
   conceptLabel: "Interface shown with example project data",
-  planLabel: "Paid checkout requires configured Lemon Squeezy credentials",
+  planLabel: "Paid checkout requires configured Paddle credentials",
   localNote:
     "Your account controls membership while project media and frame-exact rendering remain in your browser. Preview renders do not use final-export allowance.",
 } as const;

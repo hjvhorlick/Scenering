@@ -12,7 +12,7 @@ const license = readFileSync("LICENSE", "utf8");
 h.ok(platform.includes("SESSION_SECRET must be a unique production secret"), "production rejects missing or weak session secrets");
 h.ok(platform.includes("timingSafeEqual"), "secret comparisons use timing-safe equality");
 h.ok(platform.includes("HttpOnly; SameSite=Lax"), "session cookie is HttpOnly and SameSite protected");
-h.ok(platform.includes("checkout[custom][user_id]"), "checkout binds provider custom data to authenticated user");
+h.ok(platform.includes("custom_data: { user_id: user.id"), "checkout binds provider custom data to the authenticated user, server side");
 h.ok(platform.includes("SCENERING_OWNER_EMAIL") && platform.includes("requireAdmin"), "owner administration is bound to a server-configured email and protected role");
 h.ok(platform.includes('"/api/admin/overview"'), "owner has a protected operational overview endpoint");
 const accountUi = readFileSync("src/components/AccountMembershipModal.tsx", "utf8");
@@ -27,7 +27,7 @@ h.ok(
   "access codes are stored hashed and become single-use after redemption"
 );
 h.ok(platform.includes('const period = "year" as const'), "access codes always grant one year rather than a selectable month");
-h.ok(platform.includes("unknown_variant"), "unknown billing variants grant no membership");
+h.ok(platform.includes("unknown_price"), "unknown billing price ids grant no membership");
 h.ok(server.includes("Cross-origin request rejected"), "state-changing browser requests have origin enforcement");
 h.ok(server.includes("origin !== configured && !sameHost"), "origin enforcement accepts the host the request actually arrived on, so preview and alias domains keep working");
 h.ok(server.includes('env().TRUST_PROXY === "1"') && server.includes("x-forwarded-host"), "origin enforcement derives the public host behind a trusted proxy, so proxied previews match too");

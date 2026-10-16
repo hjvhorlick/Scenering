@@ -6,7 +6,7 @@ import { audioStore } from "./src/audio-store.ts";
 import {
   assertSecurePlatformConfiguration,
   platformRateLimit,
-  registerLemonSqueezyWebhook,
+  registerPaddleWebhook,
   registerPlatformRoutes,
   requirePlatformUser,
 } from "./server/platform.ts";
@@ -302,7 +302,7 @@ export function createApp(): express.Express {
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     if (env().NODE_ENV === "production") {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.lemonsqueezy.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co; worker-src 'self' blob:");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.paddle.com https://*.checkout.build; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co; worker-src 'self' blob:");
     }
     next();
   });
@@ -310,10 +310,10 @@ export function createApp(): express.Express {
   // Origin must be the configured application origin, or the host the request
   // actually arrived on — which is what a deployment reached through an alias
   // looks like (a preview host, a staging domain, www. against the apex), and
-  // a page served from anywhere else can never claim it. Lemon Squeezy's
-  // signed webhook has no browser Origin and remains independently verified.
+  // a page served from anywhere else can never claim it. Paddle's signed
+  // webhook has no browser Origin and remains independently verified.
   app.use((req, res, next) => {
-    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path === "/api/webhooks/lemonsqueezy") return next();
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path === "/api/webhooks/paddle") return next();
     const origin = req.get("origin");
     if (!origin) return next();
     let supplied: URL;
@@ -335,7 +335,7 @@ export function createApp(): express.Express {
   // Billing signatures must be verified against the untouched request bytes,
   // so the webhook is registered before the general JSON parser. The Resend
   // delivery webhook is signed the same way (raw-body Svix HMAC).
-  registerLemonSqueezyWebhook(app);
+  registerPaddleWebhook(app);
   registerResendWebhook(app);
   const standardJson = express.json({ limit: "2mb" });
   app.use((req, res, next) => req.path === "/api/upload-audio" ? next() : standardJson(req, res, next));

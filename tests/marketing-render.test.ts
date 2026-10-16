@@ -157,11 +157,12 @@ ok(!/tabindex="0"[^>]*aria-selected="false"/.test(html), "the focusable tab is t
 ok(html.includes("Interface shown with example project data"), "interfaces are labelled as demonstrations");
 ok(html.includes("Example created for demonstration"), "examples are labelled");
 ok(html.includes("Coming soon"), "planned features are labelled on the page");
-// 2026-10-16, owner: the developer note about Lemon Squeezy credentials was
-// never meant for visitors (and Lemon Squeezy is being replaced), and the
-// plan cards promised narration with a free Google key while every other
-// line on the page says narration uses your own Speechify key.
-ok(!html.includes("Paid checkout requires configured Lemon Squeezy credentials"), "no payment-setup note is shown to visitors");
+// 2026-10-16, owner: the developer note about payment-provider credentials was
+// never meant for visitors (it names the provider the billing integration is
+// configured against — Paddle now, Lemon Squeezy before), and the plan cards
+// promised narration with a free Google key while every other line on the page
+// says narration uses your own Speechify key.
+ok(!html.includes("Paid checkout requires configured"), "no payment-setup note is shown to visitors");
 ok(!html.includes("Google AI Studio") && !html.includes("free Google key"), "the pricing section no longer promises a Google narration key");
 ok(html.includes("Narration with your own Speechify key"), "the plan cards name Speechify for narration, like the rest of the page");
 ok(html.includes("Preview renders do not use final-export allowance"), "preview usage is stated");

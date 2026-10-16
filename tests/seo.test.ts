@@ -179,12 +179,12 @@ for (const page of [...PUBLIC_PAGES, ...PRIVATE_PAGES]) {
   h.ok(PUBLIC_PAGES.every((link) => summary.includes(`<a href="${link.path}">`)), `${page.path}: the summary links to every listed page`);
 }
 h.eq(PUBLIC_PAGES[0].heading, MESSAGES.hero, "the front page's summary uses the hero's own heading");
-for (const kind of ["privacy", "terms", "cookies"] as const) {
+for (const kind of ["privacy", "terms", "cookies", "refunds"] as const) {
   h.eq(PUBLIC_PAGES.find((page) => page.path === `/${kind}`)?.heading, LEGAL_DOCUMENTS[kind].title, `/${kind}: the summary uses the document's own heading`);
 }
 const pageSources = read("src/marketing/PublicPage.tsx") + read("src/marketing/FAQPage.tsx") + read("src/marketing/ManualPage.tsx");
 for (const page of [...PUBLIC_PAGES, ...PRIVATE_PAGES]) {
-  if (["/", "/privacy", "/terms", "/cookies"].includes(page.path)) continue;
+  if (["/", "/privacy", "/terms", "/cookies", "/refunds"].includes(page.path)) continue;
   h.ok(
     pageSources.includes(`title="${page.heading}"`) || pageSources.includes(`<h1>${page.heading}`),
     `${page.path}: the summary heading "${page.heading}" is the page's own <h1>`

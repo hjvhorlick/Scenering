@@ -49,7 +49,9 @@ export interface Subscription {
   providerCustomerId: string | null;
   providerSubscriptionId: string | null;
   providerProductId: string | null;
-  providerVariantId: string | null;
+  /** Paddle's `pri_…` price id — the monthly or yearly edition of a product,
+   *  which is what a webhook maps back to a Scenering plan. */
+  providerPriceId: string | null;
   planId: PlanSlug;
   billingInterval: BillingInterval;
   status: string;
@@ -63,6 +65,9 @@ export interface Subscription {
   cardBrand: string | null;
   cardLastFour: string | null;
   renewalPrice: string | null;
+  /** `occurred_at` of the newest provider event applied to this row, used to
+   *  drop late redeliveries of older events. */
+  providerEventOccurredAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -332,11 +337,12 @@ function rowToSubscription(row: any): Subscription {
   return {
     id: row.id, userId: row.user_id, provider: row.provider, providerCustomerId: row.provider_customer_id,
     providerSubscriptionId: row.provider_subscription_id, providerProductId: row.provider_product_id,
-    providerVariantId: row.provider_variant_id, planId: row.plan_id, billingInterval: row.billing_interval,
+    providerPriceId: row.provider_price_id, planId: row.plan_id, billingInterval: row.billing_interval,
     status: row.status, currentPeriodStart: row.current_period_start, currentPeriodEnd: row.current_period_end,
     cancelAtPeriodEnd: row.cancel_at_period_end === 1, cancelledAt: row.cancelled_at, expiresAt: row.expires_at,
     customerPortalUrl: row.customer_portal_url, updatePaymentUrl: row.update_payment_url, cardBrand: row.card_brand,
-    cardLastFour: row.card_last_four, renewalPrice: row.renewal_price, createdAt: row.created_at, updatedAt: row.updated_at,
+    cardLastFour: row.card_last_four, renewalPrice: row.renewal_price,
+    providerEventOccurredAt: row.provider_event_occurred_at, createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
 function rowToUsage(row: any): UsageRecord {
@@ -525,19 +531,35 @@ export const db = {
   },
 
   // --- subscriptions ---
+  /** The subscription to show and to authorise against.
+   *
+   *  A member can end up with more than one row — a second purchase, or a
+   *  re-subscription after a cancellation, arrives from Paddle with a new
+   *  `sub_…` id. The one that matters is the one Paddle told us about most
+   *  recently, so this orders by `updated_at` and breaks a tie on `created_at`
+   *  and `id`: two rows written in the same millisecond must not make the
+   *  answer depend on which one SQLite happens to return first. */
   async findActiveSubscriptionByUserId(userId: string): Promise<Subscription | null> {
-    const row = await env().DB.prepare("SELECT * FROM subscriptions WHERE user_id = ? AND status != 'expired' ORDER BY created_at DESC LIMIT 1").bind(userId).first();
+    const row = await env().DB.prepare("SELECT * FROM subscriptions WHERE user_id = ? AND status != 'expired' ORDER BY updated_at DESC, created_at DESC, id DESC LIMIT 1").bind(userId).first();
     return row ? rowToSubscription(row) : null;
   },
   /** Bulk counterpart of findActiveSubscriptionByUserId (see
    *  listActiveMemberships for why): all non-expired subscriptions, newest
    *  first — take the first row per user_id for the same result. */
   async listNonExpiredSubscriptions(): Promise<Subscription[]> {
-    const result = await env().DB.prepare("SELECT * FROM subscriptions WHERE status != 'expired' ORDER BY created_at DESC").all();
+    const result = await env().DB.prepare("SELECT * FROM subscriptions WHERE status != 'expired' ORDER BY updated_at DESC, created_at DESC, id DESC").all();
     return (result.results || []).map(rowToSubscription);
   },
   async findSubscriptionByProviderId(providerSubscriptionId: string): Promise<Subscription | null> {
     const row = await env().DB.prepare("SELECT * FROM subscriptions WHERE provider_subscription_id = ?").bind(providerSubscriptionId).first();
+    return row ? rowToSubscription(row) : null;
+  },
+  /** Newest non-expired subscription for a Paddle customer id (`ctm_…`).
+   *  Subscription webhooks always carry the customer id even when they carry
+   *  no `custom_data`, so this is the fallback that matches a renewal, a
+   *  cancellation or a failed payment to the account that owns it. */
+  async findSubscriptionByProviderCustomerId(providerCustomerId: string): Promise<Subscription | null> {
+    const row = await env().DB.prepare("SELECT * FROM subscriptions WHERE provider_customer_id = ? AND status != 'expired' ORDER BY created_at DESC LIMIT 1").bind(providerCustomerId).first();
     return row ? rowToSubscription(row) : null;
   },
   async listExpirableSubscriptions(): Promise<Subscription[]> {
@@ -548,23 +570,25 @@ export const db = {
     const stamp = nowIso();
     const row: Subscription = { ...sub, createdAt: stamp, updatedAt: stamp };
     await env().DB.prepare(
-      `INSERT INTO subscriptions (id, user_id, provider, provider_customer_id, provider_subscription_id, provider_product_id, provider_variant_id, plan_id, billing_interval, status, current_period_start, current_period_end, cancel_at_period_end, cancelled_at, expires_at, customer_portal_url, update_payment_url, card_brand, card_last_four, renewal_price, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO subscriptions (id, user_id, provider, provider_customer_id, provider_subscription_id, provider_product_id, provider_price_id, plan_id, billing_interval, status, current_period_start, current_period_end, cancel_at_period_end, cancelled_at, expires_at, customer_portal_url, update_payment_url, card_brand, card_last_four, renewal_price, provider_event_occurred_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
-      row.id, row.userId, row.provider, row.providerCustomerId, row.providerSubscriptionId, row.providerProductId, row.providerVariantId,
+      row.id, row.userId, row.provider, row.providerCustomerId, row.providerSubscriptionId, row.providerProductId, row.providerPriceId,
       row.planId, row.billingInterval, row.status, row.currentPeriodStart, row.currentPeriodEnd, row.cancelAtPeriodEnd ? 1 : 0, row.cancelledAt,
-      row.expiresAt, row.customerPortalUrl, row.updatePaymentUrl, row.cardBrand, row.cardLastFour, row.renewalPrice, row.createdAt, row.updatedAt
+      row.expiresAt, row.customerPortalUrl, row.updatePaymentUrl, row.cardBrand, row.cardLastFour, row.renewalPrice,
+      row.providerEventOccurredAt, row.createdAt, row.updatedAt
     ).run();
     return row;
   },
   async updateSubscription(id: string, updates: Partial<Omit<Subscription, "id" | "userId" | "createdAt">>): Promise<void> {
     const map: Record<string, string> = {
       provider: "provider", providerCustomerId: "provider_customer_id", providerSubscriptionId: "provider_subscription_id",
-      providerProductId: "provider_product_id", providerVariantId: "provider_variant_id", planId: "plan_id",
+      providerProductId: "provider_product_id", providerPriceId: "provider_price_id", planId: "plan_id",
       billingInterval: "billing_interval", status: "status", currentPeriodStart: "current_period_start",
       currentPeriodEnd: "current_period_end", cancelAtPeriodEnd: "cancel_at_period_end", cancelledAt: "cancelled_at",
       expiresAt: "expires_at", customerPortalUrl: "customer_portal_url", updatePaymentUrl: "update_payment_url",
       cardBrand: "card_brand", cardLastFour: "card_last_four", renewalPrice: "renewal_price",
+      providerEventOccurredAt: "provider_event_occurred_at",
     };
     const setClauses: string[] = [];
     const values: any[] = [];
@@ -710,6 +734,27 @@ export const db = {
     await env().DB.prepare("UPDATE complimentary_codes SET status = 'expired' WHERE status = 'active' AND expires_at <= ?").bind(nowSql()).run();
   },
 
+  // --- Paddle customer ↔ account mapping ---
+  /** Records which Scenering account a Paddle customer (`ctm_…`) is. Written
+   *  from `customer.created` / `customer.updated`, the only Paddle webhooks
+   *  that carry an email address, so that later `subscription.*` webhooks —
+   *  which carry the customer id but no email — can still be matched. Mapping
+   *  alone never grants a plan; only a subscription event does. */
+  async upsertBillingCustomer(row: { provider: string; providerCustomerId: string; userId: string; email: string; lastEventAt: string | null }): Promise<void> {
+    /* The WHERE on the update half is what makes a late redelivery harmless:
+       an event older than the newest one already applied changes nothing. */
+    await env().DB.prepare(
+      `INSERT INTO billing_customers (provider, provider_customer_id, user_id, email, last_event_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(provider, provider_customer_id) DO UPDATE SET user_id = excluded.user_id, email = excluded.email, last_event_at = excluded.last_event_at, updated_at = excluded.updated_at
+       WHERE billing_customers.last_event_at IS NULL OR billing_customers.last_event_at < excluded.last_event_at`
+    ).bind(row.provider, row.providerCustomerId, row.userId, row.email, row.lastEventAt, nowIso(), nowIso()).run();
+  },
+  async findBillingCustomer(providerCustomerId: string): Promise<{ userId: string; email: string } | null> {
+    const row = await env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId).first();
+    return row ? { userId: String(row.user_id), email: String(row.email) } : null;
+  },
+
   // --- webhook / billing event logs ---
   async webhookEventExists(providerEventId: string): Promise<boolean> {
     const row = await env().DB.prepare("SELECT id FROM webhook_events WHERE provider_event_id = ?").bind(providerEventId).first();
@@ -719,10 +764,10 @@ export const db = {
     await env().DB.prepare("INSERT INTO webhook_events (id, provider_event_id, event_name, status, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .bind(newId("wh"), row.providerEventId, row.eventName, row.status, jsonOrNull(row.payload), nowIso()).run();
   },
-  /** Marks on the original event's row that a redelivery arrived (Lemon
-   *  Squeezy retries, and the owner's webhook log should show it) without
-   *  creating a second row for the same provider event id — the column is
-   *  UNIQUE, and the original outcome must stay visible. */
+  /** Marks on the original event's row that a redelivery arrived (Paddle
+   *  retries until it gets a 2xx, and the owner's webhook log should show it)
+   *  without creating a second row for the same provider event id — the column
+   *  is UNIQUE, and the original outcome must stay visible. */
   async markWebhookEventDuplicate(providerEventId: string): Promise<void> {
     await env().DB.prepare(
       "UPDATE webhook_events SET payload = json_set(payload, '$.duplicate_count', coalesce(json_extract(payload, '$.duplicate_count'), 0) + 1, '$.last_duplicate_at', ?) WHERE provider_event_id = ?"

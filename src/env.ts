@@ -39,20 +39,43 @@ export type Env = {
   SCENERING_OWNER_EMAIL: string;
   PEXELS_API_KEY?: string;
   PIXABAY_API_KEY?: string;
-  // Matches the names already used in .env.example, src/config/plans.ts and
-  // server/platform.ts's billing/webhook code — keeping the underscore here
-  // means none of that code needs to change.
-  LEMON_SQUEEZY_API_KEY?: string;
-  LEMON_SQUEEZY_STORE_ID?: string;
-  LEMON_SQUEEZY_WEBHOOK_SECRET?: string;
-  LEMON_SQUEEZY_SCENEFLOW_MONTHLY_VARIANT_ID?: string;
-  LEMON_SQUEEZY_SCENEFLOW_YEARLY_VARIANT_ID?: string;
-  LEMON_SQUEEZY_SCENEFORGE_MONTHLY_VARIANT_ID?: string;
-  LEMON_SQUEEZY_SCENEFORGE_YEARLY_VARIANT_ID?: string;
-  LEMON_SQUEEZY_SCENEFLOW_MONTHLY_CHECKOUT_URL?: string;
-  LEMON_SQUEEZY_SCENEFLOW_YEARLY_CHECKOUT_URL?: string;
-  LEMON_SQUEEZY_SCENEFORGE_MONTHLY_CHECKOUT_URL?: string;
-  LEMON_SQUEEZY_SCENEFORGE_YEARLY_CHECKOUT_URL?: string;
+  /* Paddle Billing. Every one of these is a server-side secret or plain var —
+     none of them is read by the browser bundle (nothing here is VITE_-prefixed),
+     and Paddle.js is not loaded, so no client token is exposed either. See
+     PADDLE.md for what each value is and where to get it. */
+  /** "sandbox" or "live". Picks the API base URL:
+   *  https://sandbox-api.paddle.com or https://api.paddle.com. */
+  PADDLE_ENVIRONMENT?: string;
+  /** "on" to refuse webhook deliveries from outside the source ranges Paddle
+   *  publishes at GET /ips. Off by default: the HMAC signature is what
+   *  authenticates a delivery, and the list is fetched rather than stored, so
+   *  enabling this adds a runtime dependency on reaching Paddle. Fails open. */
+  PADDLE_WEBHOOK_IP_ALLOWLIST?: string;
+  /** How long a fetched source-range list is trusted, in milliseconds.
+   *  Defaults to 24 hours. */
+  PADDLE_IPS_REFRESH_MS?: string;
+  /** Secret API key from the Paddle dashboard. Sent as
+   *  `Authorization: Bearer` when the server creates a checkout transaction and
+   *  when it reads a subscription's management URLs. Sandbox and live keys are
+   *  different keys for different accounts. */
+  PADDLE_API_KEY?: string;
+  /** Webhook secret key shown when a notification destination is created.
+   *  HMAC-SHA256 over `ts:rawBody`, compared against the `h1` part of the
+   *  `Paddle-Signature` header. */
+  PADDLE_WEBHOOK_SECRET?: string;
+  /** Paddle price ids (`pri_…`), one per plan per interval. A webhook maps the
+   *  purchased price back to a Scenering plan through these. */
+  PADDLE_SCENEFLOW_MONTHLY_PRICE_ID?: string;
+  PADDLE_SCENEFLOW_YEARLY_PRICE_ID?: string;
+  PADDLE_SCENEFORGE_MONTHLY_PRICE_ID?: string;
+  PADDLE_SCENEFORGE_YEARLY_PRICE_ID?: string;
+  /** Approved checkout URLs (Paddle → Account settings → Checkout settings).
+   *  Passed as `checkout.url` when the transaction is created, so Paddle hands
+   *  back a link that already carries this purchase. */
+  PADDLE_SCENEFLOW_MONTHLY_CHECKOUT_URL?: string;
+  PADDLE_SCENEFLOW_YEARLY_CHECKOUT_URL?: string;
+  PADDLE_SCENEFORGE_MONTHLY_CHECKOUT_URL?: string;
+  PADDLE_SCENEFORGE_YEARLY_CHECKOUT_URL?: string;
   // server/platform.ts also looks these env names up dynamically
   // (`env()[PLAN_CONFIG[slug].checkoutEnv[interval]]`) — keep the type
   // indexable so that keeps working without per-field plumbing.

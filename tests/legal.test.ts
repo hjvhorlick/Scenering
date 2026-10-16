@@ -17,7 +17,7 @@ collect(join(root, "src"));
 const sourceAll = sourceFiles.filter((file) => file !== join(root, "src/marketing/legal-content.ts")).map((file) => readFileSync(file, "utf8")).join("\n");
 const serverAll = read("server/platform.ts") + read("server.ts");
 
-h.eq(Object.keys(LEGAL_DOCUMENTS).sort().join(","), "cookies,privacy,terms", "the three legal documents are registered");
+h.eq(Object.keys(LEGAL_DOCUMENTS).sort().join(","), "cookies,privacy,refunds,terms", "the four legal documents are registered");
 h.eq(LEGAL_EFFECTIVE_DATE, "4 October 2026", "effective date is the specified date");
 h.eq(LEGAL_OWNER, "Henry John Vincent Horlick", "owner constant is exact");
 h.eq(LEGAL_ORGANISATION, "Horlick Group", "organisation constant is exact");
@@ -36,10 +36,10 @@ for (const key of ["scenering_projects_v1", "scenering_scenes_v1", "scenering_pr
   h.ok(content.includes(key), `legal copy names ${key}`);
   h.ok(sourceAll.includes(key.replace("_<id>", "")), `${key} is backed by an app storage reference`);
 }
-for (const provider of ["Speechify", "your Speechify API key", "Wikimedia Commons", "Pexels", "Pixabay", "Google Translate", "Google Fonts", "Lemon Squeezy"]) {
+for (const provider of ["Speechify", "your Speechify API key", "Wikimedia Commons", "Pexels", "Pixabay", "Google Translate", "Google Fonts", "Paddle"]) {
   h.ok(content.includes(provider), `legal copy names ${provider}`);
 }
-for (const source of ["speechify", "wikimedia", "pexels", "pixabay", "translate", "fonts.googleapis.com", "lemonsqueezy"]) {
+for (const source of ["speechify", "wikimedia", "pexels", "pixabay", "translate", "fonts.googleapis.com", "paddle"]) {
   h.ok((sourceAll + serverAll).toLowerCase().includes(source), `code contains a call path for ${source}`);
 }
 h.ok(!serverAll.toLowerCase().includes("gemini") && !serverAll.toLowerCase().includes("msedge"), "no Gemini or Edge TTS synthesis remains in the application");
@@ -47,8 +47,10 @@ h.ok(content.includes("20 MB") && content.includes("5 files") && content.include
 h.ok(content.includes("scenering_session") && content.includes("30 days") && content.includes("HttpOnly") && content.includes("SameSite=Lax") && content.includes("Path=/") && content.includes("Secure"), "cookie properties are stated");
 h.ok(platform.includes("scenering_session") && platform.includes("Max-Age=2592000") && platform.includes("HttpOnly; SameSite=Lax"), "cookie page matches setSessionCookie");
 h.ok(platform.includes("scryptSync") && platform.includes('createHmac("sha256"'), "security primitives are present in platform");
-h.ok(platform.includes('["cancelled", "past_due"].includes(status) && paidThrough'), "cancellation and failed-payment grace period is implemented");
-h.ok(content.includes("Lemon Squeezy is the merchant of record") && content.includes("card numbers never reach us"), "payment processor language is exact");
+h.ok(platform.includes('["active", "on_trial", "past_due"].includes(status)'), "access follows Paddle's status semantics: active, trialing and past_due are paid, canceled and paused are not");
+h.ok(platform.includes("scheduled_change"), "a cancellation scheduled for the end of the period is read from Paddle's scheduled change");
+h.ok(platform.includes('record("stale")'), "a late redelivery of an older event cannot overwrite newer subscription state");
+h.ok(content.includes("Paddle is the merchant of record") && content.includes("card numbers never reach us"), "payment processor language is exact");
 h.ok(content.includes("created and owned by ${LEGAL_OWNER}"), "ownership phrase is sourced from the owner constant");
 h.ok(content.includes("South Africa") && content.includes("12 months"), "terms include governing law and liability cap");
 
@@ -64,7 +66,27 @@ for (const item of ["newsroom_clean", "cinema_classic", "bgm_divider", "bgm_cand
 h.ok(page.includes("LEGAL_DOCUMENTS[kind]"), "page selects the document by kind");
 h.ok(page.includes("pub-legal-summary") && page.includes("In short"), "page renders summary box");
 h.ok(page.includes("pub-table-wrap") && page.includes('scope="row"'), "page renders accessible legal tables");
-h.ok(page.includes("pub-legal-note") && page.includes("/privacy") && page.includes("/terms") && page.includes("/cookies"), "page renders legal cross-links");
+h.ok(page.includes("pub-legal-note") && page.includes("/privacy") && page.includes("/terms") && page.includes("/cookies") && page.includes("/refunds"), "page renders legal cross-links");
+
+/* The refund and cancellation policy. The Terms already carried one sentence on
+   refunds ("considered case by case"), but there was no page a reviewer — or a
+   customer — could be sent to that explained how to cancel, how to ask, and who
+   returns the money. Paddle is the merchant of record, so that last part is not
+   obvious and is worth publishing. */
+const refunds = LEGAL_DOCUMENTS.refunds;
+h.eq(refunds.title, "Refunds and cancellation", "the refund policy has its own public title");
+h.ok(content.includes("Refunds and cancellation"), "and is published from the legal content module");
+h.ok(refunds.sections.some((s) => /Cancelling a subscription/.test(s.heading)), "it explains how to cancel");
+h.ok(refunds.sections.some((s) => /Requesting a refund/.test(s.heading)), "it explains how to request a refund");
+h.ok(refunds.sections.some((s) => /statutory rights/i.test(s.heading)), "it preserves statutory rights");
+h.ok(JSON.stringify(refunds).includes("Paddle"), "it names Paddle as the merchant of record that returns the money");
+h.ok(JSON.stringify(refunds).includes("case by case"), "and states the same case-by-case rule the Terms and the owner manual give");
+h.ok(JSON.stringify(refunds).includes("end of the period"), "cancellation runs to the end of the paid period, matching the access rules");
+for (const path of ["/refunds", "/privacy", "/terms", "/cookies"]) {
+  h.ok(page.includes(`href="${path}"`), `the public footer links ${path}`);
+}
+h.ok(read("src/shared/SiteCornerMenu.tsx").includes('go("/refunds")'), "the in-app corner menu reaches it too");
+h.ok(read("server/platform.ts").includes('"/refunds"'), "and it is in the sitemap a reviewer or crawler would find");
 for (const rule of [".pub-legal-date", ".pub-legal-summary", ".pub-prose section + section", ".pub-prose ul", ".pub-prose .pub-table-wrap", ".pub-prose .pub-table th[scope=\"row\"]", ".pub-legal-note"]) h.ok(css.includes(rule), `CSS includes ${rule}`);
 h.ok(!css.match(/@media[^{}]*max-width/), "marketing CSS uses mobile-first media queries");
 h.done("legal");

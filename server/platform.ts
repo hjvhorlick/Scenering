@@ -132,8 +132,8 @@ async function ensureOwnerPrivileges(user: User): Promise<User> {
 }
 
 /** A subscription that was cancelled or is in dunning keeps its plan until
- *  the period that was paid for runs out. Lemon Squeezy sends an expiry
- *  event then, but a webhook that is never delivered must not leave a paid
+ *  the period that was paid for runs out. Paddle sends `subscription.canceled`
+ *  then, but a webhook that is never delivered must not leave a paid
  *  plan switched on forever, so the stored end date is the backstop. Scoped
  *  to one user (not a full-table sweep) so it is cheap enough to run on the
  *  authenticated request path. */
@@ -203,8 +203,8 @@ export async function adminMemberSummary(userId: string) {
 }
 
 /** The subscription worth showing. A cancelled one is still shown while the
- *  paid period runs, so the customer can see the end date and reopen the
- *  Lemon Squeezy portal to resume. */
+ *  paid period runs, so the customer can see the end date and reopen Paddle's
+ *  management links. */
 async function subscriptionForUser(userId: string) {
   const sub = await db.findActiveSubscriptionByUserId(userId);
   return sub;
@@ -415,18 +415,372 @@ export function platformRateLimit(name: string, max: number, windowMs: number) {
 const rateLimit = platformRateLimit;
 
 /**
- * The Lemon Squeezy events this server acts on. Everything else the store
- * sends (orders, licence keys, refunds) is recorded and ignored rather than
- * being guessed at: an order event carries an order id where this code
- * expects a subscription id, and treating one as the other would create a
- * subscription row that no later event could ever update.
+ * Paddle Billing — the payment provider.
+ *
+ * Paddle is the merchant of record: it sells the subscription, takes the card,
+ * charges the tax and pays Scenering. This server never sees a card number and
+ * stores no payment details of its own — only the subscription's status, plan,
+ * period dates and the two hosted management links Paddle returns.
+ *
+ * Two things make the loop work, and both are why the pieces below look the
+ * way they do:
+ *
+ *   1. `custom_data`. The server creates the Paddle transaction itself
+ *      (`POST /transactions`) and puts the signed-in account's id in
+ *      `custom_data`. Paddle signs it, carries it through the payment, copies
+ *      it onto the subscription it creates, and sends it home on every webhook
+ *      for that subscription. It cannot be edited by the person paying, which
+ *      is what makes it safe to grant a plan on the strength of it.
+ *   2. `Paddle-Signature`. Every webhook is HMAC-SHA256 over `ts:rawBody` with
+ *      the webhook secret key, so a delivery that did not come from Paddle
+ *      cannot be forged and an old one cannot be replayed.
+ *
+ * Sandbox and live are separate Paddle accounts with separate API keys,
+ * separate price ids and separate webhook destinations. Nothing here infers
+ * which is which from a key's prefix — `PADDLE_ENVIRONMENT` says so.
  */
-export const LEMON_SQUEEZY_SUBSCRIPTION_EVENTS = [
-  "subscription_created", "subscription_updated", "subscription_cancelled", "subscription_resumed",
-  "subscription_expired", "subscription_paused", "subscription_unpaused",
-  "subscription_payment_failed", "subscription_payment_success", "subscription_payment_recovered",
+export const PADDLE_API_BASE_URLS = {
+  sandbox: "https://sandbox-api.paddle.com",
+  live: "https://api.paddle.com",
+} as const;
+export type PaddleEnvironment = keyof typeof PADDLE_API_BASE_URLS;
+
+export function paddleEnvironment(): PaddleEnvironment {
+  const configured = String(env().PADDLE_ENVIRONMENT || "").trim().toLowerCase();
+  // Sandbox is the default: an unset or misspelled environment must never
+  // quietly point production traffic at the live API.
+  return configured === "live" || configured === "production" ? "live" : "sandbox";
+}
+export function paddleApiBaseUrl(): string { return PADDLE_API_BASE_URLS[paddleEnvironment()]; }
+
+/**
+ * The Paddle events that change what a member can do. Everything else Paddle
+ * sends — transactions, adjustments, discounts, payment methods — is recorded
+ * and ignored rather than guessed at: a transaction event carries a transaction
+ * id (`txn_…`) where this code expects a subscription id (`sub_…`), and
+ * treating one as the other would create a subscription row that no later event
+ * could ever update. Ignoring `transaction.completed` costs nothing, because
+ * `subscription.activated` follows it within seconds.
+ */
+export const PADDLE_SUBSCRIPTION_EVENTS = [
+  "subscription.activated", "subscription.created", "subscription.updated", "subscription.canceled",
+  "subscription.paused", "subscription.resumed", "subscription.trialing", "subscription.past_due",
+  "subscription.imported",
 ] as const;
-export const LEMON_SQUEEZY_WEBHOOK_PATH = "/api/webhooks/lemonsqueezy";
+
+/**
+ * Paddle's customer events are the only ones that carry an email address, so
+ * they are what lets a subscription webhook — customer id but no email — be
+ * matched to an account when a purchase arrived without `custom_data`. They
+ * map a Paddle customer to a Scenering account and nothing more: no customer
+ * event ever grants a plan on its own.
+ */
+export const PADDLE_CUSTOMER_EVENTS = ["customer.created", "customer.updated"] as const;
+
+/** Every event to subscribe to in Paddle → Developer tools → Notifications. */
+export const PADDLE_WEBHOOK_EVENTS = [...PADDLE_SUBSCRIPTION_EVENTS, ...PADDLE_CUSTOMER_EVENTS] as const;
+export const PADDLE_WEBHOOK_PATH = "/api/webhooks/paddle";
+
+/**
+ * How far a webhook's `ts` may drift from this server's clock before the
+ * delivery is treated as a replay. Paddle's own SDK allows five seconds, which
+ * rejects genuine deliveries whenever the two clocks disagree by more than
+ * that; five minutes still makes a captured delivery useless to an attacker
+ * while tolerating skew and queueing. The real replay defence is the UNIQUE
+ * `provider_event_id` in `webhook_events` — this is the belt to that brace.
+ */
+export const PADDLE_SIGNATURE_MAX_AGE_SECONDS = 300;
+
+const paddleText = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value : null);
+
+/**
+ * Verifies Paddle's `Paddle-Signature` header against the untouched request
+ * bytes. The header is `ts=<unix seconds>;h1=<hex digest>`; the signed string
+ * is `${ts}:${rawBody}`; the digest is HMAC-SHA256 under the webhook secret
+ * key. The bytes are hashed as received (never a re-serialised object, which
+ * would not match), and the comparison is constant-time — Paddle's SDK uses a
+ * plain `===` on the hex, this does not.
+ *
+ * Returns the parsed timestamp, or null when the header is absent, malformed,
+ * stale or wrong. The caller answers 401 for all four alike: telling them apart
+ * would tell an attacker which part they had got right.
+ */
+export function verifyPaddleSignature(rawBody: Buffer, header: string, secret: string): { ts: number } | null {
+  const parts: Record<string, string> = {};
+  for (const part of String(header || "").split(";")) {
+    const index = part.indexOf("=");
+    if (index > 0) parts[part.slice(0, index).trim().toLowerCase()] = part.slice(index + 1).trim();
+  }
+  const h1 = (parts.h1 || "").toLowerCase();
+  const ts = Number.parseInt(parts.ts || "", 10);
+  if (!h1 || !Number.isFinite(ts)) return null;
+  const ageSeconds = Date.now() / 1000 - ts;
+  if (ageSeconds > PADDLE_SIGNATURE_MAX_AGE_SECONDS || ageSeconds < -PADDLE_SIGNATURE_MAX_AGE_SECONDS) return null;
+  const expected = createHmac("sha256", secret).update(Buffer.from(`${ts}:`, "utf8")).update(rawBody).digest("hex");
+  if (h1.length !== expected.length) return null;
+  if (!timingSafeEqual(Buffer.from(h1, "utf8"), Buffer.from(expected, "utf8"))) return null;
+  return { ts };
+}
+
+/** Signs a body exactly the way Paddle does, so tests (and a self-check in the
+ *  administration panel) can produce a valid `Paddle-Signature` header. */
+export function paddleSignatureHeader(rawBody: string, secret: string, ts = Math.floor(Date.now() / 1000)): string {
+  const h1 = createHmac("sha256", secret).update(Buffer.from(`${ts}:`, "utf8")).update(Buffer.from(rawBody, "utf8")).digest("hex");
+  return `ts=${ts};h1=${h1}`;
+}
+
+/**
+ * Paddle counts a webhook as delivered only if it gets a 2xx within five
+ * seconds, and a connection that runs long counts against the same retry budget
+ * as a failure. The webhook path therefore calls the API with a hard ceiling
+ * well inside that; the checkout path is a human waiting on a page, so it gets
+ * a more generous one.
+ */
+const PADDLE_WEBHOOK_API_TIMEOUT_MS = 3000;
+const PADDLE_CHECKOUT_API_TIMEOUT_MS = 10000;
+
+/** One call to the Paddle API. `data` is the unwrapped payload, since every
+ *  Paddle response is `{ data, meta }` or `{ error: { … } }`. */
+/* ------------------------------------------------------------------ *
+ * Paddle's published source ranges                                    *
+ * ------------------------------------------------------------------ */
+
+/** Paddle publishes the ranges its webhook deliveries come from, and the list
+ *  can change, so it is fetched rather than written down somewhere that rots.
+ *  `GET /ips` is public — it needs no API key — which matters because the
+ *  allowlist has to work before any credential is configured. */
+const PADDLE_IPS_PATHNAME = "/ips";
+const PADDLE_IPS_REFRESH_MS = 24 * 60 * 60 * 1000;
+const PADDLE_IPS_FETCH_TIMEOUT_MS = 3000;
+
+let paddleIpCache: { cidrs: string[]; fetchedAt: number } | null = null;
+let paddleIpInFlight: Promise<string[] | null> | null = null;
+
+export function paddleWebhookIpAllowlistEnabled(): boolean {
+  return String(env().PADDLE_WEBHOOK_IP_ALLOWLIST || "").trim().toLowerCase() === "on";
+}
+
+async function fetchPaddleSourceCidrs(): Promise<string[] | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PADDLE_IPS_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${paddleApiBaseUrl()}${PADDLE_IPS_PATHNAME}`, { signal: controller.signal });
+    if (!response.ok) return null;
+    const payload: any = await response.json().catch(() => null);
+    const data = payload?.data ?? payload;
+    const cidrs = [
+      ...(Array.isArray(data?.ipv4_cidrs) ? data.ipv4_cidrs : []),
+      ...(Array.isArray(data?.ipv6_cidrs) ? data.ipv6_cidrs : []),
+    ]
+      .map((cidr: unknown) => String(cidr || "").trim())
+      .filter((cidr: string) => cidr.includes("/"));
+    if (!cidrs.length) return null;
+    paddleIpCache = { cidrs, fetchedAt: Date.now() };
+    return cidrs;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Paddle's current source ranges, or null when they have never been fetched
+ *  successfully. Callers must fail open on null: refusing a delivery because
+ *  *we* could not reach Paddle would lose a real payment, and the signature
+ *  check behind this is what actually authenticates the caller. A stale list
+ *  beats no list, so the last good one is kept if a refresh fails. */
+async function paddleSourceCidrs(): Promise<string[] | null> {
+  const maxAge = Number(env().PADDLE_IPS_REFRESH_MS || "") || PADDLE_IPS_REFRESH_MS;
+  if (paddleIpCache && Date.now() - paddleIpCache.fetchedAt < maxAge) return paddleIpCache.cidrs;
+  if (!paddleIpInFlight) {
+    paddleIpInFlight = fetchPaddleSourceCidrs().finally(() => { paddleIpInFlight = null; });
+  }
+  const fresh = await paddleIpInFlight;
+  return fresh ?? paddleIpCache?.cidrs ?? null;
+}
+
+/** IPv4 CIDR membership. Paddle publishes /32s today, but that is not a
+ *  promise, so the prefix length is honoured rather than assumed. */
+function ipv4InCidr(ip: string, cidr: string): boolean {
+  const [range, bits] = cidr.split("/");
+  const prefix = Number(bits);
+  const toLong = (value: string): number | null => {
+    const parts = value.split(".");
+    if (parts.length !== 4) return null;
+    let out = 0;
+    for (const part of parts) {
+      if (!/^\d{1,3}$/.test(part)) return null;
+      const octet = Number(part);
+      if (octet > 255) return null;
+      out = out * 256 + octet;
+    }
+    return out >>> 0;
+  };
+  const address = toLong(ip);
+  const network = toLong(range);
+  if (address === null || network === null || !Number.isFinite(prefix) || prefix < 0 || prefix > 32) return false;
+  if (prefix === 0) return true;
+  const mask = (0xffffffff << (32 - prefix)) >>> 0;
+  return ((address & mask) >>> 0) === ((network & mask) >>> 0);
+}
+
+/** Is this sender one of Paddle's published ranges? IPv6 is compared exactly
+ *  rather than parsed: a wrong-but-permissive v6 matcher sitting on a payment
+ *  path is worse than no v6 matcher at all. */
+export function ipIsFromPaddle(ip: string, cidrs: readonly string[]): boolean {
+  const candidate = String(ip || "").trim();
+  if (!candidate) return false;
+  /* Behind Cloudflare an IPv4 client can reach the Worker mapped as
+     ::ffff:a.b.c.d, which would otherwise fail every range check. */
+  const normalised = candidate.toLowerCase().startsWith("::ffff:") ? candidate.slice(7) : candidate;
+  if (normalised.includes(".")) return cidrs.some((cidr) => cidr.includes(".") && ipv4InCidr(normalised, cidr));
+  return cidrs.some((cidr) => cidr.toLowerCase() === normalised.toLowerCase());
+}
+
+async function paddleApi(pathname: string, init?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<{ ok: boolean; status: number; data: any; error: string | null }> {
+  const key = String(env().PADDLE_API_KEY || "");
+  if (!key) return { ok: false, status: 0, data: null, error: "PADDLE_API_KEY is not set" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), init?.timeoutMs ?? PADDLE_CHECKOUT_API_TIMEOUT_MS);
+  let response: Awaited<ReturnType<typeof fetch>>;
+  try {
+    response = await fetch(`${paddleApiBaseUrl()}${pathname}`, {
+      method: init?.method || "GET",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      signal: controller.signal,
+      ...(init?.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    });
+  } catch (cause) {
+    return { ok: false, status: 0, data: null, error: `Paddle API unreachable: ${(cause as Error)?.message || String(cause)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+  let payload: any = null;
+  try { payload = await response.json(); } catch { payload = null; }
+  if (!response.ok) return { ok: false, status: response.status, data: payload, error: paddleErrorText(payload) || `Paddle API responded ${response.status}` };
+  return { ok: true, status: response.status, data: payload?.data ?? payload, error: null };
+}
+
+/** Paddle's error shape, flattened to one line an owner can act on. */
+function paddleErrorText(payload: any): string | null {
+  const errors = payload?.error?.errors;
+  if (Array.isArray(errors) && errors.length) return errors.map((entry: any) => `${entry.field || "request"}: ${entry.detail || entry.code || "invalid"}`).join("; ");
+  return paddleText(payload?.error?.detail) || paddleText(payload?.error?.code);
+}
+
+/**
+ * Paddle's subscription webhooks deliberately omit `management_urls` — the
+ * cancel and update-card links exist only on the API's subscription object. So
+ * they are read once per subscription event and stored, which is what makes
+ * "Manage or cancel" and "Update payment card" work from the account window.
+ * Failing here must not lose a payment: the plan change is the part that
+ * matters, so both links fall back to null and the buttons simply do not show.
+ */
+async function paddleManagementUrls(subscriptionId: string): Promise<{ cancel: string | null; updatePaymentMethod: string | null }> {
+  if (!subscriptionId) return { cancel: null, updatePaymentMethod: null };
+  const result = await paddleApi(`/subscriptions/${encodeURIComponent(subscriptionId)}`, { timeoutMs: PADDLE_WEBHOOK_API_TIMEOUT_MS });
+  const urls = (result.ok ? result.data?.management_urls : null) || {};
+  const https = (value: unknown) => (typeof value === "string" && value.startsWith("https://") ? value : null);
+  return { cancel: https(urls.cancel), updatePaymentMethod: https(urls.update_payment_method) };
+}
+
+/**
+ * Which Scenering plan and interval a Paddle price id (`pri_…`) is. The price
+ * ids are configuration rather than code, so a price created in Paddle becomes
+ * a purchasable plan here by setting one variable.
+ */
+export function planForPaddlePrice(priceId: string): { plan: PlanSlug; interval: BillingInterval } | null {
+  if (!priceId) return null;
+  const e = env();
+  for (const slug of PLAN_ORDER.slice(1)) {
+    for (const interval of ["monthly", "yearly"] as const) {
+      if (String(e[PLAN_CONFIG[slug].priceEnv[interval]] || "") === priceId) return { plan: slug, interval };
+    }
+  }
+  return null;
+}
+
+/**
+ * The price id on a Paddle notification. Subscription webhooks nest the whole
+ * price object under `items[].price`, so `items[].price.id` is the identifier
+ * to match; a bare `price_id` is accepted too, because that is the shape the
+ * API's transaction items use.
+ */
+function paddlePriceId(items: unknown): string {
+  if (!Array.isArray(items)) return "";
+  for (const item of items) {
+    const candidate = String((item as any)?.price?.id || (item as any)?.price_id || "");
+    if (candidate) return candidate;
+  }
+  return "";
+}
+
+function paddleProductId(items: unknown): string {
+  if (!Array.isArray(items)) return "";
+  for (const item of items) {
+    const candidate = String((item as any)?.price?.product_id || (item as any)?.product_id || "");
+    if (candidate) return candidate;
+  }
+  return "";
+}
+
+/** The renewal price as Paddle states it: minor units plus the currency, so
+ *  "1900 USD" is nineteen dollars. Stored as text because the currency is part
+ *  of the fact, and a bare number would lose it. */
+function paddleRenewalPrice(items: unknown): string | null {
+  if (!Array.isArray(items)) return null;
+  for (const item of items) {
+    const unit = (item as any)?.price?.unit_price;
+    if (unit && unit.amount != null) return `${String(unit.amount)} ${String(unit.currency_code || "").trim()}`.trim();
+  }
+  return null;
+}
+
+/**
+ * Paddle's five subscription statuses (`active`, `trialing`, `past_due`,
+ * `paused`, `canceled`) mapped onto the ones the rest of this server already
+ * understands — including the expiry sweep, which keeps a cancelled or
+ * past-due plan until the period paid for actually ends. "canceled" is
+ * Paddle's spelling and "cancelled" this codebase's; the translation happens
+ * once, here, so every comparison downstream stays on one vocabulary.
+ *
+ * An event name wins over the payload's status where the event is the more
+ * specific statement — `subscription.resumed` means active whatever the
+ * payload was mid-write — and an unrecognised status is stored as-is rather
+ * than defaulted to something that grants access.
+ */
+export function sceneringStatusForPaddle(eventName: string, paddleStatus: string): string {
+  switch (eventName) {
+    case "subscription.activated":
+    case "subscription.resumed": return "active";
+    case "subscription.trialing": return "on_trial";
+    case "subscription.canceled": return "cancelled";
+    case "subscription.paused": return "paused";
+    case "subscription.past_due": return "past_due";
+    default: {
+      const byStatus: Record<string, string> = { active: "active", trialing: "on_trial", past_due: "past_due", paused: "paused", canceled: "cancelled" };
+      return byStatus[paddleStatus] || paddleStatus || "pending";
+    }
+  }
+}
+
+/**
+ * What goes into the owner's webhook log: a handful of ids and statuses, not
+ * the payload. The log is rendered in the administration panel, and it is no
+ * place to accumulate customer data. `environment` is recorded because a
+ * sandbox delivery is a test purchase — Paddle has no per-event test flag, the
+ * two environments are simply separate accounts.
+ */
+function paddleLogPayload(event: any) {
+  const data = event?.data || {};
+  return {
+    data_id: paddleText(data.id),
+    customer_id: paddleText(data.customer_id),
+    status: paddleText(data.status),
+    price_id: paddlePriceId(data.items) || null,
+    environment: paddleEnvironment(),
+  };
+}
 
 /**
  * What is, and is not, configured for billing. The owner sees this as a
@@ -442,100 +796,207 @@ export function billingConfiguration() {
       interval,
       checkoutEnv: PLAN_CONFIG[slug].checkoutEnv[interval],
       checkoutUrlSet: Boolean(e[PLAN_CONFIG[slug].checkoutEnv[interval]]),
-      variantEnv: PLAN_CONFIG[slug].variantEnv[interval],
-      variantIdSet: Boolean(e[PLAN_CONFIG[slug].variantEnv[interval]]),
+      priceEnv: PLAN_CONFIG[slug].priceEnv[interval],
+      priceIdSet: Boolean(e[PLAN_CONFIG[slug].priceEnv[interval]]),
     })),
   }));
-  const webhookSecretSet = Boolean(e.LEMON_SQUEEZY_WEBHOOK_SECRET);
-  const everyLinkSet = plans.every((plan) => plan.intervals.every((i) => i.checkoutUrlSet && i.variantIdSet));
+  const webhookSecretSet = Boolean(e.PADDLE_WEBHOOK_SECRET);
+  const apiKeySet = Boolean(e.PADDLE_API_KEY);
+  const everyPriceSet = plans.every((plan) => plan.intervals.every((i) => i.priceIdSet));
+  const everyLinkSet = plans.every((plan) => plan.intervals.every((i) => i.checkoutUrlSet));
   return {
-    provider: "lemonsqueezy",
+    provider: "paddle",
+    environment: paddleEnvironment(),
+    apiBaseUrl: paddleApiBaseUrl(),
     webhookSecretSet,
-    apiKeySet: Boolean(e.LEMON_SQUEEZY_API_KEY),
-    storeIdSet: Boolean(e.LEMON_SQUEEZY_STORE_ID),
+    apiKeySet,
     publicAppUrlSet: Boolean(e.PUBLIC_APP_URL),
-    webhookPath: LEMON_SQUEEZY_WEBHOOK_PATH,
-    webhookUrl: e.PUBLIC_APP_URL ? `${String(e.PUBLIC_APP_URL).replace(/\/$/, "")}${LEMON_SQUEEZY_WEBHOOK_PATH}` : null,
-    requiredEvents: [...LEMON_SQUEEZY_SUBSCRIPTION_EVENTS],
+    webhookPath: PADDLE_WEBHOOK_PATH,
+    webhookUrl: e.PUBLIC_APP_URL ? `${String(e.PUBLIC_APP_URL).replace(/\/$/, "")}${PADDLE_WEBHOOK_PATH}` : null,
+    requiredEvents: [...PADDLE_WEBHOOK_EVENTS],
+    subscriptionEvents: [...PADDLE_SUBSCRIPTION_EVENTS],
+    /* Paddle's sandbox and live are separate accounts with separate keys and
+       separate price ids, so a production deployment still pointed at sandbox
+       is not "almost ready" — it is a site that cannot take a real payment
+       while looking as though it can. The checklist says so out loud. */
+    sandboxInProduction: isProduction() && paddleEnvironment() === "sandbox",
+    ipAllowlistEnabled: paddleWebhookIpAllowlistEnabled(),
     plans,
-    /** True when a real customer could buy a plan and have access granted. */
-    ready: webhookSecretSet && everyLinkSet && Boolean(e.PUBLIC_APP_URL),
+    /** True when a real customer could buy a plan and have access granted. The
+     *  API key counts because without it the server cannot create the tagged
+     *  transaction that checkout hands the customer, so price ids alone cannot
+     *  take a payment — and the approved checkout URLs count because Paddle
+     *  returns no link to send the customer to without one. */
+    ready: webhookSecretSet && apiKeySet && everyPriceSet && everyLinkSet && Boolean(e.PUBLIC_APP_URL),
   };
 }
 
-export function registerLemonSqueezyWebhook(app: Express) {
-  app.post("/api/webhooks/lemonsqueezy", express.raw({ type: "application/json", limit: "2mb" }), asyncHandlerVoid(async (req, res) => {
-    const secret = env().LEMON_SQUEEZY_WEBHOOK_SECRET as string | undefined;
+export function registerPaddleWebhook(app: Express) {
+  app.post(PADDLE_WEBHOOK_PATH, express.raw({ type: "application/json", limit: "2mb" }), asyncHandlerVoid(async (req, res) => {
+    const secret = env().PADDLE_WEBHOOK_SECRET as string | undefined;
     if (!secret) return res.status(503).json({ error: "Billing webhook is not configured" });
-    // Lemon Squeezy signs the exact raw request bytes with HMAC-SHA256 and
-    // sends the hex digest in X-Signature. Hex is case-insensitive as a
-    // format, so the supplied value is normalised before comparison —
-    // trimmed, lowercased, and stripped of an optional "sha256=" prefix —
-    // which keeps verification working no matter how any intermediary
-    // formats the digest.
-    const signature = String(req.headers["x-signature"] || "").trim().toLowerCase().replace(/^sha256=/, "");
-    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || ""); 
-    const expected = createHmac("sha256", secret).update(body).digest("hex");
-    if (!signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return res.status(401).json({ error: "Invalid signature" });
+
+    /* Defence in depth, off by default and switchable with
+       PADDLE_WEBHOOK_IP_ALLOWLIST=on. When it is on, a delivery from outside
+       Paddle's published ranges is refused before its body is parsed at all.
+       When the ranges cannot be fetched it fails open and says so, because the
+       signature check below is what authenticates the caller, and dropping a
+       genuine payment over our own transient network failure is the worse
+       outcome. Signature verification is never skipped either way. */
+    if (paddleWebhookIpAllowlistEnabled()) {
+      const cidrs = await paddleSourceCidrs();
+      if (cidrs && cidrs.length) {
+        const senderIp = clientIp(req);
+        if (!ipIsFromPaddle(senderIp, cidrs)) {
+          console.warn(`[paddle] refused a webhook from ${senderIp}: not in Paddle's published source ranges`);
+          return res.status(403).json({ error: "Forbidden" });
+        }
+      } else {
+        console.warn("[paddle] source-IP allowlist is on but Paddle's /ips could not be fetched; accepting this delivery on its signature alone");
+      }
+    }
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+    if (!verifyPaddleSignature(body, String(req.headers["paddle-signature"] || ""), secret)) return res.status(401).json({ error: "Invalid signature" });
     let event: any; try { event = JSON.parse(body.toString("utf8")); } catch { return res.status(400).json({ error: "Invalid JSON" }); }
-    const eventId = String(event.meta?.event_id || event.data?.id || ""); const eventName = String(event.meta?.event_name || "");
+    const eventId = String(event.event_id || ""); const eventName = String(event.event_type || "");
     if (!eventId || !eventName) return res.status(400).json({ error: "Invalid event" });
+    const data = (event.data && typeof event.data === "object" ? event.data : {}) as any;
 
     const result = await (async () => {
       if (await db.webhookEventExists(eventId)) {
-        // Not an error — Lemon Squeezy redelivers — but the owner's webhook
-        // log should show that it happened, so the original row is marked
-        // rather than a second row inserted for the same event id.
+        // Not an error — Paddle retries until it gets a 2xx — but the owner's
+        // webhook log should show that it happened, so the original row is
+        // marked rather than a second row inserted for the same event id.
         await db.markWebhookEventDuplicate(eventId);
         return "duplicate";
       }
       const record = async (status: string) => {
-        // `test_mode` is recorded (not acted on differently): a test purchase
-        // from the store dashboard verifies the whole loop end to end and is
-        // clearly labelled in the administration panel's webhook log.
-        await db.recordWebhookEvent({ providerEventId: eventId, eventName, status, payload: { data_id: event.data?.id, variant_id: event.data?.attributes?.variant_id, status: event.data?.attributes?.status, test_mode: event.meta?.test_mode === true } });
+        await db.recordWebhookEvent({ providerEventId: eventId, eventName, status, payload: paddleLogPayload(event) });
         return status;
       };
-      if (!(LEMON_SQUEEZY_SUBSCRIPTION_EVENTS as readonly string[]).includes(eventName)) return record("ignored");
-      const attrs = event.data?.attributes || {}; const custom = event.meta?.custom_data || {}; const email = String(attrs.user_email || custom.email || "").toLowerCase();
-      const userById = custom.user_id ? await db.findUserById(custom.user_id) : null;
-      const user = userById && (!email || userById.email === email) ? userById : (!custom.user_id ? await db.findUserByEmail(email) : null);
+
+      /* A customer event: record which account this Paddle customer is, so a
+         later subscription webhook can be matched on the customer id alone. */
+      if ((PADDLE_CUSTOMER_EVENTS as readonly string[]).includes(eventName)) {
+        const customerId = String(data.id || ""); const email = String(data.email || "").trim().toLowerCase();
+        if (!customerId || !email) return record("ignored");
+        const customUserId = String(data.custom_data?.user_id || "");
+        let user = customUserId ? await db.findUserById(customUserId) : null;
+        // The email is the stronger identity: a Paddle customer is created from
+        // whatever address was typed at checkout, so it wins over a custom_data
+        // id that does not belong to the same account.
+        if (!user || user.email !== email) { const byEmail = await db.findUserByEmail(email); if (byEmail) user = byEmail; }
+        if (!user) return record("unmatched");
+        await db.upsertBillingCustomer({ provider: "paddle", providerCustomerId: customerId, userId: user.id, email, lastEventAt: paddleText(event.occurred_at) });
+        return record("mapped");
+      }
+
+      if (!(PADDLE_SUBSCRIPTION_EVENTS as readonly string[]).includes(eventName)) return record("ignored");
+
+      const subscriptionId = String(data.id || "");
+      /* Without a subscription id there is nothing to key a row on, and every
+         later event would insert a second one for the same purchase. Refuse it
+         as unparseable rather than accumulate rows nobody can update. */
+      if (!subscriptionId) return record("ignored");
+      const customerId = String(data.customer_id || "");
+      const priceId = paddlePriceId(data.items);
+
+      /* Which account this subscription belongs to, best evidence first: the
+         `custom_data` the server set when it created the transaction, then the
+         customer mapping a customer webhook left behind, then any subscription
+         already stored against that customer id. */
+      const customEmail = String(data.custom_data?.email || "").trim().toLowerCase();
+      const customUserId = String(data.custom_data?.user_id || "");
+      let user: User | null = customUserId ? await db.findUserById(customUserId) : null;
+      if (!user && customEmail) user = await db.findUserByEmail(customEmail);
+      if (!user && customerId) {
+        const mappedCustomer = await db.findBillingCustomer(customerId);
+        const existing = mappedCustomer ? null : await db.findSubscriptionByProviderCustomerId(customerId);
+        user = (mappedCustomer ? await db.findUserById(mappedCustomer.userId) : null) || (existing ? await db.findUserById(existing.userId) : null);
+      }
       if (!user) return record("unmatched");
-      const variant = String(attrs.variant_id || ""); let mapped: { plan: PlanSlug; interval: BillingInterval } | null = null;
-      const e = env();
-      for (const slug of PLAN_ORDER.slice(1)) for (const interval of ["monthly", "yearly"] as const) if (e[PLAN_CONFIG[slug].variantEnv[interval]] === variant) mapped = { plan: slug, interval };
-      if (!mapped) return record("unknown_variant");
-      const statusMap: Record<string, string> = { subscription_created: "active", subscription_updated: attrs.status || "active", subscription_cancelled: "cancelled", subscription_resumed: "active", subscription_expired: "expired", subscription_paused: "paused", subscription_unpaused: "active", subscription_payment_failed: "past_due", subscription_payment_success: "active", subscription_payment_recovered: "active" };
-      const status = statusMap[eventName] || attrs.status || "pending";
-      let sub = await db.findSubscriptionByProviderId(String(event.data.id));
-      const urls = (attrs.urls || {}) as Record<string, string>;
-      const portal = typeof urls.customer_portal === "string" && urls.customer_portal.startsWith("https://") ? urls.customer_portal : null;
-      const updatePayment = typeof urls.update_payment_method === "string" && urls.update_payment_method.startsWith("https://") ? urls.update_payment_method : null;
+
+      const mapped = planForPaddlePrice(priceId);
+      if (!mapped) return record("unknown_price");
+
+      const period = (data.current_billing_period || {}) as { starts_at?: unknown; ends_at?: unknown };
+      const scheduled = (data.scheduled_change || null) as { action?: string; effective_at?: string; resume_at?: string | null } | null;
+      const status = sceneringStatusForPaddle(eventName, String(data.status || ""));
+      const periodEnd = paddleText(period.ends_at) || paddleText(data.next_billed_at);
+      const cancelScheduled = scheduled?.action === "cancel";
+
+      /* When access ends. Paddle cancels either immediately — `canceled_at` is
+         the moment it stopped — or at the end of the period paid for, in which
+         case the status stays `active` and a `scheduled_change` of `cancel`
+         says when. A pause runs to the end of the current period too. Anything
+         else has no end date at all. */
+      const expiresAt =
+        status === "cancelled" ? paddleText(data.canceled_at) || periodEnd
+        : cancelScheduled ? paddleText(scheduled?.effective_at) || periodEnd
+        : status === "paused" ? periodEnd
+        : null;
+
+      let sub = await db.findSubscriptionByProviderId(subscriptionId);
+      /* Paddle guarantees nothing about delivery order: a retry or a replay can
+         arrive after a newer event, and applying the older one would resurrect
+         state the customer has already moved past — a cancellation undone by a
+         late `subscription.updated`, for instance. So an event older than the
+         newest one applied to this subscription is logged and dropped. ISO-8601
+         UTC strings compare correctly as text, which is how this codebase
+         already stores every timestamp. */
+      const occurredAt = paddleText(event.occurred_at);
+      if (sub && occurredAt && sub.providerEventOccurredAt && occurredAt < sub.providerEventOccurredAt) return record("stale");
+      const management = await paddleManagementUrls(subscriptionId);
       const fields = {
-        providerCustomerId: String(attrs.customer_id || "") || null, providerSubscriptionId: String(event.data.id),
-        providerProductId: String(attrs.product_id || "") || null, providerVariantId: variant, planId: mapped.plan, billingInterval: mapped.interval,
-        status, currentPeriodStart: attrs.created_at || null, currentPeriodEnd: attrs.renews_at || null, expiresAt: attrs.ends_at || null,
-        cancelAtPeriodEnd: Boolean(attrs.cancelled), cancelledAt: status === "cancelled" ? now() : null,
-        customerPortalUrl: portal, updatePaymentUrl: updatePayment,
-        cardBrand: attrs.card_brand ? String(attrs.card_brand).slice(0, 40) : null, cardLastFour: attrs.card_last_four ? String(attrs.card_last_four).slice(0, 4) : null,
-        renewalPrice: attrs.renewal_price ? String(attrs.renewal_price) : null,
+        provider: "paddle",
+        providerCustomerId: customerId || null, providerSubscriptionId: subscriptionId || null,
+        providerProductId: paddleProductId(data.items) || null, providerPriceId: priceId || null,
+        planId: mapped.plan, billingInterval: mapped.interval, status,
+        currentPeriodStart: paddleText(period.starts_at) || paddleText(data.started_at),
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: status === "cancelled" || cancelScheduled,
+        // Paddle's own timestamp when it gives one, so the audit trail says
+        // when the cancellation happened rather than when this Worker woke up.
+        cancelledAt: status === "cancelled" ? paddleText(data.canceled_at) || now() : null,
+        expiresAt,
+        customerPortalUrl: management.cancel, updatePaymentUrl: management.updatePaymentMethod,
+        renewalPrice: paddleRenewalPrice(data.items),
+        providerEventOccurredAt: occurredAt,
+        /* Paddle sends no card brand or last four on a subscription webhook, so
+           those two columns stay as they are; the account window hides the
+           line when they are empty. */
       };
       if (!sub) {
         sub = await db.createSubscription({
-          id: db.newId("sub"), userId: user.id, provider: "lemonsqueezy", planId: mapped.plan, billingInterval: mapped.interval, status,
-          providerCustomerId: null, providerSubscriptionId: null, providerProductId: null, providerVariantId: null,
+          id: db.newId("sub"), userId: user.id, provider: "paddle", planId: mapped.plan, billingInterval: mapped.interval, status,
+          providerCustomerId: customerId || null, providerSubscriptionId: subscriptionId || null,
+          providerProductId: paddleProductId(data.items) || null, providerPriceId: priceId || null,
           currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, cancelledAt: null, expiresAt: null,
           customerPortalUrl: null, updatePaymentUrl: null, cardBrand: null, cardLastFour: null, renewalPrice: null,
+          providerEventOccurredAt: null,
         });
       }
       await db.updateSubscription(sub.id, fields);
-      const periodEnd = Date.parse(String(attrs.ends_at || attrs.renews_at || "")); const paidThrough = Number.isFinite(periodEnd) && periodEnd > Date.now();
-      /* "cancelled" at Lemon Squeezy means "will not renew", not "stop now",
-         and a failed payment opens a retry window rather than ending the
-         subscription. Both keep the plan until the period that was paid for
-         actually ends; the per-user expiry sweep drops it on the day, in
-         case the expiry webhook never arrives. */
-      const paid = ["active", "on_trial"].includes(status) || (["cancelled", "past_due"].includes(status) && paidThrough);
+
+      /* Which statuses are worth access. This is where Paddle and the provider
+         it replaced genuinely differ, and getting it wrong either gives service
+         away or takes it from somebody who has paid:
+
+           - `canceled` is TERMINAL. Paddle only flips the status once the
+             scheduled cancellation takes effect, so the period paid for has
+             already run. "Will not renew, but still paid up" is not a status
+             here — it is an `active` subscription carrying a `scheduled_change`
+             of `cancel`, which the block above records as cancel_at_period_end.
+           - `paused` means no billing and no service. A pause that has not
+             started yet is likewise still `active` with a scheduled change, so
+             the member keeps the plan until the pause actually lands.
+           - `past_due` keeps access: Paddle is retrying the card (dunning), and
+             the account window says so and offers the update-card link.
+
+         The per-user expiry sweep is still the backstop for the case Paddle
+         cannot help with — a subscription whose period ended and whose next
+         webhook never arrived. */
+      const paid = ["active", "on_trial", "past_due"].includes(status);
       const membership = await db.findMembershipByUserId(user.id);
       if (membership) await db.updateMembership(membership.id, { plan: paid ? mapped.plan : "free", status: "active" });
       else await db.createMembership(user.id, paid ? mapped.plan : "free");
@@ -543,7 +1004,7 @@ export function registerLemonSqueezyWebhook(app: Express) {
       await db.recordBillingEvent({ userId: user.id, subscriptionId: sub.id, eventName, fromProvider: true, extra: null });
       return "processed";
     })();
-    return res.status(result === "unmatched" || result === "unknown_variant" ? 202 : 200).json({ received: true, status: result });
+    return res.status(result === "unmatched" || result === "unknown_price" ? 202 : 200).json({ received: true, status: result });
   }));
 }
 
@@ -560,7 +1021,7 @@ export function registerPlatformRoutes(app: Express) {
      specific Allow wins over Disallow: /api/ — the rest of the API stays
      closed to crawlers. */
   app.get("/robots.txt", (req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nAllow: /api/social-links\nDisallow: /app\nDisallow: /login\nDisallow: /register\nDisallow: /forgot-password\nDisallow: /verify-email\nDisallow: /reset-password\nDisallow: /api/\nDisallow: /functions/\nSitemap: ${baseUrl(req)}/sitemap.xml\n`));
-  app.get("/sitemap.xml", (req, res) => { const root = baseUrl(req); const pages = ["", "/features", "/how-it-works", "/pricing", "/about", "/manual", "/faq", "/contact", "/privacy", "/terms", "/cookies"]; res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${pages.map((page) => `<url><loc>${root}${page || "/"}</loc></url>`).join("")}</urlset>`); });
+  app.get("/sitemap.xml", (req, res) => { const root = baseUrl(req); const pages = ["", "/features", "/how-it-works", "/pricing", "/about", "/manual", "/faq", "/contact", "/privacy", "/terms", "/cookies", "/refunds"]; res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${pages.map((page) => `<url><loc>${root}${page || "/"}</loc></url>`).join("")}</urlset>`); });
   app.get("/api/plans", (_req, res) => res.json({ plans: PLAN_ORDER.map((slug) => PLAN_CONFIG[slug]) }));
 
   app.post("/api/auth/register", rateLimit("register", 5, 3600000), asyncHandlerVoid(async (req, res) => {
@@ -729,16 +1190,43 @@ export function registerPlatformRoutes(app: Express) {
     return res.status(201).json({ recorded: true, remaining: await remainingUsage(user.id, plan) });
   }));
 
-  app.get("/api/billing/checkout/:plan/:interval", requireUser, rateLimit("checkout", 20, 3600000), (req, res) => {
+  /**
+   * Hands the signed-in member a Paddle checkout link for the plan they picked.
+   *
+   * The transaction is created here, server to server, rather than by giving
+   * the browser a link to build on: `custom_data` is the only thing that ties a
+   * Paddle payment back to a Scenering account, and it has to be set by the
+   * party that knows who is signed in. Paddle signs the transaction, carries
+   * `custom_data` through the payment onto the subscription it creates, and
+   * sends it home on every webhook for that subscription — so a customer cannot
+   * edit it to somebody else's account, and a payment cannot arrive that this
+   * server cannot attribute.
+   */
+  app.get("/api/billing/checkout/:plan/:interval", requireUser, rateLimit("checkout", 20, 3600000), asyncHandlerVoid(async (req, res) => {
     const { user } = (req as any).auth as Auth; const slug = req.params.plan as PlanSlug; const interval = req.params.interval as BillingInterval;
     if (!PLAN_CONFIG[slug] || slug === "free" || !["monthly", "yearly"].includes(interval)) return res.status(400).json({ error: "Invalid plan selection" });
-    const envKey = PLAN_CONFIG[slug].checkoutEnv[interval]; const configured = env()[envKey] as string | undefined;
-    if (!configured) return res.status(503).json({ error: "Checkout is not configured yet.", code: "BILLING_NOT_CONFIGURED" });
-    let checkout: URL; try { checkout = new URL(configured); } catch { return res.status(503).json({ error: "Checkout configuration is invalid." }); }
-    if (checkout.protocol !== "https:" && isProduction()) return res.status(503).json({ error: "Checkout must use HTTPS." });
-    checkout.searchParams.set("checkout[custom][user_id]", user.id); checkout.searchParams.set("checkout[email]", user.email);
-    res.setHeader("Cache-Control", "no-store"); res.json({ url: checkout.toString() });
-  });
+    const priceEnv = PLAN_CONFIG[slug].priceEnv[interval]; const priceId = String(env()[priceEnv] || "");
+    const checkoutEnv = PLAN_CONFIG[slug].checkoutEnv[interval]; const checkoutUrl = String(env()[checkoutEnv] || "");
+    if (!priceId || !env().PADDLE_API_KEY) return res.status(503).json({ error: "Checkout is not configured yet.", code: "BILLING_NOT_CONFIGURED", detail: `${priceEnv} and PADDLE_API_KEY must both be set` });
+    const created = await paddleApi("/transactions", {
+      method: "POST",
+      body: {
+        items: [{ price_id: priceId, quantity: 1 }],
+        custom_data: { user_id: user.id, email: user.email, plan: slug, interval },
+        ...(checkoutUrl ? { checkout: { url: checkoutUrl } } : {}),
+      },
+    });
+    if (!created.ok) return res.status(502).json({ error: "Paddle could not open checkout.", code: "BILLING_PROVIDER_ERROR", detail: created.error });
+    const url = paddleText(created.data?.checkout?.url);
+    /* Paddle only returns a link when the transaction carries an approved
+       checkout URL, so the missing piece is named rather than reported as a
+       mystery: the variable holds a URL registered in Paddle → Account
+       settings → Checkout settings. */
+    if (!url) return res.status(503).json({ error: "Checkout is not configured yet.", code: "BILLING_NOT_CONFIGURED", detail: `${checkoutEnv} must hold an approved checkout URL` });
+    if (!url.startsWith("https://") && isProduction()) return res.status(503).json({ error: "Checkout must use HTTPS." });
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ url, provider: "paddle", environment: paddleEnvironment(), transactionId: paddleText(created.data?.id) });
+  }));
 
   app.get("/api/admin/overview", requireAdmin, rateLimit("admin-overview", 120, 3600000), asyncHandlerVoid(async (req, res) => {
     /* Bulk reads, not per-user queries. The first version of this endpoint
@@ -846,7 +1334,7 @@ export function registerPlatformRoutes(app: Express) {
       owner: "Henry John Vincent Horlick", organization: "Horlick Group", users: usersPayload, stats,
       complimentaryCodes: codes.map(({ codeHash: _hash, ...code }) => code),
       contacts, plans: PLAN_ORDER.map((slug) => PLAN_CONFIG[slug]),
-      configuration: { emailProviderConfigured: Boolean(e.EMAIL_PROVIDER && e.EMAIL_PROVIDER !== "console"), lemonSqueezyConfigured: Boolean(e.LEMON_SQUEEZY_WEBHOOK_SECRET), publicAppUrlConfigured: Boolean(e.PUBLIC_APP_URL), production: isProduction() },
+      configuration: { emailProviderConfigured: Boolean(e.EMAIL_PROVIDER && e.EMAIL_PROVIDER !== "console"), paddleConfigured: Boolean(e.PADDLE_WEBHOOK_SECRET && e.PADDLE_API_KEY), publicAppUrlConfigured: Boolean(e.PUBLIC_APP_URL), production: isProduction() },
 
       billing: billingConfiguration(), webhookEvents: webhookEvents.reverse(),
       inbox: await inboxSummarySafe(),

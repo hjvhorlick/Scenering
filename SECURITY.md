@@ -4,7 +4,7 @@ Copyright © 2026 Henry John Vincent Horlick. All rights reserved.
 
 ## Security model
 
-Scenering uses a server-authoritative account, membership, billing, entitlement, and usage layer. Passwords are salted with scrypt. Session, verification, and reset tokens are random and stored only as keyed hashes. Paid membership changes are accepted only from signature-verified Lemon Squeezy webhooks whose variant IDs map to the central plan configuration.
+Scenering uses a server-authoritative account, membership, billing, entitlement, and usage layer. Passwords are salted with scrypt. Session, verification, and reset tokens are random and stored only as keyed hashes. Paid membership changes are accepted only from signature-verified Paddle webhooks whose price IDs map to the central plan configuration.
 
 The browser is **not a trusted security boundary**. Interface locks improve usability but must never be the only paid-feature control. Provider credentials, subscription state, allowance decisions, and costly hosted services must remain server-authoritative.
 
@@ -15,8 +15,8 @@ The browser is **not a trusted security boundary**. Interface locks improve usab
 - Password reset invalidates all existing account tokens and reset/verification tokens expire.
 - Authentication, contact, checkout, media proxy, provider verification, uploads, and TTS endpoints are rate limited.
 - Browser state-changing requests are rejected when their Origin is not the configured application origin.
-- Lemon Squeezy signatures are compared in constant time against the untouched request body; event IDs are idempotent and unknown variants grant no access.
-- Checkout URLs receive the authenticated internal user id as provider custom data. Checkout return URLs never grant membership.
+- Paddle `Paddle-Signature` headers are compared in constant time against the untouched request body (HMAC-SHA256 of `ts:rawBody`), with a bounded timestamp window; event IDs are idempotent and unknown price IDs grant no access.
+- The checkout transaction is created server-side, so the authenticated internal user id is written into Paddle's signed `custom_data` by the only party that knows who is signed in; the payer cannot retarget it. Checkout return URLs never grant membership.
 - Security response headers disable framing, MIME sniffing, unnecessary browser permissions, and cross-origin opener access. Production enables HSTS and a Content Security Policy.
 - Image proxying is restricted to HTTPS and an explicit visual-provider host allowlist, validates every redirect, times out upstream calls, and caps image size.
 - Provider API keys travel in request headers, never query strings.
@@ -43,7 +43,7 @@ The existing browser renderer can remain for unlimited previews. This split pres
 
 - Apply the Supabase commercial-platform migration and use row-level security/service-role separation. The local JSON platform store is a development fallback, not a horizontally scalable production database.
 - Set a long random `SESSION_SECRET`, explicit HTTPS `PUBLIC_APP_URL`, `NODE_ENV=production`, and `TRUST_PROXY=1` only behind a trusted single reverse proxy.
-- Configure genuine Lemon Squeezy checkout URLs, variant IDs, and webhook secret. Rotate any secret ever exposed to a client, log, or repository.
+- Configure genuine Paddle approved checkout URLs, price IDs, API key and webhook secret key, and keep `PADDLE_ENVIRONMENT` in step with the keys you set (sandbox and live are separate Paddle accounts). Rotate any secret ever exposed to a client, log, or repository.
 - Replace in-memory rate limiting with a shared Redis/database limiter when running more than one process.
 - Use a transactional email provider with SPF, DKIM, and DMARC. Do not use the console adapter in production.
 - Put the application behind a managed WAF/CDN with request-size limits, bot controls, TLS, DDoS protection, and alerting.

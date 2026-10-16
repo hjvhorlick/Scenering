@@ -78,6 +78,7 @@ export const PUBLIC_PAGES: readonly ShellPage[] = [
   { path: "/privacy", label: "Privacy", heading: LEGAL_DOCUMENTS.privacy.title },
   { path: "/terms", label: "Terms", heading: LEGAL_DOCUMENTS.terms.title },
   { path: "/cookies", label: "Cookies", heading: LEGAL_DOCUMENTS.cookies.title },
+  { path: "/refunds", label: "Refunds", heading: LEGAL_DOCUMENTS.refunds.title },
 ];
 
 /** Pages that exist but must never be listed: account and email-link pages. */
