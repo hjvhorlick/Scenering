@@ -30,6 +30,9 @@ export type Env = {
   RESEND_API_KEY?: string;
   /** Optional Reply-To for outbound mail (transactional and marketing). */
   EMAIL_REPLY_TO?: string;
+  /** Optional default for the owner's inbox address (the Email Centre
+   *  settings take over once saved). Defaults to vincent@scenering.com. */
+  INBOX_ADDRESS?: string;
   /** Optional Resend delivery-webhook signing secret (whsec_...). */
   RESEND_WEBHOOK_SECRET?: string;
   SESSION_SECRET: string;

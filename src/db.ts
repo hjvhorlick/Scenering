@@ -70,7 +70,10 @@ export interface Subscription {
 export interface UsageRecord {
   id: string;
   userId: string;
-  kind: "final_export";
+  /** "download" = one video saved from the Vault (what plans count today);
+   *  "final_export" = rows written by the older render-time counting. Both
+   *  count toward the same weekly allowance. */
+  kind: "final_export" | "download";
   durationMinutes: number;
   format: "short" | "long" | null;
   projectId: string | null;
@@ -97,7 +100,10 @@ export interface ComplimentaryGrant {
   id: string;
   userId: string;
   planId: Exclude<PlanSlug, "free">;
-  period: "month" | "year";
+  /** How long the gift was given for: "month" or "year", or since gift codes
+   *  "week", "3 months" or "6 months" (src/lib/gift-lengths.ts). Display
+   *  only: ends_at is what access is checked against. */
+  period: string;
   status: ComplimentaryGrantStatus;
   startsAt: string;
   endsAt: string;
@@ -196,7 +202,8 @@ export type EmailCampaignStatus =
 
 export type EmailAudienceType =
   | "all_consented" | "free_plan" | "paid_plan" | "registered_range"
-  | "training_step" | "manual" | "test_recipient";
+  | "training_step" | "manual" | "test_recipient"
+  | "no_video_yet" | "inactive";
 
 /** The audience parameters, stored as JSON in email_campaigns.audience_filter. */
 export interface EmailAudienceFilter {
@@ -205,6 +212,36 @@ export interface EmailAudienceFilter {
   trainingStep?: number;
   userIds?: string[];
   testEmail?: string;
+  /** "inactive" audience: members with no video download in this many days. */
+  inactiveDays?: number;
+}
+
+/** Days without a download for the "inactive" audience: 7–365, 30 when unset. */
+export function clampInactiveDays(value: unknown): number {
+  const days = Math.trunc(Number(value));
+  return Number.isFinite(days) && days >= 7 ? Math.min(365, days) : 30;
+}
+
+/**
+ * The audiences built on whether members make videos. A finished video is
+ * any usage record (older renders were recorded as final_export, downloads
+ * since metering as download), so "no video yet" means none at all and
+ * "inactive" means none in the window. Administrators are left out, as in
+ * the plan audiences. Returns null for every other audience type.
+ */
+function activityAudienceFragments(type: string, filter: EmailAudienceFilter): { fragments: string[]; params: unknown[] } | null {
+  if (type === "no_video_yet") {
+    return { fragments: ["u.role != 'admin'", "NOT EXISTS (SELECT 1 FROM usage_records r WHERE r.user_id = u.id)"], params: [] };
+  }
+  if (type === "inactive") {
+    const since = new Date(Date.now() - clampInactiveDays(filter.inactiveDays) * 86400000).toISOString();
+    return {
+      // Joined before the window began (so new members are not "quiet"), and no download since.
+      fragments: ["u.role != 'admin'", "u.created_at <= ?", "NOT EXISTS (SELECT 1 FROM usage_records r WHERE r.user_id = u.id AND r.created_at >= ?)"],
+      params: [since, since],
+    };
+  }
+  return null;
 }
 
 export interface EmailCampaign {
@@ -560,6 +597,32 @@ export const db = {
       .bind(row.id, row.userId, row.kind, row.durationMinutes, row.format, row.projectId, row.reservationId, row.createdAt).run();
     return row;
   },
+  /**
+   * Records ONE usage row, but only while the user's count since `sinceIso`
+   * is still below `limit`. The count and the insert are a single SQL
+   * statement, so two downloads racing in parallel tabs can never both take
+   * the last slot. `scope` narrows the count to Free's separate Shorts /
+   * long-video allowances, classifying rows exactly as remainingUsage() in
+   * server/platform.ts does (format "short", or no format and 1 minute or
+   * less, is a Short; everything else is long). Returns null — and writes
+   * nothing — when the allowance is already used up.
+   */
+  async createUsageRecordWithinLimit(
+    record: Omit<UsageRecord, "id" | "createdAt">,
+    sinceIso: string,
+    limit: number,
+    scope: "all" | "short" | "long"
+  ): Promise<UsageRecord | null> {
+    const row: UsageRecord = { ...record, id: newId("use"), createdAt: nowIso() };
+    const effectiveFormat = "COALESCE(NULLIF(format, ''), CASE WHEN duration_minutes <= 1 THEN 'short' ELSE 'long' END)";
+    const scopeSql = scope === "short" ? ` AND ${effectiveFormat} = 'short'` : scope === "long" ? ` AND ${effectiveFormat} <> 'short'` : "";
+    const result = await env().DB.prepare(
+      "INSERT INTO usage_records (id, user_id, kind, duration_minutes, format, project_id, reservation_id, created_at) " +
+      "SELECT ?, ?, ?, ?, ?, ?, ?, ? " +
+      `WHERE (SELECT COUNT(*) FROM usage_records WHERE user_id = ? AND created_at >= ?${scopeSql}) < ?`
+    ).bind(row.id, row.userId, row.kind, row.durationMinutes, row.format, row.projectId, row.reservationId, row.createdAt, row.userId, sinceIso, limit).run();
+    return (result.meta?.changes ?? 0) === 1 ? row : null;
+  },
 
   // --- export reservations ---
   async listReservedSince(userId: string, sinceIso: string): Promise<ExportReservation[]> {
@@ -629,8 +692,11 @@ export const db = {
     const row = await env().DB.prepare("SELECT * FROM complimentary_codes WHERE code_hash = ? AND status = 'active' AND expires_at > ?").bind(codeHash, nowSql()).first();
     return row ? rowToComplimentaryCode(row) : null;
   },
-  async redeemComplimentaryCode(id: string, userId: string): Promise<void> {
-    await env().DB.prepare("UPDATE complimentary_codes SET status = 'redeemed', redeemed_by = ?, redeemed_at = ? WHERE id = ?").bind(userId, nowIso(), id).run();
+  /** Marks a one-time code used — only if it is still active and unexpired,
+   *  so of two requests racing with the same code only one wins. */
+  async redeemComplimentaryCode(id: string, userId: string): Promise<boolean> {
+    const result = await env().DB.prepare("UPDATE complimentary_codes SET status = 'redeemed', redeemed_by = ?, redeemed_at = ? WHERE id = ? AND status = 'active' AND expires_at > ?").bind(userId, nowIso(), id, nowSql()).run();
+    return (result.meta?.changes ?? 0) === 1;
   },
   async revokeComplimentaryCode(id: string): Promise<boolean> {
     const result = await env().DB.prepare("UPDATE complimentary_codes SET status = 'revoked' WHERE id = ? AND status = 'active'").bind(id).run();
@@ -949,6 +1015,14 @@ export const db = {
     ).bind(status, reason, nowIso(), nowIso(), providerMessageId).run();
     return Number((result.meta as any)?.changes ?? 0) > 0;
   },
+  /** A spam complaint is an opt-out: it counts as unsubscribed even after
+   *  the message was delivered (a delivered row is the usual case). */
+  async markEmailDeliveryComplainedByMessageId(providerMessageId: string): Promise<boolean> {
+    const result = await env().DB.prepare(
+      "UPDATE email_deliveries SET status = 'unsubscribed', failure_reason = ?, updated_at = ? WHERE provider_message_id = ? AND status IN ('pending', 'sent', 'delivered')"
+    ).bind("The recipient reported this email as spam", nowIso(), providerMessageId).run();
+    return Number((result.meta as any)?.changes ?? 0) > 0;
+  },
   async findEmailDeliveryByMessageId(providerMessageId: string): Promise<EmailDelivery | null> {
     const row = await env().DB.prepare("SELECT * FROM email_deliveries WHERE provider_message_id = ?").bind(providerMessageId).first();
     return row ? rowToEmailDelivery(row) : null;
@@ -1013,6 +1087,10 @@ export const db = {
       if (ids.length === 0) return [];
       fragments.push(`u.id IN (${ids.map(() => "?").join(", ")})`);
       params.push(...ids);
+    } else if (activityAudienceFragments(type, filter)) {
+      const activity = activityAudienceFragments(type, filter)!;
+      fragments.push(...activity.fragments);
+      params.push(...activity.params);
     } else if (type !== "all_consented") {
       return [];
     }
@@ -1048,6 +1126,10 @@ export const db = {
       if (ids.length === 0) return 0;
       fragments.push(`u.id IN (${ids.map(() => "?").join(", ")})`);
       params.push(...ids);
+    } else if (activityAudienceFragments(type, filter)) {
+      const activity = activityAudienceFragments(type, filter)!;
+      fragments.push(...activity.fragments);
+      params.push(...activity.params);
     } else if (type !== "all_consented") {
       return 0;
     }

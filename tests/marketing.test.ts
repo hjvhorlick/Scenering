@@ -163,8 +163,9 @@ if (existsSync(publicMarketing)) {
       asset.file ? (asset.widths ?? []).map((w) => `${asset.file}-${w}.webp`) : []
     )
   );
-  // The link-preview card is referenced by index.html, not by the registry.
-  known.add("og-card.jpg");
+  // The search and link-preview image (the hero key art, 1200×630) is referenced
+  // by the page tags written at build time (src/marketing/seo.ts), not by the registry.
+  known.add("og-hero.jpg");
   // The brand logo a crawler reads, referenced by structured data rather than the registry.
   known.add("logo-scenering-512.png");
   for (const file of readdirSync(publicMarketing)) {

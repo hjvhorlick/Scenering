@@ -147,7 +147,8 @@ h.ok(
   "the lock is persisted alongside the rest of the scene metadata"
 );
 h.ok(
-  app.includes("existing?.image_query_locked && existing?.image_query"),
+  read("src/lib/scene-rebuild.ts").includes("existing.image_query_locked && existing.image_query") &&
+    app.includes("rebuildScenesFromScript(prev, parsed, {"),
   "a pinned query survives a script regeneration"
 );
 h.ok(

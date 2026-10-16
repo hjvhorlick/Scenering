@@ -931,3 +931,38 @@ html[data-theme] .t-app-hdr {
 html[data-theme] .t-theme-menu {
   z-index: 80; /* top of the header layer, wherever it is opened from */
 }
+
+/* ================================================================== */
+/*  TYPING FIELDS - light themes. Owner request (16 Oct 2026): the     */
+/*  boxes for the title and the script were "nearly invisible"; every  */
+/*  place where you type should be "a little darker grey".             */
+/*                                                                     */
+/*  Why: the generated matrix maps the field surfaces (bg-gray-800,    */
+/*  -900, -950) to the same white as the panels they sit on, so a      */
+/*  field showed only as a faint hairline. Every typing field gets one */
+/*  shared grey well instead, a step darker than the panel.            */
+/*                                                                     */
+/*  Scope: text-type inputs and textareas that use the studio's        */
+/*  neutral surface classes, which is every typing field in the        */
+/*  studio, its dialogs and the owner admin. Sliders, checkboxes,      */
+/*  colour and file pickers and dropdowns are not typing fields and    */
+/*  keep their look. The public website and the sign-in page style     */
+/*  their own fields without these classes, so they are untouched.     */
+/*  The dark themes stay as they are: their fields already sit lighter */
+/*  than the panels, and a darker grey there would hide them.          */
+/* ================================================================== */
+
+html[data-theme="porcelain"] { --t-field: rgb(239 234 226); }
+html[data-theme="apple"]     { --t-field: rgb(239 239 242); }
+html[data-theme="glass"]     { --t-field: rgb(240 236 248 / 0.97); }
+
+/* Specificity (0,3,2) beats the generated (0,2,1) surface remaps. Keep
+   ")" and ":is([class" touching: whitespace there would turn the second
+   :is() into a descendant selector and match nothing. */
+html:is([data-theme="porcelain"], [data-theme="apple"], [data-theme="glass"])
+  :is(input:not([type]), input[type="text"], input[type="search"], input[type="email"],
+      input[type="password"], input[type="number"], input[type="url"], input[type="tel"],
+      input[type="date"], input[type="datetime-local"], textarea):is([class*="bg-gray-"],
+      [class*="bg-slate-"], [class*="bg-zinc-"], [class*="bg-neutral-"], [class*="bg-stone-"]) {
+  background-color: var(--t-field);
+}

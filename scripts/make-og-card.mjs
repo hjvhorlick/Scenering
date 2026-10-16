@@ -1,98 +1,98 @@
 /**
- * Builds the link-preview card (public/marketing/og-card.jpg, 1200×630).
+ * Builds the search and link-preview image (public/marketing/og-hero.jpg,
+ * 1200×630) from the hero section's key art.
  *
- * Everything on it is ours: the wordmark, one of the scene stills that the
- * website itself uses, and type. No stock photography, no invented numbers,
- * no claims — just the product name and what it does.
+ * The owner asked for the hero section image to be the picture search engines
+ * and link previews show, so the card IS that image: the Scenering key art
+ * (public/marketing/hero-showpiece-1024.webp, the same file the hero section
+ * draws) set whole in the middle of a 1200×630 frame. Nothing is added to it —
+ * no text, no claims, no second picture — and nothing is cut from it: the art
+ * is square, the frame is wide, so the frame is widened with the art's own
+ * deep navy rather than cropping the SCENERING name off the bottom.
  *
- *   node scripts/make-og-card.mjs
+ * Why 1200×630: it is the size Facebook, LinkedIn, WhatsApp and X (large
+ * card) draw without cropping, and it is at least 1200 px wide, which is what
+ * Google asks of large preview images. A square crop of the middle — what some
+ * apps and search thumbnails take — is exactly the key art.
  *
- * Needs ImageMagick (`convert`), same as scripts/optimize-marketing-assets.mjs.
- * The result is committed, so contributors only run this when the card
- * changes.
+ *   node scripts/make-og-card.mjs        (`npm run marketing:og`)
+ *
+ * Needs ImageMagick (`convert`), same as scripts/make-site-icons.mjs and
+ * scripts/optimize-marketing-assets.mjs. The source is committed, so anyone
+ * can rebuild the card; the result is committed too, so a contributor only
+ * runs this when the key art changes. The filename changed from og-card.jpg
+ * when the picture did: link-preview services cache by URL, and a new URL is
+ * the reliable way to make them fetch the new picture.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, existsSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = join(root, "public", "marketing");
-const out = join(outDir, "og-card.jpg");
+const out = join(outDir, "og-hero.jpg");
 const tmp = join(root, "node_modules", ".cache", "og");
 
-const mark = join(root, "assets-src", "marketing", "mark-scenering.png");
-const still = join(root, "assets-src", "marketing", "scene-02-ancient-city.png");
+/** The hero section's key art — the file the website itself shows. */
+const art = join(outDir, "hero-showpiece-1024.webp");
 
 const W = 1200;
 const H = 630;
-const INK = "#121a2c";
-const MUTED = "#5b6780";
-const ACCENT = "#2f6df6";
+/** The art fills the frame's height and sits in the middle. */
+const ART = H;
+const LEFT = Math.round((W - ART) / 2);
+/** How far the art's left and right edges fade into the background. */
+const FEATHER = 110;
+/* The background continues the art's own colours: its edges are a near-black
+   navy (sampled at #01021e top, #010112 bottom) with a brighter navy glow
+   behind the emblem. */
+const TOP = "#020629";
+const BOTTOM = "#010113";
+const GLOW = "#0a1b55";
 
 const run = (args) => execFileSync("convert", args, { stdio: ["ignore", "inherit", "inherit"] });
 
-for (const file of [mark, still]) {
-  if (!existsSync(file)) {
-    console.error(`[og-card] missing source: ${file}`);
-    console.error("[og-card] the full-size sources live outside git — nothing to do.");
-    process.exit(0);
-  }
+if (!existsSync(art)) {
+  console.error(`[og-hero] missing source: ${art}`);
+  process.exit(1);
 }
 
-mkdirSync(outDir, { recursive: true });
 mkdirSync(tmp, { recursive: true });
-
-const shot = join(tmp, "shot.png");
-const shotRounded = join(tmp, "shot-rounded.png");
-const markSmall = join(tmp, "mark.png");
+const sized = join(tmp, "art.png");
+const mask = join(tmp, "mask.png");
+const faded = join(tmp, "art-faded.png");
 const base = join(tmp, "base.png");
 
-// 1. The still, cropped to the card's picture area and rounded off.
-const SW = 470;
-const SH = 470;
-run([still, "-resize", `${SW}x${SH}^`, "-gravity", "center", "-extent", `${SW}x${SH}`, shot]);
+// 1. The key art at the frame's height, whole.
+run([art, "-resize", `${ART}x${ART}`, sized]);
+
+// 2. A mask that fades the art's left and right edges into the background, so
+//    there is no visible seam where the square art meets the wide frame.
 run([
-  shot,
-  "(", "+clone", "-alpha", "extract", "-draw", `fill black polygon 0,0 0,26 26,0 fill white circle 26,26 26,0`,
-  "(", "+clone", "-flip", ")", "-compose", "multiply", "-composite",
-  "(", "+clone", "-flop", ")", "-compose", "multiply", "-composite",
-  ")",
-  "-alpha", "off", "-compose", "copy_opacity", "-composite",
-  shotRounded,
+  "-size", `${ART}x${ART}`, "xc:white",
+  "(", "-size", `${ART}x${FEATHER}`, "gradient:black-white", "-rotate", "-90", ")",
+  "-geometry", "+0+0", "-composite",
+  "(", "-size", `${ART}x${FEATHER}`, "gradient:white-black", "-rotate", "-90", ")",
+  "-geometry", `+${ART - FEATHER}+0`, "-composite",
+  mask,
 ]);
+run([sized, mask, "-alpha", "off", "-compose", "CopyOpacity", "-composite", faded]);
 
-// 2. Wordmark at website scale.
-run([mark, "-resize", "236x", markSmall]);
-
-// 3. Light background with a soft accent wash behind the picture.
+// 3. The wide background: the art's navy, top to bottom, with its glow.
 run([
-  "-size", `${W}x${H}`,
-  `gradient:#ffffff-#e7edfa`,
-  "-fill", "#dbe6ff", "-draw", "circle 1010,180 1010,10",
-  "-blur", "0x70",
+  "-size", `${W}x${H}`, `gradient:${TOP}-${BOTTOM}`,
+  "(", "-size", `${W}x${H}`, `radial-gradient:${GLOW}-none`, ")",
+  "-compose", "over", "-composite",
   base,
 ]);
 
-// 4. Compose: shadow, picture, wordmark, type.
+// 4. The art on the background, as a progressive JPEG with no metadata.
 run([
-  base,
-  // drop shadow for the still
-  "(", shotRounded, "-background", "rgba(20,30,60,0.22)", "-shadow", "48x22+0+14", ")",
-  "-gravity", "northwest", "-geometry", "+652+72", "-composite",
-  "(", shotRounded, ")", "-gravity", "northwest", "-geometry", "+660+80", "-composite",
-  "(", markSmall, ")", "-gravity", "northwest", "-geometry", "+72+78", "-composite",
-  "-font", "DejaVu-Sans-Bold",
-  "-fill", INK, "-pointsize", "64", "-annotate", "+70+296", "From idea",
-  "-fill", INK, "-pointsize", "64", "-annotate", "+70+370", "to video.",
-  "-font", "DejaVu-Sans",
-  "-fill", MUTED, "-pointsize", "25", "-annotate", "+72+448", "Write a script. Scenering turns it into scenes,",
-  "-fill", MUTED, "-pointsize", "25", "-annotate", "+72+484", "visuals, narration and captions.",
-  "-font", "DejaVu-Sans-Bold",
-  "-fill", ACCENT, "-pointsize", "20", "-annotate", "+72+552", "Script  ·  Scenes  ·  Visuals  ·  Voice  ·  Captions  ·  Video Studio",
-  "-quality", "88",
+  base, faded, "-gravity", "northwest", "-geometry", `+${LEFT}+0`, "-compose", "over", "-composite",
+  "-quality", "88", "-interlace", "Plane", "-strip",
   out,
 ]);
 
 rmSync(tmp, { recursive: true, force: true });
-console.log(`[og-card] wrote ${out.replace(root + "/", "")} (${W}×${H})`);
+console.log(`[og-hero] wrote ${out.replace(root + "/", "")} (${W}×${H}) from ${art.replace(root + "/", "")}`);

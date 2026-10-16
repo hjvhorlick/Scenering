@@ -37,6 +37,7 @@ import {
   isCustomVideoUrl,
   resolveVideoUrl,
 } from "../src/lib/custom-video";
+import { rebuildScenesFromScript } from "../src/lib/scene-rebuild";
 import { createHarness } from "./harness";
 
 const h = createHarness();
@@ -214,10 +215,21 @@ const LONG_SCRIPT = Array.from(
       /setVoiceoverEnabled\(projectSettings\.voiceover_enabled \?\? true\)/.test(app),
     "loading an older project cannot leave either switch undefined"
   );
-  ok(
-    /video_url: existing\?\.video_url \?\? null/.test(app),
-    "re-wording the script never throws away the attached footage"
-  );
+  {
+    // Re-wording runs through src/lib/scene-rebuild.ts, which keeps every
+    // field of the scene — the attached footage included.
+    const withFootage = {
+      id: 9001, project_id: 1, order_index: 0, text: "Old words.", image_query: "q", image_url: null, duration: 12,
+      video_url: `${CUSTOM_VIDEO_PREFIX}abc`, video_name: "clip.mp4", video_duration: 12, video_trim_start: 1.5, video_trim_end: 10, video_mute: true, video_volume: 0.4, video_fit_mode: "contain",
+    } as any;
+    const [reworded] = rebuildScenesFromScript([withFootage], [{ text: "New words." }], { projectId: 1, retimeAll: false, durationFor: () => 5 }).scenes;
+    ok(
+      app.includes("rebuildScenesFromScript(prev, parsed, {") &&
+        reworded.text === "New words." &&
+        ["video_url", "video_name", "video_duration", "video_trim_start", "video_trim_end", "video_mute", "video_volume", "video_fit_mode"].every((key) => reworded[key] === withFootage[key]),
+      "re-wording the script never throws away the attached footage"
+    );
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -298,8 +310,13 @@ const LONG_SCRIPT = Array.from(
  * ------------------------------------------------------------------ */
 {
   const app = read("src/App.tsx");
+  const resplit = rebuildScenesFromScript(
+    [1, 2, 3].map((n) => ({ id: 9100 + n, project_id: 1, order_index: n - 1, text: `Scene ${n}.`, image_query: "q", image_url: null, duration: 5 })) as any,
+    [{ text: "Scene 1." }],
+    { projectId: 1, retimeAll: false, durationFor: () => 5 }
+  );
   ok(
-    /for \(const stale of prev\.slice\(newScenes\.length\)\)/.test(app),
+    /for \(const stale of removed\)/.test(app) && resplit.removed.map((s) => s.id).join(",") === "9102,9103",
     "re-splitting into fewer scenes deletes the rows that are no longer used"
   );
   ok(
@@ -307,7 +324,7 @@ const LONG_SCRIPT = Array.from(
     "and their saved per-scene settings go with them, so nothing reappears on reload"
   );
   ok(
-    /if \(newScenes\.some\(\(s\) => s\.id === stale\.id\)\) continue;/.test(app),
+    resplit.scenes.every((kept) => !resplit.removed.some((gone) => gone.id === kept.id)),
     "a scene that survived the re-split is never deleted by the cleanup"
   );
 }

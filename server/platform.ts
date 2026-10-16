@@ -5,6 +5,9 @@ import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExpo
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
 import { env } from "../src/env.ts";
 import { db, type ComplimentaryGrant, type EmailPreference, type Membership, type Subscription, type UsageRecord, type User } from "../src/db.ts";
+import { inboxSummarySafe, recordContactFormMessage } from "./inbox-core.ts";
+import { claimGiftCode } from "./gift-codes.ts";
+import { giftEndsAt, isGiftLength } from "../src/lib/gift-lengths.ts";
 import { rateLimit as kvRateLimit } from "../src/rate-limiter.ts";
 
 /**
@@ -170,6 +173,32 @@ async function effectiveMembership(user: User, plan: PlanSlug) {
     source: user.role === "admin" ? "owner_admin" : grant && grant.planId === plan ? "complimentary" : plan === "free" ? "free" : "verified_subscription",
     complimentary_ends_at: grant && grant.planId === plan ? grant.endsAt : null,
     complimentary_period: grant && grant.planId === plan ? grant.period : null,
+  };
+}
+
+/**
+ * What the Email Centre inbox shows about a member next to their messages:
+ * plan (with where it comes from), gift end date, sign-up date and email
+ * consent. Uses the same plan resolution as everything else above.
+ */
+export async function adminMemberSummary(userId: string) {
+  const user = await db.findUserById(userId);
+  if (!user) return null;
+  const plan = await getUserPlan(user);
+  const membership = await effectiveMembership(user, plan);
+  const preference = await db.findEmailPreference(user.id);
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role: user.role,
+    verified: user.isVerified,
+    createdAt: user.createdAt,
+    plan,
+    source: membership.source,
+    complimentaryEndsAt: membership.complimentary_ends_at,
+    complimentaryPeriod: membership.complimentary_period,
+    marketingConsent: Boolean(preference?.marketingConsent),
   };
 }
 
@@ -523,7 +552,14 @@ function asyncHandlerVoid(handler: (req: Request, res: Response) => Promise<unkn
 }
 
 export function registerPlatformRoutes(app: Express) {
-  app.get("/robots.txt", (req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /app\nDisallow: /login\nDisallow: /register\nDisallow: /forgot-password\nDisallow: /verify-email\nDisallow: /reset-password\nDisallow: /api/\nDisallow: /functions/\nSitemap: ${baseUrl(req)}/sitemap.xml\n`));
+  /* Allow: /api/social-links — the one API address the public pages read.
+     Google renders pages the way a browser does but obeys robots.txt for
+     every request the page makes, so with /api/ blocked it never saw the
+     social links in the header and footer, nor the profiles they add to
+     the structured data (src/shared/structured-data.ts). The longer, more
+     specific Allow wins over Disallow: /api/ — the rest of the API stays
+     closed to crawlers. */
+  app.get("/robots.txt", (req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nAllow: /api/social-links\nDisallow: /app\nDisallow: /login\nDisallow: /register\nDisallow: /forgot-password\nDisallow: /verify-email\nDisallow: /reset-password\nDisallow: /api/\nDisallow: /functions/\nSitemap: ${baseUrl(req)}/sitemap.xml\n`));
   app.get("/sitemap.xml", (req, res) => { const root = baseUrl(req); const pages = ["", "/features", "/how-it-works", "/pricing", "/about", "/manual", "/faq", "/contact", "/privacy", "/terms", "/cookies"]; res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${pages.map((page) => `<url><loc>${root}${page || "/"}</loc></url>`).join("")}</urlset>`); });
   app.get("/api/plans", (_req, res) => res.json({ plans: PLAN_ORDER.map((slug) => PLAN_CONFIG[slug]) }));
 
@@ -657,6 +693,42 @@ export function registerPlatformRoutes(app: Express) {
     return res.status(201).json({ recorded: true });
   }));
 
+  /* ONE DOWNLOAD = ONE USE OF THE PLAN'S WEEKLY ALLOWANCE.
+     Rendering is free: a finished render waits in the Vault, and the Vault's
+     Download button calls this BEFORE the file is saved — the browser only
+     writes the file after a 201 here. The limit check and the insert are a
+     single statement (db.createUsageRecordWithinLimit), so downloads racing
+     in parallel tabs cannot overspend. Free keeps its separate weekly
+     Shorts / long-video counts and its length ceilings; SceneForge has no
+     count, but every download is still recorded. The week starts Monday
+     00:00 UTC, the same week remainingUsage() reports. */
+  app.post("/api/usage/download", requireUser, rateLimit("download", 60, 3600000), asyncHandlerVoid(async (req, res) => {
+    const { user, plan } = (req as any).auth as Auth;
+    const duration = Number(req.body?.durationMinutes);
+    if (!Number.isFinite(duration) || duration <= 0 || duration > 1440) return res.status(400).json({ error: "Valid duration required" });
+    // Derived here, never taken from the browser: one minute or less is a Short.
+    const format: "short" | "long" = duration <= 1 ? "short" : "long";
+    const projectId = String(req.body?.projectId || "").slice(0, 200) || null;
+    const config = getPlanConfig(plan);
+    const refuse = async (error: string) =>
+      res.status(403).json({ error, code: "DOWNLOAD_LIMIT_REACHED", remaining: await remainingUsage(user.id, plan) });
+    const record = { userId: user.id, kind: "download" as const, durationMinutes: duration, format, projectId, reservationId: null };
+    const since = weekStart().toISOString();
+    let recorded: UsageRecord | null;
+    if (config.id === "free") {
+      const maxMinutes = format === "short" ? config.limits.maxShortMinutes : config.limits.maxLongMinutes;
+      if (maxMinutes != null && duration > maxMinutes) return refuse(`Free downloads can be up to ${maxMinutes} minutes long. Upgrade to download longer videos.`);
+      const limit = format === "short" ? config.limits.shortExportsPerWeek : config.limits.longExportsPerWeek;
+      recorded = limit == null ? await db.createUsageRecord(record) : await db.createUsageRecordWithinLimit(record, since, limit, format);
+      if (!recorded) return refuse(`You have used this week's ${limit} Free ${format === "short" ? "Shorts" : "long-video"} download${limit === 1 ? "" : "s"}. Your downloads reset on Monday (00:00 UTC), or upgrade for more.`);
+    } else {
+      const limit = config.limits.finalExportsPerWeek;
+      recorded = limit == null ? await db.createUsageRecord(record) : await db.createUsageRecordWithinLimit(record, since, limit, "all");
+      if (!recorded) return refuse(`You have used this week's ${limit} ${config.name} downloads. Your downloads reset on Monday (00:00 UTC).`);
+    }
+    return res.status(201).json({ recorded: true, remaining: await remainingUsage(user.id, plan) });
+  }));
+
   app.get("/api/billing/checkout/:plan/:interval", requireUser, rateLimit("checkout", 20, 3600000), (req, res) => {
     const { user } = (req as any).auth as Auth; const slug = req.params.plan as PlanSlug; const interval = req.params.interval as BillingInterval;
     if (!PLAN_CONFIG[slug] || slug === "free" || !["monthly", "yearly"].includes(interval)) return res.status(400).json({ error: "Invalid plan selection" });
@@ -777,6 +849,7 @@ export function registerPlatformRoutes(app: Express) {
       configuration: { emailProviderConfigured: Boolean(e.EMAIL_PROVIDER && e.EMAIL_PROVIDER !== "console"), lemonSqueezyConfigured: Boolean(e.LEMON_SQUEEZY_WEBHOOK_SECRET), publicAppUrlConfigured: Boolean(e.PUBLIC_APP_URL), production: isProduction() },
 
       billing: billingConfiguration(), webhookEvents: webhookEvents.reverse(),
+      inbox: await inboxSummarySafe(),
     });
   }));
 
@@ -798,28 +871,40 @@ export function registerPlatformRoutes(app: Express) {
     if (!raw || raw.length > 100 || user.role === "admin") return res.status(400).json({ error: "This access code is not valid." });
     await db.expireStaleComplimentaryCodes();
     const code = await db.findActiveComplimentaryCodeByHash(hashToken(raw));
-    if (!code) return res.status(400).json({ error: "This access code is invalid, expired, revoked, or already used." });
-    await db.redeemComplimentaryCode(code.id, user.id);
+    if (!code) {
+      // Not a one-time code: perhaps a gift code from the Email Centre,
+      // which many people can use (server/gift-codes.ts has the rules).
+      const gift = await claimGiftCode(user, raw);
+      if (gift.status === "refused") return res.status(400).json({ error: gift.error });
+      if (gift.status === "not_found") return res.status(400).json({ error: "This access code is invalid, expired, revoked, or already used." });
+      await db.recordBillingEvent({ userId: user.id, subscriptionId: null, eventName: "gift_code_claimed", fromProvider: false, extra: { code_id: gift.code.id, plan_id: gift.code.planId, period: gift.code.period, ends_at: gift.grant.endsAt } });
+      const giftPlan = await getUserPlan(user);
+      return res.json({ redeemed: true, grant: { ...gift.grant, ...apiGrant(gift.grant) }, membership: await effectiveMembership(user, giftPlan) });
+    }
+    // Claimed only while still unused: two requests racing with the same
+    // one-time code cannot both get the membership.
+    if (!(await db.redeemComplimentaryCode(code.id, user.id))) return res.status(400).json({ error: "This access code is invalid, expired, revoked, or already used." });
     await db.revokeActiveComplimentaryGrantsForUser(user.id);
     const start = new Date(); const end = new Date(start); if (code.period === "month") end.setUTCMonth(end.getUTCMonth() + 1); else end.setUTCFullYear(end.getUTCFullYear() + 1);
     const grant = await db.createComplimentaryGrant({ userId: user.id, planId: code.planId, period: code.period, startsAt: start.toISOString(), endsAt: end.toISOString(), grantedBy: code.createdBy, reason: "Complimentary access code", accessCodeId: code.id, status: "active" });
     await db.recordBillingEvent({ userId: user.id, subscriptionId: null, eventName: "complimentary_code_redeemed", fromProvider: false, extra: { code_id: code.id, plan_id: code.planId, period: code.period, ends_at: grant.endsAt } });
     const plan = await getUserPlan(user);
-    return res.json({ redeemed: true, grant, membership: await effectiveMembership(user, plan) });
+    return res.json({ redeemed: true, grant: { ...grant, ...apiGrant(grant) }, membership: await effectiveMembership(user, plan) });
   }));
   app.post("/api/admin/complimentary-memberships", requireAdmin, rateLimit("admin-grant", 60, 3600000), asyncHandlerVoid(async (req, res) => {
     const { user: admin } = (req as any).auth as Auth; const requestedUserId = String(req.body?.userId || ""); const requestedEmail = String(req.body?.email || "").trim().toLowerCase();
-    const planId = req.body?.planId as PlanSlug; const period = req.body?.period === "year" ? "year" : req.body?.period === "month" ? "month" : null;
+    // A gift lasts one of the lengths in src/lib/gift-lengths.ts ("month" and "year" as always, plus a week, three or six months).
+    const planId = req.body?.planId as PlanSlug; const period = isGiftLength(req.body?.period) ? req.body.period : null;
     const reason = String(req.body?.reason || "").trim().slice(0, 500);
     if ((!requestedUserId && !requestedEmail) || !period || !["sceneflow", "sceneforge"].includes(planId)) return res.status(400).json({ error: "Choose a customer, plan, and complimentary period." });
     const recipient = requestedUserId ? await db.findUserById(requestedUserId) : await db.findUserByEmail(requestedEmail);
     if (!recipient || !recipient.isVerified || recipient.role === "admin") return res.status(404).json({ error: "Eligible customer account not found." });
     await db.revokeActiveComplimentaryGrantsForUser(recipient.id);
-    const start = new Date(); const end = new Date(start); if (period === "month") end.setUTCMonth(end.getUTCMonth() + 1); else end.setUTCFullYear(end.getUTCFullYear() + 1);
+    const start = new Date(); const end = giftEndsAt(start, period);
     const grant = await db.createComplimentaryGrant({ userId: recipient.id, planId: planId as Exclude<PlanSlug, "free">, period, startsAt: start.toISOString(), endsAt: end.toISOString(), grantedBy: admin.id, reason: reason || null, accessCodeId: null });
     await db.recordBillingEvent({ userId: recipient.id, subscriptionId: null, eventName: "complimentary_membership_granted", fromProvider: false, extra: { granted_by: admin.id, plan_id: planId, period, ends_at: grant.endsAt, reason } });
     const plan = await getUserPlan(recipient);
-    res.status(201).json({ grant, recipient: safeUser(recipient), membership: await effectiveMembership(recipient, plan) });
+    res.status(201).json({ grant: { ...grant, ...apiGrant(grant) }, recipient: safeUser(recipient), membership: await effectiveMembership(recipient, plan) });
   }));
   app.post("/api/admin/complimentary-memberships/:id/revoke", requireAdmin, rateLimit("admin-grant-revoke", 60, 3600000), asyncHandlerVoid(async (req, res) => {
     const { user: admin } = (req as any).auth as Auth; const grant = await db.findComplimentaryGrantById(String(req.params.id));
@@ -859,7 +944,15 @@ export function registerPlatformRoutes(app: Express) {
     if (website) return res.status(201).json({ message: "Thanks — your message has been received." });
     const categories = ["General", "Technical", "Billing", "Account", "Feature Request", "Business", "Other"];
     if (String(name).trim().length < 2 || String(name).trim().length > 100 || String(email).length > 254 || !/^\S+@\S+\.\S+$/.test(String(email)) || String(subject).trim().length < 3 || String(subject).trim().length > 200 || String(message).trim().length < 10 || String(message).trim().length > 10000 || !categories.includes(category)) return res.status(400).json({ error: "Please complete every field with valid information." });
-    await db.createContactSubmission({ name: String(name).trim(), email: String(email).trim(), subject: String(subject).trim(), message: String(message).trim(), category });
+    const contact = await db.createContactSubmission({ name: String(name).trim(), email: String(email).trim(), subject: String(subject).trim(), message: String(message).trim(), category });
+    // The submission above is the record of truth. Opening the inbox
+    // conversation (and alerting the owner) must never fail the visitor's
+    // request: if it does, the next inbox load imports the stored row.
+    try {
+      await recordContactFormMessage(contact);
+    } catch (error) {
+      console.error("[inbox] contact message stored but not yet in the inbox:", (error as Error)?.message || error);
+    }
     res.status(201).json({ message: "Thanks — your message has been received. We’ll reply by email." });
   }));
 }

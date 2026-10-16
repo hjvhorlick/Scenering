@@ -1,23 +1,25 @@
 import type { EditorStep } from "../types";
 
 /**
- * The ordered gate between project sections.
+ * The project sections and the rule for moving between them.
  *
- * The owner's rule (session 01a0c8ed, restated 2026-10-08):
+ * The owner's rule (2026-10-16), replacing the ordered gate of 2026-10-08:
  *
- *   "Section Next must commit that section's effects; going back requires
- *    pressing Next again; later sections stay locked until then."
+ *   "The user can go forward and backward as they want and all sections will
+ *    be open. The only section closed is the start, and that will start a new
+ *    project or choose an old project."  — and the application must remember
+ *    the last choice made in any section.
  *
- * So a project is walked in order. The section you are in is open, everything
- * before it is open (you may go back and adjust), and everything after it is
- * locked. The ONLY way forward is that section's own Next button, and pressing
- * it first commits the section: the project settings are written to their
- * per-project store, the scene rows are flushed to the database, and the
- * commit is recorded so the section can say when it was last committed.
+ * So once a project is open, every section is open: the tab row, Previous and
+ * Next all go wherever the user asks. With no project open only Setup — the
+ * start — is available, because there is nothing for the other sections to
+ * work on until a project is created or chosen there.
  *
- * Going back is allowed and does not need a commit — but it retracts the gate.
- * Once you are back in Scenes, Voiceover is locked again and Next is the way
- * through, which is exactly what the rule asks for.
+ * Leaving a section by any route (Next, Previous or a tab) commits it: the
+ * project settings are written to their per-project store, the scene rows are
+ * flushed to the database, and the commit is recorded so the section can say
+ * when it was last committed. Choices are also saved as they are made, so
+ * nothing depends on which route the user takes.
  *
  * This module is deliberately free of React and of the database: every rule
  * here is a pure function over the phase list, so it can be pinned by tests.
@@ -115,16 +117,13 @@ export function previousPhase(id: ProjectPhase): ProjectPhase | null {
 }
 
 /**
- * A section is locked while it lies beyond the section you are in.
- *
- * "Beyond" is what makes this a walk rather than a menu: the next section is
- * locked too, until that section's own Next commits the current one.
+ * Only the start gates the others: with no project open, every section but
+ * Setup is locked. With a project open, nothing is — not the next section, not
+ * the last one, not Setup.
  */
-export function isPhaseLocked(target: ProjectPhase, current: ProjectPhase): boolean {
-  const from = phaseIndex(current);
-  const to = phaseIndex(target);
-  if (from < 0 || to < 0) return true;
-  return to > from;
+export function isPhaseLocked(target: ProjectPhase, hasProject: boolean): boolean {
+  if (phaseIndex(target) < 0) return true;
+  return target !== "setup" && !hasProject;
 }
 
 /** The editor step a phase lives in. Setup and Scenes share the scenes step. */

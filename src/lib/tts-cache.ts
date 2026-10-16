@@ -1,5 +1,5 @@
 import type { Scene } from "../types";
-import { synthesizeSpeechify } from "./speechify-client";
+import { SPEECHIFY_RENDITION, synthesizeSpeechify } from "./speechify-client";
 import type { WordTiming } from "./word-sync";
 
 export interface CachedAudioItem {
@@ -105,7 +105,10 @@ export function getSharedAudioContext(): AudioContext {
 }
 
 export function getAudioCacheKey(sceneId: number, voiceId: string, text: string): string {
-  return `${sceneId}_${voiceId}_${text.trim()}`;
+  // voiceId is the style, not the Speechify voice behind it, so narration is
+  // also filed under the rendition: audio made with an earlier casting or
+  // earlier audio settings is never replayed after either changes.
+  return `${SPEECHIFY_RENDITION}_${sceneId}_${voiceId}_${text.trim()}`;
 }
 
 export function getCachedSceneAudio(sceneId: number, voiceId?: string, text?: string): CachedAudioItem | undefined {

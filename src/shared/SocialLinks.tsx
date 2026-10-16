@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
+import { applyOrganizationProfiles } from "./structured-data";
 
 /**
  * The social icons for the public website and the app.
@@ -68,7 +69,15 @@ async function loadSocialLinks(): Promise<SocialLinkSet> {
   if (!pendingLinks) {
     pendingLinks = fetch("/api/social-links")
       .then((response) => (response.ok ? response.json() : { links: EMPTY_LINKS }))
-      .then((data) => { const next: SocialLinkSet = { ...EMPTY_LINKS, ...(data?.links || {}) }; cachedLinks = next; return next; })
+      .then((data) => {
+        const next: SocialLinkSet = { ...EMPTY_LINKS, ...(data?.links || {}) };
+        cachedLinks = next;
+        /* The same profiles go into the page's structured data as the
+           Organization's sameAs, so search engines learn that the channel and
+           the page are Scenering's own (src/shared/structured-data.ts). */
+        applyOrganizationProfiles(SOCIAL_ICONS.map((icon) => next[icon.id]));
+        return next;
+      })
       .catch(() => { pendingLinks = null; return EMPTY_LINKS; });
   }
   return pendingLinks;

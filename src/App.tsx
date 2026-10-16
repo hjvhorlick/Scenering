@@ -37,6 +37,9 @@ import {
   stepToPhase,
   type PhaseCommits,
 } from "./lib/phase-gate";
+import { readDraft } from "./lib/setup-draft";
+import { rebuildScenesFromScript, setupNeedsRebuild, type SetupInputs } from "./lib/scene-rebuild";
+import { SECTION_MEMORY_PREFIX, forgetSectionMemory } from "./lib/section-memory";
 import ThemeSwitcher from "./components/ThemeSwitcher";
 import AccountMembershipModal from "./components/AccountMembershipModal";
 import { redeemComplimentaryCode } from "./lib/entitlements";
@@ -621,18 +624,47 @@ export default function App() {
     setProjects((prev) => prev.map((p) => (p.id === currentProject?.id ? { ...p, title } : p)));
   }, [currentProject?.id]);
 
+  /**
+   * What Setup last saved for the current project: the script, scene length
+   * and one-scene choice. Setup's Next — and leaving Setup by a tab — only
+   * rebuild the scenes when the Setup box differs from it, so going back to
+   * Setup and on again changes nothing that was not edited there, and "Save
+   * Script Text" stays a deliberate save without a rebuild. Updated
+   * synchronously, so a second check in the same click sees the first save.
+   */
+  const savedSetupRef = useRef<(SetupInputs & { projectId: number }) | null>(null);
+
   const handleUpdateScript = useCallback(
     (
       newScript: string,
-      regenerateScenes: boolean = false,
+      /** true rebuilds the scenes; "if-changed" only when the script, scene
+       *  length or one-scene choice differs from what Setup last saved. */
+      regenerateScenes: boolean | "if-changed" = false,
       overrideDuration?: number,
       /** Setup passes this when the user flips the one-scene switch in the
        *  same click, because the state update has not landed yet. */
       overrideSingleScene?: boolean
     ) => {
-      setCurrentProject((prev) => (prev ? { ...prev, script: newScript } : null));
       const targetDur = overrideDuration || sceneDuration || 20;
       const oneScene = overrideSingleScene ?? singleScene;
+      const projectId = currentProject?.id;
+      const saved: SetupInputs =
+        savedSetupRef.current && savedSetupRef.current.projectId === projectId
+          ? savedSetupRef.current
+          : {
+              script: currentProject?.script?.trim() || scenes.map((s) => s.text).join("\n\n"),
+              duration: sceneDuration || 20,
+              oneScene: singleScene,
+            };
+      const submitted: SetupInputs = { script: newScript, duration: targetDur, oneScene };
+      if (regenerateScenes === "if-changed" && !setupNeedsRebuild(submitted, saved)) {
+        // Nothing was changed in Setup: every scene, and everything set on
+        // it in the other sections, stays exactly as it is.
+        return;
+      }
+      if (projectId) savedSetupRef.current = { projectId, ...submitted };
+
+      setCurrentProject((prev) => (prev ? { ...prev, script: newScript } : null));
 
       // Always persist the script text itself. It used to be written only on
       // the regenerate path, so a plain "save" left the stored script stale
@@ -645,47 +677,18 @@ export default function App() {
 
       if (regenerateScenes) {
         const parsed = parseScript(newScript, targetDur, oneScene);
+        // A new target length or a one-scene switch re-times every scene;
+        // otherwise only scenes whose words changed get a new length.
+        const retimeAll = targetDur !== saved.duration || oneScene !== saved.oneScene;
         setScenes((prev) => {
-          const newScenes: Scene[] = parsed.map((item, idx) => {
-            const existing = prev[idx];
-            const sceneText = item.text.trim();
-            return {
-              id: existing?.id || idx + 1,
-              project_id: currentProject?.id || 1,
-              order_index: idx,
-              text: sceneText,
-              image_url: existing?.image_url || null,
-              // A query the user pinned in the search modal survives a script
-              // regeneration; everything else is re-derived from the new text.
-              image_query:
-                existing?.image_query_locked && existing?.image_query
-                  ? existing.image_query
-                  : item.imageQuery || existing?.image_query || "abstract background",
-              image_query_locked: existing?.image_query_locked,
-              // Each scene lasts as long as its OWN narration, so no scene
-              // holds on a still image in silence. A one-scene project has no
-              // per-scene target to be bounded by — and when footage is
-              // attached, the footage decides.
-              duration: oneScene
-                ? singleSceneDuration(sceneText, existing?.video_duration)
-                : sceneDurationForText(sceneText, targetDur),
-              created_at: existing?.created_at || new Date().toISOString(),
-              motion_effect: existing?.motion_effect || "slow_zoom",
-              animation: existing?.animation,
-              audio_url: existing?.audio_url || null,
-              audio_name: existing?.audio_name || null,
-              voice_id: existing?.voice_id ? migrateLegacyVoiceId(existing.voice_id) : undefined,
-              // Re-wording the script must never throw away the video the
-              // user attached to the scene.
-              video_url: existing?.video_url ?? null,
-              video_name: existing?.video_name ?? null,
-              video_duration: existing?.video_duration,
-              video_trim_start: existing?.video_trim_start,
-              video_trim_end: existing?.video_trim_end,
-              video_mute: existing?.video_mute,
-              video_volume: existing?.video_volume,
-              video_fit_mode: existing?.video_fit_mode,
-            };
+          // Each scene keeps every setting it had — see src/lib/scene-rebuild.ts.
+          // A one-scene project has no per-scene target to be bounded by, and
+          // when footage is attached, the footage decides its length.
+          const { scenes: newScenes, removed } = rebuildScenesFromScript(prev, parsed, {
+            projectId: currentProject?.id || 1,
+            retimeAll,
+            durationFor: (text, existing) =>
+              oneScene ? singleSceneDuration(text, existing?.video_duration) : sceneDurationForText(text, targetDur),
           });
 
           // Persist each scene to Supabase & localStorage
@@ -698,8 +701,7 @@ export default function App() {
             // dozen become one. The rows left behind used to survive in
             // storage and reappear on the next reload, so the project the
             // user saved was not the project they got back.
-            for (const stale of prev.slice(newScenes.length)) {
-              if (newScenes.some((s) => s.id === stale.id)) continue;
+            for (const stale of removed) {
               supabase.from("scenes").delete().eq("id", stale.id).then();
               localStorage.removeItem(`scenering_scene_meta_${stale.id}`);
             }
@@ -736,7 +738,7 @@ export default function App() {
         });
       }
     },
-    [currentProject?.id, sceneDuration, singleScene]
+    [currentProject?.id, currentProject?.script, sceneDuration, singleScene, scenes]
   );
 
   // Timeline & Video Preview playback synchronization
@@ -989,50 +991,15 @@ export default function App() {
     }
   };
 
-  /** Moves between project phases — used by every Previous / Next control */
-  /**
-   * The one navigation entry point for phase changes.
-   *
-   * Every phase after Setup needs a project to work on. Without this guard the
-   * tabs and Next buttons would switch to an empty editor, which looked like
-   * the button "did nothing".
-   */
-  const navigateToPhase = (phase: ProjectPhase) => {
-    if (phase === "setup") {
-      setView("create");
-      return;
-    }
-    if (!currentProject) {
-      setView("create");
-      setNavNotice("Create a project on this screen first — then the other phases open up.");
-      return;
-    }
-    /* The ordered gate. A section beyond the one you are in is locked, whether
-       you reached for it in the tab row or in a Previous/Next control: only the
-       current section's own Next opens the next one, and that press commits the
-       section you are leaving (see commitAndAdvance below). */
-    if (isPhaseLocked(phase, currentPhase)) {
-      setNavNotice(
-        `“${getPhase(phase).phase}” opens after you press Next in ${getPhase(currentPhase).phase} — that press saves this section.`
-      );
-      return;
-    }
-    setView("editor");
-    setEditorStep(getPhaseDef(phase).editorStep);
-  };
-
   /* ------------------------------------------------------------------ *
-   * The ordered section gate — see src/lib/phase-gate.ts for the rules.
+   * Moving between sections — see src/lib/phase-gate.ts for the rule.
    *
-   * A project is walked in order. Everything up to the section you are in is
-   * open; everything after it is locked. The ONLY way forward is a Next press
-   * (the section's own Next, or its own "save and continue" button), and that
-   * press first commits the section: the per-project settings snapshot, the
-   * scene rows in one batch, and a commit stamp the section can report.
-   *
-   * Going back needs no commit, but it retracts the gate — back in Scenes,
-   * Voiceover is locked again until Next is pressed, which is the behaviour
-   * that was asked for.
+   * With a project open every section is open: the tab row, Previous, Next
+   * and the sections' own links all go straight where they point. Leaving a
+   * section by any of them commits it — the per-project settings snapshot,
+   * the scene rows in one batch, and a commit stamp the section can report —
+   * and leaving Setup first applies a script edited there. With no project
+   * open, only Setup (the start) opens.
    * ------------------------------------------------------------------ */
   const [committingPhase, setCommittingPhase] = useState<ProjectPhase | null>(null);
   const [phaseCommits, setPhaseCommits] = useState<PhaseCommits>({});
@@ -1074,8 +1041,11 @@ export default function App() {
       render_profile: renderProfile,
     });
     /* 2. The scene rows, one batch. Only the core script/image/timing fields
-       live in the database; the studio metadata is written as it changes. */
-    const rows = sceneRowsForCommit(scenes);
+       live in the database; the studio metadata is written as it changes.
+       Setup writes its own scene rows: a script change rebuilds and saves the
+       scenes in the same click, so the list captured here would still be the
+       old one, and flushing it would put the old rows back. */
+    const rows = phase === "setup" ? [] : sceneRowsForCommit(scenes);
     let saved = true;
     if (rows.length) {
       try {
@@ -1102,44 +1072,62 @@ export default function App() {
     videoFilter, introSection, outroSection, voiceEcho, videoTransition, renderProfile, scenes,
   ]);
 
-  /**
-   * The only way past the gate: commit the section you are in, then open the
-   * one asked for. Reports either outcome in the notice strip rather than
-   * moving on silently when the save failed.
-   */
-  const commitAndAdvance = useCallback(async (target: ProjectPhase) => {
+  /** The one navigation entry point for phase changes. */
+  const goToPhase = async (target: ProjectPhase, options: { viaNext?: boolean } = {}) => {
     if (committingPhase) return;
-    const from = currentPhase;
-    if (!currentProject) {
-      navigateToPhase(target);
+    /* Every phase after Setup needs a project to work on. Without this guard
+       the tabs and Next buttons would switch to an empty editor, which looked
+       like the button "did nothing". */
+    if (isPhaseLocked(target, Boolean(currentProject))) {
+      setView("create");
+      setNavNotice("Create a project on this screen first — then the other phases open up.");
       return;
     }
-    setCommittingPhase(from);
-    const saved = await commitPhaseEffects(from);
-    setCommittingPhase(null);
-    setView("editor");
-    setEditorStep(phaseToStep(target));
-    setNavNotice(
-      saved
-        ? `${getPhase(from).phase} committed — ${getPhase(target).phase} is open.`
-        : `${getPhase(from).phase} could not be saved. Check your connection, then press Next again.`
-    );
-  }, [committingPhase, currentPhase, currentProject, commitPhaseEffects]);
+    const from = currentPhase;
+    if (currentProject && from !== target) {
+      // A script edited in Setup applies however Setup is left — Next, a tab
+      // or a link — and only rebuilds the scenes if it really changed.
+      if (from === "setup") {
+        const pendingScript = readDraft(currentProject.id).script?.trim();
+        if (pendingScript) handleUpdateScript(pendingScript, "if-changed", sceneDuration, singleScene);
+      }
+      setCommittingPhase(from);
+      const saved = await commitPhaseEffects(from);
+      setCommittingPhase(null);
+      if (!saved) {
+        setNavNotice(`${getPhase(from).phase} could not be saved. Check your connection, then press Next again.`);
+      } else if (options.viaNext) {
+        setNavNotice(`${getPhase(from).phase} committed — ${getPhase(target).phase} is open.`);
+      }
+    }
+    if (target === "setup") {
+      setView("create");
+    } else {
+      setView("editor");
+      setEditorStep(phaseToStep(target));
+    }
+  };
+  const goToPhaseRef = useRef(goToPhase);
+  goToPhaseRef.current = goToPhase;
+
+  /** The tab row, Previous, and the sections' own phase links. */
+  const navigateToPhase = (phase: ProjectPhase) => {
+    void goToPhaseRef.current(phase);
+  };
+
+  /** A section's own Next button: commit the section, then open the next. */
+  const commitAndAdvance = useCallback(async (target: ProjectPhase) => {
+    await goToPhaseRef.current(target, { viaNext: true });
+  }, []);
 
   /**
-   * A section's own Next / "save and continue". Forward presses commit and
-   * open the next section; backward presses (the Previous button, a "fix this
-   * in Captions" link) simply move.
+   * A section's own Next / "save and continue", and links such as "fix this
+   * in Captions". A forward request is a Next press and confirms the save.
    */
   const handleStepRequest = useCallback((step: EditorStep) => {
     const target = stepToPhase(step, false);
-    if (currentProject && isPhaseLocked(target, currentPhase)) {
-      void commitAndAdvance(target);
-      return;
-    }
-    setEditorStep(step);
-    setView("editor");
-  }, [currentProject, currentPhase, commitAndAdvance]);
+    void goToPhaseRef.current(target, { viaNext: phaseIndex(target) > phaseIndex(currentPhase) });
+  }, [currentPhase]);
 
   /** Clears the editor so the setup frame starts a brand new project */
   const getPhaseDef = (phase: ProjectPhase) =>
@@ -1276,6 +1264,7 @@ export default function App() {
       localStorage.removeItem(`scenering_project_settings_${projectId}`);
       localStorage.removeItem(`scenering_inserts_${projectId}`);
     } catch {}
+    forgetSectionMemory(projectId);
 
     // Find and clean up scene metadata for scenes belonging to this project
     try {
@@ -1311,7 +1300,8 @@ export default function App() {
               key &&
               (key.startsWith("scenering_scene_meta_") ||
                 key.startsWith("scenering_inserts_") ||
-                key.startsWith("scenering_project_settings_"))
+                key.startsWith("scenering_project_settings_") ||
+                key.startsWith(SECTION_MEMORY_PREFIX))
             ) {
               keysToRemove.push(key);
             }
@@ -1434,6 +1424,9 @@ export default function App() {
         audio_url: updates.audio_url !== undefined ? updates.audio_url : parsed.audio_url,
         audio_name: updates.audio_name !== undefined ? updates.audio_name : parsed.audio_name,
         animation: updates.animation !== undefined ? updates.animation : parsed.animation,
+        // The scene's own captions on/off, chosen in Captions — without this
+        // it reverted to "on" whenever the project was reloaded or reopened.
+        burn_caption: updates.burn_caption !== undefined ? updates.burn_caption : parsed.burn_caption,
         // A hand-picked search term and its lock live here too. Supabase is
         // optional in this app, so without the local copy a reload dropped
         // the lock and the next edit re-derived the query from the script.
@@ -1795,21 +1788,15 @@ export default function App() {
               return PROJECT_PHASES.map((phase, i) => {
                 const isActive = i === activeIdx;
                 const isNext = activeIdx >= 0 && i === activeIdx + 1;
-                /* Two reasons a step is closed: there is no project yet, or it
-                   lies beyond the section you are in — the ordered gate. */
-                const isLocked = (phase.id !== "setup" && !currentProject) || isPhaseLocked(phase.id, currentPhase);
+                /* The only closed steps: everything but Setup while no project
+                   is open. With a project open, every step is open. */
+                const isLocked = isPhaseLocked(phase.id, Boolean(currentProject));
                 return (
                   <button
                     key={phase.id}
                     onClick={() => navigateToPhase(phase.id)}
                     aria-disabled={isLocked || undefined}
-                    title={
-                      isLocked
-                        ? !currentProject
-                          ? "Create a project on the Setup screen first"
-                          : `Press Next in ${getPhase(currentPhase).phase} to commit it and open this section`
-                        : phase.purpose
-                    }
+                    title={isLocked ? "Create a project on the Setup screen first" : phase.purpose}
                     className={`t-tab opt-btn ${isActive
                         ? `t-tab-active opt-btn-on ${
                             phase.id === "render"
@@ -1842,12 +1829,6 @@ export default function App() {
               <span className="opt-hint ml-auto shrink-0 hidden lg:inline-flex pr-1" title="Steps 2–6 edit a project's scenes, voices and video — they unlock as soon as you create or select a project in Setup">
                 <Icon glyph="🔓" />
                 <span>create or select a project to unlock steps 2–6</span>
-              </span>
-            )}
-            {currentProject && currentPhaseIndex < PROJECT_PHASES.length - 1 && (
-              <span className="opt-hint ml-auto shrink-0 hidden lg:inline-flex pr-1" title="Each section is committed by its own Next button. Going back to an earlier section closes the ones after it, so Next is the way forward again.">
-                <Icon glyph="🔒" />
-                <span>Next in {getPhase(currentPhase).phase} unlocks the next section</span>
               </span>
             )}
           </div>
@@ -1998,9 +1979,9 @@ export default function App() {
                 onRenderSuccess={(blob, url) => {
                   setRenderedBlob(blob);
                   setRenderedUrl(url);
-                  // Final allowance is reserved and completed inside
-                  // RenderView before the finished Blob is exposed. Draft
-                  // previews never enter that metered path.
+                  // Only for the on-screen preview. Rendering is free; the
+                  // one download path is RenderView's Vault, where every
+                  // download is counted by the server before it is saved.
                 }}
                 customerLogo={customerLogo}
                 captionsConfig={captionsConfig}
@@ -2261,6 +2242,7 @@ export default function App() {
               ) : editorStep === "voiceover" ? (
                 /* Step 2: Voiceover & Narration Studio */
                 <VoiceoverStudio
+                  projectId={currentProject?.id ?? null}
                   scenes={scenes}
                   onUpdateScene={handleUpdateScene}
                   onApplyVoiceToAll={handleApplyVoiceToAll}
@@ -2280,6 +2262,7 @@ export default function App() {
               ) : editorStep === "captions" ? (
                 /* Step 3: Captions & Subtitles Studio */
                 <CaptionsStudio
+                  projectId={currentProject?.id ?? null}
                   scenes={scenes}
                   captionsConfig={captionsConfig}
                   onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
@@ -2355,6 +2338,7 @@ export default function App() {
 
                   {/* Video Studio Insert Catalog — add here, then edit the block on the timeline */}
                   <VideoStudio
+                    projectId={currentProject?.id ?? null}
                     currentPlayheadTime={currentPlayheadTime}
                     totalDuration={estimatedTotalDuration}
                     onInsertItem={handleAddInsert}

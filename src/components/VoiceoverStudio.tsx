@@ -5,7 +5,7 @@ import { ttsPlayer } from "../lib/tts-player";
 import { setCachedSceneAudio, getSharedAudioContext, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
 import PhoneticDictionaryTab from "./PhoneticDictionaryTab";
-import { STUDIO_VOICE_PRESETS, type VoicePreset, resolveVoicePreset } from "../data/voice-presets";
+import { STUDIO_VOICE_PRESETS, type VoicePreset, resolveVoicePreset, sameSpeechifySpeaker } from "../data/voice-presets";
 import {
   VoiceEchoConfig,
   VOICE_ECHO_PRESETS,
@@ -18,12 +18,15 @@ import {
 import { BackgroundMusicLibrary } from "./VoiceMediaLibrary";
 import VoiceoverSwitch from "./VoiceoverSwitch";
 import { iconify } from "./icons/Icon";
+import { isBoolean, numberBetween, oneOf, useRememberedChoice } from "../lib/section-memory";
 import Icon from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { isPlanVoiceIncluded, type PlanSlug } from "../config/plans";
 import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 
 interface VoiceoverStudioProps {
+  /** The open project: this section's choices are remembered per project. */
+  projectId?: number | null;
   scenes: Scene[];
   onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
   onApplyVoiceToAll: (voiceId: string, speed: number) => void;
@@ -55,7 +58,12 @@ interface VoiceoverStudioProps {
 export { STUDIO_VOICE_PRESETS } from "../data/voice-presets";
 export type { VoicePreset } from "../data/voice-presets";
 
+/** Voice B's dropdown lists the styles, so only a style can be restored into it. */
+const isStudioVoiceId = (value: unknown): value is string =>
+  typeof value === "string" && STUDIO_VOICE_PRESETS.some((preset) => preset.id === value);
+
 export default function VoiceoverStudio({
+  projectId = null,
   scenes,
   onUpdateScene,
   onApplyVoiceToAll,
@@ -95,8 +103,10 @@ export default function VoiceoverStudio({
    * each scene's audio a single continuous take, which is what the renderer
    * expects — one clipped buffer per scene, no mid-scene voice switch.
    */
-  const [rotateVoices, setRotateVoices] = useState(false);
-  const [secondVoice, setSecondVoice] = useState("speechify_female_01");
+  // Remembered per project, so leaving Voiceover and coming back (or
+  // reloading) finds rotation and Voice B as they were left.
+  const [rotateVoices, setRotateVoices] = useRememberedChoice(projectId, "voiceover", "rotateVoices", false, isBoolean);
+  const [secondVoice, setSecondVoice] = useRememberedChoice(projectId, "voiceover", "secondVoice", "speechify_female_01", isStudioVoiceId);
 
   /**
    * Which voice a given scene should be narrated in.
@@ -107,14 +117,18 @@ export default function VoiceoverStudio({
     return index % 2 === 0 ? selectedVoice : secondVoice;
   };
 
-  const [globalSpeed, setGlobalSpeed] = useState(1.0);
+  const [globalSpeed, setGlobalSpeed] = useRememberedChoice(projectId, "voiceover", "sampleSpeed", 1.0, numberBetween(0.75, 1.5));
   const [echoConfig, setEchoConfig] = useState<VoiceEchoConfig>(
     resolveVoiceEcho(propVoiceEcho || DEFAULT_VOICE_ECHO)
   );
   const [playingId, setPlayingId] = useState<string | number | null>(null);
   const [loadingId, setLoadingId] = useState<string | number | null>(null);
-  const [activeTab, setActiveTab] = useState<"natural_voices" | "import_tts" | "phonetic_dictionary">("natural_voices");
-  const [genderFilter, setGenderFilter] = useState<"all" | "male" | "female">("all");
+  const [activeTab, setActiveTab] = useRememberedChoice<"natural_voices" | "import_tts" | "phonetic_dictionary">(
+    projectId, "voiceover", "tab", "natural_voices", oneOf(["natural_voices", "import_tts", "phonetic_dictionary"] as const)
+  );
+  const [genderFilter, setGenderFilter] = useRememberedChoice<"all" | "male" | "female">(
+    projectId, "voiceover", "genderFilter", "all", oneOf(["all", "male", "female"] as const)
+  );
   const [generationSuccess, setGenerationSuccess] = useState(false);
   const [showSceneReview, setShowSceneReview] = useState(false);
 
@@ -919,7 +933,7 @@ export default function VoiceoverStudio({
                       </select>
                     </label>
                   </div>
-                  {selectedVoice === secondVoice && (
+                  {sameSpeechifySpeaker(selectedVoice, secondVoice) && (
                     <p className="text-[11px] text-amber-300">
                       Both sides are the same voice — rotation will sound like a single
                       narrator. Pick a different voice for B.

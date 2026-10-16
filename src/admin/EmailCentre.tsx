@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 import {
   AUDIENCE_TYPES, EMAIL_TEMPLATE_STARTERS, EMAIL_TEMPLATE_VARIABLES, TRAINING_STEPS, TEMPLATE_CATEGORIES,
   audienceLabel, categoryLabel, emailApi, fmtDateTime, fmtNumber,
   type AudienceType, type EmailCampaign, type EmailDashboard, type EmailTemplate, type RecipientOption, type RenderedPreview,
 } from "./email-centre-api";
+import InboxTab from "./InboxTab";
+// Loaded when the Plans tab is opened: it brings the product facts its copy is built from.
+const PlansTab = lazy(() => import("./PlansTab"));
+// Members and Gifts load when opened too, so the dashboard stays light.
+const MembersTab = lazy(() => import("./MembersTab"));
+const GiftsTab = lazy(() => import("./GiftsTab"));
+const ProgrammesTab = lazy(() => import("./ProgrammesTab"));
+// The Manual is long text: it loads only when its tab is opened.
+const ManualTab = lazy(() => import("./ManualTab"));
+import { inboxApi } from "./inbox-api";
 
 /**
  * The Scenering Admin Email Centre.
@@ -19,10 +29,37 @@ import {
  * the security boundary, and it holds no secrets.
  */
 
-type Tab = "dashboard" | "templates" | "campaigns";
+type Tab = "dashboard" | "inbox" | "members" | "gifts" | "plans" | "programmes" | "templates" | "campaigns" | "manual";
+
+/** ?tab=inbox&thread=… opens a conversation directly (the owner's alert emails link here);
+ *  ?tab=manual&q=… opens one answer in the Manual. */
+function linkedTab(): { tab: Tab; thread: string | null } {
+  if (typeof window === "undefined") return { tab: "dashboard", thread: null };
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get("tab");
+  return { tab: tab === "inbox" || tab === "members" || tab === "gifts" || tab === "plans" || tab === "programmes" || tab === "templates" || tab === "campaigns" || tab === "manual" ? tab : "dashboard", thread: params.get("thread") };
+}
 
 export default function EmailCentre() {
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [linked] = useState(linkedTab);
+  const [tab, setTabState] = useState<Tab>(linked.tab);
+  const [inboxWaiting, setInboxWaiting] = useState(0);
+  const refreshInbox = useCallback(async () => {
+    try { setInboxWaiting((await inboxApi.summary()).summary.needsReply); } catch { /* the badge is optional */ }
+  }, []);
+  useEffect(() => { void refreshInbox(); }, [refreshInbox]);
+  // Where the Inbox should open when another tab sends the owner there:
+  // a conversation, or a new message to one member.
+  const [inboxIntent, setInboxIntent] = useState<{ thread: string | null; composeTo: string | null }>({ thread: null, composeTo: null });
+  const setTab = (value: Tab) => {
+    if (value !== "inbox") setInboxIntent({ thread: null, composeTo: null });
+    setTabState(value);
+    const url = new URL(window.location.href);
+    if (value === "dashboard") url.searchParams.delete("tab"); else url.searchParams.set("tab", value);
+    if (value !== "inbox") url.searchParams.delete("thread");
+    if (value !== "manual") url.searchParams.delete("q");
+    window.history.replaceState(null, "", url.toString());
+  };
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [usage, setUsage] = useState<Record<string, number>>({});
   const [templatesError, setTemplatesError] = useState("");
@@ -40,6 +77,16 @@ export default function EmailCentre() {
 
   useEffect(() => { void refreshTemplates(); }, [refreshTemplates]);
 
+  const openInbox = (intent: { thread?: string; composeTo?: string }) => {
+    setInboxIntent({ thread: intent.thread || null, composeTo: intent.composeTo || null });
+    setTabState("inbox");
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "inbox");
+    if (intent.thread) url.searchParams.set("thread", intent.thread); else url.searchParams.delete("thread");
+    window.history.replaceState(null, "", url.toString());
+    window.scrollTo({ top: 0 });
+  };
+
   const openCampaign = (id: string) => { setTab("campaigns"); window.setTimeout(() => window.dispatchEvent(new CustomEvent("scenering-open-campaign", { detail: id })), 30); };
 
   return (
@@ -56,8 +103,8 @@ export default function EmailCentre() {
             <a href="/app" className="rounded-lg border border-hairline px-3 py-2 text-xs font-bold hover:bg-gray-800">Open Studio</a>
           </div>
           <div className="flex flex-wrap gap-2 mt-4" role="tablist" aria-label="Email Centre areas">
-            {([["dashboard", "Dashboard"], ["templates", "Templates"], ["campaigns", "Campaigns"]] as Array<[Tab, string]>).map(([value, label]) => (
-              <button key={value} role="tab" aria-selected={tab === value} className={`opt-btn ${tab === value ? "opt-btn-on" : ""}`} onClick={() => setTab(value)}>{label}</button>
+            {([["dashboard", "Dashboard"], ["inbox", "Inbox"], ["members", "Members"], ["gifts", "Gifts"], ["plans", "Plans"], ["programmes", "Programmes"], ["templates", "Templates"], ["campaigns", "Campaigns"], ["manual", "Manual"]] as Array<[Tab, string]>).map(([value, label]) => (
+              <button key={value} role="tab" aria-selected={tab === value} className={`opt-btn ${tab === value ? "opt-btn-on" : ""}`} onClick={() => setTab(value)}>{label}{value === "inbox" && inboxWaiting > 0 ? ` (${inboxWaiting})` : ""}</button>
             ))}
           </div>
         </div>
@@ -65,8 +112,34 @@ export default function EmailCentre() {
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
         {templatesError && <p className="rounded-lg border border-rose-500/40 bg-rose-950/30 text-rose-200 text-sm px-4 py-3" role="alert">{templatesError}</p>}
         {tab === "dashboard" && <DashboardTab onOpenCampaign={openCampaign} />}
+        {tab === "inbox" && <InboxTab initialThreadId={inboxIntent.thread || (inboxIntent.composeTo ? null : linked.tab === "inbox" ? linked.thread : null)} initialComposeTo={inboxIntent.composeTo} onSummaryChange={refreshInbox} />}
+        {tab === "members" && (
+          <Suspense fallback={<p className="text-sm text-gray-400">Loading members…</p>}>
+            <MembersTab onWrite={(email) => openInbox({ composeTo: email })} onOpenConversation={(thread) => openInbox({ thread })} />
+          </Suspense>
+        )}
+        {tab === "gifts" && (
+          <Suspense fallback={<p className="text-sm text-gray-400">Loading gift codes…</p>}>
+            <GiftsTab />
+          </Suspense>
+        )}
+        {tab === "plans" && (
+          <Suspense fallback={<p className="text-sm text-gray-400">Loading plans…</p>}>
+            <PlansTab refreshTemplates={refreshTemplates} onOpenCampaigns={() => setTab("campaigns")} />
+          </Suspense>
+        )}
+        {tab === "programmes" && (
+          <Suspense fallback={<p className="text-sm text-gray-400">Loading programmes…</p>}>
+            <ProgrammesTab templates={templates} refreshTemplates={refreshTemplates} />
+          </Suspense>
+        )}
         {tab === "templates" && <TemplatesTab templates={templates} usage={usage} refresh={refreshTemplates} />}
         {tab === "campaigns" && <CampaignsTab templates={templates} refreshTemplates={refreshTemplates} />}
+        {tab === "manual" && (
+          <Suspense fallback={<p className="text-sm text-gray-400">Loading the manual…</p>}>
+            <ManualTab />
+          </Suspense>
+        )}
       </main>
     </div>
   );
@@ -593,6 +666,7 @@ function CampaignEditor({ templates, onClose, onCreated }: { templates: EmailTem
   const [registeredFrom, setRegisteredFrom] = useState("");
   const [registeredTo, setRegisteredTo] = useState("");
   const [trainingStep, setTrainingStep] = useState(0);
+  const [inactiveDays, setInactiveDays] = useState(30);
   const [search, setSearch] = useState("");
   const [options, setOptions] = useState<RecipientOption[]>([]);
   const [selected, setSelected] = useState<RecipientOption[]>([]);
@@ -614,6 +688,7 @@ function CampaignEditor({ templates, onClose, onCreated }: { templates: EmailTem
       if (registeredTo) params.set("registeredTo", registeredTo);
     }
     if (audienceType === "training_step") params.set("trainingStep", String(trainingStep));
+    if (audienceType === "inactive") params.set("inactiveDays", String(inactiveDays));
     if (audienceType === "manual") params.set("userIds", selected.map((entry) => entry.id).join(","));
     if (audienceType === "test_recipient") params.set("testEmail", testEmail);
     const timer = window.setTimeout(() => {
@@ -622,7 +697,7 @@ function CampaignEditor({ templates, onClose, onCreated }: { templates: EmailTem
         .catch((error) => { setEstimate(null); setEstimateError(error.message); });
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [audienceType, registeredFrom, registeredTo, trainingStep, selected, testEmail]);
+  }, [audienceType, registeredFrom, registeredTo, trainingStep, inactiveDays, selected, testEmail]);
 
   useEffect(() => {
     if (audienceType !== "manual") return;
@@ -648,6 +723,7 @@ function CampaignEditor({ templates, onClose, onCreated }: { templates: EmailTem
       const body: Record<string, unknown> = { name, templateId, subject, audienceType, schedule: scheduleNow };
       if (audienceType === "registered_range") { body.registeredFrom = registeredFrom; body.registeredTo = registeredTo; }
       if (audienceType === "training_step") body.trainingStep = trainingStep;
+      if (audienceType === "inactive") body.inactiveDays = inactiveDays;
       if (audienceType === "manual") body.userIds = selected.map((entry) => entry.id);
       if (audienceType === "test_recipient") body.testEmail = testEmail;
       if (scheduleNow) body.scheduledAt = new Date(scheduledAt).toISOString();
@@ -677,9 +753,9 @@ function CampaignEditor({ templates, onClose, onCreated }: { templates: EmailTem
         <legend className="text-[11px] uppercase tracking-[.14em] text-gray-400 font-bold px-1">Audience</legend>
         <div className="grid sm:grid-cols-2 gap-2">
           {AUDIENCE_TYPES.map((entry) => (
-            <button key={entry.value} type="button" className={`opt-btn text-left ${audienceType === entry.value ? "opt-btn-on" : ""}`} onClick={() => setAudienceType(entry.value)} aria-pressed={audienceType === entry.value}>
+            <button key={entry.value} type="button" className={`opt-btn text-left flex-col items-start justify-start whitespace-normal gap-0.5 ${audienceType === entry.value ? "opt-btn-on" : ""}`} onClick={() => setAudienceType(entry.value)} aria-pressed={audienceType === entry.value}>
               <span className="block font-bold">{entry.label}</span>
-              <span className="block text-[10px] text-gray-400 font-normal">{entry.hint}</span>
+              <span className={`block text-[10px] font-normal ${audienceType === entry.value ? "opacity-80" : "text-gray-400"}`}>{entry.hint}</span>
             </button>
           ))}
         </div>
@@ -695,6 +771,11 @@ function CampaignEditor({ templates, onClose, onCreated }: { templates: EmailTem
               <select className={inputClass} value={trainingStep} onChange={(e) => setTrainingStep(Number(e.target.value))}>
                 {TRAINING_STEPS.map((label, index) => <option key={label} value={index}>Step {index} — {label}</option>)}
               </select>
+            </Field>
+          )}
+          {audienceType === "inactive" && (
+            <Field label="Days without a download" hint="Members who joined before then and have not downloaded a video since. Between 7 and 365 days.">
+              <input type="number" min={7} max={365} step={1} className={inputClass} value={inactiveDays} onChange={(e) => setInactiveDays(Math.trunc(Number(e.target.value) || 0))} />
             </Field>
           )}
           {audienceType === "test_recipient" && (

@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { isBoolean, useRememberedChoice } from "../lib/section-memory";
 import type { Project, Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, EditorStep, ResolutionType, PacingModeType } from "../types";
 import StepNav, { PROJECT_PHASES, type ProjectPhase } from "./StepNav";
 import { EDGE_FUNCTION_BASE } from "../lib/supabase";
-import { cancelFinalExport, completeFinalExport, getEntitlements, reserveFinalExport } from "../lib/entitlements";
+import { cancelFinalExport, getEntitlements, recordVideoDownload, reserveFinalExport } from "../lib/entitlements";
 import { CUSTOMISED_CTA_SUFFIX, isPlanVoiceIncluded, type FeatureKey } from "../config/plans";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { openMembershipPlans } from "./VipFeatureBadge";
@@ -154,6 +155,16 @@ const EMPTY_RENDER_HEALTH: RenderHealthState = {
   tabHidden: false,
   wakeLock: "released",
 };
+
+/**
+ * Vault rows whose download the server has ALREADY counted, but whose file
+ * has not been saved yet (the save dialog was cancelled, or the browser
+ * refused it). Trying again uses that same counted download instead of
+ * counting a second one. A successful save removes the row from the Vault,
+ * so each counted download yields exactly one saved file. Module-level so it
+ * survives leaving and re-entering the render screen within the page.
+ */
+const DOWNLOADS_COUNTED_NOT_SAVED = new Set<string>();
 
 /* INSERT_FEATURE now lives in src/lib/vip-export-audit.ts, so the warning on
    screen, the dialog at the moment of pressing Render and the render itself
@@ -386,7 +397,7 @@ export default function RenderView({
 
   // ---- Master Render Profile UI state ---------------------------------
   /** Technical details panel (read-only — normal users never need it). */
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useRememberedChoice(project?.id, "render", "advancedOpen", false, isBoolean);
   /** Human-readable failure report; the raw log stays under Advanced Details. */
   const [failureReport, setFailureReport] = useState<RenderFailureReport | null>(null);
   const [showFailureDetail, setShowFailureDetail] = useState(false);
@@ -399,6 +410,10 @@ export default function RenderView({
   const [vaultPreviewId, setVaultPreviewId] = useState<string | null>(null);
   const [vaultPreviewUrl, setVaultPreviewUrl] = useState<string | null>(null);
   const [vaultBusyId, setVaultBusyId] = useState<string | null>(null);
+  /** Why the last download did not start (plan allowance used up, offline…). */
+  const [vaultError, setVaultError] = useState<string>("");
+  /** Synchronous guard: a fast double-click must not count two downloads. */
+  const vaultDownloadInFlightRef = useRef(false);
   /** Live job status, shared with the header so a background render stays visible. */
   const [job, setJob] = useState<RenderJobStatus>(() => getRenderStatus());
 
@@ -829,8 +844,12 @@ export default function RenderView({
     const exportVoiceEcho = exportSafe.voiceEcho;
     setVipOmittedLast(exportSafe.removed);
 
+    /* The reservation only AUTHORISES this render (membership features and a
+       download still left this week). It never counts anything: it is
+       released in the `finally` below however the render ends. What counts
+       against the plan is each download from the Vault — recordVideoDownload
+       in downloadVaultRender. */
     let exportReservationId: string | null = null;
-    let exportCompleted = false;
     if (isFinalExport) {
       const durationMinutes = Math.max(0.01, totalDuration / 60);
       try {
@@ -1087,12 +1106,8 @@ export default function RenderView({
         recordedContainer: "mp4" | "webm",
         fallbackMime: string
       ): Promise<{ blob: Blob; container: "mp4" | "webm"; durableVaultCopy: boolean }> => {
-        // Do not expose a final Blob or Vault download until the server has
-        // atomically completed the reservation. Draft previews never reserve.
-        if (exportReservationId) {
-          await completeFinalExport(exportReservationId);
-          exportCompleted = true;
-        }
+        // A finished render is free. It goes into the Vault, and each
+        // download from there is what counts against the plan.
         let finishedBlob = finalBlob;
         let durableVaultCopy = false;
         let lastVaultId: string | null = null;
@@ -2450,9 +2465,10 @@ export default function RenderView({
       setRenderStatus({ active: false, error: message, stage: "Render failed" });
       return null;
     } finally {
-      if (exportReservationId && !exportCompleted) {
+      // Always released: the render authorisation is over, success or not.
+      if (exportReservationId) {
         try { await cancelFinalExport(exportReservationId); }
-        catch (cleanupError) { console.warn("Could not release the unused export reservation:", cleanupError); }
+        catch (cleanupError) { console.warn("Could not release the render authorisation:", cleanupError); }
       }
       try { await releaseWakeLock(); } catch (cleanupError) { console.warn("Could not release the render wake lock:", cleanupError); }
       setRenderHealth((health) => ({
@@ -2517,37 +2533,56 @@ export default function RenderView({
       return;
     }
     if (outcome === "failed") {
-      setVaultMessage("The browser refused the download. Try the Download button again, or right-click the preview and pick Save video as…");
+      setVaultMessage("The browser refused the download. Try the Download button again.");
       return;
     }
     setVaultMessage(`Saved ${filename} — vault slot cleared.`);
-    if (vaultId) await deleteVaultRender(vaultId);
+    if (vaultId) {
+      await deleteVaultRender(vaultId);
+      DOWNLOADS_COUNTED_NOT_SAVED.delete(vaultId);
+    }
     if (job.lastVaultId && job.lastVaultId === vaultId) setRenderStatus({ lastVaultId: null });
     void refreshVault();
   };
 
-  const downloadVideo = async () => {
-    const blob = renderedBlob;
-    if (!blob) {
-      setVaultMessage("Nothing rendered yet — press Start Video Render first.");
-      return;
-    }
-    // The extension ALWAYS matches the container that was really recorded —
-    // the old code named every file by the configured format, so a WebM
-    // recording downloaded as .mp4 and players rejected it.
-    const ext = renderedContainer === "mp4" ? "mp4" : "webm";
-    await saveRenderBlob(blob, renderFileName(project?.title || "", ext), job.lastVaultId);
-  };
-
-  /** Download a row that is waiting in the vault (frees the slot on success). */
+  /**
+   * Download a row that is waiting in the vault — the ONE place a finished
+   * video is downloaded. Every download counts against the plan: the server
+   * records it first (recordVideoDownload) and the file is saved only after
+   * the server says yes. When the allowance is used up the server says no,
+   * nothing is saved, and the video stays in the vault. A counted download
+   * whose save was cancelled or refused can be retried without counting
+   * again (DOWNLOADS_COUNTED_NOT_SAVED); a successful save frees the slot.
+   */
   const downloadVaultRender = async (row: VaultRender) => {
-    const ext = row.mimeType.includes("mp4") ? "mp4" : "webm";
-    await saveRenderBlob(row.blob, renderFileName(row.title, ext), row.id);
+    if (vaultDownloadInFlightRef.current) return;
+    vaultDownloadInFlightRef.current = true;
+    setVaultError("");
+    try {
+      if (!DOWNLOADS_COUNTED_NOT_SAVED.has(row.id)) {
+        setVaultBusyId(row.id);
+        try {
+          await recordVideoDownload(null, Math.max(1, Number(row.durationSec) || 0) / 60);
+        } catch (err) {
+          setVaultBusyId(null);
+          setVaultMessage("");
+          setVaultError(err instanceof Error ? err.message : "This download could not be counted, so it was not started.");
+          return;
+        }
+        DOWNLOADS_COUNTED_NOT_SAVED.add(row.id);
+      }
+      // The extension ALWAYS matches the container that was really recorded.
+      const ext = row.mimeType.includes("mp4") ? "mp4" : "webm";
+      await saveRenderBlob(row.blob, renderFileName(row.title, ext), row.id);
+    } finally {
+      vaultDownloadInFlightRef.current = false;
+    }
   };
 
   const removeVaultRender = async (row: VaultRender) => {
     if (vaultPreviewId === row.id) setVaultPreviewId(null);
     await deleteVaultRender(row.id);
+    DOWNLOADS_COUNTED_NOT_SAVED.delete(row.id);
     setVaultMessage(`Removed “${row.title}” from the vault.`);
     void refreshVault();
   };
@@ -3164,6 +3199,11 @@ export default function RenderView({
             {vaultMessage && (
               <p className="mt-2 text-[11px] text-emerald-300 leading-relaxed">{vaultMessage}</p>
             )}
+            {vaultError && (
+              <p role="alert" className="mt-2 text-[11px] text-rose-300 leading-relaxed">
+                <Icon glyph="⚠" /> {vaultError}
+              </p>
+            )}
 
             {vaultRenders.length > 0 ? (
               <ul className="mt-3 space-y-2">
@@ -3186,7 +3226,7 @@ export default function RenderView({
                         </button>
                         <button
                           onClick={() => void downloadVaultRender(row)}
-                          disabled={vaultBusyId === row.id}
+                          disabled={vaultBusyId !== null}
                           className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 text-white transition-colors"
                         >
                           {iconify(vaultBusyId === row.id ? "Saving…" : "⬇ Download")}
@@ -3205,6 +3245,10 @@ export default function RenderView({
                         src={vaultPreviewUrl}
                         controls
                         playsInline
+                        // Watch only: the browser's own Download / "Save video
+                        // as…" would hand out a copy that is never counted.
+                        controlsList="nodownload"
+                        onContextMenu={(event) => event.preventDefault()}
                         className="mt-2 w-full rounded-lg bg-black max-h-[320px]"
                       />
                     )}
@@ -3237,6 +3281,11 @@ export default function RenderView({
                   controls
                   autoPlay={false}
                   preload="metadata"
+                  // Watch only: the browser's own Download / "Save video as…"
+                  // would hand out a copy that is never counted. Downloads
+                  // happen in the Vault, where each one counts.
+                  controlsList="nodownload"
+                  onContextMenu={(event) => event.preventDefault()}
                   className="absolute inset-0 w-full h-full object-contain bg-black"
                 />
               )}
@@ -3634,18 +3683,11 @@ export default function RenderView({
                     </div>
                   )}
 
-                  {/* One honest download of this render; every finished
-                      render ALSO waits in the Vault above, where multiple
-                      videos can be downloaded or deleted individually. */}
+                  {/* No download button here, on purpose: the Vault above is the
+                      ONE place a finished video is downloaded, because every
+                      download counts against the plan (downloadVaultRender →
+                      recordVideoDownload). */}
                   <div className="flex items-center gap-3 flex-wrap">
-                    <button
-                      onClick={() => void downloadVideo()}
-                      disabled={isRendering}
-                      className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all shadow flex items-center gap-2"
-                    >
-                      <Icon glyph="⬇" />
-                      <span>Download video (.{renderedContainer})</span>
-                    </button>
                     <p className="text-[10px] text-gray-400 leading-relaxed flex-1 min-w-[200px]">
                       <Icon glyph="🗄" /> This render is also parked in <span className="font-semibold text-gray-300">The Vault</span> above —
                       every finished video waits there until you download it, so nothing gets lost between renders.

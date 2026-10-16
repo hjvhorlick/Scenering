@@ -37,10 +37,11 @@ if (typeof window !== "undefined") initAnalytics();
 // MarketingSite effect and risking one frame of studio-wide base styles.
 if (typeof window !== "undefined" && routeForPath(window.location.pathname) === "site") {
   document.documentElement.setAttribute("data-mkt", "1");
-  const canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]') || document.createElement("link");
-  canonical.rel = "canonical";
-  canonical.href = new URL(window.location.pathname, window.location.origin).toString();
-  if (!canonical.isConnected) document.head.appendChild(canonical);
+  /* The canonical URL is NOT set here. Each page's HTML already carries its
+     own, written at build time (src/marketing/seo-head.ts), and applyPageSeo
+     keeps it when the visitor moves between pages. Building it from
+     window.location named www.scenering.com or the workers.dev address as
+     the real page whenever a visitor arrived through one of them. */
 } else if (typeof document !== "undefined") {
   const robots = document.head.querySelector<HTMLMetaElement>('meta[name="robots"]') || document.createElement("meta");
   robots.name = "robots";

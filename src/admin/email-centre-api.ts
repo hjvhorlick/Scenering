@@ -31,11 +31,13 @@ export interface EmailAudienceFilter {
   trainingStep?: number;
   userIds?: string[];
   testEmail?: string;
+  inactiveDays?: number;
 }
 
 export type AudienceType =
   | "all_consented" | "free_plan" | "paid_plan" | "registered_range"
-  | "training_step" | "manual" | "test_recipient";
+  | "training_step" | "manual" | "test_recipient"
+  | "no_video_yet" | "inactive";
 
 export interface EmailCampaign {
   id: string;
@@ -214,6 +216,8 @@ export const AUDIENCE_TYPES: Array<{ value: AudienceType; label: string; hint: s
   { value: "training_step", label: "At a selected training step", hint: "Consented users at a point in the training sequence." },
   { value: "manual", label: "Manually selected users", hint: "Up to 50 chosen accounts. Consent is still required." },
   { value: "test_recipient", label: "Test recipient only", hint: "A single address — for verifying a campaign before a real send." },
+  { value: "no_video_yet", label: "Have not made a video yet", hint: "Consented members who have never downloaded a finished video." },
+  { value: "inactive", label: "No downloads lately", hint: "Consented members with no video download for the number of days you choose." },
 ];
 
 export async function emailApi<T>(path: string, init?: RequestInit): Promise<T> {

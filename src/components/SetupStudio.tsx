@@ -52,16 +52,21 @@ import type { NewProjectOptions } from "../App";
 import Icon, { iconify } from "./icons/Icon";
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "../config/plans";
 import { getInterfacePlan, useSession } from "../lib/session";
+import { isBoolean, useRememberedChoice } from "../lib/section-memory";
 
 /**
- * How much of a project title fits on the video banner.
+ * The longest project title the Setup input accepts.
  *
- * Derived from the title templates: at the banner's type size three wrapped
- * lines hold roughly 60 characters before the text starts running past the
- * safe area. Capping here keeps the title inside the frame, and the input
- * stops accepting characters once the block is full.
+ * 90 characters leaves room for longer, search-friendly titles (owner request,
+ * 16 Oct 2026: about five words more than the old 60). The project title is
+ * not drawn on the video itself (intro and outro titles are typed separately
+ * in their own sections), so the length cannot push text out of the frame.
+ * Everywhere the app shows it, it either truncates with a tooltip (header,
+ * project list, vault rows) or wraps (render summary), and exported file
+ * names stay far below operating-system limits. The input stops accepting
+ * characters once the block is full.
  */
-export const TITLE_MAX_CHARS = 60;
+export const TITLE_MAX_CHARS = 90;
 
 interface SetupStudioProps {
   project: Project | null;
@@ -94,7 +99,8 @@ interface SetupStudioProps {
   onUpdateTitle: (title: string) => void;
   onUpdateScript: (
     script: string,
-    regenerateScenes?: boolean,
+    /** "if-changed" rebuilds only when the script, scene length or one-scene choice changed. */
+    regenerateScenes?: boolean | "if-changed",
     overrideDuration?: number,
     overrideSingleScene?: boolean
   ) => void;
@@ -222,7 +228,7 @@ export default function SetupStudio({
   const [startError, setStartError] = useState<string | null>(null);
   /** Advanced output overrides (aspect, resolution, FPS, format, mastering)
    *  stay collapsed — the destination presets cover the normal user. */
-  const [showOutputAdvanced, setShowOutputAdvanced] = useState(false);
+  const [showOutputAdvanced, setShowOutputAdvanced] = useRememberedChoice(project?.id, "setup", "outputAdvancedOpen", false, isBoolean);
 
   /**
    * Pick where the video is going and Scenering makes the technical choices:
@@ -352,11 +358,9 @@ export default function SetupStudio({
   };
 
   const handleTitleChange = (newTitle: string) => {
-    // Hard cap: a title longer than the banner can hold wraps onto a third
-    // line and runs past the frame edge, so the input stops accepting
-    // characters past the limit rather than letting the user type a title
-    // that cannot be rendered. Truncating here as well as with `maxLength`
-    // covers paste, which maxLength alone does not always block.
+    // Hard cap at TITLE_MAX_CHARS: the input stops accepting characters past
+    // the limit. Truncating here as well as with `maxLength` covers paste,
+    // which maxLength alone does not always block.
     const capped = newTitle.slice(0, TITLE_MAX_CHARS);
     setTitle(capped);
     onUpdateTitle(capped);
@@ -527,7 +531,9 @@ export default function SetupStudio({
 
       if (title.trim()) onUpdateTitle(title.trim());
       onUpdateSceneDuration?.(durToApply);
-      if (scriptText) onUpdateScript(scriptText, true, durToApply, oneScene);
+      // Only a real change rebuilds the scenes: coming back to Setup and on
+      // again must not undo what was set on them in the other sections.
+      if (scriptText) onUpdateScript(scriptText, "if-changed", durToApply, oneScene);
       onNavigateToStep("scenes");
     } catch (err) {
       console.error("Setup save failed:", err);

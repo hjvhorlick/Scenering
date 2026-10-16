@@ -46,7 +46,8 @@ h.ok(platform.includes('final-export/reserve') && platform.includes('final-expor
 h.ok(platform.includes("parseCreativeManifest") && platform.includes("validateExportCreativeManifest"), "final-export authorization validates the selected creative catalog server-side");
 h.ok(platform.includes("finalExportsPerWeek") && !platform.includes("finalExportMinutesPerWeek"), "paid final-export authorization uses weekly download counts rather than render minutes");
 const render = readFileSync("src/components/RenderView.tsx", "utf8");
-h.ok(render.includes("reserveFinalExport") && render.includes("completeFinalExport"), "renderer authorizes and completes usage before exposing final output");
+h.ok(render.includes("reserveFinalExport") && render.includes("recordVideoDownload") && !render.includes("completeFinalExport"), "renderer authorizes before encoding, and every Vault download is counted by the server before the file is saved");
+h.ok(platform.includes('"/api/usage/download"') && platform.includes("createUsageRecordWithinLimit"), "downloads are counted server-side with a single check-and-record statement");
 h.ok(render.includes("getEntitlements(true)") && render.includes("ENTITLEMENT") === false, "final render reloads authoritative feature entitlements");
 h.ok(!keys.includes('params.set("pexels_key"') && !keys.includes('params.set("pixabay_key"'), "provider keys are not placed in URLs");
 h.ok(license.includes("Henry John Vincent Horlick") && license.includes("All rights reserved"), "proprietary licence identifies the owner");

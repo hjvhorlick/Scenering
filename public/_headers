@@ -1,9 +1,11 @@
 # Headers for files served straight from the asset layer.
 #
 # Read by Cloudflare Workers static assets (and `wrangler dev`); the file itself
-# is never served. Rules here apply ONLY to static files — a response the Worker
-# generates, including every HTML page whose head it injects, carries its own
-# headers (see server/platform.ts).
+# is never served. Rules here apply ONLY to static files. That includes every
+# website page: each one is a static HTML file written at build time
+# (dist/index.html, dist/pricing.html … — see src/marketing/seo-head.ts). A
+# response the Worker generates (the API, robots.txt, sitemap.xml) carries its
+# own headers (see server.ts and server/platform.ts).
 #
 # The three inspection pages are development tools that happen to be published:
 # brand-check.html draws the brand mark, icon-sheet.html draws every icon, and
@@ -35,6 +37,17 @@
 
 /render-probe.html
   X-Robots-Tag: noindex, nofollow
+
+# The Worker also answers on Cloudflare's own address,
+# scenering.<account>.workers.dev, with exactly the same pages as
+# scenering.com. Only scenering.com should be listed in search results, so
+# every page on a workers.dev address says noindex. Cloudflare adds this header
+# to its versioned preview addresses by itself, but not to the main workers.dev
+# address; this rule covers both. scenering.com and www.scenering.com do not
+# match it. (Each page's canonical URL names https://scenering.com as well.)
+
+https://:version.:subdomain.workers.dev/*
+  X-Robots-Tag: noindex
 
 # The brand tile and the icons never change between deployments: the artwork
 # behind them is committed and the filenames are stable, so they can be cached

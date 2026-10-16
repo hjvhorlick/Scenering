@@ -242,7 +242,9 @@ let templateId = "";
 
 /* ---- 5. Campaigns: create, preview, test, send -------------------------- */
 let campaignId = "";
-const campaignMailOf = (id: string) => sent.filter((entry) => Array.isArray(entry.body.tags) && entry.body.tags.includes(`campaign:${id}`));
+// Resend tags are {name, value} pairs (server/email.ts → resendTags).
+const hasTag = (entry: RecordedSend, name: string, value: string) => Array.isArray(entry.body.tags) && entry.body.tags.some((t: any) => t && t.name === name && t.value === value);
+const campaignMailOf = (id: string) => sent.filter((entry) => hasTag(entry, "campaign", id));
 {
   const created = await json("/api/admin/email/campaigns", { method: "POST", ...withAdmin, body: JSON.stringify({
     name: "October campaign", templateId, subject: "", audienceType: "all_consented",
@@ -268,7 +270,7 @@ const campaignMailOf = (id: string) => sent.filter((entry) => Array.isArray(entr
   const last = sent[sent.length - 1];
   h.ok(last.subject.startsWith("[Test]"), "test emails are clearly marked in the subject");
   h.ok(last.html.includes("Test email"), "test emails carry a visible test banner");
-  h.ok(last.body.tags.includes(`campaign-test:${campaignId}`), "test sends carry campaign metadata as provider tags");
+  h.ok(hasTag(last, "campaign-test", campaignId), "test sends carry campaign metadata as provider tags");
   const badAddress = await json(`/api/admin/email/campaigns/${campaignId}/test`, { method: "POST", ...withAdmin, body: JSON.stringify({ to: "not-an-email" }) });
   h.eq(badAddress.status, 400, "test sends validate the recipient address");
 
@@ -437,6 +439,9 @@ const campaignMailOf = (id: string) => sent.filter((entry) => Array.isArray(entr
   }
 }
 
+// Section 13 inspects the campaign emails; section 12 clears the recorder.
+const campaignMailSnapshot = campaignMailOf(campaignId).slice();
+
 /* ---- 12. Transactional separation ----------------------------------------- */
 {
   // Registering a NEW account sends a verification email — through the
@@ -446,10 +451,76 @@ const campaignMailOf = (id: string) => sent.filter((entry) => Array.isArray(entr
   const verification = sent[0];
   h.ok(Boolean(verification), "registration still sends its verification email");
   h.ok(!verification.subject.startsWith("[Test]"), "transactional mail is never marked as a test");
-  h.ok(!verification.body.tags || !verification.body.tags.some((t: string) => t.startsWith("campaign")), "transactional mail carries no campaign metadata");
+  h.ok(!verification.body.tags || !verification.body.tags.some((t: any) => String(t?.name || "").startsWith("campaign")), "transactional mail carries no campaign metadata");
   h.ok(!verification.html || !verification.html.includes("unsubscribe?token"), "transactional mail does not carry marketing unsubscribe links");
   const rows = testD1().sqlite.prepare("SELECT COUNT(*) AS n FROM email_deliveries WHERE email = ?").get("verification-only@example.com") as { n: number };
   h.eq(rows.n, 0, "transactional mail never writes campaign delivery rows");
+}
+
+/* ---- 13. Protective fixes: tags, one-click unsubscribe, complaints, sender footer ---- */
+{
+  const signed = (type: string, emailId: string, id: string) => {
+    const payload = JSON.stringify({ type, data: { email_id: emailId, subject: "October in Scenering" } });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const secret = Buffer.from(String(process.env.RESEND_WEBHOOK_SECRET).replace(/^whsec_/, ""), "base64");
+    const signature = createHmac("sha256", secret).update(`${id}.${timestamp}.${payload}`).digest("base64");
+    return fetch(`${base}/api/webhooks/resend`, { method: "POST", headers: { "Content-Type": "application/json", "svix-id": id, "svix-timestamp": String(timestamp), "svix-signature": `v1,${signature}` }, body: payload });
+  };
+  const consentOf = (userId: string) => testD1().sqlite.prepare("SELECT marketing_consent, consent_source FROM email_preferences WHERE user_id = ?").get(userId) as { marketing_consent: number; consent_source: string };
+
+  const campaignMail = campaignMailSnapshot;
+  h.ok(campaignMail.length > 0 && campaignMail.every((entry) => entry.body.tags.every((t: any) => /^[A-Za-z0-9_-]+$/.test(t.name) && /^[A-Za-z0-9_-]+$/.test(t.value))),
+    "provider tags use Resend's {name, value} format with only letters, digits, _ and -");
+
+  // RFC 8058 one-click unsubscribe on every campaign email.
+  const withHeaders = campaignMail.filter((entry) => entry.body.headers && entry.body.headers["List-Unsubscribe"]);
+  h.eq(withHeaders.length, campaignMail.length, "every campaign email carries a List-Unsubscribe header");
+  const first = withHeaders[0];
+  const listUnsubscribe = String(first?.body.headers["List-Unsubscribe"] || "");
+  h.ok(/^<https:\/\/scenering\.test\/api\/email\/unsubscribe\/one-click\?token=[^>\s]+>$/.test(listUnsubscribe), "the header is a single HTTPS one-click URL in angle brackets");
+  h.eq(first?.body.headers["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click", "campaign mail declares one-click unsubscribe (List-Unsubscribe-Post)");
+  const recipientId = String((testD1().sqlite.prepare("SELECT id FROM users WHERE email = ?").get(first?.to) as { id: string } | undefined)?.id || "");
+  h.ok(Boolean(recipientId) && consentOf(recipientId).marketing_consent === 1, "the recipient of that email still has consent before clicking");
+  // Exactly what Gmail does: a form POST of List-Unsubscribe=One-Click to the URL.
+  const oneClickUrl = listUnsubscribe.slice(1, -1).replace("https://scenering.test", base);
+  const clicked = await fetch(oneClickUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "List-Unsubscribe=One-Click" });
+  h.eq(clicked.status, 200, "the one-click POST is accepted");
+  h.eq(consentOf(recipientId).marketing_consent, 0, "one click unsubscribes that recipient");
+  h.eq(consentOf(recipientId).consent_source, "one_click_unsubscribe", "the opt-out records where it came from");
+  const again = await fetch(oneClickUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "List-Unsubscribe=One-Click" });
+  h.eq(again.status, 200, "a repeated one-click is harmless");
+  const forgedClick = await fetch(`${base}/api/email/unsubscribe/one-click?token=not-a-real-token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "List-Unsubscribe=One-Click" });
+  h.eq(forgedClick.status, 400, "an invalid one-click token is refused");
+  const opened = await fetch(oneClickUrl, { redirect: "manual" });
+  h.eq(opened.status, 302, "a person opening the link is sent to the confirmation page, not unsubscribed silently");
+  h.ok(String(opened.headers.get("location") || "").startsWith("/unsubscribe?token="), "the confirmation page receives the same token");
+
+  // A spam complaint is an opt-out.
+  const complainRow = testD1().sqlite.prepare(
+    "SELECT d.id, d.provider_message_id, d.user_id FROM email_deliveries d JOIN email_preferences p ON p.user_id = d.user_id WHERE d.provider_message_id IS NOT NULL AND p.marketing_consent = 1 LIMIT 1"
+  ).get() as { id: string; provider_message_id: string; user_id: string } | undefined;
+  h.ok(Boolean(complainRow), "a consented recipient with a delivered campaign email exists");
+  if (complainRow) {
+    const complaint = await signed("email.complained", complainRow.provider_message_id, "msg_complaint_1");
+    h.eq(complaint.status, 200, "a signed complaint event is accepted");
+    h.eq(consentOf(complainRow.user_id).marketing_consent, 0, "a spam complaint removes marketing consent");
+    h.eq(consentOf(complainRow.user_id).consent_source, "spam_complaint", "the opt-out is recorded as a spam complaint");
+    const row = testD1().sqlite.prepare("SELECT status FROM email_deliveries WHERE id = ?").get(complainRow.id) as { status: string };
+    h.eq(row.status, "unsubscribed", "the complained delivery counts as unsubscribed, even after it was delivered");
+  }
+
+  // Sender identification in the footer (POPIA s69(4) / CPA regulations).
+  const template = { ...EMAIL_TEMPLATE_STARTERS[0], heroImageUrl: null } as any;
+  const recipient = { userId: "footer-check", email: "member@example.com", displayName: "Maya Chen" };
+  const plain = emailCentre.renderCampaignMessage({ template, campaignSubject: "Hi", recipient, linkUserId: "footer-check", base: "https://scenering.test", isTest: false });
+  h.ok(!plain.text.includes("Sent by"), "without sender details the footer is unchanged");
+  const withSender = emailCentre.renderCampaignMessage({
+    template, campaignSubject: "Hi", recipient, linkUserId: "footer-check", base: "https://scenering.test", isTest: false,
+    sender: { name: "Scenering <Horlick Group>", address: "1 Main Road, Benoni", phone: "+27 11 000 0000", email: "vincent@scenering.com" },
+  });
+  h.ok(withSender.text.includes("Sent by Scenering <Horlick Group> · 1 Main Road, Benoni · +27 11 000 0000 · vincent@scenering.com"), "the plain-text footer names the sender, address, phone and email");
+  h.ok(withSender.html.includes("Scenering &lt;Horlick Group&gt; · 1 Main Road, Benoni · +27 11 000 0000 · vincent@scenering.com"), "the HTML footer carries the same details, escaped");
+  h.ok(!withSender.html.includes("<Horlick Group>"), "sender details can never inject markup");
 }
 
 server.close();

@@ -1,16 +1,48 @@
 /**
  * Search and link-preview metadata for Scenering's public pages.
  *
- * The small HTML shell contains the homepage metadata for crawlers that do not
- * run JavaScript. PublicPage updates these values per route for browsers and
- * search engines that render the application. Social-card URLs stay absolute.
+ * One table, two readers. At build time src/marketing/seo-head.ts writes each
+ * page's tags into that page's own HTML file (vite.config.ts), so a crawler
+ * reads the right title, description, canonical URL and share image from the
+ * first byte, before any JavaScript runs. In the browser, applyPageSeo() sets
+ * the same values again as the visitor moves between pages without a reload.
+ * Both read this table and SITE_ORIGIN, so the HTML and the running page can
+ * never disagree: Google reads the canonical URL before and after rendering,
+ * and two different answers is the one thing it asks sites not to give it.
  */
+import { isFeatureTourPath } from "../lib/route";
+
 export interface PageSeo {
   title: string;
   description: string;
   /** Account and token pages should never appear in search results. */
   indexable?: boolean;
 }
+
+/**
+ * The address search engines should list, whatever address the page was
+ * opened on. www.scenering.com, the Worker's workers.dev address and local
+ * previews all serve the same pages, and every one of them names
+ * https://scenering.com as the real one — never the address in the browser.
+ */
+export const SITE_ORIGIN = "https://scenering.com";
+
+/**
+ * The picture search results and link previews show: the hero section's key
+ * art, widened to the 1200×630 link-preview shape with its own navy
+ * (scripts/make-og-card.mjs). The owner chose it.
+ */
+export const SHARE_IMAGE = {
+  path: "/marketing/og-hero.jpg",
+  width: 1200,
+  height: 630,
+  type: "image/jpeg",
+  alt: "The Scenering key art: the SCENERING name under a gold ring, with photographs, a clapperboard, a play button, a microphone and a film strip.",
+} as const;
+
+/** What an indexable page tells crawlers, in the HTML and from JavaScript alike. */
+export const INDEXABLE_ROBOTS = "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1";
+export const NOINDEX_ROBOTS = "noindex, nofollow";
 
 export const SEO_PAGES: Readonly<Record<string, PageSeo>> = {
   "/": {
@@ -67,11 +99,50 @@ export const SEO_PAGES: Readonly<Record<string, PageSeo>> = {
     description: "Choose a new password for your Scenering account.",
     indexable: false,
   },
+  /* The two email-link pages open with a personal token in the address. They
+     used to fall back to the front page's title, as indexable pages. */
+  "/email-preferences": {
+    title: "Email Preferences | Scenering",
+    description: "Choose which emails Scenering sends to your account.",
+    indexable: false,
+  },
+  "/unsubscribe": {
+    title: "Unsubscribe | Scenering",
+    description: "Stop Scenering marketing email for your address.",
+    indexable: false,
+  },
 };
 
-export function seoForPath(path: string): PageSeo {
+/**
+ * The page a path is a copy of — the one its canonical URL names.
+ *
+ * - A page in the table is its own page.
+ * - The feature-tour shortcuts (/captions, /voice, /scenes …) open the
+ *   /features page at that area, so they are /features. They used to carry the
+ *   front page's title and call themselves separate pages: a dozen copies of
+ *   Features, each titled like the front page, competing with both.
+ * - Everything else — the front page's own section shortcuts (/examples,
+ *   /no-meter) and any unknown address — shows the front page.
+ */
+export function canonicalPathFor(path: string): string {
   const normalized = (path.replace(/\/+$/, "") || "/").toLowerCase();
-  return SEO_PAGES[normalized] || SEO_PAGES["/"];
+  if (SEO_PAGES[normalized]) return normalized;
+  if (isFeatureTourPath(normalized)) return "/features";
+  return "/";
+}
+
+/** An absolute URL on the production site. */
+export function siteUrl(path: string): string {
+  return new URL(path, SITE_ORIGIN).toString();
+}
+
+/** The canonical URL for a path, always on https://scenering.com. */
+export function canonicalUrl(path: string): string {
+  return siteUrl(canonicalPathFor(path));
+}
+
+export function seoForPath(path: string): PageSeo {
+  return SEO_PAGES[canonicalPathFor(path)] || SEO_PAGES["/"];
 }
 
 function setMeta(attribute: "name" | "property", key: string, content: string): void {
@@ -84,29 +155,41 @@ function setMeta(attribute: "name" | "property", key: string, content: string): 
   node.content = content;
 }
 
-/** Apply route-specific tags without relying on a metadata framework. */
-export function applyPageSeo(path: string, canonicalPath = path): void {
+/**
+ * Apply route-specific tags without relying on a metadata framework.
+ *
+ * On a page's first load these are the values its HTML already has; this
+ * matters when the visitor moves to another page without a reload.
+ */
+export function applyPageSeo(path: string, canonicalPath = canonicalPathFor(path)): void {
   if (typeof document === "undefined" || typeof window === "undefined") return;
   const seo = seoForPath(path);
-  const canonicalUrl = new URL(canonicalPath, window.location.origin).toString();
-  const imageUrl = new URL("/marketing/og-card.jpg", window.location.origin).toString();
+  const pageUrl = siteUrl(canonicalPath);
+  const imageUrl = siteUrl(SHARE_IMAGE.path);
 
   document.title = seo.title;
   setMeta("name", "description", seo.description);
-  setMeta("name", "robots", seo.indexable === false ? "noindex, nofollow" : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1");
+  setMeta("name", "robots", seo.indexable === false ? NOINDEX_ROBOTS : INDEXABLE_ROBOTS);
   setMeta("property", "og:title", seo.title);
   setMeta("property", "og:description", seo.description);
-  setMeta("property", "og:url", canonicalUrl);
+  setMeta("property", "og:url", pageUrl);
   setMeta("property", "og:image", imageUrl);
+  setMeta("property", "og:image:alt", SHARE_IMAGE.alt);
   setMeta("name", "twitter:title", seo.title);
   setMeta("name", "twitter:description", seo.description);
   setMeta("name", "twitter:image", imageUrl);
+  setMeta("name", "twitter:image:alt", SHARE_IMAGE.alt);
 
   let canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  // A page that must not be listed has no canonical URL in its HTML either.
+  if (seo.indexable === false) {
+    canonical?.remove();
+    return;
+  }
   if (!canonical) {
     canonical = document.createElement("link");
     canonical.rel = "canonical";
     document.head.appendChild(canonical);
   }
-  canonical.href = canonicalUrl;
+  canonical.href = pageUrl;
 }
