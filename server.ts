@@ -302,7 +302,7 @@ export function createApp(): express.Express {
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     if (env().NODE_ENV === "production") {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.paddle.com https://*.checkout.build; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co; worker-src 'self' blob:");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.paddle.com https://*.checkout.build; script-src 'self' 'unsafe-inline' https://cdn.paddle.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co https://api.paddle.com https://sandbox-api.paddle.com; frame-src 'self' https://checkout.paddle.com https://sandbox-checkout.paddle.com; worker-src 'self' blob:");
     }
     next();
   });

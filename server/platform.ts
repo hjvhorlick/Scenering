@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import express from "express";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExportCreativeManifest, type BillingInterval, type ExportCreativeManifest, type FeatureKey, type PlanSlug } from "../src/config/plans.ts";
+import { buildPricingTiers } from "../src/config/pricing-tiers.ts";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
 import { env } from "../src/env.ts";
 import { db, type ComplimentaryGrant, type EmailPreference, type Membership, type Subscription, type UsageRecord, type User } from "../src/db.ts";
@@ -802,6 +803,9 @@ export function billingConfiguration() {
   }));
   const webhookSecretSet = Boolean(e.PADDLE_WEBHOOK_SECRET);
   const apiKeySet = Boolean(e.PADDLE_API_KEY);
+  const clientTokenSet = Boolean(paddleText(e.PADDLE_CLIENT_TOKEN));
+  const clientEnvironment = paddleText(e.PADDLE_CLIENT_ENVIRONMENT)?.toLowerCase();
+  const clientEnvironmentSet = clientEnvironment === "sandbox" || clientEnvironment === "production";
   const everyPriceSet = plans.every((plan) => plan.intervals.every((i) => i.priceIdSet));
   const everyLinkSet = plans.every((plan) => plan.intervals.every((i) => i.checkoutUrlSet));
   return {
@@ -810,6 +814,8 @@ export function billingConfiguration() {
     apiBaseUrl: paddleApiBaseUrl(),
     webhookSecretSet,
     apiKeySet,
+    clientTokenSet,
+    clientEnvironmentSet,
     publicAppUrlSet: Boolean(e.PUBLIC_APP_URL),
     webhookPath: PADDLE_WEBHOOK_PATH,
     webhookUrl: e.PUBLIC_APP_URL ? `${String(e.PUBLIC_APP_URL).replace(/\/$/, "")}${PADDLE_WEBHOOK_PATH}` : null,
@@ -826,8 +832,11 @@ export function billingConfiguration() {
      *  API key counts because without it the server cannot create the tagged
      *  transaction that checkout hands the customer, so price ids alone cannot
      *  take a payment — and the approved checkout URLs count because Paddle
-     *  returns no link to send the customer to without one. */
-    ready: webhookSecretSet && apiKeySet && everyPriceSet && everyLinkSet && Boolean(e.PUBLIC_APP_URL),
+     *  returns no link to send the customer to without one. The client token
+     *  and its environment count because the public pricing page previews
+     *  prices and opens the overlay checkout with them; without them the
+     *  page cannot sell at all. */
+    ready: webhookSecretSet && apiKeySet && everyPriceSet && everyLinkSet && clientTokenSet && clientEnvironmentSet && Boolean(e.PUBLIC_APP_URL),
   };
 }
 
@@ -1226,6 +1235,50 @@ export function registerPlatformRoutes(app: Express) {
     if (!url.startsWith("https://") && isProduction()) return res.status(503).json({ error: "Checkout must use HTTPS." });
     res.setHeader("Cache-Control", "no-store");
     res.json({ url, provider: "paddle", environment: paddleEnvironment(), transactionId: paddleText(created.data?.id) });
+  }));
+
+  /**
+   * The visitor's country as the edge reports it — Cloudflare sets
+   * CF-IPCountry on every request, Vercel sets x-vercel-ip-country.
+   * Returns null when neither header is usable (absent, "UNKNOWN",
+   * the Tor exit code "T1", …): the caller then omits the country
+   * entirely and Paddle infers it from the IP address. The "OTHERS"
+   * sentinel some integrations use is never passed to Paddle — it
+   * is not a country code.
+   */
+  function visitorCountry(req: Request): string | null {
+    const raw = (req.get("cf-ipcountry") || req.get("x-vercel-ip-country") || "").trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(raw) && raw !== "UNKNOWN" && raw !== "T1" ? raw : null;
+  }
+
+  /**
+   * Everything the public pricing page needs to talk to Paddle
+   * directly: the client-side token, the environment, the visitor's
+   * country and the tier list with its Paddle price ids. None of it
+   * is secret — a client-side token is public by design and price
+   * ids are published in every checkout URL — but it all comes from
+   * the server's environment rather than a build-time constant, so
+   * rotating a token or a price id needs no redeploy.
+   *
+   * The environment is read, never guessed: PADDLE_CLIENT_TOKEN or
+   * PADDLE_CLIENT_ENVIRONMENT missing is a 503 naming them, so a
+   * misconfigured deployment fails loudly on the pricing page
+   * instead of silently opening checkout against the wrong
+   * Paddle account.
+   */
+  app.get("/api/billing/public-config", rateLimit("billing-public-config", 60, 60000), asyncHandlerVoid(async (_req, res) => {
+    const clientToken = paddleText(env().PADDLE_CLIENT_TOKEN);
+    const clientEnvironment = paddleText(env().PADDLE_CLIENT_ENVIRONMENT)?.toLowerCase();
+    if (!clientToken || (clientEnvironment !== "sandbox" && clientEnvironment !== "production")) {
+      return res.status(503).json({ error: "Checkout pricing is not configured yet.", code: "PADDLE_CLIENT_NOT_CONFIGURED", detail: "PADDLE_CLIENT_TOKEN and PADDLE_CLIENT_ENVIRONMENT (\"sandbox\" or \"production\") must both be set" });
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      environment: clientEnvironment,
+      clientToken,
+      country: visitorCountry(_req),
+      tiers: buildPricingTiers((name) => env()[name] as string | undefined),
+    });
   }));
 
   app.get("/api/admin/overview", requireAdmin, rateLimit("admin-overview", 120, 3600000), asyncHandlerVoid(async (req, res) => {

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { refreshSession, registerAccount, resendVerification, signIn } from "../lib/session";
+import { navigate } from "../lib/route";
 import { preloadStudio } from "./studio-loader";
 import { redeemComplimentaryCode } from "../lib/entitlements";
 import logo from "../assets/scenering-logo.png";
@@ -80,7 +81,11 @@ export default function SignIn() {
       <div className="si-field"><label htmlFor="si-email">Email</label><input id="si-email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
       {mode !== "forgot" && <div className="si-field"><label htmlFor="si-pass">Password</label><input id="si-pass" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} placeholder={mode === "register" ? "At least 10 characters" : ""} /></div>}
       {mode === "register" && <><div className="si-field"><label htmlFor="si-confirm">Password again</label><input id="si-confirm" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required /></div>
-        <label className="si-note" style={{ flexDirection: "row", alignItems: "flex-start" }}><input type="checkbox" checked={marketingConsent} onChange={(e) => setMarketingConsent(e.target.checked)} /><span>Send me optional tutorials, training and product news. I can unsubscribe at any time. Account and security email is separate.</span></label></>}
+        <label className="si-note" style={{ flexDirection: "row", alignItems: "flex-start" }}><input type="checkbox" checked={marketingConsent} onChange={(e) => setMarketingConsent(e.target.checked)} /><span>Send me optional tutorials, training and product news. I can unsubscribe at any time. Account and security email is separate.</span></label>
+        {/* Account creation is agreement to the rules: name the two
+            documents an approver or buyer expects, linked the way the
+            corner menu navigates, with a full-load fallback. */}
+        <p className="si-note"><span>By creating an account you agree to the <a href="/terms" onClick={(e) => { e.preventDefault(); navigate("/terms"); }}>Terms of service</a> and acknowledge the <a href="/privacy" onClick={(e) => { e.preventDefault(); navigate("/privacy"); }}>Privacy notice</a>. Paid plans follow the <a href="/refunds" onClick={(e) => { e.preventDefault(); navigate("/refunds"); }}>Refund policy</a>.</span></p></>}
       {error && <div className="si-error" role="alert">{error}</div>}
       {needsVerification && <button type="button" className="si-quiet" disabled={busy} onClick={async () => {
         setBusy(true); setError(null);

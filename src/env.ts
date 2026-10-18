@@ -76,6 +76,16 @@ export type Env = {
   PADDLE_SCENEFLOW_YEARLY_CHECKOUT_URL?: string;
   PADDLE_SCENEFORGE_MONTHLY_CHECKOUT_URL?: string;
   PADDLE_SCENEFORGE_YEARLY_CHECKOUT_URL?: string;
+  /** Client-side token (live_… or test_…) from Paddle → My account →
+   *  Settings → Authentication → Client-side tokens. Public by design:
+   *  it only opens checkout and previews prices. Served to the browser
+   *  by /api/billing/public-config, never baked into the bundle. */
+  PADDLE_CLIENT_TOKEN?: string;
+  /** "sandbox" or "production" — the value Paddle.js expects, matching
+   *  the token's environment. Read, never defaulted: the public-config
+   *  endpoint refuses to answer when it is unset, so a misconfigured
+   *  deployment cannot quietly open checkout against the wrong account. */
+  PADDLE_CLIENT_ENVIRONMENT?: string;
   // server/platform.ts also looks these env names up dynamically
   // (`env()[PLAN_CONFIG[slug].checkoutEnv[interval]]`) — keep the type
   // indexable so that keeps working without per-field plumbing.
