@@ -218,15 +218,17 @@ hides a real problem.
 - **Card brand and last four.** Not sent on subscription webhooks, so those
   columns stay empty and the account window hides the line.
 
-**Customer portal (the upgrade path).** `management_urls` gives two links:
+**Customer portal (self-service).** `management_urls` gives two direct links:
 cancel, and update card. Paddle also hosts a full **customer portal** — invoices,
 payment history, address and tax details, plan changes — reached by minting a
-session with `customerPortalSessions.create`, which needs the
+session with `POST /customers/{customer_id}/portal-sessions`
+(`customerPortalSessions.create`), which needs the
 `customer_portal_session.write` permission and the `customer_id` this server
-already stores in `billing_customers`. It was deliberately *not* wired up here:
-`management_urls` needs no extra permission and covers what the account window
-promises today. Adding the portal later is one more API call and one more button,
-and no schema change.
+stores in `billing_customers` and `subscriptions`. `POST /api/billing/portal`
+verifies the signed-in session first, resolves the member's `customer_id` and
+`subscription_ids` strictly server-side, mints a fresh portal session, and
+returns `{ url: urls.general.overview }` (`no-store`) for the **Customer portal**
+button in **Account & Membership**.
 
 **Delivery, retries and ordering.** The handler is built around Paddle's actual
 delivery contract, not an assumed one:

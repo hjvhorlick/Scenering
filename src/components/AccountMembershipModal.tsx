@@ -9,7 +9,8 @@ import { useApiKeysConfigured } from "../shared/api-key-status";
 type AccountPayload = {
   user: { email: string; displayName: string; emailVerified: boolean; role: "user" | "admin" };
   membership: { plan_id: PlanSlug; status: string; source?: string; complimentary_ends_at?: string | null; complimentary_period?: "month" | "year" | null };
-  subscription?: { status: string; billing_interval: BillingInterval; current_period_end?: string; expires_at?: string; cancel_at_period_end?: boolean; customer_portal_url?: string; update_payment_url?: string; card_brand?: string; card_last_four?: string } | null;
+  subscription?: { subscription_id?: string | null; customer_id?: string | null; subscription_status?: string; price_id?: string | null; product_id?: string | null; status: string; billing_interval: BillingInterval; current_period_end?: string; expires_at?: string; cancel_at_period_end?: boolean; customer_portal_url?: string; update_payment_url?: string; card_brand?: string; card_last_four?: string } | null;
+  has_billing_customer?: boolean;
   usage?: { finalExports: number; finalExportMinutes: number };
   remaining?: { finalExports: number | null; shortExports: number | null; longExports: number | null };
 };
@@ -117,6 +118,17 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
     finally { setBusy(null); }
   }
 
+  async function openCustomerPortal() {
+    setBusy("portal"); setNotice("");
+    try {
+      const response = await fetch("/api/billing/portal", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && data.url) { window.location.href = data.url; return; }
+      throw new Error(data.error || "Customer portal could not be opened.");
+    } catch (error: any) { setNotice(error.message); }
+    finally { setBusy(null); }
+  }
+
   async function copyGiftText(value: string, label: string) {
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
@@ -207,7 +219,8 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
             {account?.subscription?.status === "paused" && <div className="text-xs text-amber-300 mt-1">Paused — billing and access are both stopped until you resume.</div>}
             {(account?.subscription?.expires_at || account?.subscription?.current_period_end) && <div className="text-xs text-gray-400 mt-1">{account?.subscription?.cancel_at_period_end ? "Ends" : "Renews"} {new Date(account.subscription.expires_at || account.subscription.current_period_end!).toLocaleDateString()}</div>}
             {account?.subscription?.card_last_four && <div className="text-xs text-gray-500 mt-1 capitalize">{account.subscription.card_brand || "Card"} ending {account.subscription.card_last_four}</div>}
-            {account?.subscription?.customer_portal_url || account?.subscription?.update_payment_url ? <div className="flex flex-wrap gap-2 mt-3">
+            {account?.subscription || account?.has_billing_customer ? <div className="flex flex-wrap gap-2 mt-3">
+              <button type="button" className="opt-btn text-xs" disabled={busy === "portal"} onClick={() => void openCustomerPortal()}>{busy === "portal" ? "Opening portal…" : "Customer portal"}</button>
               {account?.subscription?.customer_portal_url && <a className="opt-btn text-xs" href={account.subscription.customer_portal_url} target="_blank" rel="noopener noreferrer">Manage or cancel</a>}
               {account?.subscription?.update_payment_url && <a className="opt-btn text-xs" href={account.subscription.update_payment_url} target="_blank" rel="noopener noreferrer">Update payment card</a>}
             </div> : <div className="text-xs text-gray-400 mt-1">Verified Paddle webhooks control paid access</div>}
