@@ -107,8 +107,12 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
     try {
       const response = await fetch(`/api/billing/checkout/${plan}/${interval}`);
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Checkout could not be opened.");
-      if (data.url) window.location.href = data.url;
+      if (response.ok && data.url) { window.location.href = data.url; return; }
+      if (data?.code === "BILLING_NOT_CONFIGURED") {
+        window.location.href = `/pricing?plan=${plan}&interval=${interval}`;
+        return;
+      }
+      throw new Error(data.error || "Checkout could not be opened.");
     } catch (error: any) { setNotice(error.message); }
     finally { setBusy(null); }
   }

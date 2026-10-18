@@ -82,11 +82,14 @@ h.ok(refunds.sections.some((s) => /statutory rights/i.test(s.heading)), "it pres
 h.ok(JSON.stringify(refunds).includes("Paddle"), "it names Paddle as the merchant of record that returns the money");
 h.ok(JSON.stringify(refunds).includes("case by case"), "and states the same case-by-case rule the Terms and the owner manual give");
 h.ok(JSON.stringify(refunds).includes("end of the period"), "cancellation runs to the end of the paid period, matching the access rules");
+const home = read("src/marketing/MarketingSite.tsx");
 for (const path of ["/refunds", "/privacy", "/terms", "/cookies"]) {
   h.ok(page.includes(`href="${path}"`), `the public footer links ${path}`);
+  h.ok(home.includes(`href="${path}"`), `the homepage footer links ${path}`);
 }
+h.ok(home.includes("mkt-footer-legal-list") && home.includes("mkt-footer-legal-bar"), "the homepage footer highlights the legal documents in both the grid and bottom bar");
 h.ok(read("src/shared/SiteCornerMenu.tsx").includes('go("/refunds")'), "the in-app corner menu reaches it too");
 h.ok(read("server/platform.ts").includes('"/refunds"'), "and it is in the sitemap a reviewer or crawler would find");
-for (const rule of [".pub-legal-date", ".pub-legal-summary", ".pub-prose section + section", ".pub-prose ul", ".pub-prose .pub-table-wrap", ".pub-prose .pub-table th[scope=\"row\"]", ".pub-legal-note"]) h.ok(css.includes(rule), `CSS includes ${rule}`);
+for (const rule of [".pub-legal-date", ".pub-legal-summary", ".pub-prose section + section", ".pub-prose ul", ".pub-prose .pub-table-wrap", ".pub-prose .pub-table th[scope=\"row\"]", ".pub-legal-note", ".mkt-footer-legal-list", ".mkt-footer-legal-bar", ".mkt-footer-legal-pills"]) h.ok(css.includes(rule), `CSS includes ${rule}`);
 h.ok(!css.match(/@media[^{}]*max-width/), "marketing CSS uses mobile-first media queries");
 h.done("legal");

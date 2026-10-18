@@ -40,6 +40,45 @@ const TIER_FEATURES: Record<PlanSlug, string[]> = {
   ],
 };
 
+export const PRICE_ENV_ALIASES: Record<string, readonly string[]> = {
+  PADDLE_SCENEFLOW_MONTHLY_PRICE_ID: [
+    "PADDLE_SCENEFLOW_MONTHLY_PRICE_ID",
+    "PADDLE_PRICE_ID_SCENEFLOW_MONTHLY",
+    "PADDLE_PRICE_ID_SCEENFLOW_MONTHLY",
+  ],
+  PADDLE_SCENEFLOW_YEARLY_PRICE_ID: [
+    "PADDLE_SCENEFLOW_YEARLY_PRICE_ID",
+    "PADDLE_SCENEFLOW_ANNUAL_PRICE_ID",
+    "PADDLE_PRICE_ID_SCENEFLOW_YEARLY",
+    "PADDLE_PRICE_ID_SCENEFLOW_ANNUAL",
+    "PADDLE_PRICE_ID_SCEENFLOW_YEARLY",
+    "PADDLE_PRICE_ID_SCEENFLOW_ANNUAL",
+  ],
+  PADDLE_SCENEFORGE_MONTHLY_PRICE_ID: [
+    "PADDLE_SCENEFORGE_MONTHLY_PRICE_ID",
+    "PADDLE_PRICE_ID_SCENEFORGE_MONTHLY",
+    "PADDLE_PRICE_ID_SCEENFORGE_MONTHLY",
+  ],
+  PADDLE_SCENEFORGE_YEARLY_PRICE_ID: [
+    "PADDLE_SCENEFORGE_YEARLY_PRICE_ID",
+    "PADDLE_SCENEFORGE_ANNUAL_PRICE_ID",
+    "PADDLE_PRICE_ID_SCENEFORGE_YEARLY",
+    "PADDLE_PRICE_ID_SCENEFORGE_ANNUAL",
+    "PADDLE_PRICE_ID_SCEENFORGE_YEARLY",
+    "PADDLE_PRICE_ID_SCEENFORGE_ANNUAL",
+  ],
+};
+
+export function lookupPriceEnv(lookup: (name: string) => string | undefined, canonicalName: string): string {
+  if (!canonicalName) return "";
+  const candidates = PRICE_ENV_ALIASES[canonicalName] || [canonicalName];
+  for (const key of candidates) {
+    const val = String(lookup(key) || "").trim();
+    if (val) return val;
+  }
+  return "";
+}
+
 /**
  * Builds the tier list from the plan configuration plus a lookup over
  * the server's environment variables (the Paddle price ids). Kept in
@@ -55,8 +94,8 @@ export function buildPricingTiers(lookup: (name: string) => string | undefined):
       description: plan.description,
       features: TIER_FEATURES[slug],
       priceId: {
-        month: plan.priceEnv.monthly ? String(lookup(plan.priceEnv.monthly) || "") : "",
-        year: plan.priceEnv.yearly ? String(lookup(plan.priceEnv.yearly) || "") : "",
+        month: lookupPriceEnv(lookup, plan.priceEnv.monthly),
+        year: lookupPriceEnv(lookup, plan.priceEnv.yearly),
       },
     };
   });

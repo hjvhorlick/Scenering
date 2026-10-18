@@ -118,6 +118,11 @@ ok((tour.match(/<h2/g) || []).length >= TOUR_SECTIONS.length, "every tour sectio
 ok(/id="showpiece-title"/.test(html), "the key-art band names itself");
 ok(!/<h[1-4][^>]*><\/h[1-4]>/.test(html), "no empty headings");
 ok(/<main id="main"[^>]*>/.test(html), "there is a main landmark");
+for (const path of ["/terms", "/privacy", "/refunds", "/cookies"]) {
+  ok(home.includes(`href="${path}"`), `the front page footer renders ${path}`);
+  ok(tour.includes(`href="${path}"`), `the standalone page footer renders ${path}`);
+}
+ok(home.includes("mkt-footer-legal-bar") && home.includes("Legal documents"), "the front page footer renders the legal documents bar");
 ok(/<main id="main"[^>]*tabindex="-1"/i.test(html), "the skip link's target can take focus");
 ok(/class="mkt-skip" href="#main"/.test(html), "the first link on the page skips the navigation");
 ok(html.includes("<footer"), "there is a footer");

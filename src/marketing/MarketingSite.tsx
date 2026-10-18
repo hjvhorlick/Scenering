@@ -189,6 +189,41 @@ export default function MarketingSite() {
               </ul>
             </div>
 
+            {/* The legal documents every approver, and every buyer at
+                checkout, needs to reach from the front page: terms of
+                service, privacy policy and refund & cancellation policy,
+                plus cookie information. The same four sit in the corner
+                menu, the bottom legal bar and the standalone-page footer. */}
+            <div>
+              <h4>Legal &amp; Policies</h4>
+              <ul className="mkt-footer-legal-list">
+                <li>
+                  <a href="/terms" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/terms"); } }}>
+                    Terms of Service
+                  </a>
+                  <span>Rules, plans &amp; billing</span>
+                </li>
+                <li>
+                  <a href="/privacy" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/privacy"); } }}>
+                    Privacy Policy
+                  </a>
+                  <span>Account &amp; browser data</span>
+                </li>
+                <li>
+                  <a href="/refunds" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/refunds"); } }}>
+                    Refund &amp; Cancellation Policy
+                  </a>
+                  <span>Cancelling &amp; Paddle refunds</span>
+                </li>
+                <li>
+                  <a href="/cookies" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/cookies"); } }}>
+                    Cookie Information
+                  </a>
+                  <span>Session cookie &amp; storage</span>
+                </li>
+              </ul>
+            </div>
+
             <div>
               <h4>About these visuals</h4>
               <ul>
@@ -198,27 +233,22 @@ export default function MarketingSite() {
                 <li>Planned features are labelled “Coming soon”</li>
               </ul>
             </div>
+          </div>
 
-            {/* The legal documents every approver, and every buyer at
-                checkout, needs to reach from the front page: terms of
-                service, privacy notice and refund policy, plus the
-                cookie notice. The same four sit in the corner menu and
-                the standalone-page footer. */}
-            <div>
-              <h4>Legal</h4>
-              <ul>
-                <li><a href="/terms">Terms of service</a></li>
-                <li><a href="/privacy">Privacy notice</a></li>
-                <li><a href="/refunds">Refund policy</a></li>
-                <li><a href="/cookies">Cookie information</a></li>
-              </ul>
+          <div className="mkt-footer-legal-bar" aria-label="Legal documents">
+            <span className="mkt-footer-legal-label">Legal documents</span>
+            <div className="mkt-footer-legal-pills">
+              <a href="/terms" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/terms"); } }}>Terms of Service</a>
+              <a href="/privacy" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/privacy"); } }}>Privacy Policy</a>
+              <a href="/refunds" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/refunds"); } }}>Refund &amp; Cancellation Policy</a>
+              <a href="/cookies" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/cookies"); } }}>Cookie Information</a>
             </div>
           </div>
 
-          <p style={{ marginTop: 26, fontSize: 12, color: "#7a8399" }}>
+          <p style={{ marginTop: 20, fontSize: 12, color: "#98a1b8" }}>
             Every interface on this page is the real Scenering workflow shown with example content. Where something
             is planned rather than built, it says so. Nothing here promises views, subscribers or results.<br />
-            © 2026 Henry John Vincent Horlick. Scenering. All rights reserved.
+            © 2026 Henry John Vincent Horlick · Horlick Group. Scenering. All rights reserved.
           </p>
         </div>
       </footer>

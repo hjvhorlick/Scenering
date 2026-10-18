@@ -590,6 +590,154 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
   h.eq(wrongClientEnv.ready, false, "a client environment Paddle.js does not recognise is not silently accepted");
   process.env.PADDLE_CLIENT_ENVIRONMENT = savedClientEnv;
 
+  /* Step 1 verification: sandbox client config + environment mismatch guard */
+  const pubCfgRes = await fetch(`${base}/api/billing/public-config`);
+  const pubCfg = await pubCfgRes.json() as any;
+  h.eq(pubCfgRes.status, 200, "public billing config responds 200 in sandbox");
+  h.eq(pubCfg.environment, "sandbox", "frontend receives sandbox environment");
+  h.ok(String(pubCfg.clientToken || "").startsWith("test_"), "frontend receives a test_-prefixed client token in sandbox");
+
+  process.env.PADDLE_CLIENT_TOKEN = "live_wrong_prefix_in_sandbox";
+  const mismatchTokenRes = await fetch(`${base}/api/billing/public-config`);
+  const mismatchTokenBody = await mismatchTokenRes.json() as any;
+  h.eq(mismatchTokenRes.status, 503, "a live_-prefixed client token in sandbox is rejected by public-config");
+  h.eq(mismatchTokenBody.code, "PADDLE_ENVIRONMENT_MISMATCH", "with PADDLE_ENVIRONMENT_MISMATCH error code");
+  h.eq(platform.billingConfiguration().clientTokenSet, false, "and billingConfiguration flags the mismatched token");
+  process.env.PADDLE_CLIENT_TOKEN = savedClientToken;
+
+  /* Step 4 end-to-end subscription lifecycle verification:
+     (2) initial checkout -> (4a) immediate upgrade with do_not_bill ->
+     (4b) scheduled cancellation at period end -> (4c) immediate cancellation */
+  {
+    const subLifecycleId = "sub_e2e_lifecycle";
+    const ctmLifecycleId = "ctm_e2e_lifecycle";
+    // Initial subscription activation (SceneFlow Monthly, pro_flow / pri_flow_month)
+    const initEvt = subscriptionEvent({
+      eventId: "evt-e2e-activate",
+      eventType: "subscription.activated",
+      userId: dbUserId,
+      email,
+      subscriptionId: subLifecycleId,
+      customerId: ctmLifecycleId,
+      priceId: "pri_flow_month",
+      status: "active",
+      occurredAt: iso(120000),
+      periodStartsAt: iso(0),
+      periodEndsAt: iso(30 * DAY),
+    });
+    initEvt.data.items[0].price.product_id = "pro_flow";
+    initEvt.data.items[0].price.unit_price = { amount: "1900", currency_code: "USD" };
+    const rInit = await postWebhook(initEvt);
+    h.eq(rInit.status, 200, "e2e checkout: subscription.activated returns 200");
+    h.eq(rInit.body.status, "processed", "e2e checkout: subscription.activated is processed");
+
+    const rowInit = testD1().sqlite.prepare("SELECT status, plan_id, provider_price_id, provider_product_id, cancel_at_period_end FROM subscriptions WHERE provider_subscription_id = ?").get(subLifecycleId) as any;
+    h.eq(rowInit?.status, "active", "e2e checkout: DB status is active");
+    h.eq(rowInit?.plan_id, "sceneflow", "e2e checkout: DB plan_id is sceneflow");
+    h.eq(rowInit?.provider_price_id, "pri_flow_month", "e2e checkout: DB provider_price_id is pri_flow_month");
+    h.eq(rowInit?.provider_product_id, "pro_flow", "e2e checkout: DB provider_product_id is pro_flow");
+
+    const entFlow = await (await fetch(`${base}/api/entitlements/premium_captions`, { headers: { Cookie: cookie } })).json() as any;
+    const entSummaryFlow = await (await fetch(`${base}/api/entitlements`, { headers: { Cookie: cookie } })).json() as any;
+    h.eq(entFlow.allowed, true, "e2e checkout: access helper unlocks SceneFlow features (premium_captions)");
+    h.eq(entSummaryFlow.plan, "sceneflow", "e2e checkout: entitlements endpoint reports sceneflow");
+    h.eq(entSummaryFlow.entitlements.limits.finalExportsPerWeek, 15, "e2e checkout: SceneFlow has 15 final exports per week");
+    h.eq(entSummaryFlow.entitlements.limits.visualResearchCapacity, "expanded", "e2e checkout: SceneFlow has expanded visual research capacity");
+
+    // 4(a) Plan upgrade applied immediately without billing (proration_billing_mode: do_not_bill)
+    const upgradeEvt = subscriptionEvent({
+      eventId: "evt-e2e-upgrade-do-not-bill",
+      eventType: "subscription.updated",
+      userId: dbUserId,
+      email,
+      subscriptionId: subLifecycleId,
+      customerId: ctmLifecycleId,
+      priceId: "pri_forge_month",
+      status: "active",
+      occurredAt: iso(180000),
+      periodStartsAt: iso(0),
+      periodEndsAt: iso(30 * DAY),
+    });
+    upgradeEvt.data.items[0].price.product_id = "pro_forge";
+    upgradeEvt.data.items[0].price.unit_price = { amount: "3900", currency_code: "USD" };
+    const rUpgrade = await postWebhook(upgradeEvt);
+    h.eq(rUpgrade.status, 200, "4(a) upgrade (do_not_bill): subscription.updated returns 200");
+    h.eq(rUpgrade.body.status, "processed", "4(a) upgrade (do_not_bill): subscription.updated is processed");
+
+    const rowUpgrade = testD1().sqlite.prepare("SELECT status, plan_id, provider_price_id, provider_product_id, renewal_price FROM subscriptions WHERE provider_subscription_id = ?").get(subLifecycleId) as any;
+    h.eq(rowUpgrade?.status, "active", "4(a) upgrade: DB status remains active");
+    h.eq(rowUpgrade?.plan_id, "sceneforge", "4(a) upgrade: DB plan_id updated to sceneforge");
+    h.eq(rowUpgrade?.provider_price_id, "pri_forge_month", "4(a) upgrade: mirrored row reflects new price pri_forge_month");
+    h.eq(rowUpgrade?.provider_product_id, "pro_forge", "4(a) upgrade: mirrored row reflects new product pro_forge");
+    h.eq(rowUpgrade?.renewal_price, "3900 USD", "4(a) upgrade: renewal price updated to 3900 USD with no transaction required");
+
+    const entSummaryForge = await (await fetch(`${base}/api/entitlements`, { headers: { Cookie: cookie } })).json() as any;
+    h.eq(entSummaryForge.plan, "sceneforge", "4(a) upgrade: access helper now reports sceneforge");
+    h.eq(entSummaryForge.entitlements.limits.finalExportsPerWeek, null, "4(a) upgrade: access helper now unlocks unlimited weekly final exports");
+    h.eq(entSummaryForge.entitlements.limits.visualResearchCapacity, "high", "4(a) upgrade: access helper now unlocks high visual research capacity");
+
+    // 4(b) Scheduled cancellation at end of billing period (effective_from: next_billing_period)
+    const schedCancelEvt = subscriptionEvent({
+      eventId: "evt-e2e-sched-cancel",
+      eventType: "subscription.updated",
+      userId: dbUserId,
+      email,
+      subscriptionId: subLifecycleId,
+      customerId: ctmLifecycleId,
+      priceId: "pri_forge_month",
+      status: "active",
+      occurredAt: iso(240000),
+      periodStartsAt: iso(0),
+      periodEndsAt: iso(30 * DAY),
+      scheduledChange: { action: "cancel", effective_at: iso(30 * DAY) },
+    });
+    schedCancelEvt.data.items[0].price.product_id = "pro_forge";
+    const rSched = await postWebhook(schedCancelEvt);
+    h.eq(rSched.status, 200, "4(b) scheduled cancel: subscription.updated returns 200");
+    h.eq(rSched.body.status, "processed", "4(b) scheduled cancel: subscription.updated is processed");
+
+    const rowSched = testD1().sqlite.prepare("SELECT status, cancel_at_period_end, expires_at FROM subscriptions WHERE provider_subscription_id = ?").get(subLifecycleId) as any;
+    h.eq(rowSched?.status, "active", "4(b) scheduled cancel: DB status is STILL active (not yet canceled)");
+    h.eq(rowSched?.cancel_at_period_end, 1, "4(b) scheduled cancel: cancel_at_period_end is set to 1");
+    h.ok(Boolean(rowSched?.expires_at), "4(b) scheduled cancel: expires_at records the scheduled effective_at timestamp");
+
+    const entDuringSched = await (await fetch(`${base}/api/entitlements/bulk_workflow`, { headers: { Cookie: cookie } })).json() as any;
+    h.eq(entDuringSched.allowed, true, "4(b) scheduled cancel: access helper still grants paid features while period is active");
+
+    // 4(c) Immediate cancellation (effective_from: immediately)
+    const immCancelEvt = subscriptionEvent({
+      eventId: "evt-e2e-imm-cancel",
+      eventType: "subscription.canceled",
+      userId: dbUserId,
+      email,
+      subscriptionId: subLifecycleId,
+      customerId: ctmLifecycleId,
+      priceId: "pri_forge_month",
+      status: "canceled",
+      occurredAt: iso(300000),
+      canceledAt: iso(-1000),
+      periodStartsAt: iso(-DAY),
+      periodEndsAt: iso(-1000),
+      nextBilledAt: null,
+      scheduledChange: null,
+    });
+    immCancelEvt.data.items[0].price.product_id = "pro_forge";
+    const rImm = await postWebhook(immCancelEvt);
+    h.eq(rImm.status, 200, "4(c) immediate cancel: subscription.canceled returns 200");
+    h.eq(rImm.body.status, "processed", "4(c) immediate cancel: subscription.canceled is processed");
+
+    const entAfterImm = await (await fetch(`${base}/api/entitlements/premium_captions`, { headers: { Cookie: cookie } })).json() as any;
+    const entBulkAfterImm = await (await fetch(`${base}/api/entitlements/bulk_workflow`, { headers: { Cookie: cookie } })).json() as any;
+    const accAfterImm = await account();
+    h.eq(accAfterImm.membership.plan_id, "free", "4(c) immediate cancel: membership plan_id is now free");
+    h.eq(entAfterImm.allowed, false, "4(c) immediate cancel: access helper denies SceneFlow paid features (premium_captions)");
+    h.eq(entBulkAfterImm.allowed, false, "4(c) immediate cancel: access helper denies SceneForge paid features (bulk_workflow)");
+
+    const rowImm = testD1().sqlite.prepare("SELECT status, cancelled_at FROM subscriptions WHERE provider_subscription_id = ?").get(subLifecycleId) as any;
+    h.eq(rowImm?.status, "cancelled", "4(c) immediate cancel: DB subscription status remains cancelled even after access checks");
+    h.ok(Boolean(rowImm?.cancelled_at), "4(c) immediate cancel: DB cancelled_at timestamp is recorded");
+  }
+
   const savedPrice = process.env.PADDLE_SCENEFORGE_YEARLY_PRICE_ID;
   delete process.env.PADDLE_SCENEFORGE_YEARLY_PRICE_ID;
   const incomplete = platform.billingConfiguration();
@@ -790,6 +938,36 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
     h.ok(platformSource.includes("paddleSourceCidrs") && platformSource.includes("/ips"), "the ranges are fetched from Paddle, not written into the source");
     h.eq(/(34\.195\.190\.139|52\.30\.114\.63|44\.227\.213\.206)/.test(platformSource), false, "and no range is hard-coded in the handler");
     h.ok(platformSource.includes("fails open") || platformSource.includes("fail open"), "the fail-open choice is written down where it was made");
+  }
+
+  /* Secret name aliases (e.g. PADDLE_PRICE_ID_SCEENFLOW_MONTHLY / ANNUAL) resolve cleanly. */
+  {
+    const saved = {
+      sfM: process.env.PADDLE_SCENEFLOW_MONTHLY_PRICE_ID,
+      sfY: process.env.PADDLE_SCENEFLOW_YEARLY_PRICE_ID,
+      sfgM: process.env.PADDLE_SCENEFORGE_MONTHLY_PRICE_ID,
+      sfgY: process.env.PADDLE_SCENEFORGE_YEARLY_PRICE_ID,
+    };
+    delete process.env.PADDLE_SCENEFLOW_MONTHLY_PRICE_ID;
+    delete process.env.PADDLE_SCENEFLOW_YEARLY_PRICE_ID;
+    delete process.env.PADDLE_SCENEFORGE_MONTHLY_PRICE_ID;
+    delete process.env.PADDLE_SCENEFORGE_YEARLY_PRICE_ID;
+    process.env.PADDLE_PRICE_ID_SCEENFLOW_MONTHLY = "pri_alias_sf_m";
+    process.env.PADDLE_PRICE_ID_SCEENFLOW_ANNUAL = "pri_alias_sf_y";
+    process.env.PADDLE_PRICE_ID_SCEENFORGE_MONTHLY = "pri_alias_sfg_m";
+    process.env.PADDLE_PRICE_ID_SCEENFORGE_ANNUAL = "pri_alias_sfg_y";
+    h.eq(platform.planForPaddlePrice("pri_alias_sf_m")?.plan, "sceneflow", "alias PADDLE_PRICE_ID_SCEENFLOW_MONTHLY resolves to sceneflow monthly");
+    h.eq(platform.planForPaddlePrice("pri_alias_sf_y")?.interval, "yearly", "alias PADDLE_PRICE_ID_SCEENFLOW_ANNUAL resolves to sceneflow yearly");
+    h.eq(platform.planForPaddlePrice("pri_alias_sfg_m")?.plan, "sceneforge", "alias PADDLE_PRICE_ID_SCEENFORGE_MONTHLY resolves to sceneforge monthly");
+    h.eq(platform.planForPaddlePrice("pri_alias_sfg_y")?.interval, "yearly", "alias PADDLE_PRICE_ID_SCEENFORGE_ANNUAL resolves to sceneforge yearly");
+    delete process.env.PADDLE_PRICE_ID_SCEENFLOW_MONTHLY;
+    delete process.env.PADDLE_PRICE_ID_SCEENFLOW_ANNUAL;
+    delete process.env.PADDLE_PRICE_ID_SCEENFORGE_MONTHLY;
+    delete process.env.PADDLE_PRICE_ID_SCEENFORGE_ANNUAL;
+    process.env.PADDLE_SCENEFLOW_MONTHLY_PRICE_ID = saved.sfM;
+    process.env.PADDLE_SCENEFLOW_YEARLY_PRICE_ID = saved.sfY;
+    process.env.PADDLE_SCENEFORGE_MONTHLY_PRICE_ID = saved.sfgM;
+    process.env.PADDLE_SCENEFORGE_YEARLY_PRICE_ID = saved.sfgY;
   }
 
   /* Lemon Squeezy is gone, not merely unused. */

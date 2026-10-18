@@ -3,8 +3,8 @@ import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type FeatureKey } from "
 import { isFeatureTourPath, navigate, STUDIO_PATH } from "../lib/route";
 import { type Paddle } from "@paddle/paddle-js";
 import { useSession } from "../lib/session";
-import { loadPaddle, type PaddlePublicConfig } from "../lib/paddle";
-import { type Tier } from "../config/pricing-tiers";
+import { loadPaddle, onPaddleCheckoutEvent, type PaddlePublicConfig } from "../lib/paddle";
+import { buildPricingTiers, type Tier } from "../config/pricing-tiers";
 import { BrandMark } from "./components/primitives";
 import Questions from "./sections/Questions";
 import IdeaToVideo from "./sections/IdeaToVideo";
@@ -52,7 +52,50 @@ export default function PublicPage({ path }: { path: string }) {
 }
 
 function PublicNav() { return <nav className="mkt-nav" aria-label="Main"><div className="mkt-container mkt-nav-inner"><a href="/" className="mkt-nav-logo"><BrandMark height={26} /></a><SocialLinksRow size={26} tone="light" className="mkt-nav-social" /><div className="pub-navlinks">{NAV.map(([href, label]) => <a key={href} href={href} className="mkt-nav-link">{label}</a>)}</div><span className="mkt-nav-spacer" /><span className="sc-corner-reserve" aria-hidden="true" /></div></nav>; }
-function PublicFooter() { return <footer className="mkt-footer"><div className="mkt-container pub-footer"><div><BrandMark height={28} /><p>Turn ideas, scripts and audio into polished faceless videos while keeping meaningful creative control.</p><SocialLinksRow size={48} style={{ margin: "12px 0" }} /><small>© 2026 Henry John Vincent Horlick. Scenering. All rights reserved.</small></div><div><h4>Product</h4><a href="/features">Features</a><a href="/how-it-works">How It Works</a><a href="/pricing">Pricing</a></div><div><h4>Help</h4><a href="/manual">Manual</a><a href="/faq">FAQ</a><a href="/contact">Contact</a></div><div><h4>Legal</h4><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/cookies">Cookies</a><a href="/refunds">Refunds</a></div></div></footer>; }
+function PublicFooter() {
+  return (
+    <footer className="mkt-footer">
+      <div className="mkt-container pub-footer">
+        <div>
+          <BrandMark height={28} />
+          <p>Turn ideas, scripts and audio into polished faceless videos while keeping meaningful creative control.</p>
+          <SocialLinksRow size={48} style={{ margin: "12px 0" }} />
+          <small>© 2026 Henry John Vincent Horlick · Horlick Group. Scenering. All rights reserved.</small>
+        </div>
+        <div>
+          <h4>Product</h4>
+          <a href="/features">Features</a>
+          <a href="/how-it-works">How It Works</a>
+          <a href="/pricing">Pricing</a>
+        </div>
+        <div>
+          <h4>Help</h4>
+          <a href="/manual">Manual</a>
+          <a href="/faq">FAQ</a>
+          <a href="/contact">Contact</a>
+        </div>
+        <div>
+          <h4>Legal &amp; Policies</h4>
+          <a href="/terms">Terms of Service</a>
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/refunds">Refund &amp; Cancellation Policy</a>
+          <a href="/cookies">Cookie Information</a>
+        </div>
+      </div>
+      <div className="mkt-container">
+        <div className="mkt-footer-legal-bar" aria-label="Legal documents">
+          <span className="mkt-footer-legal-label">Legal documents</span>
+          <div className="mkt-footer-legal-pills">
+            <a href="/terms" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/terms"); } }}>Terms of Service</a>
+            <a href="/privacy" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/privacy"); } }}>Privacy Policy</a>
+            <a href="/refunds" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/refunds"); } }}>Refund &amp; Cancellation Policy</a>
+            <a href="/cookies" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/cookies"); } }}>Cookie Information</a>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+}
 function PageHero({ eyebrow, title, lead }: { eyebrow: string; title: string; lead: string }) { return <header className="pub-hero mkt-container"><span className="mkt-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{lead}</p></header>; }
 
 /**
@@ -84,7 +127,9 @@ function HowPage() { const steps = ["Understand the supplied script or audio", "
  * account's email, and redirects to /welcome on success.
  */
 function PricingPage() {
-  const [interval, setInterval] = useState<BillingInterval>("monthly");
+  const initialParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const initialInterval: BillingInterval = initialParams?.get("interval") === "yearly" ? "yearly" : "monthly";
+  const [interval, setInterval] = useState<BillingInterval>(initialInterval);
   const [compare, setCompare] = useState(false);
   const [config, setConfig] = useState<PaddlePublicConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -93,6 +138,7 @@ function PricingPage() {
   const [pricesLoading, setPricesLoading] = useState(false);
   const [pricesError, setPricesError] = useState<string | null>(null);
   const [opening, setOpening] = useState("");
+  const [autoOpened, setAutoOpened] = useState(false);
   const { account } = useSession();
 
   useEffect(() => {
@@ -111,8 +157,20 @@ function PricingPage() {
   useEffect(() => {
     if (!config) return;
     let active = true;
-    loadPaddle(config).then((instance) => { if (active && instance) setPaddle(instance); });
-    return () => { active = false; };
+    loadPaddle(config)
+      .then((instance) => { if (active && instance) setPaddle(instance); })
+      .catch((error) => { if (active) setConfigError((error as Error)?.message || "Paddle.js could not be initialised."); });
+    const unsubscribe = onPaddleCheckoutEvent((event) => {
+      if (!active) return;
+      if (event.name === "checkout.payment.failed") {
+        setPricesError("Your payment was declined. Please check your card details or try another payment method in the checkout window.");
+      } else if (event.name === "checkout.payment.error") {
+        setPricesError("No payment methods are available for this checkout. Please contact support if the problem persists.");
+      } else if (event.name === "checkout.completed") {
+        setPricesError(null);
+      }
+    });
+    return () => { active = false; unsubscribe(); };
   }, [config]);
 
   /* One preview call fetches every priced tier at both intervals —
@@ -136,14 +194,43 @@ function PricingPage() {
     return () => { active = false; };
   }, [paddle, config]);
 
+  useEffect(() => {
+    if (autoOpened || !paddle || !config || typeof window === "undefined") return;
+    const requestedPlan = new URLSearchParams(window.location.search).get("plan");
+    if (requestedPlan !== "sceneflow" && requestedPlan !== "sceneforge") return;
+    const tier = config.tiers.find((t) => t.id === requestedPlan);
+    if (!tier) return;
+    setAutoOpened(true);
+    subscribe(tier);
+  }, [autoOpened, paddle, config, interval]);
+
   function subscribe(tier: Tier) {
-    if (!paddle || !config) return;
+    if (configError) {
+      setPricesError(configError);
+      return;
+    }
     const priceId = interval === "monthly" ? tier.priceId.month : tier.priceId.year;
-    if (!priceId) return;
+    if (!priceId) {
+      const envName = PLAN_CONFIG[tier.id].priceEnv[interval];
+      setPricesError(`Paddle price ID is not set for ${tier.name} (${interval}). Set ${envName} in your environment variables.`);
+      return;
+    }
+    if (!paddle || !config) {
+      setPricesError("Paddle checkout is still loading or PADDLE_CLIENT_TOKEN is not configured in this environment.");
+      return;
+    }
     const email = account?.user.email;
+    const userId = account?.user.id;
+    setPricesError(null);
     setOpening(tier.id);
     paddle.Checkout.open({
       items: [{ priceId, quantity: 1 }],
+      customData: {
+        ...(userId ? { user_id: userId } : {}),
+        ...(email ? { email } : {}),
+        plan: tier.id,
+        interval,
+      },
       ...(email ? { customer: { email, ...(config.country ? { address: { countryCode: config.country } } : {}) } } : {}),
       settings: {
         displayMode: "overlay",
@@ -155,16 +242,18 @@ function PricingPage() {
     setOpening("");
   }
 
+  const displayedTiers = config ? config.tiers : buildPricingTiers(() => "");
+
   return <><PageHero eyebrow="Pricing" title="Start free. Add capability when you need it." lead="Exactly three plans. Monthly and yearly are billing choices—not extra plans. Preview renders never consume final-export allowance. Prices are shown in your local currency, with tax, exactly as Paddle calculates them." />
     {configError && <section className="mkt-container pub-callout"><div><h2>Pricing is unavailable right now</h2><p>{configError}</p></div></section>}
     <section className="mkt-container">
       <div className="pub-toggle" role="group" aria-label="Billing interval"><button className={interval === "monthly" ? "is-on" : ""} onClick={() => setInterval("monthly")}>Monthly</button><button className={interval === "yearly" ? "is-on" : ""} onClick={() => setInterval("yearly")}>Yearly</button></div>
-      {pricesError && <p role="alert">{pricesError}</p>}
-      <div className="pub-plans">{(config ? config.tiers : []).map((tier) => { const priceId = interval === "monthly" ? tier.priceId.month : tier.priceId.year; const formatted = priceId ? prices[priceId] : undefined; return <article className={`pub-plan${tier.id === "sceneflow" ? " is-featured" : ""}`} key={tier.id}>{tier.id === "sceneflow" && <span className="pub-ribbon">Regular creators</span>}<h2>{tier.name}</h2><p>{tier.description}</p>
-        <div className="pub-price">{priceId ? (pricesLoading && !formatted ? <b>…</b> : <>{formatted ? <b>{formatted}</b> : <b>…</b>}<span>/{interval === "monthly" ? "month" : "year"}</span></>) : <><b>Free</b><span>forever</span></>}</div>
+      {pricesError && <p role="alert" className="pub-callout" style={{ marginBottom: 18 }}>{pricesError}</p>}
+      <div className="pub-plans">{displayedTiers.map((tier) => { const priceId = interval === "monthly" ? tier.priceId.month : tier.priceId.year; const formatted = priceId ? prices[priceId] : undefined; const fallbackPrice = `$${PLAN_CONFIG[tier.id].prices[interval]}`; return <article className={`pub-plan${tier.id === "sceneflow" ? " is-featured" : ""}`} key={tier.id}>{tier.id === "sceneflow" && <span className="pub-ribbon">Regular creators</span>}<h2>{tier.name}</h2><p>{tier.description}</p>
+        <div className="pub-price">{tier.id !== "free" ? (pricesLoading && !formatted ? <b>{fallbackPrice}</b> : <><b>{formatted || fallbackPrice}</b><span>/{interval === "monthly" ? "month" : "year"}</span></>) : <><b>Free</b><span>forever</span></>}</div>
         <PlanHighlights slug={tier.id} />
-        {priceId
-          ? <button className="mkt-btn mkt-btn-primary" disabled={!paddle || pricesLoading || !formatted || opening === tier.id} onClick={() => subscribe(tier)}>{opening === tier.id ? "Opening checkout…" : paddle ? `Subscribe${account?.user.email ? "" : " (sign in to prefill)"}` : "Loading checkout…"}</button>
+        {tier.id !== "free"
+          ? <button className="mkt-btn mkt-btn-primary" disabled={opening === tier.id} onClick={() => subscribe(tier)}>{opening === tier.id ? "Opening checkout…" : `Subscribe to ${tier.name}${account?.user.email ? "" : " (sign in to prefill)"}`}</button>
           : <a href="/register" className="mkt-btn mkt-btn-primary">Get Started Free</a>}
       </article>; })}</div>
       <button className="pub-compare-btn" onClick={() => setCompare(!compare)} aria-expanded={compare}>{compare ? "Hide" : "Show"} complete feature comparison</button>
@@ -257,5 +346,8 @@ function UnsubscribePage() {
 function usePageMeta(path: string) {
   useEffect(() => {
     applyPageSeo(path);
+    if (!isFeatureTourPath(path) && typeof window !== "undefined") {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
   }, [path]);
 }
