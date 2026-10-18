@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import express from "express";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExportCreativeManifest, type BillingInterval, type ExportCreativeManifest, type FeatureKey, type PlanSlug } from "../src/config/plans.ts";
-import { buildPricingTiers } from "../src/config/pricing-tiers.ts";
+import { buildPricingTiers, lookupPriceEnv } from "../src/config/pricing-tiers.ts";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
 import { env } from "../src/env.ts";
 import { db, type ComplimentaryGrant, type EmailPreference, type Membership, type Subscription, type UsageRecord, type User } from "../src/db.ts";
@@ -141,10 +141,12 @@ async function ensureOwnerPrivileges(user: User): Promise<User> {
 async function sweepUserSubscriptionExpiry(userId: string): Promise<void> {
   const sub = await db.findActiveSubscriptionByUserId(userId);
   if (!sub) return;
-  if (sub.status === "active" || sub.status === "on_trial") return;
+  if ((sub.status === "active" || sub.status === "on_trial") && !sub.cancelAtPeriodEnd) return;
   const ends = Date.parse(String(sub.expiresAt || sub.currentPeriodEnd || ""));
   if (!Number.isFinite(ends) || ends > Date.now()) return;
-  await db.updateSubscription(sub.id, { status: "expired" });
+  if (sub.status !== "cancelled") {
+    await db.updateSubscription(sub.id, { status: "expired" });
+  }
   const membership = await db.findMembershipByUserId(userId);
   if (membership && membership.plan !== "free") await db.updateMembership(membership.id, { plan: "free" });
 }
@@ -205,9 +207,14 @@ export async function adminMemberSummary(userId: string) {
 
 /** The subscription worth showing. A cancelled one is still shown while the
  *  paid period runs, so the customer can see the end date and reopen Paddle's
- *  management links. */
+ *  management links. Once its end date has passed, it is no longer current. */
 async function subscriptionForUser(userId: string) {
   const sub = await db.findActiveSubscriptionByUserId(userId);
+  if (!sub) return null;
+  if (sub.status === "cancelled") {
+    const ends = Date.parse(String(sub.expiresAt || sub.currentPeriodEnd || ""));
+    if (!Number.isFinite(ends) || ends <= Date.now()) return null;
+  }
   return sub;
 }
 
@@ -685,17 +692,71 @@ async function paddleManagementUrls(subscriptionId: string): Promise<{ cancel: s
   return { cancel: https(urls.cancel), updatePaymentMethod: https(urls.update_payment_method) };
 }
 
+let discoveredPaddlePricesCache: { env: PaddleEnvironment; map: Record<string, string>; fetchedAt: number } | null = null;
+
+async function resolvePaddlePriceEnvMap(): Promise<Record<string, string>> {
+  const e = env();
+  const out: Record<string, string> = {};
+  let missingAny = false;
+  for (const slug of PLAN_ORDER.slice(1)) {
+    for (const interval of ["monthly", "yearly"] as const) {
+      const envKey = PLAN_CONFIG[slug].priceEnv[interval];
+      const val = lookupPriceEnv((k) => e[k] as string | undefined, envKey);
+      if (val) out[envKey] = val;
+      else missingAny = true;
+    }
+  }
+  const apiKey = String(e.PADDLE_API_KEY || "").trim();
+  if (!missingAny || (!apiKey.startsWith("pdl_sdbx_") && !apiKey.startsWith("pdl_live_"))) return out;
+
+  const mode = paddleEnvironment();
+  if (discoveredPaddlePricesCache && discoveredPaddlePricesCache.env === mode && Date.now() - discoveredPaddlePricesCache.fetchedAt < 60_000) {
+    return { ...discoveredPaddlePricesCache.map, ...out };
+  }
+
+  const res = await paddleApi("/prices?status=active&include=product&per_page=50", { timeoutMs: 4000 });
+  const discovered: Record<string, string> = {};
+  if (res.ok && Array.isArray(res.data)) {
+    for (const item of res.data) {
+      const id = String(item?.id || "").trim();
+      if (!id.startsWith("pri_")) continue;
+      const cycle = String(item?.billing_cycle?.interval || item?.custom_data?.interval || "").toLowerCase();
+      const interval: BillingInterval | null = cycle === "month" || cycle === "monthly" ? "monthly" : cycle === "year" || cycle === "yearly" ? "yearly" : null;
+      if (!interval) continue;
+      const customPlan = String(item?.custom_data?.plan || item?.product?.custom_data?.plan || "").toLowerCase();
+      const text = `${item?.product?.name || ""} ${item?.name || ""} ${item?.description || ""}`.toLowerCase();
+      const amount = Number(item?.unit_price?.amount ?? NaN);
+      let slug: PlanSlug | null = null;
+      if (customPlan === "sceneflow" || text.includes("sceneflow") || text.includes("scene flow")) slug = "sceneflow";
+      else if (customPlan === "sceneforge" || text.includes("sceneforge") || text.includes("scene forge")) slug = "sceneforge";
+      else if (Number.isFinite(amount)) {
+        if (amount === PLAN_CONFIG.sceneflow.prices[interval] * 100) slug = "sceneflow";
+        else if (amount === PLAN_CONFIG.sceneforge.prices[interval] * 100) slug = "sceneforge";
+      }
+      if (slug) {
+        const envKey = PLAN_CONFIG[slug].priceEnv[interval];
+        if (!discovered[envKey]) discovered[envKey] = id;
+      }
+    }
+    discoveredPaddlePricesCache = { env: mode, map: discovered, fetchedAt: Date.now() };
+  }
+  return { ...discovered, ...out };
+}
+
 /**
  * Which Scenering plan and interval a Paddle price id (`pri_…`) is. The price
  * ids are configuration rather than code, so a price created in Paddle becomes
- * a purchasable plan here by setting one variable.
+ * a purchasable plan here by setting one variable (or via catalog discovery
+ * when PADDLE_API_KEY is configured).
  */
-export function planForPaddlePrice(priceId: string): { plan: PlanSlug; interval: BillingInterval } | null {
+export function planForPaddlePrice(priceId: string, priceMap?: Record<string, string>): { plan: PlanSlug; interval: BillingInterval } | null {
   if (!priceId) return null;
   const e = env();
   for (const slug of PLAN_ORDER.slice(1)) {
     for (const interval of ["monthly", "yearly"] as const) {
-      if (String(e[PLAN_CONFIG[slug].priceEnv[interval]] || "") === priceId) return { plan: slug, interval };
+      const key = PLAN_CONFIG[slug].priceEnv[interval];
+      const configured = String(priceMap?.[key] || lookupPriceEnv((k) => e[k] as string | undefined, key) || "");
+      if (configured === priceId) return { plan: slug, interval };
     }
   }
   return null;
@@ -798,14 +859,20 @@ export function billingConfiguration() {
       checkoutEnv: PLAN_CONFIG[slug].checkoutEnv[interval],
       checkoutUrlSet: Boolean(e[PLAN_CONFIG[slug].checkoutEnv[interval]]),
       priceEnv: PLAN_CONFIG[slug].priceEnv[interval],
-      priceIdSet: Boolean(e[PLAN_CONFIG[slug].priceEnv[interval]]),
+      priceIdSet: Boolean(lookupPriceEnv((k) => e[k] as string | undefined, PLAN_CONFIG[slug].priceEnv[interval])),
     })),
   }));
   const webhookSecretSet = Boolean(e.PADDLE_WEBHOOK_SECRET);
-  const apiKeySet = Boolean(e.PADDLE_API_KEY);
-  const clientTokenSet = Boolean(paddleText(e.PADDLE_CLIENT_TOKEN));
+  const apiKey = paddleText(e.PADDLE_API_KEY);
+  const envMode = paddleEnvironment();
+  const apiKeyMatchesEnv = Boolean(apiKey) && (envMode === "sandbox" ? !apiKey!.startsWith("pdl_live_apikey_") : !apiKey!.startsWith("pdl_sdbx_apikey_"));
+  const apiKeySet = Boolean(apiKey) && apiKeyMatchesEnv;
+  const clientToken = paddleText(e.PADDLE_CLIENT_TOKEN);
   const clientEnvironment = paddleText(e.PADDLE_CLIENT_ENVIRONMENT)?.toLowerCase();
-  const clientEnvironmentSet = clientEnvironment === "sandbox" || clientEnvironment === "production";
+  const expectedClientEnv = envMode === "live" ? "production" : "sandbox";
+  const clientEnvironmentSet = (clientEnvironment === "sandbox" || clientEnvironment === "production") && clientEnvironment === expectedClientEnv;
+  const clientTokenMatchesEnv = Boolean(clientToken) && (expectedClientEnv === "sandbox" ? clientToken!.startsWith("test_") : clientToken!.startsWith("live_"));
+  const clientTokenSet = Boolean(clientToken) && clientTokenMatchesEnv;
   const everyPriceSet = plans.every((plan) => plan.intervals.every((i) => i.priceIdSet));
   const everyLinkSet = plans.every((plan) => plan.intervals.every((i) => i.checkoutUrlSet));
   return {
@@ -922,10 +989,24 @@ export function registerPaddleWebhook(app: Express) {
         const mappedCustomer = await db.findBillingCustomer(customerId);
         const existing = mappedCustomer ? null : await db.findSubscriptionByProviderCustomerId(customerId);
         user = (mappedCustomer ? await db.findUserById(mappedCustomer.userId) : null) || (existing ? await db.findUserById(existing.userId) : null);
+        if (!user) {
+          const customerRes = await paddleApi(`/customers/${encodeURIComponent(customerId)}`, { timeoutMs: PADDLE_WEBHOOK_API_TIMEOUT_MS });
+          const fetchedEmail = customerRes.ok ? String(customerRes.data?.email || "").trim().toLowerCase() : "";
+          if (fetchedEmail) {
+            user = await db.findUserByEmail(fetchedEmail);
+            if (user) {
+              await db.upsertBillingCustomer({ provider: "paddle", providerCustomerId: customerId, userId: user.id, email: fetchedEmail, lastEventAt: paddleText(event.occurred_at) });
+            }
+          }
+        }
       }
       if (!user) return record("unmatched");
 
-      const mapped = planForPaddlePrice(priceId);
+      let mapped = planForPaddlePrice(priceId);
+      if (!mapped && priceId) {
+        const resolvedPrices = await resolvePaddlePriceEnvMap();
+        mapped = planForPaddlePrice(priceId, resolvedPrices);
+      }
       if (!mapped) return record("unknown_price");
 
       const period = (data.current_billing_period || {}) as { starts_at?: unknown; ends_at?: unknown };
@@ -1214,7 +1295,7 @@ export function registerPlatformRoutes(app: Express) {
   app.get("/api/billing/checkout/:plan/:interval", requireUser, rateLimit("checkout", 20, 3600000), asyncHandlerVoid(async (req, res) => {
     const { user } = (req as any).auth as Auth; const slug = req.params.plan as PlanSlug; const interval = req.params.interval as BillingInterval;
     if (!PLAN_CONFIG[slug] || slug === "free" || !["monthly", "yearly"].includes(interval)) return res.status(400).json({ error: "Invalid plan selection" });
-    const priceEnv = PLAN_CONFIG[slug].priceEnv[interval]; const priceId = String(env()[priceEnv] || "");
+    const priceEnv = PLAN_CONFIG[slug].priceEnv[interval]; const priceId = lookupPriceEnv((k) => env()[k] as string | undefined, priceEnv);
     const checkoutEnv = PLAN_CONFIG[slug].checkoutEnv[interval]; const checkoutUrl = String(env()[checkoutEnv] || "");
     if (!priceId || !env().PADDLE_API_KEY) return res.status(503).json({ error: "Checkout is not configured yet.", code: "BILLING_NOT_CONFIGURED", detail: `${priceEnv} and PADDLE_API_KEY must both be set` });
     const created = await paddleApi("/transactions", {
@@ -1269,15 +1350,21 @@ export function registerPlatformRoutes(app: Express) {
   app.get("/api/billing/public-config", rateLimit("billing-public-config", 60, 60000), asyncHandlerVoid(async (_req, res) => {
     const clientToken = paddleText(env().PADDLE_CLIENT_TOKEN);
     const clientEnvironment = paddleText(env().PADDLE_CLIENT_ENVIRONMENT)?.toLowerCase();
+    const expectedClientEnv = paddleEnvironment() === "live" ? "production" : "sandbox";
+    const expectedPrefix = expectedClientEnv === "sandbox" ? "test_" : "live_";
     if (!clientToken || (clientEnvironment !== "sandbox" && clientEnvironment !== "production")) {
       return res.status(503).json({ error: "Checkout pricing is not configured yet.", code: "PADDLE_CLIENT_NOT_CONFIGURED", detail: "PADDLE_CLIENT_TOKEN and PADDLE_CLIENT_ENVIRONMENT (\"sandbox\" or \"production\") must both be set" });
     }
+    if (clientEnvironment !== expectedClientEnv || !clientToken.startsWith(expectedPrefix)) {
+      return res.status(503).json({ error: "Checkout pricing environment mismatch.", code: "PADDLE_ENVIRONMENT_MISMATCH", detail: `PADDLE_ENVIRONMENT=${paddleEnvironment()} requires PADDLE_CLIENT_ENVIRONMENT=${expectedClientEnv} and a ${expectedPrefix}-prefixed PADDLE_CLIENT_TOKEN` });
+    }
+    const resolvedPrices = await resolvePaddlePriceEnvMap();
     res.setHeader("Cache-Control", "no-store");
     res.json({
       environment: clientEnvironment,
       clientToken,
       country: visitorCountry(_req),
-      tiers: buildPricingTiers((name) => env()[name] as string | undefined),
+      tiers: buildPricingTiers((name) => resolvedPrices[name] || (env()[name] as string | undefined)),
     });
   }));
 
@@ -1339,10 +1426,10 @@ export function registerPlatformRoutes(app: Express) {
         // from the already-fetched subscription row; the (rare) expired
         // ones are written back below so the database stays truthful.
         const sub = subscriptionByUser.get(user.id) || null;
-        if (sub && sub.status !== "active" && sub.status !== "on_trial") {
+        if (sub && ((sub.status !== "active" && sub.status !== "on_trial") || sub.cancelAtPeriodEnd)) {
           const ends = Date.parse(String(sub.expiresAt || sub.currentPeriodEnd || ""));
           if (Number.isFinite(ends) && ends <= Date.now()) {
-            sweepWrites.push(db.updateSubscription(sub.id, { status: "expired" }));
+            if (sub.status !== "cancelled") sweepWrites.push(db.updateSubscription(sub.id, { status: "expired" }));
             subscriptionByUser.delete(user.id);
             if (membership && membership.plan !== "free") sweepWrites.push(db.updateMembership(membership.id, { plan: "free" }));
             if (membership) membershipByUser.set(user.id, { ...membership, plan: "free" });

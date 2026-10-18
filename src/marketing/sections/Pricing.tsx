@@ -12,9 +12,10 @@ export default function Pricing() {
         <h3>{plan.name}</h3><p>{plan.description}</p><div className="pub-price"><b>${price}</b><span>{price === 0 ? "forever" : `/${interval === "monthly" ? "month" : "year"}`}</span></div>
         {interval === "yearly" && price > 0 && <p className="pub-saving">${plan.annualMonthlyEquivalent}/month equivalent · save ${plan.annualSaving}/year</p>}
         <ul className="pub-checks"><li>✓ {capacity}</li><li>✓ {slug === "free" ? "Sample visualisers, animated Subscribe CTA, 2 music tracks and 2 caption styles" : "All creative features unlocked"}</li><li>✓ 16:9 and 9:16 output</li><li>✓ Projects remain yours</li><li>✓ Unlimited preview corrections</li><li>✓ Narration with your own Speechify key</li></ul>
-        <a className="mkt-btn mkt-btn-primary" href={slug === "free" ? "/register" : `/register?plan=${slug}&interval=${interval}`}>{slug === "free" ? "Start Free" : `Choose ${plan.name}`}</a>
+        <a className="mkt-btn mkt-btn-primary" href={slug === "free" ? "/register" : `/pricing?plan=${slug}&interval=${interval}`}>{slug === "free" ? "Start Free" : `Choose ${plan.name}`}</a>
       </article>; })}
     </div>
     <p style={{ textAlign: "center", marginTop: 20 }}><a href="/pricing">See the complete feature comparison →</a></p>
+    <p className="pub-legal-note">By subscribing you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>. Cancel any time; see the <a href="/refunds">Refund &amp; Cancellation Policy</a> and <a href="/cookies">Cookie Information</a>.</p>
   </Section>;
 }

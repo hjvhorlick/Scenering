@@ -69,6 +69,10 @@ export type Env = {
   PADDLE_SCENEFLOW_YEARLY_PRICE_ID?: string;
   PADDLE_SCENEFORGE_MONTHLY_PRICE_ID?: string;
   PADDLE_SCENEFORGE_YEARLY_PRICE_ID?: string;
+  PADDLE_PRICE_ID_SCEENFLOW_MONTHLY?: string;
+  PADDLE_PRICE_ID_SCEENFLOW_ANNUAL?: string;
+  PADDLE_PRICE_ID_SCEENFORGE_MONTHLY?: string;
+  PADDLE_PRICE_ID_SCEENFORGE_ANNUAL?: string;
   /** Approved checkout URLs (Paddle → Account settings → Checkout settings).
    *  Passed as `checkout.url` when the transaction is created, so Paddle hands
    *  back a link that already carries this purchase. */

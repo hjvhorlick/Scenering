@@ -448,6 +448,11 @@ html[data-mkt="1"][data-theme] body {
   transform: translateY(0);
 }
 
+.mkt-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .mkt-btn-primary {
   border-color: var(--pc-accent-edge);
   background: var(--pc-accent-grad);
@@ -2311,7 +2316,13 @@ html[data-mkt="1"][data-theme] body {
 }
 
 .mkt-footer a {
-  color: #9dbdea;
+  color: #b7d2f8;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.mkt-footer a:hover {
+  color: #ffffff;
+  text-decoration: underline;
 }
 
 .mkt-footer-grid {
@@ -2328,15 +2339,87 @@ html[data-mkt="1"][data-theme] body {
 
 .mkt-footer h4 {
   font-size: 12px;
+  font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #867f74;
+  color: #e4dccf;
   margin-bottom: 10px;
 }
 
 .mkt-footer li {
   font-size: 13.5px;
   margin-bottom: 7px;
+}
+
+.mkt-footer-legal-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.mkt-footer-legal-list a {
+  font-weight: 650;
+  color: #d7e6fc;
+}
+
+.mkt-footer-legal-list span {
+  font-size: 12px;
+  color: #9e968a;
+}
+
+.mkt-footer-legal-bar {
+  margin-top: 26px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(228, 220, 207, 0.16);
+  background: rgba(255, 255, 255, 0.035);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (min-width: 760px) {
+  .mkt-footer-legal-bar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+}
+
+.mkt-footer-legal-label {
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #e4dccf;
+}
+
+.mkt-footer-legal-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mkt-footer-legal-pills a {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(183, 210, 248, 0.28);
+  background: rgba(183, 210, 248, 0.08);
+  color: #e8f1fd;
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.mkt-footer-legal-pills a:hover {
+  border-color: rgba(232, 241, 253, 0.65);
+  background: rgba(183, 210, 248, 0.18);
+  color: #ffffff;
+  text-decoration: none;
 }
 
 /* ========================================================== 5. motion */
