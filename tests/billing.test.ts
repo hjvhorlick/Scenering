@@ -70,6 +70,7 @@ const PADDLE_SOURCE_CIDRS = ["34.195.190.139/32", "52.30.114.63/32", "44.227.213
    reads that header first, so this is what the allowlist judges. */
 let webhookClientIp: string | null = null;
 let paddleOmitsCheckoutUrl = false;
+let portalSessionCounter = 0;
 const MANAGEMENT_URLS = {
   cancel: "https://billing.paddle.com/cancel/sub_9001",
   update_payment_method: "https://billing.paddle.com/card/sub_9001",
@@ -97,6 +98,29 @@ globalThis.fetch = (async (input: any, init?: any) => {
         // Paddle returns the approved checkout URL with the transaction bound
         // to it. No approved URL, no link to send the customer to.
         checkout: { url: approved && !paddleOmitsCheckoutUrl ? `${approved}?_ptxn=txn_01hzy3test` : null },
+      },
+      meta: {},
+    });
+  }
+  if (method === "POST" && /\/customers\/[^/]+\/portal-sessions$/.test(url)) {
+    portalSessionCounter += 1;
+    const customerId = decodeURIComponent(url.split("/customers/")[1].split("/portal-sessions")[0]);
+    const subIds: string[] = Array.isArray(body?.subscription_ids) ? body.subscription_ids : [];
+    return respond(201, {
+      data: {
+        id: `cpls_01hzy_${portalSessionCounter}`,
+        customer_id: customerId,
+        urls: {
+          general: {
+            overview: `https://sandbox-customer-portal.paddle.com/cpl_${portalSessionCounter}?customer=${customerId}`,
+          },
+          subscriptions: subIds.map((id) => ({
+            id,
+            cancel_subscription: `https://sandbox-customer-portal.paddle.com/cpl_${portalSessionCounter}/subscriptions/${id}/cancel`,
+            update_subscription_payment_method: `https://sandbox-customer-portal.paddle.com/cpl_${portalSessionCounter}/subscriptions/${id}/payment-method`,
+          })),
+        },
+        created_at: new Date().toISOString(),
       },
       meta: {},
     });
@@ -414,6 +438,11 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
   const after = await account();
   h.eq(after.membership.plan_id, "sceneflow", "the purchase granted the plan its price id maps to");
   h.eq(after.membership.source, "verified_subscription", "recorded as coming from a verified subscription");
+  h.eq(after.subscription.subscription_id, SUBSCRIPTION_ID, "subscription_id is stored and returned against the user");
+  h.eq(after.subscription.customer_id, CUSTOMER_ID, "customer_id is stored and returned against the user");
+  h.eq(after.subscription.subscription_status, "active", "subscription_status is stored and returned against the user");
+  h.eq(after.subscription.price_id, "pri_flow_month", "price_id is stored and returned against the user");
+  h.eq(after.subscription.product_id, "pro_01test", "product_id is stored and returned against the user");
   h.eq(after.subscription.status, "active", "the subscription is active");
   h.eq(after.subscription.billing_interval, "monthly", "on the interval the price id says");
   h.ok(Boolean(after.subscription.current_period_end), "with the period end the customer can see");
@@ -422,10 +451,13 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
      from the API — which is what makes self-service cancelling possible. */
   h.eq(after.subscription.customer_portal_url, MANAGEMENT_URLS.cancel, "Paddle's cancel link is stored from the API, so the customer can leave without emailing");
   h.eq(after.subscription.update_payment_url, MANAGEMENT_URLS.update_payment_method, "and so is the update-card link");
-  const stored = testD1().sqlite.prepare("SELECT provider, provider_price_id, provider_customer_id, renewal_price FROM subscriptions WHERE provider_subscription_id = ?").get(SUBSCRIPTION_ID) as any;
+  const stored = testD1().sqlite.prepare("SELECT provider, provider_subscription_id, provider_product_id, provider_price_id, provider_customer_id, status, renewal_price FROM subscriptions WHERE provider_subscription_id = ?").get(SUBSCRIPTION_ID) as any;
   h.eq(stored?.provider, "paddle", "the subscription row names Paddle as its provider");
+  h.eq(stored?.provider_subscription_id, SUBSCRIPTION_ID, "and keeps subscription_id");
+  h.eq(stored?.provider_product_id, "pro_01test", "and keeps product_id");
   h.eq(stored?.provider_price_id, "pri_flow_month", "and keeps the price id it was matched on");
   h.eq(stored?.provider_customer_id, CUSTOMER_ID, "and the Paddle customer id, for later events that carry no custom_data");
+  h.eq(stored?.status, "active", "and keeps subscription_status");
   h.eq(stored?.renewal_price, "1900 USD", "the renewal price keeps its currency, because the number alone would not mean anything");
   const readBack = paddleCalls.find((call) => call.method === "GET" && call.url.includes(`/subscriptions/${SUBSCRIPTION_ID}`));
   h.ok(Boolean(readBack), "the management links were read back from Paddle for that subscription");
@@ -758,8 +790,76 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
   h.eq(platform.sceneringStatusForPaddle("subscription.canceled", "canceled"), "cancelled", "Paddle's American spelling is translated once, into the one this codebase compares against");
   h.eq(platform.sceneringStatusForPaddle("subscription.trialing", "trialing"), "on_trial", "a trial maps onto the status the expiry sweep already understands");
   h.eq(platform.sceneringStatusForPaddle("subscription.updated", "something_new"), "something_new", "and a status nobody has seen is stored as-is rather than defaulted to one that grants access");
+  h.eq(platform.subscriptionGrantsPaidAccess("active"), true, "access helper: active grants paid access");
+  h.eq(platform.subscriptionGrantsPaidAccess("trialing"), true, "access helper: trialing grants paid access");
+  h.eq(platform.subscriptionGrantsPaidAccess("on_trial"), true, "access helper: on_trial grants paid access");
+  h.eq(platform.subscriptionGrantsPaidAccess("past_due"), true, "access helper: past_due grants paid access during dunning");
+  h.eq(platform.subscriptionGrantsPaidAccess({ status: "active", scheduledChangeAction: "cancel", cancelAtPeriodEnd: true }), true, "access helper: scheduled cancel does not revoke access while status is active");
+  h.eq(platform.subscriptionGrantsPaidAccess({ status: "trialing", scheduledChangeAction: "pause" }), true, "access helper: scheduled pause does not revoke access while status is trialing");
+  h.eq(platform.subscriptionGrantsPaidAccess("canceled"), false, "access helper: canceled revokes paid access");
+  h.eq(platform.subscriptionGrantsPaidAccess("cancelled"), false, "access helper: cancelled revokes paid access");
+  h.eq(platform.subscriptionGrantsPaidAccess("paused"), false, "access helper: paused revokes paid access");
+  h.eq(platform.subscriptionGrantsPaidAccess(null), false, "access helper: null subscription grants no paid access");
+  h.eq(platform.classifySubscriptionChange(null, { plan: "sceneflow", interval: "monthly" }), "initial", "change classifier: first subscription event is initial");
+  h.eq(platform.classifySubscriptionChange({ planId: "sceneflow", billingInterval: "monthly" }, { plan: "sceneforge", interval: "monthly" }), "upgrade", "change classifier: SceneFlow -> SceneForge is an upgrade");
+  h.eq(platform.classifySubscriptionChange({ planId: "sceneforge", billingInterval: "monthly" }, { plan: "sceneflow", interval: "monthly" }), "downgrade", "change classifier: SceneForge -> SceneFlow is a downgrade");
+  h.eq(platform.classifySubscriptionChange({ planId: "sceneflow", billingInterval: "monthly" }, { plan: "sceneflow", interval: "yearly" }), "upgrade", "change classifier: monthly -> yearly on same plan is an upgrade");
+  h.eq(platform.classifySubscriptionChange({ planId: "sceneflow", billingInterval: "yearly" }, { plan: "sceneflow", interval: "monthly" }), "downgrade", "change classifier: yearly -> monthly on same plan is a downgrade");
+  h.eq(platform.classifySubscriptionChange({ planId: "sceneflow", billingInterval: "monthly" }, { plan: "sceneflow", interval: "monthly" }), "unchanged", "change classifier: same plan and interval is unchanged");
   h.eq(platform.verifyPaddleSignature(Buffer.from("{}"), "", "secret"), null, "signature verification refuses an empty header");
   h.eq(platform.paddleSignatureHeader("{}", "secret", 1000).startsWith("ts=1000;h1="), true, "the signing helper produces the header Paddle sends");
+
+  /* Customer portal session minting (Part 3: self-service portal) */
+  {
+    const callsBeforeAnon = paddleCalls.length;
+    const anonPortal = await fetch(`${base}/api/billing/portal`, { method: "POST" });
+    h.eq(anonPortal.status, 401, "portal session: unauthenticated request is rejected with 401");
+    h.eq(paddleCalls.length, callsBeforeAnon, "portal session: Paddle API is not called for unauthenticated requests");
+
+    // Register a brand-new user with no Paddle customer or subscription
+    const freshEmail = "nocustomer@example.com";
+    const freshReg = await fetch(`${base}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: freshEmail, displayName: "Fresh User", password: "a-long-enough-password" }),
+    });
+    const freshRegBody = await freshReg.json() as any;
+    const freshVerify = String(freshRegBody.developmentVerificationUrl || "").split("token=")[1] || "";
+    await fetch(`${base}/api/auth/verify-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: decodeURIComponent(freshVerify) }) });
+    const freshLogin = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: freshEmail, password: "a-long-enough-password" }) });
+    const freshCookie = String(freshLogin.headers.get("set-cookie") || "").split(";")[0];
+
+    const callsBeforeNoCust = paddleCalls.length;
+    const noCustPortal = await fetch(`${base}/api/billing/portal`, {
+      method: "POST",
+      headers: { Cookie: freshCookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ customerId: CUSTOMER_ID, customer_id: CUSTOMER_ID }),
+    });
+    const noCustBody = await noCustPortal.json() as any;
+    h.eq(noCustPortal.status, 404, "portal session: user with no Paddle customer gets 404 even if they supply someone else's customerId");
+    h.eq(noCustBody.code, "NO_BILLING_CUSTOMER", "portal session: returns NO_BILLING_CUSTOMER error code");
+    h.eq(paddleCalls.length, callsBeforeNoCust, "portal session: Paddle API is not called when user has no customer record");
+
+    // Authenticated user with mirrored customer/subscription gets a fresh portal overview URL
+    const portal1 = await fetch(`${base}/api/billing/portal`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ customerId: "ctm_attacker_supplied_id", customer_id: "ctm_attacker_supplied_id" }),
+    });
+    const portal1Body = await portal1.json() as any;
+    h.eq(portal1.status, 200, "portal session: authenticated customer gets 200");
+    h.ok(typeof portal1Body.url === "string" && portal1Body.url.startsWith("https://sandbox-customer-portal.paddle.com/"), "portal session: returns hosted Paddle customer portal overview URL");
+    h.eq(Object.keys(portal1Body).join(","), "url", "portal session: returns ONLY { url } and does not leak raw session object");
+    h.eq(portal1.headers.get("cache-control"), "no-store", "portal session: response is marked no-store so portal URLs are never cached");
+    const lastPortalCall = paddleCalls.filter((c) => c.method === "POST" && c.url.includes("/portal-sessions")).pop();
+    h.ok(Boolean(lastPortalCall), "portal session: server called POST /customers/{id}/portal-sessions on Paddle API");
+    h.ok(!lastPortalCall?.url.includes("ctm_attacker_supplied_id"), "portal session: client-supplied customerId is ignored; server resolves customer_id from session");
+
+    const portal2 = await fetch(`${base}/api/billing/portal`, { method: "POST", headers: { Cookie: cookie } });
+    const portal2Body = await portal2.json() as any;
+    h.eq(portal2.status, 200, "portal session: second click succeeds");
+    h.ok(portal2Body.url !== portal1Body.url, "portal session: mints a fresh portal session URL on every click");
+  }
 }
 
 /* ------------------------------------------------------------------ */

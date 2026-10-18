@@ -754,6 +754,23 @@ export const db = {
     const row = await env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId).first();
     return row ? { userId: String(row.user_id), email: String(row.email) } : null;
   },
+  async findBillingCustomerByUser(userId: string, email?: string): Promise<{ providerCustomerId: string; userId: string; email: string } | null> {
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    const row = cleanEmail
+      ? await env().DB.prepare(
+          "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = 'paddle' AND (user_id = ? OR lower(email) = ?) ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, updated_at DESC LIMIT 1"
+        ).bind(userId, cleanEmail, userId).first()
+      : await env().DB.prepare(
+          "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = 'paddle' AND user_id = ? ORDER BY updated_at DESC LIMIT 1"
+        ).bind(userId).first();
+    return row ? { providerCustomerId: String((row as any).provider_customer_id), userId: String((row as any).user_id), email: String((row as any).email) } : null;
+  },
+  async listSubscriptionsForUser(userId: string): Promise<Subscription[]> {
+    const result = await env().DB.prepare(
+      "SELECT * FROM subscriptions WHERE user_id = ? ORDER BY updated_at DESC, created_at DESC, id DESC"
+    ).bind(userId).all();
+    return (result.results || []).map(rowToSubscription);
+  },
 
   // --- webhook / billing event logs ---
   async webhookEventExists(providerEventId: string): Promise<boolean> {

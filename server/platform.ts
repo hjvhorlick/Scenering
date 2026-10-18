@@ -225,6 +225,11 @@ async function subscriptionForUser(userId: string) {
 function apiSubscription(sub: import("../src/db.ts").Subscription | null) {
   if (!sub) return null;
   return {
+    subscription_id: sub.providerSubscriptionId,
+    customer_id: sub.providerCustomerId,
+    subscription_status: sub.status,
+    price_id: sub.providerPriceId,
+    product_id: sub.providerProductId,
     status: sub.status,
     plan_id: sub.planId,
     billing_interval: sub.billingInterval,
@@ -392,13 +397,13 @@ function parseCreativeManifest(value: unknown): ExportCreativeManifest | null {
 
 async function accountPayload(user: User) {
   const plan = await getUserPlan(user);
-  const [usage, remaining, subscription, membership] = await Promise.all([
-    weeklyUsage(user.id), remainingUsage(user.id, plan), subscriptionForUser(user.id), effectiveMembership(user, plan),
+  const [usage, remaining, subscription, membership, resolvedCustomer] = await Promise.all([
+    weeklyUsage(user.id), remainingUsage(user.id, plan), subscriptionForUser(user.id), effectiveMembership(user, plan), resolvePaddleCustomerForUser(user),
   ]);
   // `subscription` goes out in the API's snake_case wire format
   // (apiSubscription) — the same shape the membership object uses and the
   // account modal's TypeScript interface declares.
-  return { user: safeUser(user), membership, subscription: apiSubscription(subscription), plan: getPlanConfig(plan), usage, remaining };
+  return { user: safeUser(user), membership, subscription: apiSubscription(subscription), has_billing_customer: Boolean(resolvedCustomer), plan: getPlanConfig(plan), usage, remaining };
 }
 
 /**
@@ -768,22 +773,59 @@ export function planForPaddlePrice(priceId: string, priceMap?: Record<string, st
  * to match; a bare `price_id` is accepted too, because that is the shape the
  * API's transaction items use.
  */
+function activeSubscriptionItems(items: unknown): any[] {
+  if (!Array.isArray(items)) return [];
+  const active = items.filter((item) => {
+    const status = String((item as any)?.status || "").toLowerCase();
+    return !status || status === "active" || status === "trialing";
+  });
+  return active.length ? active : items;
+}
+
 function paddlePriceId(items: unknown): string {
-  if (!Array.isArray(items)) return "";
-  for (const item of items) {
-    const candidate = String((item as any)?.price?.id || (item as any)?.price_id || "");
+  for (const item of activeSubscriptionItems(items)) {
+    const candidate = String((item as any)?.price?.id || (item as any)?.price_id || (item as any)?.priceId || "");
     if (candidate) return candidate;
   }
   return "";
 }
 
 function paddleProductId(items: unknown): string {
-  if (!Array.isArray(items)) return "";
-  for (const item of items) {
-    const candidate = String((item as any)?.price?.product_id || (item as any)?.product_id || "");
+  for (const item of activeSubscriptionItems(items)) {
+    const candidate = String(
+      (item as any)?.price?.product_id ||
+      (item as any)?.price?.productId ||
+      (item as any)?.product?.id ||
+      (item as any)?.product_id ||
+      (item as any)?.productId ||
+      ""
+    );
     if (candidate) return candidate;
   }
   return "";
+}
+
+export type SubscriptionPlanChange = "initial" | "upgrade" | "downgrade" | "unchanged";
+
+/**
+ * Compares the previous mirrored subscription state against the newly parsed
+ * subscription items (`price_id` -> `plan` + `interval`) on `subscription.updated`
+ * to determine whether the subscription was upgraded or downgraded.
+ */
+export function classifySubscriptionChange(
+  previous: { planId: PlanSlug; billingInterval: BillingInterval; providerPriceId?: string | null } | null | undefined,
+  next: { plan: PlanSlug; interval: BillingInterval; priceId?: string | null },
+): SubscriptionPlanChange {
+  if (!previous) return "initial";
+  const planRank: Record<PlanSlug, number> = { free: 0, sceneflow: 1, sceneforge: 2 };
+  const prevRank = planRank[previous.planId] ?? 0;
+  const nextRank = planRank[next.plan] ?? 0;
+  if (nextRank > prevRank) return "upgrade";
+  if (nextRank < prevRank) return "downgrade";
+  if (previous.billingInterval !== next.interval) {
+    return next.interval === "yearly" ? "upgrade" : "downgrade";
+  }
+  return "unchanged";
 }
 
 /** The renewal price as Paddle states it: minor units plus the currency, so
@@ -824,6 +866,50 @@ export function sceneringStatusForPaddle(eventName: string, paddleStatus: string
       return byStatus[paddleStatus] || paddleStatus || "pending";
     }
   }
+}
+
+/**
+ * Decides whether a subscription currently grants paid access.
+ *
+ * Treats `active`, `trialing` (stored as `on_trial`), and `past_due` (dunning
+ * retry window) as access-granting. A `scheduled_change` to `cancel` or `pause`
+ * at period end keeps the subscription `active` / `trialing` / `past_due` until
+ * its effective date, so access is NOT revoked until `status` actually flips to
+ * `canceled` (`cancelled`) or `paused`.
+ */
+export function subscriptionGrantsPaidAccess(
+  input: string | { status?: string | null; subscription_status?: string | null; scheduledChangeAction?: string | null; cancelAtPeriodEnd?: boolean | null } | null | undefined,
+): boolean {
+  if (!input) return false;
+  const raw = typeof input === "string" ? input : String(input.status ?? input.subscription_status ?? "");
+  const status = raw.trim().toLowerCase() === "trialing" ? "on_trial" : raw.trim().toLowerCase();
+  return ["active", "on_trial", "past_due"].includes(status);
+}
+
+/**
+ * Resolves a signed-in user's Paddle `customer_id` (`ctm_…`) and owned
+ * `subscription_ids` (`sub_…`) strictly server-side from the mirrored
+ * `subscriptions` and `billing_customers` tables — never from client input.
+ */
+export async function resolvePaddleCustomerForUser(user: User): Promise<{ customerId: string; subscriptionIds: string[] } | null> {
+  const [subs, mapped] = await Promise.all([
+    db.listSubscriptionsForUser(user.id),
+    db.findBillingCustomerByUser(user.id, user.email),
+  ]);
+  const paddleSubs = subs.filter((s) => s.provider === "paddle");
+  const activeSubWithCustomer = paddleSubs.find((s) => s.status !== "expired" && s.providerCustomerId);
+  const anySubWithCustomer = paddleSubs.find((s) => s.providerCustomerId);
+  const customerId = String(activeSubWithCustomer?.providerCustomerId || mapped?.providerCustomerId || anySubWithCustomer?.providerCustomerId || "").trim();
+  if (!customerId) return null;
+  const subscriptionIds = [
+    ...new Set(
+      paddleSubs
+        .filter((s) => (!s.providerCustomerId || s.providerCustomerId === customerId) && s.providerSubscriptionId)
+        .map((s) => String(s.providerSubscriptionId).trim())
+        .filter(Boolean)
+    ),
+  ].slice(0, 25);
+  return { customerId, subscriptionIds };
 }
 
 /**
@@ -967,15 +1053,17 @@ export function registerPaddleWebhook(app: Express) {
         return record("mapped");
       }
 
-      if (!(PADDLE_SUBSCRIPTION_EVENTS as readonly string[]).includes(eventName)) return record("ignored");
+      const isTransactionFulfillment = eventName === "transaction.completed" && Boolean(String(data.subscription_id || "").trim());
+      if (!(PADDLE_SUBSCRIPTION_EVENTS as readonly string[]).includes(eventName) && !isTransactionFulfillment) return record("ignored");
 
-      const subscriptionId = String(data.id || "");
+      const subscriptionId = isTransactionFulfillment ? String(data.subscription_id || "").trim() : String(data.id || "");
       /* Without a subscription id there is nothing to key a row on, and every
          later event would insert a second one for the same purchase. Refuse it
          as unparseable rather than accumulate rows nobody can update. */
       if (!subscriptionId) return record("ignored");
       const customerId = String(data.customer_id || "");
       const priceId = paddlePriceId(data.items);
+      const productId = paddleProductId(data.items);
 
       /* Which account this subscription belongs to, best evidence first: the
          `custom_data` the server set when it created the transaction, then the
@@ -1009,9 +1097,9 @@ export function registerPaddleWebhook(app: Express) {
       }
       if (!mapped) return record("unknown_price");
 
-      const period = (data.current_billing_period || {}) as { starts_at?: unknown; ends_at?: unknown };
+      const period = (data.current_billing_period || data.billing_period || {}) as { starts_at?: unknown; ends_at?: unknown };
       const scheduled = (data.scheduled_change || null) as { action?: string; effective_at?: string; resume_at?: string | null } | null;
-      const status = sceneringStatusForPaddle(eventName, String(data.status || ""));
+      const status = isTransactionFulfillment ? "active" : sceneringStatusForPaddle(eventName, String(data.status || ""));
       const periodEnd = paddleText(period.ends_at) || paddleText(data.next_billed_at);
       const cancelScheduled = scheduled?.action === "cancel";
 
@@ -1036,11 +1124,13 @@ export function registerPaddleWebhook(app: Express) {
          already stores every timestamp. */
       const occurredAt = paddleText(event.occurred_at);
       if (sub && occurredAt && sub.providerEventOccurredAt && occurredAt < sub.providerEventOccurredAt) return record("stale");
+      const previousPlanId = sub?.planId ?? null;
+      const change = classifySubscriptionChange(sub, { plan: mapped.plan, interval: mapped.interval, priceId });
       const management = await paddleManagementUrls(subscriptionId);
       const fields = {
         provider: "paddle",
         providerCustomerId: customerId || null, providerSubscriptionId: subscriptionId || null,
-        providerProductId: paddleProductId(data.items) || null, providerPriceId: priceId || null,
+        providerProductId: productId || null, providerPriceId: priceId || null,
         planId: mapped.plan, billingInterval: mapped.interval, status,
         currentPeriodStart: paddleText(period.starts_at) || paddleText(data.started_at),
         currentPeriodEnd: periodEnd,
@@ -1060,13 +1150,22 @@ export function registerPaddleWebhook(app: Express) {
         sub = await db.createSubscription({
           id: db.newId("sub"), userId: user.id, provider: "paddle", planId: mapped.plan, billingInterval: mapped.interval, status,
           providerCustomerId: customerId || null, providerSubscriptionId: subscriptionId || null,
-          providerProductId: paddleProductId(data.items) || null, providerPriceId: priceId || null,
+          providerProductId: productId || null, providerPriceId: priceId || null,
           currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, cancelledAt: null, expiresAt: null,
           customerPortalUrl: null, updatePaymentUrl: null, cardBrand: null, cardLastFour: null, renewalPrice: null,
           providerEventOccurredAt: null,
         });
       }
       await db.updateSubscription(sub.id, fields);
+      if (customerId) {
+        await db.upsertBillingCustomer({
+          provider: "paddle",
+          providerCustomerId: customerId,
+          userId: user.id,
+          email: customEmail || user.email,
+          lastEventAt: occurredAt,
+        });
+      }
 
       /* Which statuses are worth access. This is where Paddle and the provider
          it replaced genuinely differ, and getting it wrong either gives service
@@ -1086,12 +1185,25 @@ export function registerPaddleWebhook(app: Express) {
          The per-user expiry sweep is still the backstop for the case Paddle
          cannot help with — a subscription whose period ended and whose next
          webhook never arrived. */
-      const paid = ["active", "on_trial", "past_due"].includes(status);
+      const paid = subscriptionGrantsPaidAccess(status);
       const membership = await db.findMembershipByUserId(user.id);
       if (membership) await db.updateMembership(membership.id, { plan: paid ? mapped.plan : "free", status: "active" });
       else await db.createMembership(user.id, paid ? mapped.plan : "free");
       await record("processed");
-      await db.recordBillingEvent({ userId: user.id, subscriptionId: sub.id, eventName, fromProvider: true, extra: null });
+      await db.recordBillingEvent({
+        userId: user.id,
+        subscriptionId: sub.id,
+        eventName,
+        fromProvider: true,
+        extra: {
+          change,
+          previous_plan_id: previousPlanId,
+          plan_id: mapped.plan,
+          billing_interval: mapped.interval,
+          price_id: priceId || null,
+          product_id: productId || null,
+        },
+      });
       return "processed";
     })();
     return res.status(result === "unmatched" || result === "unknown_price" ? 202 : 200).json({ received: true, status: result });
@@ -1317,6 +1429,61 @@ export function registerPlatformRoutes(app: Express) {
     res.setHeader("Cache-Control", "no-store");
     res.json({ url, provider: "paddle", environment: paddleEnvironment(), transactionId: paddleText(created.data?.id) });
   }));
+
+  /**
+   * Mints a temporary Paddle Customer Portal session for the signed-in user
+   * (`POST /customers/{customer_id}/portal-sessions`) and returns only the
+   * hosted portal overview URL.
+   *
+   * Security model:
+   *   1. Authenticates the user first via `requireUser` before any DB query or
+   *      Paddle API call.
+   *   2. Resolves `customer_id` (`ctm_…`) and owned `subscription_ids` (`sub_…`)
+   *      strictly server-side from the authenticated session (`subscriptions`
+   *      and `billing_customers`) — any client-supplied customer ID in the
+   *      body or query string is ignored.
+   *   3. Returns only `{ url }` (`urls.general.overview`) with `no-store` so
+   *      session metadata and deep-link tables are never leaked or cached.
+   */
+  const handleCustomerPortalSession = asyncHandlerVoid(async (req, res) => {
+    const { user } = (req as any).auth as Auth;
+    const resolved = await resolvePaddleCustomerForUser(user);
+    if (!resolved) {
+      return res.status(404).json({
+        error: "No billing account found for this user. Subscribe to a plan first.",
+        code: "NO_BILLING_CUSTOMER",
+      });
+    }
+    if (!env().PADDLE_API_KEY) {
+      return res.status(503).json({
+        error: "Customer portal is not configured yet.",
+        code: "BILLING_NOT_CONFIGURED",
+        detail: "PADDLE_API_KEY must be set",
+      });
+    }
+    const created = await paddleApi(`/customers/${encodeURIComponent(resolved.customerId)}/portal-sessions`, {
+      method: "POST",
+      body: { subscription_ids: resolved.subscriptionIds },
+    });
+    if (!created.ok) {
+      return res.status(502).json({
+        error: "Paddle could not open the customer portal.",
+        code: "BILLING_PROVIDER_ERROR",
+        detail: created.error,
+      });
+    }
+    const url = paddleText(created.data?.urls?.general?.overview);
+    if (!url || (!url.startsWith("https://") && isProduction())) {
+      return res.status(502).json({
+        error: "Paddle did not return a valid customer portal URL.",
+        code: "BILLING_PROVIDER_ERROR",
+      });
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ url });
+  });
+  app.post("/api/billing/portal", requireUser, rateLimit("billing-portal", 20, 3600000), handleCustomerPortalSession);
+  app.get("/api/billing/portal", requireUser, rateLimit("billing-portal", 20, 3600000), handleCustomerPortalSession);
 
   /**
    * The visitor's country as the edge reports it — Cloudflare sets
