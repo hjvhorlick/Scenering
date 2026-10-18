@@ -19,6 +19,8 @@
  * other, and a failed upgrade would take the others down with it.
  */
 
+import { assertMediaFile, probeImageFile } from "./media-file";
+
 const DB_NAME = "scenering-image";
 const DB_VERSION = 1;
 const STORE = "custom-image";
@@ -160,30 +162,6 @@ export function getCustomImage(url: string | undefined | null): CustomImageAsset
   return assets.find((a) => a.id === id);
 }
 
-/** Measures the real pixel size; a file the browser cannot decode is rejected. */
-function measureImageFile(objectUrl: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const done = (fn: () => void) => {
-      img.onload = null;
-      img.onerror = null;
-      fn();
-    };
-    img.onload = () =>
-      done(() =>
-        resolve({
-          width: img.naturalWidth || 0,
-          height: img.naturalHeight || 0,
-        })
-      );
-    img.onerror = () =>
-      done(() =>
-        reject(new Error("That file could not be read as an image. Try JPG, PNG or WebP."))
-      );
-    img.src = objectUrl;
-  });
-}
-
 function prettyName(filename: string): string {
   const base = filename.replace(/\.[a-z0-9]+$/i, "").replace(/[_-]+/g, " ").trim();
   if (!base) return "My photo";
@@ -205,51 +183,47 @@ export async function addCustomImage(
   if (!browserHasIdb()) {
     throw new CustomImageError("This browser cannot store uploads. Try a normal (non-private) window.");
   }
-  const looksLikeImage =
-    file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(file.name);
-  if (!looksLikeImage) {
-    throw new CustomImageError(`"${file.name}" is not an image file. Use JPG, PNG or WebP.`);
+  // Shared classification (media-file.ts): JPG, PNG and WebP lead, and a
+  // file whose OS reported no/generic MIME type is recognised by its
+  // extension. SVG stays refused here — it can taint a render canvas —
+  // and the shared refusal explains that instead of failing mid-render.
+  let classified;
+  try {
+    classified = assertMediaFile(file, ["image"], { allowSvg: false });
+  } catch (err: any) {
+    throw new CustomImageError(err?.message || "That file is not a supported image.");
   }
-  // SVG draws fine but taints a canvas in some browsers, which would break
-  // the render rather than this upload — refuse it here, where it can be
-  // explained.
-  if (file.type === "image/svg+xml" || /\.svg$/i.test(file.name)) {
-    throw new CustomImageError("SVG files cannot be used in a render. Export a PNG or JPG first.");
-  }
+  const uploadFile = classified.file;
   if (file.size > MAX_CUSTOM_IMAGE_BYTES) {
     const mb = Math.round(file.size / (1024 * 1024));
     throw new CustomImageError(`"${file.name}" is ${mb} MB. Keep photos under 40 MB.`);
   }
 
   const id = `ci_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  const objectUrl = URL.createObjectURL(file);
 
   let measured: { width: number; height: number };
   try {
-    measured = await measureImageFile(objectUrl);
+    measured = await probeImageFile(uploadFile);
   } catch (err: any) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomImageError(err?.message || "That file could not be read as an image.");
   }
   if (!measured.width || !measured.height) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomImageError("That file has no picture in it.");
   }
 
   const record: CustomImageRecord = {
     id,
     name: prettyName(file.name),
-    mime: file.type || "image/jpeg",
+    mime: classified.mimeType,
     size: file.size,
     width: measured.width,
     height: measured.height,
     addedAt: Date.now(),
-    blob: file,
+    blob: uploadFile,
   };
 
   const db = await openDb();
   if (!db) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomImageError("Storage is unavailable, so the upload could not be saved.");
   }
 
@@ -266,11 +240,10 @@ export async function addCustomImage(
   });
 
   if (!saved) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomImageError("The upload could not be saved — browser storage may be full.");
   }
 
-  objectUrls.set(id, objectUrl);
+  objectUrls.set(id, URL.createObjectURL(uploadFile));
   const asset = stripBlob(record);
   assets.push(asset);
   loaded = true;

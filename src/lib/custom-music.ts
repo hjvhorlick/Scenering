@@ -22,6 +22,8 @@
  *    playback.
  */
 
+import { assertMediaFile, probeAudioFile } from "./media-file";
+
 const DB_NAME = "scenering-media";
 const DB_VERSION = 1;
 const STORE = "custom-music";
@@ -186,27 +188,6 @@ export function getCustomMusicTrack(url: string | undefined | null): CustomMusic
   return tracks.find((t) => t.id === id);
 }
 
-/** Measures real playable length; a file the browser cannot decode is rejected. */
-function measureDuration(objectUrl: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const audio = new Audio();
-    const done = (fn: () => void) => {
-      audio.onloadedmetadata = null;
-      audio.onerror = null;
-      fn();
-    };
-    audio.onloadedmetadata = () =>
-      done(() => {
-        const value = Number(audio.duration);
-        resolve(Number.isFinite(value) && value > 0 ? value : 0);
-      });
-    audio.onerror = () =>
-      done(() => reject(new Error("That file could not be read as audio. Try MP3, WAV, OGG or M4A.")));
-    audio.preload = "metadata";
-    audio.src = objectUrl;
-  });
-}
-
 function prettyName(filename: string): string {
   const base = filename.replace(/\.[a-z0-9]+$/i, "").replace(/[_-]+/g, " ").trim();
   if (!base) return "My track";
@@ -223,43 +204,45 @@ export async function addCustomMusic(file: File): Promise<CustomMusicTrack> {
   if (!browserHasIdb()) {
     throw new CustomMusicError("This browser cannot store uploads. Try a normal (non-private) window.");
   }
-  const looksLikeAudio = file.type.startsWith("audio/") || /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|weba)$/i.test(file.name);
-  if (!looksLikeAudio) {
-    throw new CustomMusicError(`"${file.name}" is not an audio file. Use MP3, WAV, OGG, M4A, AAC or FLAC.`);
+  // Shared classification (media-file.ts): MP3, WAV and M4A lead, and a
+  // file whose OS reported no/generic MIME type is recognised by its
+  // extension and re-typed so the browser will decode it.
+  let classified;
+  try {
+    classified = assertMediaFile(file, ["audio"]);
+  } catch (err: any) {
+    throw new CustomMusicError(err?.message || "That file is not a supported audio file.");
   }
+  const uploadFile = classified.file;
   if (file.size > MAX_CUSTOM_MUSIC_BYTES) {
     const mb = Math.round(file.size / (1024 * 1024));
     throw new CustomMusicError(`"${file.name}" is ${mb} MB. Keep uploads under 60 MB.`);
   }
 
   const id = `cm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  const objectUrl = URL.createObjectURL(file);
 
   let duration = 0;
   try {
-    duration = await measureDuration(objectUrl);
+    duration = (await probeAudioFile(uploadFile)).duration;
   } catch (err: any) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomMusicError(err?.message || "That file could not be read as audio.");
   }
   if (duration <= 0) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomMusicError("That file has no playable audio in it.");
   }
 
   const record: CustomMusicRecord = {
     id,
     name: prettyName(file.name),
-    mime: file.type || "audio/mpeg",
+    mime: classified.mimeType,
     size: file.size,
     duration,
     addedAt: Date.now(),
-    blob: file,
+    blob: uploadFile,
   };
 
   const db = await openDb();
   if (!db) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomMusicError("Storage is unavailable, so the upload could not be saved.");
   }
 
@@ -276,11 +259,10 @@ export async function addCustomMusic(file: File): Promise<CustomMusicTrack> {
   });
 
   if (!saved) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomMusicError("The upload could not be saved — browser storage may be full.");
   }
 
-  objectUrls.set(id, objectUrl);
+  objectUrls.set(id, URL.createObjectURL(uploadFile));
   tracks.push(stripBlob(record));
   loaded = true;
   notify();

@@ -7,6 +7,8 @@ import {
   removeCustomPhoneticWord,
   resetCustomPhoneticDictionary,
   saveCustomPhoneticDictionary,
+  parsePhoneticDictionaryImport,
+  PHONETIC_IMPORT_ACCEPT,
   type PhoneticEntry,
   BUILT_IN_PHONETIC_ENTRIES,
 } from "../lib/phonetic-dictionary";
@@ -72,6 +74,7 @@ export default function PhoneticDictionaryTab({
   const [formError, setFormError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   // Load custom entries on mount & when updated
   const refreshCustomEntries = () => {
@@ -240,28 +243,34 @@ export default function PhoneticDictionaryTab({
     a.remove();
   };
 
-  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportDictionary = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
+    setImportError(null);
+    if (!/\.(json|csv|tsv|txt)$/i.test(file.name)) {
+      setImportError(`"${file.name}" is not a dictionary file. Use JSON, CSV, TSV or plain text.`);
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setImportError(`"${file.name}" is larger than the 2 MB dictionary limit.`);
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (Array.isArray(parsed)) {
-          saveCustomPhoneticDictionary(parsed);
-          refreshCustomEntries();
-          setFeedbackMessage(`Imported ${parsed.length} phonetic entries successfully!`);
-          setTimeout(() => setFeedbackMessage(null), 3500);
-        } else {
-          alert("Invalid JSON format: expected an array of phonetic entries.");
-        }
+        const entries = parsePhoneticDictionaryImport(String(event.target?.result || ""), file.name);
+        saveCustomPhoneticDictionary(entries);
+        refreshCustomEntries();
+        setFeedbackMessage(`Imported ${entries.length} phonetic entries successfully!`);
+        setTimeout(() => setFeedbackMessage(null), 3500);
       } catch (err: any) {
-        alert("Failed to parse JSON file: " + err.message);
+        setImportError(err?.message || "That dictionary could not be imported.");
       }
     };
+    reader.onerror = () => setImportError("That dictionary file could not be read.");
     reader.readAsText(file);
-    e.target.value = "";
   };
 
   return (
@@ -293,6 +302,11 @@ export default function PhoneticDictionaryTab({
           </div>
         </div>
 
+        {importError && (
+          <div role="alert" className="p-3 bg-rose-950/80 border border-rose-500/50 rounded-xl text-rose-200 text-xs font-medium">
+            {importError}
+          </div>
+        )}
         {feedbackMessage && (
           <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs font-medium flex items-center gap-2 animate-fadeIn">
             <Icon glyph="✅" /> {feedbackMessage}
@@ -469,11 +483,11 @@ export default function PhoneticDictionaryTab({
             </button>
 
             <label className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 border border-hairline transition-colors cursor-pointer">
-              Import JSON
+              Import JSON / CSV
               <input
                 type="file"
-                accept=".json"
-                onChange={handleImportJSON}
+                accept={PHONETIC_IMPORT_ACCEPT}
+                onChange={handleImportDictionary}
                 className="hidden"
               />
             </label>

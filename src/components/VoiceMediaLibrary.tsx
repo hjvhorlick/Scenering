@@ -22,6 +22,7 @@ import {
   subscribeToCustomMusic,
   type CustomMusicTrack,
 } from "../lib/custom-music";
+import { AUDIO_UPLOAD_ACCEPT } from "../lib/media-file";
 import Icon, { iconify } from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { isPlanCatalogItemIncluded, type PlanSlug } from "../config/plans";
@@ -235,18 +236,30 @@ export function BackgroundMusicLibrary({
     setUploadError(null);
     setUploading(true);
     try {
+      // One bad file in a multi-select must not stop the rest: each track
+      // is added (or refused, with its own reason) independently.
       let lastName = "";
+      const failures: string[] = [];
       for (const file of Array.from(files)) {
-        const track = await addCustomMusic(file);
-        lastName = track.name;
+        try {
+          const track = await addCustomMusic(file);
+          lastName = track.name;
+        } catch (err: any) {
+          failures.push(
+            err instanceof CustomMusicError ? err.message : err?.message || `"${file.name}" could not be added.`,
+          );
+        }
       }
-      setJustAdded(lastName);
-      setMood("my music");
-      window.setTimeout(() => setJustAdded(null), 6000);
-    } catch (err: any) {
-      setUploadError(
-        err instanceof CustomMusicError ? err.message : err?.message || "That upload did not work."
-      );
+      if (lastName) {
+        setJustAdded(lastName);
+        setMood("my music");
+        window.setTimeout(() => setJustAdded(null), 6000);
+      }
+      if (failures.length > 0) {
+        setUploadError(
+          failures.length === 1 ? failures[0] : `${failures[0]} (${failures.length - 1} more file${failures.length > 2 ? "s were" : " was"} also refused.)`,
+        );
+      }
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -308,7 +321,7 @@ export function BackgroundMusicLibrary({
       <input
         ref={fileInputRef}
         type="file"
-        accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac,.opus"
+        accept={AUDIO_UPLOAD_ACCEPT}
         multiple
         className="hidden"
         onChange={(event) => handleFiles(event.target.files)}

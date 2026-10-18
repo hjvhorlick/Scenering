@@ -50,6 +50,7 @@ import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
 
 import { loadCustomVideos } from "./lib/custom-video";
 import { loadCustomImages } from "./lib/custom-image";
+import { loadCustomMusic } from "./lib/custom-music";
 import { getSession } from "./lib/session";
 import { getApiKeysHeaders, getApiKeysQueryParams } from "./lib/api-keys";
 import {
@@ -776,6 +777,10 @@ export default function App() {
     // Same story for uploaded photos: `custom-image:<id>` only resolves once
     // the store has been read back from IndexedDB.
     loadCustomImages().catch(() => {});
+    // And for uploaded music/section sounds (`custom-music:<id>`): loading
+    // only happened when the music library mounted, so a saved project
+    // previewed or exported before that step was visited played silence.
+    loadCustomMusic().catch(() => {});
   }, []);
 
   const fetchProjects = useCallback(async () => {

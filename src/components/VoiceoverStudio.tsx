@@ -23,6 +23,7 @@ import Icon from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { isPlanVoiceIncluded, type PlanSlug } from "../config/plans";
 import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
+import { AUDIO_UPLOAD_ACCEPT, assertMediaFile, probeAudioFile } from "../lib/media-file";
 
 interface VoiceoverStudioProps {
   /** The open project: this section's choices are remembered per project. */
@@ -140,6 +141,7 @@ export default function VoiceoverStudio({
   const [importTargetScene, setImportTargetScene] = useState<string>("all");
   const [isImportPlaying, setIsImportPlaying] = useState<boolean>(false);
   const [importSuccessBanner, setImportSuccessBanner] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -393,19 +395,23 @@ export default function VoiceoverStudio({
   const totalWords = scenes.reduce((sum, s) => sum + s.text.split(/\s+/).filter(Boolean).length, 0);
   const estimatedReadingDuration = Math.round((totalWords / (140 * globalSpeed)) * 60);
 
-  // File Upload Handlers for Tab 2
-  const handleFileUpload = (file: File) => {
+  // File Upload Handlers for Tab 2. Classified and really decoded first
+  // (shared rules in media-file.ts) — an unsupported speech file used to
+  // attach silently and only fail when the narration should have played.
+  const handleFileUpload = async (file: File) => {
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setImportedAudioUrl(url);
-    setImportedFileName(file.name);
-    setCustomVoiceLabel(file.name.replace(/\.[^/.]+$/, ""));
-
-    // Detect duration
-    const tempAudio = new Audio(url);
-    tempAudio.onloadedmetadata = () => {
-      setImportedAudioDuration(Math.round(tempAudio.duration));
-    };
+    setImportError(null);
+    try {
+      const classified = assertMediaFile(file, ["audio"]);
+      const { duration } = await probeAudioFile(classified.file);
+      if (importedAudioUrl?.startsWith("blob:")) URL.revokeObjectURL(importedAudioUrl);
+      setImportedAudioUrl(URL.createObjectURL(classified.file));
+      setImportedFileName(file.name);
+      setCustomVoiceLabel(file.name.replace(/\.[^/.]+$/, ""));
+      setImportedAudioDuration(Math.round(duration));
+    } catch (err: any) {
+      setImportError(err?.message || "That audio file could not be imported.");
+    }
   };
 
   const handleApplyImportedAudio = () => {
@@ -1246,7 +1252,7 @@ export default function VoiceoverStudio({
               <Icon glyph="📁" /> Import Prepared TTS Audio File
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              Upload your own externally generated or recorded speech file (.mp3, .wav, .m4a, .ogg, .webm) and attach it to your project narration.
+              Upload your own externally generated or recorded speech file (.mp3, .wav, .m4a, .aac, .ogg, .webm or .flac) and attach it to your project narration.
             </p>
           </div>
 
@@ -1270,7 +1276,7 @@ export default function VoiceoverStudio({
               e.preventDefault();
               e.stopPropagation();
               if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                handleFileUpload(e.dataTransfer.files[0]);
+                void handleFileUpload(e.dataTransfer.files[0]);
               }
             }}
             className="border border-dashed border-indigo-700/60 hover:border-indigo-500 rounded-2xl p-8 text-center bg-gray-800/30 hover:bg-gray-800/50 cursor-pointer transition-all space-y-3"
@@ -1283,21 +1289,27 @@ export default function VoiceoverStudio({
                 Click to browse or drag & drop your prepared TTS audio file
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                Supports MP3, WAV, M4A, OGG, WebM • High quality speech recordings
+                Supports MP3, WAV, M4A, AAC, OGG, WebM and FLAC • High quality speech recordings
               </p>
             </div>
             <input
               ref={fileInputRef}
               type="file"
-              accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm"
+              accept={AUDIO_UPLOAD_ACCEPT}
               onChange={(e) => {
-                if (e.target.files && e.target.files[0]) {
-                  handleFileUpload(e.target.files[0]);
-                }
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void handleFileUpload(file);
               }}
               className="hidden"
             />
           </div>
+
+          {importError && (
+            <p role="alert" className="px-3 py-2 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-200 text-xs">
+              {importError}
+            </p>
+          )}
 
           {/* Imported File Review & Assignment Controls */}
           {importedAudioUrl && (

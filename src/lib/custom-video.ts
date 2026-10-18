@@ -22,6 +22,8 @@
  * and a failed upgrade would take the music library down with it.
  */
 
+import { assertMediaFile, probeVideoFile } from "./media-file";
+
 const DB_NAME = "scenering-video";
 const DB_VERSION = 1;
 const STORE = "custom-video";
@@ -163,34 +165,6 @@ export function getCustomVideo(url: string | undefined | null): CustomVideoClip 
   return clips.find((c) => c.id === id);
 }
 
-/** Measures real playable length and frame size; an undecodable file is rejected. */
-function measureVideo(objectUrl: string): Promise<{ duration: number; width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const video = document.createElement("video");
-    const done = (fn: () => void) => {
-      video.onloadedmetadata = null;
-      video.onerror = null;
-      fn();
-    };
-    video.onloadedmetadata = () =>
-      done(() => {
-        const duration = Number(video.duration);
-        resolve({
-          duration: Number.isFinite(duration) && duration > 0 ? duration : 0,
-          width: video.videoWidth || 0,
-          height: video.videoHeight || 0,
-        });
-      });
-    video.onerror = () =>
-      done(() =>
-        reject(new Error("That file could not be played as video. Try MP4 (H.264), WebM or MOV."))
-      );
-    video.preload = "metadata";
-    video.muted = true;
-    video.src = objectUrl;
-  });
-}
-
 function prettyName(filename: string): string {
   const base = filename.replace(/\.[a-z0-9]+$/i, "").replace(/[_-]+/g, " ").trim();
   if (!base) return "My video";
@@ -207,46 +181,50 @@ export async function addCustomVideo(file: File): Promise<CustomVideoClip> {
   if (!browserHasIdb()) {
     throw new CustomVideoError("This browser cannot store uploads. Try a normal (non-private) window.");
   }
-  const looksLikeVideo =
-    file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|ogv|mkv|avi)$/i.test(file.name);
-  if (!looksLikeVideo) {
-    throw new CustomVideoError(`"${file.name}" is not a video file. Use MP4, MOV, WebM or M4V.`);
+  // Shared classification (media-file.ts): MP4, MOV and WebM lead, and a
+  // file whose OS reported no/generic MIME type is recognised by its
+  // extension and re-typed so the browser will decode it.
+  let classified;
+  try {
+    classified = assertMediaFile(file, ["video"]);
+  } catch (err: any) {
+    throw new CustomVideoError(err?.message || "That file is not a supported video.");
   }
+  const uploadFile = classified.file;
   if (file.size > MAX_CUSTOM_VIDEO_BYTES) {
     const mb = Math.round(file.size / (1024 * 1024));
     throw new CustomVideoError(`"${file.name}" is ${mb} MB. Keep uploads under 500 MB.`);
   }
 
   const id = `cv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  const objectUrl = URL.createObjectURL(file);
 
   let measured: { duration: number; width: number; height: number };
   try {
-    measured = await measureVideo(objectUrl);
+    measured = await probeVideoFile(uploadFile);
   } catch (err: any) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomVideoError(err?.message || "That file could not be read as video.");
   }
   if (measured.duration <= 0) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomVideoError("That file has no playable video in it.");
+  }
+  if (!measured.width || !measured.height) {
+    throw new CustomVideoError("That file has no picture in it — it may be an audio-only file in a video container.");
   }
 
   const record: CustomVideoRecord = {
     id,
     name: prettyName(file.name),
-    mime: file.type || "video/mp4",
+    mime: classified.mimeType,
     size: file.size,
     duration: measured.duration,
     width: measured.width,
     height: measured.height,
     addedAt: Date.now(),
-    blob: file,
+    blob: uploadFile,
   };
 
   const db = await openDb();
   if (!db) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomVideoError("Storage is unavailable, so the upload could not be saved.");
   }
 
@@ -263,11 +241,10 @@ export async function addCustomVideo(file: File): Promise<CustomVideoClip> {
   });
 
   if (!saved) {
-    URL.revokeObjectURL(objectUrl);
     throw new CustomVideoError("The upload could not be saved — browser storage may be full.");
   }
 
-  objectUrls.set(id, objectUrl);
+  objectUrls.set(id, URL.createObjectURL(uploadFile));
   clips.push(stripBlob(record));
   loaded = true;
   return stripBlob(record);

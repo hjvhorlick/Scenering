@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import type { CustomerLogoConfig, AspectRatioType } from "../types";
 import Icon from "./icons/Icon";
+import { LOGO_IMAGE_UPLOAD_ACCEPT, readImageFileAsDataUrl } from "../lib/media-file";
 
 interface CustomerLogoSectionProps {
   config: CustomerLogoConfig;
@@ -19,22 +20,21 @@ export default function CustomerLogoSection({
   const [dragActive, setDragActive] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const [showUrlModal, setShowUrlModal] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const handleFileUpload = (file: File) => {
+  const handleFileUpload = async (file: File) => {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      alert("Please upload a valid image file (PNG, JPG, SVG, or WebP).");
-      return;
+    setUploadError(null);
+    try {
+      // Shared validation (media-file.ts): JPG, PNG and WebP lead, SVG is
+      // welcome on a logo, and the file is actually decoded before it is
+      // stored — before, any file was taken on trust and a bad one simply
+      // never showed.
+      const url = await readImageFileAsDataUrl(file, { allowSvg: true });
+      onChange({ url, enabled: true });
+    } catch (err: any) {
+      setUploadError(err?.message || "That logo could not be added.");
     }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      if (result) {
-        onChange({ url: result, enabled: true });
-      }
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -121,9 +121,11 @@ export default function CustomerLogoSection({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/png,image/jpeg,image/svg+xml,image/webp"
+              accept={LOGO_IMAGE_UPLOAD_ACCEPT}
               onChange={(e) => {
-                if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void handleFileUpload(file);
               }}
               className="hidden"
             />
@@ -143,6 +145,12 @@ export default function CustomerLogoSection({
               )}
             </div>
           </div>
+
+          {uploadError && (
+            <p role="alert" className="text-xs px-3 py-2 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-200">
+              {uploadError}
+            </p>
+          )}
 
           {/* Quick Action Links: URL modal & remove */}
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">

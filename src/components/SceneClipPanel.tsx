@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Scene } from "../types";
 import { resolveVideoUrl } from "../lib/custom-video";
+import { VIDEO_UPLOAD_ACCEPT } from "../lib/media-file";
 import { sceneUpdatesForVideoFile, videoUploadMessage } from "../lib/scene-clip-attach";
 import { sceneDurationForText } from "../lib/duration-utils";
 import Icon, { iconify } from "./icons/Icon";
@@ -119,9 +120,9 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
         <input
           ref={fileRef}
           type="file"
-          accept="video/*"
+          accept={VIDEO_UPLOAD_ACCEPT}
           className="hidden"
-          onChange={(e) => handlePick(e.target.files?.[0])}
+          onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; void handlePick(file); }}
         />
         <button
           type="button"
@@ -153,9 +154,9 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
           <input
             ref={fileRef}
             type="file"
-            accept="video/*"
+            accept={VIDEO_UPLOAD_ACCEPT}
             className="hidden"
-            onChange={(e) => handlePick(e.target.files?.[0])}
+            onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; void handlePick(file); }}
           />
           <button
             type="button"

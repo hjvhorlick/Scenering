@@ -21,6 +21,16 @@ import SectionPreviewCanvas from "./SectionPreviewCanvas";
 import type { AspectRatioType } from "../types";
 import { sectionPreviewShape } from "../lib/section-preview-size";
 import Icon, { iconify } from "./icons/Icon";
+import { addCustomImage } from "../lib/custom-image";
+import { addCustomMusic, CUSTOM_MUSIC_PREFIX } from "../lib/custom-music";
+import { addCustomVideo, CUSTOM_VIDEO_PREFIX } from "../lib/custom-video";
+import {
+  AUDIO_UPLOAD_ACCEPT,
+  IMAGE_OR_VIDEO_UPLOAD_ACCEPT,
+  LOGO_IMAGE_UPLOAD_ACCEPT,
+  assertMediaFile,
+  readImageFileAsDataUrl,
+} from "../lib/media-file";
 
 interface Props {
   kind: SectionKind;
@@ -97,6 +107,8 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const soundInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<"media" | "logo" | "sound" | null>(null);
 
   /* Sound previews go through the ONE shared preview manager (the same one
      the music library and insert modal use). This studio used to run its own
@@ -119,8 +131,13 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
     ? "from-amber-500 to-yellow-500 text-gray-950"
     : "from-rose-600 to-red-600 text-white";
 
+  // Uploads finish asynchronously; patching through a ref means a file
+  // that lands after the user has tweaked a slider cannot resurrect the
+  // config as it was when the picker opened.
+  const cfgRef = useRef(cfg);
+  cfgRef.current = cfg;
   const update = (patch: Partial<SectionConfig>) => {
-    onChange({ ...cfg, ...patch, enabled: true });
+    onChange({ ...cfgRef.current, ...patch, enabled: true });
   };
 
   const enable = () => onChange({ ...cfg, enabled: true });
@@ -137,28 +154,52 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
     setPlayingSound(started ? id : null);
   };
 
+  // Every upload here is classified, really decoded and stored
+  // persistently, and the section keeps the stable `custom-…:<id>`
+  // address. These used to keep a bare object URL with no validation at
+  // all: an unsupported file "uploaded" and then silently never played,
+  // and even a good one died with the page.
+  const runUpload = async (slot: "media" | "logo" | "sound", work: () => Promise<void>) => {
+    setUploadError(null);
+    setUploading(slot);
+    try {
+      await work();
+    } catch (err: any) {
+      setUploadError(err?.message || "That file could not be added.");
+    } finally {
+      setUploading(null);
+    }
+  };
+
   const onPickMedia = (file: File | undefined) => {
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    update({
-      backgroundKind: file.type.startsWith("video") ? "video" : "image",
-      mediaUrl: url,
-      mediaName: file.name,
+    void runUpload("media", async () => {
+      const classified = assertMediaFile(file, ["video", "image"]);
+      if (classified.kind === "video") {
+        const clip = await addCustomVideo(classified.file);
+        update({ backgroundKind: "video", mediaUrl: `${CUSTOM_VIDEO_PREFIX}${clip.id}`, mediaName: clip.name });
+      } else {
+        const image = await addCustomImage(classified.file);
+        update({ backgroundKind: "image", mediaUrl: image.url, mediaName: image.asset.name });
+      }
+      setRestartKey((k) => k + 1);
     });
-    setRestartKey((k) => k + 1);
   };
 
   const onPickLogo = (file: File | undefined) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => update({ logoEnabled: true, logoUrl: String(reader.result) });
-    reader.readAsDataURL(file);
+    void runUpload("logo", async () => {
+      const url = await readImageFileAsDataUrl(file, { allowSvg: true });
+      update({ logoEnabled: true, logoUrl: url });
+    });
   };
 
   const onPickSound = (file: File | undefined) => {
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    update({ customSoundUrl: url, customSoundName: file.name });
+    void runUpload("sound", async () => {
+      const track = await addCustomMusic(file);
+      update({ customSoundUrl: `${CUSTOM_MUSIC_PREFIX}${track.id}`, customSoundName: track.name });
+    });
   };
 
   /**
@@ -338,6 +379,12 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
             </div>
 
             <div className="p-4 space-y-3">
+              {uploadError && (
+                <p role="alert" className="px-3 py-2 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-200 text-[11px]">
+                  {uploadError}
+                </p>
+              )}
+
               {/* ------------------------ BACKGROUND ------------------------ */}
               {tab === "background" && (
                 <>
@@ -346,16 +393,17 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                     <button
                       type="button"
                       onClick={() => mediaInputRef.current?.click()}
-                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-semibold"
+                      disabled={uploading !== null}
+                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white rounded-lg text-[11px] font-semibold"
                     >
-                      <Icon glyph="⬆" /> Upload my own video / image
+                      <Icon glyph="⬆" /> {uploading === "media" ? "Adding…" : "Upload my own video / image"}
                     </button>
                     <input
                       ref={mediaInputRef}
                       type="file"
-                      accept="video/*,image/*"
+                      accept={IMAGE_OR_VIDEO_UPLOAD_ACCEPT}
                       className="hidden"
-                      onChange={(e) => onPickMedia(e.target.files?.[0])}
+                      onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; onPickMedia(file); }}
                     />
                   </div>
 
@@ -594,16 +642,17 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                     <button
                       type="button"
                       onClick={() => logoInputRef.current?.click()}
-                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-semibold"
+                      disabled={uploading !== null}
+                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white rounded-lg text-[11px] font-semibold"
                     >
-                      <Icon glyph="⬆" /> Upload logo
+                      <Icon glyph="⬆" /> {uploading === "logo" ? "Adding…" : "Upload logo"}
                     </button>
                     <input
                       ref={logoInputRef}
                       type="file"
-                      accept="image/*"
+                      accept={LOGO_IMAGE_UPLOAD_ACCEPT}
                       className="hidden"
-                      onChange={(e) => onPickLogo(e.target.files?.[0])}
+                      onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; onPickLogo(file); }}
                     />
                   </div>
 
@@ -699,16 +748,17 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                     <button
                       type="button"
                       onClick={() => soundInputRef.current?.click()}
-                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-semibold"
+                      disabled={uploading !== null}
+                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white rounded-lg text-[11px] font-semibold"
                     >
-                      <Icon glyph="⬆" /> Upload my own sound
+                      <Icon glyph="⬆" /> {uploading === "sound" ? "Adding…" : "Upload my own sound"}
                     </button>
                     <input
                       ref={soundInputRef}
                       type="file"
-                      accept="audio/*"
+                      accept={AUDIO_UPLOAD_ACCEPT}
                       className="hidden"
-                      onChange={(e) => onPickSound(e.target.files?.[0])}
+                      onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; onPickSound(file); }}
                     />
                   </div>
 

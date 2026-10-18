@@ -49,6 +49,7 @@ import {
 import CtaBadgePreview from "./CtaBadgePreview";
 import CtaOptionThumb from "./CtaOptionThumb";
 import Icon, { iconify } from "./icons/Icon";
+import { LOGO_IMAGE_UPLOAD_ACCEPT, readImageFileAsDataUrl } from "../lib/media-file";
 
 interface InsertPropertiesModalProps {
   insert: TimelineInsert | null;
@@ -809,6 +810,7 @@ function InsertPropertiesContent({
     : "visuals";
 
   const logoFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
 
   const formatTime = (secs: number) => {
     const s = Math.max(0, Math.round(secs || 0));
@@ -1172,18 +1174,22 @@ function InsertPropertiesContent({
     setSoundPreviewVolume(newVol);
   };
 
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (typeof event.target?.result === "string") {
-        updateContent("logoUrl", event.target.result);
-        updateContent("showLogo", true);
-        updateContent("includeLogo", true);
-      }
-    };
-    reader.readAsDataURL(file);
+    setLogoUploadError(null);
+    try {
+      // Shared validation (media-file.ts): the file is decoded before it
+      // becomes the insert's logo — before, any file was stored unseen and
+      // simply never rendered.
+      const url = await readImageFileAsDataUrl(file, { allowSvg: true });
+      updateContent("logoUrl", url);
+      updateContent("showLogo", true);
+      updateContent("includeLogo", true);
+    } catch (err: any) {
+      setLogoUploadError(err?.message || "That logo could not be added.");
+    }
   };
 
   return (
@@ -1615,11 +1621,16 @@ function InsertPropertiesContent({
                     <input
                       ref={logoFileInputRef}
                       type="file"
-                      accept="image/*"
+                      accept={LOGO_IMAGE_UPLOAD_ACCEPT}
                       className="hidden"
-                      onChange={handleLogoFileUpload}
+                      onChange={(e) => void handleLogoFileUpload(e)}
                     />
                   </div>
+                  {logoUploadError && (
+                    <p role="alert" className="px-3 py-2 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-200 text-xs">
+                      {logoUploadError}
+                    </p>
+                  )}
                 </div>
 
                 {/* Logo Position */}

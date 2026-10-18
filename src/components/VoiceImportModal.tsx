@@ -7,6 +7,7 @@ import { isPlanVoiceIncluded } from "../config/plans";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { buildSpeechifyVoiceDirectory, fetchSpeechifyVoiceCatalog, synthesizeSpeechify } from "../lib/speechify-client";
 import Icon, { iconify } from "./icons/Icon";
+import { AUDIO_UPLOAD_ACCEPT, assertMediaFile, probeAudioFile } from "../lib/media-file";
 
 interface VoiceImportModalProps {
   scene?: Scene;
@@ -164,35 +165,31 @@ export default function VoiceImportModal({
     }
   };
 
-  // Handle File Selection
+  // Handle File Selection. The file is classified and really decoded
+  // before it can be attached (shared rules in media-file.ts) — this used
+  // to accept even on a decode error with a made-up 5-second length.
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
 
     setUploading(true);
+    setAttachmentError(null);
     try {
-      const audioUrl = URL.createObjectURL(file);
-      const audioObj = new Audio(audioUrl);
-
-      audioObj.onloadedmetadata = () => {
-        const duration = Math.round(audioObj.duration * 10) / 10;
-        setUploadedAudio({
-          url: audioUrl,
-          name: file.name,
-          duration: duration > 0 ? duration : 5,
-        });
-        setUploading(false);
-      };
-
-      audioObj.onerror = () => {
-        setUploadedAudio({
-          url: audioUrl,
-          name: file.name,
-          duration: 5,
-        });
-        setUploading(false);
-      };
-    } catch {
+      if (file.size > 50 * 1024 * 1024) {
+        throw new Error(`"${file.name}" is larger than the 50 MB import limit.`);
+      }
+      const classified = assertMediaFile(file, ["audio"]);
+      const { duration } = await probeAudioFile(classified.file);
+      setUploadedAudio({
+        url: URL.createObjectURL(classified.file),
+        name: file.name,
+        duration: Math.round(duration * 10) / 10,
+      });
+    } catch (err: any) {
+      setUploadedAudio(null);
+      setAttachmentError(err?.message || "That audio file could not be imported.");
+    } finally {
       setUploading(false);
     }
   };
@@ -202,7 +199,13 @@ export default function VoiceImportModal({
     try {
       audioChunksRef.current = [];
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      // Ask for a container this browser can produce (WebM/Opus on
+      // Chrome, MP4 on Safari) and label the recording with the type the
+      // recorder actually used — it used to claim WebM unconditionally.
+      const preferredType = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"].find(
+        (type) => typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported(type),
+      );
+      const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {
@@ -210,11 +213,21 @@ export default function VoiceImportModal({
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const mimeType = recorder.mimeType || audioChunksRef.current[0]?.type || "audio/webm";
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
         const url = URL.createObjectURL(blob);
-        const duration = Math.max(1, recordingTime);
-        setRecordedAudio({ url, blob, duration });
         stream.getTracks().forEach((track) => track.stop());
+        void (async () => {
+          let duration = 0;
+          try {
+            duration = (await probeAudioFile(blob)).duration;
+          } catch {
+            setAttachmentError("That recording could not be played back. Please record it again.");
+            URL.revokeObjectURL(url);
+            return;
+          }
+          setRecordedAudio({ url, blob, duration: Math.round(duration * 10) / 10 });
+        })();
       };
 
       recorder.start(100);
@@ -256,18 +269,16 @@ export default function VoiceImportModal({
       if (scene) {
         const synthesized = await synthesizeSpeechify(scene.text || "", selectedVoiceId);
         const audioUrl = URL.createObjectURL(synthesized.blob);
-        const audioObj = new Audio(audioUrl);
-        audioObj.onloadedmetadata = () => {
-          const duration = Math.ceil(audioObj.duration || scene.duration || 4);
-          onAttachAudio(scene.id, audioUrl, `Speechify Voice (${selectedVoiceId})`, duration);
+        try {
+          const { duration } = await probeAudioFile(synthesized.blob);
+          onAttachAudio(scene.id, audioUrl, `Speechify Voice (${selectedVoiceId})`, Math.ceil(duration));
           setLoadingAudio(false);
           onClose();
-        };
-        audioObj.onerror = () => {
+        } catch {
           URL.revokeObjectURL(audioUrl);
           setLoadingAudio(false);
           setAttachmentError("The Speechify audio could not be decoded by this browser.");
-        };
+        }
       }
     } catch (error: any) {
       setLoadingAudio(false);
@@ -658,7 +669,7 @@ export default function VoiceImportModal({
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileChange}
-                  accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg"
+                  accept={AUDIO_UPLOAD_ACCEPT}
                   className="hidden"
                 />
                 <span className="text-4xl"><Icon glyph="🎵" /></span>
@@ -667,7 +678,7 @@ export default function VoiceImportModal({
                     Click to Upload Real Quality Voice Audio
                   </h3>
                   <p className="text-xs text-gray-400">
-                    Supports MP3, WAV, M4A, AAC, and OGG formats up to 50MB
+                    Supports MP3, WAV, M4A, AAC, OGG, WebM and FLAC formats up to 50MB
                   </p>
                 </div>
                 <button

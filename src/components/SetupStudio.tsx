@@ -47,6 +47,7 @@ import {
   resolveVideoUrl,
   type CustomVideoClip,
 } from "../lib/custom-video";
+import { VIDEO_UPLOAD_ACCEPT } from "../lib/media-file";
 import VoiceoverSwitch from "./VoiceoverSwitch";
 import type { NewProjectOptions } from "../App";
 import Icon, { iconify } from "./icons/Icon";
@@ -1027,7 +1028,7 @@ export default function SetupStudio({
                 <input
                   ref={clipInputRef}
                   type="file"
-                  accept="video/*,.mp4,.mov,.webm,.m4v"
+                  accept={VIDEO_UPLOAD_ACCEPT}
                   className="hidden"
                   onChange={(e) => handleUploadClip(e.target.files?.[0])}
                 />
