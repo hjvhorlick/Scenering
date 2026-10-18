@@ -82,6 +82,133 @@ export const BUILT_IN_PHONETIC_ENTRIES: PhoneticEntry[] = [
 
 const STORAGE_KEY = "scenering_phonetic_dictionary";
 
+/** File types the dictionary importer offers: JSON, CSV, TSV and plain text. */
+export const PHONETIC_IMPORT_ACCEPT =
+  ".json,.csv,.tsv,.txt,application/json,text/csv,text/tab-separated-values,text/plain";
+
+const PHONETIC_CATEGORIES: readonly PhoneticEntry["category"][] = [
+  "scriptural",
+  "theological",
+  "classical",
+  "script_cues",
+  "general",
+  "custom",
+];
+
+function importEntry(raw: unknown, fallbackWord: unknown, index: number): PhoneticEntry | null {
+  const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const word = String(record.word ?? record.original ?? record.term ?? record.text ?? fallbackWord ?? "").trim();
+  const spokenAs = String(
+    typeof raw === "string"
+      ? raw
+      : record.spokenAs ?? record.spoken_as ?? record.pronunciation ?? record.phonetic ?? record.say ?? record.replacement ?? "",
+  ).trim();
+  if (!word || !spokenAs) return null;
+  const category = PHONETIC_CATEGORIES.includes(record.category as PhoneticEntry["category"])
+    ? (record.category as PhoneticEntry["category"])
+    : "custom";
+  const id = typeof record.id === "string" && record.id.trim()
+    ? record.id.trim()
+    : `custom-${word.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "word"}-${index}`;
+  return {
+    id,
+    word,
+    spokenAs,
+    category,
+    description: typeof record.description === "string" ? record.description : undefined,
+  };
+}
+
+/** Splits one CSV/TSV line, honouring double-quoted fields. */
+function splitDelimitedLine(line: string, delimiter: string): string[] {
+  const fields: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (quoted && line[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === delimiter && !quoted) {
+      fields.push(field.trim());
+      field = "";
+    } else {
+      field += char;
+    }
+  }
+  fields.push(field.trim());
+  return fields;
+}
+
+/**
+ * Turns an imported dictionary file into validated entries. Three everyday
+ * shapes are understood: the exported JSON array (or a JSON word →
+ * pronunciation map), CSV/TSV with word and pronunciation columns, and
+ * plain text lines of `word = spoken as`. Anything else raises an error
+ * naming the shapes that work, instead of saving entries the normaliser
+ * would choke on — which the old array-or-nothing import could do.
+ */
+export function parsePhoneticDictionaryImport(text: string, filename = ""): PhoneticEntry[] {
+  const source = String(text || "").replace(/^\uFEFF/, "").trim();
+  const entries: PhoneticEntry[] = [];
+
+  if (source.startsWith("[") || source.startsWith("{") || /\.json$/i.test(filename)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(source);
+    } catch {
+      throw new Error("That file is not valid JSON. Import a JSON, CSV, TSV or plain-text dictionary.");
+    }
+    if (Array.isArray(parsed)) {
+      parsed.forEach((item, index) => {
+        const entry = importEntry(item, undefined, index);
+        if (entry) entries.push(entry);
+      });
+    } else if (parsed && typeof parsed === "object") {
+      Object.entries(parsed as Record<string, unknown>).forEach(([word, value], index) => {
+        const entry = importEntry(value, word, index);
+        if (entry) entries.push(entry);
+      });
+    }
+  } else {
+    source.split(/\r?\n/).forEach((rawLine, index) => {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) return;
+      const delimiter = line.includes("\t") ? "\t" : line.includes(",") ? "," : line.includes(";") ? ";" : line.includes("|") ? "|" : "";
+      let columns: string[];
+      if (delimiter) {
+        columns = splitDelimitedLine(line, delimiter);
+      } else {
+        // Equals/arrow first, so a citation containing a colon
+        // ("John 3:16 = John chapter three…") is not split at the colon.
+        const pair = /^(.+?)\s*(?:=>|->|=)\s*(.+)$/.exec(line) || /^(.+?)\s*:\s*(.+)$/.exec(line);
+        columns = pair ? [pair[1], pair[2]] : [];
+      }
+      if (columns.length < 2) return;
+      const [word, spokenAs, description] = columns;
+      // A spreadsheet header row, not an entry.
+      if (/^(word|original|term)$/i.test(word) && /(spoken|pronun|phonetic)/i.test(spokenAs)) return;
+      const entry = importEntry({ word, spokenAs, description }, undefined, index);
+      if (entry) entries.push(entry);
+    });
+  }
+
+  // Last word wins, as in the editor itself.
+  const byWord = new Map<string, PhoneticEntry>();
+  for (const entry of entries) byWord.set(entry.word.toLowerCase(), entry);
+  const result = [...byWord.values()];
+  if (result.length === 0) {
+    throw new Error(
+      "No word/pronunciation pairs were found. Use the exported JSON, a CSV/TSV with word and pronunciation columns, or text lines like \"Gethsemane = Geth-sem-ah-nee\".",
+    );
+  }
+  return result;
+}
+
 /**
  * Loads custom phonetic entries saved by the user in localStorage
  */

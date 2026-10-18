@@ -84,7 +84,7 @@ h.eq(
 const store = read("src/lib/custom-image.ts");
 h.ok(store.includes('indexedDB.open'), "uploads are kept in IndexedDB, not in memory alone");
 h.ok(store.includes('const DB_NAME = "scenering-image"'), "the image store has its own database, so an upgrade cannot break music or video");
-h.ok(/image\/svg\+xml/.test(store), "SVG is refused up front rather than tainting a canvas mid-render");
+h.ok(store.includes("allowSvg: false"), "SVG is refused up front rather than tainting a canvas mid-render");
 h.ok(store.includes("CustomImageError"), "refusals arrive as a message the UI can print");
 
 /* ------------------------------------------------------- the two buttons */
@@ -95,8 +95,8 @@ const colourAt = editor.indexOf("<span>Colour</span>");
 h.ok(colourAt > 0, "the Colour button is still in the row");
 h.ok(editor.indexOf("Upload Image") > colourAt, "the uploads come at the END of the button row");
 h.ok(editor.indexOf("Upload Video") > editor.indexOf("Upload Image"), "image upload sits before video upload");
-h.ok(editor.includes('accept="image/*"'), "the image input only offers images");
-h.ok(editor.includes('accept="video/*"'), "the video input only offers videos");
+h.ok(editor.includes("accept={IMAGE_UPLOAD_ACCEPT}"), "the image input only offers images");
+h.ok(editor.includes("accept={VIDEO_UPLOAD_ACCEPT}"), "the video input only offers videos");
 h.ok(editor.includes("imageUploadRef"), "a hidden input is driven by the image button");
 h.ok(editor.includes("videoUploadRef"), "a hidden input is driven by the video button");
 h.ok(editor.includes("uploadError"), "a refused upload says why on screen");

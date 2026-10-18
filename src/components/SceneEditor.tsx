@@ -35,6 +35,7 @@ import {
 import { resolveLegacyLocalImage } from "../lib/nature-library-compat";
 import { loadSceneImage } from "../lib/scene-image-loader";
 import { addCustomImage, CustomImageError } from "../lib/custom-image";
+import { IMAGE_UPLOAD_ACCEPT, VIDEO_UPLOAD_ACCEPT } from "../lib/media-file";
 import { sceneUpdatesForVideoFile, videoUploadMessage } from "../lib/scene-clip-attach";
 import { getApiKeysHeaders, getApiKeysQueryParams } from "../lib/api-keys";
 import { buildSceneImageQuery, describeSceneTopic } from "../lib/topic-extract";
@@ -1137,7 +1138,7 @@ export default function SceneEditor({
             <input
               ref={imageUploadRef}
               type="file"
-              accept="image/*"
+              accept={IMAGE_UPLOAD_ACCEPT}
               className="hidden"
               onChange={(e) => {
                 handleUploadImage(e.target.files?.[0]);
@@ -1157,7 +1158,7 @@ export default function SceneEditor({
             <input
               ref={videoUploadRef}
               type="file"
-              accept="video/*"
+              accept={VIDEO_UPLOAD_ACCEPT}
               className="hidden"
               onChange={(e) => {
                 handleUploadVideo(e.target.files?.[0]);

@@ -142,7 +142,7 @@ for (const item of CATALOG_ITEMS.background_music) {
   h.ok(
     library.includes("addCustomMusic") &&
       library.includes("removeCustomMusic") &&
-      library.includes('accept="audio/*'),
+      library.includes("accept={AUDIO_UPLOAD_ACCEPT}"),
     "the music section can add and remove your own files"
   );
   h.ok(

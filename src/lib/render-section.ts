@@ -15,6 +15,8 @@
 import { paintMotionBackground, rgba } from "../data/intro-backgrounds";
 import type { SectionConfig } from "../data/intro-outro";
 import { drawMediaCover } from "./scene-framing";
+import { resolveImageUrl } from "./custom-image";
+import { resolveVideoUrl } from "./custom-video";
 
 /* ------------------------------ media cache ------------------------------ */
 
@@ -22,29 +24,35 @@ const videoCache = new Map<string, HTMLVideoElement>();
 const imageCache = new Map<string, HTMLImageElement>();
 
 export function getSectionVideo(src: string): HTMLVideoElement | null {
-  if (typeof document === "undefined" || !src) return null;
-  let v = videoCache.get(src);
+  // An uploaded intro/outro clip is stored as `custom-video:<id>` so a
+  // saved project survives a reload; resolve it to this page's object URL
+  // here, the one place every preview/render frame passes through.
+  const playable = resolveVideoUrl(src);
+  if (typeof document === "undefined" || !playable) return null;
+  let v = videoCache.get(playable);
   if (!v) {
     v = document.createElement("video");
-    v.crossOrigin = "anonymous";
-    v.src = src;
+    if (!playable.startsWith("blob:") && !playable.startsWith("data:")) v.crossOrigin = "anonymous";
+    v.src = playable;
     v.muted = true;
     v.playsInline = true;
     v.preload = "auto";
     v.loop = true;
-    videoCache.set(src, v);
+    videoCache.set(playable, v);
   }
   return v;
 }
 
 export function getSectionImage(src: string): HTMLImageElement | null {
-  if (typeof document === "undefined" || !src) return null;
-  let i = imageCache.get(src);
+  // As above for an uploaded still background (`custom-image:<id>`).
+  const playable = resolveImageUrl(src);
+  if (typeof document === "undefined" || !playable) return null;
+  let i = imageCache.get(playable);
   if (!i) {
     i = new Image();
-    if (!src.startsWith("data:") && !src.startsWith("blob:")) i.crossOrigin = "anonymous";
-    i.src = src;
-    imageCache.set(src, i);
+    if (!playable.startsWith("data:") && !playable.startsWith("blob:")) i.crossOrigin = "anonymous";
+    i.src = playable;
+    imageCache.set(playable, i);
   }
   return i;
 }

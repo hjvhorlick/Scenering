@@ -26,7 +26,7 @@ webhook that says a subscription changed.
 |---|---|---|
 | 1 | **A Paddle account, approved and live-ready** (or a sandbox account to start with) | Sandbox and live are *separate accounts* with separate keys, separate catalogue ids and separate webhook destinations. Everything below exists once per environment. |
 | 2 | **Two products** — `SceneFlow` and `SceneForge` | One product per plan, so the catalogue matches the pricing page. |
-| 3 | **Four prices** — each product with a monthly and a yearly price, matching `src/config/plans.ts` (`$19`/`$180` and `$39`/`$372`) | Each price id (`pri_…`) is how a webhook is mapped back to a plan *and* an interval. A missing or wrong id means money is taken and no access is granted. |
+| 3 | **Four prices** — each product with a monthly and a yearly price, matching `src/config/plans.ts` (`$19`/`$180` and `$39`/`$372`) | Each price id (`pri_…`) is how a webhook is mapped back to a plan *and* an interval. A missing or wrong id means money is taken and no access is granted. The catalogue prices stay in USD; with automatic currency conversion enabled (**My account → Settings → Currencies**, select all) Paddle converts them into each visitor's own currency for both display and checkout. |
 | 4 | **A recurring billing cycle on every price** (month / year) | These are subscriptions, not one-off payments. A one-off price produces a transaction with no subscription, and no subscription means no webhook this server acts on. |
 | 5 | **An approved checkout URL** registered in Paddle's checkout settings (Account settings → Checkout settings) | The server passes it as `checkout.url` when it creates a transaction. Paddle returns a payment link *only* when the transaction carries an approved URL; without one, checkout answers `503 BILLING_NOT_CONFIGURED`. |
 | 6 | **A secret API key** — sandbox keys look like `pdl_sdbx_apikey_…`, created under **Paddle → My account → Settings → Authentication** | Two server-side calls need it: `POST /transactions` to open a tagged checkout, and `GET /subscriptions/{id}` to read back the management links (below). |
@@ -35,7 +35,7 @@ webhook that says a subscription changed.
 | 9 | **The webhook's secret key** (`pdl_ntfset_…`) | Verifies `Paddle-Signature`. Each notification destination has its *own* secret, and it is not the same value as the API key — mixing them, or mixing a sandbox secret with a live destination, makes every delivery fail verification. Without it the endpoint answers `503` rather than trusting the caller. |
 | 10 | **A public HTTPS origin** (`PUBLIC_APP_URL`) | Paddle will not deliver to `localhost`, and the app refuses a non-HTTPS checkout in production. For local development use a tunnel (see §7). |
 | 11 | **Tax and payout settings completed** | Paddle is the merchant of record, so it will not switch a live account on until its own onboarding (business details, tax, bank) is finished. This is outside the code, and it is the step most often left to last. |
-| 12 | **A client-side token** (`live_…` / `test_…`) from **Paddle → My account → Settings → Authentication → Client-side tokens** | The public pricing page loads Paddle.js with it: `Paddle.PricePreview()` for country-localized prices and `Paddle.Checkout.open()` for the one-page overlay checkout. It is public by design and cannot create transactions on its own — never substitute the secret API key here. |
+| 12 | **A client-side token** (`live_…` / `test_…`) from **Paddle → My account → Settings → Authentication → Client-side tokens** | Every price display loads Paddle.js with it — the home-page pricing section, the public pricing page and the in-app plan cards all share `useLocalizedPlanPrices` (`src/lib/use-localized-prices.ts`) on top of `Paddle.PricePreview()` for country-localized prices, and the pricing page also calls `Paddle.Checkout.open()` for the one-page overlay checkout. It is public by design and cannot create transactions on its own — never substitute the secret API key here. |
 | 13 | **Default payment link** set under **Paddle → Checkout → Checkout configuration** | Dashboard-only; no API for it. Without it the overlay checkout fails with a generic "something went wrong". Sandbox accepts `https://localhost/`; live must be a real, approved domain. |
 
 **Permissions on the API key.** The server itself only calls
@@ -119,6 +119,23 @@ subscription events that follow inherit that mapping. A visitor who checks out
 signed out still buys fine; the subscription simply stays unmatched until a
 customer event carries a known email. The in-app upgrade panel keeps using the
 server-created, `custom_data`-tagged checkout above.
+
+**Price display is localized everywhere, from the one preview.** Whichever
+checkout path a purchase takes, the *price shown* comes from the same place:
+`useLocalizedPlanPrices` (`src/lib/use-localized-prices.ts`) loads the public
+config once per page, previews every price at both intervals for the visitor's
+country, and hands each surface Paddle's formatted total (local currency, tax
+included) plus a yearly-saving line computed from Paddle's raw totals. The
+home-page pricing section, `/pricing`, the Setup plan cards and the membership
+window all read from it, so the figure a visitor first sees is the figure the
+checkout charges. Only before Paddle answers — or when it is not configured —
+does a surface fall back to the USD base price from `src/config/plans.ts`,
+labelled "USD" (see `formatBasePrice` in `src/lib/localized-prices.ts`).
+Static copy that cannot know the reader's country (the Terms table, emails,
+SEO offers) quotes that USD base price and says so. What currency a customer
+*pays* in is Paddle's automatic conversion setting; what currency Paddle
+*pays out* in is a separate Transfer Preferences choice (ZAR is a supported
+payout currency) — neither requires changing the USD catalogue prices.
 
 **Two fallbacks**, for subscriptions that arrive with no `custom_data` — an
 imported subscription, one created by hand in the dashboard, a checkout link

@@ -21,6 +21,7 @@ import {
   wikimediaInfoToCandidate,
   type StockCandidate,
 } from "./src/lib/image-candidates.ts";
+import { canonicalAudioMimeType } from "./src/lib/media-mime.ts";
 
 /**
  * Fisher–Yates shuffle on a copy. Used so the bundled nature library comes
@@ -565,8 +566,12 @@ export function createApp(): express.Express {
       if (!data || typeof data !== "string") {
         return res.status(400).json({ error: "Missing audio data" });
       }
-      const allowedAudioTypes = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg", "audio/webm", "audio/mp4", "audio/aac"]);
-      if (!allowedAudioTypes.has(String(mimeType).toLowerCase())) return res.status(415).json({ error: "Unsupported audio type" });
+      // Shared with the studio's upload buttons: MP3, WAV and M4A lead, and
+      // the alias spellings / codec parameters real browsers send
+      // (`audio/x-m4a`, `audio/webm;codecs=opus`) are normalised instead of
+      // rejected — the old exact-match set refused good .m4a uploads.
+      const normalizedMimeType = canonicalAudioMimeType(String(mimeType), typeof filename === "string" ? filename : "");
+      if (!normalizedMimeType) return res.status(415).json({ error: "Unsupported audio type. Use MP3, WAV or M4A." });
 
       const base64Clean = data.includes("base64,") ? data.split("base64,")[1] : data;
       if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Clean)) return res.status(400).json({ error: "Invalid audio encoding" });
@@ -575,13 +580,14 @@ export function createApp(): express.Express {
       const audioId = "aud_" + randomBytes(18).toString("base64url");
       const ownerId = String((req as any).auth.user.id);
 
-      await audioStore.upload(ownerId, audioId, base64Clean, String(mimeType).toLowerCase());
+      await audioStore.upload(ownerId, audioId, base64Clean, normalizedMimeType);
 
       return res.json({
         url: `/api/custom-audio/${audioId}`,
         audioId,
         size: approxBytes,
         filename: filename || "imported_voice.mp3",
+        mimeType: normalizedMimeType,
       });
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Failed to process audio" });

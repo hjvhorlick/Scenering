@@ -5,6 +5,7 @@ import { EMPTY_SOCIAL_LINKS, invalidateSocialLinks, SocialIcon, SOCIAL_ICONS, ty
 import Icon from "./icons/Icon";
 import ApiKeysModal from "./ApiKeysModal";
 import { useApiKeysConfigured } from "../shared/api-key-status";
+import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
 
 type AccountPayload = {
   user: { email: string; displayName: string; emailVerified: boolean; role: "user" | "admin" };
@@ -38,6 +39,9 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
      menu; both entries lead to the same dialog and the same stored keys. */
   const [keysOpen, setKeysOpen] = useState(false);
   const hasOwnKeys = useApiKeysConfigured();
+  /* The same Paddle-localized prices as the website and /pricing — loaded
+     only while this window is open, never just for mounting the studio. */
+  const { displayPrice, annualSavingLine } = useLocalizedPlanPrices(isOpen);
 
   async function refreshAdmin() {
     const response = await fetch("/api/admin/overview");
@@ -354,10 +358,11 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
         <section ref={plansRef}>
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-4"><div><span className="vip-flame"><span className="vip-flame-mark" aria-hidden="true">✦</span>VIP creative access</span><h3 className="text-lg font-bold mt-1">Choose the capacity that fits</h3><p className="text-sm text-gray-400">Preview VIP tools in your project, then choose SceneFlow or SceneForge to include them in final downloads.</p></div><div className="inline-flex rounded-lg bg-gray-900 border border-hairline p-1 self-start"><button className={`px-3 py-1.5 text-xs rounded-md ${interval === "monthly" ? "bg-indigo-600 font-bold" : "text-gray-400"}`} onClick={() => setInterval("monthly")}>Monthly</button><button className={`px-3 py-1.5 text-xs rounded-md ${interval === "yearly" ? "bg-indigo-600 font-bold" : "text-gray-400"}`} onClick={() => setInterval("yearly")}>Yearly</button></div></div>
           <div className="grid lg:grid-cols-3 gap-4">{PLAN_ORDER.map((slug) => { const plan = PLAN_CONFIG[slug]; const active = currentPlan === slug; const price = plan.prices[interval]; return <article key={slug} className={`rounded-xl border p-5 flex flex-col ${active ? "border-indigo-500 bg-indigo-950/30" : "border-hairline bg-gray-900/60"}`}>
-            <div className="flex items-center justify-between"><h4 className="text-lg font-bold">{plan.name}</h4>{active && <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full bg-indigo-600">Current</span>}</div><p className="text-sm text-gray-400 mt-2 min-h-10">{plan.description}</p><div className="mt-4"><b className="text-3xl">${price}</b><span className="text-gray-400 text-sm">{price === 0 ? " forever" : `/${interval === "monthly" ? "month" : "year"}`}</span></div>{interval === "yearly" && price > 0 && <p className="text-xs text-emerald-400 mt-1">${plan.annualMonthlyEquivalent}/month equivalent · save ${plan.annualSaving}/year</p>}
+            <div className="flex items-center justify-between"><h4 className="text-lg font-bold">{plan.name}</h4>{active && <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full bg-indigo-600">Current</span>}</div><p className="text-sm text-gray-400 mt-2 min-h-10">{plan.description}</p><div className="mt-4"><b className="text-3xl">{price === 0 ? "$0" : displayPrice(slug, interval)}</b><span className="text-gray-400 text-sm">{price === 0 ? " forever" : `/${interval === "monthly" ? "month" : "year"}`}</span></div>{interval === "yearly" && price > 0 && <p className="text-xs text-emerald-400 mt-1">{annualSavingLine(slug)}</p>}
             <ul className="text-sm text-gray-300 space-y-2 my-5 flex-1"><li>✓ 16:9 and 9:16 video</li><li>✓ Unlimited preview corrections</li><li>✓ Projects preserved if your plan changes</li><li>✓ {slug === "free" ? "2 Shorts + 1 long-video download weekly" : slug === "sceneflow" ? "15 final video downloads weekly" : "Unlimited final downloads, subject to fetched/upstream API service limits"}</li><li>✓ {slug === "free" ? "Sample visualisers, animated Subscribe CTA, 2 music tracks and 2 caption styles" : "All voices, captions and creative tools"}</li></ul>
             <button disabled={(!isOwnerAdmin && active) || busy === slug} onClick={() => isOwnerAdmin ? setAdminPlanPreview(slug) : void choosePlan(slug)} className={`w-full rounded-lg px-4 py-2.5 text-sm font-bold ${active ? "bg-gray-800 text-gray-300" : "bg-indigo-600 hover:bg-indigo-500"}`}>{isOwnerAdmin ? active ? "Previewing this plan" : `Preview as ${plan.name}` : active ? "Current plan" : busy === slug ? "Opening checkout…" : slug === "free" ? "Free membership" : `Choose ${plan.name}`}</button>
           </article>; })}</div>
+          <p className="text-xs text-gray-500 mt-3">Paid prices are shown in your local currency, with tax, exactly as Paddle calculates them — the same total you will see at checkout.</p>
         </section>
 
         {notice && <div className="rounded-lg border border-amber-600/50 bg-amber-950/30 text-amber-200 px-4 py-3 text-sm" role="status">{notice}</div>}
