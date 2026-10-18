@@ -198,6 +198,21 @@ export default function MarketingSite() {
                 <li>Planned features are labelled “Coming soon”</li>
               </ul>
             </div>
+
+            {/* The legal documents every approver, and every buyer at
+                checkout, needs to reach from the front page: terms of
+                service, privacy notice and refund policy, plus the
+                cookie notice. The same four sit in the corner menu and
+                the standalone-page footer. */}
+            <div>
+              <h4>Legal</h4>
+              <ul>
+                <li><a href="/terms">Terms of service</a></li>
+                <li><a href="/privacy">Privacy notice</a></li>
+                <li><a href="/refunds">Refund policy</a></li>
+                <li><a href="/cookies">Cookie information</a></li>
+              </ul>
+            </div>
           </div>
 
           <p style={{ marginTop: 26, fontSize: 12, color: "#7a8399" }}>

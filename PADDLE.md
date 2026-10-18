@@ -35,6 +35,8 @@ webhook that says a subscription changed.
 | 9 | **The webhook's secret key** (`pdl_ntfset_…`) | Verifies `Paddle-Signature`. Each notification destination has its *own* secret, and it is not the same value as the API key — mixing them, or mixing a sandbox secret with a live destination, makes every delivery fail verification. Without it the endpoint answers `503` rather than trusting the caller. |
 | 10 | **A public HTTPS origin** (`PUBLIC_APP_URL`) | Paddle will not deliver to `localhost`, and the app refuses a non-HTTPS checkout in production. For local development use a tunnel (see §7). |
 | 11 | **Tax and payout settings completed** | Paddle is the merchant of record, so it will not switch a live account on until its own onboarding (business details, tax, bank) is finished. This is outside the code, and it is the step most often left to last. |
+| 12 | **A client-side token** (`live_…` / `test_…`) from **Paddle → My account → Settings → Authentication → Client-side tokens** | The public pricing page loads Paddle.js with it: `Paddle.PricePreview()` for country-localized prices and `Paddle.Checkout.open()` for the one-page overlay checkout. It is public by design and cannot create transactions on its own — never substitute the secret API key here. |
+| 13 | **Default payment link** set under **Paddle → Checkout → Checkout configuration** | Dashboard-only; no API for it. Without it the overlay checkout fails with a generic "something went wrong". Sandbox accepts `https://localhost/`; live must be a real, approved domain. |
 
 **Permissions on the API key.** The server itself only calls
 `POST /transactions` and `GET /subscriptions/{id}`, so a **live** key can be
@@ -56,6 +58,8 @@ notifications without anybody asking for a second key:
 | `PADDLE_WEBHOOK_SECRET` | secret |
 | `PADDLE_<PLAN>_<INTERVAL>_PRICE_ID` × 4 | secrets |
 | `PADDLE_<PLAN>_<INTERVAL>_CHECKOUT_URL` × 4 | secrets |
+| `PADDLE_CLIENT_TOKEN` | plain var (`wrangler var put PADDLE_CLIENT_TOKEN`) |
+| `PADDLE_CLIENT_ENVIRONMENT` — `sandbox` or `production` | plain var |
 | `PUBLIC_APP_URL` | plain var in `wrangler.jsonc` |
 | Migration `0006_paddle.sql` applied | `wrangler d1 migrations apply scenering-db --remote` |
 
@@ -64,10 +68,16 @@ The names are declared once, in `src/config/plans.ts`, and read dynamically —
 `src/env.ts` documents them, `.env.example` explains them, and
 `scripts/setup-cloudflare.sh` prompts for them.
 
-**Nothing billing-related is exposed to the browser.** No `VITE_`-prefixed
-Paddle variable exists, Paddle.js is not loaded, and therefore no client token
-is published either. The browser only ever receives a checkout URL to navigate
-to, from an endpoint that requires a signed-in session.
+**The client-side token is the one billing value that reaches the
+browser** — by design. It is served at runtime by
+`GET /api/billing/public-config` (along with the environment, the
+visitor's country and the tier price ids), never baked into the
+bundle, and it can only open checkout and preview prices. The secret
+API key never leaves the server, and no `VITE_`-prefixed Paddle
+variable exists. That endpoint fails loudly — `503
+PADDLE_CLIENT_NOT_CONFIGURED` — unless both client variables are set,
+so a misconfigured deployment cannot quietly open checkout against
+the wrong Paddle account.
 
 ---
 
@@ -98,9 +108,21 @@ signed by Paddle, the person paying cannot change it to somebody else's account
 id — which is why it is safe to grant a plan on the strength of it. A link
 built in the browser could be edited; this cannot.
 
+**The public pricing page takes the other path.** `/pricing` previews prices
+with `Paddle.PricePreview()` and opens the checkout itself with
+`Paddle.Checkout.open()` (overlay, one-page variant), so no server-side
+transaction — and no `custom_data` — exists for those purchases. The signed-in
+member's email is prefilled into the checkout, which is what makes fallback
+matching 1 below work for them: `customer.created` fires for the buyer, the
+server maps the Paddle customer to the account with the same email, and the
+subscription events that follow inherit that mapping. A visitor who checks out
+signed out still buys fine; the subscription simply stays unmatched until a
+customer event carries a known email. The in-app upgrade panel keeps using the
+server-created, `custom_data`-tagged checkout above.
+
 **Two fallbacks**, for subscriptions that arrive with no `custom_data` — an
-imported subscription, one created by hand in the dashboard, or a checkout link
-shared without the app:
+imported subscription, one created by hand in the dashboard, a checkout link
+shared without the app, or an overlay checkout from the pricing page:
 
 - `customer.created` / `customer.updated` are the only Paddle webhooks that
   carry an email address. When one arrives, the server stores
@@ -464,17 +486,28 @@ npx tsx tests/billing.test.ts
    account. Nothing works until Paddle has switched it on.
 2. Create the two products and four prices on live; copy the live `pri_…` ids.
 3. Register the live approved checkout URL; copy it four times.
-4. `wrangler secret put` the live `PADDLE_API_KEY`, the four price ids, the four
+4. Set the **default payment link** under **Paddle → Checkout → Checkout
+   configuration** to the live checkout page (dashboard-only; live must be a
+   real approved domain, not localhost).
+5. Create the live **client-side token** (Authentication → Client-side tokens).
+6. `wrangler secret put` the live `PADDLE_API_KEY`, the four price ids, the four
    checkout URLs and the live `PADDLE_WEBHOOK_SECRET`.
-5. Add the live notification destination →
+7. `wrangler var put PADDLE_CLIENT_TOKEN` (the `live_…` token) and
+   `PADDLE_CLIENT_ENVIRONMENT=production`. The pricing page's endpoint refuses
+   to answer until both are set — that is the loud failure, not a bug.
+8. Add the live notification destination →
    `https://<your-domain>/api/webhooks/paddle`, subscribed to all eleven events.
-6. Set `"PADDLE_ENVIRONMENT": "live"` in `wrangler.jsonc`; deploy.
-7. `wrangler d1 migrations apply scenering-db --remote` (applies `0006_paddle`).
-8. Sign in as the owner → **Account & Membership** → *Owner administration*.
+9. Set `"PADDLE_ENVIRONMENT": "live"` in `wrangler.jsonc`; deploy.
+10. `wrangler d1 migrations apply scenering-db --remote` (applies `0006_paddle`).
+11. Sign in as the owner → **Account & Membership** → *Owner administration*.
    **Paddle billing** must read *Ready to take payments*, name the environment
    as live, and show the webhook URL you registered.
-9. Buy a plan for real, with a card you can refund, and watch the webhook log
-   show `processed` and the account move to the plan you bought.
+12. Open `/pricing` signed out: prices appear localized, and Subscribe opens
+    the one-page overlay — on live, confirm it opens and shows the right
+    prices without completing a payment (live transactions cannot complete
+    until verification passes and domains are approved).
+13. Buy a plan for real, with a card you can refund, and watch the webhook log
+    show `processed` and the account move to the plan you bought.
 
 If any migration of a subscription ever needs to be undone by hand, the
 administration panel grants and revokes complimentary membership, which changes

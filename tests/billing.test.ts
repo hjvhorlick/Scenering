@@ -51,6 +51,8 @@ process.env.PADDLE_SCENEFLOW_MONTHLY_CHECKOUT_URL = "https://sandbox.checkout.bu
 process.env.PADDLE_SCENEFLOW_YEARLY_CHECKOUT_URL = "https://sandbox.checkout.build/sceneflow-yearly";
 process.env.PADDLE_SCENEFORGE_MONTHLY_CHECKOUT_URL = "https://sandbox.checkout.build/sceneforge-monthly";
 process.env.PADDLE_SCENEFORGE_YEARLY_CHECKOUT_URL = "https://sandbox.checkout.build/sceneforge-yearly";
+process.env.PADDLE_CLIENT_TOKEN = "test_client_token_for_the_pricing_page";
+process.env.PADDLE_CLIENT_ENVIRONMENT = "sandbox";
 
 /* Paddle's API, faked. Only requests to a Paddle host are intercepted — the
    suite talks to its own Express server over the same global `fetch`, and that
@@ -572,6 +574,21 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
   h.eq(ready.plans.length, 2, "both paid plans appear in the checklist");
   h.ok(ready.plans.every((plan) => plan.intervals.length === 2), "each plan is checked monthly and yearly");
   h.ok(ready.plans.every((plan) => plan.intervals.every((i) => i.checkoutUrlSet && i.priceIdSet)), "every checkout URL and price id is reported as set");
+  h.eq(ready.clientTokenSet, true, "the public pricing page's client-side token is on the checklist");
+  h.eq(ready.clientEnvironmentSet, true, "and so is the client environment Paddle.js must be pointed at");
+
+  const savedClientToken = process.env.PADDLE_CLIENT_TOKEN;
+  delete process.env.PADDLE_CLIENT_TOKEN;
+  const noClientToken = platform.billingConfiguration();
+  h.eq(noClientToken.ready, false, "without the client token the pricing page cannot open checkout, so it is not ready");
+  h.eq(noClientToken.clientTokenSet, false, "and the checklist says the client token is missing");
+  process.env.PADDLE_CLIENT_TOKEN = savedClientToken;
+
+  const savedClientEnv = process.env.PADDLE_CLIENT_ENVIRONMENT;
+  process.env.PADDLE_CLIENT_ENVIRONMENT = "live";
+  const wrongClientEnv = platform.billingConfiguration();
+  h.eq(wrongClientEnv.ready, false, "a client environment Paddle.js does not recognise is not silently accepted");
+  process.env.PADDLE_CLIENT_ENVIRONMENT = savedClientEnv;
 
   const savedPrice = process.env.PADDLE_SCENEFORGE_YEARLY_PRICE_ID;
   delete process.env.PADDLE_SCENEFORGE_YEARLY_PRICE_ID;
