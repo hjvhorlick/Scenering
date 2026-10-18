@@ -52,6 +52,7 @@ import type { NewProjectOptions } from "../App";
 import Icon, { iconify } from "./icons/Icon";
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "../config/plans";
 import { getInterfacePlan, useSession } from "../lib/session";
+import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
 import { isBoolean, useRememberedChoice } from "../lib/section-memory";
 
 /**
@@ -200,6 +201,9 @@ export default function SetupStudio({
 }: SetupStudioProps) {
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
+  /* The same Paddle-localized prices as the website and /pricing —
+     the visitor's own currency, tax included, not USD base numbers. */
+  const { displayPrice, annualSavingLine } = useLocalizedPlanPrices();
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
   const openMembership = () => window.dispatchEvent(new Event("scenering-open-account"));
 
@@ -1514,10 +1518,10 @@ export default function SetupStudio({
                     {isCurrent && <span className="shrink-0 px-2 py-1 rounded-full bg-white text-blue-950 text-[9px] font-extrabold uppercase tracking-wide shadow">Current</span>}
                   </div>
                   <div className="mt-4 flex items-baseline gap-1">
-                    <strong className="text-3xl text-white">${price}</strong>
+                    <strong className="text-3xl text-white">{price === 0 ? "$0" : displayPrice(slug, billingInterval)}</strong>
                     <span className="text-[11px] text-gray-400">{price === 0 ? "forever" : `/${billingInterval === "monthly" ? "month" : "year"}`}</span>
                   </div>
-                  {billingInterval === "yearly" && price > 0 && <p className="text-[10px] text-blue-200 mt-1">${plan.annualMonthlyEquivalent}/month equivalent · save ${plan.annualSaving}/year</p>}
+                  {billingInterval === "yearly" && price > 0 && <p className="text-[10px] text-blue-200 mt-1">{annualSavingLine(slug)}</p>}
                   <ul className="mt-4 pt-4 border-t border-white/10 space-y-2 text-xs text-gray-300">
                     {setupPlanHighlights(slug).map((line) => <li key={line} className="flex gap-2"><span className="text-blue-300 font-bold">✓</span><span>{line}</span></li>)}
                   </ul>
@@ -1536,7 +1540,7 @@ export default function SetupStudio({
         </div>
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1 text-[11px] text-gray-400">
-          <p>Paid checkout is available only when Paddle has been configured. Paid access begins after verified subscription confirmation.</p>
+          <p>Paid prices are shown in your local currency, with tax, exactly as Paddle calculates them. Paid checkout is available only when Paddle has been configured. Paid access begins after verified subscription confirmation.</p>
           <button type="button" onClick={() => { window.location.href = "/pricing"; }} className="shrink-0 text-blue-300 hover:text-white font-bold underline underline-offset-4">Open complete plan comparison</button>
         </div>
       </section>

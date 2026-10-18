@@ -1,9 +1,9 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type FeatureKey } from "../config/plans";
 import { isFeatureTourPath, navigate, STUDIO_PATH } from "../lib/route";
-import { type Paddle } from "@paddle/paddle-js";
 import { useSession } from "../lib/session";
-import { loadPaddle, onPaddleCheckoutEvent, type PaddlePublicConfig } from "../lib/paddle";
+import { onPaddleCheckoutEvent } from "../lib/paddle";
+import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
 import { buildPricingTiers, type Tier } from "../config/pricing-tiers";
 import { BrandMark } from "./components/primitives";
 import Questions from "./sections/Questions";
@@ -125,74 +125,32 @@ function HowPage() { const steps = ["Understand the supplied script or audio", "
  * Paddle infers it from the IP. Checkout opens as a one-page
  * overlay for the exact price shown, prefills the signed-in
  * account's email, and redirects to /welcome on success.
+ *
+ * The loading and previewing itself lives in
+ * useLocalizedPlanPrices (src/lib/use-localized-prices.ts), shared
+ * with the home-page pricing section and the in-app plan cards so
+ * every surface shows the same localized total this page does.
+ * Only the checkout stays here, where the Subscribe buttons are.
  */
 function PricingPage() {
   const initialParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const initialInterval: BillingInterval = initialParams?.get("interval") === "yearly" ? "yearly" : "monthly";
   const [interval, setInterval] = useState<BillingInterval>(initialInterval);
   const [compare, setCompare] = useState(false);
-  const [config, setConfig] = useState<PaddlePublicConfig | null>(null);
-  const [configError, setConfigError] = useState<string | null>(null);
-  const [paddle, setPaddle] = useState<Paddle | null>(null);
-  const [prices, setPrices] = useState<Record<string, string>>({});
-  const [pricesLoading, setPricesLoading] = useState(false);
-  const [pricesError, setPricesError] = useState<string | null>(null);
+  const { config, paddle, configError, pricesError, setPricesError, displayPrice, annualSavingLine } = useLocalizedPlanPrices();
   const [opening, setOpening] = useState("");
   const [autoOpened, setAutoOpened] = useState(false);
   const { account } = useSession();
 
-  useEffect(() => {
-    let active = true;
-    fetch("/api/billing/public-config")
-      .then(async (response) => ({ ok: response.ok, data: await response.json() }))
-      .then(({ ok, data }) => {
-        if (!active) return;
-        if (!ok) return setConfigError(`${data?.error || "Pricing could not be configured."}${data?.detail ? ` (${data.detail})` : ""}`);
-        setConfig(data);
-      })
-      .catch(() => { if (active) setConfigError("Pricing could not be loaded. Check your connection and refresh."); });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    if (!config) return;
-    let active = true;
-    loadPaddle(config)
-      .then((instance) => { if (active && instance) setPaddle(instance); })
-      .catch((error) => { if (active) setConfigError((error as Error)?.message || "Paddle.js could not be initialised."); });
-    const unsubscribe = onPaddleCheckoutEvent((event) => {
-      if (!active) return;
-      if (event.name === "checkout.payment.failed") {
-        setPricesError("Your payment was declined. Please check your card details or try another payment method in the checkout window.");
-      } else if (event.name === "checkout.payment.error") {
-        setPricesError("No payment methods are available for this checkout. Please contact support if the problem persists.");
-      } else if (event.name === "checkout.completed") {
-        setPricesError(null);
-      }
-    });
-    return () => { active = false; unsubscribe(); };
-  }, [config]);
-
-  /* One preview call fetches every priced tier at both intervals —
-     PricePreview accepts up to 100 items, so the billing toggle
-     reads from the same response instead of refetching. */
-  useEffect(() => {
-    if (!paddle || !config) return;
-    const items = config.tiers.flatMap((tier) => [tier.priceId.month, tier.priceId.year]).filter(Boolean).map((priceId) => ({ priceId, quantity: 1 }));
-    if (!items.length) return;
-    let active = true;
-    setPricesLoading(true); setPricesError(null);
-    paddle.PricePreview({ items, ...(config.country ? { address: { countryCode: config.country } } : {}) })
-      .then((response) => {
-        if (!active) return;
-        const totals: Record<string, string> = {};
-        for (const item of response.data.details.lineItems) totals[item.price.id] = item.formattedTotals.total;
-        setPrices(totals);
-      })
-      .catch((error) => { if (active) { console.error("[paddle] price preview failed", error); setPricesError("Prices for your country could not be loaded. Refresh to try again."); } })
-      .finally(() => { if (active) setPricesLoading(false); });
-    return () => { active = false; };
-  }, [paddle, config]);
+  useEffect(() => onPaddleCheckoutEvent((event) => {
+    if (event.name === "checkout.payment.failed") {
+      setPricesError("Your payment was declined. Please check your card details or try another payment method in the checkout window.");
+    } else if (event.name === "checkout.payment.error") {
+      setPricesError("No payment methods are available for this checkout. Please contact support if the problem persists.");
+    } else if (event.name === "checkout.completed") {
+      setPricesError(null);
+    }
+  }), [setPricesError]);
 
   useEffect(() => {
     if (autoOpened || !paddle || !config || typeof window === "undefined") return;
@@ -249,8 +207,9 @@ function PricingPage() {
     <section className="mkt-container">
       <div className="pub-toggle" role="group" aria-label="Billing interval"><button className={interval === "monthly" ? "is-on" : ""} onClick={() => setInterval("monthly")}>Monthly</button><button className={interval === "yearly" ? "is-on" : ""} onClick={() => setInterval("yearly")}>Yearly</button></div>
       {pricesError && <p role="alert" className="pub-callout" style={{ marginBottom: 18 }}>{pricesError}</p>}
-      <div className="pub-plans">{displayedTiers.map((tier) => { const priceId = interval === "monthly" ? tier.priceId.month : tier.priceId.year; const formatted = priceId ? prices[priceId] : undefined; const fallbackPrice = `$${PLAN_CONFIG[tier.id].prices[interval]}`; return <article className={`pub-plan${tier.id === "sceneflow" ? " is-featured" : ""}`} key={tier.id}>{tier.id === "sceneflow" && <span className="pub-ribbon">Regular creators</span>}<h2>{tier.name}</h2><p>{tier.description}</p>
-        <div className="pub-price">{tier.id !== "free" ? (pricesLoading && !formatted ? <b>{fallbackPrice}</b> : <><b>{formatted || fallbackPrice}</b><span>/{interval === "monthly" ? "month" : "year"}</span></>) : <><b>Free</b><span>forever</span></>}</div>
+      <div className="pub-plans">{displayedTiers.map((tier) => { return <article className={`pub-plan${tier.id === "sceneflow" ? " is-featured" : ""}`} key={tier.id}>{tier.id === "sceneflow" && <span className="pub-ribbon">Regular creators</span>}<h2>{tier.name}</h2><p>{tier.description}</p>
+        <div className="pub-price">{tier.id !== "free" ? <><b>{displayPrice(tier.id, interval)}</b><span>/{interval === "monthly" ? "month" : "year"}</span></> : <><b>Free</b><span>forever</span></>}</div>
+        {interval === "yearly" && tier.id !== "free" && <p className="pub-saving">{annualSavingLine(tier.id)}</p>}
         <PlanHighlights slug={tier.id} />
         {tier.id !== "free"
           ? <button className="mkt-btn mkt-btn-primary" disabled={opening === tier.id} onClick={() => subscribe(tier)}>{opening === tier.id ? "Opening checkout…" : `Subscribe to ${tier.name}${account?.user.email ? "" : " (sign in to prefill)"}`}</button>
