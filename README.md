@@ -191,6 +191,42 @@ Until the keys are filled in, checkout answers `503 BILLING_NOT_CONFIGURED`
 and the webhook answers `503`; nothing else in the app is affected, and the
 Free plan works throughout.
 
+## Billing (FastSpring, alongside Paddle)
+
+The same four subscriptions are also sold through
+[FastSpring](https://www.fastspring.com/), a second **merchant of record**,
+and the two can run side by side. FastSpring sells the subscription, takes
+the card, charges and remits the sales tax, and pays Scenering; each provider
+keeps its own webhook endpoint (`/api/webhooks/paddle`,
+`/api/webhooks/fastspring`), the `subscriptions` and `billing_customers`
+tables are keyed by provider, and `BILLING_PROVIDER` picks which checkout the
+app opens by default (`paddle` or `fastspring`; unset means the provider with
+server credentials configured, Paddle first).
+
+| Step | Where |
+|---|---|
+| Customer picks a plan | Account & Membership modal → `GET /api/billing/checkout/:plan/:interval` (or the FastSpring-only `GET /api/billing/fastspring/checkout/:plan/:interval`) |
+| Server opens checkout | FastSpring popup (`sbl.min.js`, `FASTSPRING_STOREFRONT`) or a server-created session (`POST /sessions` with the product path, the buyer's email and the tags) |
+| Tags travel with the order | `tags` = `{ user_id, email }` — the FastSpring half of "which Scenering account paid" |
+| FastSpring confirms the purchase | `POST /api/webhooks/fastspring`, verified against `FASTSPRING_WEBHOOK_SECRET` (HMAC-SHA256 of the raw body, base64, in `X-FS-Signature`, constant-time compare) |
+| Webhook maps the purchase to a plan | `FASTSPRING_<PLAN>_<INTERVAL>_PATH` (defaults `sceneflow-monthly`, `sceneflow-yearly`, `sceneforge-monthly`, `sceneforge-yearly`), matched against the product path in the payload |
+| Webhook finds the account | `data.tags.user_id` / `data.tags.email`; failing that, the account FastSpring created at checkout or the `billing_customers` mapping an earlier webhook left behind |
+| Access changes | the account's membership row, exactly as a Paddle purchase does |
+| Subscriptions are managed | FastSpring's Account Management portal — *Customer portal*, *Manage or cancel* and *Update payment card* all lead there |
+
+The webhook handles `subscription.activated`, `subscription.updated`,
+`subscription.charge.completed`, `subscription.charge.failed`,
+`subscription.canceled` and `subscription.deactivated`; every other event is
+recorded and ignored. A failed rebill keeps access while FastSpring retries
+the card (`past_due`), a cancellation runs to the end of the paid period, and
+`deactivated` returns the member to Free. Each event id is recorded in
+`webhook_events`, so a redelivery cannot apply twice.
+
+The full connection runbook — the exact values to enter in the FastSpring
+dashboard, in order — is **[FASTSPRING.md](FASTSPRING.md)**. The same
+checklist lives in the app: **Account & Membership** → *Owner administration*
+→ *FastSpring billing*.
+
 ## Themes
 
 The app ships with five switchable looks — click the **🎨 Theme** button in

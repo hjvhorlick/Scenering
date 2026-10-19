@@ -3,6 +3,11 @@ import express from "express";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExportCreativeManifest, type BillingInterval, type ExportCreativeManifest, type FeatureKey, type PlanSlug } from "../src/config/plans.ts";
 import { buildPricingTiers, lookupPriceEnv } from "../src/config/pricing-tiers.ts";
+import { FASTSPRING_DEFAULT_PRODUCT_PATHS, FASTSPRING_PRODUCT_PATH_ENV, fastspringCheckoutTags, fastspringProductMappings, fastspringProductPath, planForFastSpringProduct } from "../src/config/fastspring.ts";
+
+/* Re-exported for tests and for anything that already reads the platform
+   module's plan-mapping helpers (planForPaddlePrice's counterpart). */
+export { fastspringCheckoutTags, fastspringProductPath, planForFastSpringProduct };
 import { DEFAULT_STORE_NOTICE, STORE_NOTICE_SETTING_KEY, parseStoredStoreNotice, sanitizeStoreNotice, type StoreNotice } from "../src/config/store-notice.ts";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
 import { env } from "../src/env.ts";
@@ -431,13 +436,13 @@ function parseCreativeManifest(value: unknown): ExportCreativeManifest | null {
 
 async function accountPayload(user: User) {
   const plan = await getUserPlan(user);
-  const [usage, remaining, subscription, membership, resolvedCustomer] = await Promise.all([
-    weeklyUsage(user.id), remainingUsage(user.id, plan), subscriptionForUser(user.id), effectiveMembership(user, plan), resolvePaddleCustomerForUser(user),
+  const [usage, remaining, subscription, membership, resolvedCustomer, resolvedFastSpringCustomer] = await Promise.all([
+    weeklyUsage(user.id), remainingUsage(user.id, plan), subscriptionForUser(user.id), effectiveMembership(user, plan), resolvePaddleCustomerForUser(user), resolveFastSpringCustomerForUser(user),
   ]);
   // `subscription` goes out in the API's snake_case wire format
   // (apiSubscription) — the same shape the membership object uses and the
   // account modal's TypeScript interface declares.
-  return { user: safeUser(user), membership, subscription: apiSubscription(subscription), has_billing_customer: Boolean(resolvedCustomer), plan: getPlanConfig(plan), usage, remaining };
+  return { user: safeUser(user), membership, subscription: apiSubscription(subscription), has_billing_customer: Boolean(resolvedCustomer || resolvedFastSpringCustomer), plan: getPlanConfig(plan), usage, remaining };
 }
 
 /**
@@ -1256,6 +1261,593 @@ function asyncHandlerVoid(handler: (req: Request, res: Response) => Promise<unkn
   return (req: Request, res: Response, next: NextFunction) => { handler(req, res).catch(next); };
 }
 
+/* ------------------------------------------------------------------ *
+ * FastSpring — a second merchant of record, alongside Paddle.        *
+ * ------------------------------------------------------------------ */
+
+/**
+ * FastSpring sells the same four subscription products (sceneflow-monthly,
+ * sceneflow-yearly, sceneforge-monthly, sceneforge-yearly), takes the card,
+ * charges the tax and pays Scenering. The division of labour is the same as
+ * Paddle's: this server opens a checkout tagged with the signed-in account,
+ * and believes — nothing else — a signed webhook that says a subscription
+ * changed.
+ *
+ * Two things make the loop work:
+ *
+ *   1. `tags`. Checkout (popup or session) carries `user_id` and `email` as
+ *      FastSpring order tags. FastSpring copies them onto the subscription
+ *      and sends them home on every webhook, and the buyer cannot edit them —
+ *      which is what makes a payment attributable to a Scenering account.
+ *   2. `X-FS-Signature`. Every webhook delivery is HMAC-SHA256 over the raw
+ *      request body, base64-encoded, keyed with the webhook's HMAC SHA256
+ *      Secret (FastSpring → Developer Tools → Webhooks). A delivery that did
+ *      not come from FastSpring cannot be forged, and the UNIQUE event id in
+ *      `webhook_events` makes a redelivery harmless.
+ *
+ * Paddle and FastSpring can run side by side: `subscriptions` and
+ * `billing_customers` are keyed by provider, `BILLING_PROVIDER` picks which
+ * one the app opens by default, and each keeps its own webhook endpoint.
+ */
+export const FASTSPRING_API_BASE_URL = "https://api.fastspring.com";
+export const FASTSPRING_WEBHOOK_PATH = "/api/webhooks/fastspring";
+
+/**
+ * The subscription events that change what a member can do — the six to tick
+ * in FastSpring → Developer Tools → Webhooks. Anything else FastSpring sends
+ * (order.completed, account.updated, subscription.payment.reminder, …) is
+ * recorded and ignored rather than guessed at.
+ */
+export const FASTSPRING_SUBSCRIPTION_EVENTS = [
+  "subscription.activated", "subscription.updated", "subscription.charge.completed",
+  "subscription.charge.failed", "subscription.canceled", "subscription.deactivated",
+] as const;
+
+/** Every event to subscribe to in the FastSpring dashboard. */
+export const FASTSPRING_WEBHOOK_EVENTS = [...FASTSPRING_SUBSCRIPTION_EVENTS] as const;
+
+const fastspringText = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value : null);
+
+/**
+ * Verifies FastSpring's `X-FS-Signature` header against the untouched request
+ * bytes. The header is the bare base64 digest of HMAC-SHA256 over the raw
+ * body under the webhook's HMAC SHA256 Secret — no timestamp is signed, so
+ * the replay defence is the UNIQUE `provider_event_id` in `webhook_events`,
+ * not a freshness window. The bytes are hashed as received (never a
+ * re-serialised object, which would not match) and the comparison is
+ * constant-time.
+ *
+ * Returns true when the header is present and matches. The caller answers 401
+ * for every other case alike: telling them apart would tell an attacker which
+ * part they had got right.
+ */
+export function verifyFastSpringSignature(rawBody: Buffer, header: string, secret: string): boolean {
+  if (!rawBody || !secret) return false;
+  const received = Buffer.from(String(header || "").trim(), "utf8");
+  if (!received.length) return false;
+  const expected = Buffer.from(createHmac("sha256", secret).update(rawBody).digest("base64"), "utf8");
+  return received.length === expected.length && timingSafeEqual(received, expected);
+}
+
+/** Signs a body exactly the way FastSpring does, so tests (and a self-check in
+ *  the administration panel) can produce a valid `X-FS-Signature` value. */
+export function fastspringSignatureHeader(rawBody: string, secret: string): string {
+  return createHmac("sha256", secret).update(Buffer.from(rawBody, "utf8")).digest("base64");
+}
+
+/**
+ * The storefront path from `FASTSPRING_STOREFRONT`, e.g.
+ * `scenering.onfastspring.com/popup-scenering` or
+ * `scenering.test.onfastspring.com/popup-scenering`. A scheme is tolerated
+ * (`https://…` pasted from a browser bar) and stripped. Null when unset or
+ * clearly not a FastSpring host.
+ */
+export function fastspringStorefront(): { raw: string; host: string; path: string; environment: "test" | "live" } | null {
+  const raw = String(env().FASTSPRING_STOREFRONT || "").trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  if (!raw) return null;
+  const slash = raw.indexOf("/");
+  const host = (slash < 0 ? raw : raw.slice(0, slash)).toLowerCase();
+  const path = slash < 0 ? "" : raw.slice(slash + 1);
+  if (!host.endsWith(".onfastspring.com") && host !== "onfastspring.com") return null;
+  return { raw, host, path, environment: host.includes(".test.onfastspring.com") ? "test" : "live" };
+}
+
+/** "test" or "live", read from the storefront host — never guessed. */
+export function fastspringEnvironment(): "test" | "live" {
+  return fastspringStorefront()?.environment || "live";
+}
+
+/** The API username/password pair, or null when either half is missing. */
+export function fastspringApiCredentials(): { username: string; password: string } | null {
+  const username = String(env().FASTSPRING_API_USERNAME || "").trim();
+  const password = String(env().FASTSPRING_API_PASSWORD || "");
+  return username && password ? { username, password } : null;
+}
+
+/** One call to the FastSpring API (HTTP Basic auth). `data` is the raw JSON
+ *  payload FastSpring returned. */
+async function fastspringApi(pathname: string, init?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<{ ok: boolean; status: number; data: any; error: string | null }> {
+  const credentials = fastspringApiCredentials();
+  if (!credentials) return { ok: false, status: 0, data: null, error: "FASTSPRING_API_USERNAME and FASTSPRING_API_PASSWORD are not both set" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), init?.timeoutMs ?? 10000);
+  let response: Awaited<ReturnType<typeof fetch>>;
+  try {
+    response = await fetch(`${FASTSPRING_API_BASE_URL}${pathname}`, {
+      method: init?.method || "GET",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`, "utf8").toString("base64")}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+      ...(init?.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    });
+  } catch (cause) {
+    return { ok: false, status: 0, data: null, error: `FastSpring API unreachable: ${(cause as Error)?.message || String(cause)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+  let payload: any = null;
+  try { payload = await response.json(); } catch { payload = null; }
+  if (!response.ok) return { ok: false, status: response.status, data: payload, error: fastspringText(payload?.message) || fastspringText(payload?.error) || `FastSpring API responded ${response.status}` };
+  return { ok: true, status: response.status, data: payload, error: null };
+}
+
+/**
+ * FastSpring's five subscription states (`trial`, `active`, `overdue`,
+ * `canceled`, `deactivated`) and six event names mapped onto the statuses the
+ * rest of this server already understands. The event name wins where it is
+ * the more specific statement — `subscription.deactivated` means the access
+ * period is over whatever the payload was mid-write — and `canceled` is
+ * FastSpring's spelling of "will not renew", which in this codebase is
+ * `cancelled` and keeps access until the paid period ends. An unrecognised
+ * state is stored as-is rather than defaulted to something that grants
+ * access.
+ */
+export function sceneringStatusForFastSpring(eventName: string, fastspringState: string): string {
+  const state = String(fastspringState || "").trim().toLowerCase();
+  switch (eventName) {
+    case "subscription.activated": return state === "trial" || state === "trialing" ? "on_trial" : "active";
+    case "subscription.charge.completed": return "active";
+    case "subscription.charge.failed": return "past_due";
+    case "subscription.canceled": return "cancelled";
+    case "subscription.deactivated": return "expired";
+    default: {
+      const byState: Record<string, string> = { active: "active", trial: "on_trial", trialing: "on_trial", overdue: "past_due", past_due: "past_due", canceled: "cancelled", deactivated: "expired" };
+      return byState[state] || state || "pending";
+    }
+  }
+}
+
+/** FastSpring timestamps are milliseconds since epoch (with `*InSeconds`
+ *  twins) — this turns one into the ISO text every column here stores. */
+function fastspringMs(value: unknown): string | null {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? new Date(numeric).toISOString() : null;
+}
+
+/** The product path on a subscription payload: a bare string when webhook
+ *  expansion is off, `product.product` when it is on. */
+function fastspringProductPathFromData(data: any): string {
+  const product = data?.product;
+  if (typeof product === "string") return product.trim();
+  if (product && typeof product === "object") {
+    return String(product.product || product.path || product.id || "").trim();
+  }
+  return "";
+}
+
+/** One custom tag from the checkout `tags` — `user_id` and `email` are how a
+ *  payment is matched back to a Scenering account. */
+function fastspringTag(data: any, key: string): string {
+  const tags = data?.tags;
+  if (tags && typeof tags === "object" && !Array.isArray(tags)) return String((tags as Record<string, unknown>)[key] || "").trim();
+  return "";
+}
+
+/** The email a payload carries: the tag the server set wins, then the account
+ *  FastSpring created from whatever address was typed at checkout. */
+function fastspringEmailOf(data: any): string {
+  return (fastspringTag(data, "email") || String(data?.account?.contact?.email || data?.customer?.email || "")).trim().toLowerCase();
+}
+
+/**
+ * FastSpring's own account management URL for this customer (`account.url`),
+ * and the two places in it the app's buttons lead to: the Subscriptions tab
+ * (where Manage offers "Update payment method" and "Cancel subscription") and
+ * the same tab for the update-card button. Both links work with nothing but
+ * the webhook; the API's pre-authenticated links (`/accounts/{id}/authenticate`)
+ * are minted fresh by /api/billing/portal when the API keys are configured.
+ */
+function fastspringManagementUrls(data: any): { cancel: string | null; updatePaymentMethod: string | null; accountUrl: string | null } {
+  const https = (value: unknown) => (typeof value === "string" && value.startsWith("https://") ? value : null);
+  const accountUrl = https(data?.account?.url) || https(data?.accountUrl);
+  if (!accountUrl) return { cancel: null, updatePaymentMethod: null, accountUrl: null };
+  const subscriptionsTab = `${accountUrl.replace(/#.*$/, "")}#/subscriptions`;
+  return { cancel: subscriptionsTab, updatePaymentMethod: subscriptionsTab, accountUrl };
+}
+
+/** What goes into the owner's webhook log: a handful of ids and statuses, not
+ *  the payload — the log is rendered in the administration panel, and it is
+ *  no place to accumulate customer data. */
+function fastspringLogPayload(event: any, data: any) {
+  return {
+    data_id: fastspringText(data?.id) || fastspringText(data?.subscription),
+    account_id: fastspringText(data?.account?.id) || fastspringText(data?.account),
+    status: fastspringText(data?.state),
+    product_path: fastspringProductPathFromData(data) || null,
+    live: Boolean(event?.live),
+    environment: fastspringEnvironment(),
+  };
+}
+
+/**
+ * Which payment provider the app opens by default. `BILLING_PROVIDER` decides
+ * (`paddle` or `fastspring`); with it unset the provider with server
+ * credentials configured wins, and Paddle wins ties so an existing
+ * deployment is unchanged by adding FastSpring beside it. Both webhooks stay
+ * live either way — this only chooses where a "Choose plan" click goes.
+ */
+export function billingProvider(): "paddle" | "fastspring" {
+  const configured = String(env().BILLING_PROVIDER || "").trim().toLowerCase();
+  if (configured === "fastspring") return "fastspring";
+  if (configured === "paddle") return "paddle";
+  if (String(env().PADDLE_API_KEY || "").trim()) return "paddle";
+  if (fastspringStorefront() && String(env().FASTSPRING_WEBHOOK_SECRET || "").trim()) return "fastspring";
+  return "paddle";
+}
+
+/**
+ * Which provider a specific member's subscription belongs to — a customer
+ * who bought through FastSpring manages their subscription in FastSpring even
+ * if the default provider is Paddle, and vice versa.
+ */
+async function userBillingProvider(user: User): Promise<"paddle" | "fastspring"> {
+  try {
+    const subs = await db.listSubscriptionsForUser(user.id);
+    const fastspringSub = subs.find((s) => s.provider === "fastspring" && s.status !== "expired");
+    if (fastspringSub) return "fastspring";
+    const paddleSub = subs.find((s) => s.provider === "paddle" && s.status !== "expired");
+    if (paddleSub) return "paddle";
+  } catch { /* Billing state must not break account rendering. */ }
+  return billingProvider();
+}
+
+/**
+ * Resolves a signed-in user's FastSpring account id and owned subscription
+ * ids strictly server-side from the mirrored `subscriptions` and
+ * `billing_customers` tables — never from client input.
+ */
+export async function resolveFastSpringCustomerForUser(user: User): Promise<{ accountId: string; subscriptionIds: string[] } | null> {
+  try {
+    const [subs, mapped] = await Promise.all([
+      db.listSubscriptionsForUser(user.id),
+      db.findBillingCustomerByUser(user.id, user.email, "fastspring"),
+    ]);
+    const fastspringSubs = subs.filter((s) => s.provider === "fastspring");
+    const activeSubWithAccount = fastspringSubs.find((s) => s.status !== "expired" && s.providerCustomerId);
+    const anySubWithAccount = fastspringSubs.find((s) => s.providerCustomerId);
+    const accountId = String(activeSubWithAccount?.providerCustomerId || mapped?.providerCustomerId || anySubWithAccount?.providerCustomerId || "").trim();
+    if (!accountId) return null;
+    const subscriptionIds = [
+      ...new Set(
+        fastspringSubs
+          .filter((s) => (!s.providerCustomerId || s.providerCustomerId === accountId) && s.providerSubscriptionId)
+          .map((s) => String(s.providerSubscriptionId).trim())
+          .filter(Boolean)
+      ),
+    ].slice(0, 25);
+    return { accountId, subscriptionIds };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What is, and is not, configured for FastSpring. The owner sees this as a
+ * checklist in the administration panel, so going live is a matter of filling
+ * the gaps it names rather than reading the source.
+ */
+export function fastspringConfiguration() {
+  const e = env();
+  const storefront = fastspringStorefront();
+  const storefrontRaw = String(e.FASTSPRING_STOREFRONT || "").trim();
+  const webhookSecretSet = Boolean(String(e.FASTSPRING_WEBHOOK_SECRET || "").trim());
+  const apiCredentials = fastspringApiCredentials();
+  const products = fastspringProductMappings((name) => e[name] as string | undefined).map((row) => ({
+    plan: row.plan,
+    name: PLAN_CONFIG[row.plan].name,
+    interval: row.interval,
+    productPath: row.path,
+    productPathEnv: row.pathEnv,
+    fromEnvironment: row.fromEnvironment,
+  }));
+  const checkoutMode = String(e.FASTSPRING_CHECKOUT_MODE || "").trim().toLowerCase() === "popup" ? "popup" : apiCredentials ? "session" : "popup";
+  return {
+    provider: "fastspring",
+    active: billingProvider() === "fastspring",
+    environment: storefront?.environment || (storefrontRaw ? "live" : null),
+    storefront: storefront?.raw || null,
+    storefrontSet: Boolean(storefront),
+    apiUsernameSet: Boolean(String(e.FASTSPRING_API_USERNAME || "").trim()),
+    apiPasswordSet: Boolean(apiCredentials),
+    apiSet: Boolean(apiCredentials),
+    webhookSecretSet,
+    publicAppUrlSet: Boolean(e.PUBLIC_APP_URL),
+    webhookPath: FASTSPRING_WEBHOOK_PATH,
+    webhookUrl: e.PUBLIC_APP_URL ? `${String(e.PUBLIC_APP_URL).replace(/\/$/, "")}${FASTSPRING_WEBHOOK_PATH}` : null,
+    requiredEvents: [...FASTSPRING_WEBHOOK_EVENTS],
+    subscriptionEvents: [...FASTSPRING_SUBSCRIPTION_EVENTS],
+    checkoutMode,
+    products,
+    /** A production site pointed at a `.test.` storefront cannot take a real
+     *  payment while looking as though it can. The checklist says so. */
+    testInProduction: isProduction() && storefront?.environment === "test",
+    /** True when a real customer could buy a plan and have access granted:
+     *  the storefront to open, the product paths to sell, and the webhook
+     *  secret to believe the result. Session checkout additionally needs the
+     *  API keys; popup checkout does not. */
+    ready: Boolean(storefront) && webhookSecretSet && Boolean(e.PUBLIC_APP_URL) && products.length >= 4 && (checkoutMode === "popup" || Boolean(apiCredentials)),
+  };
+}
+
+/**
+ * Hands the signed-in member a FastSpring checkout for the plan they picked.
+ *
+ * Two interchangeable modes, chosen by `FASTSPRING_CHECKOUT_MODE`
+ * (`popup` forces the Store Builder popup, `session` the hosted redirect;
+ * unset means session when the API keys are configured and popup otherwise):
+ *
+ *   - `popup` returns the storefront path, the product path and the tags, and
+ *     the browser opens the FastSpring popup through `sbl.min.js`. No API key
+ *     is needed; the tags go onto the session through the builder.
+ *   - `session` creates the checkout server to server (`POST /sessions`) with
+ *     the same tags and the buyer's email already in it, and returns the
+ *     ready-to-use checkout URL to redirect to.
+ */
+async function fastspringCheckoutResponse(user: User, slug: Exclude<PlanSlug, "free">, interval: BillingInterval, res: Response) {
+  const storefront = fastspringStorefront();
+  const productPath = fastspringProductPath((name) => env()[name] as string | undefined, slug, interval);
+  const tags = fastspringCheckoutTags(user.id, user.email);
+  if (!storefront) {
+    return res.status(503).json({
+      error: "Checkout is not configured yet.",
+      code: "BILLING_NOT_CONFIGURED",
+      detail: "FASTSPRING_STOREFRONT must hold your storefront path, for example scenering.test.onfastspring.com/popup-scenering",
+    });
+  }
+  const forcedMode = String(env().FASTSPRING_CHECKOUT_MODE || "").trim().toLowerCase();
+  const mode: "popup" | "session" = forcedMode === "popup" ? "popup" : forcedMode === "session" ? "session" : fastspringApiCredentials() ? "session" : "popup";
+  res.setHeader("Cache-Control", "no-store");
+  if (mode === "session") {
+    const created = await fastspringApi("/sessions", {
+      method: "POST",
+      body: {
+        products: [{ path: productPath, quantity: 1 }],
+        tags,
+        customer: { email: user.email },
+      },
+    });
+    if (!created.ok) return res.status(502).json({ error: "FastSpring could not open checkout.", code: "BILLING_PROVIDER_ERROR", detail: created.error });
+    const sessionId = fastspringText(created.data?.id);
+    const hostedUrl = fastspringText(created.data?.url)
+      || (sessionId ? `https://${storefront.host}/session/${encodeURIComponent(sessionId)}` : null);
+    if (!hostedUrl) return res.status(502).json({ error: "FastSpring did not return a checkout URL.", code: "BILLING_PROVIDER_ERROR" });
+    if (!hostedUrl.startsWith("https://") && isProduction()) return res.status(503).json({ error: "Checkout must use HTTPS." });
+    return res.json({ provider: "fastspring", mode: "session", url: hostedUrl, productPath, tags, environment: storefront.environment, sessionId });
+  }
+  return res.json({
+    provider: "fastspring",
+    mode: "popup",
+    storefront: storefront.raw,
+    productPath,
+    tags,
+    email: user.email,
+    environment: storefront.environment,
+  });
+}
+
+/**
+ * Receives FastSpring's webhook deliveries. The signature is verified against
+ * the untouched request bytes before anything is parsed (which is why this is
+ * mounted before the general JSON parser), every event id is recorded in
+ * `webhook_events` so a redelivery cannot apply twice, and only the six
+ * subscription events change what a member can do.
+ */
+export function registerFastSpringWebhook(app: Express) {
+  app.post(FASTSPRING_WEBHOOK_PATH, express.raw({ type: "application/json", limit: "2mb" }), asyncHandlerVoid(async (req, res) => {
+    const secret = String(env().FASTSPRING_WEBHOOK_SECRET || "").trim();
+    if (!secret) return res.status(503).json({ error: "Billing webhook is not configured" });
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+    if (!verifyFastSpringSignature(body, String(req.headers["x-fs-signature"] || ""), secret)) return res.status(401).json({ error: "Invalid signature" });
+    let parsed: any; try { parsed = JSON.parse(body.toString("utf8")); } catch { return res.status(400).json({ error: "Invalid JSON" }); }
+    /* FastSpring batches events in an `events` array; a bare event object is
+       accepted too, so a manual single-event replay from the dashboard's
+       webhook log behaves the same way. */
+    const events: any[] = Array.isArray(parsed?.events)
+      ? parsed.events
+      : parsed && typeof parsed === "object" && parsed.type && parsed.data
+        ? [parsed]
+        : [];
+    if (!events.length) return res.status(400).json({ error: "Invalid event" });
+
+    const results: string[] = [];
+    for (const event of events) {
+      results.push(await handleFastSpringEvent(event));
+    }
+    /* FastSpring counts a delivery as successful only on HTTP 200 and retries
+       until it gets one, so an individual event that made no sense is
+       answered 200 with its outcome recorded — refusing the whole batch would
+       redeliver the good events beside it forever. */
+    return res.status(200).json({ received: true, results });
+  }));
+}
+
+/** One event of a FastSpring delivery. Exported outcomes mirror the Paddle
+ *  handler's vocabulary: processed, mapped, duplicate, stale, ignored,
+ *  unmatched, unknown_price. */
+async function handleFastSpringEvent(event: any): Promise<string> {
+  const eventId = String(event?.id || "");
+  const eventName = String(event?.type || "");
+  const data = (event?.data && typeof event.data === "object" ? event.data : {}) as any;
+  if (!eventId || !eventName) return "ignored";
+  const record = async (status: string) => {
+    await db.recordWebhookEvent({ providerEventId: eventId, eventName, status, payload: fastspringLogPayload(event, data) });
+    return status;
+  };
+
+  if (await db.webhookEventExists(eventId)) {
+    // Not an error — FastSpring retries until it gets a 200 — but the owner's
+    // webhook log should show that it happened.
+    await db.markWebhookEventDuplicate(eventId);
+    return "duplicate";
+  }
+  if (!(FASTSPRING_SUBSCRIPTION_EVENTS as readonly string[]).includes(eventName)) return record("ignored");
+
+  const subscriptionId = String(data.id || data.subscription || "").trim();
+  /* Without a subscription id there is nothing to key a row on, and every
+     later event would insert a second one for the same purchase. */
+  if (!subscriptionId) return record("ignored");
+
+  const productPath = fastspringProductPathFromData(data);
+  const mapped = planForFastSpringProduct(productPath, (name) => env()[name] as string | undefined);
+  if (!mapped) return record("unknown_price");
+
+  const accountId = String(data.account?.id || data.account?.account || (typeof data.account === "string" ? data.account : "") || "").trim();
+  const tagUserId = fastspringTag(data, "user_id");
+  const tagEmail = fastspringTag(data, "email");
+  const accountEmail = fastspringEmailOf(data);
+
+  /* Which account this subscription belongs to, best evidence first: the
+     `tags` the server set when it opened checkout, then the account FastSpring
+     created at checkout, then the customer mapping an earlier webhook left
+     behind, then any subscription already stored against that account. */
+  let user: User | null = tagUserId ? await db.findUserById(tagUserId) : null;
+  // The email is the stronger identity: FastSpring creates an account from
+  // whatever address was typed at checkout, so it wins over a tag id that
+  // does not belong to the same account.
+  if (accountEmail && (!user || user.email !== accountEmail)) {
+    const byEmail = await db.findUserByEmail(accountEmail);
+    if (byEmail) user = byEmail;
+  }
+  if (!user && accountId) {
+    const mappedCustomer = await db.findBillingCustomer(accountId, "fastspring");
+    if (mappedCustomer) user = await db.findUserById(mappedCustomer.userId);
+    if (!user) {
+      const existing = await db.findSubscriptionByProviderId(subscriptionId);
+      if (existing) user = await db.findUserById(existing.userId);
+    }
+  }
+  if (!user) return record("unmatched");
+
+  const state = String(data.state || "");
+  let sub = await db.findSubscriptionByProviderId(subscriptionId);
+  /* Delivery order is not guaranteed: an event older than the newest one
+     applied to this subscription is logged and dropped, exactly as on the
+     Paddle handler. ISO-8601 UTC strings compare correctly as text. */
+  const changedAt = fastspringMs(data.changed) || fastspringMs(data.changedValue) || (Number.isFinite(Number(data.changedInSeconds)) && Number(data.changedInSeconds) > 0 ? new Date(Number(data.changedInSeconds) * 1000).toISOString() : null);
+  if (sub && changedAt && sub.providerEventOccurredAt && changedAt < sub.providerEventOccurredAt) return record("stale");
+  /* `subscription.updated` with no state in the payload says nothing about
+     access — keep the status already stored rather than inventing one that
+     could take a paid plan away. */
+  const computed = sceneringStatusForFastSpring(eventName, state);
+  const status = computed === "pending" && sub ? sub.status : computed;
+  const nextChargeAt = fastspringMs(data.next) || fastspringMs(data.nextValue) || fastspringMs(data.nextChargeDate);
+  const beginAt = fastspringMs(data.begin) || fastspringMs(data.beginValue);
+  const endAt = fastspringMs(data.end) || fastspringMs(data.endValue);
+  const canceledAt = fastspringMs(data.canceledDate) || fastspringMs(data.canceledDateValue);
+  const deactivationAt = fastspringMs(data.deactivationDate) || fastspringMs(data.deactivationDateValue);
+
+  /* When access ends. FastSpring cancels without ending access — `canceled`
+     means "will not renew" and the subscription runs to its deactivation
+     date — and only `deactivated` says the paid period is over. */
+  const expiresAt =
+    status === "cancelled" ? deactivationAt || endAt || canceledAt || nextChargeAt
+    : status === "expired" ? deactivationAt || endAt || changedAt || now()
+    : null;
+
+  const previousPlanId = sub?.planId ?? null;
+  const change = classifySubscriptionChange(sub, { plan: mapped.plan, interval: mapped.interval, priceId: productPath });
+  const management = fastspringManagementUrls(data);
+  const cardBrand = fastspringText(data.paymentMethod?.cardBrand);
+  const cardLastFour = fastspringText(data.paymentMethod?.lastFour);
+  const renewalPrice = fastspringText(data.nextChargeTotalDisplay) || fastspringText(data.priceDisplay)
+    || (Number.isFinite(Number(data.nextChargePreTax)) && fastspringText(data.nextChargeCurrency) ? `${data.nextChargePreTax} ${data.nextChargeCurrency}` : null);
+
+  const fields = {
+    provider: "fastspring",
+    providerCustomerId: accountId || null,
+    providerSubscriptionId: subscriptionId,
+    providerProductId: productPath || null,
+    providerPriceId: productPath || null,
+    planId: mapped.plan,
+    billingInterval: mapped.interval,
+    status,
+    currentPeriodStart: beginAt,
+    currentPeriodEnd: nextChargeAt || endAt,
+    cancelAtPeriodEnd: status === "cancelled" || status === "expired",
+    cancelledAt: status === "cancelled" || status === "expired" ? canceledAt || changedAt || now() : null,
+    expiresAt,
+    customerPortalUrl: management.cancel,
+    updatePaymentUrl: management.updatePaymentMethod,
+    renewalPrice,
+    providerEventOccurredAt: changedAt,
+    // FastSpring names the payment method when one is on file (webhook
+    // expansion), so the account window can show the card.
+    ...(cardBrand ? { cardBrand } : {}),
+    ...(cardLastFour ? { cardLastFour } : {}),
+  };
+  if (!sub) {
+    sub = await db.createSubscription({
+      id: db.newId("sub"), userId: user.id, provider: "fastspring", planId: mapped.plan, billingInterval: mapped.interval, status,
+      providerCustomerId: accountId || null, providerSubscriptionId: subscriptionId,
+      providerProductId: productPath || null, providerPriceId: productPath || null,
+      currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, cancelledAt: null, expiresAt: null,
+      customerPortalUrl: null, updatePaymentUrl: null, cardBrand: null, cardLastFour: null, renewalPrice: null,
+      providerEventOccurredAt: null,
+    });
+  }
+  await db.updateSubscription(sub.id, fields);
+  if (accountId) {
+    await db.upsertBillingCustomer({
+      provider: "fastspring",
+      providerCustomerId: accountId,
+      userId: user.id,
+      email: accountEmail || user.email,
+      lastEventAt: changedAt,
+    });
+  }
+
+  /* Which statuses are worth access. `active`, `trialing` (stored `on_trial`)
+     and `past_due` (FastSpring is retrying the card) keep the plan, exactly as
+     on the Paddle handler — but `canceled` differs here by design: FastSpring's
+     `subscription.canceled` is NOT terminal, it means "will not renew", and
+     the period paid for runs on to the deactivation date. So a cancellation
+     keeps the plan until its stored end date (which the per-user expiry sweep
+     then acts on), and only `deactivated` — or a cancellation whose end date
+     has already passed — returns the member to Free now. */
+  const paid = subscriptionGrantsPaidAccess(status);
+  const keepsAccess = paid || (status === "cancelled" && (!expiresAt || Date.parse(expiresAt) > Date.now()));
+  const membership = await db.findMembershipByUserId(user.id);
+  if (membership) await db.updateMembership(membership.id, { plan: keepsAccess ? mapped.plan : "free", status: "active" });
+  else await db.createMembership(user.id, keepsAccess ? mapped.plan : "free");
+  await record("processed");
+  await db.recordBillingEvent({
+    userId: user.id,
+    subscriptionId: sub.id,
+    eventName,
+    fromProvider: true,
+    extra: {
+      change,
+      previous_plan_id: previousPlanId,
+      plan_id: mapped.plan,
+      billing_interval: mapped.interval,
+      product_path: productPath || null,
+    },
+  });
+  return "processed";
+}
+
 export function registerPlatformRoutes(app: Express) {
   /* Allow: /api/social-links — the one API address the public pages read.
      Google renders pages the way a browser does but obeys robots.txt for
@@ -1503,20 +2095,19 @@ export function registerPlatformRoutes(app: Express) {
   }));
 
   /**
-   * Hands the signed-in member a Paddle checkout link for the plan they picked.
+   * Hands the signed-in member a checkout link for the plan they picked.
    *
-   * The transaction is created here, server to server, rather than by giving
-   * the browser a link to build on: `custom_data` is the only thing that ties a
-   * Paddle payment back to a Scenering account, and it has to be set by the
-   * party that knows who is signed in. Paddle signs the transaction, carries
-   * `custom_data` through the payment onto the subscription it creates, and
-   * sends it home on every webhook for that subscription — so a customer cannot
-   * edit it to somebody else's account, and a payment cannot arrive that this
-   * server cannot attribute.
+   * The provider is the one `BILLING_PROVIDER` names (or the one configured,
+   * Paddle first — see billingProvider()): FastSpring gets a tagged popup or
+   * session checkout, Paddle a tagged transaction. Both carry the account id
+   * and email of whoever is signed in, in the only way each provider's
+   * webhooks can read back, so a payment cannot arrive that this server
+   * cannot attribute.
    */
   app.get("/api/billing/checkout/:plan/:interval", requireUser, rateLimit("checkout", 20, 3600000), asyncHandlerVoid(async (req, res) => {
     const { user } = (req as any).auth as Auth; const slug = req.params.plan as PlanSlug; const interval = req.params.interval as BillingInterval;
     if (!PLAN_CONFIG[slug] || slug === "free" || !["monthly", "yearly"].includes(interval)) return res.status(400).json({ error: "Invalid plan selection" });
+    if (billingProvider() === "fastspring") return fastspringCheckoutResponse(user, slug as Exclude<PlanSlug, "free">, interval, res);
     const priceEnv = PLAN_CONFIG[slug].priceEnv[interval]; const priceId = lookupPriceEnv((k) => env()[k] as string | undefined, priceEnv);
     const checkoutEnv = PLAN_CONFIG[slug].checkoutEnv[interval]; const checkoutUrl = String(env()[checkoutEnv] || "");
     if (!priceId || !env().PADDLE_API_KEY) return res.status(503).json({ error: "Checkout is not configured yet.", code: "BILLING_NOT_CONFIGURED", detail: `${priceEnv} and PADDLE_API_KEY must both be set` });
@@ -1541,6 +2132,18 @@ export function registerPlatformRoutes(app: Express) {
   }));
 
   /**
+   * The same checkout, forced to FastSpring — used when both merchants of
+   * record run side by side and the page wants FastSpring specifically.
+   * Returns either a popup configuration (storefront path, product path and
+   * tags for `sbl.min.js`) or a hosted session URL to redirect to.
+   */
+  app.get("/api/billing/fastspring/checkout/:plan/:interval", requireUser, rateLimit("checkout", 20, 3600000), asyncHandlerVoid(async (req, res) => {
+    const { user } = (req as any).auth as Auth; const slug = req.params.plan as PlanSlug; const interval = req.params.interval as BillingInterval;
+    if (!PLAN_CONFIG[slug] || slug === "free" || !["monthly", "yearly"].includes(interval)) return res.status(400).json({ error: "Invalid plan selection" });
+    return fastspringCheckoutResponse(user, slug as Exclude<PlanSlug, "free">, interval, res);
+  }));
+
+  /**
    * Mints a temporary Paddle Customer Portal session for the signed-in user
    * (`POST /customers/{customer_id}/portal-sessions`) and returns only the
    * hosted portal overview URL.
@@ -1557,6 +2160,52 @@ export function registerPlatformRoutes(app: Express) {
    */
   const handleCustomerPortalSession = asyncHandlerVoid(async (req, res) => {
     const { user } = (req as any).auth as Auth;
+    /* FastSpring subscriptions are managed in FastSpring's own Account
+       Management portal. With the API keys configured a pre-authenticated
+       link (valid 24 hours) is minted fresh on every click; without them the
+       customer-facing link the webhook recorded still works — FastSpring
+       emails the customer a secure login link from there. */
+    if (await userBillingProvider(user) === "fastspring") {
+      const resolved = await resolveFastSpringCustomerForUser(user);
+      const stored = resolved ? await (async () => {
+        const subs = await db.listSubscriptionsForUser(user.id);
+        return subs.find((s) => s.provider === "fastspring" && s.status !== "expired" && s.customerPortalUrl)?.customerPortalUrl
+          || subs.find((s) => s.provider === "fastspring" && s.customerPortalUrl)?.customerPortalUrl
+          || null;
+      })() : null;
+      if (!resolved && !stored) {
+        return res.status(404).json({
+          error: "No billing account found for this user. Subscribe to a plan first.",
+          code: "NO_BILLING_CUSTOMER",
+        });
+      }
+      if (resolved && fastspringApiCredentials()) {
+        const created = await fastspringApi(`/accounts/${encodeURIComponent(resolved.accountId)}/authenticate`, { timeoutMs: 10000 });
+        const url = fastspringText(created.data?.url) || fastspringText(created.data);
+        if (url && (url.startsWith("https://") || !isProduction())) {
+          res.setHeader("Cache-Control", "no-store");
+          // Land on the Subscriptions tab, where Manage offers update-card
+          // and cancel.
+          return res.json({ url: `${url.replace(/#.*$/, "")}#/subscriptions` });
+        }
+        if (!stored) {
+          return res.status(502).json({
+            error: "FastSpring could not open the account portal.",
+            code: "BILLING_PROVIDER_ERROR",
+            detail: created.error,
+          });
+        }
+      }
+      if (stored && (stored.startsWith("https://") || !isProduction())) {
+        res.setHeader("Cache-Control", "no-store");
+        return res.json({ url: stored });
+      }
+      return res.status(503).json({
+        error: "Customer portal is not configured yet.",
+        code: "BILLING_NOT_CONFIGURED",
+        detail: "FASTSPRING_API_USERNAME and FASTSPRING_API_PASSWORD must be set to open an authenticated Account Management link",
+      });
+    }
     const resolved = await resolvePaddleCustomerForUser(user);
     if (!resolved) {
       return res.status(404).json({
@@ -1752,9 +2401,9 @@ export function registerPlatformRoutes(app: Express) {
       owner: "Henry John Vincent Horlick", organization: "Horlick Group", users: usersPayload, stats,
       complimentaryCodes: codes.map(({ codeHash: _hash, ...code }) => code),
       contacts, plans: PLAN_ORDER.map((slug) => PLAN_CONFIG[slug]),
-      configuration: { emailProviderConfigured: Boolean(e.EMAIL_PROVIDER && e.EMAIL_PROVIDER !== "console"), paddleConfigured: Boolean(e.PADDLE_WEBHOOK_SECRET && e.PADDLE_API_KEY), publicAppUrlConfigured: Boolean(e.PUBLIC_APP_URL), production: isProduction() },
+      configuration: { emailProviderConfigured: Boolean(e.EMAIL_PROVIDER && e.EMAIL_PROVIDER !== "console"), paddleConfigured: Boolean(e.PADDLE_WEBHOOK_SECRET && e.PADDLE_API_KEY), fastspringConfigured: Boolean(e.FASTSPRING_WEBHOOK_SECRET && e.FASTSPRING_STOREFRONT), publicAppUrlConfigured: Boolean(e.PUBLIC_APP_URL), production: isProduction() },
 
-      billing: billingConfiguration(), webhookEvents: webhookEvents.reverse(),
+      billing: billingConfiguration(), fastspring: fastspringConfiguration(), webhookEvents: webhookEvents.reverse(),
       inbox: await inboxSummarySafe(),
     });
   }));

@@ -8,6 +8,7 @@ import Icon from "./icons/Icon";
 import ApiKeysModal from "./ApiKeysModal";
 import { useApiKeysConfigured } from "../shared/api-key-status";
 import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
+import { openFastSpringPopup } from "../lib/fastspring";
 
 type AccountPayload = {
   user: { email: string; displayName: string; emailVerified: boolean; role: "user" | "admin" };
@@ -143,6 +144,14 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
       const response = await fetch(`/api/billing/checkout/${plan}/${interval}`);
       const data = await response.json();
       if (response.ok && data.url) { window.location.href = data.url; return; }
+      /* FastSpring popup checkout: the server answered with the storefront,
+         the product and the account tags, and the popup opens here — the
+         buyer never leaves the page. A session checkout above simply
+         redirects to its `url` like Paddle's does. */
+      if (response.ok && data.provider === "fastspring" && data.mode === "popup" && data.storefront && data.productPath) {
+        await openFastSpringPopup({ storefront: data.storefront, productPath: data.productPath, tags: data.tags || {}, email: data.email });
+        return;
+      }
       if (data?.code === "BILLING_NOT_CONFIGURED") {
         window.location.href = `/pricing?plan=${plan}&interval=${interval}`;
         return;
@@ -249,7 +258,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
                 while it does, but to tell the customer plainly that the payment
                 did not go through — otherwise the only symptom they ever see is
                 the plan quietly disappearing days later. */}
-            {account?.subscription?.status === "past_due" && <div className="text-xs text-amber-300 mt-1">Payment failed — your plan continues while Paddle retries the card. Update your payment card below to avoid an interruption.</div>}
+            {account?.subscription?.status === "past_due" && <div className="text-xs text-amber-300 mt-1">Payment failed — your plan continues while your payment provider retries the card. Update your payment card below to avoid an interruption.</div>}
             {account?.subscription?.status === "paused" && <div className="text-xs text-amber-300 mt-1">Paused — billing and access are both stopped until you resume.</div>}
             {(account?.subscription?.expires_at || account?.subscription?.current_period_end) && <div className="text-xs text-gray-400 mt-1">{account?.subscription?.cancel_at_period_end ? "Ends" : "Renews"} {new Date(account.subscription.expires_at || account.subscription.current_period_end!).toLocaleDateString()}</div>}
             {account?.subscription?.card_last_four && <div className="text-xs text-gray-500 mt-1 capitalize">{account.subscription.card_brand || "Card"} ending {account.subscription.card_last_four}</div>}
@@ -257,7 +266,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
               <button type="button" className="opt-btn text-xs" disabled={busy === "portal"} onClick={() => void openCustomerPortal()}>{busy === "portal" ? "Opening portal…" : "Customer portal"}</button>
               {account?.subscription?.customer_portal_url && <a className="opt-btn text-xs" href={account.subscription.customer_portal_url} target="_blank" rel="noopener noreferrer">Manage or cancel</a>}
               {account?.subscription?.update_payment_url && <a className="opt-btn text-xs" href={account.subscription.update_payment_url} target="_blank" rel="noopener noreferrer">Update payment card</a>}
-            </div> : <div className="text-xs text-gray-400 mt-1">Verified Paddle webhooks control paid access</div>}
+            </div> : <div className="text-xs text-gray-400 mt-1">Verified billing webhooks control paid access</div>}
           </div>
         </section>
 
@@ -424,6 +433,39 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
                 <h5 className="text-xs font-bold mb-1">Last webhooks received</h5>
                 <div className="flex flex-wrap gap-1.5">{adminData.webhookEvents.map((event: any) => <span key={event.id} className={`rounded-md border px-2 py-1 text-[10px] ${event.status === "processed" ? "border-emerald-500/40 text-emerald-200" : event.status === "ignored" || event.status === "duplicate" ? "border-white/15 text-gray-400" : "border-amber-500/40 text-amber-200"}`}>{event.event_name} · {event.status}</span>)}</div>
               </div>}
+            </div>}
+            {/* FastSpring go-live checklist, exactly like the Paddle one
+                above: a missing webhook secret or product path is a payment
+                that cannot be matched to a plan, and naming each environment
+                variable makes that visible before a customer finds it. */}
+            {adminData.fastspring && <div className="rounded-lg border border-white/10 bg-gray-950/60 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="text-sm font-bold">FastSpring billing</h4>
+                <b className={adminData.fastspring.ready ? "text-emerald-300 text-xs" : "text-amber-300 text-xs"}>{adminData.fastspring.ready ? "Ready to take payments" : "Not ready — finish the items below"}</b>
+              </div>
+              {adminData.fastspring.testInProduction && <p role="alert" className="mt-2 rounded-md border border-amber-500/40 bg-amber-950/40 p-2 text-[11px] font-bold text-amber-200">FASTSPRING_STOREFRONT points at a <code>.test.</code> storefront on a production deployment — no real payment can be taken. Create the live storefront, update FASTSPRING_STOREFRONT and the FASTSPRING_WEBHOOK_SECRET, and switch BILLING_PROVIDER when you are ready.</p>}
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-3 text-xs">
+                {[["Storefront path", adminData.fastspring.storefrontSet, "FASTSPRING_STOREFRONT"], ["Webhook secret key", adminData.fastspring.webhookSecretSet, "FASTSPRING_WEBHOOK_SECRET"], ["API username", adminData.fastspring.apiUsernameSet, "FASTSPRING_API_USERNAME"], ["API password", adminData.fastspring.apiPasswordSet, "FASTSPRING_API_PASSWORD"], ["Public app URL", adminData.fastspring.publicAppUrlSet, "PUBLIC_APP_URL"], ["Default provider", adminData.fastspring.active, "BILLING_PROVIDER=fastspring"]].map(([label, done, env]: any) => (
+                  <div key={env} className="rounded-md border border-white/10 bg-gray-900/60 p-2"><div className="text-[10px] text-gray-500 break-all">{env}</div><b className={done ? "text-emerald-300" : "text-amber-300"}>{done ? "Set" : "Missing"}</b><span className="block text-[10px] text-gray-500">{label}</span></div>
+                ))}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-2 mt-2 text-xs">
+                {adminData.fastspring.products.map((product: any) => (
+                  <div key={`${product.plan}-${product.interval}`} className="rounded-md border border-white/10 bg-gray-900/60 p-2">
+                    <b>{product.name}</b>
+                    <div className="mt-1 capitalize">
+                      <span className="text-gray-400">{product.interval}:</span>{" "}
+                      <code className="text-gray-200">{product.productPath}</code>
+                      <span className={`block text-[10px] ${product.fromEnvironment ? "text-emerald-300" : "text-gray-500"}`}>{product.fromEnvironment ? `set in ${product.productPathEnv}` : `default — rename in ${product.productPathEnv}`}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 text-[11px] text-gray-400">
+                <div>Webhook URL to register in FastSpring: <code className="text-gray-200 break-all">{adminData.fastspring.webhookUrl || `your site${adminData.fastspring.webhookPath}`}</code></div>
+                <div className="mt-1">Events to subscribe to: <span className="text-gray-300">{adminData.fastspring.requiredEvents.join(", ")}</span></div>
+                <div className="mt-1">Checkout: <span className="text-gray-300">{adminData.fastspring.checkoutMode === "popup" ? "popup storefront (sbl.min.js)" : "server-created session checkout"}</span>{adminData.fastspring.environment ? ` · ${adminData.fastspring.environment} storefront` : ""}</div>
+              </div>
             </div>}
             {adminData.complimentaryCodes?.length > 0 && <div><h4 className="text-sm font-bold mb-2">Access codes</h4><div className="flex flex-wrap gap-2">{adminData.complimentaryCodes.map((code: any) => <div key={code.id} className="rounded-lg border border-white/10 bg-gray-950/60 p-3 text-xs"><b>{code.code_prefix}</b><span className="block text-gray-400 capitalize">{code.plan_id} · {code.period} · {code.status}</span><span className="block text-gray-500">expires {new Date(code.expires_at).toLocaleDateString()}</span>{code.status === "active" && <button disabled={busy === `code-${code.id}`} type="button" onClick={() => void revokeAccessCode(code.id)} className="mt-2 rounded-md border border-white/15 px-2 py-1 hover:bg-gray-800">Revoke unused code</button>}</div>)}</div></div>}
             <form className="rounded-lg border border-blue-500/30 bg-gray-950/60 p-4" onSubmit={(event) => { event.preventDefault(); void grantComplimentary(null, grantPlan, grantPeriod, grantEmail); }}><h4 className="text-sm font-bold">Grant complimentary membership</h4><p className="text-[11px] text-gray-400 mt-1 mb-3">The customer must already have a verified Scenering account. No charge or Paddle subscription is created.</p><div className="grid sm:grid-cols-[minmax(180px,1fr)_auto_auto_auto] gap-2"><input type="email" required value={grantEmail} onChange={(event) => setGrantEmail(event.target.value)} placeholder="Customer account email" className="min-w-0 rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs text-white" /><select value={grantPlan} onChange={(event) => setGrantPlan(event.target.value as "sceneflow" | "sceneforge")} className="rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs"><option value="sceneflow">SceneFlow</option><option value="sceneforge">SceneForge</option></select><select value={grantPeriod} onChange={(event) => setGrantPeriod(event.target.value as "month" | "year")} className="rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs"><option value="month">1 month</option><option value="year">1 year</option></select><button type="submit" disabled={busy === "grant-email"} className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50 disabled:opacity-60">{busy === "grant-email" ? "Granting…" : "Grant access"}</button></div></form>

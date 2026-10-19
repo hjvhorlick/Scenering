@@ -752,12 +752,12 @@ export const db = {
     await env().DB.prepare("UPDATE complimentary_codes SET status = 'expired' WHERE status = 'active' AND expires_at <= ?").bind(nowSql()).run();
   },
 
-  // --- Paddle customer ↔ account mapping ---
-  /** Records which Scenering account a Paddle customer (`ctm_…`) is. Written
-   *  from `customer.created` / `customer.updated`, the only Paddle webhooks
-   *  that carry an email address, so that later `subscription.*` webhooks —
-   *  which carry the customer id but no email — can still be matched. Mapping
-   *  alone never grants a plan; only a subscription event does. */
+  // --- billing customer ↔ account mapping (Paddle and FastSpring) ---
+  /** Records which Scenering account a provider customer is (Paddle `ctm_…`,
+   *  FastSpring `acct…`). Written from the webhooks that carry an email
+   *  address or the checkout `tags`, so that later subscription webhooks can
+   *  still be matched. Mapping alone never grants a plan; only a subscription
+   *  event does. */
   async upsertBillingCustomer(row: { provider: string; providerCustomerId: string; userId: string; email: string; lastEventAt: string | null }): Promise<void> {
     await ensureBillingCustomersTable();
     /* The WHERE on the update half is what makes a late redelivery harmless:
@@ -769,21 +769,25 @@ export const db = {
        WHERE billing_customers.last_event_at IS NULL OR billing_customers.last_event_at < excluded.last_event_at`
     ).bind(row.provider, row.providerCustomerId, row.userId, row.email, row.lastEventAt, nowIso(), nowIso()).run();
   },
-  async findBillingCustomer(providerCustomerId: string): Promise<{ userId: string; email: string } | null> {
+  /** One customer-id mapping. Pass `provider` ("paddle", "fastspring") to
+   *  keep two merchants of record apart — the table keys on (provider, id). */
+  async findBillingCustomer(providerCustomerId: string, provider?: string): Promise<{ userId: string; email: string } | null> {
     await ensureBillingCustomersTable();
-    const row = await env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId).first();
+    const row = provider
+      ? await env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? AND provider = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId, provider).first()
+      : await env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId).first();
     return row ? { userId: String(row.user_id), email: String(row.email) } : null;
   },
-  async findBillingCustomerByUser(userId: string, email?: string): Promise<{ providerCustomerId: string; userId: string; email: string } | null> {
+  async findBillingCustomerByUser(userId: string, email?: string, provider = "paddle"): Promise<{ providerCustomerId: string; userId: string; email: string } | null> {
     await ensureBillingCustomersTable();
     const cleanEmail = String(email || "").trim().toLowerCase();
     const row = cleanEmail
       ? await env().DB.prepare(
-          "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = 'paddle' AND (user_id = ? OR lower(email) = ?) ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, updated_at DESC LIMIT 1"
-        ).bind(userId, cleanEmail, userId).first()
+          "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = ? AND (user_id = ? OR lower(email) = ?) ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, updated_at DESC LIMIT 1"
+        ).bind(provider, userId, cleanEmail, userId).first()
       : await env().DB.prepare(
-          "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = 'paddle' AND user_id = ? ORDER BY updated_at DESC LIMIT 1"
-        ).bind(userId).first();
+          "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = ? AND user_id = ? ORDER BY updated_at DESC LIMIT 1"
+        ).bind(provider, userId).first();
     return row ? { providerCustomerId: String((row as any).provider_customer_id), userId: String((row as any).user_id), email: String((row as any).email) } : null;
   },
   async listSubscriptionsForUser(userId: string): Promise<Subscription[]> {
