@@ -339,7 +339,14 @@ export function createApp(): express.Express {
   registerPaddleWebhook(app);
   registerResendWebhook(app);
   const standardJson = express.json({ limit: "2mb" });
-  app.use((req, res, next) => req.path === "/api/upload-audio" ? next() : standardJson(req, res, next));
+  const inboxAttachmentJson = express.json({ limit: "36mb" });
+  app.use((req, res, next) => {
+    if (req.path === "/api/upload-audio") return next();
+    if (req.path === "/api/admin/inbox/compose" || /^\/api\/admin\/inbox\/threads\/[^/]+\/reply$/.test(req.path)) {
+      return inboxAttachmentJson(req, res, next);
+    }
+    return standardJson(req, res, next);
+  });
   registerPlatformRoutes(app);
   // The Admin Email Centre (marketing templates, campaigns, consented
   // audiences, public unsubscribe/preferences endpoints) — registered after

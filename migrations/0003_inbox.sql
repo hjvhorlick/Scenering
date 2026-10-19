@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS inbox_messages (
   to_email TEXT NOT NULL DEFAULT '',
   subject TEXT NOT NULL DEFAULT '',
   text_body TEXT NOT NULL DEFAULT '',
+  html_body TEXT NOT NULL DEFAULT '',
   message_id TEXT,
   in_reply_to TEXT,
   references_header TEXT,
