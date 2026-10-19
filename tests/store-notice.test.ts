@@ -2,7 +2,7 @@
  * Configurable store notice banner:
  * - Strategically placed beneath the top navigation bar across the front pages;
  * - Defaults to an enabled launch notice stating that the web application is
- *   not quite finished yet and will be live soon;
+ *   open for preview and testing, with full checkout coming soon;
  * - Editable and toggleable by the owner administrator inside Owner
  *   administration and the Email Centre dashboard, persisted in D1 (`admin_settings`).
  */
@@ -66,7 +66,7 @@ const ownerCookie = await createSignedInUser("owner@example.com", "Site Owner");
 const customerCookie = await createSignedInUser("customer@example.com", "Ordinary Customer");
 
 /* ------------------------------------------------------------------ */
-/* 1. Public reading defaults to the active "not finished yet" notice */
+/* 1. Public reading defaults to the active preview notice */
 /* ------------------------------------------------------------------ */
 {
   const response = await fetch(`${base}/api/store-notice`);
@@ -74,8 +74,8 @@ const customerCookie = await createSignedInUser("customer@example.com", "Ordinar
   const data = await response.json();
   h.eq(data.notice.enabled, true, "the store notice is enabled by default");
   h.eq(data.notice.badge, DEFAULT_STORE_NOTICE.badge, "the default badge is returned");
-  h.eq(data.notice.message, DEFAULT_STORE_NOTICE.message, "the default unfinished-app notice is returned");
-  ok(/not quite finished|live soon/i.test(data.notice.message), "default notice states the web application is not finished yet and will be live soon");
+  h.eq(data.notice.message, DEFAULT_STORE_NOTICE.message, "the default preview notice is returned");
+  h.eq(data.notice.message, "Scenering Studio is open for preview and testing — we are putting the final launch touches in place and full store checkout will be live soon.", "default notice distinguishes studio preview from full checkout");
 }
 
 /* ------------------------------------------------------------------ */

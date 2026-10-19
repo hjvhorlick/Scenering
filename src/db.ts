@@ -1,6 +1,24 @@
 import { env } from "./env";
 import type { BillingInterval, ExportCreativeManifest, PlanSlug } from "./config/plans.ts";
 
+/** Match migration 0006 when the remote database has not applied it yet. */
+async function ensureBillingCustomersTable(): Promise<void> {
+  await env().DB.prepare(`CREATE TABLE IF NOT EXISTS billing_customers (
+    provider TEXT NOT NULL DEFAULT 'paddle',
+    provider_customer_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    last_event_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (provider, provider_customer_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`).run();
+  await env().DB.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_billing_customers_user ON billing_customers(user_id)"
+  ).run();
+}
+
 export type UserRole = "user" | "admin";
 
 export interface User {
@@ -741,6 +759,7 @@ export const db = {
    *  which carry the customer id but no email — can still be matched. Mapping
    *  alone never grants a plan; only a subscription event does. */
   async upsertBillingCustomer(row: { provider: string; providerCustomerId: string; userId: string; email: string; lastEventAt: string | null }): Promise<void> {
+    await ensureBillingCustomersTable();
     /* The WHERE on the update half is what makes a late redelivery harmless:
        an event older than the newest one already applied changes nothing. */
     await env().DB.prepare(
@@ -751,10 +770,12 @@ export const db = {
     ).bind(row.provider, row.providerCustomerId, row.userId, row.email, row.lastEventAt, nowIso(), nowIso()).run();
   },
   async findBillingCustomer(providerCustomerId: string): Promise<{ userId: string; email: string } | null> {
+    await ensureBillingCustomersTable();
     const row = await env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId).first();
     return row ? { userId: String(row.user_id), email: String(row.email) } : null;
   },
   async findBillingCustomerByUser(userId: string, email?: string): Promise<{ providerCustomerId: string; userId: string; email: string } | null> {
+    await ensureBillingCustomersTable();
     const cleanEmail = String(email || "").trim().toLowerCase();
     const row = cleanEmail
       ? await env().DB.prepare(

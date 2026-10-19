@@ -70,6 +70,7 @@
   ],
   "vars": {
     "PUBLIC_APP_URL": "https://scenering.com",
+    "SCENERING_OWNER_EMAIL": "hjvhorlick@gmail.com",
     "EMAIL_PROVIDER": "resend",
     // Paddle's environment selector: "sandbox" or "live", paired with
     // PADDLE_CLIENT_ENVIRONMENT ("sandbox" or "production") for Paddle.js.
