@@ -3,6 +3,7 @@ import express from "express";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExportCreativeManifest, type BillingInterval, type ExportCreativeManifest, type FeatureKey, type PlanSlug } from "../src/config/plans.ts";
 import { buildPricingTiers, lookupPriceEnv } from "../src/config/pricing-tiers.ts";
+import { DEFAULT_STORE_NOTICE, STORE_NOTICE_SETTING_KEY, parseStoredStoreNotice, sanitizeStoreNotice, type StoreNotice } from "../src/config/store-notice.ts";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
 import { env } from "../src/env.ts";
 import { db, type ComplimentaryGrant, type EmailPreference, type Membership, type Subscription, type UsageRecord, type User } from "../src/db.ts";
@@ -66,6 +67,14 @@ async function publicSocialLinks(): Promise<SocialLinks> {
   ) as SocialLinks;
 }
 
+export { DEFAULT_STORE_NOTICE, sanitizeStoreNotice, type StoreNotice };
+
+/** The store notice as the front pages read it — defaults to the launch notice until edited. */
+async function publicStoreNotice(): Promise<StoreNotice> {
+  const raw = await db.getSetting(STORE_NOTICE_SETTING_KEY);
+  return parseStoredStoreNotice(raw);
+}
+
 const now = () => new Date().toISOString();
 /** Verification links are intentionally long-lived enough for users who only
  * check email once a day, while still limiting the lifetime of a bearer
@@ -124,12 +133,20 @@ function configuredOwnerEmail() { return String(env().SCENERING_OWNER_EMAIL || "
  *  "booted" the way a long-lived Node process is). */
 async function ensureOwnerPrivileges(user: User): Promise<User> {
   const ownerEmail = configuredOwnerEmail();
-  if (!ownerEmail || user.email !== ownerEmail || user.role === "admin") return user;
-  await db.updateUser(user.id, { role: "admin" });
+  if (!ownerEmail || user.email !== ownerEmail) return user;
+  if (user.role !== "admin" || !user.isVerified) {
+    await db.updateUser(user.id, { role: "admin", isVerified: true });
+    user = { ...user, role: "admin", isVerified: true };
+  }
   const membership = await db.findMembershipByUserId(user.id);
-  if (membership) await db.updateMembership(membership.id, { plan: "sceneforge", status: "active" });
-  else await db.createMembership(user.id, "sceneforge");
-  return { ...user, role: "admin" };
+  if (membership) {
+    if (membership.plan !== "sceneforge" || membership.status !== "active") {
+      await db.updateMembership(membership.id, { plan: "sceneforge", status: "active" });
+    }
+  } else {
+    await db.createMembership(user.id, "sceneforge");
+  }
+  return user;
 }
 
 /** A subscription that was cancelled or is in dunning keeps its plan until
@@ -282,6 +299,14 @@ function sessionCookieAttributes() {
 function setSessionCookie(res: Response, token: string) { res.setHeader("Set-Cookie", `scenering_session=${encodeURIComponent(token)}; ${sessionCookieAttributes()}; Max-Age=2592000; Priority=High`); }
 function clearSessionCookie(res: Response) { res.setHeader("Set-Cookie", `scenering_session=; ${sessionCookieAttributes()}; Max-Age=0; Priority=High`); }
 
+function sessionTokenFromRequest(req: Request): string {
+  const cookieToken = cookies(req).scenering_session;
+  if (cookieToken) return cookieToken;
+  const headerToken = String(req.headers["x-scenering-session"] || "").trim();
+  if (headerToken && headerToken !== "signed-out") return headerToken;
+  return "";
+}
+
 type Auth = { user: User; plan: PlanSlug };
 
 /** Resolves the signed-in user (and plan) for a request, or null. Exported
@@ -289,28 +314,37 @@ type Auth = { user: User; plan: PlanSlug };
  *  session OR the signed token a marketing email carries — so they cannot
  *  simply mount requireUser. */
 export async function findSession(req: Request): Promise<Auth | null> {
-  const raw = cookies(req).scenering_session;
+  const raw = sessionTokenFromRequest(req);
   if (raw) {
     const session = await db.findSessionByToken(hashToken(raw));
     const user = session && (await db.findUserById(session.userId));
     // A session may have been issued before verification enforcement was
     // deployed, or a user may have been unverified by an administrative data
     // repair. Never let an existing cookie bypass the verification gate.
-    if (user && user.isVerified) { const resolved = await ensureOwnerPrivileges(user); return { user: resolved, plan: await getUserPlan(resolved) }; }
-    // Revoke any legacy session that belongs to an unverified account. This
-    // prevents it becoming usable if verification state changes later.
-    if (session && user && !user.isVerified) await db.deleteSessionByToken(session.token);
+    if (user) {
+      const resolved = await ensureOwnerPrivileges(user);
+      if (resolved.isVerified) {
+        return { user: resolved, plan: await getUserPlan(resolved) };
+      }
+      // Revoke any legacy session that belongs to an unverified account. This
+      // prevents it becoming usable if verification state changes later.
+      if (session) await db.deleteSessionByToken(session.token);
+    }
   }
+  const explicitSignOut = String(req.headers["x-scenering-session"] || "").trim() === "signed-out";
   /* DEV_AUTO_OWNER=1 — development previews only. Some browsers refuse to
      store any cookie for an embedded or proxied preview, which makes
      cookie-based sign-in impossible there no matter what the server sends.
      With this flag the preview treats every request as the configured owner
      administrator, so the product can be reviewed end to end. Double-gated:
      ignored in production, and never set in any deployment configuration. */
-  if (!isProduction() && env().DEV_AUTO_OWNER === "1") {
+  if (!explicitSignOut && !isProduction() && env().DEV_AUTO_OWNER === "1") {
     const ownerEmail = configuredOwnerEmail();
     const owner = ownerEmail && (await db.findUserByEmail(ownerEmail));
-    if (owner && owner.role === "admin" && owner.isVerified) return { user: owner, plan: "sceneforge" };
+    if (owner) {
+      const resolved = await ensureOwnerPrivileges(owner);
+      if (resolved.role === "admin" && resolved.isVerified) return { user: resolved, plan: "sceneforge" };
+    }
   }
   return null;
 }
@@ -950,13 +984,15 @@ export function billingConfiguration() {
   }));
   const webhookSecretSet = Boolean(e.PADDLE_WEBHOOK_SECRET);
   const apiKey = paddleText(e.PADDLE_API_KEY);
+  const configuredEnv = paddleText(e.PADDLE_ENVIRONMENT)?.toLowerCase();
+  const environmentSet = configuredEnv === "sandbox" || configuredEnv === "live" || configuredEnv === "production";
   const envMode = paddleEnvironment();
   const apiKeyMatchesEnv = Boolean(apiKey) && (envMode === "sandbox" ? !apiKey!.startsWith("pdl_live_apikey_") : !apiKey!.startsWith("pdl_sdbx_apikey_"));
   const apiKeySet = Boolean(apiKey) && apiKeyMatchesEnv;
   const clientToken = paddleText(e.PADDLE_CLIENT_TOKEN);
   const clientEnvironment = paddleText(e.PADDLE_CLIENT_ENVIRONMENT)?.toLowerCase();
   const expectedClientEnv = envMode === "live" ? "production" : "sandbox";
-  const clientEnvironmentSet = (clientEnvironment === "sandbox" || clientEnvironment === "production") && clientEnvironment === expectedClientEnv;
+  const clientEnvironmentSet = environmentSet && (clientEnvironment === "sandbox" || clientEnvironment === "production") && clientEnvironment === expectedClientEnv;
   const clientTokenMatchesEnv = Boolean(clientToken) && (expectedClientEnv === "sandbox" ? clientToken!.startsWith("test_") : clientToken!.startsWith("live_"));
   const clientTokenSet = Boolean(clientToken) && clientTokenMatchesEnv;
   const everyPriceSet = plans.every((plan) => plan.intervals.every((i) => i.priceIdSet));
@@ -964,6 +1000,7 @@ export function billingConfiguration() {
   return {
     provider: "paddle",
     environment: paddleEnvironment(),
+    environmentSet,
     apiBaseUrl: paddleApiBaseUrl(),
     webhookSecretSet,
     apiKeySet,
@@ -989,7 +1026,7 @@ export function billingConfiguration() {
      *  and its environment count because the public pricing page previews
      *  prices and opens the overlay checkout with them; without them the
      *  page cannot sell at all. */
-    ready: webhookSecretSet && apiKeySet && everyPriceSet && everyLinkSet && clientTokenSet && clientEnvironmentSet && Boolean(e.PUBLIC_APP_URL),
+    ready: environmentSet && webhookSecretSet && apiKeySet && everyPriceSet && everyLinkSet && clientTokenSet && clientEnvironmentSet && Boolean(e.PUBLIC_APP_URL),
   };
 }
 
@@ -1229,32 +1266,87 @@ export function registerPlatformRoutes(app: Express) {
   app.post("/api/auth/register", rateLimit("register", 5, 3600000), asyncHandlerVoid(async (req, res) => {
     const email = String(req.body?.email || "").trim().toLowerCase(); const displayName = String(req.body?.displayName || "").trim(); const password = String(req.body?.password || "");
     if (email.length > 254 || !/^\S+@\S+\.\S+$/.test(email) || displayName.length < 2 || displayName.length > 100 || password.length < 10 || password.length > 256) return res.status(400).json({ error: "Use a valid email, a display name of 2–100 characters, and a password of 10–256 characters." });
-    if (await db.findUserByEmail(email)) return res.status(409).json({ error: "An account with that email already exists." });
+    const sandboxAutoProvision = !isProduction() && env().DEV_SANDBOX_AUTO_PROVISION === "1";
+    const existing = await db.findUserByEmail(email);
+    if (existing && !sandboxAutoProvision) return res.status(409).json({ error: "An account with that email already exists." });
     const isOwner = Boolean(configuredOwnerEmail() && email === configuredOwnerEmail());
-    const user = await db.createUser({ id: db.newId("usr"), email, passwordHash: passwordHash(password), displayName, role: isOwner ? "admin" : "user", isVerified: false });
-    await db.createMembership(user.id, isOwner ? "sceneforge" : "free");
-    await db.upsertEmailPreference({ userId: user.id, marketingConsent: Boolean(req.body?.marketingConsent), consentTimestamp: now(), consentSource: "registration", consentVersion: "2026-10", trainingStep: 0, updatedAt: now() });
+    let user: User;
+    if (existing) {
+      await db.updateUser(existing.id, { passwordHash: passwordHash(password), displayName, role: isOwner ? "admin" : existing.role, isVerified: true });
+      user = (await db.findUserById(existing.id)) || existing;
+      if (isOwner) await ensureOwnerPrivileges(user);
+    } else {
+      user = await db.createUser({ id: db.newId("usr"), email, passwordHash: passwordHash(password), displayName, role: isOwner ? "admin" : "user", isVerified: false });
+      await db.createMembership(user.id, isOwner ? "sceneforge" : "free");
+      await db.upsertEmailPreference({ userId: user.id, marketingConsent: Boolean(req.body?.marketingConsent), consentTimestamp: now(), consentSource: "registration", consentVersion: "2026-10", trainingStep: 0, updatedAt: now() });
+    }
     const raw = randomBytes(32).toString("base64url");
     await db.deleteVerificationTokensForUser(user.id, "verify");
     await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
-    await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(raw)}`);
-    return res.status(201).json({ message: "Account created. Check your email to verify it.", requiresVerification: true, ...(!isProduction() ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(raw)}` } : {}) });
+    let emailDelivered = true;
+    try {
+      await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(raw)}`);
+    } catch (err: any) {
+      emailDelivered = false;
+      console.warn("[auth] verification email could not be sent:", err?.message || err);
+    }
+    const includeDevUrl = !isProduction() || env().PADDLE_ENVIRONMENT === "sandbox" || !emailDelivered;
+    return res.status(201).json({ message: "Account created. Check your email to verify it.", requiresVerification: true, ...(includeDevUrl ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(raw)}` } : {}) });
   }));
 
   app.post("/api/auth/login", rateLimit("login", 12, 900000), asyncHandlerVoid(async (req, res) => {
     const email = String(req.body?.email || "").trim().toLowerCase(); const password = String(req.body?.password || "");
     let user = await db.findUserByEmail(email);
+    const sandboxAutoProvision = !isProduction() && env().DEV_SANDBOX_AUTO_PROVISION === "1";
+    if (!user && sandboxAutoProvision && email && /^\S+@\S+\.\S+$/.test(email) && password.length >= 1) {
+      const isOwner = Boolean(configuredOwnerEmail() && email === configuredOwnerEmail());
+      const rawName = isOwner ? "Site Owner" : email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 80) || "Test Account";
+      user = await db.createUser({
+        id: db.newId("usr"),
+        email,
+        passwordHash: passwordHash(password),
+        displayName: rawName.length >= 2 ? rawName : "Test User",
+        role: isOwner ? "admin" : "user",
+        isVerified: true,
+      });
+      await db.createMembership(user.id, isOwner ? "sceneforge" : "free");
+      await db.upsertEmailPreference({ userId: user.id, marketingConsent: false, consentTimestamp: now(), consentSource: "registration", consentVersion: "2026-10", trainingStep: 0, updatedAt: now() });
+    } else if (user && sandboxAutoProvision && password.length >= 1 && !passwordMatches(password, user.passwordHash)) {
+      await db.updateUser(user.id, { passwordHash: passwordHash(password), isVerified: true });
+      user = (await db.findUserById(user.id)) || user;
+    }
     if (!user || !passwordMatches(password, user.passwordHash)) return res.status(401).json({ error: "Email or password is incorrect." });
-    if (!user.isVerified) return res.status(403).json({ error: "Verify your email before signing in.", code: "EMAIL_UNVERIFIED" });
     user = await ensureOwnerPrivileges(user);
+    if (!user.isVerified && sandboxAutoProvision) {
+      await db.updateUser(user.id, { isVerified: true });
+      user = { ...user, isVerified: true };
+    }
+    if (!user.isVerified) {
+      const rawVerify = randomBytes(32).toString("base64url");
+      await db.deleteVerificationTokensForUser(user.id, "verify");
+      await db.createVerificationToken(user.id, hashToken(rawVerify), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
+      let emailDelivered = true;
+      try {
+        await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(rawVerify)}`);
+      } catch {
+        emailDelivered = false;
+      }
+      const includeDevUrl = !isProduction() || env().PADDLE_ENVIRONMENT === "sandbox" || !emailDelivered;
+      return res.status(403).json({
+        error: "Verify your email before signing in.",
+        code: "EMAIL_UNVERIFIED",
+        ...(includeDevUrl ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(rawVerify)}` } : {}),
+      });
+    }
     const raw = randomBytes(32).toString("base64url");
     await db.createSession(user.id, hashToken(raw), new Date(Date.now() + 24 * 30 * 3600000).toISOString());
     setSessionCookie(res, raw);
-    return res.json(await accountPayload(user));
+    const payload = await accountPayload(user);
+    return res.json({ ...payload, sessionToken: raw });
   }));
 
   app.post("/api/auth/logout", asyncHandlerVoid(async (req, res) => {
-    const raw = cookies(req).scenering_session;
+    const raw = sessionTokenFromRequest(req);
     if (raw) await db.deleteSessionByToken(hashToken(raw));
     clearSessionCookie(res); res.json({ ok: true });
   }));
@@ -1277,27 +1369,43 @@ export function registerPlatformRoutes(app: Express) {
   app.post("/api/auth/resend-verification", rateLimit("resend", 3, 3600000), asyncHandlerVoid(async (req, res) => {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const user = await db.findUserByEmail(email);
+    let developmentVerificationUrl = "";
+    let emailDelivered = true;
     if (user && !user.isVerified) {
       const raw = randomBytes(32).toString("base64url");
       await db.deleteVerificationTokensForUser(user.id, "verify");
       await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
-      await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(raw)}`);
+      developmentVerificationUrl = `/verify-email?token=${encodeURIComponent(raw)}`;
+      try {
+        await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}${developmentVerificationUrl}`);
+      } catch (err: any) {
+        emailDelivered = false;
+        console.warn("[auth] resend verification email could not be sent:", err?.message || err);
+      }
     }
-    res.json({ message: "If the account exists, a verification message has been sent." });
+    const includeDevUrl = (!isProduction() || env().PADDLE_ENVIRONMENT === "sandbox" || !emailDelivered) && Boolean(developmentVerificationUrl);
+    res.json({ message: "If the account exists, a verification message has been sent.", ...(includeDevUrl ? { developmentVerificationUrl } : {}) });
   }));
 
   app.post("/api/auth/forgot-password", rateLimit("forgot", 3, 3600000), asyncHandlerVoid(async (req, res) => {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const user = await db.findUserByEmail(email);
     let developmentResetUrl = "";
+    let emailDelivered = true;
     if (user) {
       const raw = randomBytes(32).toString("base64url");
       await db.deleteVerificationTokensForUser(user.id, "reset");
       await db.createVerificationToken(user.id, hashToken(raw), "reset", new Date(Date.now() + PASSWORD_RESET_TTL_MS).toISOString());
       developmentResetUrl = `/reset-password?token=${encodeURIComponent(raw)}`;
-      await sendPasswordResetEmail(user.email, user.displayName, `${baseUrl(req)}${developmentResetUrl}`);
+      try {
+        await sendPasswordResetEmail(user.email, user.displayName, `${baseUrl(req)}${developmentResetUrl}`);
+      } catch (err: any) {
+        emailDelivered = false;
+        console.warn("[auth] password reset email could not be sent:", err?.message || err);
+      }
     }
-    res.json({ message: "If the account exists, a password-reset message has been sent.", ...(!isProduction() && developmentResetUrl ? { developmentResetUrl } : {}) });
+    const includeDevUrl = (!isProduction() || env().PADDLE_ENVIRONMENT === "sandbox" || !emailDelivered) && Boolean(developmentResetUrl);
+    res.json({ message: "If the account exists, a password-reset message has been sent.", ...(includeDevUrl ? { developmentResetUrl } : {}) });
   }));
 
   app.post("/api/auth/reset-password", rateLimit("reset", 5, 3600000), asyncHandlerVoid(async (req, res) => {
@@ -1307,7 +1415,8 @@ export function registerPlatformRoutes(app: Express) {
     const token = await db.findVerificationToken(hash, "reset");
     const user = token && (await db.findUserById(token.userId));
     if (!token || !user) return res.status(400).json({ error: "This reset link is invalid or expired." });
-    await db.updateUser(user.id, { passwordHash: passwordHash(password) });
+    await db.updateUser(user.id, { passwordHash: passwordHash(password), isVerified: true });
+    await ensureOwnerPrivileges({ ...user, isVerified: true });
     await db.deleteVerificationTokensForUser(user.id, "reset");
     await db.deleteSessionsForUser(user.id);
     return res.json({ message: "Password updated. Sign in with your new password." });
@@ -1515,13 +1624,14 @@ export function registerPlatformRoutes(app: Express) {
    * Paddle account.
    */
   app.get("/api/billing/public-config", rateLimit("billing-public-config", 60, 60000), asyncHandlerVoid(async (_req, res) => {
+    const configuredEnv = paddleText(env().PADDLE_ENVIRONMENT)?.toLowerCase();
     const clientToken = paddleText(env().PADDLE_CLIENT_TOKEN);
     const clientEnvironment = paddleText(env().PADDLE_CLIENT_ENVIRONMENT)?.toLowerCase();
+    if (!configuredEnv || (configuredEnv !== "sandbox" && configuredEnv !== "live" && configuredEnv !== "production") || !clientToken || (clientEnvironment !== "sandbox" && clientEnvironment !== "production")) {
+      return res.status(503).json({ error: "Checkout pricing is not configured yet.", code: "PADDLE_CLIENT_NOT_CONFIGURED", detail: "PADDLE_ENVIRONMENT (\"sandbox\" or \"live\"), PADDLE_CLIENT_TOKEN and PADDLE_CLIENT_ENVIRONMENT (\"sandbox\" or \"production\") must all be set" });
+    }
     const expectedClientEnv = paddleEnvironment() === "live" ? "production" : "sandbox";
     const expectedPrefix = expectedClientEnv === "sandbox" ? "test_" : "live_";
-    if (!clientToken || (clientEnvironment !== "sandbox" && clientEnvironment !== "production")) {
-      return res.status(503).json({ error: "Checkout pricing is not configured yet.", code: "PADDLE_CLIENT_NOT_CONFIGURED", detail: "PADDLE_CLIENT_TOKEN and PADDLE_CLIENT_ENVIRONMENT (\"sandbox\" or \"production\") must both be set" });
-    }
     if (clientEnvironment !== expectedClientEnv || !clientToken.startsWith(expectedPrefix)) {
       return res.status(503).json({ error: "Checkout pricing environment mismatch.", code: "PADDLE_ENVIRONMENT_MISMATCH", detail: `PADDLE_ENVIRONMENT=${paddleEnvironment()} requires PADDLE_CLIENT_ENVIRONMENT=${expectedClientEnv} and a ${expectedPrefix}-prefixed PADDLE_CLIENT_TOKEN` });
     }
@@ -1726,6 +1836,20 @@ export function registerPlatformRoutes(app: Express) {
     if ("error" in result) return res.status(400).json({ error: result.error });
     await db.setSetting(SOCIAL_LINKS_SETTING_KEY, JSON.stringify({ ...result.links, updated_at: now(), updated_by: admin.id }));
     res.json({ links: await publicSocialLinks() });
+  }));
+
+  /* Site-wide store notice shown on the front pages. Public for reading; only
+     the owner administrator may update or toggle it. */
+  app.get("/api/store-notice", asyncHandlerVoid(async (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ notice: await publicStoreNotice() });
+  }));
+  app.put("/api/admin/store-notice", requireAdmin, rateLimit("admin-store-notice", 60, 3600000), asyncHandlerVoid(async (req, res) => {
+    const { user: admin } = (req as any).auth as Auth;
+    const result = sanitizeStoreNotice(req.body);
+    if ("error" in result) return res.status(400).json({ error: result.error });
+    await db.setSetting(STORE_NOTICE_SETTING_KEY, JSON.stringify({ ...result.notice, updated_at: now(), updated_by: admin.id }));
+    res.json({ notice: await publicStoreNotice() });
   }));
 
   /* /api/email-preferences (GET/PUT) and /api/email/unsubscribe are

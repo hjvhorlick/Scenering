@@ -13,8 +13,11 @@ if [ ! -f .dev.vars ]; then
 NODE_ENV=development
 SESSION_SECRET=local-development-secret-change-me-32-chars-minimum
 PUBLIC_APP_URL=
-SCENERING_OWNER_EMAIL=owner@example.com
+SCENERING_OWNER_EMAIL=hjvhorlick@gmail.com
 ALLOW_FRAMING=1
+DEV_EMBEDDED_PREVIEW=1
+DEV_SANDBOX_AUTO_PROVISION=1
+TRUST_PROXY=1
 EMAIL_PROVIDER=console
 PADDLE_ENVIRONMENT=sandbox
 PADDLE_CLIENT_ENVIRONMENT=sandbox

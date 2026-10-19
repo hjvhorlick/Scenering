@@ -39,10 +39,12 @@ export type Env = {
   SCENERING_OWNER_EMAIL: string;
   PEXELS_API_KEY?: string;
   PIXABAY_API_KEY?: string;
-  /* Paddle Billing. Every one of these is a server-side secret or plain var —
-     none of them is read by the browser bundle (nothing here is VITE_-prefixed),
-     and Paddle.js is not loaded, so no client token is exposed either. See
-     PADDLE.md for what each value is and where to get it. */
+  /* Paddle Billing. Server-side secrets (PADDLE_API_KEY, PADDLE_WEBHOOK_SECRET)
+     never leave the server; nothing here is VITE_-prefixed or baked into the
+     browser bundle. Only the public client-side token (PADDLE_CLIENT_TOKEN) and
+     environment (PADDLE_CLIENT_ENVIRONMENT) are served at runtime by
+     GET /api/billing/public-config for @paddle/paddle-js. See PADDLE.md for
+     what each value is and where to get it. */
   /** "sandbox" or "live". Picks the API base URL:
    *  https://sandbox-api.paddle.com or https://api.paddle.com. */
   PADDLE_ENVIRONMENT?: string;

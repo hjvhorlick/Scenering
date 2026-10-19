@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 600 utility
+   Colour matrix for every non-classic theme. 603 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -557,6 +557,12 @@ html[data-theme="apple"] .border-amber-300 {
 }
 html[data-theme="apple"] .border-amber-400 {
   border-color: rgb(251 191 36 / 1);
+}
+html[data-theme="apple"] .border-amber-400\/40 {
+  border-color: rgb(251 191 36 / 0.4);
+}
+html[data-theme="apple"] .border-amber-400\/50 {
+  border-color: rgb(251 191 36 / 0.5);
 }
 html[data-theme="apple"] .border-amber-400\/60 {
   border-color: rgb(251 191 36 / 0.6);
@@ -1336,6 +1342,9 @@ html[data-theme="apple"] .hover\:bg-white\/25:hover {
 }
 html[data-theme="apple"] .hover\:bg-white\/30:hover {
   background-color: rgb(255 255 255 / 0.3);
+}
+html[data-theme="apple"] .hover\:bg-white\/5:hover {
+  background-color: rgb(255 255 255 / 0.05);
 }
 html[data-theme="apple"] .hover\:bg-yellow-300:hover {
   background-color: rgb(253 224 71 / 1);
@@ -2409,6 +2418,12 @@ html[data-theme="windows"] .border-amber-300 {
 html[data-theme="windows"] .border-amber-400 {
   border-color: rgb(238 185 49 / 1);
 }
+html[data-theme="windows"] .border-amber-400\/40 {
+  border-color: rgb(238 185 49 / 0.4);
+}
+html[data-theme="windows"] .border-amber-400\/50 {
+  border-color: rgb(238 185 49 / 0.5);
+}
 html[data-theme="windows"] .border-amber-400\/60 {
   border-color: rgb(238 185 49 / 0.6);
 }
@@ -3187,6 +3202,9 @@ html[data-theme="windows"] .hover\:bg-white\/25:hover {
 }
 html[data-theme="windows"] .hover\:bg-white\/30:hover {
   background-color: rgb(238 243 250 / 0.3);
+}
+html[data-theme="windows"] .hover\:bg-white\/5:hover {
+  background-color: rgb(238 243 250 / 0.05);
 }
 html[data-theme="windows"] .hover\:bg-yellow-300:hover {
   background-color: rgb(242 217 82 / 1);
@@ -4260,6 +4278,12 @@ html[data-theme="playful"] .border-amber-300 {
 html[data-theme="playful"] .border-amber-400 {
   border-color: rgb(255 194 38 / 1);
 }
+html[data-theme="playful"] .border-amber-400\/40 {
+  border-color: rgb(255 194 38 / 0.4);
+}
+html[data-theme="playful"] .border-amber-400\/50 {
+  border-color: rgb(255 194 38 / 0.5);
+}
 html[data-theme="playful"] .border-amber-400\/60 {
   border-color: rgb(255 194 38 / 0.6);
 }
@@ -5038,6 +5062,9 @@ html[data-theme="playful"] .hover\:bg-white\/25:hover {
 }
 html[data-theme="playful"] .hover\:bg-white\/30:hover {
   background-color: rgb(255 255 255 / 0.3);
+}
+html[data-theme="playful"] .hover\:bg-white\/5:hover {
+  background-color: rgb(255 255 255 / 0.05);
 }
 html[data-theme="playful"] .hover\:bg-yellow-300:hover {
   background-color: rgb(255 226 75 / 1);
@@ -6111,6 +6138,12 @@ html[data-theme="glass"] .border-amber-300 {
 html[data-theme="glass"] .border-amber-400 {
   border-color: rgb(219 169 59 / 1);
 }
+html[data-theme="glass"] .border-amber-400\/40 {
+  border-color: rgb(219 169 59 / 0.4);
+}
+html[data-theme="glass"] .border-amber-400\/50 {
+  border-color: rgb(219 169 59 / 0.5);
+}
 html[data-theme="glass"] .border-amber-400\/60 {
   border-color: rgb(219 169 59 / 0.6);
 }
@@ -6889,6 +6922,9 @@ html[data-theme="glass"] .hover\:bg-white\/25:hover {
 }
 html[data-theme="glass"] .hover\:bg-white\/30:hover {
   background-color: rgb(255 255 255 / 0.294);
+}
+html[data-theme="glass"] .hover\:bg-white\/5:hover {
+  background-color: rgb(255 255 255 / 0.049);
 }
 html[data-theme="glass"] .hover\:bg-yellow-300:hover {
   background-color: rgb(253 231 111 / 1);
@@ -7962,6 +7998,12 @@ html[data-theme="porcelain"] .border-amber-300 {
 html[data-theme="porcelain"] .border-amber-400 {
   border-color: rgb(251 191 36 / 1);
 }
+html[data-theme="porcelain"] .border-amber-400\/40 {
+  border-color: rgb(251 191 36 / 0.4);
+}
+html[data-theme="porcelain"] .border-amber-400\/50 {
+  border-color: rgb(251 191 36 / 0.5);
+}
 html[data-theme="porcelain"] .border-amber-400\/60 {
   border-color: rgb(251 191 36 / 0.6);
 }
@@ -8740,6 +8782,9 @@ html[data-theme="porcelain"] .hover\:bg-white\/25:hover {
 }
 html[data-theme="porcelain"] .hover\:bg-white\/30:hover {
   background-color: rgb(255 255 255 / 0.3);
+}
+html[data-theme="porcelain"] .hover\:bg-white\/5:hover {
+  background-color: rgb(255 255 255 / 0.05);
 }
 html[data-theme="porcelain"] .hover\:bg-yellow-300:hover {
   background-color: rgb(253 224 71 / 1);

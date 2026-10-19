@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
+import { navigate } from "../lib/route";
+import { signOut } from "../lib/session";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
+import StoreNoticeBanner, {
+  DEFAULT_STORE_NOTICE,
+  invalidateStoreNotice,
+  STORE_NOTICE_MAX_BADGE_LENGTH,
+  STORE_NOTICE_MAX_MESSAGE_LENGTH,
+  type StoreNotice,
+} from "../shared/StoreNotice";
 import {
   AUDIENCE_TYPES, EMAIL_TEMPLATE_STARTERS, EMAIL_TEMPLATE_VARIABLES, TRAINING_STEPS, TEMPLATE_CATEGORIES,
   audienceLabel, categoryLabel, emailApi, fmtDateTime, fmtNumber,
@@ -100,7 +109,10 @@ export default function EmailCentre() {
               <h1 className="text-2xl font-bold">Email Centre</h1>
               <p className="text-sm text-gray-400 mt-1 max-w-2xl">Branded marketing templates, consented audiences and campaign delivery. Transactional email — verification, password resets, security and billing — is managed separately and never depends on marketing consent.</p>
             </div>
-            <a href="/app" className="rounded-lg border border-hairline px-3 py-2 text-xs font-bold hover:bg-gray-800">Open Studio</a>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={async () => { await signOut(); navigate("/login"); }} className="rounded-lg border border-hairline px-3 py-2 text-xs font-bold hover:bg-gray-800">Switch account</button>
+              <a href="/app" className="rounded-lg border border-hairline px-3 py-2 text-xs font-bold hover:bg-gray-800">Open Studio</a>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2 mt-4" role="tablist" aria-label="Email Centre areas">
             {([["dashboard", "Dashboard"], ["inbox", "Inbox"], ["members", "Members"], ["gifts", "Gifts"], ["plans", "Plans"], ["programmes", "Programmes"], ["templates", "Templates"], ["campaigns", "Campaigns"], ["manual", "Manual"]] as Array<[Tab, string]>).map(([value, label]) => (
@@ -213,6 +225,106 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 // Dashboard
 // ---------------------------------------------------------------------------
 
+function StoreNoticeAdminCard() {
+  const [storeNotice, setStoreNotice] = useState<StoreNotice>({ ...DEFAULT_STORE_NOTICE });
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/store-notice", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => {
+        if (res?.notice) setStoreNotice({ ...DEFAULT_STORE_NOTICE, ...res.notice });
+      })
+      .catch(() => null);
+  }, []);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setStatus(null);
+    try {
+      const response = await fetch("/api/admin/store-notice", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(storeNotice),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setStatus({ tone: "error", text: payload.error || "Store notice could not be saved." });
+      } else {
+        const next: StoreNotice = { ...DEFAULT_STORE_NOTICE, ...payload.notice };
+        setStoreNotice(next);
+        invalidateStoreNotice(next);
+        setStatus({
+          tone: "ok",
+          text: next.enabled
+            ? "Saved. The store notice is now shown at the top of the front pages."
+            : "Saved. The store notice is now hidden on the front pages.",
+        });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="rounded-xl border border-amber-400/50 bg-gray-900/70 p-4 sm:p-5 space-y-3" aria-label="Store notice" onSubmit={save}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <span className="text-[10px] uppercase tracking-[.16em] text-amber-300 font-bold">Store notice</span>
+          <h3 className="text-sm font-bold mt-0.5">Front-page store notice banner</h3>
+          <p className="text-xs text-gray-400 mt-1">Shown beneath the top navigation bar across the front pages. Toggle it on or off and edit the badge and message below.</p>
+        </div>
+        <label className="flex items-center gap-2 text-xs font-bold text-gray-200 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={storeNotice.enabled}
+            onChange={(event) => setStoreNotice((prev) => ({ ...prev, enabled: event.target.checked }))}
+          />
+          <span>Show store notice on front pages</span>
+        </label>
+      </div>
+      <div className="grid sm:grid-cols-[220px_1fr] gap-3">
+        <Field label="Notice badge">
+          <input
+            type="text"
+            maxLength={STORE_NOTICE_MAX_BADGE_LENGTH}
+            placeholder={DEFAULT_STORE_NOTICE.badge}
+            value={storeNotice.badge}
+            onChange={(event) => setStoreNotice((prev) => ({ ...prev, badge: event.target.value }))}
+            className={inputClass}
+          />
+        </Field>
+        <Field label="Notice message">
+          <input
+            type="text"
+            maxLength={STORE_NOTICE_MAX_MESSAGE_LENGTH}
+            placeholder={DEFAULT_STORE_NOTICE.message}
+            value={storeNotice.message}
+            onChange={(event) => setStoreNotice((prev) => ({ ...prev, message: event.target.value }))}
+            className={inputClass}
+          />
+        </Field>
+      </div>
+      {storeNotice.enabled && storeNotice.message.trim() && (
+        <div className="rounded-lg overflow-hidden border border-amber-400/40">
+          <StoreNoticeBanner previewNotice={storeNotice} />
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="submit" disabled={busy} className="opt-btn selected">{busy ? "Saving…" : "Save store notice"}</button>
+        <button type="button" className="opt-btn" onClick={() => setStoreNotice({ ...DEFAULT_STORE_NOTICE })}>Reset to default</button>
+        {status && (
+          <span role="status" className={`text-xs font-bold ${status.tone === "ok" ? "text-emerald-300" : "text-amber-300"}`}>
+            {status.text}
+          </span>
+        )}
+      </div>
+    </form>
+  );
+}
+
 function DashboardTab({ onOpenCampaign }: { onOpenCampaign: (id: string) => void }) {
   const [data, setData] = useState<EmailDashboard | null>(null);
   const [error, setError] = useState("");
@@ -230,6 +342,7 @@ function DashboardTab({ onOpenCampaign }: { onOpenCampaign: (id: string) => void
 
   return (
     <>
+      <StoreNoticeAdminCard />
       {!meta.emailProviderConfigured && (
         <p className="rounded-lg border border-amber-500/40 bg-amber-950/30 text-amber-200 text-sm px-4 py-3">
           The email provider is not configured for live delivery (EMAIL_PROVIDER). Test sends and campaigns will be logged by the console provider instead of reaching inboxes — configure Resend before sending a real campaign.

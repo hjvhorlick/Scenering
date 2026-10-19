@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "../config/plans";
-import { getInterfacePlan, getSession, setAdminPlanPreview, useSession } from "../lib/session";
+import { navigate } from "../lib/route";
+import { getInterfacePlan, getSession, setAdminPlanPreview, signOut, useSession } from "../lib/session";
 import { EMPTY_SOCIAL_LINKS, invalidateSocialLinks, SocialIcon, SOCIAL_ICONS, type SocialLinkSet } from "../shared/SocialLinks";
+import StoreNoticeBanner, { DEFAULT_STORE_NOTICE, invalidateStoreNotice, STORE_NOTICE_MAX_BADGE_LENGTH, STORE_NOTICE_MAX_MESSAGE_LENGTH, type StoreNotice } from "../shared/StoreNotice";
 import Icon from "./icons/Icon";
 import ApiKeysModal from "./ApiKeysModal";
 import { useApiKeysConfigured } from "../shared/api-key-status";
@@ -35,6 +37,8 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
   const [redeemCode, setRedeemCode] = useState("");
   const [socialLinks, setSocialLinks] = useState<SocialLinkSet>({ ...EMPTY_SOCIAL_LINKS });
   const [socialStatus, setSocialStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [storeNotice, setStoreNotice] = useState<StoreNotice>({ ...DEFAULT_STORE_NOTICE });
+  const [storeNoticeStatus, setStoreNoticeStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   /* The provider-key dialog. It is opened from here as well as from the corner
      menu; both entries lead to the same dialog and the same stored keys. */
   const [keysOpen, setKeysOpen] = useState(false);
@@ -49,6 +53,32 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
     setAdminData(await response.json());
     const links = await fetch("/api/social-links").then((r) => r.ok ? r.json() : null).catch(() => null);
     if (links?.links) setSocialLinks({ ...EMPTY_SOCIAL_LINKS, ...links.links });
+    const noticeRes = await fetch("/api/store-notice").then((r) => r.ok ? r.json() : null).catch(() => null);
+    if (noticeRes?.notice) setStoreNotice({ ...DEFAULT_STORE_NOTICE, ...noticeRes.notice });
+  }
+
+  async function saveStoreNotice() {
+    setBusy("store-notice"); setStoreNoticeStatus(null);
+    const response = await fetch("/api/admin/store-notice", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(storeNotice),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStoreNoticeStatus({ tone: "error", text: data.error || "Store notice could not be saved." });
+    } else {
+      const next: StoreNotice = { ...DEFAULT_STORE_NOTICE, ...data.notice };
+      setStoreNotice(next);
+      invalidateStoreNotice(next);
+      setStoreNoticeStatus({
+        tone: "ok",
+        text: next.enabled
+          ? "Saved. The store notice is now shown at the top of the front pages."
+          : "Saved. The store notice is now hidden on the front pages.",
+      });
+    }
+    setBusy(null);
   }
 
   async function saveSocialLinks() {
@@ -197,7 +227,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
     <div className="w-full max-w-6xl my-auto bg-gray-950 border border-hairline rounded-2xl shadow-2xl text-white overflow-hidden">
       <header className="flex items-start justify-between gap-4 p-5 sm:p-6 border-b border-hairline bg-gray-900/80">
         <div><span className="text-[11px] uppercase tracking-[.18em] text-indigo-300 font-bold">Account & Membership</span><h2 id="account-title" className="text-2xl font-bold mt-1">{account?.user.displayName || "Your Scenering account"}</h2><p className="text-sm text-gray-400 mt-1">{account?.user.email || "Loading account…"}</p></div>
-        <div className="flex items-center gap-2"><button className="rounded-lg bg-white text-blue-950 px-3 py-2 text-xs font-extrabold shadow-md hover:bg-blue-50" onClick={enterStudio}>Enter Studio</button><button className="opt-btn" onClick={enterStudio} aria-label="Close account and membership and enter Studio"><Icon glyph="✕" /></button></div>
+        <div className="flex flex-wrap items-center gap-2"><button type="button" className="rounded-lg border border-white/15 px-3 py-2 text-xs font-bold hover:bg-gray-800" onClick={async () => { await signOut(); onClose(); navigate("/login"); }}>Switch account</button><button className="rounded-lg bg-white text-blue-950 px-3 py-2 text-xs font-extrabold shadow-md hover:bg-blue-50" onClick={enterStudio}>Enter Studio</button><button className="opt-btn" onClick={enterStudio} aria-label="Close account and membership and enter Studio"><Icon glyph="✕" /></button></div>
       </header>
 
       <div className="p-5 sm:p-6 space-y-6">
@@ -273,6 +303,55 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
               <button type="submit" disabled={busy === "create-code"} className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50 disabled:opacity-60">{busy === "create-code" ? "Generating…" : "Generate gift code"}</button>
             </div>
             {generatedCode && <div className="mt-4 rounded-lg border border-emerald-500/50 bg-emerald-950/35 p-4"><div className="text-[10px] uppercase tracking-wider text-emerald-300">Gift code created — copy it now</div><code className="block text-base font-bold text-white break-all mt-1">{generatedCode.code}</code><div className="flex flex-wrap gap-2 mt-3"><button type="button" onClick={() => void copyGiftText(generatedCode.code, "Gift code")} className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-bold">Copy gift code</button><button type="button" onClick={() => void copyGiftText(new URL(generatedCode.redeemUrl, window.location.origin).toString(), "Gift registration link")} className="rounded-md border border-emerald-500/40 px-3 py-1.5 text-xs font-bold">Copy gift registration link</button></div><div className="text-[10px] text-gray-400 mt-2">The code must be claimed by {new Date(generatedCode.expiresAt).toLocaleDateString()}. The one-year membership starts when claimed.</div></div>}
+          </form>
+          <form className="rounded-xl border border-amber-400/60 bg-gray-950/70 p-4 sm:p-5" aria-label="Store notice" onSubmit={(event) => { event.preventDefault(); void saveStoreNotice(); }}>
+            <span className="text-[10px] uppercase tracking-[.16em] text-amber-300 font-bold">Store notice</span>
+            <h4 className="text-lg font-bold mt-1">Front-page store notice banner</h4>
+            <p className="text-xs text-gray-400 mt-1 mb-4">Display a compact, bright notice ribbon right beneath the top navigation bar across the front pages. Toggle it on or off and edit the badge and message below.</p>
+            <label className="flex items-center gap-2.5 text-xs font-bold text-gray-200 mb-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={storeNotice.enabled}
+                onChange={(event) => setStoreNotice((previous) => ({ ...previous, enabled: event.target.checked }))}
+              />
+              <span>Show store notice on front pages</span>
+            </label>
+            <div className="grid sm:grid-cols-[220px_1fr] gap-3">
+              <label className="block">
+                <span className="block text-xs font-bold text-gray-300">Notice badge</span>
+                <input
+                  type="text"
+                  maxLength={STORE_NOTICE_MAX_BADGE_LENGTH}
+                  placeholder={DEFAULT_STORE_NOTICE.badge}
+                  value={storeNotice.badge}
+                  onChange={(event) => setStoreNotice((previous) => ({ ...previous, badge: event.target.value }))}
+                  className="mt-1.5 w-full rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs text-gray-100 placeholder:text-gray-600"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs font-bold text-gray-300">Notice message</span>
+                <input
+                  type="text"
+                  maxLength={STORE_NOTICE_MAX_MESSAGE_LENGTH}
+                  placeholder={DEFAULT_STORE_NOTICE.message}
+                  value={storeNotice.message}
+                  onChange={(event) => setStoreNotice((previous) => ({ ...previous, message: event.target.value }))}
+                  className="mt-1.5 w-full rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs text-gray-100 placeholder:text-gray-600"
+                />
+              </label>
+            </div>
+            {storeNotice.enabled && storeNotice.message.trim() && (
+              <div className="mt-3 rounded-lg overflow-hidden border border-amber-400/40">
+                <StoreNoticeBanner previewNotice={storeNotice} />
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-3 mt-4">
+              <button type="submit" disabled={busy === "store-notice"} className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50 disabled:opacity-60">{busy === "store-notice" ? "Saving…" : "Save store notice"}</button>
+              <button type="button" onClick={() => setStoreNotice({ ...DEFAULT_STORE_NOTICE })} className="rounded-lg border border-white/15 px-3 py-2 text-xs font-bold text-gray-300 hover:bg-white/5">Reset to default</button>
+              {storeNoticeStatus
+                ? <span role="status" className={`text-xs font-bold ${storeNoticeStatus.tone === "ok" ? "text-emerald-300" : "text-amber-300"}`}>{storeNoticeStatus.text}</span>
+                : <span className="text-[10px] text-gray-500">Saved immediately for every visitor on the front pages.</span>}
+            </div>
           </form>
           <form className="rounded-xl border border-white/15 bg-gray-950/70 p-4 sm:p-5" aria-label="Social media links" onSubmit={(event) => { event.preventDefault(); void saveSocialLinks(); }}>
             <span className="text-[10px] uppercase tracking-[.16em] text-blue-300 font-bold">Social media</span>

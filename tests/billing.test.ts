@@ -637,6 +637,48 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
   h.eq(platform.billingConfiguration().clientTokenSet, false, "and billingConfiguration flags the mismatched token");
   process.env.PADDLE_CLIENT_TOKEN = savedClientToken;
 
+  /* Live environment + live_-prefixed token + country header + loud unset-env failure */
+  {
+    const savedEnv = process.env.PADDLE_ENVIRONMENT;
+    const savedApiKey = process.env.PADDLE_API_KEY;
+    delete process.env.PADDLE_ENVIRONMENT;
+    const unsetEnvRes = await fetch(`${base}/api/billing/public-config`);
+    const unsetEnvBody = await unsetEnvRes.json() as any;
+    h.eq(unsetEnvRes.status, 503, "unset PADDLE_ENVIRONMENT fails loudly instead of silently defaulting");
+    h.eq(unsetEnvBody.code, "PADDLE_CLIENT_NOT_CONFIGURED", "unset PADDLE_ENVIRONMENT returns PADDLE_CLIENT_NOT_CONFIGURED");
+    h.eq(platform.billingConfiguration().ready, false, "billingConfiguration is not ready when PADDLE_ENVIRONMENT is unset");
+
+    process.env.PADDLE_ENVIRONMENT = "live";
+    process.env.PADDLE_CLIENT_ENVIRONMENT = "production";
+    process.env.PADDLE_CLIENT_TOKEN = "live_client_token_for_the_pricing_page";
+    process.env.PADDLE_API_KEY = "pdl_live_apikey_test_key";
+
+    const liveCfgRes = await fetch(`${base}/api/billing/public-config`);
+    const liveCfg = await liveCfgRes.json() as any;
+    h.eq(liveCfgRes.status, 200, "public billing config responds 200 in live mode");
+    h.eq(liveCfg.environment, "production", "frontend receives production environment in live mode");
+    h.ok(String(liveCfg.clientToken || "").startsWith("live_"), "frontend receives a live_-prefixed client token in live mode");
+    h.eq(liveCfg.country, null, "absent geo header returns null country so Paddle auto-detects from IP");
+    h.eq(Array.isArray(liveCfg.tiers) && liveCfg.tiers.length, 3, "public-config returns all 3 pricing tiers");
+    h.eq(platform.billingConfiguration().ready, true, "billingConfiguration reports ready in live mode");
+
+    const vercelCountryRes = await fetch(`${base}/api/billing/public-config`, { headers: { "x-vercel-ip-country": "za" } });
+    h.eq(((await vercelCountryRes.json()) as any).country, "ZA", "x-vercel-ip-country header is normalized to ISO country code");
+    const cfCountryRes = await fetch(`${base}/api/billing/public-config`, { headers: { "cf-ipcountry": "gb" } });
+    h.eq(((await cfCountryRes.json()) as any).country, "GB", "cf-ipcountry header is normalized to ISO country code");
+    const othersCountryRes = await fetch(`${base}/api/billing/public-config`, { headers: { "x-vercel-ip-country": "OTHERS" } });
+    h.eq(((await othersCountryRes.json()) as any).country, null, "OTHERS sentinel is never passed through as a country code");
+
+    process.env.PADDLE_CLIENT_TOKEN = "test_wrong_prefix_in_live";
+    const liveMismatchRes = await fetch(`${base}/api/billing/public-config`);
+    h.eq(liveMismatchRes.status, 503, "a test_-prefixed client token in live mode is rejected by public-config");
+
+    process.env.PADDLE_ENVIRONMENT = savedEnv;
+    process.env.PADDLE_CLIENT_ENVIRONMENT = savedClientEnv;
+    process.env.PADDLE_CLIENT_TOKEN = savedClientToken;
+    process.env.PADDLE_API_KEY = savedApiKey;
+  }
+
   /* Step 4 end-to-end subscription lifecycle verification:
      (2) initial checkout -> (4a) immediate upgrade with do_not_bill ->
      (4b) scheduled cancellation at period end -> (4c) immediate cancellation */
