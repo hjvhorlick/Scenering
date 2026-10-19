@@ -92,6 +92,43 @@ export type Env = {
    *  endpoint refuses to answer when it is unset, so a misconfigured
    *  deployment cannot quietly open checkout against the wrong account. */
   PADDLE_CLIENT_ENVIRONMENT?: string;
+  /* FastSpring Billing — a second merchant of record running alongside
+     Paddle. Server-side secrets (FASTSPRING_API_PASSWORD,
+     FASTSPRING_WEBHOOK_SECRET) never leave the server; nothing here is
+     VITE_-prefixed or baked into the browser bundle. The storefront path is
+     public (it is the `data-storefront` of FastSpring's own snippet) and is
+     served at runtime by /api/billing/fastspring/checkout. See FASTSPRING.md
+     for what each value is and where to get it. */
+  /** Which provider the app opens by default: "paddle" or "fastspring".
+   *  Unset means the provider with server credentials configured, Paddle
+   *  first. Both webhook endpoints stay live either way. */
+  BILLING_PROVIDER?: string;
+  /** Storefront path from FastSpring → Checkouts → Popup Checkouts →
+   *  "Place on your Website" (`data-storefront`), e.g.
+   *  `scenering.onfastspring.com/popup-scenering` or
+   *  `scenering.test.onfastspring.com/popup-scenering`. The `.test.` in the
+   *  host selects FastSpring's test environment. */
+  FASTSPRING_STOREFRONT?: string;
+  /** API username and password from FastSpring → Developer Tools → API.
+   *  Used server to server to create checkout sessions and mint
+   *  pre-authenticated Account Management links. */
+  FASTSPRING_API_USERNAME?: string;
+  FASTSPRING_API_PASSWORD?: string;
+  /** The webhook's HMAC SHA256 Secret (FastSpring → Developer Tools →
+   *  Webhooks). `X-FS-Signature` is HMAC-SHA256 over the raw request body,
+   *  base64-encoded, keyed with this secret. */
+  FASTSPRING_WEBHOOK_SECRET?: string;
+  /** "popup" to open the Store Builder popup, "session" to redirect to a
+   *  server-created session URL. Unset means session when the API keys are
+   *  configured and popup otherwise. */
+  FASTSPRING_CHECKOUT_MODE?: string;
+  /** Product paths for the four paid subscription products, per plan and
+   *  interval. Unset means `sceneflow-monthly`, `sceneflow-yearly`,
+   *  `sceneforge-monthly`, `sceneforge-yearly`. */
+  FASTSPRING_SCENEFLOW_MONTHLY_PATH?: string;
+  FASTSPRING_SCENEFLOW_YEARLY_PATH?: string;
+  FASTSPRING_SCENEFORGE_MONTHLY_PATH?: string;
+  FASTSPRING_SCENEFORGE_YEARLY_PATH?: string;
   // server/platform.ts also looks these env names up dynamically
   // (`env()[PLAN_CONFIG[slug].checkoutEnv[interval]]`) — keep the type
   // indexable so that keeps working without per-field plumbing.

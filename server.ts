@@ -6,6 +6,7 @@ import { audioStore } from "./src/audio-store.ts";
 import {
   assertSecurePlatformConfiguration,
   platformRateLimit,
+  registerFastSpringWebhook,
   registerPaddleWebhook,
   registerPlatformRoutes,
   requirePlatformUser,
@@ -303,7 +304,7 @@ export function createApp(): express.Express {
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     if (env().NODE_ENV === "production") {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.paddle.com https://*.checkout.build; script-src 'self' 'unsafe-inline' https://cdn.paddle.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co https://api.paddle.com https://sandbox-api.paddle.com; frame-src 'self' https://checkout.paddle.com https://sandbox-checkout.paddle.com; worker-src 'self' blob:");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.paddle.com https://*.checkout.build https://*.onfastspring.com https://*.fastspring.com; script-src 'self' 'unsafe-inline' https://cdn.paddle.com https://sbl.onfastspring.com https://*.onfastspring.com https://*.fastspring.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co https://api.paddle.com https://sandbox-api.paddle.com https://api.fastspring.com https://*.onfastspring.com https://*.fastspring.com; frame-src 'self' https://checkout.paddle.com https://sandbox-checkout.paddle.com https://*.onfastspring.com https://*.fastspring.com; worker-src 'self' blob:");
     }
     next();
   });
@@ -311,10 +312,11 @@ export function createApp(): express.Express {
   // Origin must be the configured application origin, or the host the request
   // actually arrived on — which is what a deployment reached through an alias
   // looks like (a preview host, a staging domain, www. against the apex), and
-  // a page served from anywhere else can never claim it. Paddle's signed
-  // webhook has no browser Origin and remains independently verified.
+  // a page served from anywhere else can never claim it. The Paddle and
+  // FastSpring signed webhooks have no browser Origin and remain independently
+  // verified.
   app.use((req, res, next) => {
-    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path === "/api/webhooks/paddle") return next();
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path === "/api/webhooks/paddle" || req.path === "/api/webhooks/fastspring") return next();
     const origin = req.get("origin");
     if (!origin) return next();
     let supplied: URL;
@@ -334,9 +336,10 @@ export function createApp(): express.Express {
   });
 
   // Billing signatures must be verified against the untouched request bytes,
-  // so the webhook is registered before the general JSON parser. The Resend
+  // so the webhooks are registered before the general JSON parser. The Resend
   // delivery webhook is signed the same way (raw-body Svix HMAC).
   registerPaddleWebhook(app);
+  registerFastSpringWebhook(app);
   registerResendWebhook(app);
   const standardJson = express.json({ limit: "2mb" });
   const inboxAttachmentJson = express.json({ limit: "36mb" });

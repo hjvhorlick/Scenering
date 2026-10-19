@@ -52,3 +52,17 @@ DEV_AUTO_OWNER=
 DEV_EMBEDDED_PREVIEW=
 DEV_REQUEST_LOG=
 ALLOW_FRAMING=
+
+# FastSpring — optional second merchant of record; see FASTSPRING.md and
+# .env.example. Use the .test. storefront host while testing
+# (scenering.test.onfastspring.com/...) and the test store's webhook secret.
+BILLING_PROVIDER=
+FASTSPRING_STOREFRONT=
+FASTSPRING_API_USERNAME=
+FASTSPRING_API_PASSWORD=
+FASTSPRING_WEBHOOK_SECRET=
+# FASTSPRING_CHECKOUT_MODE=popup
+# FASTSPRING_SCENEFLOW_MONTHLY_PATH=sceneflow-monthly
+# FASTSPRING_SCENEFLOW_YEARLY_PATH=sceneflow-yearly
+# FASTSPRING_SCENEFORGE_MONTHLY_PATH=sceneforge-monthly
+# FASTSPRING_SCENEFORGE_YEARLY_PATH=sceneforge-yearly

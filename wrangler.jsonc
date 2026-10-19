@@ -79,6 +79,13 @@
     // API key, client token (live_…), price ids, approved checkout URLs and
     // webhook secret key with `wrangler secret put` (see PADDLE.md).
     "PADDLE_ENVIRONMENT": "live",
-    "PADDLE_CLIENT_ENVIRONMENT": "production"
+    "PADDLE_CLIENT_ENVIRONMENT": "production",
+    // FastSpring, the optional second merchant of record (see FASTSPRING.md).
+    // Plain vars, not secrets — they name which storefront to open and which
+    // provider checkout should use first; the webhook secret and API
+    // credentials go in with `wrangler secret put`. Empty values leave the
+    // existing Paddle checkout exactly as it is.
+    "BILLING_PROVIDER": "",
+    "FASTSPRING_STOREFRONT": ""
   }
 }

@@ -197,15 +197,20 @@ const allText = (item: { q: string; a: string; steps: readonly string[]; points?
 /* ---- 5. Language ------------------------------------------------------------------ */
 {
   const words = MANUAL_ENTRIES.flatMap(({ topic, entry: item }) => [topic.title, topic.intro, ...allText(item)]).join("\n");
-  const american = words.match(/\b(color|colors|organize|organized|organization|center|favorite|canceled|canceling|behavior|catalog|analyze|license|enroll|enrolled)\b/gi) || [];
+  /* Prose only for the spelling and wording rules: `Words between backticks`
+     are identifiers to type or copy exactly (event names such as
+     `subscription.canceled`, environment variables, paths) and must be shown
+     as FastSpring and Paddle spell them, not translated into British prose. */
+  const prose = words.replace(/`[^`\n]*`/g, "X");
+  const american = prose.match(/\b(color|colors|organize|organized|organization|center|favorite|canceled|canceling|behavior|catalog|analyze|license|enroll|enrolled)\b/gi) || [];
   same(american, [], "British spelling throughout");
   const symbols = [...words].filter((char) => {
     const code = char.codePointAt(0)!;
     return (code >= 0x2190 && code <= 0x21ff) || (code >= 0x2300 && code <= 0x27bf) || (code >= 0x2600 && code <= 0x26ff) || (code >= 0x1f300 && code <= 0x1faff);
   });
   same(symbols, [], "no arrows, ticks or emoji (the icon rules)");
-  h.ok(!/\bprogram\b/i.test(words.replace(/unexpected program/g, "")), "programme, not program, for Scenering's automatic emails");
-  h.ok(!/click here/i.test(words), "links and buttons are named, not \"click here\"");
+  h.ok(!/\bprogram\b/i.test(prose.replace(/unexpected program/g, "")), "programme, not program, for Scenering's automatic emails");
+  h.ok(!/click here/i.test(prose), "links and buttons are named, not \"click here\"");
 }
 
 /* ---- 6. Search ------------------------------------------------------------------- */
@@ -247,6 +252,46 @@ const allText = (item: { q: string; a: string; steps: readonly string[]; points?
   h.ok(tab.includes('aria-expanded={open}') && tab.includes('aria-controls={`manual-${entry.id}-answer`}'), "each question opens and closes its answer, for screen readers too");
   h.ok(!/overflow-(y-)?(auto|scroll)/.test(tab), "no inner scroll panes");
   h.ok(tab.includes("opt-btn"), "topic buttons use the app's option buttons");
+}
+
+/* ---- 8. FastSpring --------------------------------------------------------------- */
+{
+  const platformSource = read("server/platform.ts");
+  const fastspring = await import("../src/config/fastspring.ts");
+  const setup = entry("fastspring-setup")!;
+  const webhook = entry("fastspring-webhook")!;
+  const productsEntry = entry("fastspring-products")!;
+  const setupAndWebhookText = [...allText(setup), ...allText(webhook)].join(" ");
+
+  /* The webhook address the manual gives is the one the server serves. */
+  const webhookPath = platformSource.match(/FASTSPRING_WEBHOOK_PATH = "([^"]+)"/)?.[1] || "";
+  h.eq(webhookPath, "/api/webhooks/fastspring", "the webhook path is the one the manual names");
+  h.ok(setupAndWebhookText.includes(webhookPath), "the setup steps give the exact webhook address to paste");
+
+  /* Every event the code acts on is one the manual tells the owner to tick. */
+  const eventBlock = platformSource.match(/FASTSPRING_SUBSCRIPTION_EVENTS = \[([\s\S]*?)\] as const/)?.[1] || "";
+  const codeEvents = [...eventBlock.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  h.eq(codeEvents.length, 6, "the code handles six FastSpring subscription events");
+  for (const eventName of codeEvents) {
+    h.ok(
+      (webhook.points || []).some((point) => point.includes(`\`${eventName}\``)),
+      `the manual explains ${eventName}`,
+    );
+  }
+
+  /* The product paths in the manual are the ones the webhook maps by. */
+  const defaultPaths = fastspring.fastspringProductMappings(() => undefined).map((row) => row.path);
+  same(defaultPaths, ["sceneflow-monthly", "sceneflow-yearly", "sceneforge-monthly", "sceneforge-yearly"], "the four default product paths");
+  const productsText = productsEntry.steps.join(" ");
+  for (const path of defaultPaths) {
+    h.ok(productsText.includes(`\`${path}\``), `the manual names the product path ${path}`);
+  }
+
+  /* The setup steps name every environment variable the checklist needs. */
+  for (const name of ["FASTSPRING_STOREFRONT", "FASTSPRING_WEBHOOK_SECRET", "FASTSPRING_API_USERNAME", "FASTSPRING_API_PASSWORD", "BILLING_PROVIDER", "FASTSPRING_SCENEFLOW_MONTHLY_PATH"]) {
+    h.ok(setupAndWebhookText.includes(name), `the setup steps name ${name}`);
+  }
+  h.ok(read(".env.example").includes("FASTSPRING_WEBHOOK_SECRET="), ".env.example lists the FastSpring settings the manual describes");
 }
 
 h.done("Admin manual");

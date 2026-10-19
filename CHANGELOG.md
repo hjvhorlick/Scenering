@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — FastSpring alongside Paddle
+
+- **FastSpring is a second merchant of record, running beside Paddle.** The
+  same four subscriptions ($19/$180 SceneFlow, $39/$372 SceneForge) sell
+  through FastSpring's popup storefront (`sbl.min.js`) or a server-created
+  session checkout, with the signed-in account's `user_id` and `email` riding
+  every order as FastSpring `tags` — so each `subscription.*` webhook maps a
+  payment back to the right Scenering account and grants `sceneflow` or
+  `sceneforge` on the `memberships` row. `POST /api/webhooks/fastspring`
+  verifies `X-FS-Signature` (base64 HMAC-SHA256 over the raw body,
+  constant-time), records every event id in `webhook_events` for replay
+  protection, and handles `subscription.activated`, `subscription.updated`,
+  `subscription.charge.completed`, `subscription.charge.failed`,
+  `subscription.canceled` and `subscription.deactivated`. `BILLING_PROVIDER`
+  chooses the default checkout; both webhooks stay live either way. The
+  Account window gains FastSpring's Account Management links (cancel, update
+  card, customer portal), the owner's checklist gains a *FastSpring billing*
+  panel, the CSP allows `*.onfastspring.com` and `*.fastspring.com`, and
+  `FASTSPRING.md` is the step-by-step dashboard runbook. FastSpring's
+  `canceled` is "will not renew" rather than terminal, so a cancelled
+  subscription keeps its plan until the paid period ends.
+- **The admin Manual gains a Taking payments topic** with the exact values to
+  enter in the FastSpring dashboard (storefront path, the four product paths,
+  the webhook URL and its HMAC secret, the six events to tick) and what to
+  check when a payment did not grant access.
+
 ## Unreleased — ready for the live Paddle account
 
 - **`LIVE_MIGRATION.md`: the sandbox → live runbook for this codebase.** It
