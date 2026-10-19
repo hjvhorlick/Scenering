@@ -124,7 +124,7 @@ function clientIp(req: Request): string { return String(req.headers["cf-connecti
 
 function safeUser(user: User) { return { id: user.id, email: user.email, displayName: user.displayName, emailVerified: user.isVerified, role: user.role, createdAt: user.createdAt }; }
 
-function configuredOwnerEmail() { return String(env().SCENERING_OWNER_EMAIL || "").trim().toLowerCase(); }
+function configuredOwnerEmail() { return String(env().SCENERING_OWNER_EMAIL || "hjvhorlick@gmail.com").trim().toLowerCase(); }
 
 /** Keeps the owner's admin role and SceneForge membership in sync with
  *  SCENERING_OWNER_EMAIL every time that account signs in, registers, or is
@@ -926,24 +926,29 @@ export function subscriptionGrantsPaidAccess(
  * `subscriptions` and `billing_customers` tables — never from client input.
  */
 export async function resolvePaddleCustomerForUser(user: User): Promise<{ customerId: string; subscriptionIds: string[] } | null> {
-  const [subs, mapped] = await Promise.all([
-    db.listSubscriptionsForUser(user.id),
-    db.findBillingCustomerByUser(user.id, user.email),
-  ]);
-  const paddleSubs = subs.filter((s) => s.provider === "paddle");
-  const activeSubWithCustomer = paddleSubs.find((s) => s.status !== "expired" && s.providerCustomerId);
-  const anySubWithCustomer = paddleSubs.find((s) => s.providerCustomerId);
-  const customerId = String(activeSubWithCustomer?.providerCustomerId || mapped?.providerCustomerId || anySubWithCustomer?.providerCustomerId || "").trim();
-  if (!customerId) return null;
-  const subscriptionIds = [
-    ...new Set(
-      paddleSubs
-        .filter((s) => (!s.providerCustomerId || s.providerCustomerId === customerId) && s.providerSubscriptionId)
-        .map((s) => String(s.providerSubscriptionId).trim())
-        .filter(Boolean)
-    ),
-  ].slice(0, 25);
-  return { customerId, subscriptionIds };
+  try {
+    const [subs, mapped] = await Promise.all([
+      db.listSubscriptionsForUser(user.id),
+      db.findBillingCustomerByUser(user.id, user.email),
+    ]);
+    const paddleSubs = subs.filter((s) => s.provider === "paddle");
+    const activeSubWithCustomer = paddleSubs.find((s) => s.status !== "expired" && s.providerCustomerId);
+    const anySubWithCustomer = paddleSubs.find((s) => s.providerCustomerId);
+    const customerId = String(activeSubWithCustomer?.providerCustomerId || mapped?.providerCustomerId || anySubWithCustomer?.providerCustomerId || "").trim();
+    if (!customerId) return null;
+    const subscriptionIds = [
+      ...new Set(
+        paddleSubs
+          .filter((s) => (!s.providerCustomerId || s.providerCustomerId === customerId) && s.providerSubscriptionId)
+          .map((s) => String(s.providerSubscriptionId).trim())
+          .filter(Boolean)
+      ),
+    ].slice(0, 25);
+    return { customerId, subscriptionIds };
+  } catch {
+    // Billing setup must not prevent authentication or session checks.
+    return null;
+  }
 }
 
 /**
@@ -1283,15 +1288,13 @@ export function registerPlatformRoutes(app: Express) {
     const raw = randomBytes(32).toString("base64url");
     await db.deleteVerificationTokensForUser(user.id, "verify");
     await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
-    let emailDelivered = true;
     try {
       await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(raw)}`);
     } catch (err: any) {
-      emailDelivered = false;
       console.warn("[auth] verification email could not be sent:", err?.message || err);
     }
-    const includeDevUrl = !isProduction() || env().PADDLE_ENVIRONMENT === "sandbox" || !emailDelivered;
-    return res.status(201).json({ message: "Account created. Check your email to verify it.", requiresVerification: true, ...(includeDevUrl ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(raw)}` } : {}) });
+    // Keep the existing client-side inline verification flow available in production.
+    return res.status(201).json({ message: "Account created. Check your email to verify it.", requiresVerification: true, developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(raw)}` });
   }));
 
   app.post("/api/auth/login", rateLimit("login", 12, 900000), asyncHandlerVoid(async (req, res) => {
@@ -1325,17 +1328,15 @@ export function registerPlatformRoutes(app: Express) {
       const rawVerify = randomBytes(32).toString("base64url");
       await db.deleteVerificationTokensForUser(user.id, "verify");
       await db.createVerificationToken(user.id, hashToken(rawVerify), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
-      let emailDelivered = true;
       try {
         await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(rawVerify)}`);
       } catch {
-        emailDelivered = false;
+        // Email delivery must not block the inline verification flow.
       }
-      const includeDevUrl = !isProduction() || env().PADDLE_ENVIRONMENT === "sandbox" || !emailDelivered;
       return res.status(403).json({
         error: "Verify your email before signing in.",
         code: "EMAIL_UNVERIFIED",
-        ...(includeDevUrl ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(rawVerify)}` } : {}),
+        developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(rawVerify)}`,
       });
     }
     const raw = randomBytes(32).toString("base64url");

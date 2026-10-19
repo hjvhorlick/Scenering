@@ -21,7 +21,7 @@ export const DEFAULT_STORE_NOTICE: StoreNotice = {
   enabled: true,
   badge: "Store Notice",
   message:
-    "This web application is not quite finished yet and will be live soon. Thank you for your patience while we put the final touches in place.",
+    "Scenering Studio is open for preview and testing — we are putting the final launch touches in place and full store checkout will be live soon.",
 };
 
 export function sanitizeStoreNotice(
