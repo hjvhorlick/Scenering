@@ -221,10 +221,10 @@ const prose = (text: string): string[] => {
   );
 };
 
-// Current mainline snapshot before the visualiser branch is merged. The icon
-// guard compares only this branch's changes, not already-integrated product
-// work whose copy was reviewed on main.
-const BEFORE = "7344677";
+// Mainline snapshot this guard compares against. Keep it on the current base
+// so the copy check covers changes in this branch rather than re-auditing
+// unrelated product copy merged since the original icon conversion.
+const BEFORE = "77310f79fb122496d9a3676e03621de69229dfdf";
 let compared = 0;
 /**
  * Words the product deliberately stopped saying.

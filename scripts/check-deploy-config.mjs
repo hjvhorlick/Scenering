@@ -26,6 +26,11 @@ try {
   process.exit(1);
 }
 
+// Preview resource IDs intentionally start as placeholders and are populated
+// only after the one-time preview-resource setup. They are not used by a
+// production deploy, so validate only the production configuration here.
+delete config.previews;
+
 const problems = [];
 
 // 1. No leftover SCENERING_*_PLACEHOLDER values. Checked on the serialized
