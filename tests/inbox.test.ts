@@ -50,7 +50,7 @@ const base = `http://127.0.0.1:${(server.address() as any).port}`;
 
 /* ---- Fakes ---------------------------------------------------------------- */
 const originalFetch = globalThis.fetch;
-interface Sent { to: string; from: string; subject: string; text: string; html: string; replyTo?: string; headers?: Record<string, string>; tags?: any[]; idempotencyKey?: string }
+interface Sent { to: string; from: string; subject: string; text: string; html: string; replyTo?: string; headers?: Record<string, string>; tags?: any[]; attachments?: any[]; idempotencyKey?: string }
 const sent: Sent[] = [];
 const failFor = new Set<string>();
 let dns: { status: number; answers: string[] } | "throw" = { status: 0, answers: [] };
@@ -60,7 +60,7 @@ globalThis.fetch = (async (input: any, init?: any) => {
   if (url === "https://api.resend.com/emails") {
     const body = JSON.parse(String(init?.body));
     if (failFor.has(body.to[0])) return new Response(JSON.stringify({ message: "Invalid `to` field." }), { status: 422 });
-    sent.push({ to: body.to[0], from: body.from, subject: body.subject, text: body.text, html: body.html, replyTo: body.reply_to, headers: body.headers, tags: body.tags, idempotencyKey: init?.headers?.["Idempotency-Key"] });
+    sent.push({ to: body.to[0], from: body.from, subject: body.subject, text: body.text, html: body.html, replyTo: body.reply_to, headers: body.headers, tags: body.tags, attachments: body.attachments, idempotencyKey: init?.headers?.["Idempotency-Key"] });
     resendIds += 1;
     return new Response(JSON.stringify({ id: `re_${resendIds}` }), { status: 200 });
   }
@@ -624,6 +624,94 @@ let emailMessageId = "";
   const tags = emailModule.resendTags(["campaign:cmp_123", "inbox:thr_abc", "weird tag:has spaces/and:colons"]);
   h.ok(tags!.length === 3 && tags!.every((t) => /^[A-Za-z0-9_-]+$/.test(t.name) && /^[A-Za-z0-9_-]+$/.test(t.value)), "every tag is converted to Resend's {name, value} format");
   h.eq(JSON.stringify(emailModule.cleanExtraHeaders({ "In-Reply-To": "<a@b>\r\nBcc: x", "X-Evil": "1" })), JSON.stringify({ "In-Reply-To": "<a@b> Bcc: x" }), "only known headers pass, and never with line breaks");
+  h.eq(core.htmlToText('<p>Please <a href="https://dash.cloudflare.com/verify?token=abc">Verify email</a> now.</p>'), "Please Verify email (https://dash.cloudflare.com/verify?token=abc) now.", "HTML-only verification links are preserved in plain text");
+  h.eq(core.appendMissingHtmlLinks("Click below to confirm.", '<a href="https://example.com/confirm?code=99">Confirm address</a>'), "Click below to confirm.\n\nConfirm address: https://example.com/confirm?code=99", "verification links in HTML buttons are appended when omitted from the plain-text part");
+
+  // Rich HTML email + verification links + inline images for trusted content
+  const verifyFake = inbound(mime({
+    from: "Cloudflare <noreply@notify.cloudflare.com>",
+    subject: "Verify your destination address",
+    text: "Please verify your email address.",
+    html: '<!doctype html><html><head><title>Verify</title></head><body><p>Welcome!</p><img src="https://notify.cloudflare.com/logo.png" alt="Cloudflare"><p><a href="https://dash.cloudflare.com/verify?token=xyz_123">Verify email address</a></p><script>evil()</script></body></html>',
+    attachment: { name: "preview.png", type: "image/png", bytes: png },
+  }));
+  const verifyOutcome = await core.handleInboundEmail(verifyFake.message);
+  h.ok(verifyOutcome.stored === true, "verification email with HTML and image is stored");
+  const verifyOpened = await json(`/api/admin/inbox/threads/${verifyOutcome.threadId}`, withAdmin);
+  const verifyMsg = verifyOpened.data.messages[0];
+  h.ok(verifyMsg.textBody.includes("https://dash.cloudflare.com/verify?token=xyz_123"), "verification link is preserved in textBody");
+  h.ok(verifyMsg.htmlBody.includes('href="https://dash.cloudflare.com/verify?token=xyz_123"') && verifyMsg.htmlBody.includes('target="_blank"'), "sanitised htmlBody keeps clickable verification link");
+  h.ok(verifyMsg.htmlBody.includes('src="https://notify.cloudflare.com/logo.png"') && !verifyMsg.htmlBody.includes("<script"), "sanitised htmlBody keeps trusted images and strips scripts");
+
+  // Inline image serving for trusted content vs unsafe attachment types
+  const inlineRes = await fetch(`${base}/api/admin/inbox/attachments/${verifyOutcome.messageId}/0?inline=1`, withAdmin);
+  h.eq(inlineRes.status, 200, "owner can load raster image attachment inline");
+  h.eq(inlineRes.headers.get("content-type"), "image/png", "inline raster image is served with its image content-type");
+  h.ok(String(inlineRes.headers.get("content-disposition")).startsWith("inline;"), "inline raster image uses inline disposition");
+
+  const svgFake = inbound(mime({
+    from: "stranger@example.com",
+    subject: "SVG file",
+    text: "See attached",
+    attachment: { name: "trap.svg", type: "image/svg+xml", bytes: Buffer.from("<svg onload=alert(1)></svg>") },
+  }));
+  const svgOutcome = await core.handleInboundEmail(svgFake.message);
+  const svgInlineAttempt = await fetch(`${base}/api/admin/inbox/attachments/${svgOutcome.messageId}/0?inline=1`, withAdmin);
+  h.eq(svgInlineAttempt.headers.get("content-type"), "application/octet-stream", "SVG attachments are never rendered inline even with ?inline=1");
+  h.ok(String(svgInlineAttempt.headers.get("content-disposition")).startsWith("attachment;"), "SVG attachments stay forced downloads");
+
+  // Client helpers for links, verifications and trusted content
+  const inboxApiModule = await import("../src/admin/inbox-api.ts");
+  const segments = inboxApiModule.tokenizeTextWithLinks("Confirm at (https://scenering.com/verify?token=123). Or email mailto:support@scenering.com!");
+  const linkHrefs = segments.filter((s) => s.kind === "link").map((s) => (s as any).href);
+  h.eq(linkHrefs.join(","), "https://scenering.com/verify?token=123,mailto:support@scenering.com", "URLs and mailto links in text are tokenised cleanly without trailing punctuation or closing parens");
+  const extracted = inboxApiModule.extractMessageLinks(verifyMsg);
+  h.ok(extracted.length === 1 && extracted[0].url === "https://dash.cloudflare.com/verify?token=xyz_123" && extracted[0].isVerification === true, "verification links are identified and extracted with their label");
+  h.eq(inboxApiModule.isMessageTrusted(verifyMsg, "new"), true, "authenticated sender passing DMARC/SPF/DKIM is trusted");
+  h.eq(inboxApiModule.isMessageTrusted({ ...verifyMsg, authSummary: "spf=fail dmarc=fail" }, "new"), false, "sender failing DMARC is not trusted");
+  h.eq(inboxApiModule.isMessageTrusted(verifyMsg, "spam"), false, "spam thread is never auto-trusted");
+  h.ok(!inboxApiModule.prepareEmailHtmlForDisplay(verifyMsg.htmlBody, { showImages: false }).includes("<img"), "untrusted display mode hides images while keeping links");
+  h.ok(inboxApiModule.prepareEmailHtmlForDisplay(verifyMsg.htmlBody, { showImages: true }).includes("<img"), "trusted display mode shows images");
+
+  // Outgoing attachments (compose + reply) and emptying spam
+  sent.length = 0;
+  const composedWithFile = await json("/api/admin/inbox/compose", {
+    method: "POST",
+    ...withAdmin,
+    body: JSON.stringify({
+      to: "client@example.com",
+      subject: "Project assets",
+      body: "Attached is the preview image.",
+      attachments: [{ name: "preview.png", contentType: "image/png", contentBase64: png.toString("base64") }],
+    }),
+  });
+  h.eq(composedWithFile.status, 201, "owner can compose an email with an attachment");
+  h.eq(sent[0]?.attachments?.[0]?.filename, "preview.png", "outbound attachment is sent to the email provider");
+  const outThread = await json(`/api/admin/inbox/threads/${composedWithFile.data.thread.id}`, withAdmin);
+  const outMsg = outThread.data.messages[0];
+  h.eq(outMsg.attachments.length, 1, "sent message records its attachment in the conversation");
+  const outDownload = await fetch(`${base}/api/admin/inbox/attachments/${outMsg.id}/0?inline=1`, withAdmin);
+  h.eq(outDownload.status, 200, "sent attachment is stored and viewable from the conversation");
+
+  sent.length = 0;
+  const replyWithFileOnly = await json(`/api/admin/inbox/threads/${composedWithFile.data.thread.id}/reply`, {
+    method: "POST",
+    ...withAdmin,
+    body: JSON.stringify({
+      body: "",
+      attachments: [{ name: "notes.txt", contentType: "text/plain", contentBase64: Buffer.from("Spec notes").toString("base64") }],
+    }),
+  });
+  h.eq(replyWithFileOnly.status, 201, "owner can send an attachment-only reply");
+  h.eq(sent[0]?.attachments?.[0]?.filename, "notes.txt", "reply attachment is passed to the email provider");
+
+  // Emptying spam removes all spam threads
+  const spamBefore = await json("/api/admin/inbox/threads?filter=spam", withAdmin);
+  h.ok(spamBefore.data.threads.length >= 1, "spam filter has at least one spam thread before emptying");
+  const emptied = await json("/api/admin/inbox/spam", { method: "DELETE", ...withAdmin });
+  h.ok(emptied.status === 200 && emptied.data.deletedCount >= 1, "DELETE /api/admin/inbox/spam deletes all spam conversations");
+  const spamAfter = await json("/api/admin/inbox/threads?filter=spam", withAdmin);
+  h.eq(spamAfter.data.threads.length, 0, "spam filter is empty after emptying spam");
 }
 
 server.close();

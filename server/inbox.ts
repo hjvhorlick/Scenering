@@ -30,6 +30,8 @@ function handler(fn: (req: Request, res: Response) => Promise<unknown>) {
 
 const adminIdOf = (req: Request): string => String((req as any).auth?.user?.id || "");
 
+const SAFE_INLINE_IMAGES = new Set(["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "image/bmp", "image/avif"]);
+
 /** The message shape the admin UI receives: no storage keys, no raw headers. */
 function apiMessage(message: InboxMessage) {
   return {
@@ -40,9 +42,18 @@ function apiMessage(message: InboxMessage) {
     toEmail: message.toEmail,
     subject: message.subject,
     textBody: message.textBody,
+    htmlBody: message.htmlBody || "",
     deliveryStatus: message.deliveryStatus,
     failureReason: message.failureReason,
-    attachments: message.attachments.map((file, index) => ({ index, name: file.name, type: file.type, size: file.size, available: Boolean(file.key), skipped: file.skipped || null })),
+    attachments: message.attachments.map((file, index) => ({
+      index,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      available: Boolean(file.key),
+      skipped: file.skipped || null,
+      inline: Boolean(file.inline),
+    })),
     authSummary: message.authSummary,
     automated: message.automated,
     createdAt: message.createdAt,
@@ -54,9 +65,9 @@ function statusFrom(value: unknown): InboxStatus | null {
 }
 
 /** RFC 6266 filename: an ASCII fallback plus the UTF-8 original. */
-function contentDisposition(name: string): string {
+function contentDisposition(name: string, mode: "attachment" | "inline" = "attachment"): string {
   const ascii = name.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_") || "attachment";
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+  return `${mode}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 export function registerInboxRoutes(app: Express) {
@@ -112,13 +123,37 @@ export function registerInboxRoutes(app: Express) {
     res.json({ deleted: true });
   }));
 
+  app.delete("/api/admin/inbox/spam", admin, writeLimit, handler(async (_req, res) => {
+    await ensureInboxSchema();
+    const spamThreads = await inboxDb.listThreads({ filter: "spam", limit: 500, offset: 0 });
+    let deletedCount = 0;
+    for (const thread of spamThreads) {
+      if (await deleteInboxThread(thread.id)) deletedCount += 1;
+    }
+    res.json({ deletedCount });
+  }));
+
   app.post("/api/admin/inbox/threads/:id/reply", admin, sendLimit, handler(async (req, res) => {
-    const result = await sendInboxReply({ threadId: String(req.params.id), body: req.body?.body, status: req.body?.status, from: req.body?.from, sentBy: adminIdOf(req) });
+    const result = await sendInboxReply({
+      threadId: String(req.params.id),
+      body: req.body?.body,
+      status: req.body?.status,
+      from: req.body?.from,
+      attachments: req.body?.attachments,
+      sentBy: adminIdOf(req),
+    });
     res.status(201).json({ thread: result.thread, message: apiMessage(result.message) });
   }));
 
   app.post("/api/admin/inbox/compose", admin, sendLimit, handler(async (req, res) => {
-    const result = await startInboxConversation({ to: req.body?.to, subject: req.body?.subject, body: req.body?.body, from: req.body?.from, sentBy: adminIdOf(req) });
+    const result = await startInboxConversation({
+      to: req.body?.to,
+      subject: req.body?.subject,
+      body: req.body?.body,
+      from: req.body?.from,
+      attachments: req.body?.attachments,
+      sentBy: adminIdOf(req),
+    });
     res.status(201).json({ thread: result.thread, message: apiMessage(result.message) });
   }));
 
@@ -126,10 +161,13 @@ export function registerInboxRoutes(app: Express) {
     const file = await readInboxAttachment(String(req.params.messageId), Math.trunc(Number(req.params.index)));
     if (!file) return res.status(404).json({ error: "This attachment is not available." });
     const bytes = Buffer.from(await new Response(file.body).arrayBuffer());
-    // Always a download, never rendered: an HTML or SVG file from a
-    // stranger must not run on the application's origin.
-    res.setHeader("Content-Type", "application/octet-stream");
-    res.setHeader("Content-Disposition", contentDisposition(headerSafe(file.name, 180) || "attachment"));
+    const mime = String(file.type || "").toLowerCase();
+    const renderInline = req.query.inline === "1" && SAFE_INLINE_IMAGES.has(mime);
+    // Downloads by default; only safe raster images may be shown inline when
+    // requested for trusted email content (never HTML or SVG).
+    res.setHeader("Content-Type", renderInline ? (mime === "image/jpg" ? "image/jpeg" : mime) : "application/octet-stream");
+    res.setHeader("Content-Disposition", contentDisposition(headerSafe(file.name, 180) || "attachment", renderInline ? "inline" : "attachment"));
+    if (renderInline) res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'");
     res.setHeader("Content-Length", String(bytes.byteLength));
     res.setHeader("Cache-Control", "private, no-store");
     res.end(bytes);

@@ -129,17 +129,223 @@ function decodeEntities(text: string): string {
   });
 }
 
-/** Readable text from an HTML email: scripts, styles and tags removed. */
+const MAX_HTML_CHARS = 250_000;
+const SAFE_INLINE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "image/bmp", "image/avif"]);
+
+function cleanHrefUrl(raw: unknown): string | null {
+  const decoded = decodeEntities(String(raw ?? "")).replace(/[\x00-\x1F\x7F]/g, "").trim();
+  if (!decoded) return null;
+  const lower = decoded.toLowerCase();
+  if (lower.startsWith("https://") || lower.startsWith("http://") || lower.startsWith("mailto:") || lower.startsWith("tel:")) {
+    return decoded;
+  }
+  return null;
+}
+
+/** Extracts valid http(s) links from HTML anchor tags so verification/action links are never lost. */
+export function extractHtmlLinks(html: unknown): Array<{ url: string; label: string }> {
+  const source = String(html ?? "")
+    .replace(/<(script|style|head|title|template|noscript|svg)\b[\s\S]*?<\/\1\s*>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  const seen = new Set<string>();
+  const out: Array<{ url: string; label: string }> = [];
+  const anchorRe = /<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi;
+  for (const match of source.matchAll(anchorRe)) {
+    const attrs = match[1] || "";
+    const innerHtml = match[2] || "";
+    const hrefMatch = attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i);
+    if (!hrefMatch) continue;
+    const url = cleanHrefUrl(hrefMatch[1] ?? hrefMatch[2] ?? hrefMatch[3] ?? "");
+    if (!url || (!url.toLowerCase().startsWith("https://") && !url.toLowerCase().startsWith("http://"))) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const label = cleanText(decodeEntities(innerHtml.replace(/<[^>]*>/g, " ")));
+    out.push({ url, label });
+  }
+  return out;
+}
+
+/** Readable text from an HTML email: scripts, styles and tags removed, with <a href> links preserved. */
 export function htmlToText(html: unknown): string {
   let text = String(html ?? "");
   text = text.replace(/<(script|style|head|title|template|noscript|svg)\b[\s\S]*?<\/\1\s*>/gi, " ");
   text = text.replace(/<!--[\s\S]*?-->/g, " ");
+  text = text.replace(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi, (_full, attrs: string, innerHtml: string) => {
+    const hrefMatch = String(attrs || "").match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i);
+    const url = hrefMatch ? cleanHrefUrl(hrefMatch[1] ?? hrefMatch[2] ?? hrefMatch[3] ?? "") : null;
+    const inner = cleanText(decodeEntities(String(innerHtml || "").replace(/<[^>]*>/g, " ")));
+    if (!url) return ` ${inner} `;
+    if (!inner) return ` ${url} `;
+    const normInner = inner.toLowerCase().replace(/\/+$/, "");
+    const normUrl = url.toLowerCase().replace(/^mailto:/, "").replace(/\/+$/, "");
+    if (normInner.includes(normUrl) || normUrl === normInner) return ` ${inner} `;
+    return ` ${inner} (${url}) `;
+  });
   text = text.replace(/<br\s*\/?>/gi, "\n");
   text = text.replace(/<\/(p|div|li|tr|h[1-6]|blockquote|section|article|table|ul|ol)\s*>/gi, "\n");
   text = text.replace(/<li\b[^>]*>/gi, "• ");
   text = text.replace(/<[^>]*>/g, " ");
   text = decodeEntities(text);
   return cleanText(text);
+}
+
+/**
+ * When a multipart email has both plain text and HTML, some automated senders
+ * put verification or action URLs only inside HTML buttons (<a href="...">).
+ * Appends any http(s) links from the HTML that were omitted from the plain text.
+ */
+export function appendMissingHtmlLinks(plainText: string, html: unknown): string {
+  const base = cleanText(plainText);
+  if (!html) return base;
+  const links = extractHtmlLinks(html);
+  if (!links.length) return base;
+  const lowerBase = base.toLowerCase();
+  const missing = links.filter(({ url }) => !lowerBase.includes(url.toLowerCase()));
+  if (!missing.length) return base;
+  const formatted = missing.map(({ url, label }) => {
+    if (!label || label.toLowerCase() === url.toLowerCase()) return url;
+    return `${label}: ${url}`;
+  });
+  return cleanText([base, ...formatted].filter(Boolean).join("\n\n"));
+}
+
+const INBOUND_ALLOWED_TAGS = new Set([
+  "p", "br", "div", "span", "h1", "h2", "h3", "h4", "h5", "h6",
+  "strong", "b", "em", "i", "u", "s", "del", "ins", "mark", "small", "sub", "sup",
+  "ul", "ol", "li", "dl", "dt", "dd", "a", "blockquote", "pre", "code", "hr", "img",
+  "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption", "colgroup", "col",
+  "center", "font", "section", "article", "header", "footer", "main", "figure", "figcaption",
+]);
+const INBOUND_GLOBAL_ATTRS = new Set(["style", "align", "valign", "width", "height", "bgcolor", "title", "dir", "role"]);
+const INBOUND_TAG_ATTRS: Record<string, Set<string>> = {
+  a: new Set(["href", "target", "rel"]),
+  img: new Set(["src", "alt", "width", "height", "border"]),
+  font: new Set(["color", "face", "size"]),
+  table: new Set(["border", "cellpadding", "cellspacing", "summary"]),
+  td: new Set(["colspan", "rowspan", "scope", "nowrap", "headers"]),
+  th: new Set(["colspan", "rowspan", "scope", "nowrap", "headers"]),
+  col: new Set(["span"]),
+  colgroup: new Set(["span"]),
+};
+const INBOUND_ALLOWED_CSS = new Set([
+  "color", "background", "background-color",
+  "font", "font-size", "font-weight", "font-style", "font-family", "font-variant",
+  "text-align", "text-decoration", "text-transform", "text-indent",
+  "line-height", "letter-spacing", "word-spacing", "white-space", "word-break", "overflow-wrap", "word-wrap",
+  "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+  "border", "border-top", "border-right", "border-bottom", "border-left",
+  "border-color", "border-width", "border-style", "border-radius", "border-collapse", "border-spacing",
+  "width", "max-width", "min-width", "height", "max-height", "min-height",
+  "display", "visibility", "opacity", "overflow", "vertical-align",
+  "box-sizing", "box-shadow", "list-style", "list-style-type", "table-layout",
+]);
+const INBOUND_BLOCKED_WITH_CONTENT = /<(script|style|iframe|object|embed|applet|noscript|template|svg|math|form|textarea|select|button|head|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+const INBOUND_BLOCKED_TAGS = /<\/?(?:script|style|iframe|object|embed|applet|noscript|template|svg|math|form|input|button|textarea|select|link|meta|base|area|source|track|param|frame|frameset|head|title)\b[^>]*>/gi;
+const INBOUND_ANY_TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+const INBOUND_ATTR = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+const INBOUND_NUMERIC_ATTRS = new Set(["width", "height", "colspan", "rowspan", "size", "border", "cellpadding", "cellspacing", "span"]);
+
+function sanitizeInboundStyle(value: string): string {
+  const kept: string[] = [];
+  for (const declaration of String(value).split(";")) {
+    const colon = declaration.indexOf(":");
+    if (colon < 1) continue;
+    const prop = declaration.slice(0, colon).trim().toLowerCase();
+    const rawVal = declaration.slice(colon + 1).trim();
+    if (!prop || !rawVal) continue;
+    if (!INBOUND_ALLOWED_CSS.has(prop)) continue;
+    if (/expression\s*\(|javascript\s*:|vbscript\s*:|behavior\s*:|@import|url\s*\(/i.test(rawVal)) continue;
+    if (/[{}<>]/.test(rawVal)) continue;
+    kept.push(`${prop}: ${rawVal}`);
+  }
+  return kept.join("; ");
+}
+
+function cleanCidValue(value: unknown): string {
+  return String(value ?? "").trim().replace(/^cid:/i, "").replace(/^<+/, "").replace(/>+$/, "").trim().toLowerCase();
+}
+
+function safeInboundImgSrc(raw: string, cidMap?: ReadonlyMap<string, string>): string | null {
+  const cleaned = decodeEntities(String(raw || "")).replace(/[\x00-\x1F\x7F]/g, "").trim();
+  if (!cleaned) return null;
+  const lower = cleaned.toLowerCase();
+  if (lower.startsWith("cid:")) {
+    const cid = cleanCidValue(cleaned);
+    return (cid && cidMap?.get(cid)) || null;
+  }
+  if (lower.startsWith("https://") || lower.startsWith("http://")) return cleaned;
+  if (cleaned.startsWith("/api/admin/inbox/attachments/")) return cleaned;
+  if (/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(cleaned)) return cleaned;
+  return null;
+}
+
+/**
+ * Sanitises an HTML email for safe viewing in the Inbox:
+ * - strips scripts, styles, forms, frames, SVG, event handlers and unsafe URLs;
+ * - preserves email layout tables, formatting, buttons, links and images;
+ * - ensures every <a href> opens safely in a new tab;
+ * - resolves inline cid: images to stored attachment URLs when available.
+ */
+export function sanitizeInboundEmailHtml(html: unknown, cidMap?: ReadonlyMap<string, string>): string {
+  let output = String(html ?? "");
+  if (!output.trim()) return "";
+  output = output.replace(/<!--[\s\S]*?-->/g, "");
+  output = output.replace(/<!doctype[^>]*>/gi, "");
+  output = output.replace(INBOUND_BLOCKED_WITH_CONTENT, "");
+  output = output.replace(INBOUND_BLOCKED_TAGS, "");
+  output = output.replace(/<\/?html\b[^>]*>/gi, "");
+  output = output.replace(/<body\b([^>]*)>/gi, "<div$1>");
+  output = output.replace(/<\/body\s*>/gi, "</div>");
+
+  const sanitized = output.replace(INBOUND_ANY_TAG, (_match, closing: string, rawName: string, rawAttrs: string) => {
+    const tag = String(rawName).toLowerCase();
+    if (!INBOUND_ALLOWED_TAGS.has(tag)) return "";
+    if (closing) return tag === "br" || tag === "hr" || tag === "img" || tag === "col" ? "" : `</${tag}>`;
+    const allowed = new Set([...INBOUND_GLOBAL_ATTRS, ...(INBOUND_TAG_ATTRS[tag] || [])]);
+    const kept: string[] = [];
+    let hasHref = false;
+    let hasSrc = false;
+    for (const attrMatch of String(rawAttrs || "").matchAll(INBOUND_ATTR)) {
+      const name = String(attrMatch[1] || "").toLowerCase();
+      let value = attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "";
+      if (!allowed.has(name) || name === "target" || name === "rel") continue;
+      if (name === "href") {
+        const decoded = decodeEntities(String(value)).replace(/[\x00-\x1F\x7F]/g, "").trim();
+        const url = decoded.startsWith("#") ? decoded : cleanHrefUrl(decoded);
+        if (!url) continue;
+        value = url;
+        hasHref = true;
+      } else if (name === "src") {
+        const src = safeInboundImgSrc(String(value), cidMap);
+        if (!src) continue;
+        value = src;
+        hasSrc = true;
+      } else if (name === "style") {
+        const style = sanitizeInboundStyle(decodeEntities(String(value)));
+        if (!style) continue;
+        value = style;
+      } else if (INBOUND_NUMERIC_ATTRS.has(name)) {
+        const trimmed = String(value).trim();
+        if (!/^\d+%?$/.test(trimmed)) continue;
+        value = trimmed;
+      } else {
+        value = decodeEntities(String(value));
+      }
+      kept.push(`${name}="${escapeEmailHtml(value)}"`);
+    }
+    if (tag === "img" && !hasSrc) return "";
+    if (tag === "a" && hasHref) {
+      kept.push('target="_blank"', 'rel="noopener noreferrer"');
+    }
+    if (tag === "img") {
+      if (!kept.some((attr) => attr.startsWith("alt="))) kept.push('alt=""');
+      kept.push('loading="lazy"');
+    }
+    return `<${tag}${kept.length ? " " + kept.join(" ") : ""}>`;
+  }).trim();
+
+  return sanitized.slice(0, MAX_HTML_CHARS);
 }
 
 /** Line endings normalised, control characters removed, blank runs collapsed. */
@@ -292,22 +498,30 @@ function attachmentBytes(content: unknown): Uint8Array | null {
   return null;
 }
 
-async function storeAttachments(messageRowId: string, attachments: Array<{ filename: string | null; mimeType: string; disposition: string | null; related?: boolean; content: unknown }>): Promise<InboxAttachment[]> {
+async function storeAttachments(messageRowId: string, attachments: Array<{ filename: string | null; mimeType: string; disposition: string | null; related?: boolean; contentId?: string; content: unknown }>): Promise<{ attachments: InboxAttachment[]; cidMap: Map<string, string> }> {
   const bucket = env().AUDIO_BUCKET;
   const out: InboxAttachment[] = [];
+  const cidMap = new Map<string, string>();
   let total = 0;
-  // Inline images referenced from the HTML (logos, signature pictures) are
-  // part of the layout, not files the customer sent.
-  const files = attachments.filter((file) => !(file.related && file.disposition !== "attachment"));
+  // Keep customer-sent attachments plus safe inline cid: images referenced from HTML emails.
+  const files = attachments.filter((file) => {
+    const isInlineRelated = Boolean(file.related && file.disposition !== "attachment");
+    if (!isInlineRelated) return true;
+    const type = headerSafe(file.mimeType || "", 100).toLowerCase();
+    const cid = cleanCidValue(file.contentId);
+    return Boolean(cid && SAFE_INLINE_IMAGE_TYPES.has(type));
+  });
   for (const [index, file] of files.entries()) {
     const bytes = attachmentBytes(file.content);
     const name = headerSafe(file.filename || `attachment-${index + 1}`, 180);
     const type = headerSafe(file.mimeType || "application/octet-stream", 100).toLowerCase();
     const size = bytes?.byteLength || 0;
-    if (index >= MAX_ATTACHMENTS) { out.push({ name, type, size, key: null, skipped: "Too many attachments" }); continue; }
-    if (!bytes || size === 0) { out.push({ name, type, size, key: null, skipped: "Empty file" }); continue; }
-    if (size > MAX_ATTACHMENT_BYTES || total + size > MAX_TOTAL_ATTACHMENT_BYTES) { out.push({ name, type, size, key: null, skipped: "Too large to keep" }); continue; }
-    if (!bucket) { out.push({ name, type, size, key: null, skipped: "No file storage configured" }); continue; }
+    const cid = cleanCidValue(file.contentId) || undefined;
+    const inline = Boolean(file.related && file.disposition !== "attachment" && cid);
+    if (index >= MAX_ATTACHMENTS) { if (!inline) out.push({ name, type, size, key: null, skipped: "Too many attachments" }); continue; }
+    if (!bytes || size === 0) { if (!inline) out.push({ name, type, size, key: null, skipped: "Empty file" }); continue; }
+    if (size > MAX_ATTACHMENT_BYTES || total + size > MAX_TOTAL_ATTACHMENT_BYTES) { if (!inline) out.push({ name, type, size, key: null, skipped: "Too large to keep" }); continue; }
+    if (!bucket) { if (!inline) out.push({ name, type, size, key: null, skipped: "No file storage configured" }); continue; }
     // The voice-import bucket is the app's only R2 bucket. Its hourly
     // cleanup deletes only keys listed in its own audio_files table, so
     // files under inbox/ are never touched by it.
@@ -315,12 +529,17 @@ async function storeAttachments(messageRowId: string, attachments: Array<{ filen
     try {
       await bucket.put(key, bytes, { httpMetadata: { contentType: "application/octet-stream" } });
       total += size;
-      out.push({ name, type, size, key });
+      const storedIndex = out.length;
+      const entry: InboxAttachment = { name, type, size, key, ...(cid ? { cid } : {}), ...(inline ? { inline: true } : {}) };
+      out.push(entry);
+      if (cid && SAFE_INLINE_IMAGE_TYPES.has(type)) {
+        cidMap.set(cid, `/api/admin/inbox/attachments/${encodeURIComponent(messageRowId)}/${storedIndex}?inline=1`);
+      }
     } catch {
-      out.push({ name, type, size, key: null, skipped: "Could not be stored" });
+      if (!inline) out.push({ name, type, size, key: null, skipped: "Could not be stored" });
     }
   }
-  return out;
+  return { attachments: out, cidMap };
 }
 
 async function findThreadForInbound(contactEmail: string, subject: string, messageIds: string[]): Promise<InboxThread | null> {
@@ -397,7 +616,7 @@ export async function handleInboundEmail(message: InboundEmail): Promise<Inbound
 
     const subject = headerSafe(parsed?.subject ?? message.headers.get("subject") ?? "", 200) || "(no subject)";
     const text = parsed
-      ? cleanText(parsed.text || htmlToText(parsed.html || "")).slice(0, MAX_TEXT_CHARS)
+      ? cleanText(parsed.text ? appendMissingHtmlLinks(parsed.text, parsed.html) : htmlToText(parsed.html || "")).slice(0, MAX_TEXT_CHARS)
       : "This email could not be read. An untouched copy was forwarded to your own mailbox if copies are switched on.";
     const ownMessageId = normalizeMessageId(parsed?.messageId);
     const inReplyTo = parsed?.inReplyTo ? extractMessageIds(parsed.inReplyTo).join(" ") : "";
@@ -421,9 +640,12 @@ export async function handleInboundEmail(message: InboundEmail): Promise<Inbound
     }
 
     const messageRowId = inboxDb.newId("msg");
-    const attachments = parsed?.attachments?.length ? await storeAttachments(messageRowId, parsed.attachments as any) : [];
+    const { attachments, cidMap } = parsed?.attachments?.length
+      ? await storeAttachments(messageRowId, parsed.attachments as any)
+      : { attachments: [] as InboxAttachment[], cidMap: new Map<string, string>() };
+    const htmlBody = parsed?.html ? sanitizeInboundEmailHtml(parsed.html, cidMap) : "";
     const stored = await inboxDb.createMessage({
-      id: messageRowId, threadId: thread.id, direction: "in", fromEmail, fromName, toEmail: normalizeEmail(message.to), subject, textBody: text,
+      id: messageRowId, threadId: thread.id, direction: "in", fromEmail, fromName, toEmail: normalizeEmail(message.to), subject, textBody: text, htmlBody,
       messageId: ownMessageId, inReplyTo: inReplyTo || null, referencesHeader: referenceIds.length ? referenceIds.slice(-20).join(" ") : null,
       providerMessageId: null, deliveryStatus: "received", failureReason: null, attachments, authSummary: auth.summary, automated, sentBy: null,
     });
@@ -514,14 +736,80 @@ export function conversationHtml(body: string, signature: string, quote: { heade
   return `<!doctype html><html><body style="margin:0;padding:16px;background:#ffffff"><div style="max-width:640px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1f2937">${paragraphs}${signed}${quoted}</div></body></html>`;
 }
 
-function cleanBody(value: unknown): string {
+function cleanBody(value: unknown, hasAttachments = false): string {
   const body = String(value ?? "").replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "").trim();
-  if (!body) throw new InboxError(400, "Write a message first.");
+  if (!body && !hasAttachments) throw new InboxError(400, "Write a message first.");
   if (body.length > 20_000) throw new InboxError(400, "Your message is too long (20,000 characters at most).");
   return body;
 }
 
-async function deliver(thread: InboxThread, outbound: InboxMessage, identity: InboxIdentity, input: { subject: string; text: string; html: string; headers?: Record<string, string> }): Promise<InboxMessage> {
+export interface OutboundAttachmentInput {
+  name?: unknown;
+  type?: unknown;
+  content?: unknown;
+}
+
+async function prepareOutboundAttachments(
+  messageRowId: string,
+  rawList: unknown,
+): Promise<{ stored: InboxAttachment[]; providerAttachments: Array<{ filename: string; content: string; contentType: string }> }> {
+  if (rawList === undefined || rawList === null) return { stored: [], providerAttachments: [] };
+  if (!Array.isArray(rawList)) throw new InboxError(400, "Attachments must be a list.");
+  if (rawList.length === 0) return { stored: [], providerAttachments: [] };
+  if (rawList.length > MAX_ATTACHMENTS) throw new InboxError(400, `You can attach up to ${MAX_ATTACHMENTS} files per message.`);
+
+  const bucket = env().AUDIO_BUCKET;
+  const stored: InboxAttachment[] = [];
+  const providerAttachments: Array<{ filename: string; content: string; contentType: string }> = [];
+  let total = 0;
+
+  for (const [index, item] of rawList.entries()) {
+    const name = headerSafe((item as any)?.name || (item as any)?.filename || `attachment-${index + 1}`, 180) || `attachment-${index + 1}`;
+    const type = headerSafe((item as any)?.type || (item as any)?.contentType || "application/octet-stream", 100).toLowerCase() || "application/octet-stream";
+    const rawContent = String((item as any)?.content ?? (item as any)?.contentBase64 ?? "").trim();
+    const base64Clean = (rawContent.includes("base64,") ? rawContent.split("base64,")[1] || "" : rawContent).replace(/\s+/g, "");
+    if (!base64Clean || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64Clean)) {
+      throw new InboxError(400, `Attachment "${name}" could not be read.`);
+    }
+    const bytes = Buffer.from(base64Clean, "base64");
+    const size = bytes.byteLength;
+    if (size === 0) throw new InboxError(400, `Attachment "${name}" is empty.`);
+    if (size > MAX_ATTACHMENT_BYTES) throw new InboxError(400, `Attachment "${name}" exceeds the 10 MB limit.`);
+    if (total + size > MAX_TOTAL_ATTACHMENT_BYTES) throw new InboxError(400, "Total attachments exceed the 25 MB limit.");
+    total += size;
+
+    let key: string | null = null;
+    let skipped: string | undefined;
+    if (bucket) {
+      const candidateKey = `${ATTACHMENT_PREFIX}${messageRowId}/${index}`;
+      try {
+        await bucket.put(candidateKey, new Uint8Array(bytes), { httpMetadata: { contentType: "application/octet-stream" } });
+        key = candidateKey;
+      } catch {
+        skipped = "Could not be stored";
+      }
+    } else {
+      skipped = "No file storage configured";
+    }
+    stored.push({ name, type, size, key, ...(skipped ? { skipped } : {}) });
+    providerAttachments.push({ filename: name, content: bytes.toString("base64"), contentType: type });
+  }
+
+  return { stored, providerAttachments };
+}
+
+async function deliver(
+  thread: InboxThread,
+  outbound: InboxMessage,
+  identity: InboxIdentity,
+  input: {
+    subject: string;
+    text: string;
+    html: string;
+    headers?: Record<string, string>;
+    attachments?: Array<{ filename: string; content: string; contentType: string }>;
+  },
+): Promise<InboxMessage> {
   try {
     const result = await sendConversationEmail({
       to: thread.contactEmail,
@@ -531,6 +819,7 @@ async function deliver(thread: InboxThread, outbound: InboxMessage, identity: In
       text: input.text,
       html: input.html,
       headers: input.headers,
+      attachments: input.attachments,
       idempotencyKey: `inbox-${outbound.id}`,
       tags: [`inbox:${thread.id}`],
     });
@@ -544,12 +833,13 @@ async function deliver(thread: InboxThread, outbound: InboxMessage, identity: In
 }
 
 /** Sends the owner's reply in a conversation and records it there. */
-export async function sendInboxReply(input: { threadId: string; body: unknown; status?: unknown; from?: unknown; sentBy: string }): Promise<{ thread: InboxThread; message: InboxMessage }> {
+export async function sendInboxReply(input: { threadId: string; body: unknown; status?: unknown; from?: unknown; attachments?: unknown; sentBy: string }): Promise<{ thread: InboxThread; message: InboxMessage }> {
   await ensureInboxSchema();
   const thread = await inboxDb.findThread(input.threadId);
   if (!thread) throw new InboxError(404, "Conversation not found.");
   if (!isValidEmailAddress(thread.contactEmail)) throw new InboxError(400, "This conversation has no valid email address to reply to.");
-  const body = cleanBody(input.body);
+  const hasAttachments = Array.isArray(input.attachments) && input.attachments.length > 0;
+  const body = cleanBody(input.body, hasAttachments);
   const settings = await getInboxSettings();
   const history = await inboxDb.listMessages(thread.id);
   const identity = chosenIdentity(settings, input.from, () => replyIdentityFor(settings, thread, history));
@@ -560,52 +850,61 @@ export async function sendInboxReply(input: { threadId: string; body: unknown; s
   if (knownIds.length) headers.References = knownIds.slice(-20).map((id) => `<${id}>`).join(" ");
   const subject = replySubject(thread.subject);
   const quote = quoteFor(lastInbound);
+  const messageId = inboxDb.newId("msg");
+  const { stored: storedAttachments, providerAttachments } = await prepareOutboundAttachments(messageId, input.attachments);
   const outbound = await inboxDb.createMessage({
-    id: inboxDb.newId("msg"), threadId: thread.id, direction: "out", fromEmail: identity.address, fromName: identity.displayName, toEmail: thread.contactEmail,
+    id: messageId, threadId: thread.id, direction: "out", fromEmail: identity.address, fromName: identity.displayName, toEmail: thread.contactEmail,
     subject, textBody: body, messageId: null, inReplyTo: lastInbound?.messageId || null, referencesHeader: knownIds.slice(-20).join(" ") || null,
-    providerMessageId: null, deliveryStatus: "sending", failureReason: null, attachments: [], authSummary: "", automated: false, sentBy: input.sentBy,
+    providerMessageId: null, deliveryStatus: "sending", failureReason: null, attachments: storedAttachments, authSummary: "", automated: false, sentBy: input.sentBy,
   });
+  const preview = body || (storedAttachments[0]?.name ? `Attachment: ${storedAttachments[0].name}` : subject);
   const sent = await deliver(thread, outbound, identity, {
     subject,
     text: conversationText(body, identity.signature, quote),
     html: conversationHtml(body, identity.signature, quote),
     headers,
+    attachments: providerAttachments,
   }).finally(async () => {
     // Even a failed send is part of the conversation (shown as failed with
     // its reason), so the thread order and preview always reflect it.
     const status: InboxStatus = input.status === "resolved" || input.status === "closed" ? input.status : "open";
-    await inboxDb.touchThread(thread.id, { direction: "out", at: outbound.createdAt, preview: body, unread: false, status });
+    await inboxDb.touchThread(thread.id, { direction: "out", at: outbound.createdAt, preview, unread: false, status });
   });
   return { thread: (await inboxDb.findThread(thread.id))!, message: sent };
 }
 
 /** Starts a new conversation with one person (a member or anyone else). */
-export async function startInboxConversation(input: { to: unknown; subject: unknown; body: unknown; from?: unknown; sentBy: string }): Promise<{ thread: InboxThread; message: InboxMessage }> {
+export async function startInboxConversation(input: { to: unknown; subject: unknown; body: unknown; from?: unknown; attachments?: unknown; sentBy: string }): Promise<{ thread: InboxThread; message: InboxMessage }> {
   await ensureInboxSchema();
   const to = normalizeEmail(input.to);
   if (!isValidEmailAddress(to)) throw new InboxError(400, "Enter a valid email address to write to.");
   const subject = headerSafe(input.subject, 200);
   if (!subject) throw new InboxError(400, "Add a subject.");
-  const body = cleanBody(input.body);
+  const hasAttachments = Array.isArray(input.attachments) && input.attachments.length > 0;
+  const body = cleanBody(input.body, hasAttachments);
   const settings = await getInboxSettings();
   if (isInboxAddress(settings, to)) throw new InboxError(400, "That is one of your own inbox addresses.");
   const identity = chosenIdentity(settings, input.from, () => inboxIdentities(settings)[0]);
   const member = await db.findUserByEmail(to);
+  const messageId = inboxDb.newId("msg");
+  const { stored: storedAttachments, providerAttachments } = await prepareOutboundAttachments(messageId, input.attachments);
   const thread = await inboxDb.createThread({
     id: inboxDb.newId("thr"), subject, contactEmail: to, contactName: member?.displayName || "", userId: member?.id || null,
     mailbox: identity.address, source: "outbound", category: "", status: "open", unread: false,
   });
   const outbound = await inboxDb.createMessage({
-    id: inboxDb.newId("msg"), threadId: thread.id, direction: "out", fromEmail: identity.address, fromName: identity.displayName, toEmail: to,
+    id: messageId, threadId: thread.id, direction: "out", fromEmail: identity.address, fromName: identity.displayName, toEmail: to,
     subject, textBody: body, messageId: null, inReplyTo: null, referencesHeader: null, providerMessageId: null, deliveryStatus: "sending",
-    failureReason: null, attachments: [], authSummary: "", automated: false, sentBy: input.sentBy,
+    failureReason: null, attachments: storedAttachments, authSummary: "", automated: false, sentBy: input.sentBy,
   });
+  const preview = body || (storedAttachments[0]?.name ? `Attachment: ${storedAttachments[0].name}` : subject);
   const sent = await deliver(thread, outbound, identity, {
     subject,
     text: conversationText(body, identity.signature, null),
     html: conversationHtml(body, identity.signature, null),
+    attachments: providerAttachments,
   }).finally(async () => {
-    await inboxDb.touchThread(thread.id, { direction: "out", at: outbound.createdAt, preview: body, unread: false, status: "open" });
+    await inboxDb.touchThread(thread.id, { direction: "out", at: outbound.createdAt, preview, unread: false, status: "open" });
   });
   return { thread: (await inboxDb.findThread(thread.id))!, message: sent };
 }

@@ -7,6 +7,13 @@ import {
 } from "../src/lib/email-templates.ts";
 import { automaticReplyTo } from "./inbox-settings.ts";
 
+export interface EmailOutboundAttachment {
+  filename: string;
+  /** Base64-encoded file bytes for Resend. */
+  content: string;
+  contentType?: string;
+}
+
 export type EmailKind = EmailTemplateKind;
 export interface EmailMessage {
   to: string;
@@ -27,6 +34,8 @@ export interface EmailMessage {
   headers?: Record<string, string>;
   /** Resend Idempotency-Key: a retried request can never send twice. */
   idempotencyKey?: string;
+  /** Optional file attachments sent with conversation emails. */
+  attachments?: EmailOutboundAttachment[];
 }
 
 /** The only extra headers the app may set. Anything else is dropped, and
@@ -107,6 +116,15 @@ class ResendEmailProvider implements EmailProvider {
         ...(replyTo ? { reply_to: replyTo } : {}),
         ...(headers ? { headers } : {}),
         ...(tags ? { tags } : {}),
+        ...(message.attachments?.length
+          ? {
+              attachments: message.attachments.map((file) => ({
+                filename: file.filename,
+                content: file.content,
+                ...(file.contentType ? { content_type: file.contentType } : {}),
+              })),
+            }
+          : {}),
       }),
     });
 

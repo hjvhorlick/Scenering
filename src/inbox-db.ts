@@ -22,6 +22,10 @@ export interface InboxAttachment {
   /** Storage key in R2, or null when the file was not kept (too large, no bucket). */
   key: string | null;
   skipped?: string;
+  /** Content-ID for inline HTML images (cid:...), when present. */
+  cid?: string;
+  /** True when the file is an inline image referenced by the HTML body. */
+  inline?: boolean;
 }
 
 export interface InboxThread {
@@ -52,6 +56,7 @@ export interface InboxMessage {
   toEmail: string;
   subject: string;
   textBody: string;
+  htmlBody: string;
   messageId: string | null;
   inReplyTo: string | null;
   referencesHeader: string | null;
@@ -136,6 +141,7 @@ function rowToMessage(row: any): InboxMessage {
     toEmail: row.to_email || "",
     subject: row.subject || "",
     textBody: row.text_body || "",
+    htmlBody: row.html_body || "",
     messageId: row.message_id || null,
     inReplyTo: row.in_reply_to || null,
     referencesHeader: row.references_header || null,
@@ -173,6 +179,11 @@ export const inboxDb = {
       await db.batch(statements);
     } catch {
       for (const sql of INBOX_SCHEMA_STATEMENTS) await db.prepare(sql).run();
+    }
+    try {
+      await db.prepare("ALTER TABLE inbox_messages ADD COLUMN html_body TEXT NOT NULL DEFAULT ''").run();
+    } catch {
+      /* column already exists */
     }
   },
 
@@ -217,13 +228,13 @@ export const inboxDb = {
     return (await inboxDb.findThread(row.id))!;
   },
 
-  async createMessage(row: Omit<InboxMessage, "createdAt"> & { createdAt?: string }): Promise<InboxMessage> {
+  async createMessage(row: Omit<InboxMessage, "createdAt" | "htmlBody"> & { htmlBody?: string; createdAt?: string }): Promise<InboxMessage> {
     const stamp = row.createdAt || nowIso();
     await D1().prepare(
-      `INSERT OR IGNORE INTO inbox_messages (id, thread_id, direction, from_email, from_name, to_email, subject, text_body, message_id, in_reply_to, references_header, provider_message_id, delivery_status, failure_reason, attachments, auth_summary, automated, sent_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO inbox_messages (id, thread_id, direction, from_email, from_name, to_email, subject, text_body, html_body, message_id, in_reply_to, references_header, provider_message_id, delivery_status, failure_reason, attachments, auth_summary, automated, sent_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
-      row.id, row.threadId, row.direction, row.fromEmail, row.fromName || "", row.toEmail || "", row.subject || "", row.textBody || "",
+      row.id, row.threadId, row.direction, row.fromEmail, row.fromName || "", row.toEmail || "", row.subject || "", row.textBody || "", row.htmlBody || "",
       row.messageId, row.inReplyTo, row.referencesHeader, row.providerMessageId, row.deliveryStatus, row.failureReason,
       JSON.stringify(row.attachments || []), row.authSummary || "", row.automated ? 1 : 0, row.sentBy, stamp,
     ).run();

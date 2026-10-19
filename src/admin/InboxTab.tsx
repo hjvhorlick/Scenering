@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateTime } from "./email-centre-api";
 import {
-  INBOX_FILTERS, PLAN_LABEL, STATUS_LABEL, fileSize, fillSavedReply, inboxApi, relativeTime, senderLabel, senderOptions,
-  type InboxAddress, type InboxConnection, type InboxFilter, type InboxMember, type InboxMessage, type InboxSettings, type InboxStatus, type InboxThread, type SavedReply,
+  INBOX_FILTERS, PLAN_LABEL, STATUS_LABEL, extractMessageLinks, fileSize, fillSavedReply, hasEmailImages, inboxApi, isImageAttachment, isMessageTrusted, prepareEmailHtmlForDisplay, readFilesForUpload, relativeTime, senderLabel, senderOptions, tokenizeTextWithLinks,
+  type InboxAddress, type InboxConnection, type InboxFilter, type InboxMember, type InboxMessage, type InboxOutgoingAttachment, type InboxSettings, type InboxStatus, type InboxThread, type SavedReply,
 } from "./inbox-api";
 
 /**
@@ -10,8 +10,9 @@ import {
  * Scenering address in one list, answered from here.
  *
  * One column on purpose (the app has no inner scroll panes): the list,
- * and a conversation in its place when one is opened. Inbound mail is
- * only ever shown as text, never as HTML.
+ * and a conversation in its place when one is opened. Links and
+ * verification URLs are clickable, and trusted emails render their
+ * sanitised HTML layout and images.
  */
 
 const inputClass = "w-full rounded-lg bg-gray-900 border border-hairline px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-indigo-400";
@@ -200,6 +201,30 @@ export default function InboxTab({ initialThreadId, initialComposeTo, onSummaryC
             ))}
             <input type="search" value={searchText} onChange={(event) => onSearch(event.target.value)} placeholder="Search name, email, subject or text" aria-label="Search conversations" className={`${inputClass} sm:w-72 sm:ml-auto`} />
           </div>
+          {filter === "spam" && (
+            <div className={`${cardClass} p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-300`}>
+              <span>Spam &amp; junk: emails that fail sender checks (DMARC/SPF) or that you mark as Spam stay here. They never alert you, are never forwarded, and hide external images by default.</span>
+              {(counts.spam || 0) > 0 && (
+                <button
+                  type="button"
+                  className="opt-btn"
+                  disabled={loading}
+                  onClick={async () => {
+                    if (!window.confirm("Permanently delete all spam conversations and their attachments?")) return;
+                    try {
+                      await inboxApi.emptySpam();
+                      await load();
+                      onSummaryChange?.();
+                    } catch (failure: any) {
+                      setError(failure.message);
+                    }
+                  }}
+                >
+                  Empty spam
+                </button>
+              )}
+            </div>
+          )}
           <ThreadList threads={threads} loading={loading} filter={filter} query={query} onOpen={openThread} />
           {hasMore && <button type="button" className="opt-btn" disabled={loading} onClick={() => void load({ append: true })}>Show more</button>}
         </>
@@ -256,6 +281,28 @@ function ThreadList({ threads, loading, filter, query, onOpen }: { threads: Inbo
 
 // ---------------------------------------------------------------------------
 
+const TRUSTED_SENDERS_STORAGE_KEY = "scenering_inbox_trusted_senders";
+
+function readTrustedSenders(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(TRUSTED_SENDERS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeTrustedSenders(senders: ReadonlySet<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(TRUSTED_SENDERS_STORAGE_KEY, JSON.stringify(Array.from(senders)));
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
 function ThreadView({ id, settings, connection, savedReplies, onBack, onChanged }: {
   id: string; settings: InboxSettings | null; connection: InboxConnection | null; savedReplies: SavedReply[]; onBack: () => void; onChanged: () => void;
 }) {
@@ -265,10 +312,23 @@ function ThreadView({ id, settings, connection, savedReplies, onBack, onChanged 
   const [replyFrom, setReplyFrom] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [trustedSenders, setTrustedSenders] = useState<Set<string>>(readTrustedSenders);
   // The parent passes a fresh callback on every render; keeping it in a ref
   // means loading depends only on which conversation is open (no reload loop).
   const changed = useRef(onChanged);
   changed.current = onChanged;
+
+  const toggleTrustedSender = useCallback((email: string, nextTrusted: boolean) => {
+    const normalized = String(email || "").trim().toLowerCase();
+    if (!normalized) return;
+    setTrustedSenders((current) => {
+      const next = new Set(current);
+      if (nextTrusted) next.add(normalized);
+      else next.delete(normalized);
+      writeTrustedSenders(next);
+      return next;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -330,9 +390,25 @@ function ThreadView({ id, settings, connection, savedReplies, onBack, onChanged 
       </div>
       {error && <Notice tone="error">{error}</Notice>}
       <ol className="space-y-3" aria-label="Messages">
-        {messages.map((message) => <MessageCard key={message.id} message={message} />)}
+        {messages.map((message) => (
+          <MessageCard
+            key={message.id}
+            message={message}
+            threadStatus={thread.status}
+            trustedSenders={trustedSenders}
+            onToggleTrustedSender={toggleTrustedSender}
+          />
+        ))}
       </ol>
-      {thread.status !== "spam" && (
+      {thread.status === "spam" ? (
+        <div className={`${cardClass} p-4 flex flex-wrap items-center justify-between gap-3 text-sm text-rose-200`}>
+          <span>This conversation is in Spam. Move it to Open or New if you want to reply to it.</span>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="opt-btn opt-btn-on" disabled={busy === "status"} onClick={() => void setStatus("open")}>Not spam (move to Open)</button>
+            <button type="button" className="opt-btn" onClick={remove}>Delete forever</button>
+          </div>
+        </div>
+      ) : (
         <ReplyBox thread={thread} settings={settings} connection={connection} savedReplies={savedReplies} replyFrom={replyFrom} onSent={async () => { await load(); }} />
       )}
     </div>
@@ -380,9 +456,64 @@ const DELIVERY_TEXT: Record<InboxMessage["deliveryStatus"], string> = {
   received: "", sending: "Sending…", sent: "Sent", delivered: "Delivered", bounced: "Bounced", failed: "Not sent", complained: "Marked as spam by the recipient",
 };
 
-function MessageCard({ message }: { message: InboxMessage }) {
+function LinkifiedText({ text }: { text: string }) {
+  const segments = useMemo(() => tokenizeTextWithLinks(text), [text]);
+  if (!segments.length) return <span className="text-gray-500">(no text)</span>;
+  return (
+    <>
+      {segments.map((segment, index) => segment.kind === "link" ? (
+        <a
+          key={index}
+          href={segment.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-indigo-300 underline hover:text-indigo-200 break-all font-medium"
+        >
+          {segment.text}
+        </a>
+      ) : (
+        <span key={index}>{segment.text}</span>
+      ))}
+    </>
+  );
+}
+
+function MessageCard({
+  message,
+  threadStatus,
+  trustedSenders,
+  onToggleTrustedSender,
+}: {
+  message: InboxMessage;
+  threadStatus: InboxStatus;
+  trustedSenders: ReadonlySet<string>;
+  onToggleTrustedSender: (email: string, trusted: boolean) => void;
+}) {
   const outgoing = message.direction === "out";
   const problem = message.deliveryStatus === "failed" || message.deliveryStatus === "bounced" || message.deliveryStatus === "complained";
+  const hasHtml = Boolean(message.htmlBody && message.htmlBody.trim());
+  const senderEmail = String(message.fromEmail || "").trim().toLowerCase();
+  const senderExplicitlyTrusted = Boolean(senderEmail && trustedSenders.has(senderEmail));
+  const autoTrusted = isMessageTrusted(message, threadStatus, trustedSenders);
+  const [trustOverride, setTrustOverride] = useState<boolean | null>(null);
+  const trusted = trustOverride !== null ? trustOverride : autoTrusted;
+  const [viewMode, setViewMode] = useState<"email" | "text">(hasHtml && threadStatus !== "spam" ? "email" : "text");
+
+  const links = useMemo(() => extractMessageLinks(message), [message]);
+  const hasImages = useMemo(() => hasEmailImages(message), [message]);
+  const imageAttachments = useMemo(
+    () => (message.attachments || []).filter((file) => isImageAttachment(file) && !file.inline),
+    [message.attachments],
+  );
+  const downloadableAttachments = useMemo(
+    () => (message.attachments || []).filter((file) => !file.inline),
+    [message.attachments],
+  );
+  const displayHtml = useMemo(
+    () => (hasHtml ? prepareEmailHtmlForDisplay(message.htmlBody || "", { showImages: trusted }) : ""),
+    [hasHtml, message.htmlBody, trusted],
+  );
+
   return (
     <li className={`rounded-xl border border-hairline p-4 ${outgoing ? "bg-indigo-950/40 sm:ml-10" : "bg-gray-900/60 sm:mr-10"}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -390,18 +521,139 @@ function MessageCard({ message }: { message: InboxMessage }) {
           <span className="font-bold">{outgoing ? "You" : message.fromName || message.fromEmail}</span>
           {/* With several addresses, every message says which one it went from or came to. */}
           <span className="text-gray-500 break-all"> · {outgoing ? `${message.fromEmail ? `from ${message.fromEmail} ` : ""}to ${message.toEmail}` : `${message.fromEmail}${message.toEmail.includes("@") ? ` to ${message.toEmail}` : ""}`}</span>
+          {!outgoing && trusted && (
+            <span className="ml-2 text-[10px] uppercase tracking-[.12em] text-emerald-300 font-bold">Trusted</span>
+          )}
         </div>
-        <div className="text-[11px] text-gray-500">
-          {fmtDateTime(message.createdAt)}
-          {outgoing && DELIVERY_TEXT[message.deliveryStatus] && <span className={problem ? "text-rose-300 font-bold" : "text-gray-400"}> · {DELIVERY_TEXT[message.deliveryStatus]}</span>}
-          {message.automated && <span className="text-gray-400"> · automatic message</span>}
+        <div className="text-[11px] text-gray-500 flex flex-wrap items-center gap-2">
+          <span>
+            {fmtDateTime(message.createdAt)}
+            {outgoing && DELIVERY_TEXT[message.deliveryStatus] && <span className={problem ? "text-rose-300 font-bold" : "text-gray-400"}> · {DELIVERY_TEXT[message.deliveryStatus]}</span>}
+            {message.automated && <span className="text-gray-400"> · automatic message</span>}
+          </span>
+          {hasHtml && (
+            <span className="flex items-center gap-1" role="group" aria-label="Message view">
+              <button
+                type="button"
+                className={`opt-btn ${viewMode === "email" ? "opt-btn-on" : ""}`}
+                aria-pressed={viewMode === "email"}
+                onClick={() => setViewMode("email")}
+              >
+                Email view
+              </button>
+              <button
+                type="button"
+                className={`opt-btn ${viewMode === "text" ? "opt-btn-on" : ""}`}
+                aria-pressed={viewMode === "text"}
+                onClick={() => setViewMode("text")}
+              >
+                Plain text
+              </button>
+            </span>
+          )}
         </div>
       </div>
+
       {problem && message.failureReason && <p className="text-xs text-rose-300 mt-1">{message.failureReason}</p>}
-      <div className="mt-2 text-sm text-gray-200 whitespace-pre-wrap break-words leading-relaxed">{message.textBody || <span className="text-gray-500">(no text)</span>}</div>
-      {message.attachments.length > 0 && (
+
+      {!outgoing && !trusted && (hasImages || hasHtml) && (
+        <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-950/30 px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-200">
+          <span>External images and rich content from this unverified sender are hidden for safety.</span>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              className="opt-btn opt-btn-on"
+              onClick={() => { setTrustOverride(true); if (hasHtml) setViewMode("email"); }}
+            >
+              Show images &amp; full email
+            </button>
+            {senderEmail && !senderExplicitlyTrusted && (
+              <button
+                type="button"
+                className="opt-btn"
+                onClick={() => { onToggleTrustedSender(senderEmail, true); setTrustOverride(true); if (hasHtml) setViewMode("email"); }}
+              >
+                Always trust {senderEmail}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!outgoing && trusted && (hasImages || senderExplicitlyTrusted) && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+          <span>{hasImages ? "Showing full email and images from trusted content." : `Trusted sender (${senderEmail}).`}</span>
+          <button
+            type="button"
+            className="opt-btn"
+            onClick={() => {
+              setTrustOverride(false);
+              if (senderExplicitlyTrusted && senderEmail) onToggleTrustedSender(senderEmail, false);
+            }}
+          >
+            Hide images
+          </button>
+        </div>
+      )}
+
+      {hasHtml && viewMode === "email" ? (
+        <div
+          className="inbox-email-body mt-3 rounded-lg border border-hairline p-4 overflow-x-auto shadow-inner"
+          dangerouslySetInnerHTML={{ __html: displayHtml }}
+        />
+      ) : (
+        <div className="mt-2 text-sm text-gray-200 whitespace-pre-wrap break-words leading-relaxed">
+          <LinkifiedText text={message.textBody} />
+        </div>
+      )}
+
+      {links.length > 0 && (
+        <div className="mt-3 rounded-lg border border-hairline bg-gray-950/60 p-2.5 space-y-1.5" aria-label="Links in this message">
+          <div className="text-[10px] uppercase tracking-[.14em] text-gray-400 font-bold">
+            {links.some((item) => item.isVerification) ? "Verification & links in this email" : "Links in this email"}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {links.map((link) => (
+              <a
+                key={link.url}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`opt-btn ${link.isVerification ? "opt-btn-on" : ""} max-w-full truncate`}
+                title={link.url}
+              >
+                {link.label ? `${link.label} (${link.url})` : link.url}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {trusted && imageAttachments.length > 0 && (
+        <div className="mt-3 grid sm:grid-cols-2 gap-3" aria-label="Attached images">
+          {imageAttachments.map((file) => (
+            <a
+              key={file.index}
+              href={`/api/admin/inbox/attachments/${encodeURIComponent(message.id)}/${file.index}?inline=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-lg border border-hairline bg-gray-950/60 p-2 space-y-1.5 hover:border-indigo-400"
+            >
+              <img
+                src={`/api/admin/inbox/attachments/${encodeURIComponent(message.id)}/${file.index}?inline=1`}
+                alt={file.name}
+                loading="lazy"
+                className="max-h-80 w-auto rounded object-contain mx-auto"
+              />
+              <span className="block text-xs text-gray-400 truncate text-center">{file.name} · {fileSize(file.size)}</span>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {downloadableAttachments.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {message.attachments.map((file) => file.available ? (
+          {downloadableAttachments.map((file) => file.available ? (
             <a key={file.index} className="opt-btn" href={`/api/admin/inbox/attachments/${encodeURIComponent(message.id)}/${file.index}`} download={file.name}>
               {file.name} · {fileSize(file.size)}
             </a>
@@ -414,6 +666,61 @@ function MessageCard({ message }: { message: InboxMessage }) {
   );
 }
 
+function AttachmentPicker({
+  attachments,
+  onChange,
+  onError,
+}: {
+  attachments: InboxOutgoingAttachment[];
+  onChange: (next: InboxOutgoingAttachment[]) => void;
+  onError: (message: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const onSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || !files.length) return;
+    const result = await readFilesForUpload(files, attachments);
+    onChange(result.attachments);
+    if (result.error) onError(result.error);
+    event.target.value = "";
+  };
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          className="hidden"
+          aria-label="Attach files"
+          onChange={(event) => void onSelect(event)}
+        />
+        <button type="button" className="opt-btn" onClick={() => inputRef.current?.click()}>
+          Attach files
+        </button>
+        <span className="text-[11px] text-gray-500">Up to 10 files (10 MB each, 25 MB total)</span>
+      </div>
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-2" aria-label="Selected attachments">
+          {attachments.map((file, index) => (
+            <span key={`${file.name}-${index}`} className="flex items-center gap-1.5 rounded-lg border border-hairline bg-gray-950/60 px-2.5 py-1 text-xs text-gray-200">
+              <span className="truncate max-w-52">{file.name} · {fileSize(file.size)}</span>
+              <button
+                type="button"
+                className="opt-btn"
+                onClick={() => onChange(attachments.filter((_, at) => at !== index))}
+                aria-label={`Remove ${file.name}`}
+              >
+                Remove
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReplyBox({ thread, settings, connection, savedReplies, replyFrom, onSent }: {
   thread: InboxThread; settings: InboxSettings | null; connection: InboxConnection | null; savedReplies: SavedReply[]; replyFrom: string; onSent: () => Promise<void>;
 }) {
@@ -423,14 +730,16 @@ function ReplyBox({ thread, settings, connection, savedReplies, replyFrom, onSen
   useEffect(() => { setFrom(replyFrom); }, [replyFrom, thread.id]);
   const chosen = options.find((option) => option.address === from) || options[0];
   const [body, setBody] = useState("");
+  const [attachments, setAttachments] = useState<InboxOutgoingAttachment[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const send = async (status?: InboxStatus) => {
     setBusy(true);
     setNotice(null);
     try {
-      await inboxApi.reply(thread.id, body, status, chosen?.address);
+      await inboxApi.reply(thread.id, body, status, chosen?.address, attachments);
       setBody("");
+      setAttachments([]);
       setNotice({ tone: "ok", text: status === "resolved" ? "Reply sent and conversation resolved." : "Reply sent." });
       await onSent();
     } catch (failure: any) {
@@ -462,13 +771,18 @@ function ReplyBox({ thread, settings, connection, savedReplies, replyFrom, onSen
         </div>
       )}
       <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={7} placeholder="Write your reply…" aria-label="Your reply" className={inputClass} />
+      <AttachmentPicker
+        attachments={attachments}
+        onChange={setAttachments}
+        onError={(text) => setNotice({ tone: "error", text })}
+      />
       {chosen?.signature && <p className="text-[11px] text-gray-500">The signature for {chosen.address} and their message are added below your reply.</p>}
       {connection && !connection.receiving && (
         <p className="text-[11px] text-amber-300">Your reply will be delivered, but their answer cannot reach {connection.address} until the address is connected.</p>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="opt-btn opt-btn-on" disabled={busy || !body.trim()} onClick={() => void send()}>{busy ? "Sending…" : "Send reply"}</button>
-        <button type="button" className="opt-btn" disabled={busy || !body.trim()} onClick={() => void send("resolved")}>Send and mark resolved</button>
+        <button type="button" className="opt-btn opt-btn-on" disabled={busy || (!body.trim() && attachments.length === 0)} onClick={() => void send()}>{busy ? "Sending…" : "Send reply"}</button>
+        <button type="button" className="opt-btn" disabled={busy || (!body.trim() && attachments.length === 0)} onClick={() => void send("resolved")}>Send and mark resolved</button>
       </div>
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
     </div>
@@ -484,12 +798,13 @@ function ComposeDialog({ settings, initialTo, onClose, onSent }: { settings: Inb
   const [to, setTo] = useState(initialTo || "");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [attachments, setAttachments] = useState<InboxOutgoingAttachment[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const send = async () => {
     setBusy(true);
     setError("");
-    try { onSent((await inboxApi.compose(to, subject, body, chosen?.address)).thread); } catch (failure: any) { setError(failure.message); } finally { setBusy(false); }
+    try { onSent((await inboxApi.compose(to, subject, body, chosen?.address, attachments)).thread); } catch (failure: any) { setError(failure.message); } finally { setBusy(false); }
   };
   return (
     <Dialog title="New message" onClose={onClose}>
@@ -503,9 +818,14 @@ function ComposeDialog({ settings, initialTo, onClose, onSent }: { settings: Inb
       <Label text="To"><input type="email" value={to} onChange={(event) => setTo(event.target.value)} placeholder="name@example.com" className={inputClass} /></Label>
       <Label text="Subject"><input type="text" value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={200} className={inputClass} /></Label>
       <Label text="Message"><textarea value={body} onChange={(event) => setBody(event.target.value)} rows={8} className={inputClass} /></Label>
+      <AttachmentPicker
+        attachments={attachments}
+        onChange={setAttachments}
+        onError={setError}
+      />
       {error && <Notice tone="error">{error}</Notice>}
       <div className="flex gap-2">
-        <button type="button" className="opt-btn opt-btn-on" disabled={busy || !to.trim() || !subject.trim() || !body.trim()} onClick={() => void send()}>{busy ? "Sending…" : "Send"}</button>
+        <button type="button" className="opt-btn opt-btn-on" disabled={busy || !to.trim() || !subject.trim() || (!body.trim() && attachments.length === 0)} onClick={() => void send()}>{busy ? "Sending…" : "Send"}</button>
         <button type="button" className="opt-btn" onClick={onClose}>Cancel</button>
       </div>
     </Dialog>
