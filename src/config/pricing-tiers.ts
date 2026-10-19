@@ -16,7 +16,7 @@ export interface Tier {
   priceId: { month: string; year: string };
 }
 
-const TIER_FEATURES: Record<PlanSlug, string[]> = {
+export const TIER_FEATURES: Record<PlanSlug, string[]> = {
   free: [
     "2 × 1-minute Shorts each week",
     "1 × 5-minute long video each week",

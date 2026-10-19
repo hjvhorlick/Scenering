@@ -1,4 +1,5 @@
-import { useSession } from "../lib/session";
+import { signOut, useSession } from "../lib/session";
+import { navigate } from "../lib/route";
 import EmailCentre from "./EmailCentre";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 // The Email Centre travels with the studio's styling: Tailwind's build, the
@@ -20,6 +21,8 @@ import "../themes.css";
  */
 export default function AdminEntry() {
   const { signedIn, checking, account } = useSession();
+  const nextAdminUrl = typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : "/admin/email-centre";
+  const signInHref = `/login?next=${encodeURIComponent(nextAdminUrl)}`;
 
   if (checking) {
     return (
@@ -38,7 +41,7 @@ export default function AdminEntry() {
           <h1 className="text-2xl font-bold mt-2">Sign in required</h1>
           <p className="text-sm text-gray-400 mt-3">The Email Centre is available to the owner administrator account. Sign in to continue.</p>
           <div className="mt-6 flex justify-center gap-3">
-            <a href="/login" className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50">Sign in</a>
+            <a href={signInHref} onClick={(e) => { e.preventDefault(); navigate(signInHref); }} className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50">Sign in</a>
             <a href="/" className="rounded-lg border border-hairline px-4 py-2 text-xs font-bold hover:bg-gray-800">Back to the website</a>
           </div>
         </main>
@@ -53,9 +56,21 @@ export default function AdminEntry() {
         <main className="max-w-xl mx-auto px-6 py-24 text-center">
           <span className="text-[11px] uppercase tracking-[.18em] text-amber-300 font-bold">Access restricted</span>
           <h1 className="text-2xl font-bold mt-2">Owner administrator access required</h1>
-          <p className="text-sm text-gray-400 mt-3">This area of Scenering is limited to the owner administrator. Your account does not carry that role.</p>
-          <div className="mt-6 flex justify-center gap-3">
-            <a href="/app" className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50">Open the Studio</a>
+          <p className="text-sm text-gray-400 mt-3">
+            This area of Scenering is limited to the owner administrator. Your current session ({account?.user.email}) does not carry that role.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <button
+              type="button"
+              onClick={async () => {
+                await signOut();
+                navigate(signInHref);
+              }}
+              className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50"
+            >
+              Sign in with administrator account
+            </button>
+            <a href="/app" className="rounded-lg border border-hairline px-4 py-2 text-xs font-bold hover:bg-gray-800">Open the Studio</a>
             <a href="/" className="rounded-lg border border-hairline px-4 py-2 text-xs font-bold hover:bg-gray-800">Back to the website</a>
           </div>
         </main>

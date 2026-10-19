@@ -340,11 +340,11 @@ rather than defaulted to one that grants access.
 | Dashboard | sandbox-vendors.paddle.com | vendors.paddle.com |
 | Account, keys, price ids, webhook destination | **separate** | **separate** |
 
-`wrangler.jsonc` ships with `"PADDLE_ENVIRONMENT": "sandbox"`. Switching to live
-means setting the four live secrets **and** flipping that var — the owner's
-billing checklist shows which environment is configured, and raises a visible
-warning when a production deployment is still pointed at sandbox (a site that
-looks configured and can take no real money).
+`wrangler.jsonc` ships with `"PADDLE_ENVIRONMENT": "live"` and
+`"PADDLE_CLIENT_ENVIRONMENT": "production"`. The owner's billing checklist shows
+which environment is configured, and raises a visible warning when a production
+deployment is pointed at sandbox (a site that looks configured and can take no
+real money).
 
 Test a sandbox purchase with Paddle's test card. Sandbox deliveries are
 processed exactly like live ones and labelled `sandbox` in the webhook log;

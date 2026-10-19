@@ -20,10 +20,12 @@ RESEND_WEBHOOK_SECRET=
 # Optional
 PEXELS_API_KEY=
 PIXABAY_API_KEY=
-# Paddle — sandbox keys while developing; see PADDLE.md and .env.example.
+# Paddle — live keys for the live account (or set PADDLE_ENVIRONMENT=sandbox
+# and PADDLE_CLIENT_ENVIRONMENT=sandbox with test_... / pdl_sdbx_... keys when
+# testing against sandbox); see PADDLE.md and .env.example.
 # `wrangler dev` reads this file, and these are the same names the Worker reads
 # from `wrangler secret put` in production.
-PADDLE_ENVIRONMENT=sandbox
+PADDLE_ENVIRONMENT=live
 PADDLE_API_KEY=
 PADDLE_WEBHOOK_SECRET=
 PADDLE_SCENEFLOW_MONTHLY_PRICE_ID=
@@ -34,12 +36,12 @@ PADDLE_SCENEFLOW_MONTHLY_CHECKOUT_URL=
 PADDLE_SCENEFLOW_YEARLY_CHECKOUT_URL=
 PADDLE_SCENEFORGE_MONTHLY_CHECKOUT_URL=
 PADDLE_SCENEFORGE_YEARLY_CHECKOUT_URL=
-# Client-side token (public) and the Paddle.js environment for the
-# pricing page's PricePreview and overlay checkout. "production" here
-# means the live Paddle account. Both must be set or the pricing page
-# reports the missing names instead of guessing.
+# Client-side token (public, prefixed live_ for live or test_ for sandbox) and
+# the Paddle.js environment ("production" for live, "sandbox" for sandbox) for
+# the pricing page's PricePreview and overlay checkout. Both must be set or the
+# pricing page reports the missing names instead of guessing.
 PADDLE_CLIENT_TOKEN=
-PADDLE_CLIENT_ENVIRONMENT=sandbox
+PADDLE_CLIENT_ENVIRONMENT=production
 # Optional: "on" refuses webhook deliveries from outside the source ranges
 # Paddle publishes at GET /ips. Fails open if that endpoint is unreachable.
 # PADDLE_WEBHOOK_IP_ALLOWLIST=on

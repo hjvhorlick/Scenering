@@ -4,7 +4,7 @@ import { isFeatureTourPath, navigate, STUDIO_PATH } from "../lib/route";
 import { useSession } from "../lib/session";
 import { onPaddleCheckoutEvent } from "../lib/paddle";
 import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
-import { buildPricingTiers, type Tier } from "../config/pricing-tiers";
+import { buildPricingTiers, TIER_FEATURES, type Tier } from "../config/pricing-tiers";
 import { BrandMark } from "./components/primitives";
 import Questions from "./sections/Questions";
 import IdeaToVideo from "./sections/IdeaToVideo";
@@ -22,6 +22,7 @@ import Sources from "./sections/Sources";
 import { LEGAL_CONTACT_PATH, LEGAL_DOCUMENTS, LEGAL_EFFECTIVE_DATE, LEGAL_ORGANISATION, LEGAL_OWNER, type LegalKind } from "./legal-content";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 import SocialLinksRow from "../shared/SocialLinks";
+import StoreNoticeBanner from "../shared/StoreNotice";
 import { applyPageSeo } from "./seo";
 
 const FAQPage = lazy(() => import("./FAQPage"));
@@ -48,7 +49,7 @@ export default function PublicPage({ path }: { path: string }) {
   else if (path === "/unsubscribe") content = <UnsubscribePage />;
   else if (path === "/welcome") content = <WelcomePage />;
   else content = <LegalPage kind={path.slice(1) as "privacy" | "terms" | "cookies" | "refunds"} />;
-  return <div className="mkt-root"><SiteCornerMenu /><PublicNav /><main id="main" className="pub-main">{content}</main><PublicFooter /></div>;
+  return <div className="mkt-root"><SiteCornerMenu /><PublicNav /><StoreNoticeBanner /><main id="main" className="pub-main">{content}</main><PublicFooter /></div>;
 }
 
 function PublicNav() { return <nav className="mkt-nav" aria-label="Main"><div className="mkt-container mkt-nav-inner"><a href="/" className="mkt-nav-logo"><BrandMark height={26} /></a><SocialLinksRow size={26} tone="light" className="mkt-nav-social" /><div className="pub-navlinks">{NAV.map(([href, label]) => <a key={href} href={href} className="mkt-nav-link">{label}</a>)}</div><span className="mkt-nav-spacer" /><span className="sc-corner-reserve" aria-hidden="true" /></div></nav>; }
@@ -210,7 +211,7 @@ function PricingPage() {
       <div className="pub-plans">{displayedTiers.map((tier) => { return <article className={`pub-plan${tier.id === "sceneflow" ? " is-featured" : ""}`} key={tier.id}>{tier.id === "sceneflow" && <span className="pub-ribbon">Regular creators</span>}<h2>{tier.name}</h2><p>{tier.description}</p>
         <div className="pub-price">{tier.id !== "free" ? <><b>{displayPrice(tier.id, interval)}</b><span>/{interval === "monthly" ? "month" : "year"}</span></> : <><b>Free</b><span>forever</span></>}</div>
         {interval === "yearly" && tier.id !== "free" && <p className="pub-saving">{annualSavingLine(tier.id)}</p>}
-        <PlanHighlights slug={tier.id} />
+        <PlanHighlights slug={tier.id} features={tier.features} />
         {tier.id !== "free"
           ? <button className="mkt-btn mkt-btn-primary" disabled={opening === tier.id} onClick={() => subscribe(tier)}>{opening === tier.id ? "Opening checkout…" : `Subscribe to ${tier.name}${account?.user.email ? "" : " (sign in to prefill)"}`}</button>
           : <a href="/register" className="mkt-btn mkt-btn-primary">Get Started Free</a>}
@@ -219,7 +220,7 @@ function PricingPage() {
       {compare && <Comparison />}
     </section></>;
 }
-function PlanHighlights({ slug }: { slug: typeof PLAN_ORDER[number] }) { const lines = slug === "free" ? ["2 × 1-minute Shorts each week", "1 × 5-minute long video each week", "2 voice presets and 2 caption styles", "Sample audio visualisers and 2 music tracks", "Animated Subscribe call to action"] : slug === "sceneflow" ? ["15 final video downloads each week", "All available voices and caption styles", "All Video Studio creative tools", "Expanded visual research", "Unlimited preview corrections"] : ["Unlimited final downloads, subject to fetched/upstream API service limits", "All available voices and caption styles", "All Video Studio creative tools", "High-capacity visual research", "Unlimited preview corrections"]; return <ul className="pub-checks">{lines.map((x) => <li key={x}>✓ {x}</li>)}</ul>; }
+function PlanHighlights({ slug, features }: { slug: typeof PLAN_ORDER[number]; features?: string[] }) { const lines = features?.length ? features : TIER_FEATURES[slug]; return <ul className="pub-checks">{lines.map((x) => <li key={x}>✓ {x}</li>)}</ul>; }
 function Comparison() { return <div className="pub-table-wrap"><table className="pub-table"><thead><tr><th>Capability</th>{PLAN_ORDER.map((s) => <th key={s}>{PLAN_CONFIG[s].name}</th>)}</tr></thead><tbody><tr><td>Final-download capacity</td><td data-label={PLAN_CONFIG.free.name}>2 Shorts + 1 long video/week</td><td data-label={PLAN_CONFIG.sceneflow.name}>15 videos/week</td><td data-label={PLAN_CONFIG.sceneforge.name}>Unlimited, subject to fetched/upstream API service limits</td></tr><tr><td>Creative catalog</td><td data-label={PLAN_CONFIG.free.name}>Sample visualisers, animated Subscribe CTA, 2 music tracks, 2 caption styles</td><td data-label={PLAN_CONFIG.sceneforge.name}>All creative features</td><td>All creative features</td></tr>{Object.entries(FEATURE_LABELS).map(([feature, label]) => <tr key={feature}><td>{label}</td>{PLAN_ORDER.map((slug) => <td key={slug} data-label={PLAN_CONFIG[slug].name}>{PLAN_CONFIG[slug].features[feature as FeatureKey] ? "✓ Included" : <span title={`Available in ${feature === "bulk_workflow" ? "SceneForge" : "SceneFlow"}`}>🔒 Unlock on paid</span>}</td>)}</tr>)}<tr><td>Image sources</td><td colSpan={3}>Configured Pexels and Pixabay, Wikimedia Commons, and bundled fallbacks</td></tr><tr><td>Project storage</td><td data-label={PLAN_CONFIG.free.name}>Projects preserved</td><td data-label={PLAN_CONFIG.sceneflow.name}>Expanded capacity</td><td data-label={PLAN_CONFIG.sceneforge.name}>High-volume capacity</td></tr></tbody></table></div>; }
 
 function AboutPage() { return <><PageHero eyebrow="About" title="Video creation with meaningful control." lead="Scenering was created for people who have ideas and stories to share but do not want filming—and do not want an opaque generator making every decision." /><section className="mkt-container pub-prose"><h2>What Scenering is</h2><p>A web application that turns scripts and prepared audio into scene-based faceless videos. It combines visual research, narration, captions, creative finishing and export in one guided workflow.</p><h2>Who it is for</h2><p>YouTube and Shorts creators, educators, churches and organizations, training teams, information channels, storytellers, travel and business creators, and anyone creating social content without appearing on camera.</p><h2>What we believe</h2><p>Automation should remove repetitive work without removing judgment. Scenering therefore keeps scenes, sources, narration, captions and finishing choices visible. It does not promise views, growth or income—the work and audience remain yours.</p></section></>; }
@@ -230,8 +231,51 @@ function LegalPage({ kind }: { kind: LegalKind }) { const document = LEGAL_DOCUM
     actually grants the plan, so this page says to wait a minute
     rather than promising instant access. */
 function WelcomePage() { return <><PageHero eyebrow="Welcome" title="Welcome to Scenering." lead="Checkout completed. Your plan activates as soon as Paddle confirms the payment — usually seconds — and your account syncs automatically." /><div className="mkt-container pub-center"><a className="mkt-btn mkt-btn-primary" href="/app">Open the studio</a><p className="pub-legal-note">Your new plan may take a minute to appear. If it does not, the payment is still recorded on your Paddle receipt — ask at the <a href="/contact">Contact page</a>.</p></div></>; }
-function VerifyPage() { const [status, setStatus] = useState("Verifying your email…"); useEffect(() => { const token = new URLSearchParams(location.search).get("token"); fetch("/api/auth/verify-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }).then(async (r) => { const d = await r.json(); setStatus(d.message || d.error); }); }, []); return <><PageHero eyebrow="Account" title="Email verification" lead={status} /><div className="mkt-container pub-center"><a href="/login" className="mkt-btn mkt-btn-primary">Continue to login</a></div></>; }
-function ResetPage() { const [status, setStatus] = useState(""); async function reset(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const fd = new FormData(e.currentTarget); if (fd.get("password") !== fd.get("confirm")) return setStatus("The passwords do not match."); const response = await fetch("/api/auth/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: new URLSearchParams(location.search).get("token"), password: fd.get("password") }) }); const data = await response.json(); setStatus(data.message || data.error); } return <><PageHero eyebrow="Account" title="Choose a new password" lead="Reset links expire after one hour and can only be used once." /><form className="mkt-container pub-form pub-form-small" onSubmit={reset}><label>New password<input name="password" type="password" required minLength={10} /></label><label>Confirm password<input name="confirm" type="password" required minLength={10} /></label><button className="mkt-btn mkt-btn-primary">Update password</button>{status && <p role="status">{status}</p>}</form></>; }
+const verifyRequests = new Map<string, Promise<string>>();
+function VerifyPage() {
+  const [status, setStatus] = useState("Verifying your email…");
+  useEffect(() => {
+    const token = new URLSearchParams(location.search).get("token") || "";
+    if (!token) {
+      setStatus("This verification link is invalid or expired.");
+      return;
+    }
+    let req = verifyRequests.get(token);
+    if (!req) {
+      req = fetch("/api/auth/verify-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      })
+        .then(async (r) => {
+          const d = await r.json().catch(() => ({}));
+          return String(d.message || d.error || "Verification failed.");
+        })
+        .catch(() => "Verification failed.");
+      verifyRequests.set(token, req);
+    }
+    req.then(setStatus);
+  }, []);
+  return <><PageHero eyebrow="Account" title="Email verification" lead={status} /><div className="mkt-container pub-center"><a href="/login" className="mkt-btn mkt-btn-primary">Continue to login</a></div></>;
+}
+function ResetPage() {
+  const [status, setStatus] = useState("");
+  const [done, setDone] = useState(false);
+  async function reset(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    if (fd.get("password") !== fd.get("confirm")) return setStatus("The passwords do not match.");
+    const response = await fetch("/api/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: new URLSearchParams(location.search).get("token"), password: fd.get("password") }),
+    });
+    const data = await response.json().catch(() => ({}));
+    setStatus(data.message || data.error);
+    if (response.ok) setDone(true);
+  }
+  return <><PageHero eyebrow="Account" title="Choose a new password" lead="Reset links expire after one hour and can only be used once." /><form className="mkt-container pub-form pub-form-small" onSubmit={reset}><label>New password<input name="password" type="password" required minLength={10} /></label><label>Confirm password<input name="confirm" type="password" required minLength={10} /></label><button className="mkt-btn mkt-btn-primary">Update password</button>{status && <p role="status">{status}</p>}{done && <a href="/login" className="mkt-btn mkt-btn-primary" style={{ textAlign: "center" }}>Continue to login</a>}</form></>;
+}
 /* The two pages behind the links in every Scenering marketing email
    ({{preferences_url}} and {{unsubscribe_url}}). Both work signed-out via
    the tamper-proof token the email carries; neither exposes anything

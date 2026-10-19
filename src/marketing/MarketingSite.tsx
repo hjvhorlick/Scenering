@@ -16,6 +16,7 @@ import IconSprite from "../components/icons/IconSprite";
 import PublicPage, { isStandalonePublicPath } from "./PublicPage";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 import SocialLinksRow from "../shared/SocialLinks";
+import StoreNoticeBanner from "../shared/StoreNotice";
 import { applyPageSeo } from "./seo";
 
 /**
@@ -130,6 +131,8 @@ export default function MarketingSite() {
           <span className="sc-corner-reserve" aria-hidden="true" />
         </div>
       </nav>
+
+      <StoreNoticeBanner />
 
       <main id="main" tabIndex={-1}>
         <Showpiece />

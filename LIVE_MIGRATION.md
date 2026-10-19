@@ -24,7 +24,8 @@ Checked against the repository at the time of writing.
 
 | Item | Where | Note |
 |---|---|---|
-| Environment switching | `server/platform.ts` `PADDLE_API_BASE_URLS[paddleEnvironment()]` | `PADDLE_ENVIRONMENT=live` selects `https://api.paddle.com`; `sandbox` selects `https://sandbox-api.paddle.com`. There is **no hard-coded sandbox URL to find and replace**. |
+| Environment switching | `server/platform.ts` `PADDLE_API_BASE_URLS[paddleEnvironment()]` + `/api/billing/public-config` | `PADDLE_ENVIRONMENT=live` selects `https://api.paddle.com` and pairs with `PADDLE_CLIENT_ENVIRONMENT=production` + a `live_`-prefixed `PADDLE_CLIENT_TOKEN`. There is **no hard-coded sandbox URL or token to find and replace**. |
+| Pricing page & overlay checkout (`@paddle/paddle-js`) | `src/lib/paddle.ts`, `src/lib/use-localized-prices.ts`, `src/marketing/PublicPage.tsx` | `Paddle.PricePreview()` fetches country-localized `formattedTotals.total` (server reads `CF-IPCountry` / `x-vercel-ip-country` or omits country so Paddle auto-detects from IP), and `Paddle.Checkout.open()` opens a one-page overlay (`displayMode: 'overlay'`, `variant: 'one-page'`) redirecting to `/welcome`. |
 | Price IDs are not in code | `PADDLE_<PLAN>_<INTERVAL>_PRICE_ID` × 4 | A grep of `src/`, `server/` and `server.ts` for `pri_`/`prd_`/`pdc_` literals returns nothing. The "swap every price ID" step is **four secret values**, not a code change — there is no pricing-page, upgrade/downgrade or lifecycle code to edit. |
 | Checkout URLs are not in code | `PADDLE_<PLAN>_<INTERVAL>_CHECKOUT_URL` × 4 | Same story. |
 | Sandbox-in-production warning | `billingConfiguration().sandboxInProduction` | The owner panel warns if a production deployment is still pointed at sandbox. |
@@ -32,20 +33,6 @@ Checked against the repository at the time of writing.
 | Event ordering guard | `provider_event_occurred_at` | Out-of-order live redeliveries cannot undo newer state. |
 | Refund & cancellation policy | `/refunds` | **Added as part of this work** — it did not exist before, and Paddle verification looks for it. |
 | Source-IP allowlist | `PADDLE_WEBHOOK_IP_ALLOWLIST` | **Added as part of this work.** Fetches `GET /ips` at runtime, off by default. See §6. |
-
-### Not applicable to this codebase
-
-These are in the generic Paddle migration playbook but there is nothing here to
-migrate, because **Scenering does not use Paddle.js at all**. The browser never
-calls Paddle: the server creates a transaction with `POST /transactions` and the
-customer is redirected to Paddle's own hosted checkout page.
-
-| Playbook item | Reality here |
-|---|---|
-| Remove `Paddle.Environment.set('sandbox')` from the frontend | Not present anywhere. No frontend Paddle code exists. |
-| Add `pwCustomer` to `Paddle.Initialize()` for Retain | There is no `Paddle.Initialize()`. Retain needs Paddle.js on the page, plus Retain enabled on the account, plus a client-side token, plus new `script-src`/`frame-src` CSP entries. That is **new frontend work, not a migration step** — and it changes the checkout flow from redirect to overlay. Deferred deliberately; see §7. |
-| Create live client-side tokens (`live_…`) | There is no `PADDLE_CLIENT_TOKEN` in `src/env.ts` and nothing reads one. Only needed once Paddle.js exists. |
-| Replace sandbox price IDs across pricing page / checkout / upgrade logic | They were never in those places. See above. |
 
 ### Outstanding — only you can do these
 
@@ -139,14 +126,16 @@ once and cannot be retrieved again.
 > it: recreating rotates `endpoint_secret_key` and silently breaks signature
 > verification for every future delivery. See §8.
 
-**Live client-side token** — not needed. Nothing in the codebase reads one
-(see §0).
+**Live client-side token** — create one in the live Paddle dashboard under
+**Developer tools → Authentication → Client-side tokens** (it starts with
+`live_`) and set it as `PADDLE_CLIENT_TOKEN` alongside
+`PADDLE_CLIENT_ENVIRONMENT=production`.
 
 ---
 
 ## 4. Switch the code over
 
-This is the whole code-side migration. Six values.
+This is the whole code-side migration.
 
 ```bash
 # The four live price IDs
@@ -164,17 +153,18 @@ wrangler secret put PADDLE_SCENEFORGE_YEARLY_CHECKOUT_URL
 # The live credentials
 wrangler secret put PADDLE_API_KEY
 wrangler secret put PADDLE_WEBHOOK_SECRET
+wrangler secret put PADDLE_CLIENT_TOKEN
 ```
 
-Then flip the environment. It is a **plain var, not a secret**, in
-`wrangler.jsonc`:
+`wrangler.jsonc` already sets the live environment vars:
 
 ```jsonc
-"PADDLE_ENVIRONMENT": "live"
+"PADDLE_ENVIRONMENT": "live",
+"PADDLE_CLIENT_ENVIRONMENT": "production"
 ```
 
-and redeploy. That single change moves the API base URL to
-`https://api.paddle.com`.
+Redeploy once your secrets are set. That moves the API base URL to
+`https://api.paddle.com` and configures Paddle.js for `production`.
 
 **Apply the migration to the live database** if it has not been applied already:
 

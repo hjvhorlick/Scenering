@@ -1624,6 +1624,17 @@ export const ADMIN_MANUAL: readonly ManualTopic[] = [
         ],
       },
       {
+        id: "store-notice",
+        q: "How do I change or hide the store notice on the front pages?",
+        a: "In Owner administration or on Dashboard in the Email Centre. The change shows on the website straight away.",
+        steps: [
+          "Open the studio, select *Menu*, then *Owner administration*, or open *Dashboard* in the Email Centre.",
+          "Find *Store notice*.",
+          "Tick or untick *Show store notice on front pages*, or edit the *Notice badge* and *Notice message*.",
+          "Select *Save store notice*.",
+        ],
+      },
+      {
         id: "old-grant",
         q: "What are Grant complimentary membership and the accounts table in Owner administration?",
         a: "The older way of giving free time. They do the same as Give free time in Members, which offers more.",

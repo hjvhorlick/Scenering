@@ -7,6 +7,7 @@ import logo from "../assets/scenering-logo.png";
 import IconSprite from "../components/icons/IconSprite";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 import SocialLinksRow from "../shared/SocialLinks";
+import StoreNoticeBanner from "../shared/StoreNotice";
 
 type Mode = "login" | "register" | "forgot";
 
@@ -19,6 +20,52 @@ export default function SignIn() {
   const [marketingConsent, setMarketingConsent] = useState(false); const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
+
+  async function verifyFromUrl(devUrl: string): Promise<boolean> {
+    const query = devUrl.split("?")[1] || "";
+    const token = new URLSearchParams(query).get("token");
+    if (!token) return false;
+    const res = await fetch("/api/auth/verify-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    return res.ok;
+  }
+
+  async function completePostSignIn() {
+    const intendedCode = localStorage.getItem("scenering_intended_access_code");
+    if (intendedCode) {
+      // Forgotten before it is tried: a code that cannot be used (used up,
+      // expired) must not be tried again at every later sign-in.
+      localStorage.removeItem("scenering_intended_access_code");
+      await redeemComplimentaryCode(intendedCode);
+      // The studio opened with the account as it was at sign-in. Read it
+      // again so the gifted plan applies straight away, not after a reload.
+      await refreshSession();
+    }
+    const intended = localStorage.getItem("scenering_intended_checkout");
+    if (intended) {
+      const choice = JSON.parse(intended) as { plan: string; interval: string };
+      const response = await fetch(`/api/billing/checkout/${choice.plan}/${choice.interval}`);
+      const checkout = await response.json();
+      if (response.ok && checkout.url) {
+        localStorage.removeItem("scenering_intended_checkout");
+        window.location.href = checkout.url;
+        return;
+      } else if (checkout.code === "BILLING_NOT_CONFIGURED") {
+        setMessage("Your account is ready. Paid checkout has not been configured yet, so you are continuing on Free.");
+      }
+    }
+    const nextPath = new URLSearchParams(window.location.search).get("next");
+    if (nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")) {
+      navigate(nextPath);
+      return;
+    }
+    if (["/login", "/register", "/forgot-password"].includes(window.location.pathname)) {
+      navigate("/app");
+    }
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault(); setError(null); setMessage(null); setNeedsVerification(false); setBusy(true);
@@ -37,29 +84,36 @@ export default function SignIn() {
           localStorage.setItem("scenering_intended_checkout", JSON.stringify({ plan: intendedPlan, interval: params.get("interval") === "yearly" ? "yearly" : "monthly" }));
         }
         const result = await registerAccount(displayName, email, password, marketingConsent);
-        setMessage(result.message + (result.developmentVerificationUrl ? " Development mode: use the verification link shown below." : ""));
-        if (result.developmentVerificationUrl) window.location.href = result.developmentVerificationUrl;
+        if (result.developmentVerificationUrl) {
+          const verified = await verifyFromUrl(result.developmentVerificationUrl);
+          if (verified) {
+            await preloadStudio().catch(() => null);
+            await signIn(email, password);
+            await completePostSignIn();
+            return;
+          }
+          window.location.href = result.developmentVerificationUrl;
+          return;
+        }
+        setMessage(result.message);
         return;
       }
-      await preloadStudio().catch(() => null); await signIn(email, password);
-      const intendedCode = localStorage.getItem("scenering_intended_access_code");
-      if (intendedCode) {
-        // Forgotten before it is tried: a code that cannot be used (used up,
-        // expired) must not be tried again at every later sign-in.
-        localStorage.removeItem("scenering_intended_access_code");
-        await redeemComplimentaryCode(intendedCode);
-        // The studio opened with the account as it was at sign-in. Read it
-        // again so the gifted plan applies straight away, not after a reload.
-        await refreshSession();
+      await preloadStudio().catch(() => null);
+      try {
+        await signIn(email, password);
+      } catch (loginErr: any) {
+        if (loginErr?.code === "EMAIL_UNVERIFIED" && loginErr?.developmentVerificationUrl) {
+          const verified = await verifyFromUrl(loginErr.developmentVerificationUrl);
+          if (verified) {
+            await signIn(email, password);
+          } else {
+            throw loginErr;
+          }
+        } else {
+          throw loginErr;
+        }
       }
-      const intended = localStorage.getItem("scenering_intended_checkout");
-      if (intended) {
-        const choice = JSON.parse(intended) as { plan: string; interval: string };
-        const response = await fetch(`/api/billing/checkout/${choice.plan}/${choice.interval}`);
-        const checkout = await response.json();
-        if (response.ok && checkout.url) { localStorage.removeItem("scenering_intended_checkout"); window.location.href = checkout.url; }
-        else if (checkout.code === "BILLING_NOT_CONFIGURED") setMessage("Your account is ready. Paid checkout has not been configured yet, so you are continuing on Free.");
-      }
+      await completePostSignIn();
     } catch (err: any) {
       setNeedsVerification(err?.code === "EMAIL_UNVERIFIED");
       setError(err.message || "Something went wrong.");
@@ -73,6 +127,7 @@ export default function SignIn() {
       <SocialLinksRow size={40} tone="light" className="si-social" />
       <span style={{ width: 92 }} aria-hidden="true" />
     </header>
+    <StoreNoticeBanner />
     <main className="si-center"><form className="si-card" onSubmit={onSubmit}>
       <span className="si-pill">Free membership included</span>
       <div><h1>{mode === "login" ? "Welcome back." : mode === "register" ? "Create your Scenering account." : "Reset your password."}</h1>
@@ -89,7 +144,23 @@ export default function SignIn() {
       {error && <div className="si-error" role="alert">{error}</div>}
       {needsVerification && <button type="button" className="si-quiet" disabled={busy} onClick={async () => {
         setBusy(true); setError(null);
-        try { const result = await resendVerification(email); setMessage(result.message || "Check your email for a new verification link."); }
+        try {
+          const result = await resendVerification(email);
+          if (result.developmentVerificationUrl) {
+            const verified = await verifyFromUrl(result.developmentVerificationUrl);
+            if (verified) {
+              setNeedsVerification(false);
+              if (password) {
+                await signIn(email, password);
+                await completePostSignIn();
+                return;
+              }
+              setMessage("Email verified. You can now sign in.");
+              return;
+            }
+          }
+          setMessage(result.message || "Check your email for a new verification link.");
+        }
         catch (err: any) { setError(err.message || "Could not resend the verification email."); }
         finally { setBusy(false); }
       }}>Resend verification email</button>}
