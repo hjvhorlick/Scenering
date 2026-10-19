@@ -37,6 +37,7 @@ import { SITE_SECTION_PATHS, isFeatureTourPath } from "../lib/route";
 import { STRUCTURED_DATA_ID } from "../shared/structured-data";
 import { LEGAL_DOCUMENTS, LEGAL_ORGANISATION, LEGAL_OWNER } from "./legal-content";
 import { INDEXABLE_ROBOTS, NOINDEX_ROBOTS, SEO_PAGES, SHARE_IMAGE, canonicalPathFor, canonicalUrl, seoForPath, siteUrl } from "./seo";
+import { PRODUCT_DESCRIPTION } from "./product-positioning";
 
 /** The markers in index.html that the generated tags replace. */
 export const SEO_HEAD_START = "<!-- seo:start -->";
@@ -102,8 +103,7 @@ const PAGE_TYPES: Readonly<Record<string, string>> = { "/about": "AboutPage", "/
  * the ones the website demonstrates; nothing here is a rating, a review or a
  * number the product cannot back up.
  */
-const APP_DESCRIPTION =
-  "Create scene-based faceless videos from scripts or prepared audio. Research visuals, add narration and synced captions, edit the video, and export for social platforms.";
+const APP_DESCRIPTION = `${PRODUCT_DESCRIPTION} Create scene-based faceless videos from scripts or prepared audio. Research visuals, add narration and synced captions, edit the video, and export for social platforms.`;
 const APP_FEATURES = [
   "Script-to-scene planning",
   "Visual research and selection",
@@ -132,8 +132,9 @@ export function escapeHtml(value: string): string {
 
 type Json = Record<string, unknown>;
 
-function imageObject(image: { path: string; width: number; height: number }): Json {
-  return { "@type": "ImageObject", url: siteUrl(image.path), width: image.width, height: image.height };
+function imageObject(image: { path: string; width: number; height: number; type?: string }, caption?: string): Json {
+  const url = siteUrl(image.path);
+  return { "@type": "ImageObject", url, contentUrl: url, encodingFormat: image.type, width: image.width, height: image.height, ...(caption ? { caption } : {}) };
 }
 
 function organization(home: string): Json {
@@ -199,7 +200,7 @@ function application(home: string): Json {
     applicationCategory: "MultimediaApplication",
     applicationSubCategory: "Video editing and script-to-video software",
     operatingSystem: "Web browser",
-    image: [imageObject(SHARE_IMAGE), imageObject(HERO_ART)],
+    image: [imageObject(SHARE_IMAGE, SHARE_IMAGE.alt), imageObject(HERO_ART, "Scenering video editor workspace showing a script, scene visuals, narration, captions and video timeline.")],
     featureList: APP_FEATURES,
     offers: offers(),
     publisher: { "@id": `${home}#organization` },
@@ -306,7 +307,7 @@ export function renderSeoPage(path: string): string {
     SEO_PAGE_START +
     `<div id="seo-page">` +
     `<header><a href="/">${SITE_NAME}</a></header>` +
-    `<main><h1>${escapeHtml(page.heading)}</h1><p>${escapeHtml(seo.description)}</p></main>` +
+    `<main><h1>${escapeHtml(page.heading)}</h1><p>${escapeHtml(seo.description)}</p>${canonicalPathFor(path) === "/" ? `<img src="${SHARE_IMAGE.path}" width="${SHARE_IMAGE.width}" height="${SHARE_IMAGE.height}" alt="${escapeHtml(SHARE_IMAGE.alt)}" />` : ""}</main>` +
     `<nav aria-label="${SITE_NAME}"><ul>${links}</ul></nav>` +
     `</div>` +
     SEO_PAGE_END
