@@ -20,6 +20,30 @@ a Node.js server, a container, or any other host.
 
 ---
 
+## Branch previews
+
+Workers Builds runs `npx wrangler preview` for every non-main branch. Wrangler
+4.147+ requires a top-level `previews` block for that command; without it the
+build stops with **“Your Wrangler configuration is missing a `previews` block”**
+(and suggests `<REPLACE_ME>` values). The block in `wrangler.jsonc` defines
+preview-only D1, KV, and R2 resources so every branch gets isolated storage and
+unreviewed branch code can never read or mutate live production data.
+
+After this change is merged, sign in to Cloudflare and run these once from the
+repository root:
+
+```bash
+bash scripts/setup-preview-resources.sh
+npx wrangler preview base-config secret put SESSION_SECRET
+```
+
+The setup script creates `scenering-db-preview`, `rate-limits-preview`, and
+`scenering-audio-preview`, wires their IDs only into the `previews` block, and
+applies the D1 migrations to the preview database. Keep the preview session
+secret separate from production. Until this one-time setup is complete, branch
+preview builds may remain red by design. The production deploy-config check
+ignores the preview IDs because previews are not used by production deploys.
+
 ## 1. How every backend function maps to Cloudflare
 
 | Application function | Code | Cloudflare service | Status |

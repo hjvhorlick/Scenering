@@ -87,5 +87,39 @@
     // existing Paddle checkout exactly as it is.
     "BILLING_PROVIDER": "",
     "FASTSPRING_STOREFRONT": ""
+  },
+  // Worker Previews have their own data stores. These IDs are filled by
+  // `bash scripts/setup-preview-resources.sh`; do not point them at production.
+  // Vars are intentionally preview-safe: no live email or billing provider.
+  "previews": {
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "scenering-db-preview",
+        "database_id": "SCENERING_D1_PREVIEW_ID_PLACEHOLDER",
+        "migrations_dir": "./migrations"
+      }
+    ],
+    "kv_namespaces": [
+      {
+        "binding": "RATE_LIMITS",
+        "id": "SCENERING_KV_PREVIEW_ID_PLACEHOLDER"
+      }
+    ],
+    "r2_buckets": [
+      {
+        "binding": "AUDIO_BUCKET",
+        "bucket_name": "scenering-audio-preview"
+      }
+    ],
+    "vars": {
+      "PUBLIC_APP_URL": "",
+      "SCENERING_OWNER_EMAIL": "",
+      "EMAIL_PROVIDER": "console",
+      "PADDLE_ENVIRONMENT": "sandbox",
+      "PADDLE_CLIENT_ENVIRONMENT": "sandbox",
+      "BILLING_PROVIDER": "",
+      "FASTSPRING_STOREFRONT": ""
+    }
   }
 }
