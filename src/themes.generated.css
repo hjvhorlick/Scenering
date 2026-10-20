@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 603 utility
+   Colour matrix for every non-classic theme. 602 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -710,9 +710,6 @@ html[data-theme="apple"] .border-emerald-600\/70 {
 }
 html[data-theme="apple"] .border-emerald-600\/80 {
   border-color: rgb(5 150 105 / 0.8);
-}
-html[data-theme="apple"] .border-emerald-600\/90 {
-  border-color: rgb(5 150 105 / 0.9);
 }
 html[data-theme="apple"] .border-emerald-700 {
   border-color: rgb(4 120 87 / 1);
@@ -2571,9 +2568,6 @@ html[data-theme="windows"] .border-emerald-600\/70 {
 html[data-theme="windows"] .border-emerald-600\/80 {
   border-color: rgb(14 141 102 / 0.8);
 }
-html[data-theme="windows"] .border-emerald-600\/90 {
-  border-color: rgb(14 141 102 / 0.9);
-}
 html[data-theme="windows"] .border-emerald-700 {
   border-color: rgb(11 113 84 / 1);
 }
@@ -4430,9 +4424,6 @@ html[data-theme="playful"] .border-emerald-600\/70 {
 }
 html[data-theme="playful"] .border-emerald-600\/80 {
   border-color: rgb(0 158 109 / 0.8);
-}
-html[data-theme="playful"] .border-emerald-600\/90 {
-  border-color: rgb(0 158 109 / 0.9);
 }
 html[data-theme="playful"] .border-emerald-700 {
   border-color: rgb(0 126 90 / 1);
@@ -6291,9 +6282,6 @@ html[data-theme="glass"] .border-emerald-600\/70 {
 html[data-theme="glass"] .border-emerald-600\/80 {
   border-color: rgb(27 137 113 / 0.8);
 }
-html[data-theme="glass"] .border-emerald-600\/90 {
-  border-color: rgb(27 137 113 / 0.9);
-}
 html[data-theme="glass"] .border-emerald-700 {
   border-color: rgb(27 113 99 / 1);
 }
@@ -8150,9 +8138,6 @@ html[data-theme="porcelain"] .border-emerald-600\/70 {
 }
 html[data-theme="porcelain"] .border-emerald-600\/80 {
   border-color: rgb(5 150 105 / 0.8);
-}
-html[data-theme="porcelain"] .border-emerald-600\/90 {
-  border-color: rgb(5 150 105 / 0.9);
 }
 html[data-theme="porcelain"] .border-emerald-700 {
   border-color: rgb(4 120 87 / 1);

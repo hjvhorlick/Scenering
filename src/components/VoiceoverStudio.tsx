@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import StepNav from "./StepNav";
 import type { CaptionsConfig, CustomerLogoConfig, Scene, TimelineInsert } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
-import { setCachedSceneAudio, getSharedAudioContext, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
+import { setCachedSceneAudio, getSharedAudioContext, fetchSceneAudioWithTimeline, resolveSceneAudioBuffer } from "../lib/tts-cache";
 import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
 import PhoneticDictionaryTab from "./PhoneticDictionaryTab";
 import { STUDIO_VOICE_PRESETS, type VoicePreset, resolveVoicePreset, sameSpeechifySpeaker } from "../data/voice-presets";
@@ -18,7 +18,18 @@ import {
 import { BackgroundMusicLibrary } from "./VoiceMediaLibrary";
 import VoiceoverSwitch from "./VoiceoverSwitch";
 import { iconify } from "./icons/Icon";
-import { isBoolean, numberBetween, oneOf, useRememberedChoice } from "../lib/section-memory";
+import { isBoolean, numberBetween, oneOf, recallChoice, rememberChoice, useRememberedChoice } from "../lib/section-memory";
+import {
+  backgroundMusicFingerprint,
+  expectedVoiceForSceneIndex,
+  isPreparedVoiceoverId,
+  isVoiceoverAudioSnapshot,
+  planVoiceoverGeneration,
+  recordCurrentVoiceoverAudio,
+  recordGeneratedVoiceover,
+  type VoiceoverAudioSnapshot,
+  type VoiceoverGenerationTarget,
+} from "../lib/voiceover-generation";
 import Icon from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { isPlanVoiceIncluded, type PlanSlug } from "../config/plans";
@@ -30,7 +41,6 @@ interface VoiceoverStudioProps {
   projectId?: number | null;
   scenes: Scene[];
   onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
-  onApplyVoiceToAll: (voiceId: string, speed: number) => void;
   onNavigateToStep?: (step: any) => void;
   selectedVoice?: string;
   onSelectVoice?: (voiceId: string) => void;
@@ -67,7 +77,6 @@ export default function VoiceoverStudio({
   projectId = null,
   scenes,
   onUpdateScene,
-  onApplyVoiceToAll,
   onNavigateToStep,
   selectedVoice: propSelectedVoice,
   onSelectVoice,
@@ -113,10 +122,8 @@ export default function VoiceoverStudio({
    * Which voice a given scene should be narrated in.
    * Falls back to the primary voice whenever rotation is off.
    */
-  const voiceForSceneIndex = (index: number): string => {
-    if (!rotateVoices || !secondVoice) return selectedVoice;
-    return index % 2 === 0 ? selectedVoice : secondVoice;
-  };
+  const voiceForSceneIndex = (index: number): string =>
+    expectedVoiceForSceneIndex(index, selectedVoice, rotateVoices, secondVoice);
 
   const [globalSpeed, setGlobalSpeed] = useRememberedChoice(projectId, "voiceover", "sampleSpeed", 1.0, numberBetween(0.75, 1.5));
   const [echoConfig, setEchoConfig] = useState<VoiceEchoConfig>(
@@ -130,7 +137,6 @@ export default function VoiceoverStudio({
   const [genderFilter, setGenderFilter] = useRememberedChoice<"all" | "male" | "female">(
     projectId, "voiceover", "genderFilter", "all", oneOf(["all", "male", "female"] as const)
   );
-  const [generationSuccess, setGenerationSuccess] = useState(false);
   const [showSceneReview, setShowSceneReview] = useState(false);
 
   // Tab 2: Import Prepared TTS Audio State
@@ -230,6 +236,43 @@ export default function VoiceoverStudio({
     setTimeout(() => setDownloadNotice((curr) => (curr === msg ? null : curr)), 6000);
   };
 
+  const handlePlayScene = async (scene: Scene, index: number) => {
+    if (!scene.audio_url) {
+      await handlePlayVoicePreview(scene.text, scene.id, voiceForSceneIndex(index), globalSpeed);
+      return;
+    }
+    if (playingId === scene.id) {
+      ttsPlayer.stop();
+      setPlayingId(null);
+      setLoadingId(null);
+      return;
+    }
+
+    ttsPlayer.stop();
+    setLoadingId(scene.id);
+    setPlayingId(scene.id);
+    try {
+      const resolved = await resolveSceneAudioBuffer(scene, getSharedAudioContext());
+      if (!resolved) throw new Error("The saved narration could not be loaded from this browser.");
+      await ttsPlayer.play(
+        scene.text?.trim() || scene.audio_name || "Saved narration",
+        `url:${resolved.url}`,
+        globalSpeed,
+        0.9,
+        scene.id,
+        () => {
+          setPlayingId((current) => (current === scene.id ? null : current));
+          setLoadingId((current) => (current === scene.id ? null : current));
+        }
+      );
+      setLoadingId(null);
+    } catch (error: any) {
+      setPlayingId(null);
+      setLoadingId(null);
+      announce(error?.message || "The saved narration could not be played.");
+    }
+  };
+
   const handleDownloadScene = async (scene: Scene) => {
     setDownloadingId(scene.id);
     try {
@@ -255,12 +298,51 @@ export default function VoiceoverStudio({
   };
 
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
-  const [generationProgress, setGenerationProgress] = useState<{ current: number; total: number; sceneIndex: number } | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<{ current: number; total: number } | null>(null);
   const [singleGeneratingId, setSingleGeneratingId] = useState<number | null>(null);
+  const musicFingerprint = useMemo(() => backgroundMusicFingerprint(inserts), [inserts]);
+  const voiceoverAudioSnapshot = recallChoice<VoiceoverAudioSnapshot>(
+    projectId,
+    "voiceover",
+    "audioSnapshot",
+    {},
+    isVoiceoverAudioSnapshot
+  );
+  const generationPlan = planVoiceoverGeneration(scenes, {
+    primaryVoice: selectedVoice,
+    rotateVoices,
+    secondVoice,
+    musicFingerprint,
+    snapshot: voiceoverAudioSnapshot,
+  });
+  const generationTargetIds = new Set(generationPlan.map(({ scene }) => scene.id));
+  const hasNarrationText = scenes.some((scene) => (scene.text || "").trim().length > 0);
 
-  // Scenes audio stats
-  const scenesWithAudioCount = scenes.filter((s) => Boolean(s.audio_url)).length;
-  const allScenesHaveSavedAudio = scenes.length > 0 && scenesWithAudioCount === scenes.length;
+  const snapshotOptions = {
+    primaryVoice: selectedVoice,
+    rotateVoices,
+    secondVoice,
+    musicFingerprint,
+  };
+  const readAudioSnapshot = () =>
+    recallChoice<VoiceoverAudioSnapshot>(
+      projectId,
+      "voiceover",
+      "audioSnapshot",
+      {},
+      isVoiceoverAudioSnapshot
+    );
+  const saveAudioSnapshot = (snapshot: VoiceoverAudioSnapshot) =>
+    rememberChoice(projectId, "voiceover", "audioSnapshot", snapshot);
+
+  // Older projects already have useful audio but no saved input fingerprint.
+  // Adopt only those matching files once; never overwrite a known-stale entry.
+  useEffect(() => {
+    if (!projectId || isGeneratingAll) return;
+    const saved = readAudioSnapshot();
+    const seeded = recordCurrentVoiceoverAudio(saved, scenes, snapshotOptions);
+    if (JSON.stringify(saved) !== JSON.stringify(seeded)) saveAudioSnapshot(seeded);
+  }, [projectId, scenes, selectedVoice, rotateVoices, secondVoice, musicFingerprint, isGeneratingAll]);
 
   const generateVoiceoverForScene = async (scene: Scene, voiceToUse: string): Promise<string | null> => {
     const text = (scene.text || "").trim();
@@ -269,6 +351,9 @@ export default function VoiceoverStudio({
     const voiceName = voicePreset?.name || voiceToUse;
 
     try {
+      if (isPreparedVoiceoverId(voiceToUse)) {
+        throw new Error("Apply a prepared audio file for this custom voice before continuing.");
+      }
       const withTimeline = await fetchSceneAudioWithTimeline(text, voiceToUse, { timeoutMs: 20000 });
       if (!withTimeline) throw new Error("Speechify returned no audio for this scene.");
 
@@ -278,7 +363,7 @@ export default function VoiceoverStudio({
       const audioCtx = getSharedAudioContext();
       const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
       const spokenDuration = decoded.duration;
-      setCachedSceneAudio(scene.id, voiceToUse, text, {
+      await setCachedSceneAudio(scene.id, voiceToUse, text, {
         audioBuffer: decoded,
         blobUrl,
         duration: spokenDuration,
@@ -311,62 +396,88 @@ export default function VoiceoverStudio({
     }
   };
 
-  const handleGenerateAndSaveAllVoiceovers = async (voiceToUse = selectedVoice) => {
-    if (isGeneratingAll) return;
+  const generateRequiredVoiceovers = async (
+    targets: VoiceoverGenerationTarget[],
+    savedSnapshot: VoiceoverAudioSnapshot,
+    batchMusicFingerprint: string
+  ): Promise<boolean> => {
+    if (isGeneratingAll) return false;
+    if (targets.length === 0) return true;
+
     setIsGeneratingAll(true);
-    setGenerationSuccess(false);
-
-    onApplyVoiceToAll(voiceToUse, globalSpeed);
-
-    const total = scenes.length;
+    const targetIds = new Set(targets.map(({ scene }) => scene.id));
+    let nextSnapshot = recordCurrentVoiceoverAudio(savedSnapshot, scenes, {
+      ...snapshotOptions,
+      musicFingerprint: batchMusicFingerprint,
+      excludeSceneIds: targetIds,
+    });
     const failedScenes: number[] = [];
-    for (let i = 0; i < scenes.length; i++) {
-      const scene = scenes[i];
-      setGenerationProgress({ current: i + 1, total, sceneIndex: i });
-      // With rotation on, each scene is spoken by its own half of the pair.
-      // Passing `voiceToUse` here instead would collapse the whole run back to
-      // a single voice, which is exactly the behaviour rotation is meant to
-      // avoid.
-      const audioUrl = await generateVoiceoverForScene(scene, voiceForSceneIndex(i));
-      if ((scene.text || "").trim() && !audioUrl) failedScenes.push(i + 1);
+
+    try {
+      for (let i = 0; i < targets.length; i += 1) {
+        const target = targets[i];
+        setGenerationProgress({ current: i + 1, total: targets.length });
+        const audioUrl = await generateVoiceoverForScene(target.scene, target.voiceId);
+        if (audioUrl) {
+          nextSnapshot = recordGeneratedVoiceover(nextSnapshot, target.scene, target.voiceId, batchMusicFingerprint);
+        } else {
+          failedScenes.push((target.scene.order_index ?? i) + 1);
+        }
+      }
+    } finally {
+      setIsGeneratingAll(false);
+      setGenerationProgress(null);
     }
 
-    setIsGeneratingAll(false);
-    setGenerationProgress(null);
+    saveAudioSnapshot(nextSnapshot);
     if (failedScenes.length > 0) {
-      setGenerationSuccess(false);
       const shown = failedScenes.slice(0, 5).join(", ");
       const more = failedScenes.length > 5 ? ` and ${failedScenes.length - 5} more` : "";
       announce(`Speechify could not generate scene${failedScenes.length === 1 ? "" : "s"} ${shown}${more}. Check the Speechify key in API Keys and retry.`);
-    } else {
-      setGenerationSuccess(true);
-      setTimeout(() => setGenerationSuccess(false), 5000);
+      return false;
     }
+    return true;
   };
 
   const handleProceedNext = async (targetStep: string = "captions") => {
-    // If any scene doesn't have an audio_url yet, or voice was changed, complete generation first!
-    // Unless the project has no narration at all, in which case generating a
-    // voice track nobody will hear is just a long wait on the way to Captions.
-    const needsGeneration =
-      voiceoverEnabled && scenes.some((s) => !s.audio_url || s.voice_id !== selectedVoice);
-    if (needsGeneration) {
-      await handleGenerateAndSaveAllVoiceovers(selectedVoice);
+    if (voiceoverEnabled) {
+      const savedSnapshot = readAudioSnapshot();
+      const targets = planVoiceoverGeneration(scenes, {
+        primaryVoice: selectedVoice,
+        rotateVoices,
+        secondVoice,
+        musicFingerprint,
+        snapshot: savedSnapshot,
+      });
+      if (targets.length > 0) {
+        const saved = await generateRequiredVoiceovers(targets, savedSnapshot, musicFingerprint);
+        if (!saved) return;
+      } else {
+        saveAudioSnapshot(recordCurrentVoiceoverAudio(savedSnapshot, scenes, snapshotOptions));
+      }
     }
-    if (onNavigateToStep) {
-      onNavigateToStep(targetStep);
-    }
+    if (onNavigateToStep) onNavigateToStep(targetStep);
   };
 
   const handleGenerateSingleScene = async (scene: Scene) => {
     setSingleGeneratingId(scene.id);
-    const audioUrl = await generateVoiceoverForScene(scene, scene.voice_id || selectedVoice);
-    if ((scene.text || "").trim() && !audioUrl) announce(`Speechify could not generate scene ${(scene.order_index ?? 0) + 1}. Check the key in API Keys and retry.`);
-    setSingleGeneratingId(null);
-  };
-
-  const handleApplyToAll = () => {
-    handleGenerateAndSaveAllVoiceovers(selectedVoice);
+    try {
+      const index = scenes.findIndex((item) => item.id === scene.id);
+      const voiceId = voiceForSceneIndex(Math.max(0, index));
+      const audioUrl = await generateVoiceoverForScene(scene, voiceId);
+      if ((scene.text || "").trim() && !audioUrl) {
+        announce(`Speechify could not generate scene ${(scene.order_index ?? 0) + 1}. Check the key in API Keys and retry.`);
+      }
+      if (audioUrl) {
+        const saved = recordCurrentVoiceoverAudio(readAudioSnapshot(), scenes, {
+          ...snapshotOptions,
+          excludeSceneIds: new Set([scene.id]),
+        });
+        saveAudioSnapshot(recordGeneratedVoiceover(saved, scene, voiceId, musicFingerprint));
+      }
+    } finally {
+      setSingleGeneratingId(null);
+    }
   };
 
   // Get active voice display info
@@ -416,15 +527,18 @@ export default function VoiceoverStudio({
 
   const handleApplyImportedAudio = () => {
     if (!importedAudioUrl) return;
+    const preparedVoiceId = `custom:${customVoiceLabel || importedFileName}`;
 
     if (importTargetScene === "all") {
       scenes.forEach((s) => {
         onUpdateScene(s.id, {
           audio_url: importedAudioUrl,
           audio_name: customVoiceLabel || importedFileName,
+          voice_id: preparedVoiceId,
+          audio_duration: importedAudioDuration > 0 ? importedAudioDuration : undefined,
         });
       });
-      handleSelectVoice(`custom:${customVoiceLabel || importedFileName}`);
+      handleSelectVoice(preparedVoiceId);
       setImportSuccessBanner(
         `Applied "${customVoiceLabel || importedFileName}" as the global voiceover for all ${scenes.length} scenes!`
       );
@@ -433,7 +547,9 @@ export default function VoiceoverStudio({
       onUpdateScene(sceneId, {
         audio_url: importedAudioUrl,
         audio_name: customVoiceLabel || importedFileName,
+        voice_id: preparedVoiceId,
         duration: importedAudioDuration > 0 ? importedAudioDuration : undefined,
+        audio_duration: importedAudioDuration > 0 ? importedAudioDuration : undefined,
       });
       setImportSuccessBanner(
         `Applied "${customVoiceLabel || importedFileName}" to Scene ${
@@ -466,20 +582,27 @@ export default function VoiceoverStudio({
           current="voiceover"
           onNavigate={onNavigateToStep}
           onNext={() => handleProceedNext("captions")}
+          nextDisabled={singleGeneratingId !== null}
           nextLabel={
-            !voiceoverEnabled
+            !voiceoverEnabled || generationPlan.length === 0
               ? "Next: Captions"
-              : allScenesHaveSavedAudio
-                ? "Next: Captions"
-                : "Save Voiceovers & Next: Captions"
+              : "Save Voiceovers & Next: Captions"
           }
-          busyLabel={isGeneratingAll ? `Saving voiceovers (${generationProgress?.current || 0}/${scenes.length})…` : undefined}
+          busyLabel={
+            isGeneratingAll
+              ? `Saving voiceovers (${generationProgress?.current || 0}/${generationProgress?.total || 0})…`
+              : singleGeneratingId !== null
+                ? "Generating scene voiceover…"
+                : undefined
+          }
           note={
             !voiceoverEnabled
               ? "voiceover off"
-              : allScenesHaveSavedAudio
-                ? "narration saved"
-                : "narration not generated yet"
+              : generationPlan.length > 0
+                ? `${generationPlan.length} scene${generationPlan.length === 1 ? "" : "s"} need narration`
+                : hasNarrationText
+                  ? "narration saved"
+                  : "no narration text"
           }
         />
       )}
@@ -555,28 +678,6 @@ export default function VoiceoverStudio({
               )}
             </button>
 
-            <button
-              disabled={isGeneratingAll}
-              onClick={() => handleGenerateAndSaveAllVoiceovers(selectedVoice)}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"
-            >
-              {isGeneratingAll ? (
-                <>
-                  <span className="animate-spin text-sm"><Icon glyph="⏳" /></span>
-                  <span>Generating Voiceover ({generationProgress?.current || 0}/{scenes.length})...</span>
-                </>
-              ) : allScenesHaveSavedAudio ? (
-                <>
-                  <Icon glyph="✅" />
-                  <span>Voiceovers Saved ({scenesWithAudioCount}/{scenes.length}) • Re-generate</span>
-                </>
-              ) : (
-                <>
-                  <Icon glyph="🎙" />
-                  <span>Generate & Save Voiceover for All Scenes</span>
-                </>
-              )}
-            </button>
           </div>
         </div>
 
@@ -604,15 +705,6 @@ export default function VoiceoverStudio({
             <span className="font-mono text-xs bg-indigo-900 px-2 py-0.5 rounded text-indigo-200">
               {Math.round(((generationProgress?.current || 1) / (generationProgress?.total || 1)) * 100)}%
             </span>
-          </div>
-        )}
-
-        {generationSuccess && (
-          <div className="mt-3 p-3 bg-emerald-950/80 border border-emerald-600/90 rounded-xl text-emerald-200 text-xs flex items-center justify-between animate-fade-in shadow-lg">
-            <span className="flex items-center gap-2 font-medium">
-              <Icon glyph="✅" /> All {scenes.length} scene voiceovers generated & saved with "{activeVoiceInfo.name}" ({activeVoiceInfo.gender})! Voiceovers are pre-saved and ready for Video Studio.
-            </span>
-            <button onClick={() => setGenerationSuccess(false)} className="text-emerald-400 hover:text-white text-sm font-bold"><Icon glyph="✕" /></button>
           </div>
         )}
 
@@ -1152,6 +1244,8 @@ export default function VoiceoverStudio({
               <div className="mt-3 space-y-2.5 pt-3 border-t border-hairline">
                 {scenes.map((scene, idx) => {
                   const hasSavedAudio = Boolean(scene.audio_url);
+                  const needsVoiceoverUpdate = generationTargetIds.has(scene.id);
+                  const hasSceneNarration = Boolean((scene.text || "").trim());
                   const isSingleGen = singleGeneratingId === scene.id;
 
                   return (
@@ -1159,7 +1253,15 @@ export default function VoiceoverStudio({
                       <div className="flex-1">
                         <div className="flex flex-wrap items-center gap-2 mb-1">
                           <span className="text-[11px] font-bold text-indigo-400">Scene {idx + 1} ({scene.duration}s):</span>
-                          {hasSavedAudio ? (
+                          {!hasSceneNarration ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-hairline font-semibold">
+                              No narration text
+                            </span>
+                          ) : needsVoiceoverUpdate ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/70 text-amber-300 border border-amber-800 font-semibold flex items-center gap-1">
+                              <Icon glyph="⏳" /> Needs update
+                            </span>
+                          ) : hasSavedAudio ? (
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/90 text-emerald-300 border border-emerald-700 font-semibold flex items-center gap-1">
                               <Icon glyph="✅" /> Voiceover Saved ({scene.audio_name || "Audio"})
                             </span>
@@ -1175,14 +1277,7 @@ export default function VoiceoverStudio({
                       <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
                         <button
                           type="button"
-                          onClick={() =>
-                            handlePlayVoicePreview(
-                              scene.text,
-                              scene.id,
-                              scene.audio_url ? `url:${scene.audio_url}` : (scene.voice_id || selectedVoice),
-                              globalSpeed
-                            )
-                          }
+                          onClick={() => handlePlayScene(scene, idx)}
                           className="px-2.5 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg border border-hairline flex items-center gap-1 transition-colors"
                         >
                           {iconify(playingId === scene.id ? "⏹️ Stop" : "▶ Play Audio")}

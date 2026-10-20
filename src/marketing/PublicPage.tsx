@@ -53,7 +53,7 @@ export default function PublicPage({ path }: { path: string }) {
   return <div className="mkt-root"><SiteCornerMenu /><PublicNav currentPath={path} /><StoreNoticeBanner /><main id="main" className="pub-main">{content}</main><PublicFooter /></div>;
 }
 
-function PublicNav({ currentPath }: { currentPath?: string }) { return <nav className="mkt-nav" aria-label="Main"><div className="mkt-container mkt-nav-inner"><a href="/" className="mkt-nav-logo"><BrandMark height={26} /></a><SocialLinksRow size={26} tone="light" className="mkt-nav-social" /><div className="pub-navlinks">{NAV.map(([href, label]) => <a key={href} href={href} className="mkt-nav-link">{label}</a>)}<HeaderLegalMenu currentPath={currentPath} /></div><span className="mkt-nav-spacer" /><span className="sc-corner-reserve" aria-hidden="true" /></div></nav>; }
+function PublicNav({ currentPath }: { currentPath?: string }) { return <nav className="mkt-nav" aria-label="Main"><div className="mkt-container mkt-nav-inner"><a href="/" className="mkt-nav-logo"><BrandMark height={26} /></a><SocialLinksRow size={13} tone="light" className="mkt-nav-social" /><div className="pub-navlinks">{NAV.map(([href, label]) => <a key={href} href={href} className="mkt-nav-link">{label}</a>)}<HeaderLegalMenu currentPath={currentPath} /></div><span className="mkt-nav-spacer" /><span className="sc-corner-reserve" aria-hidden="true" /></div></nav>; }
 function PublicFooter() {
   return (
     <footer className="mkt-footer">
@@ -61,7 +61,7 @@ function PublicFooter() {
         <div>
           <BrandMark height={28} />
           <p>Turn ideas, scripts and audio into polished faceless videos while keeping meaningful creative control.</p>
-          <SocialLinksRow size={48} style={{ margin: "12px 0" }} />
+          <SocialLinksRow size={24} style={{ margin: "12px 0" }} />
           <small>© 2026 Henry John Vincent Horlick · Horlick Group. Scenering. All rights reserved.</small>
         </div>
         <div>

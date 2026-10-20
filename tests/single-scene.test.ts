@@ -260,8 +260,8 @@ const LONG_SCRIPT = Array.from(
     "with no voice, the caption clock follows the scene rather than an imagined speech length"
   );
   ok(
-    /voiceoverEnabled && scenes\.some/.test(studio),
-    "leaving the Voiceover step does not generate narration nobody asked for"
+    /if \(voiceoverEnabled\) \{\s+const savedSnapshot = readAudioSnapshot\(\);\s+const targets = planVoiceoverGeneration/.test(studio),
+    "leaving the Voiceover step only runs generation planning when narration is enabled"
   );
 
   // The switch is reachable from both the place you set a project up and the

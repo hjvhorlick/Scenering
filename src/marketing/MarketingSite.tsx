@@ -114,7 +114,7 @@ export default function MarketingSite() {
               the flex spacer, which parked them at the far edge of the bar
               where the fixed corner menu covers them. Hidden on narrow screens
               by .mkt-nav-social. */}
-          <SocialLinksRow size={26} tone="light" className="mkt-nav-social" />
+          <SocialLinksRow size={13} tone="light" className="mkt-nav-social" />
 
           <span className="mkt-nav-spacer" />
 
@@ -180,7 +180,7 @@ export default function MarketingSite() {
               <p style={{ marginTop: 10, fontSize: 13.5, maxWidth: 380, color: "#98a1b8" }}>
                 {MESSAGES.hero} {HONESTY.localNote}
               </p>
-              <SocialLinksRow size={48} style={{ marginTop: 14 }} />
+              <SocialLinksRow size={24} style={{ marginTop: 14 }} />
             </div>
 
             <div>

@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { applyOrganizationProfiles } from "./structured-data";
+import "./social-links.css";
 
 /**
  * The social icons for the public website and the app.
@@ -106,16 +107,22 @@ export function useSocialLinks(): SocialLinkSet {
 /**
  * The row of configured social profiles. Renders nothing when the owner has
  * not saved any links, so empty marks never appear on any surface. The
- * glyphs sit directly on the page — no boxes or borders. The monochrome X and
- * TikTok marks take the surrounding ink, so they stay legible on the light
- * themes' header and the dark menu without either surface passing a flag.
+ * half-size glyphs sit directly on the page — no boxes or borders — and the
+ * row wraps when more profiles are configured. Its display is stylesheet-led
+ * so each surface's responsive rules can keep it clear of the corner menu.
+ * The monochrome X and TikTok marks take the surrounding ink, so they stay
+ * legible on both light headers and the dark menu without a surface flag.
  */
-export default function SocialLinksRow({ size = 24, tone = "dark", className, style }: { size?: number; tone?: "dark" | "light"; className?: string; style?: CSSProperties }) {
+export default function SocialLinksRow({ size = 12, tone = "dark", className, style }: { size?: number; tone?: "dark" | "light"; className?: string; style?: CSSProperties }) {
   const links = useSocialLinks();
   const active = SOCIAL_ICONS.filter((icon) => links[icon.id]);
   if (active.length === 0) return null;
   return (
-    <nav aria-label="Scenering on social media" className={className} style={{ display: "flex", alignItems: "center", gap: Math.round(size * 0.55), ...style }}>
+    <nav
+      aria-label="Scenering on social media"
+      className={["sc-social-row", className].filter(Boolean).join(" ")}
+      style={{ gap: Math.max(4, Math.round(size * 0.15)), ...style }}
+    >
       {active.map((icon) => (
         <a
           key={icon.id}

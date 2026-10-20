@@ -1740,14 +1740,6 @@ export default function App() {
     if (editingInsert?.id === insertId) setEditingInsert(null);
   };
 
-  // Quick Preset Styles across all scenes
-  const handleApplyVoiceToAll = (voiceId: string, _speed: number) => {
-    handleSelectVoice(voiceId);
-    scenes.forEach((sc) => {
-      handleUpdateScene(sc.id, { voice_id: voiceId });
-    });
-  };
-
   const handleApplyCaptionStyleToAll = (burn: boolean) => {
     scenes.forEach((sc) => {
       handleUpdateScene(sc.id, { burn_caption: burn });
@@ -1764,63 +1756,100 @@ export default function App() {
           window whenever a row inside is too wide to fit. */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="t-app-hdr relative z-40 min-h-14 min-w-0 border-b border-hairline flex flex-wrap items-center gap-1.5 sm:gap-3 px-2 sm:px-4 pr-[var(--sc-corner-reserve)] py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
-          {/* Logo */}
-          <button
-            onClick={() => setView("create")}
-            className="flex items-center gap-2 shrink-0"
-            title="Project setup & projects"
-          >
-            <img
-              src={sceneringLogo}
-              alt="Scenering"
-              className="h-9 w-auto max-w-[130px] sm:max-w-[160px] object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)] select-none"
-            />
-          </button>
+        <div className="t-app-hdr relative z-40 min-h-14 min-w-0 border-b border-hairline flex flex-col items-stretch gap-1.5 sm:gap-2 px-2 sm:px-4 pr-[var(--sc-corner-reserve)] py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-3 min-w-0">
+            {/* Logo */}
+            <button
+              onClick={() => setView("create")}
+              className="flex items-center gap-2 shrink-0"
+              title="Project setup & projects"
+            >
+              <img
+                src={sceneringLogo}
+                alt="Scenering"
+                className="h-9 w-auto max-w-[130px] sm:max-w-[160px] object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)] select-none"
+              />
+            </button>
 
-          {/* The owner's configured social profiles — the same strip as the
-              website, immediately right of the wordmark so the brand cluster
-              reads logo then social marks on every surface.
+            {/* The owner's configured social profiles — the same strip as the
+                website, immediately right of the wordmark so the brand cluster
+                reads logo then social marks on every surface.
 
-              Wide displays only. Five 36px marks with their gaps are ~300px of
-              a row that also has to carry the wordmark, all six phase tabs, the
-              theme picker and the 152px this header keeps clear for the corner
-              menu. On a laptop that strip is what pushed the phase tabs onto a
-              row of their own and cost the working area two lines of height, so
-              it now appears only where the row is genuinely wide enough for
-              both. Nothing is lost where it is hidden: the same strip is in the
-              corner menu panel that sits in this header's own corner, on the
-              sign-in door and in every footer. */}
-          <SocialLinksRow size={36} className="hidden 2xl:flex shrink-0" />
+                Wide displays only. The smaller marks leave room for the three
+                additional profiles planned for this strip, while the six phase
+                tabs now have their own second row. At narrower widths the same
+                icons remain available in the corner menu, sign-in page and
+                website footers. */}
+            <SocialLinksRow size={18} className="hidden 2xl:flex shrink-0" />
 
-          {/* Website navigation, account, membership and sign-out now live in
-              the same fixed corner menu used on every public page. */}
-          <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />
+            {/* Website navigation, account, membership and sign-out now live in
+                the same fixed corner menu used on every public page. */}
+            <div className="h-6 w-px bg-gray-800 hidden sm:block shrink-0" />
 
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              {/* Scene and insert counts. Wide displays only: the same two
+                  numbers are already on the screens they describe — the Scenes
+                  list and the Video Studio's insert catalogue. */}
+              {view === "editor" && (
+                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 shadow-sm hidden 2xl:flex items-center gap-1.5">
+                  <Icon glyph="🎬" />
+                  <span>
+                    {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
+                  </span>
+                  <span className="text-gray-500">•</span>
+                  <span className="text-gray-400">{inserts.length} inserts</span>
+                </span>
+              )}
 
-          {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
-          {/* One row, shared with the wordmark and the header's buttons.
+              {/* The "Projects" button was removed: the logo and the "1. Setup"
+                  phase tab already open this same view, so it was a third way to
+                  reach one screen and cost space in the top bar on small
+                  displays. */}
 
-              `flex-wrap` on the header breaks a line using each item's
-              *content* width, so a rail that is merely allowed to shrink
-              (`min-w-0`) still starts a second row whenever its six tabs are
-              wider than the space left — which is exactly what the header used
-              to do on every laptop. `sm:flex-1` gives the rail a zero basis
-              instead, so it is laid out on the wordmark's row and then grows
-              into whatever that row has left. It stays on this row even when
-              all six tabs cannot fit: the rail scrolls internally instead of
-              wrapping the header.
+              {/* Render status: follows a render that is running while the user
+                  works somewhere else. Click it to jump back to the render page. */}
+              {(renderJob.active || renderJob.error || (vaultReady > 0 && view === "editor")) && (
+                <button
+                  onClick={() => {
+                    setView("editor");
+                    setEditorStep("render");
+                  }}
+                  title={renderJob.active ? `${renderJob.stage} — open the render dashboard` : "Open the render page"}
+                  className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                    renderJob.active
+                      ? "bg-indigo-950/90 text-indigo-200 border-indigo-600/70 hover:bg-indigo-900"
+                      : renderJob.error
+                        ? "bg-rose-950/80 text-rose-200 border-rose-700/70 hover:bg-rose-900"
+                        : "bg-emerald-950/80 text-emerald-200 border-emerald-700/70 hover:bg-emerald-900"
+                  }`}
+                >
+                  <Icon glyph={renderJob.active ? "⏳" : renderJob.error ? "⚠️" : "🗄️"} />
+                  <span className="hidden sm:inline">
+                    {renderJob.active
+                      ? `Rendering ${Math.round(renderJob.progress * 100)}%`
+                      : renderJob.error
+                        ? "Render failed"
+                        : `Vault: ${vaultReady}`}
+                  </span>
+                </button>
+              )}
 
-              Below `sm` the rail still takes a row of its own (`order-last
-              w-full`): a phone has no leftover space to give it.
+              {/* Theme picker — top right corner */}
+              <ThemeSwitcher />
+              {/* The provider-key button that used to sit here now lives in the
+                  corner menu and the account & membership panel — see
+                  src/shared/SiteCornerMenu.tsx. It was a permanent button for a
+                  setting most people touch once, and the studio header has more
+                  useful things to do with the width. */}
+            </div>
+          </div>
 
-              Scrolls sideways like the Video Studio tab row rather than
-              wrapping. min-w-0 is what makes that safe: it drops this row's
-              automatic minimum size to zero, so the row shrinks to the space
-              available and the tabs scroll inside it. Without min-w-0 the row
-              kept its full content width and dragged the whole app past the
-              edge of the window. */}
-          <div className="t-tabbar opt-group flex items-center min-w-0 bg-gray-800/80 border border-hairline rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto no-scrollbar order-last w-full sm:order-none sm:w-auto sm:flex-1" role="tablist" aria-label="Project phases">
+          {/* Setup is phase one. All six main project phases get this dedicated
+              second row, which keeps every destination easy to scan without
+              squeezing the wordmark or utility controls. The strip scrolls
+              inside its width on narrow screens; the header reserves the
+              corner menu's footprint so no tab sits behind its button. */}
+          <div className="t-tabbar opt-group flex items-center min-w-0 w-full bg-gray-800/80 border border-hairline rounded-lg p-0.5 overflow-x-auto no-scrollbar" role="tablist" aria-label="Project phases">
             {(() => {
               const activeIdx = PROJECT_PHASES.findIndex((phase) =>
                 phase.id === "setup" ? view === "create" : view === "editor" && editorStep === phase.editorStep
@@ -1863,76 +1892,18 @@ export default function App() {
                 );
               });
             })()}
-            {/* The trailing unlock instruction is gone: it was ~230px of the
-                row the tabs themselves needed, and merely repeated the status
-                the dimmed, disabled tabs already explain in their tooltips. */}
-          </div>
-
-          <div className="ml-auto flex items-center gap-2 shrink-0">
-            {/* Scene and insert counts. Wide displays only: this badge is ~150px
-                of the one row the phase tabs have to fit on, and the same two
-                numbers are already on the screens they describe — the Scenes
-                list and the Video Studio's insert catalogue. */}
-            {view === "editor" && (
-              <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 shadow-sm hidden 2xl:flex items-center gap-1.5">
-                <Icon glyph="🎬" />
-                <span>
-                  {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
-                </span>
-                <span className="text-gray-500">•</span>
-                <span className="text-gray-400">{inserts.length} inserts</span>
-              </span>
-            )}
-
-            {/* The "Projects" button was removed: the logo and the "1. Setup"
-                phase tab already open this same view, so it was a third way to
-                reach one screen and cost space in the top bar on small
-                displays. */}
-
-            {/* Render status: follows a render that is running while the user
-                works somewhere else. Click it to jump back to the render page. */}
-            {(renderJob.active || renderJob.error || (vaultReady > 0 && view === "editor")) && (
-              <button
-                onClick={() => {
-                  setView("editor");
-                  setEditorStep("render");
-                }}
-                title={renderJob.active ? `${renderJob.stage} — open the render dashboard` : "Open the render page"}
-                className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                  renderJob.active
-                    ? "bg-indigo-950/90 text-indigo-200 border-indigo-600/70 hover:bg-indigo-900"
-                    : renderJob.error
-                      ? "bg-rose-950/80 text-rose-200 border-rose-700/70 hover:bg-rose-900"
-                      : "bg-emerald-950/80 text-emerald-200 border-emerald-700/70 hover:bg-emerald-900"
-                }`}
-              >
-                <Icon glyph={renderJob.active ? "⏳" : renderJob.error ? "⚠️" : "🗄️"} />
-                <span className="hidden sm:inline">
-                  {renderJob.active
-                    ? `Rendering ${Math.round(renderJob.progress * 100)}%`
-                    : renderJob.error
-                      ? "Render failed"
-                      : `Vault: ${vaultReady}`}
-                </span>
-              </button>
-            )}
-
-            {/* Theme picker — top right corner */}
-            <ThemeSwitcher />
-            {/* The provider-key button that used to sit here now lives in the
-                corner menu and the account & membership panel — see
-                src/shared/SiteCornerMenu.tsx. It was a permanent button for a
-                setting most people touch once, and the studio header has more
-                useful things to do with the width. */}
+            {/* The trailing unlock instruction is omitted; the dimmed,
+                disabled tabs already explain their status in the tooltips. */}
           </div>
 
           {/* The project title no longer has a row in this header.
 
               It used to sit on a full-width line of its own under the wordmark
-              and the phase tabs, which made the header three rows tall on a
-              laptop and took ~60px off the working area for a name the creator
-              has just typed. The title is still where it is edited and where it
-              is read: the Setup screen's title field, the Setup summary line,
+              and phase tabs, making a three-row header. The phase tabs now
+              intentionally occupy row two, and the project name remains in
+              the browser tab rather than taking a third row for a name the
+              creator has just typed. The title is still where it is edited and
+              read: the Setup screen's title field, the Setup summary line,
               and — for a browser tab that has to be identified at a glance —
               the document title, set by the effect beside the other header
               effects. */}
@@ -2284,7 +2255,6 @@ export default function App() {
                   projectId={currentProject?.id ?? null}
                   scenes={scenes}
                   onUpdateScene={handleUpdateScene}
-                  onApplyVoiceToAll={handleApplyVoiceToAll}
                   onNavigateToStep={handleStepRequest}
                   selectedVoice={selectedVoice}
                   onSelectVoice={handleSelectVoice}

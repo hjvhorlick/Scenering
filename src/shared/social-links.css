@@ -1,0 +1,24 @@
+/*
+ * The social strip's default display belongs in CSS, not an inline style.
+ * That leaves responsive utility classes such as `hidden 2xl:flex` and the
+ * website's own `.mkt-nav-social` breakpoint free to hide the row when the
+ * shared corner menu is the only control that fits there.
+ */
+:where(.sc-social-row) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.sc-social-row > a {
+  min-width: 34px;
+  min-height: 34px;
+}
+
+@media (pointer: coarse) {
+  .sc-social-row > a {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

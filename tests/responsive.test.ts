@@ -258,13 +258,18 @@ ok(
   ok(/t-tabbar[^"]*overflow-x-auto/.test(app), "the phase tabs scroll sideways instead of stretching the header");
 
   // The project title and unlock note used to create a third row in the
-  // studio header, costing the working area roughly 60px of height. The phase
-  // tabs now share the logo's row on desktop and scroll within the remaining
-  // space; the project name is in the browser tab instead of app chrome.
+  // studio header. The logo and utility controls occupy row one; all six
+  // project phases now have a dedicated, horizontally scrollable row two.
   ok(!/<h2[^>]*>[\s\S]{0,300}currentProject\.title/.test(app), "the project title no longer takes space in the studio header");
   ok(!app.includes("create or select a project to unlock steps 2–6"), "the redundant unlock note is gone from the phase menu");
-  ok(/sm:flex-1/.test(app), "the phase rail fills the remaining desktop header row without wrapping it");
-  ok(/hidden 2xl:flex shrink-0/.test(app), "optional social links do not force the phase rail onto a second desktop row");
+  const headerStart = app.indexOf('className="t-app-hdr');
+  const phaseRowStart = app.indexOf('<div className="t-tabbar', headerStart);
+  const topRowEnd = app.lastIndexOf("</div>", phaseRowStart);
+  ok(/t-app-hdr[^\"]*flex flex-col/.test(app), "the studio header has separate stacked rows");
+  ok(headerStart >= 0 && topRowEnd > headerStart && phaseRowStart > topRowEnd, "the phase rail follows the logo and utility-control row");
+  ok(/t-tabbar[^\"]*w-full[^\"]*overflow-x-auto/.test(app), "the second-row phase rail scrolls inside its reserved width");
+  ok(app.includes("pr-[var(--sc-corner-reserve)]"), "neither header row can put controls behind the fixed menu button");
+  ok(/hidden 2xl:flex shrink-0/.test(app), "the optional social strip remains only on ultrawide top rows");
   ok(/document\.title = name \? `\$\{name\} \| Scenering` : "Studio \| Scenering"/.test(app), "the open project remains identifiable in the browser tab");
 }
 
@@ -301,6 +306,8 @@ ok(
   const app = read("src/App.tsx");
   const marketingSite = read("src/marketing/MarketingSite.tsx");
   const publicPage = read("src/marketing/PublicPage.tsx");
+  const signInPage = read("src/studio/SignIn.tsx");
+  const emailCentre = read("src/admin/EmailCentre.tsx");
 
   // --- 1. one source of truth for the menu's footprint -------------------
   ok(/:root\s*\{[^}]*--sc-corner-reserve:/s.test(menu), "the corner-menu footprint is defined once, as variables");
@@ -322,11 +329,17 @@ ok(
     "a phone turned sideways keeps the button clear of the notch"
   );
 
-  // every header reserves it, and none of them hardcodes the old 92px
+  // Every surface with a top row reserves the shared menu footprint; no
+  // page guesses its width or lets a right-aligned control sit underneath it.
   ok(app.includes("pr-[var(--sc-corner-reserve)]"), "the studio header reserves the menu's width");
   ok(marketingSite.includes('className="sc-corner-reserve"'), "the front-page nav reserves it");
   ok(publicPage.includes('className="sc-corner-reserve"'), "the standalone-page nav reserves it");
-  ok(!/style=\{\{ width: 92 \}\}/.test(marketingSite + publicPage), "no header guesses the width any more");
+  ok(signInPage.includes('className="sc-corner-reserve"'), "the sign-in header uses the shared reserve instead of a guessed width");
+  ok(emailCentre.includes("pr-[var(--sc-corner-reserve)]"), "the owner Email Centre header leaves the corner menu clear");
+  ok(!/style=\{\{ width: 92 \}\}/.test(marketingSite + publicPage + signInPage), "no header guesses the menu width");
+  ok(/\.sc-corner\s*\{[^}]*z-index:\s*200/s.test(menu), "the corner button remains above page content while its reserved slot stays clear");
+  ok(mkt.includes("@media (min-width: 1280px)"), "the public link rail appears only when it fits beside social links and the corner reserve");
+  ok(mkt.includes("@media (width <= 1279px) { .pub-navlinks { display: none; } }"), "standalone page links never run underneath the menu on compact widths");
 
   // --- 2. a phone gets the glyph, and keeps the name ---------------------
   ok(
@@ -345,8 +358,8 @@ ok(
 
   // --- the studio header on a phone -------------------------------------
   ok(
-    app.includes('<SocialLinksRow size={36} className="hidden 2xl:flex shrink-0" />'),
-    "the studio header keeps its social strip for ultrawide screens only"
+    app.includes('<SocialLinksRow size={18} className="hidden 2xl:flex shrink-0" />'),
+    "the half-size studio social strip stays on ultrawide screens only"
   );
   ok(
     /@media \(max-height: 560px\)[^{]*\{[^@]*\.t-app-hdr/s.test(chrome),

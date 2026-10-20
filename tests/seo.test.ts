@@ -281,34 +281,29 @@ for (const page of ["brand-check", "icon-sheet", "render-probe"]) {
   );
 }
 
-// The owner's actual social links now appear in the studio as well as the
-// public site, and each common use is at least twice its old display size.
+// The social strips are half their previous visual size across the app and
+// public pages, leaving room for three additional profiles when they are added.
 const app = read("src/App.tsx");
 const corner = read("src/shared/SiteCornerMenu.tsx");
 const signIn = read("src/studio/SignIn.tsx");
 const signInCss = read("src/studio/sign-in.css");
-/* Ultrawide only: on a laptop the social strip competed with the six phase
-   tabs for the single header row. The links remain in the corner menu, sign-in
-   page and footers at every width. */
 h.ok(
-  app.includes('SocialLinksRow size={36} className="hidden 2xl:flex shrink-0"'),
-  "large social links are visible in the studio header on ultrawide screens"
+  app.includes('SocialLinksRow size={18} className="hidden 2xl:flex shrink-0"'),
+  "the half-size social strip is available in the studio header on ultrawide screens"
 );
-h.ok(
-  /SocialLinksRow size=\{40\}/.test(corner),
-  "the corner menu still carries the strip on every width, phones included"
-);
-h.ok(corner.includes("SocialLinksRow size={40}"), "the shared menu has enlarged social links");
-h.ok(signIn.includes("SocialLinksRow size={40}"), "the sign-in page has enlarged social links");
+h.ok(corner.includes("SocialLinksRow size={20}"), "the shared menu carries half-size social links on every width");
+h.ok(signIn.includes("SocialLinksRow size={20}"), "the sign-in page carries half-size social links");
 h.ok(signInCss.includes("@media (max-width: 580px)") && signInCss.includes(".si-social { margin-left: 0; }"), "sign-in social links get narrow-screen spacing");
 h.ok(
-  publicPage.includes('BrandMark height={26}') && publicPage.includes('SocialLinksRow size={26} tone="light" className="mkt-nav-social"'),
-  "the public header's social marks are drawn at the wordmark's own height"
+  publicPage.includes('BrandMark height={26}') && publicPage.includes('SocialLinksRow size={13} tone="light" className="mkt-nav-social"'),
+  "the standalone public header's social marks are half-sized"
 );
 h.ok(
-  marketingSite.includes('SocialLinksRow size={26} tone="light" className="mkt-nav-social"'),
-  "the front page header draws the same marks at the same height"
+  marketingSite.includes('SocialLinksRow size={13} tone="light" className="mkt-nav-social"'),
+  "the front page header draws half-size social marks"
 );
-h.ok(publicPage.includes("SocialLinksRow size={48}"), "the footer keeps its larger social links");
+h.ok(publicPage.includes("SocialLinksRow size={24}"), "the standalone-page footer social marks are half-sized");
+h.ok(marketingSite.includes("SocialLinksRow size={24}"), "the front-page footer social marks are half-sized");
+h.ok(read("src/shared/SocialLinks.tsx").includes("size = 12"), "unspecified social strips default to half their prior size");
 
 h.done("SEO and brand visibility");

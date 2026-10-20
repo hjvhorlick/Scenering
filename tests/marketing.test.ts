@@ -964,9 +964,9 @@ for (const strip of [".mkt-strip", ".mkt-optrow"]) {
   ok(!!rule && /overflow-x:\s*auto/.test(rule.body), `${strip} scrolls sideways instead of overflowing`);
 }
 
-/* The desktop link rail is hidden below 1000px. Something has to take its
-   place, or a phone gets a wordmark, a Sign in button, and twenty screens of
-   scrolling with no way to jump. */
+/* The desktop link rail is hidden until the nav has enough room for the
+   social strip and the fixed corner-menu reserve. The shared corner menu
+   remains the navigation on compact screens. */
 const railHidden = rules.some(
   (r) => r.selector.includes(".mkt-nav-links") && !r.responsive && /display:\s*none/.test(r.body),
 );
