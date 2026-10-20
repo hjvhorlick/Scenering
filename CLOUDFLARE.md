@@ -22,15 +22,31 @@ a Node.js server, a container, or any other host.
 
 ## Branch previews
 
-Workers Builds runs `npx wrangler preview` for every non-main branch. Wrangler
-4.147+ requires a top-level `previews` block for that command; without it the
-build stops with **“Your Wrangler configuration is missing a `previews` block”**
-(and suggests `<REPLACE_ME>` values). The block in `wrangler.jsonc` defines
-preview-only D1, KV, and R2 resources so every branch gets isolated storage and
-unreviewed branch code can never read or mutate live production data.
+Workers Builds runs `npx wrangler preview` for every branch other than `main`
+(there is no setting that turns this off). Wrangler 4.147+ requires a top-level
+`previews` block for that command; without it the build stops with **“Your
+Wrangler configuration is missing a `previews` block”** and suggests the block
+to add.
 
-After this change is merged, sign in to Cloudflare and run these once from the
-repository root:
+Two things about that block are easy to get wrong, and both show up as a red
+**Workers Builds** check on the branch while `main` stays green:
+
+1. **The block must exist**, even when it is empty — a Previews-only setting,
+   not a production one. `wrangler deploy` on `main` ignores it entirely.
+2. **Every storage binding inside it must name a real resource.** A placeholder
+   such as `SCENERING_D1_PREVIEW_ID_PLACEHOLDER` passes Wrangler's config check
+   (it only rejects the literal `<REPLACE_ME>` it generates) and then fails when
+   the preview is uploaded, so the build goes red anyway. Do not commit a
+   preview id you have not created.
+
+`wrangler.jsonc` therefore ships with a `previews` block that carries only
+preview-safe vars (`EMAIL_PROVIDER=console`, Paddle in sandbox, no billing
+provider) and no storage bindings. That is enough for `wrangler preview` to run:
+a preview serves the site and `/api/health`, rate limiting fails open without
+KV, and the database-backed routes answer with errors until storage exists.
+
+To give previews their own database, sign in to Cloudflare and run these once
+from the repository root:
 
 ```bash
 bash scripts/setup-preview-resources.sh
@@ -38,11 +54,19 @@ npx wrangler preview base-config secret put SESSION_SECRET
 ```
 
 The setup script creates `scenering-db-preview`, `rate-limits-preview`, and
-`scenering-audio-preview`, wires their IDs only into the `previews` block, and
-applies the D1 migrations to the preview database. Keep the preview session
-secret separate from production. Until this one-time setup is complete, branch
-preview builds may remain red by design. The production deploy-config check
-ignores the preview IDs because previews are not used by production deploys.
+`scenering-audio-preview`, applies the D1 migrations to the preview database,
+and writes the three bindings between the `// setup-preview-resources:bindings`
+markers inside the `previews` block — it never touches production bindings, and
+re-running it is safe. Commit the resulting `wrangler.jsonc`; Workers Builds
+reads the file from the branch, so previews only pick the storage up once the
+change is on `main`. Keep the preview session secret separate from production;
+it is set on the shared Previews base config, which every Preview inherits.
+
+`tests/deploy-config.test.ts` guards all of this: the block is present, it
+contains no placeholder ids, any storage it does carry is isolated from
+production, and preview vars stay preview-safe. The production deploy-config
+check still ignores `previews`, because previews are not part of a production
+deploy.
 
 ## 1. How every backend function maps to Cloudflare
 
