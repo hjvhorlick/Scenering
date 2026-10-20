@@ -1,68 +1,31 @@
-# Local `wrangler dev` overrides. Copy to `.dev.vars` (already gitignored by
-# Wrangler's default patterns — do not commit the real file) and fill in.
-# `wrangler dev` reads this automatically; it is the Workers equivalent of
-# the old `.env` used by `tsx server.ts`.
+# Copy this file to .dev.vars for local `npx wrangler dev` runs.
+# Never commit .dev.vars — it is gitignored.
+#
+# In production, set each of these with `npx wrangler secret put <NAME>`.
 
-NODE_ENV=development
-SESSION_SECRET=local-development-secret-change-me-32-chars-minimum
-PUBLIC_APP_URL=http://localhost:8787
-SCENERING_OWNER_EMAIL=you@example.com
+# Required in production (64 hex chars — e.g. `openssl rand -hex 32`):
+SCENERING_AUTH_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
-# Email — console prints messages (verification links, campaign sends) to the
-# wrangler output instead of sending anything; resend sends for real and needs
-# the API key. EMAIL_REPLY_TO is an optional Reply-To override; the webhook
-# secret records Resend delivery events against Email Centre campaigns.
-EMAIL_PROVIDER=console
-RESEND_API_KEY=
-EMAIL_REPLY_TO=
-RESEND_WEBHOOK_SECRET=
-
-# Optional
+# Optional server-side stock media fallbacks (users can also supply their own
+# keys in the studio's API-keys modal; Speechify is always browser-held):
 PEXELS_API_KEY=
 PIXABAY_API_KEY=
-# Paddle — live keys for the live account (or set PADDLE_ENVIRONMENT=sandbox
-# and PADDLE_CLIENT_ENVIRONMENT=sandbox with test_... / pdl_sdbx_... keys when
-# testing against sandbox); see PADDLE.md and .env.example.
-# `wrangler dev` reads this file, and these are the same names the Worker reads
-# from `wrangler secret put` in production.
-PADDLE_ENVIRONMENT=live
-PADDLE_API_KEY=
-PADDLE_WEBHOOK_SECRET=
-PADDLE_SCENEFLOW_MONTHLY_PRICE_ID=
-PADDLE_SCENEFLOW_YEARLY_PRICE_ID=
-PADDLE_SCENEFORGE_MONTHLY_PRICE_ID=
-PADDLE_SCENEFORGE_YEARLY_PRICE_ID=
-PADDLE_SCENEFLOW_MONTHLY_CHECKOUT_URL=
-PADDLE_SCENEFLOW_YEARLY_CHECKOUT_URL=
-PADDLE_SCENEFORGE_MONTHLY_CHECKOUT_URL=
-PADDLE_SCENEFORGE_YEARLY_CHECKOUT_URL=
-# Client-side token (public, prefixed live_ for live or test_ for sandbox) and
-# the Paddle.js environment ("production" for live, "sandbox" for sandbox) for
-# the pricing page's PricePreview and overlay checkout. Both must be set or the
-# pricing page reports the missing names instead of guessing.
-PADDLE_CLIENT_TOKEN=
-PADDLE_CLIENT_ENVIRONMENT=production
-# Optional: "on" refuses webhook deliveries from outside the source ranges
-# Paddle publishes at GET /ips. Fails open if that endpoint is unreachable.
-# PADDLE_WEBHOOK_IP_ALLOWLIST=on
-# PADDLE_IPS_REFRESH_MS=86400000
 
-# Dev-only conveniences (ignored when NODE_ENV=production)
-DEV_AUTO_OWNER=
-DEV_EMBEDDED_PREVIEW=
-DEV_REQUEST_LOG=
-ALLOW_FRAMING=
+# Email delivery (EMAIL_PROVIDER in wrangler.jsonc defaults to "resend"; for
+# local dev you can override it here to "console" to log links to stdout):
+EMAIL_PROVIDER=console
+RESEND_API_KEY=
+# Optional Resend webhook signing secret (whsec_...) for /api/webhooks/resend:
+RESEND_WEBHOOK_SECRET=
+EMAIL_FROM=Scenering <noreply@scenering.com>
+EMAIL_REPLY_TO=support@scenering.com
 
-# FastSpring — optional second merchant of record; see FASTSPRING.md and
-# .env.example. Use the .test. storefront host while testing
-# (scenering.test.onfastspring.com/...) and the test store's webhook secret.
-BILLING_PROVIDER=
+# FastSpring billing (see FASTSPRING.md for the full setup checklist):
 FASTSPRING_STOREFRONT=
+FASTSPRING_WEBHOOK_SECRET=
 FASTSPRING_API_USERNAME=
 FASTSPRING_API_PASSWORD=
-FASTSPRING_WEBHOOK_SECRET=
-# FASTSPRING_CHECKOUT_MODE=popup
-# FASTSPRING_SCENEFLOW_MONTHLY_PATH=sceneflow-monthly
-# FASTSPRING_SCENEFLOW_YEARLY_PATH=sceneflow-yearly
-# FASTSPRING_SCENEFORGE_MONTHLY_PATH=sceneforge-monthly
-# FASTSPRING_SCENEFORGE_YEARLY_PATH=sceneforge-yearly
+FASTSPRING_SCENEFLOW_MONTHLY_PATH=sceneflow-monthly
+FASTSPRING_SCENEFLOW_YEARLY_PATH=sceneflow-yearly
+FASTSPRING_SCENEFORGE_MONTHLY_PATH=sceneforge-monthly
+FASTSPRING_SCENEFORGE_YEARLY_PATH=sceneforge-yearly

@@ -12,7 +12,7 @@ const license = readFileSync("LICENSE", "utf8");
 h.ok(platform.includes("SESSION_SECRET must be a unique production secret"), "production rejects missing or weak session secrets");
 h.ok(platform.includes("timingSafeEqual"), "secret comparisons use timing-safe equality");
 h.ok(platform.includes("HttpOnly; SameSite=Lax"), "session cookie is HttpOnly and SameSite protected");
-h.ok(platform.includes("custom_data: { user_id: user.id"), "checkout binds provider custom data to the authenticated user, server side");
+h.ok(platform.includes("fastspringCheckoutTags(user.id, user.email)"), "checkout binds provider custom data to the authenticated user, server side");
 h.ok(platform.includes("SCENERING_OWNER_EMAIL") && platform.includes("requireAdmin"), "owner administration is bound to a server-configured email and protected role");
 h.ok(platform.includes('"/api/admin/overview"'), "owner has a protected operational overview endpoint");
 const accountUi = readFileSync("src/components/AccountMembershipModal.tsx", "utf8");

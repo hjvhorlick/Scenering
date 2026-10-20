@@ -52,9 +52,7 @@ if (preview.r2_buckets?.length) {
 
 // Previews inherit no vars, so the preview-safe ones must be repeated here.
 check(preview.vars.EMAIL_PROVIDER === "console", "previews do not send live email");
-check(preview.vars.PADDLE_ENVIRONMENT === "sandbox", "previews use Paddle sandbox mode");
-check(preview.vars.PADDLE_CLIENT_ENVIRONMENT === "sandbox", "preview Paddle.js environment is sandbox");
-check(preview.vars.BILLING_PROVIDER === "", "previews do not select a live billing provider");
+check(preview.vars.FASTSPRING_STOREFRONT === "", "previews do not point at a live FastSpring storefront");
 
 // Production deploys read the same file: they must be unaffected and keep
 // passing their own guard.

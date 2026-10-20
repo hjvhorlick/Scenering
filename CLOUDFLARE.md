@@ -40,8 +40,8 @@ Two things about that block are easy to get wrong, and both show up as a red
    preview id you have not created.
 
 `wrangler.jsonc` therefore ships with a `previews` block that carries only
-preview-safe vars (`EMAIL_PROVIDER=console`, Paddle in sandbox, no billing
-provider) and no storage bindings. That is enough for `wrangler preview` to run:
+preview-safe vars (`EMAIL_PROVIDER=console`, no live storefront) and no storage
+bindings. That is enough for `wrangler preview` to run:
 a preview serves the site and `/api/health`, rate limiting fails open without
 KV, and the database-backed routes answer with errors until storage exists.
 
@@ -86,7 +86,7 @@ deploy.
 | Email Centre inbox — contact-form messages and email to the owner's address (vincent@scenering.com), answered from `/admin` → Inbox, with attachments, saved replies and owner alerts | `server/inbox.ts`, `server/inbox-core.ts`, `server/inbox-settings.ts`, `src/inbox-db.ts` | **Email Routing** → the Worker's `email()` handler (`worker.ts`) for incoming mail; **D1** (`migrations/0003_inbox.sql`, which the Worker also creates itself on first use); **R2** (`AUDIO_BUCKET`, `inbox/` prefix) for attachments; replies go out through the Resend provider above | ✅ verified locally (wrangler `/cdn-cgi/handler/email`); needs the one-time Email Routing setup in step 8 |
 | Email Centre members and gift codes — the member list with plans and videos, free time given to one member, and shareable gift codes with their results (`/admin` → Members, Gifts) | `server/members.ts`, `server/gift-codes.ts`, `src/members-db.ts`, `src/gifts-db.ts` | **D1** (`migrations/0004_gift_codes.sql`, which the Worker also creates itself on first use); a used gift code is an ordinary complimentary grant, redeemed through the existing `/api/complimentary-codes/redeem` | ✅ verified locally |
 | Email Centre programmes — emails that go out by themselves to each member at their own moment (after joining, before a gift ends) (`/admin` → Programmes) | `server/programs.ts`, `src/programs-db.ts` | **D1** (`migrations/0005_programs.sql`, created by the Worker on first use); run by the **five-minute Cron Trigger** after the campaign queue, at most 10 emails per run, through the Resend provider above | ✅ verified locally (wrangler `/cdn-cgi/handler/scheduled`) |
-| Billing webhooks | `server/platform.ts` | Inbound HTTPS at `/api/webhooks/paddle`, `Paddle-Signature` (HMAC-SHA256 of `ts:rawBody`) verified against raw bytes; outbound to `api.paddle.com` / `sandbox-api.paddle.com` for the checkout transaction and a subscription's management links | ✅ verified (503/401 paths) |
+| Billing webhooks | `server/platform.ts` | Inbound HTTPS at `/api/webhooks/fastspring`, `X-FS-Signature` (HMAC-SHA256 base64 of `rawBody`) verified against raw bytes; outbound to `api.fastspring.com` for optional session checkouts and pre-authenticated Account Management links | ✅ verified (503/401 paths) |
 | Scheduled email link expiry, token expiry | `src/db.ts` | D1, ISO-8601 comparisons (fixed — see §4) | ✅ verified |
 
 The Express bridge is Cloudflare's supported path for Node frameworks: the
@@ -301,44 +301,27 @@ Then:
    (the setup script generates one).
 4. **`SCENERING_OWNER_EMAIL`** — the one address that receives the
    owner-admin role and SceneForge access at sign-in.
-5. **Paddle** — the full connection runbook is **[PADDLE.md](PADDLE.md)**;
+5. **FastSpring** — the full connection runbook is **[FASTSPRING.md](FASTSPRING.md)**;
    the shape of it:
-   1. In Paddle: create one product per plan with a monthly and a yearly
-      **price**. Copy each price id (`pri_…`) into the four
-      `PADDLE_*_PRICE_ID` secrets, and your approved checkout URL into the
-      four `PADDLE_*_CHECKOUT_URL` secrets (`wrangler secret put <NAME>`),
-      plus `PADDLE_API_KEY` and `PADDLE_WEBHOOK_SECRET`.
-   2. Paddle → Events → Notifications → new destination pointing at
-      `https://<your-domain>/api/webhooks/paddle`; subscribe to all eleven
-      events (nine `subscription.*` plus `customer.created` /
-      `customer.updated`); copy the secret key into `PADDLE_WEBHOOK_SECRET`.
-   3. Set `"PADDLE_ENVIRONMENT"` in `wrangler.jsonc` — `sandbox` while
-      testing, `live` for real money. They are separate Paddle accounts, so
-      every secret above exists once per environment.
-   4. Sign in as the owner → **Account & Membership** — the go-live checklist
-      must report ready, and shows the environment, the exact webhook URL and
-      the last 25 deliveries with their outcome. It warns out loud if a
-      production deployment is still pointed at sandbox.
-   5. Run one **sandbox purchase** with Paddle's test card to verify the loop
-      end to end. Sandbox deliveries are processed like live ones and labelled
-      `sandbox` in the webhook log; revoke the granted membership from the
-      administration panel afterwards.
-
-   Note the two outbound calls: unlike a webhook-only integration, Paddle's
-   checkout is opened by the server (`POST /transactions`, so the purchase can
-   be tagged with the signed-in account id) and a subscription's
-   `management_urls` are read back (`GET /subscriptions/{id}`), because Paddle
-   leaves those links out of its notifications. Both go to
-   `api.paddle.com` / `sandbox-api.paddle.com` over HTTPS from the Worker.
-
-   The webhook endpoint was verified against the real workerd runtime with a
-   44-check matrix: signature contract (wrong/missing/uppercase-hex
-   signatures, invalid JSON), the full subscription lifecycle (created,
-   updated/variant switch, cancelled inside and past the paid period, payment
-   failed → past_due grace, resumed, expired), replay/duplicate redelivery
-   marks, unmapped variants and unknown accounts answered 202 so the store
-   stops retrying, checkout links tagged with `checkout[custom][user_id]` and
-   `checkout[email]`, and the owner's checklist reporting ready.
+   1. In FastSpring: create a popup storefront (`popup-scenering`) and set
+      `"FASTSPRING_STOREFRONT"` in `wrangler.jsonc` (e.g.
+      `scenering.test.onfastspring.com/popup-scenering` while testing,
+      `scenering.onfastspring.com/popup-scenering` for live orders).
+   2. Create the four subscription products (`sceneflow-monthly`,
+      `sceneflow-yearly`, `sceneforge-monthly`, `sceneforge-yearly`).
+   3. FastSpring → Developer Tools → Webhooks → add a URL webhook pointing at
+      `https://<your-domain>/api/webhooks/fastspring`; subscribe to the six
+      subscription events (`subscription.activated`, `subscription.updated`,
+      `subscription.charge.completed`, `subscription.charge.failed`,
+      `subscription.canceled`, `subscription.deactivated`); copy the HMAC
+      SHA256 Secret into `FASTSPRING_WEBHOOK_SECRET`.
+   4. (Optional) Set `FASTSPRING_API_USERNAME` and `FASTSPRING_API_PASSWORD`
+      with `wrangler secret put` if you want server-created `/sessions`
+      checkouts and pre-authenticated Account Management URLs.
+   5. Sign in as the owner → **Account & Membership** — the go-live checklist
+      must report ready, and shows the storefront environment, the exact
+      webhook URL and the last 25 deliveries with their outcome. It warns out
+      loud if a production deployment is still pointed at a `.test.` storefront.
 6. **Resend** — campaign sends from the Email Centre use the same provider as
    transactional mail: set the `RESEND_API_KEY` secret
    (`EMAIL_PROVIDER=resend` is already the default var). Optional: set
@@ -405,18 +388,16 @@ curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=*/5%20*%20*%20*%20*"   
   **20-request same-second burst with zero failures** · admin overview
   (bulk-read shape) · owner role grant · origin enforcement 403 · legacy
   `/functions/v1/*` routes · manual cron trigger.
-- **Paddle connection matrix** against the same runtime with `PADDLE_*`
-  configured and Paddle's own API faked at the `fetch` boundary: the tagged
-  transaction the server creates (price id, approved checkout URL,
-  `custom_data` carrying the account id), the `Paddle-Signature` contract
-  (valid / wrong secret / missing / malformed / uppercased hex / tampered body
-  / stale and future `ts` / non-JSON), customer-event mapping and the
-  no-`custom_data` fallback it enables, the full subscription lifecycle and the
-  paid-period rules for `canceled` / `past_due` / `paused` / `trialing`,
-  management links read back from the API, duplicate redelivery no-ops + log
-  marks, 202s for unmatchable events and unknown prices, provider-error and
-  missing-checkout-URL paths, and the owner's go-live checklist reporting ready
-  with the exact webhook URL.
+- **FastSpring connection matrix** against the same runtime with `FASTSPRING_*`
+  configured and FastSpring's API faked at the `fetch` boundary: popup and
+  session checkout responses (storefront, product path, `tags` carrying the
+  account id and email), the `X-FS-Signature` contract (valid / wrong secret /
+  missing / tampered body / non-JSON), account-event mapping and the
+  `billing_customers` fallback it enables, the full subscription lifecycle and
+  the paid-period rules for `canceled` / `past_due` / `trialing` / `deactivated`,
+  Account Management links, duplicate redelivery no-ops + log marks, 202s for
+  unmatchable events and unknown product paths, and the owner's go-live
+  checklist reporting ready with the exact webhook URL.
 - **Email Centre (2026-10-06)** against the same runtime with seeded local
   D1: dashboard stats · template CRUD (create, edit, duplicate, archive,
   per-audience preview with `{{first_name}}`/`{{display_name}}`

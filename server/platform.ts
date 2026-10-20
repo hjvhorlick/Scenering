@@ -5,8 +5,8 @@ import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExpo
 import { buildPricingTiers, lookupPriceEnv } from "../src/config/pricing-tiers.ts";
 import { FASTSPRING_DEFAULT_PRODUCT_PATHS, FASTSPRING_PRODUCT_PATH_ENV, fastspringCheckoutTags, fastspringProductMappings, fastspringProductPath, planForFastSpringProduct } from "../src/config/fastspring.ts";
 
-/* Re-exported for tests and for anything that already reads the platform
-   module's plan-mapping helpers (planForPaddlePrice's counterpart). */
+/* Re-exported for tests and for anything that reads the platform module's
+   plan-mapping helpers. */
 export { fastspringCheckoutTags, fastspringProductPath, planForFastSpringProduct };
 import { DEFAULT_STORE_NOTICE, STORE_NOTICE_SETTING_KEY, parseStoredStoreNotice, sanitizeStoreNotice, type StoreNotice } from "../src/config/store-notice.ts";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
@@ -155,11 +155,11 @@ async function ensureOwnerPrivileges(user: User): Promise<User> {
 }
 
 /** A subscription that was cancelled or is in dunning keeps its plan until
- *  the period that was paid for runs out. Paddle sends `subscription.canceled`
- *  then, but a webhook that is never delivered must not leave a paid
- *  plan switched on forever, so the stored end date is the backstop. Scoped
- *  to one user (not a full-table sweep) so it is cheap enough to run on the
- *  authenticated request path. */
+ *  the period that was paid for runs out. FastSpring sends
+ *  `subscription.deactivated` then, but a webhook that is never delivered must
+ *  not leave a paid plan switched on forever, so the stored end date is the
+ *  backstop. Scoped to one user (not a full-table sweep) so it is cheap enough
+ *  to run on the authenticated request path. */
 async function sweepUserSubscriptionExpiry(userId: string): Promise<void> {
   const sub = await db.findActiveSubscriptionByUserId(userId);
   if (!sub) return;
@@ -228,8 +228,9 @@ export async function adminMemberSummary(userId: string) {
 }
 
 /** The subscription worth showing. A cancelled one is still shown while the
- *  paid period runs, so the customer can see the end date and reopen Paddle's
- *  management links. Once its end date has passed, it is no longer current. */
+ *  paid period runs, so the customer can see the end date and reopen
+ *  FastSpring's Account Management links. Once its end date has passed, it is
+ *  no longer current. */
 async function subscriptionForUser(userId: string) {
   const sub = await db.findActiveSubscriptionByUserId(userId);
   if (!sub) return null;
@@ -436,13 +437,13 @@ function parseCreativeManifest(value: unknown): ExportCreativeManifest | null {
 
 async function accountPayload(user: User) {
   const plan = await getUserPlan(user);
-  const [usage, remaining, subscription, membership, resolvedCustomer, resolvedFastSpringCustomer] = await Promise.all([
-    weeklyUsage(user.id), remainingUsage(user.id, plan), subscriptionForUser(user.id), effectiveMembership(user, plan), resolvePaddleCustomerForUser(user), resolveFastSpringCustomerForUser(user),
+  const [usage, remaining, subscription, membership, resolvedFastSpringCustomer] = await Promise.all([
+    weeklyUsage(user.id), remainingUsage(user.id, plan), subscriptionForUser(user.id), effectiveMembership(user, plan), resolveFastSpringCustomerForUser(user),
   ]);
   // `subscription` goes out in the API's snake_case wire format
   // (apiSubscription) — the same shape the membership object uses and the
   // account modal's TypeScript interface declares.
-  return { user: safeUser(user), membership, subscription: apiSubscription(subscription), has_billing_customer: Boolean(resolvedCustomer || resolvedFastSpringCustomer), plan: getPlanConfig(plan), usage, remaining };
+  return { user: safeUser(user), membership, subscription: apiSubscription(subscription), has_billing_customer: Boolean(resolvedFastSpringCustomer), plan: getPlanConfig(plan), usage, remaining };
 }
 
 /**
@@ -465,384 +466,6 @@ export function platformRateLimit(name: string, max: number, windowMs: number) {
   };
 }
 const rateLimit = platformRateLimit;
-
-/**
- * Paddle Billing — the payment provider.
- *
- * Paddle is the merchant of record: it sells the subscription, takes the card,
- * charges the tax and pays Scenering. This server never sees a card number and
- * stores no payment details of its own — only the subscription's status, plan,
- * period dates and the two hosted management links Paddle returns.
- *
- * Two things make the loop work, and both are why the pieces below look the
- * way they do:
- *
- *   1. `custom_data`. The server creates the Paddle transaction itself
- *      (`POST /transactions`) and puts the signed-in account's id in
- *      `custom_data`. Paddle signs it, carries it through the payment, copies
- *      it onto the subscription it creates, and sends it home on every webhook
- *      for that subscription. It cannot be edited by the person paying, which
- *      is what makes it safe to grant a plan on the strength of it.
- *   2. `Paddle-Signature`. Every webhook is HMAC-SHA256 over `ts:rawBody` with
- *      the webhook secret key, so a delivery that did not come from Paddle
- *      cannot be forged and an old one cannot be replayed.
- *
- * Sandbox and live are separate Paddle accounts with separate API keys,
- * separate price ids and separate webhook destinations. Nothing here infers
- * which is which from a key's prefix — `PADDLE_ENVIRONMENT` says so.
- */
-export const PADDLE_API_BASE_URLS = {
-  sandbox: "https://sandbox-api.paddle.com",
-  live: "https://api.paddle.com",
-} as const;
-export type PaddleEnvironment = keyof typeof PADDLE_API_BASE_URLS;
-
-export function paddleEnvironment(): PaddleEnvironment {
-  const configured = String(env().PADDLE_ENVIRONMENT || "").trim().toLowerCase();
-  // Sandbox is the default: an unset or misspelled environment must never
-  // quietly point production traffic at the live API.
-  return configured === "live" || configured === "production" ? "live" : "sandbox";
-}
-export function paddleApiBaseUrl(): string { return PADDLE_API_BASE_URLS[paddleEnvironment()]; }
-
-/**
- * The Paddle events that change what a member can do. Everything else Paddle
- * sends — transactions, adjustments, discounts, payment methods — is recorded
- * and ignored rather than guessed at: a transaction event carries a transaction
- * id (`txn_…`) where this code expects a subscription id (`sub_…`), and
- * treating one as the other would create a subscription row that no later event
- * could ever update. Ignoring `transaction.completed` costs nothing, because
- * `subscription.activated` follows it within seconds.
- */
-export const PADDLE_SUBSCRIPTION_EVENTS = [
-  "subscription.activated", "subscription.created", "subscription.updated", "subscription.canceled",
-  "subscription.paused", "subscription.resumed", "subscription.trialing", "subscription.past_due",
-  "subscription.imported",
-] as const;
-
-/**
- * Paddle's customer events are the only ones that carry an email address, so
- * they are what lets a subscription webhook — customer id but no email — be
- * matched to an account when a purchase arrived without `custom_data`. They
- * map a Paddle customer to a Scenering account and nothing more: no customer
- * event ever grants a plan on its own.
- */
-export const PADDLE_CUSTOMER_EVENTS = ["customer.created", "customer.updated"] as const;
-
-/** Every event to subscribe to in Paddle → Developer tools → Notifications. */
-export const PADDLE_WEBHOOK_EVENTS = [...PADDLE_SUBSCRIPTION_EVENTS, ...PADDLE_CUSTOMER_EVENTS] as const;
-export const PADDLE_WEBHOOK_PATH = "/api/webhooks/paddle";
-
-/**
- * How far a webhook's `ts` may drift from this server's clock before the
- * delivery is treated as a replay. Paddle's own SDK allows five seconds, which
- * rejects genuine deliveries whenever the two clocks disagree by more than
- * that; five minutes still makes a captured delivery useless to an attacker
- * while tolerating skew and queueing. The real replay defence is the UNIQUE
- * `provider_event_id` in `webhook_events` — this is the belt to that brace.
- */
-export const PADDLE_SIGNATURE_MAX_AGE_SECONDS = 300;
-
-const paddleText = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value : null);
-
-/**
- * Verifies Paddle's `Paddle-Signature` header against the untouched request
- * bytes. The header is `ts=<unix seconds>;h1=<hex digest>`; the signed string
- * is `${ts}:${rawBody}`; the digest is HMAC-SHA256 under the webhook secret
- * key. The bytes are hashed as received (never a re-serialised object, which
- * would not match), and the comparison is constant-time — Paddle's SDK uses a
- * plain `===` on the hex, this does not.
- *
- * Returns the parsed timestamp, or null when the header is absent, malformed,
- * stale or wrong. The caller answers 401 for all four alike: telling them apart
- * would tell an attacker which part they had got right.
- */
-export function verifyPaddleSignature(rawBody: Buffer, header: string, secret: string): { ts: number } | null {
-  const parts: Record<string, string> = {};
-  for (const part of String(header || "").split(";")) {
-    const index = part.indexOf("=");
-    if (index > 0) parts[part.slice(0, index).trim().toLowerCase()] = part.slice(index + 1).trim();
-  }
-  const h1 = (parts.h1 || "").toLowerCase();
-  const ts = Number.parseInt(parts.ts || "", 10);
-  if (!h1 || !Number.isFinite(ts)) return null;
-  const ageSeconds = Date.now() / 1000 - ts;
-  if (ageSeconds > PADDLE_SIGNATURE_MAX_AGE_SECONDS || ageSeconds < -PADDLE_SIGNATURE_MAX_AGE_SECONDS) return null;
-  const expected = createHmac("sha256", secret).update(Buffer.from(`${ts}:`, "utf8")).update(rawBody).digest("hex");
-  if (h1.length !== expected.length) return null;
-  if (!timingSafeEqual(Buffer.from(h1, "utf8"), Buffer.from(expected, "utf8"))) return null;
-  return { ts };
-}
-
-/** Signs a body exactly the way Paddle does, so tests (and a self-check in the
- *  administration panel) can produce a valid `Paddle-Signature` header. */
-export function paddleSignatureHeader(rawBody: string, secret: string, ts = Math.floor(Date.now() / 1000)): string {
-  const h1 = createHmac("sha256", secret).update(Buffer.from(`${ts}:`, "utf8")).update(Buffer.from(rawBody, "utf8")).digest("hex");
-  return `ts=${ts};h1=${h1}`;
-}
-
-/**
- * Paddle counts a webhook as delivered only if it gets a 2xx within five
- * seconds, and a connection that runs long counts against the same retry budget
- * as a failure. The webhook path therefore calls the API with a hard ceiling
- * well inside that; the checkout path is a human waiting on a page, so it gets
- * a more generous one.
- */
-const PADDLE_WEBHOOK_API_TIMEOUT_MS = 3000;
-const PADDLE_CHECKOUT_API_TIMEOUT_MS = 10000;
-
-/** One call to the Paddle API. `data` is the unwrapped payload, since every
- *  Paddle response is `{ data, meta }` or `{ error: { … } }`. */
-/* ------------------------------------------------------------------ *
- * Paddle's published source ranges                                    *
- * ------------------------------------------------------------------ */
-
-/** Paddle publishes the ranges its webhook deliveries come from, and the list
- *  can change, so it is fetched rather than written down somewhere that rots.
- *  `GET /ips` is public — it needs no API key — which matters because the
- *  allowlist has to work before any credential is configured. */
-const PADDLE_IPS_PATHNAME = "/ips";
-const PADDLE_IPS_REFRESH_MS = 24 * 60 * 60 * 1000;
-const PADDLE_IPS_FETCH_TIMEOUT_MS = 3000;
-
-let paddleIpCache: { cidrs: string[]; fetchedAt: number } | null = null;
-let paddleIpInFlight: Promise<string[] | null> | null = null;
-
-export function paddleWebhookIpAllowlistEnabled(): boolean {
-  return String(env().PADDLE_WEBHOOK_IP_ALLOWLIST || "").trim().toLowerCase() === "on";
-}
-
-async function fetchPaddleSourceCidrs(): Promise<string[] | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PADDLE_IPS_FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(`${paddleApiBaseUrl()}${PADDLE_IPS_PATHNAME}`, { signal: controller.signal });
-    if (!response.ok) return null;
-    const payload: any = await response.json().catch(() => null);
-    const data = payload?.data ?? payload;
-    const cidrs = [
-      ...(Array.isArray(data?.ipv4_cidrs) ? data.ipv4_cidrs : []),
-      ...(Array.isArray(data?.ipv6_cidrs) ? data.ipv6_cidrs : []),
-    ]
-      .map((cidr: unknown) => String(cidr || "").trim())
-      .filter((cidr: string) => cidr.includes("/"));
-    if (!cidrs.length) return null;
-    paddleIpCache = { cidrs, fetchedAt: Date.now() };
-    return cidrs;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** Paddle's current source ranges, or null when they have never been fetched
- *  successfully. Callers must fail open on null: refusing a delivery because
- *  *we* could not reach Paddle would lose a real payment, and the signature
- *  check behind this is what actually authenticates the caller. A stale list
- *  beats no list, so the last good one is kept if a refresh fails. */
-async function paddleSourceCidrs(): Promise<string[] | null> {
-  const maxAge = Number(env().PADDLE_IPS_REFRESH_MS || "") || PADDLE_IPS_REFRESH_MS;
-  if (paddleIpCache && Date.now() - paddleIpCache.fetchedAt < maxAge) return paddleIpCache.cidrs;
-  if (!paddleIpInFlight) {
-    paddleIpInFlight = fetchPaddleSourceCidrs().finally(() => { paddleIpInFlight = null; });
-  }
-  const fresh = await paddleIpInFlight;
-  return fresh ?? paddleIpCache?.cidrs ?? null;
-}
-
-/** IPv4 CIDR membership. Paddle publishes /32s today, but that is not a
- *  promise, so the prefix length is honoured rather than assumed. */
-function ipv4InCidr(ip: string, cidr: string): boolean {
-  const [range, bits] = cidr.split("/");
-  const prefix = Number(bits);
-  const toLong = (value: string): number | null => {
-    const parts = value.split(".");
-    if (parts.length !== 4) return null;
-    let out = 0;
-    for (const part of parts) {
-      if (!/^\d{1,3}$/.test(part)) return null;
-      const octet = Number(part);
-      if (octet > 255) return null;
-      out = out * 256 + octet;
-    }
-    return out >>> 0;
-  };
-  const address = toLong(ip);
-  const network = toLong(range);
-  if (address === null || network === null || !Number.isFinite(prefix) || prefix < 0 || prefix > 32) return false;
-  if (prefix === 0) return true;
-  const mask = (0xffffffff << (32 - prefix)) >>> 0;
-  return ((address & mask) >>> 0) === ((network & mask) >>> 0);
-}
-
-/** Is this sender one of Paddle's published ranges? IPv6 is compared exactly
- *  rather than parsed: a wrong-but-permissive v6 matcher sitting on a payment
- *  path is worse than no v6 matcher at all. */
-export function ipIsFromPaddle(ip: string, cidrs: readonly string[]): boolean {
-  const candidate = String(ip || "").trim();
-  if (!candidate) return false;
-  /* Behind Cloudflare an IPv4 client can reach the Worker mapped as
-     ::ffff:a.b.c.d, which would otherwise fail every range check. */
-  const normalised = candidate.toLowerCase().startsWith("::ffff:") ? candidate.slice(7) : candidate;
-  if (normalised.includes(".")) return cidrs.some((cidr) => cidr.includes(".") && ipv4InCidr(normalised, cidr));
-  return cidrs.some((cidr) => cidr.toLowerCase() === normalised.toLowerCase());
-}
-
-async function paddleApi(pathname: string, init?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<{ ok: boolean; status: number; data: any; error: string | null }> {
-  const key = String(env().PADDLE_API_KEY || "");
-  if (!key) return { ok: false, status: 0, data: null, error: "PADDLE_API_KEY is not set" };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), init?.timeoutMs ?? PADDLE_CHECKOUT_API_TIMEOUT_MS);
-  let response: Awaited<ReturnType<typeof fetch>>;
-  try {
-    response = await fetch(`${paddleApiBaseUrl()}${pathname}`, {
-      method: init?.method || "GET",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      signal: controller.signal,
-      ...(init?.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-    });
-  } catch (cause) {
-    return { ok: false, status: 0, data: null, error: `Paddle API unreachable: ${(cause as Error)?.message || String(cause)}` };
-  } finally {
-    clearTimeout(timer);
-  }
-  let payload: any = null;
-  try { payload = await response.json(); } catch { payload = null; }
-  if (!response.ok) return { ok: false, status: response.status, data: payload, error: paddleErrorText(payload) || `Paddle API responded ${response.status}` };
-  return { ok: true, status: response.status, data: payload?.data ?? payload, error: null };
-}
-
-/** Paddle's error shape, flattened to one line an owner can act on. */
-function paddleErrorText(payload: any): string | null {
-  const errors = payload?.error?.errors;
-  if (Array.isArray(errors) && errors.length) return errors.map((entry: any) => `${entry.field || "request"}: ${entry.detail || entry.code || "invalid"}`).join("; ");
-  return paddleText(payload?.error?.detail) || paddleText(payload?.error?.code);
-}
-
-/**
- * Paddle's subscription webhooks deliberately omit `management_urls` — the
- * cancel and update-card links exist only on the API's subscription object. So
- * they are read once per subscription event and stored, which is what makes
- * "Manage or cancel" and "Update payment card" work from the account window.
- * Failing here must not lose a payment: the plan change is the part that
- * matters, so both links fall back to null and the buttons simply do not show.
- */
-async function paddleManagementUrls(subscriptionId: string): Promise<{ cancel: string | null; updatePaymentMethod: string | null }> {
-  if (!subscriptionId) return { cancel: null, updatePaymentMethod: null };
-  const result = await paddleApi(`/subscriptions/${encodeURIComponent(subscriptionId)}`, { timeoutMs: PADDLE_WEBHOOK_API_TIMEOUT_MS });
-  const urls = (result.ok ? result.data?.management_urls : null) || {};
-  const https = (value: unknown) => (typeof value === "string" && value.startsWith("https://") ? value : null);
-  return { cancel: https(urls.cancel), updatePaymentMethod: https(urls.update_payment_method) };
-}
-
-let discoveredPaddlePricesCache: { env: PaddleEnvironment; map: Record<string, string>; fetchedAt: number } | null = null;
-
-async function resolvePaddlePriceEnvMap(): Promise<Record<string, string>> {
-  const e = env();
-  const out: Record<string, string> = {};
-  let missingAny = false;
-  for (const slug of PLAN_ORDER.slice(1)) {
-    for (const interval of ["monthly", "yearly"] as const) {
-      const envKey = PLAN_CONFIG[slug].priceEnv[interval];
-      const val = lookupPriceEnv((k) => e[k] as string | undefined, envKey);
-      if (val) out[envKey] = val;
-      else missingAny = true;
-    }
-  }
-  const apiKey = String(e.PADDLE_API_KEY || "").trim();
-  if (!missingAny || (!apiKey.startsWith("pdl_sdbx_") && !apiKey.startsWith("pdl_live_"))) return out;
-
-  const mode = paddleEnvironment();
-  if (discoveredPaddlePricesCache && discoveredPaddlePricesCache.env === mode && Date.now() - discoveredPaddlePricesCache.fetchedAt < 60_000) {
-    return { ...discoveredPaddlePricesCache.map, ...out };
-  }
-
-  const res = await paddleApi("/prices?status=active&include=product&per_page=50", { timeoutMs: 4000 });
-  const discovered: Record<string, string> = {};
-  if (res.ok && Array.isArray(res.data)) {
-    for (const item of res.data) {
-      const id = String(item?.id || "").trim();
-      if (!id.startsWith("pri_")) continue;
-      const cycle = String(item?.billing_cycle?.interval || item?.custom_data?.interval || "").toLowerCase();
-      const interval: BillingInterval | null = cycle === "month" || cycle === "monthly" ? "monthly" : cycle === "year" || cycle === "yearly" ? "yearly" : null;
-      if (!interval) continue;
-      const customPlan = String(item?.custom_data?.plan || item?.product?.custom_data?.plan || "").toLowerCase();
-      const text = `${item?.product?.name || ""} ${item?.name || ""} ${item?.description || ""}`.toLowerCase();
-      const amount = Number(item?.unit_price?.amount ?? NaN);
-      let slug: PlanSlug | null = null;
-      if (customPlan === "sceneflow" || text.includes("sceneflow") || text.includes("scene flow")) slug = "sceneflow";
-      else if (customPlan === "sceneforge" || text.includes("sceneforge") || text.includes("scene forge")) slug = "sceneforge";
-      else if (Number.isFinite(amount)) {
-        if (amount === PLAN_CONFIG.sceneflow.prices[interval] * 100) slug = "sceneflow";
-        else if (amount === PLAN_CONFIG.sceneforge.prices[interval] * 100) slug = "sceneforge";
-      }
-      if (slug) {
-        const envKey = PLAN_CONFIG[slug].priceEnv[interval];
-        if (!discovered[envKey]) discovered[envKey] = id;
-      }
-    }
-    discoveredPaddlePricesCache = { env: mode, map: discovered, fetchedAt: Date.now() };
-  }
-  return { ...discovered, ...out };
-}
-
-/**
- * Which Scenering plan and interval a Paddle price id (`pri_…`) is. The price
- * ids are configuration rather than code, so a price created in Paddle becomes
- * a purchasable plan here by setting one variable (or via catalog discovery
- * when PADDLE_API_KEY is configured).
- */
-export function planForPaddlePrice(priceId: string, priceMap?: Record<string, string>): { plan: PlanSlug; interval: BillingInterval } | null {
-  if (!priceId) return null;
-  const e = env();
-  for (const slug of PLAN_ORDER.slice(1)) {
-    for (const interval of ["monthly", "yearly"] as const) {
-      const key = PLAN_CONFIG[slug].priceEnv[interval];
-      const configured = String(priceMap?.[key] || lookupPriceEnv((k) => e[k] as string | undefined, key) || "");
-      if (configured === priceId) return { plan: slug, interval };
-    }
-  }
-  return null;
-}
-
-/**
- * The price id on a Paddle notification. Subscription webhooks nest the whole
- * price object under `items[].price`, so `items[].price.id` is the identifier
- * to match; a bare `price_id` is accepted too, because that is the shape the
- * API's transaction items use.
- */
-function activeSubscriptionItems(items: unknown): any[] {
-  if (!Array.isArray(items)) return [];
-  const active = items.filter((item) => {
-    const status = String((item as any)?.status || "").toLowerCase();
-    return !status || status === "active" || status === "trialing";
-  });
-  return active.length ? active : items;
-}
-
-function paddlePriceId(items: unknown): string {
-  for (const item of activeSubscriptionItems(items)) {
-    const candidate = String((item as any)?.price?.id || (item as any)?.price_id || (item as any)?.priceId || "");
-    if (candidate) return candidate;
-  }
-  return "";
-}
-
-function paddleProductId(items: unknown): string {
-  for (const item of activeSubscriptionItems(items)) {
-    const candidate = String(
-      (item as any)?.price?.product_id ||
-      (item as any)?.price?.productId ||
-      (item as any)?.product?.id ||
-      (item as any)?.product_id ||
-      (item as any)?.productId ||
-      ""
-    );
-    if (candidate) return candidate;
-  }
-  return "";
-}
 
 export type SubscriptionPlanChange = "initial" | "upgrade" | "downgrade" | "unchanged";
 
@@ -867,54 +490,13 @@ export function classifySubscriptionChange(
   return "unchanged";
 }
 
-/** The renewal price as Paddle states it: minor units plus the currency, so
- *  "1900 USD" is nineteen dollars. Stored as text because the currency is part
- *  of the fact, and a bare number would lose it. */
-function paddleRenewalPrice(items: unknown): string | null {
-  if (!Array.isArray(items)) return null;
-  for (const item of items) {
-    const unit = (item as any)?.price?.unit_price;
-    if (unit && unit.amount != null) return `${String(unit.amount)} ${String(unit.currency_code || "").trim()}`.trim();
-  }
-  return null;
-}
-
-/**
- * Paddle's five subscription statuses (`active`, `trialing`, `past_due`,
- * `paused`, `canceled`) mapped onto the ones the rest of this server already
- * understands — including the expiry sweep, which keeps a cancelled or
- * past-due plan until the period paid for actually ends. "canceled" is
- * Paddle's spelling and "cancelled" this codebase's; the translation happens
- * once, here, so every comparison downstream stays on one vocabulary.
- *
- * An event name wins over the payload's status where the event is the more
- * specific statement — `subscription.resumed` means active whatever the
- * payload was mid-write — and an unrecognised status is stored as-is rather
- * than defaulted to something that grants access.
- */
-export function sceneringStatusForPaddle(eventName: string, paddleStatus: string): string {
-  switch (eventName) {
-    case "subscription.activated":
-    case "subscription.resumed": return "active";
-    case "subscription.trialing": return "on_trial";
-    case "subscription.canceled": return "cancelled";
-    case "subscription.paused": return "paused";
-    case "subscription.past_due": return "past_due";
-    default: {
-      const byStatus: Record<string, string> = { active: "active", trialing: "on_trial", past_due: "past_due", paused: "paused", canceled: "cancelled" };
-      return byStatus[paddleStatus] || paddleStatus || "pending";
-    }
-  }
-}
-
 /**
  * Decides whether a subscription currently grants paid access.
  *
  * Treats `active`, `trialing` (stored as `on_trial`), and `past_due` (dunning
- * retry window) as access-granting. A `scheduled_change` to `cancel` or `pause`
- * at period end keeps the subscription `active` / `trialing` / `past_due` until
- * its effective date, so access is NOT revoked until `status` actually flips to
- * `canceled` (`cancelled`) or `paused`.
+ * retry window) as access-granting. A scheduled cancellation at period end
+ * keeps the subscription active until its deactivation date, so access is NOT
+ * revoked until the paid period actually ends.
  */
 export function subscriptionGrantsPaidAccess(
   input: string | { status?: string | null; subscription_status?: string | null; scheduledChangeAction?: string | null; cancelAtPeriodEnd?: boolean | null } | null | undefined,
@@ -925,353 +507,20 @@ export function subscriptionGrantsPaidAccess(
   return ["active", "on_trial", "past_due"].includes(status);
 }
 
-/**
- * Resolves a signed-in user's Paddle `customer_id` (`ctm_…`) and owned
- * `subscription_ids` (`sub_…`) strictly server-side from the mirrored
- * `subscriptions` and `billing_customers` tables — never from client input.
- */
-export async function resolvePaddleCustomerForUser(user: User): Promise<{ customerId: string; subscriptionIds: string[] } | null> {
-  try {
-    const [subs, mapped] = await Promise.all([
-      db.listSubscriptionsForUser(user.id),
-      db.findBillingCustomerByUser(user.id, user.email),
-    ]);
-    const paddleSubs = subs.filter((s) => s.provider === "paddle");
-    const activeSubWithCustomer = paddleSubs.find((s) => s.status !== "expired" && s.providerCustomerId);
-    const anySubWithCustomer = paddleSubs.find((s) => s.providerCustomerId);
-    const customerId = String(activeSubWithCustomer?.providerCustomerId || mapped?.providerCustomerId || anySubWithCustomer?.providerCustomerId || "").trim();
-    if (!customerId) return null;
-    const subscriptionIds = [
-      ...new Set(
-        paddleSubs
-          .filter((s) => (!s.providerCustomerId || s.providerCustomerId === customerId) && s.providerSubscriptionId)
-          .map((s) => String(s.providerSubscriptionId).trim())
-          .filter(Boolean)
-      ),
-    ].slice(0, 25);
-    return { customerId, subscriptionIds };
-  } catch {
-    // Billing setup must not prevent authentication or session checks.
-    return null;
-  }
-}
-
-/**
- * What goes into the owner's webhook log: a handful of ids and statuses, not
- * the payload. The log is rendered in the administration panel, and it is no
- * place to accumulate customer data. `environment` is recorded because a
- * sandbox delivery is a test purchase — Paddle has no per-event test flag, the
- * two environments are simply separate accounts.
- */
-function paddleLogPayload(event: any) {
-  const data = event?.data || {};
-  return {
-    data_id: paddleText(data.id),
-    customer_id: paddleText(data.customer_id),
-    status: paddleText(data.status),
-    price_id: paddlePriceId(data.items) || null,
-    environment: paddleEnvironment(),
-  };
-}
-
-/**
- * What is, and is not, configured for billing. The owner sees this as a
- * checklist in the administration panel, so going live is a matter of filling
- * the gaps it names rather than reading the source.
- */
-export function billingConfiguration() {
-  const e = env();
-  const plans = PLAN_ORDER.slice(1).map((slug) => ({
-    plan: slug,
-    name: PLAN_CONFIG[slug].name,
-    intervals: (["monthly", "yearly"] as const).map((interval) => ({
-      interval,
-      checkoutEnv: PLAN_CONFIG[slug].checkoutEnv[interval],
-      checkoutUrlSet: Boolean(e[PLAN_CONFIG[slug].checkoutEnv[interval]]),
-      priceEnv: PLAN_CONFIG[slug].priceEnv[interval],
-      priceIdSet: Boolean(lookupPriceEnv((k) => e[k] as string | undefined, PLAN_CONFIG[slug].priceEnv[interval])),
-    })),
-  }));
-  const webhookSecretSet = Boolean(e.PADDLE_WEBHOOK_SECRET);
-  const apiKey = paddleText(e.PADDLE_API_KEY);
-  const configuredEnv = paddleText(e.PADDLE_ENVIRONMENT)?.toLowerCase();
-  const environmentSet = configuredEnv === "sandbox" || configuredEnv === "live" || configuredEnv === "production";
-  const envMode = paddleEnvironment();
-  const apiKeyMatchesEnv = Boolean(apiKey) && (envMode === "sandbox" ? !apiKey!.startsWith("pdl_live_apikey_") : !apiKey!.startsWith("pdl_sdbx_apikey_"));
-  const apiKeySet = Boolean(apiKey) && apiKeyMatchesEnv;
-  const clientToken = paddleText(e.PADDLE_CLIENT_TOKEN);
-  const clientEnvironment = paddleText(e.PADDLE_CLIENT_ENVIRONMENT)?.toLowerCase();
-  const expectedClientEnv = envMode === "live" ? "production" : "sandbox";
-  const clientEnvironmentSet = environmentSet && (clientEnvironment === "sandbox" || clientEnvironment === "production") && clientEnvironment === expectedClientEnv;
-  const clientTokenMatchesEnv = Boolean(clientToken) && (expectedClientEnv === "sandbox" ? clientToken!.startsWith("test_") : clientToken!.startsWith("live_"));
-  const clientTokenSet = Boolean(clientToken) && clientTokenMatchesEnv;
-  const everyPriceSet = plans.every((plan) => plan.intervals.every((i) => i.priceIdSet));
-  const everyLinkSet = plans.every((plan) => plan.intervals.every((i) => i.checkoutUrlSet));
-  return {
-    provider: "paddle",
-    environment: paddleEnvironment(),
-    environmentSet,
-    apiBaseUrl: paddleApiBaseUrl(),
-    webhookSecretSet,
-    apiKeySet,
-    clientTokenSet,
-    clientEnvironmentSet,
-    publicAppUrlSet: Boolean(e.PUBLIC_APP_URL),
-    webhookPath: PADDLE_WEBHOOK_PATH,
-    webhookUrl: e.PUBLIC_APP_URL ? `${String(e.PUBLIC_APP_URL).replace(/\/$/, "")}${PADDLE_WEBHOOK_PATH}` : null,
-    requiredEvents: [...PADDLE_WEBHOOK_EVENTS],
-    subscriptionEvents: [...PADDLE_SUBSCRIPTION_EVENTS],
-    /* Paddle's sandbox and live are separate accounts with separate keys and
-       separate price ids, so a production deployment still pointed at sandbox
-       is not "almost ready" — it is a site that cannot take a real payment
-       while looking as though it can. The checklist says so out loud. */
-    sandboxInProduction: isProduction() && paddleEnvironment() === "sandbox",
-    ipAllowlistEnabled: paddleWebhookIpAllowlistEnabled(),
-    plans,
-    /** True when a real customer could buy a plan and have access granted. The
-     *  API key counts because without it the server cannot create the tagged
-     *  transaction that checkout hands the customer, so price ids alone cannot
-     *  take a payment — and the approved checkout URLs count because Paddle
-     *  returns no link to send the customer to without one. The client token
-     *  and its environment count because the public pricing page previews
-     *  prices and opens the overlay checkout with them; without them the
-     *  page cannot sell at all. */
-    ready: environmentSet && webhookSecretSet && apiKeySet && everyPriceSet && everyLinkSet && clientTokenSet && clientEnvironmentSet && Boolean(e.PUBLIC_APP_URL),
-  };
-}
-
-export function registerPaddleWebhook(app: Express) {
-  app.post(PADDLE_WEBHOOK_PATH, express.raw({ type: "application/json", limit: "2mb" }), asyncHandlerVoid(async (req, res) => {
-    const secret = env().PADDLE_WEBHOOK_SECRET as string | undefined;
-    if (!secret) return res.status(503).json({ error: "Billing webhook is not configured" });
-
-    /* Defence in depth, off by default and switchable with
-       PADDLE_WEBHOOK_IP_ALLOWLIST=on. When it is on, a delivery from outside
-       Paddle's published ranges is refused before its body is parsed at all.
-       When the ranges cannot be fetched it fails open and says so, because the
-       signature check below is what authenticates the caller, and dropping a
-       genuine payment over our own transient network failure is the worse
-       outcome. Signature verification is never skipped either way. */
-    if (paddleWebhookIpAllowlistEnabled()) {
-      const cidrs = await paddleSourceCidrs();
-      if (cidrs && cidrs.length) {
-        const senderIp = clientIp(req);
-        if (!ipIsFromPaddle(senderIp, cidrs)) {
-          console.warn(`[paddle] refused a webhook from ${senderIp}: not in Paddle's published source ranges`);
-          return res.status(403).json({ error: "Forbidden" });
-        }
-      } else {
-        console.warn("[paddle] source-IP allowlist is on but Paddle's /ips could not be fetched; accepting this delivery on its signature alone");
-      }
-    }
-    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
-    if (!verifyPaddleSignature(body, String(req.headers["paddle-signature"] || ""), secret)) return res.status(401).json({ error: "Invalid signature" });
-    let event: any; try { event = JSON.parse(body.toString("utf8")); } catch { return res.status(400).json({ error: "Invalid JSON" }); }
-    const eventId = String(event.event_id || ""); const eventName = String(event.event_type || "");
-    if (!eventId || !eventName) return res.status(400).json({ error: "Invalid event" });
-    const data = (event.data && typeof event.data === "object" ? event.data : {}) as any;
-
-    const result = await (async () => {
-      if (await db.webhookEventExists(eventId)) {
-        // Not an error — Paddle retries until it gets a 2xx — but the owner's
-        // webhook log should show that it happened, so the original row is
-        // marked rather than a second row inserted for the same event id.
-        await db.markWebhookEventDuplicate(eventId);
-        return "duplicate";
-      }
-      const record = async (status: string) => {
-        await db.recordWebhookEvent({ providerEventId: eventId, eventName, status, payload: paddleLogPayload(event) });
-        return status;
-      };
-
-      /* A customer event: record which account this Paddle customer is, so a
-         later subscription webhook can be matched on the customer id alone. */
-      if ((PADDLE_CUSTOMER_EVENTS as readonly string[]).includes(eventName)) {
-        const customerId = String(data.id || ""); const email = String(data.email || "").trim().toLowerCase();
-        if (!customerId || !email) return record("ignored");
-        const customUserId = String(data.custom_data?.user_id || "");
-        let user = customUserId ? await db.findUserById(customUserId) : null;
-        // The email is the stronger identity: a Paddle customer is created from
-        // whatever address was typed at checkout, so it wins over a custom_data
-        // id that does not belong to the same account.
-        if (!user || user.email !== email) { const byEmail = await db.findUserByEmail(email); if (byEmail) user = byEmail; }
-        if (!user) return record("unmatched");
-        await db.upsertBillingCustomer({ provider: "paddle", providerCustomerId: customerId, userId: user.id, email, lastEventAt: paddleText(event.occurred_at) });
-        return record("mapped");
-      }
-
-      const isTransactionFulfillment = eventName === "transaction.completed" && Boolean(String(data.subscription_id || "").trim());
-      if (!(PADDLE_SUBSCRIPTION_EVENTS as readonly string[]).includes(eventName) && !isTransactionFulfillment) return record("ignored");
-
-      const subscriptionId = isTransactionFulfillment ? String(data.subscription_id || "").trim() : String(data.id || "");
-      /* Without a subscription id there is nothing to key a row on, and every
-         later event would insert a second one for the same purchase. Refuse it
-         as unparseable rather than accumulate rows nobody can update. */
-      if (!subscriptionId) return record("ignored");
-      const customerId = String(data.customer_id || "");
-      const priceId = paddlePriceId(data.items);
-      const productId = paddleProductId(data.items);
-
-      /* Which account this subscription belongs to, best evidence first: the
-         `custom_data` the server set when it created the transaction, then the
-         customer mapping a customer webhook left behind, then any subscription
-         already stored against that customer id. */
-      const customEmail = String(data.custom_data?.email || "").trim().toLowerCase();
-      const customUserId = String(data.custom_data?.user_id || "");
-      let user: User | null = customUserId ? await db.findUserById(customUserId) : null;
-      if (!user && customEmail) user = await db.findUserByEmail(customEmail);
-      if (!user && customerId) {
-        const mappedCustomer = await db.findBillingCustomer(customerId);
-        const existing = mappedCustomer ? null : await db.findSubscriptionByProviderCustomerId(customerId);
-        user = (mappedCustomer ? await db.findUserById(mappedCustomer.userId) : null) || (existing ? await db.findUserById(existing.userId) : null);
-        if (!user) {
-          const customerRes = await paddleApi(`/customers/${encodeURIComponent(customerId)}`, { timeoutMs: PADDLE_WEBHOOK_API_TIMEOUT_MS });
-          const fetchedEmail = customerRes.ok ? String(customerRes.data?.email || "").trim().toLowerCase() : "";
-          if (fetchedEmail) {
-            user = await db.findUserByEmail(fetchedEmail);
-            if (user) {
-              await db.upsertBillingCustomer({ provider: "paddle", providerCustomerId: customerId, userId: user.id, email: fetchedEmail, lastEventAt: paddleText(event.occurred_at) });
-            }
-          }
-        }
-      }
-      if (!user) return record("unmatched");
-
-      let mapped = planForPaddlePrice(priceId);
-      if (!mapped && priceId) {
-        const resolvedPrices = await resolvePaddlePriceEnvMap();
-        mapped = planForPaddlePrice(priceId, resolvedPrices);
-      }
-      if (!mapped) return record("unknown_price");
-
-      const period = (data.current_billing_period || data.billing_period || {}) as { starts_at?: unknown; ends_at?: unknown };
-      const scheduled = (data.scheduled_change || null) as { action?: string; effective_at?: string; resume_at?: string | null } | null;
-      const status = isTransactionFulfillment ? "active" : sceneringStatusForPaddle(eventName, String(data.status || ""));
-      const periodEnd = paddleText(period.ends_at) || paddleText(data.next_billed_at);
-      const cancelScheduled = scheduled?.action === "cancel";
-
-      /* When access ends. Paddle cancels either immediately — `canceled_at` is
-         the moment it stopped — or at the end of the period paid for, in which
-         case the status stays `active` and a `scheduled_change` of `cancel`
-         says when. A pause runs to the end of the current period too. Anything
-         else has no end date at all. */
-      const expiresAt =
-        status === "cancelled" ? paddleText(data.canceled_at) || periodEnd
-        : cancelScheduled ? paddleText(scheduled?.effective_at) || periodEnd
-        : status === "paused" ? periodEnd
-        : null;
-
-      let sub = await db.findSubscriptionByProviderId(subscriptionId);
-      /* Paddle guarantees nothing about delivery order: a retry or a replay can
-         arrive after a newer event, and applying the older one would resurrect
-         state the customer has already moved past — a cancellation undone by a
-         late `subscription.updated`, for instance. So an event older than the
-         newest one applied to this subscription is logged and dropped. ISO-8601
-         UTC strings compare correctly as text, which is how this codebase
-         already stores every timestamp. */
-      const occurredAt = paddleText(event.occurred_at);
-      if (sub && occurredAt && sub.providerEventOccurredAt && occurredAt < sub.providerEventOccurredAt) return record("stale");
-      const previousPlanId = sub?.planId ?? null;
-      const change = classifySubscriptionChange(sub, { plan: mapped.plan, interval: mapped.interval, priceId });
-      const management = await paddleManagementUrls(subscriptionId);
-      const fields = {
-        provider: "paddle",
-        providerCustomerId: customerId || null, providerSubscriptionId: subscriptionId || null,
-        providerProductId: productId || null, providerPriceId: priceId || null,
-        planId: mapped.plan, billingInterval: mapped.interval, status,
-        currentPeriodStart: paddleText(period.starts_at) || paddleText(data.started_at),
-        currentPeriodEnd: periodEnd,
-        cancelAtPeriodEnd: status === "cancelled" || cancelScheduled,
-        // Paddle's own timestamp when it gives one, so the audit trail says
-        // when the cancellation happened rather than when this Worker woke up.
-        cancelledAt: status === "cancelled" ? paddleText(data.canceled_at) || now() : null,
-        expiresAt,
-        customerPortalUrl: management.cancel, updatePaymentUrl: management.updatePaymentMethod,
-        renewalPrice: paddleRenewalPrice(data.items),
-        providerEventOccurredAt: occurredAt,
-        /* Paddle sends no card brand or last four on a subscription webhook, so
-           those two columns stay as they are; the account window hides the
-           line when they are empty. */
-      };
-      if (!sub) {
-        sub = await db.createSubscription({
-          id: db.newId("sub"), userId: user.id, provider: "paddle", planId: mapped.plan, billingInterval: mapped.interval, status,
-          providerCustomerId: customerId || null, providerSubscriptionId: subscriptionId || null,
-          providerProductId: productId || null, providerPriceId: priceId || null,
-          currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, cancelledAt: null, expiresAt: null,
-          customerPortalUrl: null, updatePaymentUrl: null, cardBrand: null, cardLastFour: null, renewalPrice: null,
-          providerEventOccurredAt: null,
-        });
-      }
-      await db.updateSubscription(sub.id, fields);
-      if (customerId) {
-        await db.upsertBillingCustomer({
-          provider: "paddle",
-          providerCustomerId: customerId,
-          userId: user.id,
-          email: customEmail || user.email,
-          lastEventAt: occurredAt,
-        });
-      }
-
-      /* Which statuses are worth access. This is where Paddle and the provider
-         it replaced genuinely differ, and getting it wrong either gives service
-         away or takes it from somebody who has paid:
-
-           - `canceled` is TERMINAL. Paddle only flips the status once the
-             scheduled cancellation takes effect, so the period paid for has
-             already run. "Will not renew, but still paid up" is not a status
-             here — it is an `active` subscription carrying a `scheduled_change`
-             of `cancel`, which the block above records as cancel_at_period_end.
-           - `paused` means no billing and no service. A pause that has not
-             started yet is likewise still `active` with a scheduled change, so
-             the member keeps the plan until the pause actually lands.
-           - `past_due` keeps access: Paddle is retrying the card (dunning), and
-             the account window says so and offers the update-card link.
-
-         The per-user expiry sweep is still the backstop for the case Paddle
-         cannot help with — a subscription whose period ended and whose next
-         webhook never arrived. */
-      const paid = subscriptionGrantsPaidAccess(status);
-      const membership = await db.findMembershipByUserId(user.id);
-      if (membership) await db.updateMembership(membership.id, { plan: paid ? mapped.plan : "free", status: "active" });
-      else await db.createMembership(user.id, paid ? mapped.plan : "free");
-      await record("processed");
-      await db.recordBillingEvent({
-        userId: user.id,
-        subscriptionId: sub.id,
-        eventName,
-        fromProvider: true,
-        extra: {
-          change,
-          previous_plan_id: previousPlanId,
-          plan_id: mapped.plan,
-          billing_interval: mapped.interval,
-          price_id: priceId || null,
-          product_id: productId || null,
-        },
-      });
-      return "processed";
-    })();
-    return res.status(result === "unmatched" || result === "unknown_price" ? 202 : 200).json({ received: true, status: result });
-  }));
-}
-
 function asyncHandlerVoid(handler: (req: Request, res: Response) => Promise<unknown>) {
   return (req: Request, res: Response, next: NextFunction) => { handler(req, res).catch(next); };
 }
 
 /* ------------------------------------------------------------------ *
- * FastSpring — a second merchant of record, alongside Paddle.        *
+ * FastSpring — Scenering's Merchant of Record.                       *
  * ------------------------------------------------------------------ */
 
 /**
- * FastSpring sells the same four subscription products (sceneflow-monthly,
+ * FastSpring sells the four subscription products (sceneflow-monthly,
  * sceneflow-yearly, sceneforge-monthly, sceneforge-yearly), takes the card,
- * charges the tax and pays Scenering. The division of labour is the same as
- * Paddle's: this server opens a checkout tagged with the signed-in account,
- * and believes — nothing else — a signed webhook that says a subscription
- * changed.
+ * charges the tax and pays Scenering. This server opens a checkout tagged
+ * with the signed-in account, and believes — nothing else — a signed webhook
+ * that says a subscription changed.
  *
  * Two things make the loop work:
  *
@@ -1284,10 +533,6 @@ function asyncHandlerVoid(handler: (req: Request, res: Response) => Promise<unkn
  *      Secret (FastSpring → Developer Tools → Webhooks). A delivery that did
  *      not come from FastSpring cannot be forged, and the UNIQUE event id in
  *      `webhook_events` makes a redelivery harmless.
- *
- * Paddle and FastSpring can run side by side: `subscriptions` and
- * `billing_customers` are keyed by provider, `BILLING_PROVIDER` picks which
- * one the app opens by default, and each keeps its own webhook endpoint.
  */
 export const FASTSPRING_API_BASE_URL = "https://api.fastspring.com";
 export const FASTSPRING_WEBHOOK_PATH = "/api/webhooks/fastspring";
@@ -1482,35 +727,10 @@ function fastspringLogPayload(event: any, data: any) {
 }
 
 /**
- * Which payment provider the app opens by default. `BILLING_PROVIDER` decides
- * (`paddle` or `fastspring`); with it unset the provider with server
- * credentials configured wins, and Paddle wins ties so an existing
- * deployment is unchanged by adding FastSpring beside it. Both webhooks stay
- * live either way — this only chooses where a "Choose plan" click goes.
+ * FastSpring is Scenering's Merchant of Record and sole payment gateway.
  */
-export function billingProvider(): "paddle" | "fastspring" {
-  const configured = String(env().BILLING_PROVIDER || "").trim().toLowerCase();
-  if (configured === "fastspring") return "fastspring";
-  if (configured === "paddle") return "paddle";
-  if (String(env().PADDLE_API_KEY || "").trim()) return "paddle";
-  if (fastspringStorefront() && String(env().FASTSPRING_WEBHOOK_SECRET || "").trim()) return "fastspring";
-  return "paddle";
-}
-
-/**
- * Which provider a specific member's subscription belongs to — a customer
- * who bought through FastSpring manages their subscription in FastSpring even
- * if the default provider is Paddle, and vice versa.
- */
-async function userBillingProvider(user: User): Promise<"paddle" | "fastspring"> {
-  try {
-    const subs = await db.listSubscriptionsForUser(user.id);
-    const fastspringSub = subs.find((s) => s.provider === "fastspring" && s.status !== "expired");
-    if (fastspringSub) return "fastspring";
-    const paddleSub = subs.find((s) => s.provider === "paddle" && s.status !== "expired");
-    if (paddleSub) return "paddle";
-  } catch { /* Billing state must not break account rendering. */ }
-  return billingProvider();
+export function billingProvider(): "fastspring" {
+  return "fastspring";
 }
 
 /**
@@ -1518,7 +738,7 @@ async function userBillingProvider(user: User): Promise<"paddle" | "fastspring">
  * ids strictly server-side from the mirrored `subscriptions` and
  * `billing_customers` tables — never from client input.
  */
-export async function resolveFastSpringCustomerForUser(user: User): Promise<{ accountId: string; subscriptionIds: string[] } | null> {
+export async function resolveFastSpringCustomerForUser(user: User): Promise<{ accountId: string; customerId: string; subscriptionIds: string[] } | null> {
   try {
     const [subs, mapped] = await Promise.all([
       db.listSubscriptionsForUser(user.id),
@@ -1537,7 +757,7 @@ export async function resolveFastSpringCustomerForUser(user: User): Promise<{ ac
           .filter(Boolean)
       ),
     ].slice(0, 25);
-    return { accountId, subscriptionIds };
+    return { accountId, customerId: accountId, subscriptionIds };
   } catch {
     return null;
   }
@@ -1562,10 +782,25 @@ export function fastspringConfiguration() {
     productPathEnv: row.pathEnv,
     fromEnvironment: row.fromEnvironment,
   }));
+  const plans = PLAN_ORDER.slice(1).map((slug) => ({
+    plan: slug,
+    name: PLAN_CONFIG[slug].name,
+    intervals: (["monthly", "yearly"] as const).map((interval) => {
+      const productPath = fastspringProductPath((name) => e[name] as string | undefined, slug as Exclude<PlanSlug, "free">, interval);
+      const priceEnv = PLAN_CONFIG[slug].priceEnv[interval];
+      return {
+        interval,
+        productPath,
+        priceEnv,
+        priceIdSet: Boolean(productPath),
+      };
+    }),
+  }));
   const checkoutMode = String(e.FASTSPRING_CHECKOUT_MODE || "").trim().toLowerCase() === "popup" ? "popup" : apiCredentials ? "session" : "popup";
+  const testInProduction = isProduction() && storefront?.environment === "test";
   return {
-    provider: "fastspring",
-    active: billingProvider() === "fastspring",
+    provider: "fastspring" as const,
+    active: true,
     environment: storefront?.environment || (storefrontRaw ? "live" : null),
     storefront: storefront?.raw || null,
     storefrontSet: Boolean(storefront),
@@ -1580,9 +815,11 @@ export function fastspringConfiguration() {
     subscriptionEvents: [...FASTSPRING_SUBSCRIPTION_EVENTS],
     checkoutMode,
     products,
+    plans,
     /** A production site pointed at a `.test.` storefront cannot take a real
      *  payment while looking as though it can. The checklist says so. */
-    testInProduction: isProduction() && storefront?.environment === "test",
+    testInProduction,
+    sandboxInProduction: testInProduction,
     /** True when a real customer could buy a plan and have access granted:
      *  the storefront to open, the product paths to sell, and the webhook
      *  secret to believe the result. Session checkout additionally needs the
@@ -1590,6 +827,8 @@ export function fastspringConfiguration() {
     ready: Boolean(storefront) && webhookSecretSet && Boolean(e.PUBLIC_APP_URL) && products.length >= 4 && (checkoutMode === "popup" || Boolean(apiCredentials)),
   };
 }
+
+export const billingConfiguration = fastspringConfiguration;
 
 /**
  * Hands the signed-in member a FastSpring checkout for the plan they picked.
@@ -1683,9 +922,8 @@ export function registerFastSpringWebhook(app: Express) {
   }));
 }
 
-/** One event of a FastSpring delivery. Exported outcomes mirror the Paddle
- *  handler's vocabulary: processed, mapped, duplicate, stale, ignored,
- *  unmatched, unknown_price. */
+/** One event of a FastSpring delivery. Outcomes: processed, mapped, duplicate,
+ *  stale, ignored, unmatched, unknown_price. */
 async function handleFastSpringEvent(event: any): Promise<string> {
   const eventId = String(event?.id || "");
   const eventName = String(event?.type || "");
@@ -1743,8 +981,8 @@ async function handleFastSpringEvent(event: any): Promise<string> {
   const state = String(data.state || "");
   let sub = await db.findSubscriptionByProviderId(subscriptionId);
   /* Delivery order is not guaranteed: an event older than the newest one
-     applied to this subscription is logged and dropped, exactly as on the
-     Paddle handler. ISO-8601 UTC strings compare correctly as text. */
+     applied to this subscription is logged and dropped. ISO-8601 UTC strings
+     compare correctly as text. */
   const changedAt = fastspringMs(data.changed) || fastspringMs(data.changedValue) || (Number.isFinite(Number(data.changedInSeconds)) && Number(data.changedInSeconds) > 0 ? new Date(Number(data.changedInSeconds) * 1000).toISOString() : null);
   if (sub && changedAt && sub.providerEventOccurredAt && changedAt < sub.providerEventOccurredAt) return record("stale");
   /* `subscription.updated` with no state in the payload says nothing about
@@ -1819,13 +1057,12 @@ async function handleFastSpringEvent(event: any): Promise<string> {
   }
 
   /* Which statuses are worth access. `active`, `trialing` (stored `on_trial`)
-     and `past_due` (FastSpring is retrying the card) keep the plan, exactly as
-     on the Paddle handler — but `canceled` differs here by design: FastSpring's
+     and `past_due` (FastSpring is retrying the card) keep the plan, and
+     `canceled` keeps the plan until its stored end date: FastSpring's
      `subscription.canceled` is NOT terminal, it means "will not renew", and
-     the period paid for runs on to the deactivation date. So a cancellation
-     keeps the plan until its stored end date (which the per-user expiry sweep
-     then acts on), and only `deactivated` — or a cancellation whose end date
-     has already passed — returns the member to Free now. */
+     the period paid for runs on to the deactivation date. Only `deactivated`
+     — or a cancellation whose end date has already passed — returns the
+     member to Free now. */
   const paid = subscriptionGrantsPaidAccess(status);
   const keepsAccess = paid || (status === "cancelled" && (!expiresAt || Date.parse(expiresAt) > Date.now()));
   const membership = await db.findMembershipByUserId(user.id);
@@ -1976,7 +1213,7 @@ export function registerPlatformRoutes(app: Express) {
         console.warn("[auth] resend verification email could not be sent:", err?.message || err);
       }
     }
-    const includeDevUrl = (!isProduction() || env().PADDLE_ENVIRONMENT === "sandbox" || !emailDelivered) && Boolean(developmentVerificationUrl);
+    const includeDevUrl = (!isProduction() || fastspringEnvironment() === "test" || !emailDelivered) && Boolean(developmentVerificationUrl);
     res.json({ message: "If the account exists, a verification message has been sent.", ...(includeDevUrl ? { developmentVerificationUrl } : {}) });
   }));
 
@@ -1997,7 +1234,7 @@ export function registerPlatformRoutes(app: Express) {
         console.warn("[auth] password reset email could not be sent:", err?.message || err);
       }
     }
-    const includeDevUrl = (!isProduction() || env().PADDLE_ENVIRONMENT === "sandbox" || !emailDelivered) && Boolean(developmentResetUrl);
+    const includeDevUrl = (!isProduction() || fastspringEnvironment() === "test" || !emailDelivered) && Boolean(developmentResetUrl);
     res.json({ message: "If the account exists, a password-reset message has been sent.", ...(includeDevUrl ? { developmentResetUrl } : {}) });
   }));
 
@@ -2095,47 +1332,21 @@ export function registerPlatformRoutes(app: Express) {
   }));
 
   /**
-   * Hands the signed-in member a checkout link for the plan they picked.
+   * Hands the signed-in member a FastSpring checkout for the plan they picked.
    *
-   * The provider is the one `BILLING_PROVIDER` names (or the one configured,
-   * Paddle first — see billingProvider()): FastSpring gets a tagged popup or
-   * session checkout, Paddle a tagged transaction. Both carry the account id
-   * and email of whoever is signed in, in the only way each provider's
-   * webhooks can read back, so a payment cannot arrive that this server
-   * cannot attribute.
+   * Returns either a popup configuration (storefront path, product path and
+   * tags for `sbl.min.js`) or a hosted session URL to redirect to. Both carry
+   * the account id and email of whoever is signed in so FastSpring's webhooks
+   * can attribute the payment back to the account.
    */
   app.get("/api/billing/checkout/:plan/:interval", requireUser, rateLimit("checkout", 20, 3600000), asyncHandlerVoid(async (req, res) => {
     const { user } = (req as any).auth as Auth; const slug = req.params.plan as PlanSlug; const interval = req.params.interval as BillingInterval;
     if (!PLAN_CONFIG[slug] || slug === "free" || !["monthly", "yearly"].includes(interval)) return res.status(400).json({ error: "Invalid plan selection" });
-    if (billingProvider() === "fastspring") return fastspringCheckoutResponse(user, slug as Exclude<PlanSlug, "free">, interval, res);
-    const priceEnv = PLAN_CONFIG[slug].priceEnv[interval]; const priceId = lookupPriceEnv((k) => env()[k] as string | undefined, priceEnv);
-    const checkoutEnv = PLAN_CONFIG[slug].checkoutEnv[interval]; const checkoutUrl = String(env()[checkoutEnv] || "");
-    if (!priceId || !env().PADDLE_API_KEY) return res.status(503).json({ error: "Checkout is not configured yet.", code: "BILLING_NOT_CONFIGURED", detail: `${priceEnv} and PADDLE_API_KEY must both be set` });
-    const created = await paddleApi("/transactions", {
-      method: "POST",
-      body: {
-        items: [{ price_id: priceId, quantity: 1 }],
-        custom_data: { user_id: user.id, email: user.email, plan: slug, interval },
-        ...(checkoutUrl ? { checkout: { url: checkoutUrl } } : {}),
-      },
-    });
-    if (!created.ok) return res.status(502).json({ error: "Paddle could not open checkout.", code: "BILLING_PROVIDER_ERROR", detail: created.error });
-    const url = paddleText(created.data?.checkout?.url);
-    /* Paddle only returns a link when the transaction carries an approved
-       checkout URL, so the missing piece is named rather than reported as a
-       mystery: the variable holds a URL registered in Paddle → Account
-       settings → Checkout settings. */
-    if (!url) return res.status(503).json({ error: "Checkout is not configured yet.", code: "BILLING_NOT_CONFIGURED", detail: `${checkoutEnv} must hold an approved checkout URL` });
-    if (!url.startsWith("https://") && isProduction()) return res.status(503).json({ error: "Checkout must use HTTPS." });
-    res.setHeader("Cache-Control", "no-store");
-    res.json({ url, provider: "paddle", environment: paddleEnvironment(), transactionId: paddleText(created.data?.id) });
+    return fastspringCheckoutResponse(user, slug as Exclude<PlanSlug, "free">, interval, res);
   }));
 
   /**
-   * The same checkout, forced to FastSpring — used when both merchants of
-   * record run side by side and the page wants FastSpring specifically.
-   * Returns either a popup configuration (storefront path, product path and
-   * tags for `sbl.min.js`) or a hosted session URL to redirect to.
+   * Explicit FastSpring checkout endpoint alias for backwards compatibility.
    */
   app.get("/api/billing/fastspring/checkout/:plan/:interval", requireUser, rateLimit("checkout", 20, 3600000), asyncHandlerVoid(async (req, res) => {
     const { user } = (req as any).auth as Auth; const slug = req.params.plan as PlanSlug; const interval = req.params.interval as BillingInterval;
@@ -2144,102 +1355,61 @@ export function registerPlatformRoutes(app: Express) {
   }));
 
   /**
-   * Mints a temporary Paddle Customer Portal session for the signed-in user
-   * (`POST /customers/{customer_id}/portal-sessions`) and returns only the
-   * hosted portal overview URL.
+   * Opens the FastSpring Account Management portal for the signed-in user.
    *
    * Security model:
    *   1. Authenticates the user first via `requireUser` before any DB query or
-   *      Paddle API call.
-   *   2. Resolves `customer_id` (`ctm_…`) and owned `subscription_ids` (`sub_…`)
-   *      strictly server-side from the authenticated session (`subscriptions`
-   *      and `billing_customers`) — any client-supplied customer ID in the
-   *      body or query string is ignored.
-   *   3. Returns only `{ url }` (`urls.general.overview`) with `no-store` so
-   *      session metadata and deep-link tables are never leaked or cached.
+   *      FastSpring API call.
+   *   2. Resolves `accountId` and owned `subscriptionIds` strictly server-side
+   *      from the authenticated session (`subscriptions` and
+   *      `billing_customers`) — any client-supplied customer ID in the body or
+   *      query string is ignored.
+   *   3. With API credentials configured, mints a fresh pre-authenticated
+   *      Account Management link (`/accounts/{id}/authenticate`); without them,
+   *      falls back to the customer-facing portal link recorded on the
+   *      subscription row.
    */
   const handleCustomerPortalSession = asyncHandlerVoid(async (req, res) => {
     const { user } = (req as any).auth as Auth;
-    /* FastSpring subscriptions are managed in FastSpring's own Account
-       Management portal. With the API keys configured a pre-authenticated
-       link (valid 24 hours) is minted fresh on every click; without them the
-       customer-facing link the webhook recorded still works — FastSpring
-       emails the customer a secure login link from there. */
-    if (await userBillingProvider(user) === "fastspring") {
-      const resolved = await resolveFastSpringCustomerForUser(user);
-      const stored = resolved ? await (async () => {
-        const subs = await db.listSubscriptionsForUser(user.id);
-        return subs.find((s) => s.provider === "fastspring" && s.status !== "expired" && s.customerPortalUrl)?.customerPortalUrl
-          || subs.find((s) => s.provider === "fastspring" && s.customerPortalUrl)?.customerPortalUrl
-          || null;
-      })() : null;
-      if (!resolved && !stored) {
-        return res.status(404).json({
-          error: "No billing account found for this user. Subscribe to a plan first.",
-          code: "NO_BILLING_CUSTOMER",
-        });
-      }
-      if (resolved && fastspringApiCredentials()) {
-        const created = await fastspringApi(`/accounts/${encodeURIComponent(resolved.accountId)}/authenticate`, { timeoutMs: 10000 });
-        const url = fastspringText(created.data?.url) || fastspringText(created.data);
-        if (url && (url.startsWith("https://") || !isProduction())) {
-          res.setHeader("Cache-Control", "no-store");
-          // Land on the Subscriptions tab, where Manage offers update-card
-          // and cancel.
-          return res.json({ url: `${url.replace(/#.*$/, "")}#/subscriptions` });
-        }
-        if (!stored) {
-          return res.status(502).json({
-            error: "FastSpring could not open the account portal.",
-            code: "BILLING_PROVIDER_ERROR",
-            detail: created.error,
-          });
-        }
-      }
-      if (stored && (stored.startsWith("https://") || !isProduction())) {
-        res.setHeader("Cache-Control", "no-store");
-        return res.json({ url: stored });
-      }
-      return res.status(503).json({
-        error: "Customer portal is not configured yet.",
-        code: "BILLING_NOT_CONFIGURED",
-        detail: "FASTSPRING_API_USERNAME and FASTSPRING_API_PASSWORD must be set to open an authenticated Account Management link",
-      });
-    }
-    const resolved = await resolvePaddleCustomerForUser(user);
-    if (!resolved) {
+    const resolved = await resolveFastSpringCustomerForUser(user);
+    const stored = resolved ? await (async () => {
+      const subs = await db.listSubscriptionsForUser(user.id);
+      return subs.find((s) => s.provider === "fastspring" && s.status !== "expired" && s.customerPortalUrl)?.customerPortalUrl
+        || subs.find((s) => s.provider === "fastspring" && s.customerPortalUrl)?.customerPortalUrl
+        || null;
+    })() : null;
+    if (!resolved && !stored) {
       return res.status(404).json({
         error: "No billing account found for this user. Subscribe to a plan first.",
         code: "NO_BILLING_CUSTOMER",
       });
     }
-    if (!env().PADDLE_API_KEY) {
-      return res.status(503).json({
-        error: "Customer portal is not configured yet.",
-        code: "BILLING_NOT_CONFIGURED",
-        detail: "PADDLE_API_KEY must be set",
-      });
+    if (resolved && fastspringApiCredentials()) {
+      const created = await fastspringApi(`/accounts/${encodeURIComponent(resolved.accountId)}/authenticate`, { timeoutMs: 10000 });
+      const url = fastspringText(created.data?.url) || fastspringText(created.data);
+      if (url && (url.startsWith("https://") || !isProduction())) {
+        res.setHeader("Cache-Control", "no-store");
+        // Land on the Subscriptions tab, where Manage offers update-card
+        // and cancel.
+        return res.json({ url: `${url.replace(/#.*$/, "")}#/subscriptions` });
+      }
+      if (!stored) {
+        return res.status(502).json({
+          error: "FastSpring could not open the account portal.",
+          code: "BILLING_PROVIDER_ERROR",
+          detail: created.error,
+        });
+      }
     }
-    const created = await paddleApi(`/customers/${encodeURIComponent(resolved.customerId)}/portal-sessions`, {
-      method: "POST",
-      body: { subscription_ids: resolved.subscriptionIds },
+    if (stored && (stored.startsWith("https://") || !isProduction())) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ url: stored });
+    }
+    return res.status(503).json({
+      error: "Customer portal is not configured yet.",
+      code: "BILLING_NOT_CONFIGURED",
+      detail: "FASTSPRING_API_USERNAME and FASTSPRING_API_PASSWORD must be set to open an authenticated Account Management link",
     });
-    if (!created.ok) {
-      return res.status(502).json({
-        error: "Paddle could not open the customer portal.",
-        code: "BILLING_PROVIDER_ERROR",
-        detail: created.error,
-      });
-    }
-    const url = paddleText(created.data?.urls?.general?.overview);
-    if (!url || (!url.startsWith("https://") && isProduction())) {
-      return res.status(502).json({
-        error: "Paddle did not return a valid customer portal URL.",
-        code: "BILLING_PROVIDER_ERROR",
-      });
-    }
-    res.setHeader("Cache-Control", "no-store");
-    res.json({ url });
   });
   app.post("/api/billing/portal", requireUser, rateLimit("billing-portal", 20, 3600000), handleCustomerPortalSession);
   app.get("/api/billing/portal", requireUser, rateLimit("billing-portal", 20, 3600000), handleCustomerPortalSession);
@@ -2249,8 +1419,8 @@ export function registerPlatformRoutes(app: Express) {
    * CF-IPCountry on every request, Vercel sets x-vercel-ip-country.
    * Returns null when neither header is usable (absent, "UNKNOWN",
    * the Tor exit code "T1", …): the caller then omits the country
-   * entirely and Paddle infers it from the IP address. The "OTHERS"
-   * sentinel some integrations use is never passed to Paddle — it
+   * entirely and FastSpring infers it from the IP address. The "OTHERS"
+   * sentinel some integrations use is never passed through — it
    * is not a country code.
    */
   function visitorCountry(req: Request): string | null {
@@ -2259,39 +1429,44 @@ export function registerPlatformRoutes(app: Express) {
   }
 
   /**
-   * Everything the public pricing page needs to talk to Paddle
-   * directly: the client-side token, the environment, the visitor's
-   * country and the tier list with its Paddle price ids. None of it
-   * is secret — a client-side token is public by design and price
-   * ids are published in every checkout URL — but it all comes from
-   * the server's environment rather than a build-time constant, so
-   * rotating a token or a price id needs no redeploy.
+   * Everything the public pricing page needs to talk to FastSpring
+   * directly: the storefront path, the environment ("test" or "live"),
+   * the visitor's country and the tier list with its FastSpring product
+   * paths. None of it is secret — the storefront path is the public
+   * `data-storefront` value for `sbl.min.js` — and it comes from the
+   * server's environment rather than a build-time constant so rotating a
+   * storefront or product path needs no redeploy.
    *
-   * The environment is read, never guessed: PADDLE_CLIENT_TOKEN or
-   * PADDLE_CLIENT_ENVIRONMENT missing is a 503 naming them, so a
-   * misconfigured deployment fails loudly on the pricing page
-   * instead of silently opening checkout against the wrong
-   * Paddle account.
+   * FASTSPRING_STOREFRONT missing is a 503 naming it, and a `.test.`
+   * storefront in production is rejected with 503 so a live deployment
+   * never silently opens test checkout.
    */
   app.get("/api/billing/public-config", rateLimit("billing-public-config", 60, 60000), asyncHandlerVoid(async (_req, res) => {
-    const configuredEnv = paddleText(env().PADDLE_ENVIRONMENT)?.toLowerCase();
-    const clientToken = paddleText(env().PADDLE_CLIENT_TOKEN);
-    const clientEnvironment = paddleText(env().PADDLE_CLIENT_ENVIRONMENT)?.toLowerCase();
-    if (!configuredEnv || (configuredEnv !== "sandbox" && configuredEnv !== "live" && configuredEnv !== "production") || !clientToken || (clientEnvironment !== "sandbox" && clientEnvironment !== "production")) {
-      return res.status(503).json({ error: "Checkout pricing is not configured yet.", code: "PADDLE_CLIENT_NOT_CONFIGURED", detail: "PADDLE_ENVIRONMENT (\"sandbox\" or \"live\"), PADDLE_CLIENT_TOKEN and PADDLE_CLIENT_ENVIRONMENT (\"sandbox\" or \"production\") must all be set" });
+    const storefront = fastspringStorefront();
+    if (!storefront) {
+      return res.status(503).json({
+        error: "Checkout pricing is not configured yet.",
+        code: "FASTSPRING_NOT_CONFIGURED",
+        detail: "FASTSPRING_STOREFRONT must hold your storefront path, for example scenering.onfastspring.com/popup-scenering",
+      });
     }
-    const expectedClientEnv = paddleEnvironment() === "live" ? "production" : "sandbox";
-    const expectedPrefix = expectedClientEnv === "sandbox" ? "test_" : "live_";
-    if (clientEnvironment !== expectedClientEnv || !clientToken.startsWith(expectedPrefix)) {
-      return res.status(503).json({ error: "Checkout pricing environment mismatch.", code: "PADDLE_ENVIRONMENT_MISMATCH", detail: `PADDLE_ENVIRONMENT=${paddleEnvironment()} requires PADDLE_CLIENT_ENVIRONMENT=${expectedClientEnv} and a ${expectedPrefix}-prefixed PADDLE_CLIENT_TOKEN` });
+    if (isProduction() && storefront.environment === "test") {
+      return res.status(503).json({
+        error: "Checkout pricing environment mismatch.",
+        code: "FASTSPRING_ENVIRONMENT_MISMATCH",
+        detail: "Production requires a live FastSpring storefront path (without .test.onfastspring.com) in FASTSPRING_STOREFRONT",
+      });
     }
-    const resolvedPrices = await resolvePaddlePriceEnvMap();
+    const forcedMode = String(env().FASTSPRING_CHECKOUT_MODE || "").trim().toLowerCase();
+    const checkoutMode: "popup" | "session" = forcedMode === "popup" ? "popup" : forcedMode === "session" ? "session" : fastspringApiCredentials() ? "session" : "popup";
     res.setHeader("Cache-Control", "no-store");
     res.json({
-      environment: clientEnvironment,
-      clientToken,
+      provider: "fastspring",
+      environment: storefront.environment,
+      storefront: storefront.raw,
+      checkoutMode,
       country: visitorCountry(_req),
-      tiers: buildPricingTiers((name) => resolvedPrices[name] || (env()[name] as string | undefined)),
+      tiers: buildPricingTiers((name) => env()[name] as string | undefined),
     });
   }));
 
@@ -2401,7 +1576,7 @@ export function registerPlatformRoutes(app: Express) {
       owner: "Henry John Vincent Horlick", organization: "Horlick Group", users: usersPayload, stats,
       complimentaryCodes: codes.map(({ codeHash: _hash, ...code }) => code),
       contacts, plans: PLAN_ORDER.map((slug) => PLAN_CONFIG[slug]),
-      configuration: { emailProviderConfigured: Boolean(e.EMAIL_PROVIDER && e.EMAIL_PROVIDER !== "console"), paddleConfigured: Boolean(e.PADDLE_WEBHOOK_SECRET && e.PADDLE_API_KEY), fastspringConfigured: Boolean(e.FASTSPRING_WEBHOOK_SECRET && e.FASTSPRING_STOREFRONT), publicAppUrlConfigured: Boolean(e.PUBLIC_APP_URL), production: isProduction() },
+      configuration: { emailProviderConfigured: Boolean(e.EMAIL_PROVIDER && e.EMAIL_PROVIDER !== "console"), fastspringConfigured: Boolean(e.FASTSPRING_WEBHOOK_SECRET && e.FASTSPRING_STOREFRONT), publicAppUrlConfigured: Boolean(e.PUBLIC_APP_URL), production: isProduction() },
 
       billing: billingConfiguration(), fastspring: fastspringConfiguration(), webhookEvents: webhookEvents.reverse(),
       inbox: await inboxSummarySafe(),

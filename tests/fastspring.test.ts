@@ -40,7 +40,6 @@ process.chdir(mkdtempSync(join(tmpdir(), "scenering-fastspring-")));
 process.env.NODE_ENV = "test";
 process.env.SESSION_SECRET = "a-test-session-secret-of-sufficient-length";
 process.env.PUBLIC_APP_URL = "https://scenering.test";
-process.env.BILLING_PROVIDER = "fastspring";
 process.env.FASTSPRING_STOREFRONT = "scenering.test.onfastspring.com/popup-scenering";
 process.env.FASTSPRING_WEBHOOK_SECRET = WEBHOOK_SECRET;
 
@@ -343,15 +342,6 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
   h.eq(unconfiguredBody.code, "BILLING_NOT_CONFIGURED", "the reason is machine-readable");
   h.ok(String(unconfiguredBody.detail || "").includes("FASTSPRING_STOREFRONT"), "and names the variable that is missing");
   process.env.FASTSPRING_STOREFRONT = savedStorefront;
-
-  /* BILLING_PROVIDER is the switch: Paddle keeps its endpoint even while
-     FastSpring is the default. */
-  process.env.BILLING_PROVIDER = "paddle";
-  const viaPaddle = await fetch(`${base}/api/billing/checkout/sceneflow/monthly`, { headers: { Cookie: cookie } });
-  const viaPaddleBody = await viaPaddle.json() as any;
-  h.eq(viaPaddle.status, 503, "with BILLING_PROVIDER=paddle the FastSpring checkout is not opened");
-  h.eq(viaPaddleBody.code, "BILLING_NOT_CONFIGURED", "and the Paddle path reports its own missing configuration");
-  process.env.BILLING_PROVIDER = "fastspring";
 }
 
 /* ------------------------------------------------------------------ */
@@ -559,10 +549,7 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
   delete process.env.FASTSPRING_WEBHOOK_SECRET;
   h.eq(platform.fastspringConfiguration().ready, false, "without the webhook secret nothing is ready, because a payment could never be believed");
   process.env.FASTSPRING_WEBHOOK_SECRET = withoutSecret;
-  h.eq(platform.billingProvider(), "fastspring", "BILLING_PROVIDER chooses the default checkout");
-  process.env.BILLING_PROVIDER = "paddle";
-  h.eq(platform.billingProvider(), "paddle", "and Paddle stays selectable beside it");
-  process.env.BILLING_PROVIDER = "fastspring";
+  h.eq(platform.billingProvider(), "fastspring", "FastSpring is the sole billing provider");
 }
 
 /* ------------------------------------------------------------------ */
@@ -590,7 +577,7 @@ h.eq((await account()).membership.plan_id, "free", "a new account starts on Free
   h.ok(platformSource.includes("fastspringCheckoutTags"), "checkout carries the account tags that webhooks read back");
 
   for (const key of [
-    "BILLING_PROVIDER", "FASTSPRING_STOREFRONT", "FASTSPRING_API_USERNAME",
+    "FASTSPRING_STOREFRONT", "FASTSPRING_API_USERNAME",
     "FASTSPRING_API_PASSWORD", "FASTSPRING_WEBHOOK_SECRET", "FASTSPRING_CHECKOUT_MODE",
     "FASTSPRING_SCENEFLOW_MONTHLY_PATH", "FASTSPRING_SCENEFLOW_YEARLY_PATH",
     "FASTSPRING_SCENEFORGE_MONTHLY_PATH", "FASTSPRING_SCENEFORGE_YEARLY_PATH",

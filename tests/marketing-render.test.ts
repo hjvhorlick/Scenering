@@ -122,6 +122,7 @@ for (const path of ["/terms", "/privacy", "/refunds", "/cookies"]) {
   ok(home.includes(`href="${path}"`), `the front page footer renders ${path}`);
   ok(tour.includes(`href="${path}"`), `the standalone page footer renders ${path}`);
 }
+ok(home.includes("mkt-nav-legal-panel") && tour.includes("mkt-nav-legal-panel"), "both the front page and standalone page headers render the Legal dropdown with the four legal pages");
 ok(home.includes("mkt-footer-legal-bar") && home.includes("Legal documents"), "the front page footer renders the legal documents bar");
 ok(/<main id="main"[^>]*tabindex="-1"/i.test(html), "the skip link's target can take focus");
 ok(/class="mkt-skip" href="#main"/.test(html), "the first link on the page skips the navigation");
@@ -164,7 +165,7 @@ ok(html.includes("Example created for demonstration"), "examples are labelled");
 ok(html.includes("Coming soon"), "planned features are labelled on the page");
 // 2026-10-16, owner: the developer note about payment-provider credentials was
 // never meant for visitors (it names the provider the billing integration is
-// configured against — Paddle now, Lemon Squeezy before), and the plan cards
+// configured against — FastSpring), and the plan cards
 // promised narration with a free Google key while every other line on the page
 // says narration uses your own Speechify key.
 ok(!html.includes("Paid checkout requires configured"), "no payment-setup note is shown to visitors");

@@ -4,7 +4,7 @@ import type { BillingInterval, ExportCreativeManifest, PlanSlug } from "./config
 /** Match migration 0006 when the remote database has not applied it yet. */
 async function ensureBillingCustomersTable(): Promise<void> {
   await env().DB.prepare(`CREATE TABLE IF NOT EXISTS billing_customers (
-    provider TEXT NOT NULL DEFAULT 'paddle',
+    provider TEXT NOT NULL DEFAULT 'fastspring',
     provider_customer_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     email TEXT NOT NULL,
@@ -67,8 +67,9 @@ export interface Subscription {
   providerCustomerId: string | null;
   providerSubscriptionId: string | null;
   providerProductId: string | null;
-  /** Paddle's `pri_…` price id — the monthly or yearly edition of a product,
-   *  which is what a webhook maps back to a Scenering plan. */
+  /** FastSpring's product path (`sceneflow-monthly`, `sceneflow-yearly`,
+   *  `sceneforge-monthly`, `sceneforge-yearly`), which is what a webhook maps
+   *  back to a Scenering plan. */
   providerPriceId: string | null;
   planId: PlanSlug;
   billingInterval: BillingInterval;
@@ -552,8 +553,8 @@ export const db = {
   /** The subscription to show and to authorise against.
    *
    *  A member can end up with more than one row — a second purchase, or a
-   *  re-subscription after a cancellation, arrives from Paddle with a new
-   *  `sub_…` id. The one that matters is the one Paddle told us about most
+   *  re-subscription after a cancellation, arrives from FastSpring with a new
+   *  subscription id. The one that matters is the one FastSpring told us about most
    *  recently, so this orders by `updated_at` and breaks a tie on `created_at`
    *  and `id`: two rows written in the same millisecond must not make the
    *  answer depend on which one SQLite happens to return first. */
@@ -572,9 +573,9 @@ export const db = {
     const row = await env().DB.prepare("SELECT * FROM subscriptions WHERE provider_subscription_id = ?").bind(providerSubscriptionId).first();
     return row ? rowToSubscription(row) : null;
   },
-  /** Newest non-expired subscription for a Paddle customer id (`ctm_…`).
-   *  Subscription webhooks always carry the customer id even when they carry
-   *  no `custom_data`, so this is the fallback that matches a renewal, a
+  /** Newest non-expired subscription for a FastSpring account id (`acct…`).
+   *  Subscription webhooks always carry the account id even when they carry
+   *  no `tags`, so this is the fallback that matches a renewal, a
    *  cancellation or a failed payment to the account that owns it. */
   async findSubscriptionByProviderCustomerId(providerCustomerId: string): Promise<Subscription | null> {
     const row = await env().DB.prepare("SELECT * FROM subscriptions WHERE provider_customer_id = ? AND status != 'expired' ORDER BY created_at DESC LIMIT 1").bind(providerCustomerId).first();
@@ -752,12 +753,11 @@ export const db = {
     await env().DB.prepare("UPDATE complimentary_codes SET status = 'expired' WHERE status = 'active' AND expires_at <= ?").bind(nowSql()).run();
   },
 
-  // --- billing customer ↔ account mapping (Paddle and FastSpring) ---
-  /** Records which Scenering account a provider customer is (Paddle `ctm_…`,
-   *  FastSpring `acct…`). Written from the webhooks that carry an email
-   *  address or the checkout `tags`, so that later subscription webhooks can
-   *  still be matched. Mapping alone never grants a plan; only a subscription
-   *  event does. */
+  // --- billing customer ↔ account mapping (FastSpring) ---
+  /** Records which Scenering account a FastSpring customer account (`acct…`)
+   *  belongs to. Written from the webhooks that carry an email address or the
+   *  checkout `tags`, so that later subscription webhooks can still be matched.
+   *  Mapping alone never grants a plan; only a subscription event does. */
   async upsertBillingCustomer(row: { provider: string; providerCustomerId: string; userId: string; email: string; lastEventAt: string | null }): Promise<void> {
     await ensureBillingCustomersTable();
     /* The WHERE on the update half is what makes a late redelivery harmless:
@@ -769,8 +769,7 @@ export const db = {
        WHERE billing_customers.last_event_at IS NULL OR billing_customers.last_event_at < excluded.last_event_at`
     ).bind(row.provider, row.providerCustomerId, row.userId, row.email, row.lastEventAt, nowIso(), nowIso()).run();
   },
-  /** One customer-id mapping. Pass `provider` ("paddle", "fastspring") to
-   *  keep two merchants of record apart — the table keys on (provider, id). */
+  /** One customer-id mapping for `provider` (defaults to `"fastspring"`). */
   async findBillingCustomer(providerCustomerId: string, provider?: string): Promise<{ userId: string; email: string } | null> {
     await ensureBillingCustomersTable();
     const row = provider
@@ -778,7 +777,7 @@ export const db = {
       : await env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId).first();
     return row ? { userId: String(row.user_id), email: String(row.email) } : null;
   },
-  async findBillingCustomerByUser(userId: string, email?: string, provider = "paddle"): Promise<{ providerCustomerId: string; userId: string; email: string } | null> {
+  async findBillingCustomerByUser(userId: string, email?: string, provider = "fastspring"): Promise<{ providerCustomerId: string; userId: string; email: string } | null> {
     await ensureBillingCustomersTable();
     const cleanEmail = String(email || "").trim().toLowerCase();
     const row = cleanEmail
@@ -806,7 +805,7 @@ export const db = {
     await env().DB.prepare("INSERT INTO webhook_events (id, provider_event_id, event_name, status, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .bind(newId("wh"), row.providerEventId, row.eventName, row.status, jsonOrNull(row.payload), nowIso()).run();
   },
-  /** Marks on the original event's row that a redelivery arrived (Paddle
+  /** Marks on the original event's row that a redelivery arrived (FastSpring
    *  retries until it gets a 2xx, and the owner's webhook log should show it)
    *  without creating a second row for the same provider event id — the column
    *  is UNIQUE, and the original outcome must stay visible. */

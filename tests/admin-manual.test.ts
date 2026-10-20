@@ -200,7 +200,7 @@ const allText = (item: { q: string; a: string; steps: readonly string[]; points?
   /* Prose only for the spelling and wording rules: `Words between backticks`
      are identifiers to type or copy exactly (event names such as
      `subscription.canceled`, environment variables, paths) and must be shown
-     as FastSpring and Paddle spell them, not translated into British prose. */
+     as FastSpring spells them, not translated into British prose. */
   const prose = words.replace(/`[^`\n]*`/g, "X");
   const american = prose.match(/\b(color|colors|organize|organized|organization|center|favorite|canceled|canceling|behavior|catalog|analyze|license|enroll|enrolled)\b/gi) || [];
   same(american, [], "British spelling throughout");
@@ -288,7 +288,7 @@ const allText = (item: { q: string; a: string; steps: readonly string[]; points?
   }
 
   /* The setup steps name every environment variable the checklist needs. */
-  for (const name of ["FASTSPRING_STOREFRONT", "FASTSPRING_WEBHOOK_SECRET", "FASTSPRING_API_USERNAME", "FASTSPRING_API_PASSWORD", "BILLING_PROVIDER", "FASTSPRING_SCENEFLOW_MONTHLY_PATH"]) {
+  for (const name of ["FASTSPRING_STOREFRONT", "FASTSPRING_WEBHOOK_SECRET", "FASTSPRING_API_USERNAME", "FASTSPRING_API_PASSWORD", "FASTSPRING_SCENEFLOW_MONTHLY_PATH"]) {
     h.ok(setupAndWebhookText.includes(name), `the setup steps name ${name}`);
   }
   h.ok(read(".env.example").includes("FASTSPRING_WEBHOOK_SECRET="), ".env.example lists the FastSpring settings the manual describes");

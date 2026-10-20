@@ -19,13 +19,11 @@ export interface PlanConfig {
   prices: Record<BillingInterval, number>;
   annualMonthlyEquivalent: number;
   annualSaving: number;
-  /** Environment variable holding the Paddle *approved checkout URL* for this
-   *  plan and interval. The server creates the Paddle transaction and passes
-   *  this as `checkout.url`, so the customer lands on a link that already
-   *  carries their account id. */
+  /** Default FastSpring product path (`sceneflow-monthly`, etc.) for this
+   *  plan and interval. */
   checkoutEnv: Record<BillingInterval, string>;
-  /** Environment variable holding the Paddle price id (`pri_…`) for this plan
-   *  and interval. This is what a webhook maps a purchase back to. */
+  /** Environment variable holding the FastSpring product path override for
+   *  this plan and interval (`FASTSPRING_*_PATH`). */
   priceEnv: Record<BillingInterval, string>;
   limits: {
     /** Null means no Scenering-imposed weekly export-count ceiling. */
@@ -74,8 +72,8 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
   sceneflow: {
     id: "sceneflow", name: "SceneFlow", description: "All creative features with 15 final video downloads every week.",
     prices: { monthly: 19, yearly: 180 }, annualMonthlyEquivalent: 15, annualSaving: 48,
-    checkoutEnv: { monthly: "PADDLE_SCENEFLOW_MONTHLY_CHECKOUT_URL", yearly: "PADDLE_SCENEFLOW_YEARLY_CHECKOUT_URL" },
-    priceEnv: { monthly: "PADDLE_SCENEFLOW_MONTHLY_PRICE_ID", yearly: "PADDLE_SCENEFLOW_YEARLY_PRICE_ID" },
+    checkoutEnv: { monthly: "sceneflow-monthly", yearly: "sceneflow-yearly" },
+    priceEnv: { monthly: "FASTSPRING_SCENEFLOW_MONTHLY_PATH", yearly: "FASTSPRING_SCENEFLOW_YEARLY_PATH" },
     limits: { finalExportsPerWeek: 15, shortExportsPerWeek: null, longExportsPerWeek: null,
       maxShortMinutes: null, maxLongMinutes: null, projectCapacity: null, visualResearchCapacity: "expanded",
       voicePresets: null, captionStyles: null, backgroundMusicTracks: null, audioVisualiserStyles: null },
@@ -84,8 +82,8 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
   sceneforge: {
     id: "sceneforge", name: "SceneForge", description: "All creative features with unlimited final downloads, subject to fetched/upstream API service limits.",
     prices: { monthly: 39, yearly: 372 }, annualMonthlyEquivalent: 31, annualSaving: 96,
-    checkoutEnv: { monthly: "PADDLE_SCENEFORGE_MONTHLY_CHECKOUT_URL", yearly: "PADDLE_SCENEFORGE_YEARLY_CHECKOUT_URL" },
-    priceEnv: { monthly: "PADDLE_SCENEFORGE_MONTHLY_PRICE_ID", yearly: "PADDLE_SCENEFORGE_YEARLY_PRICE_ID" },
+    checkoutEnv: { monthly: "sceneforge-monthly", yearly: "sceneforge-yearly" },
+    priceEnv: { monthly: "FASTSPRING_SCENEFORGE_MONTHLY_PATH", yearly: "FASTSPRING_SCENEFORGE_YEARLY_PATH" },
     limits: { finalExportsPerWeek: null, shortExportsPerWeek: null, longExportsPerWeek: null,
       maxShortMinutes: null, maxLongMinutes: null, projectCapacity: null, visualResearchCapacity: "high",
       voicePresets: null, captionStyles: null, backgroundMusicTracks: null, audioVisualiserStyles: null },

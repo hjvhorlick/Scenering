@@ -72,20 +72,9 @@
     "PUBLIC_APP_URL": "https://scenering.com",
     "SCENERING_OWNER_EMAIL": "hjvhorlick@gmail.com",
     "EMAIL_PROVIDER": "resend",
-    // Paddle's environment selector: "sandbox" or "live", paired with
-    // PADDLE_CLIENT_ENVIRONMENT ("sandbox" or "production") for Paddle.js.
-    // Plain vars, not secrets — they name which Paddle account the secrets
-    // belong to, and the owner's billing checklist shows them. Set the live
-    // API key, client token (live_…), price ids, approved checkout URLs and
-    // webhook secret key with `wrangler secret put` (see PADDLE.md).
-    "PADDLE_ENVIRONMENT": "live",
-    "PADDLE_CLIENT_ENVIRONMENT": "production",
-    // FastSpring, the optional second merchant of record (see FASTSPRING.md).
-    // Plain vars, not secrets — they name which storefront to open and which
-    // provider checkout should use first; the webhook secret and API
-    // credentials go in with `wrangler secret put`. Empty values leave the
-    // existing Paddle checkout exactly as it is.
-    "BILLING_PROVIDER": "",
+    // FastSpring merchant of record (see FASTSPRING.md).
+    // Plain var, not a secret — it names which storefront to open; the
+    // webhook secret and optional API credentials go in with `wrangler secret put`.
     "FASTSPRING_STOREFRONT": ""
   },
   // Worker Previews: what Workers Builds deploys for every branch other than
@@ -113,9 +102,6 @@
       "PUBLIC_APP_URL": "",
       "SCENERING_OWNER_EMAIL": "",
       "EMAIL_PROVIDER": "console",
-      "PADDLE_ENVIRONMENT": "sandbox",
-      "PADDLE_CLIENT_ENVIRONMENT": "sandbox",
-      "BILLING_PROVIDER": "",
       "FASTSPRING_STOREFRONT": ""
     }
   }

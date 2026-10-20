@@ -1,0 +1,113 @@
+.mkt-nav-legal {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.mkt-root button.mkt-nav-legal-trigger,
+button.mkt-nav-legal-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  border: 0;
+  background: none;
+  color: var(--mkt-accent-ink, #1f4f8a);
+  font-family: var(--mkt-font, inherit);
+  font-size: 13.5px;
+  font-weight: 560;
+  line-height: 1.55;
+  letter-spacing: 0.008em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mkt-root button.mkt-nav-legal-trigger:hover,
+.mkt-root button.mkt-nav-legal-trigger.is-open,
+.mkt-root button.mkt-nav-legal-trigger.is-active,
+button.mkt-nav-legal-trigger:hover,
+button.mkt-nav-legal-trigger.is-open,
+button.mkt-nav-legal-trigger.is-active {
+  background: rgb(126 110 86 / 0.07);
+  color: var(--mkt-ink, #182130);
+  text-decoration: none;
+}
+
+.mkt-nav-legal-caret {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1.5px) rotate(45deg);
+  transition: transform 0.15s ease;
+  opacity: 0.8;
+}
+
+.mkt-nav-legal-trigger.is-open .mkt-nav-legal-caret {
+  transform: translateY(1px) rotate(-135deg);
+}
+
+.mkt-root .mkt-nav-legal-panel,
+.mkt-nav-legal-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 220;
+  display: none;
+  gap: 2px;
+  width: max-content;
+  min-width: 220px;
+  max-width: min(84vw, 280px);
+  padding: 6px;
+  border: 1px solid #d8d0c3;
+  border-radius: 12px;
+  background-color: #ffffff;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(24, 33, 48, 0.18);
+}
+
+.mkt-nav-legal-panel::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 0;
+  right: 0;
+  height: 10px;
+}
+
+.mkt-root .mkt-nav-legal-panel.is-open,
+.mkt-root .mkt-nav-legal:hover .mkt-nav-legal-panel,
+.mkt-root .mkt-nav-legal:focus-within .mkt-nav-legal-panel,
+.mkt-nav-legal-panel.is-open,
+.mkt-nav-legal:hover .mkt-nav-legal-panel,
+.mkt-nav-legal:focus-within .mkt-nav-legal-panel {
+  display: grid;
+}
+
+.mkt-root a.mkt-nav-legal-item,
+.mkt-nav-legal-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: var(--mkt-accent-ink, #1f4f8a);
+  font-family: var(--mkt-font, inherit);
+  font-size: 13.5px;
+  font-weight: 560;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.mkt-root a.mkt-nav-legal-item:hover,
+.mkt-root a.mkt-nav-legal-item.is-current,
+.mkt-nav-legal-item:hover,
+.mkt-nav-legal-item.is-current {
+  background-color: #f3efe8;
+  color: var(--mkt-ink, #182130);
+  text-decoration: none;
+}

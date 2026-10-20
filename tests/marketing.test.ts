@@ -612,8 +612,8 @@ ok(
   const themes = read("src/lib/themes.ts");
   const bootstrap = read("index.html");
 
-  ok(themes.includes('DEFAULT_THEME: ThemeId = "porcelain"'), "Porcelain is the studio's default theme");
-  ok(bootstrap.includes('t = "porcelain"'), "the pre-paint bootstrap defaults to Porcelain too");
+  ok(themes.includes('DEFAULT_THEME: ThemeId = "classic"'), "Classic Dark is the studio's default theme");
+  ok(bootstrap.includes('t = "classic"'), "the pre-paint bootstrap defaults to Classic Dark too");
   ok(marketingCss.includes('@import "../shared/porcelain.css"'), "the website is built on the shared tokens");
   ok(read("src/studio/sign-in.css").includes('@import "../shared/porcelain.css"'), "so is the sign-in screen");
 
