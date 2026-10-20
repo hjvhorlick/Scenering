@@ -1708,6 +1708,21 @@ export default function App() {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [view, editorStep]);
 
+  /**
+   * The open project's name, in the browser tab.
+   *
+   * The header no longer spends a row on the project title (see the note where
+   * that row used to be), but somebody working across two or three projects
+   * still has to tell those browser tabs apart without clicking into them — and
+   * the tab costs no working area at all. `| Scenering` is the website's own
+   * title format (src/marketing/seo.ts).
+   */
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const name = currentProject?.title?.trim();
+    document.title = name ? `${name} | Scenering` : "Studio | Scenering";
+  }, [currentProject?.title]);
+
   const handleUpdateInsert = (updated: TimelineInsert) => {
     setInserts((prev) => {
       const withoutOtherMusic = updated.category === "background_music"
@@ -1767,11 +1782,16 @@ export default function App() {
               website, immediately right of the wordmark so the brand cluster
               reads logo then social marks on every surface.
 
-              From the tablet width up. On a phone five 36px marks are ~220px of
-              a 360px header, which is what pushed the studio's own controls
-              under the corner menu; the strip is still in the corner menu panel
-              and in every footer, so nothing is lost where there is no room. */}
-          <SocialLinksRow size={36} className="hidden md:flex shrink-0" />
+              Wide displays only. Five 36px marks with their gaps are ~300px of
+              a row that also has to carry the wordmark, all six phase tabs, the
+              theme picker and the 152px this header keeps clear for the corner
+              menu. On a laptop that strip is what pushed the phase tabs onto a
+              row of their own and cost the working area two lines of height, so
+              it now appears only where the row is genuinely wide enough for
+              both. Nothing is lost where it is hidden: the same strip is in the
+              corner menu panel that sits in this header's own corner, on the
+              sign-in door and in every footer. */}
+          <SocialLinksRow size={36} className="hidden 2xl:flex shrink-0" />
 
           {/* Website navigation, account, membership and sign-out now live in
               the same fixed corner menu used on every public page. */}
@@ -1779,13 +1799,28 @@ export default function App() {
 
 
           {/* Phase tabs — Setup is phase 1 and opens the setup frame */}
-          {/* Scrolls sideways like the Video Studio tab row rather than
+          {/* One row, shared with the wordmark and the header's buttons.
+
+              `flex-wrap` on the header breaks a line using each item's
+              *content* width, so a rail that is merely allowed to shrink
+              (`min-w-0`) still starts a second row whenever its six tabs are
+              wider than the space left — which is exactly what the header used
+              to do on every laptop. `sm:flex-1` gives the rail a zero basis
+              instead, so it is laid out on the wordmark's row and then grows
+              into whatever that row has left. It stays on this row even when
+              all six tabs cannot fit: the rail scrolls internally instead of
+              wrapping the header.
+
+              Below `sm` the rail still takes a row of its own (`order-last
+              w-full`): a phone has no leftover space to give it.
+
+              Scrolls sideways like the Video Studio tab row rather than
               wrapping. min-w-0 is what makes that safe: it drops this row's
               automatic minimum size to zero, so the row shrinks to the space
               available and the tabs scroll inside it. Without min-w-0 the row
               kept its full content width and dragged the whole app past the
               edge of the window. */}
-          <div className="t-tabbar opt-group flex items-center min-w-0 bg-gray-800/80 border border-hairline rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto no-scrollbar order-last w-full sm:order-none sm:w-auto" role="tablist" aria-label="Project phases">
+          <div className="t-tabbar opt-group flex items-center min-w-0 bg-gray-800/80 border border-hairline rounded-lg p-0.5 ml-0 sm:ml-2 overflow-x-auto no-scrollbar order-last w-full sm:order-none sm:w-auto sm:flex-1" role="tablist" aria-label="Project phases">
             {(() => {
               const activeIdx = PROJECT_PHASES.findIndex((phase) =>
                 phase.id === "setup" ? view === "create" : view === "editor" && editorStep === phase.editorStep
@@ -1828,19 +1863,18 @@ export default function App() {
                 );
               });
             })()}
-            {/* Locked-tab explanation: steps 2–6 edit a project's content, so
-                they only light up once a project exists on this screen. */}
-            {!currentProject && (
-              <span className="opt-hint ml-auto shrink-0 hidden lg:inline-flex pr-1" title="Steps 2–6 edit a project's scenes, voices and video — they unlock as soon as you create or select a project in Setup">
-                <Icon glyph="🔓" />
-                <span>create or select a project to unlock steps 2–6</span>
-              </span>
-            )}
+            {/* The trailing unlock instruction is gone: it was ~230px of the
+                row the tabs themselves needed, and merely repeated the status
+                the dimmed, disabled tabs already explain in their tooltips. */}
           </div>
 
           <div className="ml-auto flex items-center gap-2 shrink-0">
+            {/* Scene and insert counts. Wide displays only: this badge is ~150px
+                of the one row the phase tabs have to fit on, and the same two
+                numbers are already on the screens they describe — the Scenes
+                list and the Video Studio's insert catalogue. */}
             {view === "editor" && (
-              <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 shadow-sm hidden lg:flex items-center gap-1.5">
+              <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 shadow-sm hidden 2xl:flex items-center gap-1.5">
                 <Icon glyph="🎬" />
                 <span>
                   {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
@@ -1892,16 +1926,16 @@ export default function App() {
                 useful things to do with the width. */}
           </div>
 
-          {/* The project title gets a full-width row under the logo and phase
-              tabs. It cannot compete with the buttons in the header, and
-              truncate plus the tooltip keep unusually long names usable.
-              The full title remains available in the tooltip. */}
-          <h2
-            className="order-last w-full min-w-0 truncate font-semibold text-xs sm:text-sm text-gray-200"
-            title={currentProject ? currentProject.title : "Start a New Project"}
-          >
-            {currentProject ? currentProject.title : "Start a New Project"}
-          </h2>
+          {/* The project title no longer has a row in this header.
+
+              It used to sit on a full-width line of its own under the wordmark
+              and the phase tabs, which made the header three rows tall on a
+              laptop and took ~60px off the working area for a name the creator
+              has just typed. The title is still where it is edited and where it
+              is read: the Setup screen's title field, the Setup summary line,
+              and — for a browser tab that has to be identified at a glance —
+              the document title, set by the effect beside the other header
+              effects. */}
         </div>
 
         {/* Content Body */}

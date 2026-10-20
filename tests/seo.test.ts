@@ -287,13 +287,12 @@ const app = read("src/App.tsx");
 const corner = read("src/shared/SiteCornerMenu.tsx");
 const signIn = read("src/studio/SignIn.tsx");
 const signInCss = read("src/studio/sign-in.css");
-/* Tablet width and up: on a phone the five 36px marks are ~220px of a 360px
-   header, which is what pushed the studio's own controls under the corner menu
-   — the owner's "the header is cutoff" report. The strip still renders on
-   phones, in the corner menu panel and the footers. */
+/* Ultrawide only: on a laptop the social strip competed with the six phase
+   tabs for the single header row. The links remain in the corner menu, sign-in
+   page and footers at every width. */
 h.ok(
-  app.includes('SocialLinksRow size={36} className="hidden md:flex shrink-0"'),
-  "large social links are visible in the studio header, from tablet width up"
+  app.includes('SocialLinksRow size={36} className="hidden 2xl:flex shrink-0"'),
+  "large social links are visible in the studio header on ultrawide screens"
 );
 h.ok(
   /SocialLinksRow size=\{40\}/.test(corner),

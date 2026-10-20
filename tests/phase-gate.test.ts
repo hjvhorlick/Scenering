@@ -129,7 +129,9 @@ h.ok(/commitPhaseEffects/.test(app) && /scenes"\)\.upsert/.test(app), "committin
 h.ok(app.includes("commitStorageKey(currentProject.id)"), "the commit stamp is written per project");
 h.ok(app.includes("handleStepRequest"), "sections navigate through the app, not around it");
 h.ok(!app.includes("onNavigateToStep={setEditorStep}"), "no section bypasses the app with a raw step change");
-h.ok(app.includes("create or select a project to unlock steps 2–6"), "with no project, the tab row says how to open the other steps");
+h.ok(!app.includes("create or select a project to unlock steps 2–6"), "the redundant unlock hint is removed from the tab row");
+h.ok(!app.includes("🔓"), "the decorative unlock icon is removed from the phase menu");
+h.ok(app.includes("isPhaseLocked(phase.id, Boolean(currentProject))"), "closed phases retain their per-tab lock state");
 h.ok(/onNext=\{\(\) => \{ const target = nextPhase\("scenes"\);/.test(app), "the Scenes Next button saves and opens Voiceover");
 h.ok(/onNext=\{\(\) => \{ const target = nextPhase\("studio"\);/.test(app), "the Studio Next button saves and opens Render");
 h.ok(app.includes("busyLabel={committingPhase ==="), "the Next button reports the commit while it runs");
