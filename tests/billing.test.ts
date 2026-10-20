@@ -23,6 +23,7 @@ const fastspringDoc = readFileSync(join(repoRoot, "FASTSPRING.md"), "utf8");
 const modal = readFileSync(join(repoRoot, "src/components/AccountMembershipModal.tsx"), "utf8");
 const publicPage = readFileSync(join(repoRoot, "src/marketing/PublicPage.tsx"), "utf8");
 const fastspringClient = readFileSync(join(repoRoot, "src/lib/fastspring.ts"), "utf8");
+const appHtml = readFileSync(join(repoRoot, "index.html"), "utf8");
 const packageJson = readFileSync(join(repoRoot, "package.json"), "utf8");
 
 const WEBHOOK_SECRET = "fastspring_billing_test_secret";
@@ -124,7 +125,8 @@ const base = `http://127.0.0.1:${(server.address() as any).port}`;
   h.eq(/paddle/i.test(publicPage), false, "PublicPage.tsx has zero Paddle references");
   h.ok(publicPage.includes("openFastSpringPopup"), "PublicPage.tsx opens FastSpring popup checkout");
   h.ok(modal.includes("openFastSpringPopup"), "AccountMembershipModal.tsx opens FastSpring popup checkout");
-  h.ok(fastspringClient.includes("sbl.onfastspring.com/sbl/1.0.6/fastspring-builder.min.js"), "src/lib/fastspring.ts loads the official FastSpring Store Builder Library");
+  h.ok(appHtml.includes('id="fsc-api"') && appHtml.includes('data-storefront="scenering.test.onfastspring.com/popup-plans"'), "index.html includes the requested FastSpring test storefront snippet in the document head");
+  h.ok(fastspringClient.includes("sbl.onfastspring.com/sbl/1.0.9/fastspring-builder.min.js"), "src/lib/fastspring.ts uses the Store Builder Library version from the header snippet");
 }
 
 server.close();

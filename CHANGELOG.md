@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — a shorter studio header
+
+- The studio's phase tabs now share the wordmark's row on desktop instead of
+  wrapping onto their own line. Removed the full-width project-title row and
+  the redundant “create or select a project to unlock steps 2–6” note at the
+  end of the phase menu; the project name remains available in Setup and in
+  the browser tab title. The optional social strip and scene-count badge are
+  reserved for ultrawide screens so they cannot force the working tabs onto a
+  new header row. This returns the saved header height to the editing area.
+
 ## Unreleased — FastSpring merchant-of-record billing
 
 - **FastSpring is the sole merchant of record.** All four subscriptions

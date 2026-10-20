@@ -39,7 +39,7 @@ export interface FastSpringPopupCheckout {
 }
 
 /** The Store Builder Library loader FastSpring publishes for popup checkouts. */
-export const FASTSPRING_SBL_URL = "https://sbl.onfastspring.com/sbl/1.0.6/fastspring-builder.min.js";
+export const FASTSPRING_SBL_URL = "https://sbl.onfastspring.com/sbl/1.0.9/fastspring-builder.min.js";
 
 declare global {
   interface Window {

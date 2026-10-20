@@ -257,20 +257,15 @@ ok(
   // rather than widen the header.
   ok(/t-tabbar[^"]*overflow-x-auto/.test(app), "the phase tabs scroll sideways instead of stretching the header");
 
-  // The project name lives on its own full-width line under the logo and
-  // the phase tabs. It used to sit inline between them with a width clamp,
-  // and a long name still pushed the right-hand buttons off the edge of a
-  // laptop screen; a wrapped second line can never compete for that row.
-  const projectTitle =
-    app.match(/<h2\s+className="order-last w-full[^"]*"/)?.[0] ?? "";
-  ok(projectTitle.length > 0, "the header still carries the project title, on its own line");
-  ok(/w-full/.test(projectTitle), "the title wraps to a full-width row of its own");
-  ok(/order-last/.test(projectTitle), "the title's row comes after the logo, tabs and buttons");
-  ok(/truncate/.test(projectTitle), "a novel-length title still keeps to a single line");
-  ok(
-    app.includes('title={currentProject ? currentProject.title : "Start a New Project"}'),
-    "a shortened title is still readable in full from the tooltip"
-  );
+  // The project title and unlock note used to create a third row in the
+  // studio header, costing the working area roughly 60px of height. The phase
+  // tabs now share the logo's row on desktop and scroll within the remaining
+  // space; the project name is in the browser tab instead of app chrome.
+  ok(!/<h2[^>]*>[\s\S]{0,300}currentProject\.title/.test(app), "the project title no longer takes space in the studio header");
+  ok(!app.includes("create or select a project to unlock steps 2–6"), "the redundant unlock note is gone from the phase menu");
+  ok(/sm:flex-1/.test(app), "the phase rail fills the remaining desktop header row without wrapping it");
+  ok(/hidden 2xl:flex shrink-0/.test(app), "optional social links do not force the phase rail onto a second desktop row");
+  ok(/document\.title = name \? `\$\{name\} \| Scenering` : "Studio \| Scenering"/.test(app), "the open project remains identifiable in the browser tab");
 }
 
 /* =====================================================================
@@ -350,8 +345,8 @@ ok(
 
   // --- the studio header on a phone -------------------------------------
   ok(
-    app.includes('<SocialLinksRow size={36} className="hidden md:flex shrink-0" />'),
-    "the studio header keeps its social strip for tablet width and up only"
+    app.includes('<SocialLinksRow size={36} className="hidden 2xl:flex shrink-0" />'),
+    "the studio header keeps its social strip for ultrawide screens only"
   );
   ok(
     /@media \(max-height: 560px\)[^{]*\{[^@]*\.t-app-hdr/s.test(chrome),
