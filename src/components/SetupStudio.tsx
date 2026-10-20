@@ -202,7 +202,7 @@ export default function SetupStudio({
 }: SetupStudioProps) {
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
-  /* The same Paddle-localized prices as the website and /pricing —
+  /* The same FastSpring-localized prices as the website and /pricing —
      the visitor's own currency, tax included, not USD base numbers. */
   const { displayPrice, annualSavingLine } = useLocalizedPlanPrices();
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
@@ -1541,7 +1541,7 @@ export default function SetupStudio({
         </div>
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1 text-[11px] text-gray-400">
-          <p>Paid prices are shown in your local currency, with tax, exactly as Paddle calculates them. Paid checkout is available only when Paddle has been configured. Paid access begins after verified subscription confirmation.</p>
+          <p>Paid prices are shown in your local currency, with tax, exactly as FastSpring calculates them. Paid checkout is available only when FastSpring has been configured. Paid access begins after verified subscription confirmation.</p>
           <button type="button" onClick={() => { window.location.href = "/pricing"; }} className="shrink-0 text-blue-300 hover:text-white font-bold underline underline-offset-4">Open complete plan comparison</button>
         </div>
       </section>

@@ -1,30 +1,34 @@
 #!/usr/bin/env bash
-# One-shot bring-up of the local dev environment in the Arena sandbox.
-# The sandbox wipes node_modules, dist, .dev.vars and the local D1 state
-# between sessions; this restores all of it. The dev server itself is
-# started separately (it must outlive this script).
+# Idempotently start the Scenering dev server on 0.0.0.0:3000 inside the sandbox.
 set -euo pipefail
-cd "$(dirname "$0")/.."
 
-[ -d node_modules/.bin ] || npm ci
+cd /home/user/Scenering
 
+# Ensure local D1 sqlite schema is initialized so wrangler dev / workerd can serve DB queries immediately
+npx wrangler d1 migrations apply scenering-db --local >/dev/null 2>&1 || true
+
+# Ensure .dev.vars exists for local workerd dev
 if [ ! -f .dev.vars ]; then
   cat > .dev.vars <<'EOF'
-NODE_ENV=development
-SESSION_SECRET=local-development-secret-change-me-32-chars-minimum
-PUBLIC_APP_URL=
-SCENERING_OWNER_EMAIL=hjvhorlick@gmail.com
-ALLOW_FRAMING=1
-DEV_EMBEDDED_PREVIEW=1
-DEV_SANDBOX_AUTO_PROVISION=1
-TRUST_PROXY=1
+SCENERING_AUTH_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 EMAIL_PROVIDER=console
-PADDLE_ENVIRONMENT=sandbox
-PADDLE_CLIENT_ENVIRONMENT=sandbox
+FASTSPRING_STOREFRONT=
 EOF
 fi
 
-[ -f dist/index.html ] || npm run build
-npx wrangler d1 migrations apply scenering-db --local
+# Check if port 3000 is already listening
+if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
+  exit 0
+fi
 
-echo "Sandbox dev environment ready."
+nohup npm run dev -- --host 0.0.0.0 --port 3000 > /tmp/scenering-dev.log 2>&1 &
+
+for i in $(seq 1 30); do
+  if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
+    exit 0
+  fi
+  sleep 1
+done
+
+cat /tmp/scenering-dev.log >&2 || true
+exit 1

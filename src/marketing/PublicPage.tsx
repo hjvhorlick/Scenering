@@ -2,10 +2,11 @@ import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } f
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type FeatureKey } from "../config/plans";
 import { isFeatureTourPath, navigate, STUDIO_PATH } from "../lib/route";
 import { useSession } from "../lib/session";
-import { onPaddleCheckoutEvent } from "../lib/paddle";
+import { openFastSpringPopup } from "../lib/fastspring";
 import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
 import { buildPricingTiers, TIER_FEATURES, type Tier } from "../config/pricing-tiers";
 import { BrandMark } from "./components/primitives";
+import HeaderLegalMenu from "./components/HeaderLegalMenu";
 import Questions from "./sections/Questions";
 import IdeaToVideo from "./sections/IdeaToVideo";
 import ScenesSection from "./sections/ScenesSection";
@@ -49,10 +50,10 @@ export default function PublicPage({ path }: { path: string }) {
   else if (path === "/unsubscribe") content = <UnsubscribePage />;
   else if (path === "/welcome") content = <WelcomePage />;
   else content = <LegalPage kind={path.slice(1) as "privacy" | "terms" | "cookies" | "refunds"} />;
-  return <div className="mkt-root"><SiteCornerMenu /><PublicNav /><StoreNoticeBanner /><main id="main" className="pub-main">{content}</main><PublicFooter /></div>;
+  return <div className="mkt-root"><SiteCornerMenu /><PublicNav currentPath={path} /><StoreNoticeBanner /><main id="main" className="pub-main">{content}</main><PublicFooter /></div>;
 }
 
-function PublicNav() { return <nav className="mkt-nav" aria-label="Main"><div className="mkt-container mkt-nav-inner"><a href="/" className="mkt-nav-logo"><BrandMark height={26} /></a><SocialLinksRow size={26} tone="light" className="mkt-nav-social" /><div className="pub-navlinks">{NAV.map(([href, label]) => <a key={href} href={href} className="mkt-nav-link">{label}</a>)}</div><span className="mkt-nav-spacer" /><span className="sc-corner-reserve" aria-hidden="true" /></div></nav>; }
+function PublicNav({ currentPath }: { currentPath?: string }) { return <nav className="mkt-nav" aria-label="Main"><div className="mkt-container mkt-nav-inner"><a href="/" className="mkt-nav-logo"><BrandMark height={26} /></a><SocialLinksRow size={26} tone="light" className="mkt-nav-social" /><div className="pub-navlinks">{NAV.map(([href, label]) => <a key={href} href={href} className="mkt-nav-link">{label}</a>)}<HeaderLegalMenu currentPath={currentPath} /></div><span className="mkt-nav-spacer" /><span className="sc-corner-reserve" aria-hidden="true" /></div></nav>; }
 function PublicFooter() {
   return (
     <footer className="mkt-footer">
@@ -116,16 +117,14 @@ function HowPage() { const steps = ["Understand the supplied script or audio", "
 
 /**
  * The pricing page: three tiers, monthly/yearly, country-localized
- * prices and an overlay checkout — all served by Paddle directly.
+ * prices and a popup or session checkout — all served by FastSpring.
  *
- * Prices come back from Paddle.PricePreview() already formatted
- * for the visitor's country (currency, symbol, tax) and are
- * displayed exactly as returned — no re-formatting, no arithmetic.
- * The country is read server-side from the edge headers and
- * passed in; when the edge reports none, no country is sent and
- * Paddle infers it from the IP. Checkout opens as a one-page
- * overlay for the exact price shown, prefills the signed-in
- * account's email, and redirects to /welcome on success.
+ * Prices come back from the FastSpring Store Builder Library (`sbl.min.js`)
+ * already formatted for the visitor's country and currency and are
+ * displayed as returned. Checkout opens as a FastSpring popup storefront
+ * (or redirects to a FastSpring session) for the selected product path,
+ * prefills the signed-in account's email, and redirects to /welcome on
+ * completion.
  *
  * The loading and previewing itself lives in
  * useLocalizedPlanPrices (src/lib/use-localized-prices.ts), shared
@@ -138,32 +137,22 @@ function PricingPage() {
   const initialInterval: BillingInterval = initialParams?.get("interval") === "yearly" ? "yearly" : "monthly";
   const [interval, setInterval] = useState<BillingInterval>(initialInterval);
   const [compare, setCompare] = useState(false);
-  const { config, paddle, configError, pricesError, setPricesError, displayPrice, annualSavingLine } = useLocalizedPlanPrices();
+  const { config, configError, pricesError, setPricesError, displayPrice, annualSavingLine } = useLocalizedPlanPrices();
   const [opening, setOpening] = useState("");
   const [autoOpened, setAutoOpened] = useState(false);
   const { account } = useSession();
 
-  useEffect(() => onPaddleCheckoutEvent((event) => {
-    if (event.name === "checkout.payment.failed") {
-      setPricesError("Your payment was declined. Please check your card details or try another payment method in the checkout window.");
-    } else if (event.name === "checkout.payment.error") {
-      setPricesError("No payment methods are available for this checkout. Please contact support if the problem persists.");
-    } else if (event.name === "checkout.completed") {
-      setPricesError(null);
-    }
-  }), [setPricesError]);
-
   useEffect(() => {
-    if (autoOpened || !paddle || !config || typeof window === "undefined") return;
+    if (autoOpened || !config || typeof window === "undefined") return;
     const requestedPlan = new URLSearchParams(window.location.search).get("plan");
     if (requestedPlan !== "sceneflow" && requestedPlan !== "sceneforge") return;
     const tier = config.tiers.find((t) => t.id === requestedPlan);
     if (!tier) return;
     setAutoOpened(true);
-    subscribe(tier);
-  }, [autoOpened, paddle, config, interval]);
+    void subscribe(tier);
+  }, [autoOpened, config, interval]);
 
-  function subscribe(tier: Tier) {
+  async function subscribe(tier: Tier) {
     if (configError) {
       setPricesError(configError);
       return;
@@ -171,39 +160,65 @@ function PricingPage() {
     const priceId = interval === "monthly" ? tier.priceId.month : tier.priceId.year;
     if (!priceId) {
       const envName = PLAN_CONFIG[tier.id].priceEnv[interval];
-      setPricesError(`Paddle price ID is not set for ${tier.name} (${interval}). Set ${envName} in your environment variables.`);
+      setPricesError(`FastSpring product path is not set for ${tier.name} (${interval}). Set ${envName} in your environment variables.`);
       return;
     }
-    if (!paddle || !config) {
-      setPricesError("Paddle checkout is still loading or PADDLE_CLIENT_TOKEN is not configured in this environment.");
-      return;
-    }
-    const email = account?.user.email;
-    const userId = account?.user.id;
     setPricesError(null);
     setOpening(tier.id);
-    paddle.Checkout.open({
-      items: [{ priceId, quantity: 1 }],
-      customData: {
-        ...(userId ? { user_id: userId } : {}),
+    try {
+      const res = await fetch(`/api/billing/checkout/${tier.id}/${interval}`, { credentials: "same-origin" });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.mode === "popup" && data.storefront && data.productPath) {
+          await openFastSpringPopup({
+            storefront: String(data.storefront),
+            productPath: String(data.productPath),
+            tags: data.tags && typeof data.tags === "object" ? data.tags : {},
+            email: typeof data.email === "string" ? data.email : undefined,
+            onClosed: (orderRef) => {
+              if (orderRef) navigate("/welcome");
+            },
+          });
+          return;
+        }
+        if (typeof data.url === "string" && data.url) {
+          window.location.href = data.url;
+          return;
+        }
+      } else if (res.status !== 401) {
+        const data = await res.json().catch(() => ({}));
+        setPricesError(data.detail ? `${data.error} (${data.detail})` : data.error || "FastSpring checkout is not configured in this environment.");
+        return;
+      }
+
+      if (!config?.storefront) {
+        setPricesError("FastSpring checkout is still loading or FASTSPRING_STOREFRONT is not configured in this environment.");
+        return;
+      }
+      const email = account?.user.email;
+      const userId = account?.user.id;
+      await openFastSpringPopup({
+        storefront: config.storefront,
+        productPath: priceId,
+        tags: {
+          ...(userId ? { user_id: userId } : {}),
+          ...(email ? { email } : {}),
+        },
         ...(email ? { email } : {}),
-        plan: tier.id,
-        interval,
-      },
-      ...(email ? { customer: { email, ...(config.country ? { address: { countryCode: config.country } } : {}) } } : {}),
-      settings: {
-        displayMode: "overlay",
-        variant: "one-page",
-        successUrl: `${window.location.origin}/welcome`,
-        ...(email ? { allowLogout: false } : {}),
-      },
-    });
-    setOpening("");
+        onClosed: (orderRef) => {
+          if (orderRef) navigate("/welcome");
+        },
+      });
+    } catch (error) {
+      setPricesError((error as Error)?.message || "FastSpring checkout could not be opened.");
+    } finally {
+      setOpening("");
+    }
   }
 
   const displayedTiers = config ? config.tiers : buildPricingTiers(() => "");
 
-  return <><PageHero eyebrow="Pricing" title="Start free. Add capability when you need it." lead="Exactly three plans. Monthly and yearly are billing choices—not extra plans. Preview renders never consume final-export allowance. Prices are shown in your local currency, with tax, exactly as Paddle calculates them." />
+  return <><PageHero eyebrow="Pricing" title="Start free. Add capability when you need it." lead="Exactly three plans. Monthly and yearly are billing choices—not extra plans. Preview renders never consume final-export allowance. Prices are shown in your local currency, with tax, exactly as FastSpring calculates them." />
     {configError && <section className="mkt-container pub-callout"><div><h2>Pricing is unavailable right now</h2><p>{configError}</p></div></section>}
     <section className="mkt-container">
       <div className="pub-toggle" role="group" aria-label="Billing interval"><button className={interval === "monthly" ? "is-on" : ""} onClick={() => setInterval("monthly")}>Monthly</button><button className={interval === "yearly" ? "is-on" : ""} onClick={() => setInterval("yearly")}>Yearly</button></div>
@@ -226,11 +241,11 @@ function Comparison() { return <div className="pub-table-wrap"><table className=
 function AboutPage() { return <><PageHero eyebrow="About" title="Video creation with meaningful control." lead="Scenering was created for people who have ideas and stories to share but do not want filming—and do not want an opaque generator making every decision." /><section className="mkt-container pub-prose"><h2>What Scenering is</h2><p>A web application that turns scripts and prepared audio into scene-based faceless videos. It combines visual research, narration, captions, creative finishing and export in one guided workflow.</p><h2>Who it is for</h2><p>YouTube and Shorts creators, educators, churches and organizations, training teams, information channels, storytellers, travel and business creators, and anyone creating social content without appearing on camera.</p><h2>What we believe</h2><p>Automation should remove repetitive work without removing judgment. Scenering therefore keeps scenes, sources, narration, captions and finishing choices visible. It does not promise views, growth or income—the work and audience remain yours.</p></section></>; }
 function ContactPage() { const [status, setStatus] = useState(""); const [busy, setBusy] = useState(false); async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); setBusy(true); setStatus(""); const form = new FormData(e.currentTarget); const response = await fetch("/api/contact", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(form)) }); const data = await response.json(); setStatus(data.message || data.error); if (response.ok) e.currentTarget.reset(); setBusy(false); } return <><PageHero eyebrow="Contact" title="How can we help?" lead="Send a product, technical, billing or account question. Messages are validated, rate-limited and stored for review." /><form className="mkt-container pub-form" onSubmit={submit}><div><label>Name<input name="name" required minLength={2} /></label><label>Email<input name="email" type="email" required /></label></div><div><label>Category<select name="category" required>{["General", "Technical", "Billing", "Account", "Feature Request", "Business", "Other"].map((c) => <option key={c}>{c}</option>)}</select></label><label>Subject<input name="subject" required minLength={3} /></label></div><label>Message<textarea name="message" rows={7} required minLength={10} /></label><label className="pub-honeypot" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off" /></label><button className="mkt-btn mkt-btn-primary" disabled={busy}>{busy ? "Sending…" : "Send message"}</button>{status && <p role="status">{status}</p>}</form></>; }
 function LegalPage({ kind }: { kind: LegalKind }) { const document = LEGAL_DOCUMENTS[kind]; return <><PageHero eyebrow="Legal" title={document.title} lead={document.lead} /><section className="mkt-container pub-prose"><p className="pub-legal-date">Effective {LEGAL_EFFECTIVE_DATE} — {LEGAL_OWNER}, {LEGAL_ORGANISATION}</p><div className="pub-legal-summary"><h2>In short</h2><ul>{document.summary.map((item) => <li key={item}>{item}</li>)}</ul></div>{document.sections.map((section) => <section key={section.heading}><h2>{section.heading}</h2>{section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}{section.bullets && <ul>{section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}{section.table && <div className="pub-table-wrap"><table className="pub-table"><thead><tr>{section.table.headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{section.table.rows.map((row) => <tr key={row.join("|")}>{row.map((cell, index) => index === 0 ? <th scope="row" key={cell}>{cell}</th> : <td key={cell} data-label={section.table!.headers[index]}>{cell}</td>)}</tr>)}</tbody></table></div>}</section>)}<section><h2>Questions</h2><p>Use the <a href={LEGAL_CONTACT_PATH}>Contact page</a> for privacy, legal or account questions.</p></section><p className="pub-legal-note">See also <a href="/privacy">Privacy</a>, <a href="/terms">Terms</a>, <a href="/cookies">Cookie information</a> and <a href="/refunds">Refunds and cancellation</a>.</p></section></>; }
-/** The page Paddle's checkout redirects to after a successful
+/** The page FastSpring's checkout redirects to after a successful
     subscription. Confirmation is UX only — the webhook is what
     actually grants the plan, so this page says to wait a minute
     rather than promising instant access. */
-function WelcomePage() { return <><PageHero eyebrow="Welcome" title="Welcome to Scenering." lead="Checkout completed. Your plan activates as soon as Paddle confirms the payment — usually seconds — and your account syncs automatically." /><div className="mkt-container pub-center"><a className="mkt-btn mkt-btn-primary" href="/app">Open the studio</a><p className="pub-legal-note">Your new plan may take a minute to appear. If it does not, the payment is still recorded on your Paddle receipt — ask at the <a href="/contact">Contact page</a>.</p></div></>; }
+function WelcomePage() { return <><PageHero eyebrow="Welcome" title="Welcome to Scenering." lead="Checkout completed. Your plan activates as soon as FastSpring confirms the payment — usually seconds — and your account syncs automatically." /><div className="mkt-container pub-center"><a className="mkt-btn mkt-btn-primary" href="/app">Open the studio</a><p className="pub-legal-note">Your new plan may take a minute to appear. If it does not, the payment is still recorded on your FastSpring receipt — ask at the <a href="/contact">Contact page</a>.</p></div></>; }
 const verifyRequests = new Map<string, Promise<string>>();
 function VerifyPage() {
   const [status, setStatus] = useState("Verifying your email…");

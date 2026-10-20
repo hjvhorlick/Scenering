@@ -58,7 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
 CREATE TABLE IF NOT EXISTS subscriptions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  provider TEXT NOT NULL DEFAULT 'lemonsqueezy',
+  provider TEXT NOT NULL DEFAULT 'fastspring',
   provider_customer_id TEXT,
   provider_subscription_id TEXT,
   provider_product_id TEXT,

@@ -91,127 +91,28 @@ and a framing you set by hand is never overwritten. A search term typed by
 hand is pinned to the scene, so later edits to the script cannot silently
 replace it.
 
-## Billing (Paddle)
+## Billing (FastSpring)
 
-Payments are handled entirely by [Paddle](https://www.paddle.com/), which is
-the **merchant of record**: it sells the subscription, takes the card, charges
-and remits the sales tax, and pays Scenering. Scenering never sees a card
-number and stores no payment details of its own — only the subscription's
-status, plan, period dates and the two management links Paddle returns.
+Payments are handled entirely by [FastSpring](https://www.fastspring.com/),
+which is the **merchant of record**: it sells the subscription, takes the card,
+charges and remits the sales tax, and pays Scenering. Scenering never sees a
+card number and stores no payment details of its own — only the subscription's
+status, plan, period dates and the Account Management links FastSpring returns.
 
 Everything needed is a server-side secret or variable; nothing is hard-coded,
-and nothing billing-related reaches the browser bundle. In production set them
-with `wrangler secret put <NAME>`; locally they live in `.dev.vars`. The full
-connection runbook — including Paddle's agent skills and MCP servers for AI
-editors — is **[PADDLE.md](PADDLE.md)**. The flow:
+and no secret reaches the browser bundle. In production set secrets with
+`wrangler secret put <NAME>`; locally they live in `.dev.vars`. The full
+connection runbook is **[FASTSPRING.md](FASTSPRING.md)**.
 
 | Step | Where |
 |---|---|
-| Customer picks a plan | Account & Membership modal → `GET /api/billing/checkout/:plan/:interval` |
-| Server opens checkout | `POST {PADDLE_API}/transactions` with `items[0].price_id` = `PADDLE_<PLAN>_<INTERVAL>_PRICE_ID`, `checkout.url` = `PADDLE_<PLAN>_<INTERVAL>_CHECKOUT_URL`, and `custom_data` = `{ user_id, email, plan, interval }` |
-| Browser is handed the link | the `checkout.url` Paddle returns, which already carries that transaction |
-| Paddle confirms the purchase | `POST /api/webhooks/paddle`, verified against `PADDLE_WEBHOOK_SECRET` (HMAC-SHA256 of `ts:rawBody`, `Paddle-Signature: ts=…;h1=…`, constant-time compare) |
-| Webhook maps the purchase to a plan | `PADDLE_<PLAN>_<INTERVAL>_PRICE_ID`, matched against `data.items[].price.id` |
-| Webhook finds the account | `data.custom_data.user_id`; failing that, the Paddle customer id (`ctm_…`) recorded by a `customer.*` webhook |
-| Access changes | the account's membership row, which is what every entitlement check reads |
-
-**Connecting Paddle, in order:**
-
-1. Set `PADDLE_ENVIRONMENT` — `sandbox` while testing, `live` when real. They
-   are separate Paddle accounts, so every value below exists once per
-   environment.
-2. Create one product per plan (SceneFlow, SceneForge) with a monthly and a
-   yearly **price**; copy each price id (`pri_…`) into the four
-   `PADDLE_…_PRICE_ID` secrets.
-3. Register an **approved checkout URL** in Paddle (**Account settings →
-   Checkout settings**) and copy it into the four `PADDLE_…_CHECKOUT_URL` secrets. Paddle
-   only returns a link to send a customer to when the transaction carries one.
-4. Copy your secret API key into `PADDLE_API_KEY`. It creates the tagged
-   transaction, and reads back a subscription's `management_urls` — the cancel
-   and update-card links Paddle deliberately leaves out of its webhooks.
-5. In **Paddle → Events → Notifications**, add a destination pointing at
-   `<PUBLIC_APP_URL>/api/webhooks/paddle` and subscribe to every event the
-   checklist lists: `subscription.activated`, `subscription.created`,
-   `subscription.updated`, `subscription.canceled`, `subscription.paused`,
-   `subscription.resumed`, `subscription.trialing`, `subscription.past_due`,
-   `subscription.imported`, `customer.created` and `customer.updated`.
-6. Copy the destination's secret key (`pdl_ntfset_…`) into
-   `PADDLE_WEBHOOK_SECRET`. Each destination has its own secret, and it is not
-   the same value as the API key (`pdl_sdbx_apikey_…` in sandbox, from
-   **Paddle → My account → Settings → Authentication**).
-7. Sign in as the owner and open **Account & Membership** → *Owner
-   administration* — the go-live checklist names anything still missing, shows
-   the exact webhook URL to paste, warns if a production deployment is still
-   pointed at sandbox, and lists the last 25 webhooks received with their
-   outcome.
-8. Buy a plan in **sandbox** with Paddle's test card to see the whole loop work
-   end to end. Sandbox deliveries are processed like live ones and labelled
-   `sandbox` in the webhook log — use your own email, and revoke the granted
-   membership from the administration panel afterwards.
-
-Anything Paddle sends that is not a subscription or customer event is recorded
-and ignored rather than acted on, so Paddle is never left retrying — a
-transaction event carries a `txn_…` id where this code expects a `sub_…` id,
-and `subscription.activated` follows a completed payment within seconds anyway.
-Each event is applied once — a redelivery with the same event id is a no-op that
-leaves a redelivery mark on the event's log entry — and a delivery whose
-signature does not verify is rejected with 401 before it is parsed. An event
-that maps to no account or no known price is answered 202 (`unmatched`,
-`unknown_price`) rather than 5xx, so Paddle stops retrying an event that could
-never succeed.
-
-Access follows Paddle's meaning for each status: `active` and `trialing` grant
-the plan, and so does `past_due`, because Paddle's dunning is still retrying the
-card and the account window warns the member instead of cutting them off
-mid-retry. `paused` and `cancelled` do not — a paused subscription means no
-billing and no service, and `cancelled` is terminal.
-
-Cancelling at the end of a period needs no grace logic: Paddle keeps the status
-`active` with a `scheduled_change` of `{ action: "cancel", effective_at }` until
-that date arrives, so the plan runs for exactly as long as it was paid for and
-the account window shows the end date with a **Manage or cancel** link to
-Paddle's own cancel page. The stored end date downgrades the account on time even
-if the next webhook is never delivered.
-
-Webhooks arrive unordered and are retried, so each subscription stores the
-`occurred_at` of the event that last changed it and ignores anything older — a
-late renewal cannot resurrect a plan the member cancelled.
-
-`LIVE_MIGRATION.md` covers moving a tested sandbox integration onto a live
-Paddle account — most of it is six secret values and a dashboard checklist,
-because no price ID or API URL is hard-coded.
-
-Sign in as the owner and open **Account & Membership** to see a go-live
-checklist naming every environment variable that is still missing, the exact
-webhook URL to paste into Paddle, and the last 25 webhooks received with their
-outcome (`processed`, `mapped`, `ignored`, `duplicate`, `unmatched`,
-`unknown_price`).
-
-Until the keys are filled in, checkout answers `503 BILLING_NOT_CONFIGURED`
-and the webhook answers `503`; nothing else in the app is affected, and the
-Free plan works throughout.
-
-## Billing (FastSpring, alongside Paddle)
-
-The same four subscriptions are also sold through
-[FastSpring](https://www.fastspring.com/), a second **merchant of record**,
-and the two can run side by side. FastSpring sells the subscription, takes
-the card, charges and remits the sales tax, and pays Scenering; each provider
-keeps its own webhook endpoint (`/api/webhooks/paddle`,
-`/api/webhooks/fastspring`), the `subscriptions` and `billing_customers`
-tables are keyed by provider, and `BILLING_PROVIDER` picks which checkout the
-app opens by default (`paddle` or `fastspring`; unset means the provider with
-server credentials configured, Paddle first).
-
-| Step | Where |
-|---|---|
-| Customer picks a plan | Account & Membership modal → `GET /api/billing/checkout/:plan/:interval` (or the FastSpring-only `GET /api/billing/fastspring/checkout/:plan/:interval`) |
+| Customer picks a plan | Account & Membership modal or `/pricing` → `GET /api/billing/checkout/:plan/:interval` (or `GET /api/billing/fastspring/checkout/:plan/:interval`) |
 | Server opens checkout | FastSpring popup (`sbl.min.js`, `FASTSPRING_STOREFRONT`) or a server-created session (`POST /sessions` with the product path, the buyer's email and the tags) |
 | Tags travel with the order | `tags` = `{ user_id, email }` — the FastSpring half of "which Scenering account paid" |
 | FastSpring confirms the purchase | `POST /api/webhooks/fastspring`, verified against `FASTSPRING_WEBHOOK_SECRET` (HMAC-SHA256 of the raw body, base64, in `X-FS-Signature`, constant-time compare) |
 | Webhook maps the purchase to a plan | `FASTSPRING_<PLAN>_<INTERVAL>_PATH` (defaults `sceneflow-monthly`, `sceneflow-yearly`, `sceneforge-monthly`, `sceneforge-yearly`), matched against the product path in the payload |
 | Webhook finds the account | `data.tags.user_id` / `data.tags.email`; failing that, the account FastSpring created at checkout or the `billing_customers` mapping an earlier webhook left behind |
-| Access changes | the account's membership row, exactly as a Paddle purchase does |
+| Access changes | the account's membership row, which is what every entitlement check reads |
 | Subscriptions are managed | FastSpring's Account Management portal — *Customer portal*, *Manage or cancel* and *Update payment card* all lead there |
 
 The webhook handles `subscription.activated`, `subscription.updated`,
@@ -221,6 +122,10 @@ recorded and ignored. A failed rebill keeps access while FastSpring retries
 the card (`past_due`), a cancellation runs to the end of the paid period, and
 `deactivated` returns the member to Free. Each event id is recorded in
 `webhook_events`, so a redelivery cannot apply twice.
+
+Until the keys are filled in, checkout answers `503 BILLING_NOT_CONFIGURED`
+and the webhook answers `503`; nothing else in the app is affected, and the
+Free plan works throughout.
 
 The full connection runbook — the exact values to enter in the FastSpring
 dashboard, in order — is **[FASTSPRING.md](FASTSPRING.md)**. The same

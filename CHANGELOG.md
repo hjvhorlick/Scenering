@@ -1,126 +1,44 @@
 # Changelog
 
-## Unreleased — FastSpring alongside Paddle
+## Unreleased — FastSpring merchant-of-record billing
 
-- **FastSpring is a second merchant of record, running beside Paddle.** The
-  same four subscriptions ($19/$180 SceneFlow, $39/$372 SceneForge) sell
-  through FastSpring's popup storefront (`sbl.min.js`) or a server-created
-  session checkout, with the signed-in account's `user_id` and `email` riding
-  every order as FastSpring `tags` — so each `subscription.*` webhook maps a
-  payment back to the right Scenering account and grants `sceneflow` or
-  `sceneforge` on the `memberships` row. `POST /api/webhooks/fastspring`
-  verifies `X-FS-Signature` (base64 HMAC-SHA256 over the raw body,
-  constant-time), records every event id in `webhook_events` for replay
-  protection, and handles `subscription.activated`, `subscription.updated`,
+- **FastSpring is the sole merchant of record.** All four subscriptions
+  ($19/$180 SceneFlow, $39/$372 SceneForge) sell through FastSpring's popup
+  storefront (`sbl.min.js`) or a server-created session checkout, with the
+  signed-in account's `user_id` and `email` riding every order as FastSpring
+  `tags` — so each `subscription.*` webhook maps a payment back to the right
+  Scenering account and grants `sceneflow` or `sceneforge` on the
+  `memberships` row. `POST /api/webhooks/fastspring` verifies `X-FS-Signature`
+  (base64 HMAC-SHA256 over the raw body, constant-time), records every event
+  id in `webhook_events` for replay protection, and handles
+  `subscription.activated`, `subscription.updated`,
   `subscription.charge.completed`, `subscription.charge.failed`,
-  `subscription.canceled` and `subscription.deactivated`. `BILLING_PROVIDER`
-  chooses the default checkout; both webhooks stay live either way. The
-  Account window gains FastSpring's Account Management links (cancel, update
-  card, customer portal), the owner's checklist gains a *FastSpring billing*
+  `subscription.canceled` and `subscription.deactivated`. The Account window
+  provides FastSpring's Account Management links (cancel, update card,
+  customer portal), the owner's checklist displays the *FastSpring billing*
   panel, the CSP allows `*.onfastspring.com` and `*.fastspring.com`, and
   `FASTSPRING.md` is the step-by-step dashboard runbook. FastSpring's
   `canceled` is "will not renew" rather than terminal, so a cancelled
   subscription keeps its plan until the paid period ends.
-- **The admin Manual gains a Taking payments topic** with the exact values to
-  enter in the FastSpring dashboard (storefront path, the four product paths,
-  the webhook URL and its HMAC secret, the six events to tick) and what to
-  check when a payment did not grant access.
-
-## Unreleased — ready for the live Paddle account
-
-- **`LIVE_MIGRATION.md`: the sandbox → live runbook for this codebase.** It
-  starts from an audit of what is already in place, because most of the generic
-  migration playbook does not apply here. There is no Paddle.js on the frontend,
-  so there is no `Paddle.Environment.set('sandbox')` to remove and no
-  `Paddle.Initialize()` to add `pwCustomer` to; the API base URL is already
-  chosen from `PADDLE_ENVIRONMENT`; and no price ID appears anywhere in `src/` or
-  `server/`, so the "replace every sandbox price ID" step is four secret values
-  rather than a code change. What is left is six `wrangler secret put` commands,
-  one `wrangler.jsonc` var, and a dashboard checklist.
-- **A public Refund and Cancellation Policy at `/refunds`.** The Terms already
-  carried one sentence on refunds — "considered case by case" — but there was no
-  page to send a reviewer or a customer to. `/refunds` now covers how to cancel,
-  what is not refunded automatically, how to request one, that Paddle holds and
-  returns the money as merchant of record, digital-content cooling-off, statutory
-  rights and chargebacks; the Terms point at it, and it is linked from the public
-  footer, the in-app corner menu, the legal cross-links and the sitemap.
-- **An optional source-IP allowlist for the webhook.** `PADDLE_WEBHOOK_IP_ALLOWLIST=on`
-  refuses deliveries from outside the ranges Paddle publishes at `GET /ips` with
-  a 403 before the body is parsed. The ranges are fetched at runtime and cached
-  for 24 hours rather than hard-coded, since Paddle can change them, and the
-  check **fails open** when they cannot be fetched — dropping a genuine payment
-  over our own transient network failure is worse than accepting something the
-  signature check is about to judge anyway. Signature verification is never
-  skipped. Off by default.
-- **Retain (`pwCustomer`) is deferred deliberately, not forgotten.** It needs
-  Paddle.js on the page, which turns checkout from a redirect into an overlay and
-  adds `script-src`/`frame-src` CSP entries and a client-side token. That is
-  churn tooling, not a verification requirement, and rewriting a working checkout
-  while an account is under review is the wrong moment for it.
-
-## Unreleased — Paddle replaces Lemon Squeezy
-
-- **Payments now run through Paddle, and Lemon Squeezy is gone rather than
-  unused.** Every variable, endpoint, doc line, admin checklist tile, legal
-  sentence and manual answer that named the old provider names Paddle now; the
-  `LEMON_SQUEEZY_*` secrets are no longer read by anything. Paddle is the
-  merchant of record, so it also calculates and remits the sales tax on every
-  sale — a job the old integration left ambiguous. `PADDLE.md` is the whole
-  connection runbook.
-- **Checkout is opened server to server, so a purchase cannot be attributed to
-  the wrong account.** `GET /api/billing/checkout/:plan/:interval` now creates a
-  Paddle transaction itself and writes the signed-in member's id into Paddle's
-  signed `custom_data`, then hands the browser the link Paddle returns. The old
-  flow appended the account id to a static link, which a payer could have
-  edited; `custom_data` is set by the only party that knows who is signed in and
-  is signed by Paddle on the way back.
-- **A payment that arrives untagged can still find its owner.** Paddle's
-  customer webhooks are the only ones that carry an email address, so
-  `customer.created` / `customer.updated` now record a `ctm_…` → account mapping
-  (new `billing_customers` table) and `subscription.*` webhooks fall back to it.
-  A mapping alone never grants a plan — only a subscription event does.
-- **The webhook verifies Paddle's real signature contract**: HMAC-SHA256 of
-  `ts:rawBody` against the `h1` of `Paddle-Signature`, hashed as the bytes that
-  arrived, compared in constant time, with a bounded timestamp window and
-  `event_id` idempotency behind it. Absent, malformed, stale and wrong
-  signatures all answer 401 alike.
-- **Cancel and update-card links are read back from the Paddle API.** Paddle
-  leaves `management_urls` off its notifications entirely, so the server fetches
-  them per subscription event and stores them. If that call fails the plan
-  change still lands — losing a link must never lose a payment.
-- **Access rules follow Paddle's five statuses.** `active`, `trialing` and
-  `past_due` grant the plan — `past_due` deliberately, because Paddle's dunning
-  is still retrying the card and the account window warns the member rather than
-  cutting them off mid-retry. `paused` and `canceled` do not: a paused
-  subscription means no billing and no service, and `canceled` is terminal. The
-  stored end date remains the backstop if the next webhook never arrives.
-- **Cancelling at the end of a period needs no local grace period.** Paddle keeps
-  the status `active` with a `scheduled_change` of `{ action: "cancel",
-  effective_at }` until that date arrives, so access runs for exactly as long as
-  it was paid for. Both are read into `cancel_at_period_end` and `expires_at`.
-- **Out-of-order webhooks can no longer overwrite newer state.** Paddle gives no
-  ordering guarantee and retries for up to three days, so subscriptions now store
-  `provider_event_occurred_at` (and `billing_customers` stores `last_event_at`)
-  and an event older than the one already applied is logged as `stale` and
-  dropped — a late renewal cannot resurrect a cancelled plan.
-- **Paddle API calls are bounded.** Both server-side calls carry an
-  `AbortController` timeout, three seconds on the webhook path so a slow Paddle
-  response cannot push a delivery past its five-second budget and trigger the
-  retry cycle.
-- **Sandbox can no longer masquerade as live.** `PADDLE_ENVIRONMENT` picks the
-  API base URL and defaults to `sandbox`, so a misspelling can never point
-  production traffic at the live API; the owner's billing panel shows which
-  environment is configured and warns out loud when a production deployment is
-  still pointed at sandbox.
-- **Paddle's agent tooling is checked in.** `.mcp.json`, `.cursor/mcp.json` and
-  `.vscode/mcp.json` declare Paddle's three MCP servers (docs, sandbox, live)
-  with no secret in any of them, so an agent opening this repository can read
-  current Paddle documentation and exercise a real sandbox account instead of
-  guessing from training data. `PADDLE.md` §6 covers installing Paddle's agent
-  skills alongside them.
-- Migration `0006_paddle.sql` renames `subscriptions.provider_variant_id` to
-  `provider_price_id` — "variant" is a Lemon Squeezy word, and Paddle's
-  equivalent is a price — and changes the table's provider default to `paddle`.
+- **Localized prices on every plan surface come from FastSpring's Store
+  Builder Library (`sbl.min.js`).** When `FASTSPRING_STOREFRONT` is set, the
+  pricing page, homepage pricing cards, Setup Studio plan cards and the
+  Account & Membership modal display the visitor's localized price and currency
+  returned by FastSpring, falling back cleanly to the USD base price until
+  FastSpring responds.
+- **A public Refund and Cancellation Policy at `/refunds`.** `/refunds` covers
+  how to cancel, what is not refunded automatically, how to request a refund,
+  that FastSpring holds and returns the money as merchant of record,
+  digital-content cooling-off, statutory rights and chargebacks; the Terms
+  point at it, and it is linked from the public footer, the in-app corner
+  menu, the legal cross-links and the sitemap.
+- **The admin Manual includes a Taking payments topic** with the exact values
+  to enter in the FastSpring dashboard (storefront path, the four product
+  paths, the webhook URL and its HMAC secret, the six events to tick) and what
+  to check when a payment did not grant access.
+- Migration `0006_billing.sql` renames `subscriptions.provider_variant_id` to
+  `provider_price_id`, adds `provider_event_occurred_at` and the
+  `billing_customers` table, and sets the provider default to `fastspring`.
 
 ## Unreleased — The Email Centre: marketing email members actually asked for
 

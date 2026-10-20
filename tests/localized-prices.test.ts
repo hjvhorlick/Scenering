@@ -13,8 +13,8 @@ import {
 const h = createHarness();
 const read = (path: string) => readFileSync(path, "utf8");
 
-/* The catalogue stays in USD and Paddle converts per country; these
-   helpers only label and re-format what Paddle returns. */
+/* The catalogue stays in USD and FastSpring converts per country; these
+   helpers only label and re-format what FastSpring returns. */
 h.eq(PLAN_BASE_CURRENCY, "USD", "the plan base currency is USD");
 h.eq(formatBasePrice(PLAN_CONFIG.sceneflow.prices.monthly), "$19 USD", "a fallback base price is labelled USD");
 h.eq(formatBasePrice(PLAN_CONFIG.sceneforge.prices.yearly), "$372 USD", "yearly fallback base price is labelled USD");
@@ -55,10 +55,9 @@ for (const surface of PRICE_SURFACES) {
 }
 
 const hook = read("src/lib/use-localized-prices.ts");
-h.ok(hook.includes("paddle.PricePreview("), "the hook previews prices through Paddle");
-h.ok(hook.includes("formattedTotals.total"), "the hook displays Paddle's formatted total exactly as returned");
+h.ok(hook.includes("loadFastSpringBuilder("), "the hook previews prices through FastSpring Store Builder Library");
+h.ok(hook.includes("onFastSpringData("), "the hook reads FastSpring's localized product data");
 h.ok(hook.includes("/api/billing/public-config"), "the hook loads the public billing config");
-h.ok(hook.includes("address: { countryCode: config.country }"), "the hook previews for the visitor's country");
 h.ok(hook.includes("formatBasePrice"), "the hook's fallback is the labelled USD base price");
 
 /* Static copy that cannot localize says it is quoting the USD base. */

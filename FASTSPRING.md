@@ -4,14 +4,11 @@ Everything Scenering needs in order to take money through
 [FastSpring](https://www.fastspring.com/), and everything an AI agent working on
 this repository needs in order to get FastSpring right.
 
-FastSpring is a **merchant of record**, exactly like Paddle (see `PADDLE.md`).
+FastSpring is the **merchant of record** for Scenering.
 It sells the subscription, takes the card, calculates and remits the sales tax
-in every jurisdiction, handles dunning and refunds, and pays Scenering. The two
-can run side by side: each has its own webhook endpoint, the `subscriptions`
-and `billing_customers` tables are keyed by provider, and `BILLING_PROVIDER`
-chooses which one the app opens by default. Scenering's only jobs are to open a
-checkout tagged with the right account, and to believe — nothing else — a
-signed webhook that says a subscription changed.
+in every jurisdiction, handles dunning and refunds, and pays Scenering.
+Scenering's only jobs are to open a checkout tagged with the right account, and
+to believe — nothing else — a signed webhook that says a subscription changed.
 
 > **Dashboard labels move.** FastSpring renames and rearranges its dashboard
 > from time to time. Where this document names a menu, treat it as the shape of
@@ -119,7 +116,6 @@ emails the customer a secure login link.
 | `FASTSPRING_STOREFRONT` — storefront path from §1.2 | plain var in `wrangler.jsonc`; `.dev.vars` locally |
 | `FASTSPRING_WEBHOOK_SECRET` | secret (`wrangler secret put FASTSPRING_WEBHOOK_SECRET`) |
 | `FASTSPRING_API_USERNAME` / `FASTSPRING_API_PASSWORD` | secrets (optional) |
-| `BILLING_PROVIDER=fastspring` | plain var, when FastSpring should be the default checkout |
 | `FASTSPRING_CHECKOUT_MODE` — `popup` or `session` | optional plain var |
 | `FASTSPRING_*_PATH` × 4 | only when a product path was renamed |
 | `PUBLIC_APP_URL` | already required |
@@ -142,8 +138,6 @@ product paths it will recognise.
    on the live store and tick the same six events.
 5. Complete FastSpring's own seller onboarding (business details, tax, bank) —
    outside the code, and the step most often left to last.
-6. Set `BILLING_PROVIDER=fastspring` if FastSpring should be the default
-   checkout. Paddle keeps working from the same pages' fallbacks either way.
 
 ---
 

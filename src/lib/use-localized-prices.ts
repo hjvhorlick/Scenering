@@ -1,9 +1,9 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import type { Paddle } from "@paddle/paddle-js";
-import { loadPaddle, type PaddlePublicConfig } from "./paddle";
+import { loadFastSpringBuilder, onFastSpringData, type PublicBillingConfig } from "./fastspring";
 import {
   annualSavingFromBasePrices,
   annualSavingFromMinorTotals,
+  currencyFractionDigits,
   formatBasePrice,
 } from "./localized-prices";
 import { PLAN_CONFIG, type BillingInterval, type PlanSlug } from "../config/plans";
@@ -11,50 +11,76 @@ import { PLAN_CONFIG, type BillingInterval, type PlanSlug } from "../config/plan
 /**
  * One localized price for every surface.
  *
- * The /pricing page has always done this properly — ask
- * Paddle.PricePreview() and show the visitor's own currency, tax
- * included, exactly as Paddle formats it — while the home-page
- * pricing section and the in-app plan cards printed the USD base
- * numbers from PLAN_CONFIG. A visitor in South Africa therefore saw
- * "$19" at home and a Rand total at /pricing and at checkout.
+ * This hook is the single way any surface gets a price. It loads the public
+ * billing config once per page (`/api/billing/public-config`), initialises the
+ * FastSpring Store Builder Library (`sbl.min.js`) for the configured
+ * storefront, and hands each component:
  *
- * This hook is now the single way any surface gets a price. It loads
- * the public billing config once per page (the snapshot promise below
- * is shared, so the Setup plan cards and the membership window in the
- * studio do not each ask Paddle again), previews every priced tier at
- * both intervals in one call for the visitor's country, and hands
- * each component:
+ *   - displayPrice(slug, interval): the localized formatted total when
+ *     FastSpring's Store Builder Library has answered, otherwise the USD base
+ *     price labelled "USD" (see localized-prices.ts), and
+ *   - annualSavingLine(slug): the per-month equivalent and saving in that
+ *     same currency, computed from FastSpring's raw totals.
  *
- *   - displayPrice(slug, interval): the localized formatted total
- *     when Paddle has answered, otherwise the USD base price labelled
- *     "USD" (see localized-prices.ts), and
- *   - annualSavingLine(slug): the per-month equivalent and saving in
- *     that same currency, computed from Paddle's raw totals.
- *
- * The Paddle catalogue prices themselves stay in USD; Paddle's
- * automatic currency conversion is what turns them into the
- * visitor's currency, both here and in the checkout the visitor pays
- * in. Nothing in this file converts currency by hand.
+ * The FastSpring catalogue prices themselves stay in USD; FastSpring's
+ * automatic currency conversion turns them into the visitor's currency, both
+ * here and in the checkout the visitor pays in. Nothing in this file converts
+ * currency by hand.
  */
 
-interface PaddlePriceSnapshot {
-  config: PaddlePublicConfig;
-  paddle: Paddle | null;
-  /** Paddle's own display strings (`formattedTotals.total`), by price id. */
+interface FastSpringPriceSnapshot {
+  config: PublicBillingConfig;
+  /** FastSpring's own display strings (`priceTotal`), by product path. */
   formattedByPriceId: Record<string, string>;
-  /** Raw totals in the currency's lowest denomination, by price id. */
+  /** Raw totals in the currency's lowest denomination, by product path. */
   minorTotalsByPriceId: Record<string, number>;
-  /** The currency Paddle previewed in, e.g. "ZAR" for South Africa. */
+  /** The currency FastSpring previewed in, e.g. "ZAR" for South Africa. */
   currencyCode: string | null;
   pricesError: string | null;
 }
 
-let snapshotPromise: Promise<PaddlePriceSnapshot> | null = null;
+let snapshotPromise: Promise<FastSpringPriceSnapshot> | null = null;
 
-function loadPaddlePriceSnapshot(): Promise<PaddlePriceSnapshot> {
-  snapshotPromise ??= (async (): Promise<PaddlePriceSnapshot> => {
+function extractFastSpringPrices(data: any, target: FastSpringPriceSnapshot): boolean {
+  if (!data || typeof data !== "object") return false;
+  const currency = typeof data.currency === "string" && data.currency.trim() ? data.currency.trim().toUpperCase() : target.currencyCode;
+  const scale = 10 ** currencyFractionDigits(currency || "USD");
+  let updated = false;
+
+  const visitItem = (item: any) => {
+    if (!item || typeof item !== "object") return;
+    const path = String(item.path || item.product || "").trim();
+    const formatted = String(item.priceTotal || item.total || item.price || item.unitPrice || "").trim();
+    if (!path || !formatted) return;
+    target.formattedByPriceId[path] = formatted;
+    const rawNum = item.priceTotalValue ?? item.totalValue ?? item.priceValue ?? item.unitPriceValue;
+    const numeric = typeof rawNum === "number" ? rawNum : Number(rawNum);
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      target.minorTotalsByPriceId[path] = Math.round(numeric * scale);
+    }
+    updated = true;
+  };
+
+  if (Array.isArray(data.groups)) {
+    for (const group of data.groups) {
+      if (Array.isArray(group?.items)) {
+        for (const item of group.items) visitItem(item);
+      }
+    }
+  }
+  if (Array.isArray(data.items)) {
+    for (const item of data.items) visitItem(item);
+  }
+  if (updated && currency) {
+    target.currencyCode = currency;
+  }
+  return updated;
+}
+
+function loadFastSpringPriceSnapshot(): Promise<FastSpringPriceSnapshot> {
+  snapshotPromise ??= (async (): Promise<FastSpringPriceSnapshot> => {
     let ok = false;
-    let data: PaddlePublicConfig & { error?: string; detail?: string };
+    let data: PublicBillingConfig & { error?: string; detail?: string };
     try {
       const response = await fetch("/api/billing/public-config");
       ok = response.ok;
@@ -65,52 +91,35 @@ function loadPaddlePriceSnapshot(): Promise<PaddlePriceSnapshot> {
     if (!ok) {
       throw new Error(`${data?.error || "Pricing could not be configured."}${data?.detail ? ` (${data.detail})` : ""}`);
     }
-    const config: PaddlePublicConfig = data;
+    const config: PublicBillingConfig = data;
 
-    // Throws (rather than defaulting) on a missing or mismatched client
-    // token — that becomes the config error the pricing page reports.
-    const paddle = await loadPaddle(config);
-
-    const snapshot: PaddlePriceSnapshot = {
+    const snapshot: FastSpringPriceSnapshot = {
       config,
-      paddle,
       formattedByPriceId: {},
       minorTotalsByPriceId: {},
       currencyCode: null,
       pricesError: null,
     };
-    if (!paddle) return snapshot;
 
-    /* One preview call fetches every priced tier at both intervals —
-       PricePreview accepts up to 100 items, so the billing toggles
-       read from the same response instead of refetching. */
-    const items = config.tiers
+    const productPaths = config.tiers
       .flatMap((tier) => [tier.priceId.month, tier.priceId.year])
-      .filter(Boolean)
-      .map((priceId) => ({ priceId, quantity: 1 }));
-    if (!items.length) return snapshot;
+      .filter(Boolean);
+    if (!productPaths.length || !config.storefront || typeof document === "undefined") {
+      return snapshot;
+    }
 
     try {
-      const response = await paddle.PricePreview({
-        items,
-        ...(config.country ? { address: { countryCode: config.country } } : {}),
+      const builder = await loadFastSpringBuilder(config.storefront);
+      builder.push?.({
+        products: productPaths.map((path) => ({ path, quantity: 1 })),
+        ...(config.country ? { country: config.country } : {}),
       });
-      for (const item of response.data.details.lineItems) {
-        snapshot.formattedByPriceId[item.price.id] = item.formattedTotals.total;
-        const minorTotal = Number(item.totals.total);
-        if (Number.isFinite(minorTotal)) snapshot.minorTotalsByPriceId[item.price.id] = minorTotal;
-      }
-      snapshot.currencyCode = response.data.currencyCode || null;
-    } catch (error) {
-      console.error("[paddle] price preview failed", error);
-      snapshot.pricesError = "Prices for your country could not be loaded. Refresh to try again.";
-      // Let the next surface that opens ask again rather than serving
-      // this failure for the rest of the page session.
-      snapshotPromise = null;
+    } catch {
+      // SBL is optional for initial price display; USD base prices remain visible.
     }
     return snapshot;
   })().catch((error) => {
-    // A failed config load is not cached either: the next mount retries.
+    // A failed config load is not cached: the next mount retries.
     snapshotPromise = null;
     throw error;
   });
@@ -118,15 +127,14 @@ function loadPaddlePriceSnapshot(): Promise<PaddlePriceSnapshot> {
 }
 
 export interface LocalizedPlanPrices {
-  config: PaddlePublicConfig | null;
-  paddle: Paddle | null;
+  config: PublicBillingConfig | null;
   loading: boolean;
-  /** The public config (or Paddle.js itself) could not be loaded. */
+  /** The public config could not be loaded. */
   configError: string | null;
   /** The price preview — or a checkout payment — failed. */
   pricesError: string | null;
   setPricesError: Dispatch<SetStateAction<string | null>>;
-  /** Paddle's formatted localized total, when it has answered. */
+  /** FastSpring's formatted localized total, when it has answered. */
   localizedPrice: (slug: PlanSlug, interval: BillingInterval) => string | undefined;
   /** The localized total, or the USD base price labelled "USD". */
   displayPrice: (slug: PlanSlug, interval: BillingInterval) => string;
@@ -135,20 +143,27 @@ export interface LocalizedPlanPrices {
 }
 
 /**
- * @param enabled Pass false to keep Paddle unloaded until the surface
+ * @param enabled Pass false to keep FastSpring unloaded until the surface
  *   is actually shown (the membership window does this until opened).
  */
 export function useLocalizedPlanPrices(enabled = true): LocalizedPlanPrices {
-  const [snapshot, setSnapshot] = useState<PaddlePriceSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<FastSpringPriceSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
   const [pricesError, setPricesError] = useState<string | null>(null);
+  const [, setRevision] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
     let active = true;
     setLoading(true);
-    loadPaddlePriceSnapshot()
+    const unsubscribeData = onFastSpringData((payload) => {
+      if (!active || !snapshot) return;
+      if (extractFastSpringPrices(payload, snapshot)) {
+        setRevision((r) => r + 1);
+      }
+    });
+    loadFastSpringPriceSnapshot()
       .then((loaded) => {
         if (!active) return;
         setSnapshot(loaded);
@@ -162,8 +177,9 @@ export function useLocalizedPlanPrices(enabled = true): LocalizedPlanPrices {
       });
     return () => {
       active = false;
+      unsubscribeData();
     };
-  }, [enabled]);
+  }, [enabled, snapshot]);
 
   const priceIdFor = (slug: PlanSlug, interval: BillingInterval): string | undefined => {
     const tier = snapshot?.config.tiers.find((candidate) => candidate.id === slug);
@@ -192,7 +208,6 @@ export function useLocalizedPlanPrices(enabled = true): LocalizedPlanPrices {
 
   return {
     config: snapshot?.config ?? null,
-    paddle: snapshot?.paddle ?? null,
     loading,
     configError,
     pricesError,

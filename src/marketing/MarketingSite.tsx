@@ -3,6 +3,7 @@ import "./marketing.css";
 import { navigate, scrollToSection, sectionForPath } from "../lib/route";
 import { BrandMark, Stat } from "./components/primitives";
 import BackToTop from "./components/BackToTop";
+import HeaderLegalMenu from "./components/HeaderLegalMenu";
 import Hero from "./sections/Hero";
 import Showpiece from "./sections/Showpiece";
 import FeatureTour from "./sections/FeatureTour";
@@ -123,6 +124,7 @@ export default function MarketingSite() {
                 {item.label}
               </a>
             ))}
+            <HeaderLegalMenu currentPath={publicPath} />
           </div>
 
           {/* The shared corner menu owns public navigation and account actions
@@ -216,7 +218,7 @@ export default function MarketingSite() {
                   <a href="/refunds" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/refunds"); } }}>
                     Refund &amp; Cancellation Policy
                   </a>
-                  <span>Cancelling &amp; Paddle refunds</span>
+                  <span>Cancelling &amp; FastSpring refunds</span>
                 </li>
                 <li>
                   <a href="/cookies" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/cookies"); } }}>

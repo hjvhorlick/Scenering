@@ -4,7 +4,6 @@ import express from "express";
 import { installTestPlatformEnv, testD1 } from "./platform-env.ts";
 
 process.env.NODE_ENV = "production";
-process.env.PADDLE_ENVIRONMENT = "live";
 process.env.SESSION_SECRET = "production-auth-test-secret-not-for-deployment";
 process.env.EMAIL_PROVIDER = "resend";
 process.env.RESEND_API_KEY = "test-only-key";
@@ -12,7 +11,7 @@ delete process.env.SCENERING_OWNER_EMAIL;
 delete process.env.DEV_SANDBOX_AUTO_PROVISION;
 installTestPlatformEnv();
 const { db } = await import("../src/db.ts");
-const { registerPlatformRoutes, resolvePaddleCustomerForUser } = await import("../server/platform.ts");
+const { registerPlatformRoutes, resolveFastSpringCustomerForUser } = await import("../server/platform.ts");
 
 // Successful delivery is essential: the old production code only returned a
 // verification URL when delivery failed. Never send real email in this test.
@@ -60,14 +59,14 @@ try {
   testD1().sqlite.exec("DROP TABLE billing_customers");
   assert.equal(await db.findBillingCustomerByUser(user.id, user.email), null);
   testD1().sqlite.exec("DROP TABLE billing_customers");
-  assert.equal(await db.findBillingCustomer("ctm_test"), null);
+  assert.equal(await db.findBillingCustomer("acct_test"), null);
   testD1().sqlite.exec("DROP TABLE billing_customers");
-  const mapping = { provider: "paddle", providerCustomerId: "ctm_test", userId: user.id, email: user.email, lastEventAt: "2026-10-19T00:00:00Z" };
+  const mapping = { provider: "fastspring", providerCustomerId: "acct_test", userId: user.id, email: user.email, lastEventAt: "2026-10-19T00:00:00Z" };
   await db.upsertBillingCustomer(mapping);
   await db.upsertBillingCustomer({ ...mapping, email: "stale@example.com", lastEventAt: "2026-10-18T00:00:00Z" });
-  assert.equal((await db.findBillingCustomer("ctm_test"))?.email, user.email);
-  assert.equal((await db.findBillingCustomerByUser(user.id))?.providerCustomerId, "ctm_test");
-  assert.equal((await resolvePaddleCustomerForUser(user))?.customerId, "ctm_test");
+  assert.equal((await db.findBillingCustomer("acct_test"))?.email, user.email);
+  assert.equal((await db.findBillingCustomerByUser(user.id))?.providerCustomerId, "acct_test");
+  assert.equal((await resolveFastSpringCustomerForUser(user))?.accountId, "acct_test");
   assert.ok(testD1().sqlite.prepare("SELECT name FROM sqlite_master WHERE name = 'idx_billing_customers_user'").get());
 
   // Login and session reads also work when the customer table is absent.
@@ -81,7 +80,7 @@ try {
   const findCustomer = db.findBillingCustomerByUser;
   db.findBillingCustomerByUser = async () => { throw new Error("D1 schema unavailable"); };
   try {
-    assert.equal(await resolvePaddleCustomerForUser(user), null);
+    assert.equal(await resolveFastSpringCustomerForUser(user), null);
     assert.equal((await post("login", credentials)).status, 200);
     assert.equal((await fetch(`${base}/api/auth/session`, { headers: { Cookie: cookie } })).status, 200);
   } finally {
@@ -90,7 +89,7 @@ try {
   const listSubscriptions = db.listSubscriptionsForUser;
   db.listSubscriptionsForUser = async () => { throw new Error("no such table: subscriptions"); };
   try {
-    assert.equal(await resolvePaddleCustomerForUser(user), null);
+    assert.equal(await resolveFastSpringCustomerForUser(user), null);
   } finally {
     db.listSubscriptionsForUser = listSubscriptions;
   }

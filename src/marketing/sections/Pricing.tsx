@@ -5,9 +5,9 @@ import { useLocalizedPlanPrices } from "../../lib/use-localized-prices";
 
 export default function Pricing() {
   const [interval, setInterval] = useState<BillingInterval>("monthly");
-  /* The same Paddle-localized prices the /pricing page and the checkout
+  /* The same FastSpring-localized prices the /pricing page and the checkout
      use — the visitor's own currency, tax included — instead of the USD
-     base numbers. Until Paddle answers, displayPrice falls back to the
+     base numbers. Until FastSpring answers, displayPrice falls back to the
      base price labelled "USD". */
   const { displayPrice, annualSavingLine } = useLocalizedPlanPrices();
   return <Section id="pricing" tone="white">
@@ -22,6 +22,6 @@ export default function Pricing() {
       </article>; })}
     </div>
     <p style={{ textAlign: "center", marginTop: 20 }}><a href="/pricing">See the complete feature comparison →</a></p>
-    <p className="pub-legal-note">Paid prices are shown in your local currency, with tax, exactly as Paddle calculates them — the same total you will see at checkout. By subscribing you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>. Cancel any time; see the <a href="/refunds">Refund &amp; Cancellation Policy</a> and <a href="/cookies">Cookie Information</a>.</p>
+    <p className="pub-legal-note">Paid prices are shown in your local currency, with tax, exactly as FastSpring calculates them — the same total you will see at checkout. By subscribing you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>. Cancel any time; see the <a href="/refunds">Refund &amp; Cancellation Policy</a> and <a href="/cookies">Cookie Information</a>.</p>
   </Section>;
 }

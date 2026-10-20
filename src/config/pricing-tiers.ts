@@ -1,12 +1,14 @@
+import { FASTSPRING_DEFAULT_PRODUCT_PATHS, FASTSPRING_PRODUCT_PATH_ENV } from "./fastspring";
 import { PLAN_CONFIG, PLAN_ORDER, type PlanSlug } from "./plans";
 
 /**
  * One editable row of the pricing page. The names, descriptions and
  * feature lists live here so a plan change is a one-line edit; the
- * Paddle price ids are filled in by the server from the environment
- * (PADDLE_*_PRICE_ID), so prices can be changed in Paddle without a
- * redeploy. An empty priceId means the tier is not sold through
- * Paddle — Free is signed up for, not bought.
+ * FastSpring product paths are filled in from the environment
+ * (FASTSPRING_*_PATH) or their canonical defaults (`sceneflow-monthly`,
+ * `sceneflow-yearly`, `sceneforge-monthly`, `sceneforge-yearly`). An empty
+ * priceId means the tier is not sold through FastSpring — Free is signed up
+ * for, not bought.
  */
 export interface Tier {
   id: PlanSlug;
@@ -41,31 +43,19 @@ export const TIER_FEATURES: Record<PlanSlug, string[]> = {
 };
 
 export const PRICE_ENV_ALIASES: Record<string, readonly string[]> = {
-  PADDLE_SCENEFLOW_MONTHLY_PRICE_ID: [
-    "PADDLE_SCENEFLOW_MONTHLY_PRICE_ID",
-    "PADDLE_PRICE_ID_SCENEFLOW_MONTHLY",
-    "PADDLE_PRICE_ID_SCEENFLOW_MONTHLY",
+  FASTSPRING_SCENEFLOW_MONTHLY_PATH: [
+    "FASTSPRING_SCENEFLOW_MONTHLY_PATH",
   ],
-  PADDLE_SCENEFLOW_YEARLY_PRICE_ID: [
-    "PADDLE_SCENEFLOW_YEARLY_PRICE_ID",
-    "PADDLE_SCENEFLOW_ANNUAL_PRICE_ID",
-    "PADDLE_PRICE_ID_SCENEFLOW_YEARLY",
-    "PADDLE_PRICE_ID_SCENEFLOW_ANNUAL",
-    "PADDLE_PRICE_ID_SCEENFLOW_YEARLY",
-    "PADDLE_PRICE_ID_SCEENFLOW_ANNUAL",
+  FASTSPRING_SCENEFLOW_YEARLY_PATH: [
+    "FASTSPRING_SCENEFLOW_YEARLY_PATH",
+    "FASTSPRING_SCENEFLOW_ANNUAL_PATH",
   ],
-  PADDLE_SCENEFORGE_MONTHLY_PRICE_ID: [
-    "PADDLE_SCENEFORGE_MONTHLY_PRICE_ID",
-    "PADDLE_PRICE_ID_SCENEFORGE_MONTHLY",
-    "PADDLE_PRICE_ID_SCEENFORGE_MONTHLY",
+  FASTSPRING_SCENEFORGE_MONTHLY_PATH: [
+    "FASTSPRING_SCENEFORGE_MONTHLY_PATH",
   ],
-  PADDLE_SCENEFORGE_YEARLY_PRICE_ID: [
-    "PADDLE_SCENEFORGE_YEARLY_PRICE_ID",
-    "PADDLE_SCENEFORGE_ANNUAL_PRICE_ID",
-    "PADDLE_PRICE_ID_SCENEFORGE_YEARLY",
-    "PADDLE_PRICE_ID_SCENEFORGE_ANNUAL",
-    "PADDLE_PRICE_ID_SCEENFORGE_YEARLY",
-    "PADDLE_PRICE_ID_SCEENFORGE_ANNUAL",
+  FASTSPRING_SCENEFORGE_YEARLY_PATH: [
+    "FASTSPRING_SCENEFORGE_YEARLY_PATH",
+    "FASTSPRING_SCENEFORGE_ANNUAL_PATH",
   ],
 };
 
@@ -76,12 +66,19 @@ export function lookupPriceEnv(lookup: (name: string) => string | undefined, can
     const val = String(lookup(key) || "").trim();
     if (val) return val;
   }
+  for (const slug of ["sceneflow", "sceneforge"] as const) {
+    for (const interval of ["monthly", "yearly"] as const) {
+      if (FASTSPRING_PRODUCT_PATH_ENV[slug][interval] === canonicalName) {
+        return FASTSPRING_DEFAULT_PRODUCT_PATHS[slug][interval];
+      }
+    }
+  }
   return "";
 }
 
 /**
  * Builds the tier list from the plan configuration plus a lookup over
- * the server's environment variables (the Paddle price ids). Kept in
+ * the server's environment variables (the FastSpring product paths). Kept in
  * one place so the marketing page, the API response and the billing
  * code all describe the same three tiers.
  */

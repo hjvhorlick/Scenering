@@ -8,8 +8,8 @@ import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "./
  * mapped back to a Scenering plan *and* interval. The defaults below match the
  * products created in the FastSpring app (`sceneflow-monthly`,
  * `sceneflow-yearly`, `sceneforge-monthly`, `sceneforge-yearly`); each one can
- * be renamed with an environment variable without a redeploy, exactly like the
- * Paddle price ids in `src/config/pricing-tiers.ts`.
+ * be renamed with an environment variable without a redeploy, matching the
+ * FastSpring product paths in `src/config/pricing-tiers.ts`.
  *
  * Shared by the server (webhook mapping, checkout payloads) and the tests, so
  * the two can never disagree about which product is which plan.
@@ -72,7 +72,7 @@ export function fastspringProductMappings(lookup: (name: string) => string | und
       const path = configured || FASTSPRING_DEFAULT_PRODUCT_PATHS[plan][interval];
       if (seen.has(path)) continue;
       seen.add(path);
-      rows.push({ plan, interval, path, pathEnv, fromEnvironment: Boolean(configured) });
+      rows.push({ plan, interval, path, fromEnvironment: Boolean(configured), pathEnv });
     }
   }
   return rows;

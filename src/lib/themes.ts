@@ -73,13 +73,11 @@ export const THEMES: ThemeDef[] = [
 ];
 
 /**
- * Porcelain is the default because it is the shared look: the public website
- * at "/" is built from the same china-white surfaces, biscuit hairlines and
- * cobalt ink, so signing in does not feel like arriving at a different
- * product. Anyone who prefers the dark original can still pick Classic in the
- * theme switcher, and that choice is remembered.
+ * Classic Dark is the default studio theme: the original Scenering look with
+ * dark panels and thin lines. Anyone who prefers another look can pick it in
+ * the theme switcher, and that choice is remembered in localStorage.
  */
-export const DEFAULT_THEME: ThemeId = "porcelain";
+export const DEFAULT_THEME: ThemeId = "classic";
 
 const STORAGE_KEY = "scenering_theme";
 const CHANGE_EVENT = "scenering-theme-changed";
