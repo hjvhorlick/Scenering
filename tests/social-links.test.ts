@@ -23,6 +23,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 /* Read the sources before moving house: the platform module fixes its data
    directory from the working directory at import time. */
 const socialSource = readFileSync(join(repoRoot, "src/shared/SocialLinks.tsx"), "utf8");
+const socialCss = readFileSync(join(repoRoot, "src/shared/social-links.css"), "utf8");
 const marketingSource = readFileSync(join(repoRoot, "src/marketing/MarketingSite.tsx"), "utf8");
 const publicPageSource = readFileSync(join(repoRoot, "src/marketing/PublicPage.tsx"), "utf8");
 const cornerMenuSource = readFileSync(join(repoRoot, "src/shared/SiteCornerMenu.tsx"), "utf8");
@@ -174,6 +175,11 @@ ok(!socialSource.includes("#E7E9EA"), "no near-white mark can end up invisible o
 ok(socialSource.includes('icon.adaptive ? "currentColor" : icon.color'), "monochrome marks follow the surface; brand colours stay fixed");
 ok(socialSource.includes('rel="noopener noreferrer"'), "social links open safely in a new tab");
 ok(socialSource.includes("if (active.length === 0) return null"), "nothing renders until a link is configured");
+ok(socialSource.includes('import "./social-links.css"'), "the social row's default display comes from its shared stylesheet");
+ok(!socialSource.includes('display: "flex"'), "inline styling does not defeat responsive hiding utilities");
+ok(socialCss.includes(":where(.sc-social-row)") && socialCss.includes("flex-wrap: wrap"), "social links may wrap and let hidden/responsive classes override their base display");
+ok(socialCss.includes("min-height: 34px") && socialCss.includes("@media (pointer: coarse)") && socialCss.includes("min-height: 44px"), "smaller marks retain comfortable pointer and touch hit areas");
+ok(socialSource.includes("Math.max(4, Math.round(size * 0.15))"), "compact icon gaps leave room for three more social profiles");
 ok(marketingSource.includes("<SocialLinksRow"), "the front-page footer carries the social strip");
 ok(publicPageSource.includes("<SocialLinksRow"), "the standalone public pages' footer carries the social strip");
 ok(cornerMenuSource.includes("<SocialLinksRow"), "the app's corner menu carries the social strip");

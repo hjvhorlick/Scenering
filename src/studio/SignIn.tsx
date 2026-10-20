@@ -124,8 +124,8 @@ export default function SignIn() {
   const switchMode = (next: Mode) => { setMode(next); setError(null); setMessage(null); setPassword(""); setConfirm(""); };
   return <div className="si-page"><IconSprite /><SiteCornerMenu />
     <header className="si-top"><img src={logo} alt="Scenering" height={30} style={{ height: 30, width: "auto" }} />
-      <SocialLinksRow size={40} tone="light" className="si-social" />
-      <span style={{ width: 92 }} aria-hidden="true" />
+      <SocialLinksRow size={20} tone="light" className="si-social" />
+      <span className="sc-corner-reserve" aria-hidden="true" />
     </header>
     <StoreNoticeBanner />
     <main className="si-center"><form className="si-card" onSubmit={onSubmit}>

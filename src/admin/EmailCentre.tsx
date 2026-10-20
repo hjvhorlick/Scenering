@@ -102,7 +102,7 @@ export default function EmailCentre() {
     <div className="min-h-screen bg-gray-950 text-white">
       <SiteCornerMenu />
       <header className="border-b border-hairline bg-gray-900/80">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-5 pb-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pr-[var(--sc-corner-reserve)] pt-5 pb-4">
           <span className="text-[11px] uppercase tracking-[.18em] text-indigo-300 font-bold">Owner administration</span>
           <div className="flex flex-wrap items-end justify-between gap-3 mt-1">
             <div>

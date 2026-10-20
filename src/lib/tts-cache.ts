@@ -10,6 +10,7 @@ export interface CachedAudioItem {
   text: string;
   rawBuffer?: ArrayBuffer;
   blob?: Blob;
+  mimeType?: string;
   /**
    * Per-word spoken timings from the TTS engine, when the narration was
    * synthesised with word boundaries. This is what lets the karaoke captions
@@ -55,29 +56,35 @@ async function persistAudioToIDB(
   voiceId: string,
   text: string,
   duration: number,
-  words?: WordTiming[]
-) {
+  words?: WordTiming[],
+  mimeType?: string
+): Promise<void> {
   try {
     const db = await openVoiceoverDB();
     if (!db) return;
-    const tx = db.transaction(IDB_STORE, "readwrite");
-    const store = tx.objectStore(IDB_STORE);
-    store.put({
-      key,
-      sceneId,
-      rawBuffer,
-      voiceId,
-      text,
-      duration,
-      words: words && words.length > 0 ? words : undefined,
-      updatedAt: Date.now(),
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+      tx.objectStore(IDB_STORE).put({
+        key,
+        sceneId,
+        rawBuffer,
+        voiceId,
+        text,
+        duration,
+        mimeType: mimeType || "audio/mpeg",
+        words: words && words.length > 0 ? words : undefined,
+        updatedAt: Date.now(),
+      });
     });
   } catch {}
 }
 
 async function loadAudioFromIDB(
   key: string
-): Promise<{ rawBuffer: ArrayBuffer; duration: number; voiceId: string; text: string; words?: WordTiming[] } | null> {
+): Promise<{ rawBuffer: ArrayBuffer; duration: number; voiceId: string; text: string; mimeType?: string; words?: WordTiming[] } | null> {
   try {
     const db = await openVoiceoverDB();
     if (!db) return null;
@@ -131,7 +138,12 @@ export function hasCachedSceneAudio(sceneId: number, voiceId?: string, text?: st
   return Boolean(getCachedSceneAudio(sceneId, voiceId, text));
 }
 
-export function setCachedSceneAudio(sceneId: number, voiceId: string, text: string, item: CachedAudioItem): void {
+export async function setCachedSceneAudio(
+  sceneId: number,
+  voiceId: string,
+  text: string,
+  item: CachedAudioItem
+): Promise<void> {
   const key = getAudioCacheKey(sceneId, voiceId, text);
   memoryAudioCache.set(key, item);
   sceneIdAudioCache.set(sceneId, item);
@@ -139,8 +151,13 @@ export function setCachedSceneAudio(sceneId: number, voiceId: string, text: stri
     urlAudioCache.set(item.blobUrl, item);
   }
   if (item.rawBuffer) {
-    persistAudioToIDB(key, sceneId, item.rawBuffer.slice(0), voiceId, text, item.duration, item.words);
-    persistAudioToIDB(`scene_${sceneId}`, sceneId, item.rawBuffer.slice(0), voiceId, text, item.duration, item.words);
+    // The in-memory entry is synchronous; wait for the durable writes where a
+    // caller (notably Voiceover Next) needs to guarantee the file survives a
+    // section change or an immediate reload.
+    await Promise.all([
+      persistAudioToIDB(key, sceneId, item.rawBuffer.slice(0), voiceId, text, item.duration, item.words, item.blob?.type || item.mimeType),
+      persistAudioToIDB(`scene_${sceneId}`, sceneId, item.rawBuffer.slice(0), voiceId, text, item.duration, item.words, item.blob?.type || item.mimeType),
+    ]);
   }
 }
 
@@ -190,14 +207,18 @@ export async function resolveSceneAudioBuffer(
     }
   }
 
-  // 2. Check the exact voice+text IndexedDB key only when there is no newer
-  // explicit scene URL. Never fall back to the legacy scene-only key: it may
-  // contain the narration that was just replaced.
+  // 2. Check the exact voice+text IndexedDB key when there is no explicit
+  // audio URL, or when the saved URL is an object URL from a previous page
+  // session. Generated blob URLs cannot survive a reload; user-imported
+  // prepared tracks are excluded because they are not Speechify cache entries.
   try {
-    const fromIdb = !scene.audio_url ? await loadAudioFromIDB(key) : null;
+    const preparedTrack = /^(custom|import):/.test(scene.voice_id || "");
+    const staleGeneratedBlob = Boolean(scene.audio_url?.startsWith("blob:") && !preparedTrack);
+    const fromIdb = !scene.audio_url || staleGeneratedBlob ? await loadAudioFromIDB(key) : null;
     if (fromIdb && fromIdb.rawBuffer && audioCtx) {
       const decoded = await audioCtx.decodeAudioData(fromIdb.rawBuffer.slice(0));
-      const blob = new Blob([fromIdb.rawBuffer], { type: "audio/mpeg" });
+      const mimeType = fromIdb.mimeType || "audio/mpeg";
+      const blob = new Blob([fromIdb.rawBuffer], { type: mimeType });
       const blobUrl = URL.createObjectURL(blob);
       const item: CachedAudioItem = {
         audioBuffer: decoded,
@@ -207,9 +228,13 @@ export async function resolveSceneAudioBuffer(
         text: fromIdb.text || text,
         rawBuffer: fromIdb.rawBuffer,
         blob,
+        mimeType,
         words: fromIdb.words,
       };
-      setCachedSceneAudio(scene.id, voiceId, text, item);
+      await setCachedSceneAudio(scene.id, voiceId, text, item);
+      // Alias the dead persisted blob URL to the restored cache item. Callers
+      // can keep passing the scene metadata without repeatedly rebuilding it.
+      if (scene.audio_url) urlAudioCache.set(scene.audio_url, item);
       return { buffer: decoded, duration: decoded.duration, url: blobUrl, words: fromIdb.words };
     }
   } catch {}

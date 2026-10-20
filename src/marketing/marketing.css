@@ -238,7 +238,7 @@ html[data-mkt="1"][data-theme] body {
   min-width: 0;
 }
 
-@media (min-width: 640px) {
+@media (min-width: 1280px) {
   .mkt-nav-links {
     display: flex;
   }
@@ -391,9 +391,10 @@ html[data-mkt="1"][data-theme] body {
   }
 }
 
-/* ---- small-screen section menu ---- */
-/* The link rail above is hidden below 1000px. This replaces it, so the page
-   is navigable on a phone instead of being one long scroll. */
+/* ---- compact-screen navigation ---- */
+/* The full page-link rail appears only once it fits beside the social strip and
+   the shared corner-menu reserve. The corner menu remains the navigation on
+   compact screens, so no link can slip underneath its fixed button. */
 
 .mkt-nav-menu {
   position: relative;
@@ -404,7 +405,7 @@ html[data-mkt="1"][data-theme] body {
   padding: 8px 12px;
 }
 
-@media (min-width: 1000px) {
+@media (min-width: 1280px) {
   .mkt-nav-menu {
     display: none;
   }
@@ -3102,6 +3103,7 @@ html[data-mkt="1"][data-theme] body {
 .pub-main { min-height: 72vh; padding-bottom: 80px; }
 .pub-navlinks { display: flex; align-items: center; gap: 3px; }
 .pub-menu { display: none; }
+@media (width <= 1279px) { .pub-navlinks { display: none; } }
 .pub-hero { padding-top: 108px; padding-bottom: 48px; max-width: 900px; text-align: center; }
 .pub-hero h1 { margin: 12px 0 16px; font-size: clamp(2.35rem, 6vw, 4.7rem); line-height: .98; letter-spacing: -.055em; color: var(--mkt-ink); }
 .pub-hero p { max-width: 760px; margin: 0 auto; font-size: clamp(1.05rem, 2vw, 1.25rem); color: var(--mkt-muted); line-height: 1.65; }
