@@ -1755,8 +1755,15 @@ export default function App() {
           content's intrinsic width and drags the whole app wider than the
           window whenever a row inside is too wide to fit. */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Bar — app navigation lives here now that the side bar is gone */}
-        <div className="t-app-hdr relative z-40 min-h-14 min-w-0 border-b border-hairline flex flex-col items-stretch gap-1.5 sm:gap-2 px-2 sm:px-4 pr-[var(--sc-corner-reserve)] py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
+        {/* Top Bar — app navigation lives here now that the side bar is gone.
+            The right padding is the fixed corner menu's reserved slot
+            (--sc-corner-reserve, see src/shared/site-corner-menu.css), and it
+            has to hold at every width. Do not add a breakpointed `px-*`
+            shorthand here: an arbitrary `pr-[…]` compiles into the base
+            utilities, so a `sm:px-*` lands after it in the sheet and silently
+            resets padding-right — which is how the theme picker ended up
+            underneath the menu button on every desktop width. */}
+        <div className="t-app-hdr relative z-40 min-h-14 min-w-0 border-b border-hairline flex flex-col items-stretch gap-1.5 sm:gap-2 px-2 sm:pl-4 pr-[var(--sc-corner-reserve)] py-1.5 sm:py-2 flex-shrink-0 bg-gray-900/50">
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-3 min-w-0">
             {/* Logo */}
             <button
@@ -1834,9 +1841,13 @@ export default function App() {
                 </button>
               )}
 
-              {/* Theme picker — kept slightly left of the right edge so it does
-                  not sit hard against the fixed corner menu button. */}
-              <div className="mr-6 shrink-0">
+              {/* Theme picker — held clear of the right edge. The corner menu
+                  button floats over this corner at every width, and the header
+                  reserves its footprint; this extra margin is the deliberate
+                  gap between the picker and the button, doubled from 24px to
+                  48px after the picker was still touching the button and only
+                  its left end showed. */}
+              <div className="mr-12 shrink-0">
                 <ThemeSwitcher />
               </div>
               {/* The provider-key button that used to sit here now lives in the
