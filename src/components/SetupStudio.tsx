@@ -463,7 +463,7 @@ export default function SetupStudio({
     );
   };
 
-  const handleSelectDuration = (seconds: DurationOption) => {
+  const handleSelectDuration = (seconds: DurationOption, noticeOverride?: string) => {
     setSelectedDuration(seconds);
     setOneScene(false);
     onUpdateSingleScene?.(false);
@@ -482,7 +482,9 @@ export default function SetupStudio({
     }
 
     const words = getTargetWordCount(seconds);
-    showNotice(`Scene duration set to ${formatDuration(seconds)} (~${words} target words/scene).`);
+    showNotice(
+      noticeOverride ?? `Scene duration set to ${formatDuration(seconds)} (~${words} target words/scene).`
+    );
   };
 
   /**
@@ -496,16 +498,21 @@ export default function SetupStudio({
       ? formatDuration(footageSeconds)
       : `~${formatDuration(oneSceneLengthSeconds)}`;
 
-  /** Leaves one-scene mode and splits the script at the chosen target length. */
+  /**
+   * Leaves one-scene mode and splits the script at the chosen target length.
+   *
+   * It goes through `handleSelectDuration` rather than repeating it: that
+   * handler is what a click on the card for this same length does, and it is
+   * the one that also tells the parent the new target and re-calibrates the
+   * word counts. Doing a partial version here left the project's stored
+   * `scene_duration` at the footage's length after the split, so the scenes
+   * were twenty seconds long and the project still claimed three minutes.
+   */
   const handleExitSingleScene = () => {
-    setOneScene(false);
-    onUpdateSingleScene?.(false);
-
-    const currentScriptText = script.trim();
-    if (isExistingProject && currentScriptText) {
-      onUpdateScript(currentScriptText, true, activeDuration, false);
-    }
-    showNotice(`Scenes are now split to about ${formatDuration(activeDuration)} each.`);
+    handleSelectDuration(
+      activeDuration,
+      `Scenes are now split to about ${formatDuration(activeDuration)} each.`
+    );
   };
 
   /**

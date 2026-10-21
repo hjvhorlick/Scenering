@@ -554,6 +554,14 @@ const footageScene = {
     setup.includes("handleExitSingleScene"),
     "leaving one-scene mode is still one click, so the target length is reachable when wanted"
   );
+  /* And it has to be the SAME click as picking that length on a card. A partial
+     copy split the scenes but never told the parent the new target, so the
+     project kept the footage's length stored while its scenes were twenty
+     seconds long. */
+  h.ok(
+    /handleSelectDuration\(\s*activeDuration,/.test(setup),
+    "leaving one-scene mode goes through the same handler a duration card uses"
+  );
 
   /* The regression this guards end to end: a 3m07s upload in a one-scene
      project stays 3m07s through every re-timing pass and into the render. */
