@@ -1834,8 +1834,11 @@ export default function App() {
                 </button>
               )}
 
-              {/* Theme picker — top right corner */}
-              <ThemeSwitcher />
+              {/* Theme picker — kept slightly left of the right edge so it does
+                  not sit hard against the fixed corner menu button. */}
+              <div className="mr-6 shrink-0">
+                <ThemeSwitcher />
+              </div>
               {/* The provider-key button that used to sit here now lives in the
                   corner menu and the account & membership panel — see
                   src/shared/SiteCornerMenu.tsx. It was a permanent button for a
