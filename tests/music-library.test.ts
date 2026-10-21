@@ -7,6 +7,7 @@ import { CATALOG_ITEMS } from "../src/lib/video-studio-catalog";
 import { createCatalogInsert } from "../src/lib/catalog-insert";
 import { buildInsertAudioPlan } from "../src/lib/insert-audio";
 import { customTrackToItem, trackLoops } from "../src/components/VoiceMediaLibrary";
+import { playOnceConsequence } from "../src/lib/custom-music";
 import type { CustomMusicTrack } from "../src/lib/custom-music";
 
 /**
@@ -234,6 +235,49 @@ for (const item of CATALOG_ITEMS.background_music) {
     library.includes("forceFullVideo: item.spansFullVideo !== false"),
     "the insert is built from that answer rather than always spanning the video"
   );
+
+  // ------------------------------------------------------------------
+  // 6. "Use the file's length" states its cost before it is chosen
+  // ------------------------------------------------------------------
+  /* The video is never cut to fit a track, so this answer can leave the tail of
+     the video with no music at all. That is a legitimate choice, but a creator
+     who only finds out in the finished file has lost the render. The
+     consequence is therefore computed and shown on the button itself. */
+  h.ok(
+    library.includes("playOnceConsequence(awaitingLoopChoice.duration, totalDuration)"),
+    "the question compares the track against the real video length"
+  );
+  h.ok(
+    library.includes("{onceConsequence && ("),
+    "and shows the answer's consequence under the button that carries it"
+  );
+
+  // A 3m07s video with a 1m30s track: 97.4s of the video would have no music.
+  h.eq(
+    playOnceConsequence(90, 187.4),
+    "Your video is 3:07, so the last 1:37 would play with no music.",
+    "a track shorter than the video names the silence it leaves behind"
+  );
+  // A 5m00s track over the same video: 112.6s of it is never heard.
+  h.eq(
+    playOnceConsequence(300, 187.4),
+    "Your video is 3:07, so the last 1:53 of the track would not be heard.",
+    "a track longer than the video names the part that will not play"
+  );
+  h.eq(
+    playOnceConsequence(187.4, 187.4),
+    "It matches your video's length almost exactly.",
+    "an exact match says so rather than warning about nothing"
+  );
+  // Under a second apart is not worth interrupting for.
+  h.eq(
+    playOnceConsequence(186.9, 187.4),
+    "It matches your video's length almost exactly.",
+    "a difference under a second is reported as a match, not as silence"
+  );
+  // No video yet (a script-only project): nothing to compare against.
+  h.eq(playOnceConsequence(90, 0), "", "with no video length there is no warning");
+  h.eq(playOnceConsequence(0, 187.4), "", "with no track length there is no warning");
 }
 
 h.done("music-library");

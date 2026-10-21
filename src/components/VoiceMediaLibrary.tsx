@@ -18,6 +18,7 @@ import {
   formatTrackLength,
   getCustomMusicTracks,
   loadCustomMusic,
+  playOnceConsequence,
   removeCustomMusic,
   setCustomMusicLoop,
   subscribeToCustomMusic,
@@ -284,6 +285,13 @@ export function BackgroundMusicLibrary({
     }
   };
 
+  /* What "use the file's length" costs, said out loud before it is chosen:
+     the video is never cut to fit a track, so a short track leaves the tail of
+     the video with no music and a long track is simply not all heard. */
+  const onceConsequence = awaitingLoopChoice
+    ? playOnceConsequence(awaitingLoopChoice.duration, totalDuration)
+    : "";
+
   /** Stores the answer on the track, so a saved project comes back with it. */
   const answerLoopChoice = (loop: boolean) => {
     const track = awaitingLoopChoice;
@@ -406,6 +414,11 @@ export function BackgroundMusicLibrary({
               <span className="block text-[10px] text-gray-400 mt-0.5">
                 Plays once, exactly as long as the music file.
               </span>
+              {onceConsequence && (
+                <span className="block text-[10px] text-amber-300/90 mt-1 leading-relaxed">
+                  {onceConsequence}
+                </span>
+              )}
             </button>
           </div>
         </div>

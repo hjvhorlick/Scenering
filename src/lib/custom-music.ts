@@ -330,3 +330,33 @@ export function formatTrackLength(seconds: number): string {
   const secs = total % 60;
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
+
+/**
+ * What choosing "use the file's length" actually does to a video of
+ * `videoSeconds`, said in one sentence before the creator commits to it.
+ *
+ * The video is never cut to fit a track — a one-scene project is always the
+ * length of its footage — so a track shorter than the video leaves the tail of
+ * the video with no music, and a track longer than the video simply is not all
+ * heard. Both are legitimate choices; they just should not be a surprise in
+ * the finished file. Returns "" when there is no video to compare against.
+ */
+export function playOnceConsequence(trackSeconds: number, videoSeconds: number): string {
+  if (!(trackSeconds > 0) || !(videoSeconds > 0)) return "";
+  const toTenth = (n: number) => Math.round(n * 10) / 10;
+  const silenceAfterTrack = toTenth(Math.max(0, videoSeconds - trackSeconds));
+  const unheardTail = toTenth(Math.max(0, trackSeconds - videoSeconds));
+  const video = formatTrackLength(videoSeconds);
+  // Under a second of difference is not worth interrupting the creator for.
+  if (silenceAfterTrack >= 1) {
+    return `Your video is ${video}, so the last ${formatTrackLength(
+      silenceAfterTrack
+    )} would play with no music.`;
+  }
+  if (unheardTail >= 1) {
+    return `Your video is ${video}, so the last ${formatTrackLength(
+      unheardTail
+    )} of the track would not be heard.`;
+  }
+  return "It matches your video's length almost exactly.";
+}

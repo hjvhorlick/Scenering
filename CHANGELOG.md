@@ -31,6 +31,14 @@
   fixed the audio plan, which ran every music bed to the end of the video
   regardless of its own length — a play-once track was scheduled for the whole
   timeline and only stopped because the buffer ran out.
+- **Choosing "use the file's length" now says what it costs.** The video is
+  never cut to fit a track, so a track shorter than the video leaves its tail
+  with no music, and a track longer than the video simply is not all heard. Both
+  are fine choices, but they were only discoverable in the finished file. The
+  button now states it at the moment of the question — *"Your video is 3:07, so
+  the last 1:37 would play with no music."* — computed by
+  `playOnceConsequence` in `custom-music.ts`, and quiet when the two lengths are
+  within a second of each other.
 - **Fixed: whole-video overlays vanished two seconds before the end.** The
   renderer holds the first frame for the narration lead-in before the first
   words, so the exported file is two seconds longer than the sum of the scene
