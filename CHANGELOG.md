@@ -1,5 +1,64 @@
 # Changelog
 
+## Unreleased — your own video, start to finish, with its sound and its captions
+
+- **Fixed: an uploaded video was cut short.** Creating a one-scene project from
+  footage set the scene's length correctly, but three later actions re-timed
+  every scene from its WORD COUNT alone, which knows nothing about footage:
+  Setup's Continue (`handleUpdateSceneDuration`), the 10/20/30 cards
+  (`handleCalibrateScenesWordCount`) and Fit scenes to speech
+  (`fitDurationToText("")`, three seconds). A music video has no words, so the
+  first trip back through Setup cut it to the project's 20-second target. One
+  rule now decides how long a scene holds — `sceneDurationForScene` in
+  `duration-utils.ts` — and every re-timing path asks it: footage decides in a
+  one-scene project, the words decide everywhere else, so split-scene projects
+  behave exactly as they did. `sceneTimelineDuration` gained the same floor, so
+  a narration switched back on can never shorten the picture either.
+- **The project's own length is the footage's length.** A project created from
+  an upload is stored at the clip's measured duration (`default_duration` and
+  the `scene_duration` setting) rather than the 10/20/30 target that was
+  showing, and the trim window is the whole file, so nothing is trimmed away.
+- **The original sound is a real choice, and it reaches the file.** Setup now
+  offers "Keep the original sound" or "Remove it" beside the upload, stored as
+  the scene's own `video_mute` — the field the clip panel has always used, so
+  the two can never disagree. It was a switch with nothing behind it until now:
+  the renderer draws a clip by SEEKING a hidden video element, and a seeked
+  element makes no noise, so the exported file had no soundtrack at all. New
+  `src/lib/clip-audio.ts` decodes the clip's audio track and schedules it on the
+  timeline to the sample, in both the frame-exact renderer and the
+  compatibility fallback, on the music bus so narration ducks it automatically.
+  Removing the sound produces no track at all, not a silent one, and a track
+  this browser cannot decode is reported on the render screen instead of
+  exporting silence quietly.
+- **Captions from the video's own audio.** Whisper (open source) runs on the
+  customer's own device through Transformers.js and times every word; the words
+  become the scene's caption text and their timings drive the existing karaoke
+  highlight, so the Captions step styles them and the scene text editor
+  corrects them with no new machinery. **It costs nothing**: no API key, no
+  account, no per-minute charge, and the audio never leaves the browser. What it
+  does cost is about 40 MB the first time (engine plus a quantised model,
+  fetched from jsDelivr and the Hugging Face hub, then cached) and roughly
+  real-time CPU. The engine is loaded on demand from a pinned version rather
+  than added to `package.json`, because its `onnxruntime-node` and `sharp`
+  install scripts download native binaries and would make `npm install` fail for
+  anyone without those hosts reachable; the main bundle does not grow. The CSP
+  allows `cdn.jsdelivr.net`, `huggingface.co` (weights, not script) and
+  `'wasm-unsafe-eval'` for the ONNX runtime.
+- **Captions survive the sound being removed.** Transcription reads the uploaded
+  file, never the rendered audio, so taking the original sound out of the final
+  video does not take the words with it.
+- **An SRT or VTT file works too** (`src/lib/caption-file.ts`), for a creator who
+  already has the words: it lands in the same fields, so it is styled and burned
+  in by the same code. Both routes are in the Captions step, on scenes that have
+  footage.
+- **Caption timing is exact for footage.** A provider's word marks start when the
+  speech starts, which is after the opening hold; a transcript's are the
+  footage's own, which start with the scene. The preview and the export both
+  choose the right clock, so a caption cannot land a lead-in late.
+- New suite `tests/one-scene-upload.test.ts` (110 checks) pins the duration rule,
+  the render's own scheduled length, the audio plan in both pipelines, the
+  transcript and caption-file conversions, and the cost and privacy claims.
+
 ## Unreleased — a shorter studio header
 
 - The studio's phase tabs now share the wordmark's row on desktop instead of

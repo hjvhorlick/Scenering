@@ -11,6 +11,7 @@ import { stopAllSoundPreviews } from "../data/media-library";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
+import { sceneCaptionWords } from "../lib/clip-transcript";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
@@ -694,11 +695,17 @@ export default function VideoPreview({
         const sa = audioBuffersRef.current.get(scene.id);
         const speechDur = sa?.buffer.duration && sa.buffer.duration > 0.3 ? sa.buffer.duration : (scene.duration || 4);
         const speechProgress = speechElapsed !== undefined ? Math.min(1, Math.max(0, speechElapsed / Math.max(0.1, speechDur))) : sceneProgress;
+        const footageWords = sa?.words ? null : sceneCaptionWords(scene);
         renderCanvasCaptions(ctx, scene.text, speechProgress, activeCaptions, w, h, {
           // Same real word timings the export uses — the preview highlights
-          // each word at the moment the voice actually says it.
-          wordTimings: sa?.words,
-          audioTimeSec: speechElapsed ?? 0,
+          // each word at the moment the voice actually says it. Footage with no
+          // narration has no voice to follow, so its captions lock onto the
+          // transcript of its own soundtrack, which is what the export does too.
+          wordTimings: sa?.words ?? footageWords,
+          /* The footage's own clock starts with the scene, the voice's clock
+             after the opening hold — the export makes the same distinction, so
+             the preview cannot show a caption the file will not show. */
+          audioTimeSec: footageWords ? Math.max(0, elapsedInScene ?? 0) : speechElapsed ?? 0,
         });
       }
 

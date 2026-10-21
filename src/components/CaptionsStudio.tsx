@@ -3,6 +3,15 @@ import StepNav from "./StepNav";
 import type { Scene, CaptionsConfig } from "../types";
 import { formatDuration } from "../lib/duration-utils";
 import { renderCanvasCaptions, captionBandCenterY } from "../lib/render-captions";
+import { useClipTranscription } from "../lib/use-clip-transcription";
+import {
+  sceneHasTranscript,
+  sceneUpdatesForTranscript,
+  transcriptMatchesClip,
+} from "../lib/clip-transcript";
+import { CAPTION_FILE_ACCEPT, CaptionFileError, parseCaptionFile } from "../lib/caption-file";
+import { resolveVideoUrl } from "../lib/custom-video";
+import { sceneHasClip } from "../lib/scene-clip";
 import {
   CAPTION_FONTS,
   CAPTION_STYLES,
@@ -25,6 +34,128 @@ import { getInterfacePlan, useSession } from "../lib/session";
 import { isPlanCaptionIncluded, type PlanSlug } from "../config/plans";
 import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 import { oneOf, useRememberedChoice } from "../lib/section-memory";
+
+/**
+ * Captions for a scene whose picture is the creator's own footage.
+ *
+ * A narrated scene gets its words and their timings from the TTS engine. This
+ * one has no narration to time, so the words come from the soundtrack instead —
+ * transcribed here on this device, or read from an SRT/VTT the creator already
+ * has. Either way they land in the same two places the rest of this step and
+ * the renderer already read: the scene's text, and its per-word timings. From
+ * there the styling controls on this screen work on them exactly as they do on
+ * any other scene.
+ */
+function SceneTranscriptControls({
+  scene,
+  onUpdateScene,
+}: {
+  scene: Scene;
+  onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
+}) {
+  const transcription = useClipTranscription();
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const hasWords = sceneHasTranscript(scene);
+  const stale = hasWords && !transcriptMatchesClip(scene);
+
+  const generate = async () => {
+    const playable = resolveVideoUrl(scene.video_url);
+    if (!playable) {
+      setFileError(
+        "That video is not in this browser's storage any more, so its audio cannot be read. Re-upload it in Setup or in its scene."
+      );
+      return;
+    }
+    setFileError(null);
+    const done = await transcription.generate(playable, scene.video_duration || scene.duration || 0);
+    if (done) {
+      onUpdateScene(
+        scene.id,
+        sceneUpdatesForTranscript(done.words, done.audioSeconds || scene.video_duration || 0)
+      );
+    }
+  };
+
+  const importFile = async (file: File | null | undefined) => {
+    if (!file) return;
+    setFileError(null);
+    try {
+      const parsed = parseCaptionFile(await file.text(), file.name);
+      onUpdateScene(scene.id, sceneUpdatesForTranscript(parsed.words, parsed.audioSeconds));
+    } catch (err) {
+      setFileError(
+        err instanceof CaptionFileError ? err.message : "That file could not be read as captions."
+      );
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  return (
+    <div className="w-full mt-2.5 pt-2.5 border-t border-hairline space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void generate()}
+          disabled={transcription.busy}
+          className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white transition-colors disabled:opacity-60 flex items-center gap-1.5"
+          title="Whisper listens to this clip's own soundtrack and times every word. Free, on this device, nothing uploaded."
+        >
+          <Icon glyph={transcription.busy ? "⏳" : "✨"} />
+          {transcription.busy ? "Listening…" : hasWords ? "Transcribe again" : "Generate captions from the video's audio"}
+        </button>
+        {transcription.busy && (
+          <button
+            type="button"
+            onClick={transcription.cancel}
+            className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 transition-colors"
+          >
+            Cancel
+          </button>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept={CAPTION_FILE_ACCEPT}
+          className="hidden"
+          onChange={(e) => void importFile(e.target.files?.[0])}
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 transition-colors"
+          title="Already have the words? An SRT or VTT file brings its own timings."
+        >
+          Import SRT / VTT
+        </button>
+        {hasWords && !stale && (
+          <span className="text-[10px] text-emerald-300">
+            {(scene.caption_words || []).length} words timed to this footage
+          </span>
+        )}
+        {stale && (
+          <span className="text-[10px] text-amber-300">
+            These captions were made from a different length of footage — transcribe again to line
+            them up.
+          </span>
+        )}
+      </div>
+      {transcription.progress && transcription.busy && (
+        <p className="text-[10px] text-gray-400">
+          {transcription.progress.message}
+          {typeof transcription.progress.fraction === "number" &&
+            ` ${Math.round(transcription.progress.fraction * 100)}%`}
+        </p>
+      )}
+      {(transcription.error || fileError) && (
+        <p className="text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2">
+          {transcription.error || fileError}
+        </p>
+      )}
+    </div>
+  );
+}
 
 interface CaptionsStudioProps {
   /** The open project: this section's choices are remembered per project. */
@@ -1106,17 +1237,25 @@ export default function CaptionsStudio({
               key={scene.id}
               className="p-3.5 bg-gray-800/40 hover:bg-gray-800/70 border border-hairline rounded-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
             >
-              <div className="flex items-start sm:items-center gap-3 flex-1">
+              <div className="flex items-start sm:items-center gap-3 flex-1 min-w-0">
                 <span className="w-5 h-5 rounded-full bg-purple-600/30 border border-purple-500/40 text-purple-300 font-bold flex items-center justify-center shrink-0">
                   {index + 1}
                 </span>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <p className="text-white font-medium line-clamp-2 leading-relaxed">
-                    "{scene.text}"
+                    {scene.text ? `"${scene.text}"` : "No caption text yet — transcribe the video's audio below."}
                   </p>
                   <span className="text-[10px] text-gray-400">
                     Duration: {formatDuration(scene.duration)} • {scene.text.split(/\s+/).filter(Boolean).length} words
+                    {sceneHasTranscript(scene) ? " • transcribed from this footage" : ""}
                   </span>
+                  {/* Footage has no narration to time captions to, so this scene
+                      gets its words — and their timings — from its own
+                      soundtrack. Every style control on this screen then
+                      applies to them unchanged. */}
+                  {sceneHasClip(scene) && (
+                    <SceneTranscriptControls scene={scene} onUpdateScene={onUpdateScene} />
+                  )}
                 </div>
               </div>
 

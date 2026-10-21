@@ -303,7 +303,18 @@ export function createApp(): express.Express {
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     if (env().NODE_ENV === "production") {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.onfastspring.com https://*.fastspring.com; script-src 'self' 'unsafe-inline' https://sbl.onfastspring.com https://*.onfastspring.com https://*.fastspring.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.onfastspring.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co https://api.fastspring.com https://*.onfastspring.com https://*.fastspring.com; frame-src 'self' https://*.onfastspring.com https://*.fastspring.com; worker-src 'self' blob:");
+      /* Three hosts and one keyword exist for on-device captions
+         (src/lib/speech-to-text.ts), and each is narrower than it looks:
+           • cdn.jsdelivr.net — the Transformers.js engine module, loaded only
+             when a creator asks for captions from their own footage. Pinned to
+             one version there, so a new release cannot arrive by itself.
+           • huggingface.co — Whisper model WEIGHTS only. Data, not script:
+             no code from that host is ever evaluated.
+           • 'wasm-unsafe-eval' — lets the engine's ONNX runtime compile its
+             own WebAssembly. It permits WASM compilation and nothing else; it
+             is not 'unsafe-eval', so no string of JS can still be run.
+         The audio itself never leaves the browser. */
+      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.onfastspring.com https://*.fastspring.com; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://sbl.onfastspring.com https://*.onfastspring.com https://*.fastspring.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.onfastspring.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co https://api.fastspring.com https://*.onfastspring.com https://*.fastspring.com https://cdn.jsdelivr.net https://huggingface.co; frame-src 'self' https://*.onfastspring.com https://*.fastspring.com; worker-src 'self' blob:");
     }
     next();
   });

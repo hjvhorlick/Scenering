@@ -1,0 +1,94 @@
+/**
+ * The state machine behind every "generate captions from this video" button.
+ *
+ * One hook rather than three copies, because Setup, the Captions step and the
+ * clip panel all do the same job and must report it the same way: what stage
+ * the run is at, how far through the model download, and — when it fails — a
+ * sentence the creator can act on instead of an engine stack trace.
+ *
+ * It deliberately knows nothing about scenes. Callers hand it an address to
+ * read audio from and decide what to do with the words that come back, which
+ * is what lets Setup run a transcription before the project even exists.
+ */
+
+import { useCallback, useRef, useState } from "react";
+import {
+  transcribeAudioUrl,
+  TranscriptionError,
+  type TranscriptionProgress,
+  type TranscriptionResult,
+} from "./speech-to-text";
+
+export interface ClipTranscriptionState {
+  busy: boolean;
+  /** The last stage reported, for the progress line under the button. */
+  progress: TranscriptionProgress | null;
+  /** A sentence fit for the screen, or null. */
+  error: string | null;
+  /** The finished transcript, kept so the caller can re-apply it. */
+  result: TranscriptionResult | null;
+  generate: (sourceUrl: string, audioSeconds: number) => Promise<TranscriptionResult | null>;
+  cancel: () => void;
+  reset: () => void;
+}
+
+export function useClipTranscription(): ClipTranscriptionState {
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<TranscriptionProgress | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<TranscriptionResult | null>(null);
+  const cancelledRef = useRef(false);
+  const runRef = useRef(0);
+
+  const cancel = useCallback(() => {
+    cancelledRef.current = true;
+  }, []);
+
+  const reset = useCallback(() => {
+    cancelledRef.current = false;
+    setBusy(false);
+    setProgress(null);
+    setError(null);
+    setResult(null);
+  }, []);
+
+  const generate = useCallback(
+    async (sourceUrl: string, audioSeconds: number): Promise<TranscriptionResult | null> => {
+      // A second run supersedes the first: its result must not land on top of
+      // the newer one just because it finished later.
+      const run = ++runRef.current;
+      cancelledRef.current = false;
+      setBusy(true);
+      setError(null);
+      setResult(null);
+      setProgress({ stage: "engine", message: "Loading the transcription engine…", fraction: 0 });
+      try {
+        const done = await transcribeAudioUrl(sourceUrl, {
+          audioSeconds,
+          cancelled: () => cancelledRef.current,
+          onProgress: (next) => {
+            if (runRef.current === run) setProgress(next);
+          },
+        });
+        if (runRef.current !== run) return null;
+        setResult(done);
+        return done;
+      } catch (err) {
+        if (runRef.current !== run) return null;
+        const message =
+          err instanceof TranscriptionError
+            ? err.message
+            : (err as Error)?.message || "Transcription failed.";
+        setError(message);
+        return null;
+      } finally {
+        if (runRef.current === run) {
+          setBusy(false);
+        }
+      }
+    },
+    []
+  );
+
+  return { busy, progress, error, result, generate, cancel, reset };
+}
