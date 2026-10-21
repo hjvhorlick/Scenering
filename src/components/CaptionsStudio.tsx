@@ -49,9 +49,14 @@ import { oneOf, useRememberedChoice } from "../lib/section-memory";
 function SceneTranscriptControls({
   scene,
   onUpdateScene,
+  musicBed,
 }: {
   scene: Scene;
   onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
+  /** The project's music track, for a video built from stills. Such a scene has
+   *  no footage soundtrack of its own, so the music is the only place its words
+   *  — and their timings — can come from. */
+  musicBed?: { url: string; seconds: number; name: string } | null;
 }) {
   const transcription = useClipTranscription();
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -59,20 +64,28 @@ function SceneTranscriptControls({
   const hasWords = sceneHasTranscript(scene);
   const stale = hasWords && !transcriptMatchesClip(scene);
 
+  /* Where the words come from: this scene's own footage when it has one,
+     otherwise the music track the video is built on. */
+  const clipSource = resolveVideoUrl(scene.video_url);
+  const source = clipSource
+    ? { url: clipSource, seconds: scene.video_duration || scene.duration || 0, label: "this video's audio" }
+    : musicBed
+      ? { url: musicBed.url, seconds: musicBed.seconds, label: musicBed.name }
+      : null;
+
   const generate = async () => {
-    const playable = resolveVideoUrl(scene.video_url);
-    if (!playable) {
+    if (!source) {
       setFileError(
         "That video is not in this browser's storage any more, so its audio cannot be read. Re-upload it in Setup or in its scene."
       );
       return;
     }
     setFileError(null);
-    const done = await transcription.generate(playable, scene.video_duration || scene.duration || 0);
+    const done = await transcription.generate(source.url, source.seconds);
     if (done) {
       onUpdateScene(
         scene.id,
-        sceneUpdatesForTranscript(done.words, done.audioSeconds || scene.video_duration || 0)
+        sceneUpdatesForTranscript(done.words, done.audioSeconds || source.seconds || 0)
       );
     }
   };
@@ -100,10 +113,14 @@ function SceneTranscriptControls({
           onClick={() => void generate()}
           disabled={transcription.busy}
           className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white transition-colors disabled:opacity-60 flex items-center gap-1.5"
-          title="Whisper listens to this clip's own soundtrack and times every word. Free, on this device, nothing uploaded."
+          title={`Whisper listens to ${source?.label ?? "the audio"} and times every word. Free, on this device, nothing uploaded.`}
         >
           <Icon glyph={transcription.busy ? "⏳" : "✨"} />
-          {transcription.busy ? "Listening…" : hasWords ? "Transcribe again" : "Generate captions from the video's audio"}
+          {transcription.busy
+            ? "Listening…"
+            : hasWords
+              ? "Transcribe again"
+              : `Generate captions from ${source?.label ?? "the audio"}`}
         </button>
         {transcription.busy && (
           <button
@@ -166,6 +183,9 @@ interface CaptionsStudioProps {
   onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
   onApplyStyleToAll: (burn: boolean) => void;
   onNavigateToStep?: (step: any) => void;
+  /** The project's music track, so a video built from stills can still get its
+   *  captions transcribed — it has no footage soundtrack to listen to. */
+  musicBed?: { url: string; seconds: number; name: string } | null;
 }
 
 export type CaptionPresetType = string;
@@ -178,6 +198,7 @@ export default function CaptionsStudio({
   onUpdateScene,
   onApplyStyleToAll,
   onNavigateToStep,
+  musicBed = null,
 }: CaptionsStudioProps) {
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
@@ -1253,8 +1274,12 @@ export default function CaptionsStudio({
                       gets its words — and their timings — from its own
                       soundtrack. Every style control on this screen then
                       applies to them unchanged. */}
-                  {sceneHasClip(scene) && (
-                    <SceneTranscriptControls scene={scene} onUpdateScene={onUpdateScene} />
+                  {(sceneHasClip(scene) || musicBed) && (
+                    <SceneTranscriptControls
+                      scene={scene}
+                      onUpdateScene={onUpdateScene}
+                      musicBed={musicBed}
+                    />
                   )}
                 </div>
               </div>

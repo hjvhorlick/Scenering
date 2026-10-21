@@ -50,6 +50,7 @@ import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
 
 import { loadCustomVideos } from "./lib/custom-video";
 import { TRANSCRIPT_KEYS, projectHasNarration } from "./lib/clip-transcript";
+import { projectMusicBed } from "./lib/insert-audio";
 import { loadCustomImages } from "./lib/custom-image";
 import { loadCustomMusic } from "./lib/custom-music";
 import { getSession } from "./lib/session";
@@ -1803,6 +1804,12 @@ export default function App() {
     return Math.max(1, Math.round((intro + leadIn + script + outro) * 10) / 10);
   }, [scenes, introSection, outroSection, voiceoverEnabled]);
 
+  /* A music video built from stills has no footage soundtrack, so the music
+     track is the only thing its captions can be transcribed from. Derived from
+     the same insert list the renderer plays, so the words always come from the
+     audio the finished video actually uses. */
+  const captionsMusicBed = useMemo(() => projectMusicBed(inserts), [inserts]);
+
   // Visualisers and music added for the entire video stay pinned to its full
   // length, even after scenes are re-timed or the voiceover changes.
   useEffect(() => {
@@ -2410,6 +2417,7 @@ export default function App() {
                   onUpdateScene={handleUpdateScene}
                   onApplyStyleToAll={handleApplyCaptionStyleToAll}
                   onNavigateToStep={handleStepRequest}
+                  musicBed={captionsMusicBed}
                 />
               ) : (
                 /* Step 4: Video Studio & Timeline View */

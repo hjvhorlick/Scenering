@@ -31,6 +31,15 @@
   fixed the audio plan, which ran every music bed to the end of the video
   regardless of its own length — a play-once track was scheduled for the whole
   timeline and only stopped because the buffer ran out.
+- **A music video built from stills can now get its captions.** The Captions
+  step only offered to transcribe a scene with footage attached — the gate was
+  `sceneHasClip`, which is just `Boolean(scene.video_url)`. So a video made from
+  a music file and a few images had no way to make captions at all, even though
+  the transcriber reads any audio address and never cared what kind of file it
+  was. `projectMusicBed` now finds the project's music track using the same
+  last-selection-wins rule as `buildInsertAudioPlan`, so the words are always
+  transcribed from the audio the finished video actually plays, and the button
+  names what it is listening to.
 - **Fixed: captions were read aloud over the sound they came from.** A
   transcript writes the words it heard into `scene.text`, because that is the
   field the caption renderer reads. Voiceover defaults to ON and the renderer

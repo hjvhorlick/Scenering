@@ -5,10 +5,11 @@ import { createHarness } from "./harness";
 import { BACKGROUND_MUSIC_TRACKS } from "../src/data/media-library";
 import { CATALOG_ITEMS } from "../src/lib/video-studio-catalog";
 import { createCatalogInsert } from "../src/lib/catalog-insert";
-import { buildInsertAudioPlan } from "../src/lib/insert-audio";
+import { buildInsertAudioPlan, projectMusicBed } from "../src/lib/insert-audio";
 import { customTrackToItem, trackLoops } from "../src/components/VoiceMediaLibrary";
 import { playOnceConsequence } from "../src/lib/custom-music";
 import type { CustomMusicTrack } from "../src/lib/custom-music";
+import type { TimelineInsert } from "../src/types";
 
 /**
  * The background music library.
@@ -278,6 +279,88 @@ for (const item of CATALOG_ITEMS.background_music) {
   // No video yet (a script-only project): nothing to compare against.
   h.eq(playOnceConsequence(90, 0), "", "with no video length there is no warning");
   h.eq(playOnceConsequence(0, 187.4), "", "with no track length there is no warning");
+}
+
+// ------------------------------------------------------------------
+// 7. Which track the Captions step listens to
+// ------------------------------------------------------------------
+{
+  /* A music video built from stills has no footage soundtrack, so the music
+     track is the only place its captions can come from. `projectMusicBed` has
+     to pick the same track the renderer plays, or the words would be
+     transcribed from audio the finished video never uses. */
+  const bed = (soundUrl: string, duration: number, extra = {}): TimelineInsert =>
+    ({
+      id: `ins_${soundUrl}`,
+      category: "background_music",
+      type: "bgm_x",
+      title: "Track",
+      startTime: 0,
+      duration,
+      position: { x: 0.5, y: 0.5 },
+      size: 1,
+      audioSettings: { soundUrl, volume: 0.5, ...extra },
+    }) as unknown as TimelineInsert;
+
+  const visual = {
+    id: "ins_visual",
+    category: "visual_effect",
+    type: "fx_x",
+    title: "FX",
+    startTime: 0,
+    duration: 10,
+    position: { x: 0.5, y: 0.5 },
+    size: 1,
+  } as unknown as TimelineInsert;
+
+  h.eq(projectMusicBed(undefined), null, "no inserts means no track to listen to");
+  h.eq(projectMusicBed([]), null, "an empty timeline has no track either");
+  h.eq(projectMusicBed([visual]), null, "an effects-only timeline has no soundtrack to read");
+
+  const one = projectMusicBed([bed("https://cdn/x.mp3", 187)]);
+  h.ok(one !== null, "a music bed is found");
+  h.eq(one!.url, "https://cdn/x.mp3", "and it resolves to the file the renderer plays");
+  h.near(one!.seconds, 187, 0.6, "with the length the transcriber needs for progress");
+
+  // A music selection REPLACES the previous one, so captions must follow the
+  // survivor rather than the first track anyone added.
+  const swapped = projectMusicBed([
+    bed("https://cdn/first.mp3", 120),
+    visual,
+    bed("https://cdn/second.mp3", 240),
+  ]);
+  h.eq(swapped!.url, "https://cdn/second.mp3", "the last music selection is the one read");
+
+  // And the same guards the audio plan applies.
+  h.eq(
+    projectMusicBed([bed("https://cdn/x.mp3", 187, { muted: true })]),
+    null,
+    "a muted bed is not playing, so there is nothing to transcribe"
+  );
+  h.eq(
+    projectMusicBed([bed("", 187)]),
+    null,
+    "a bed with no file behind it has nothing to read"
+  );
+
+  // The Captions step must actually offer the button for a stills-and-music
+  // video, not only for footage.
+  const read = (rel: string) => readFileSync(join(repoRoot, rel), "utf8");
+  const captions = read("src/components/CaptionsStudio.tsx");
+  h.ok(
+    /\{\(sceneHasClip\(scene\) \|\| musicBed\) &&/.test(captions),
+    "the transcript panel appears for a video built from stills as well as footage"
+  );
+  h.ok(
+    captions.includes("musicBed={musicBed}"),
+    "and it is handed the project's track"
+  );
+
+  const app = read("src/App.tsx");
+  h.ok(
+    /const captionsMusicBed = useMemo\(\(\) => projectMusicBed\(inserts\), \[inserts\]\);/.test(app),
+    "App derives it from the same insert list the renderer plays"
+  );
 }
 
 h.done("music-library");

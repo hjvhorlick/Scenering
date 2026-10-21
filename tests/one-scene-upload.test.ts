@@ -644,8 +644,8 @@ const footageScene = {
  * ------------------------------------------------------------------ */
 {
   h.ok(
-    captions.includes("Generate captions from the video's audio"),
-    "the Captions step offers to transcribe a scene's footage"
+    /Generate captions from \$\{source\?\.label \?\? "the audio"\}/.test(captions),
+    "the Captions step offers to transcribe a scene's footage, and names the audio it will read"
   );
   h.ok(setup.includes("Generate captions"), "Setup offers it next to the upload");
   h.ok(
