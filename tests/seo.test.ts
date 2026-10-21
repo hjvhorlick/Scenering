@@ -86,6 +86,13 @@ h.ok(
 );
 h.ok(!source.includes("favicon.svg"), "the tab icon is the owner's artwork, not the retired vector mark");
 h.ok(existsSync("public/icon-192.png") && existsSync(`public${SITE_LOGO.path}`), "the manifest and schema icons ship with the artwork");
+const googleVerificationTag = '<meta name="google-site-verification" content="hPhCtRAdkEnwdSpyUQLsvXtHpBeZDrj7UouL7HJIMlk" />';
+for (const [label, html] of [["index.html", source], ["the built front page", applyPageShell(source, "/")]] as const) {
+  const headEnd = html.indexOf("</head>");
+  const bodyStart = html.indexOf("<body");
+  const tagAt = html.indexOf(googleVerificationTag);
+  h.ok(tagAt > 0 && tagAt < headEnd && headEnd < bodyStart, `${label} keeps the Google Search Console verification tag inside <head> before <body>`);
+}
 
 /* 4. Every page's own file. */
 const shellPaths = pageShellPaths();
