@@ -878,6 +878,26 @@ const footageScene = {
     "and the skip really does come before the resolve it is guarding"
   );
 
+  /* The guarantee is structural, not a list of patched call sites: narration
+     reaches the voice bus only through `audioBuffers`, and that map has exactly
+     one writer, inside the gated loop. Both render paths (offline export and
+     realtime) read from it, so closing the loop closes both. */
+  h.eq(
+    (render.match(/audioBuffers\.set\(/g) || []).length,
+    1,
+    "narration has exactly one way into the voice bus"
+  );
+  const writerAt = render.indexOf("audioBuffers.set(");
+  h.ok(
+    writerAt > gateAt && writerAt > resolveAt,
+    "and that single writer sits behind the caption-only skip"
+  );
+  h.eq(
+    (render.match(/audioBuffers\.get\(entry\.scene\.id\)/g) || []).length,
+    2,
+    "both the offline export and the realtime preview read that same map"
+  );
+
   // With nothing spoken, the caption clock spans the scene rather than being
   // estimated from words that are only ever drawn.
   h.ok(
