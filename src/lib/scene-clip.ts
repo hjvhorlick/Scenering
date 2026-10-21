@@ -18,18 +18,32 @@ export interface DrawableClip {
   readonly element: HTMLVideoElement;
 }
 
-/** Wrap a video element so the framing engine can measure and draw it. */
-export function asDrawableClip(video: HTMLVideoElement): DrawableClip & CanvasImageSource {
-  return new Proxy(video, {
-    get(target, prop, receiver) {
-      if (prop === "naturalWidth") return target.videoWidth;
-      if (prop === "naturalHeight") return target.videoHeight;
-      if (prop === "element") return target;
-      if (prop === "complete") return target.readyState >= 2;
-      const value = Reflect.get(target, prop, receiver);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  }) as unknown as DrawableClip & CanvasImageSource;
+/**
+ * Make the real video element satisfy the framing engine's image-size shape.
+ *
+ * This must NOT return a Proxy. Canvas drawImage performs a Web-IDL brand
+ * check that can reject a Proxy around an HTMLVideoElement, leaving uploaded
+ * video scenes black even though metadata has loaded.
+ */
+export function asDrawableClip(video: HTMLVideoElement): DrawableClip & HTMLVideoElement {
+  const drawable = video as HTMLVideoElement & DrawableClip;
+  if (!("naturalWidth" in drawable)) {
+    Object.defineProperties(drawable, {
+      naturalWidth: {
+        configurable: true,
+        get: () => video.videoWidth,
+      },
+      naturalHeight: {
+        configurable: true,
+        get: () => video.videoHeight,
+      },
+      element: {
+        configurable: true,
+        get: () => video,
+      },
+    });
+  }
+  return drawable;
 }
 
 /** True when this scene should show a clip rather than a still image. */
@@ -98,6 +112,8 @@ export function clipTimeForProgress(scene: Scene, sceneProgress: number, sceneDu
 export class ClipPool {
   private elements = new Map<number, HTMLVideoElement>();
 
+  constructor(private readonly onFrameAvailable?: (sceneId: number) => void) {}
+
   /** Get (or create) the element for a scene, returning null without a clip. */
   get(scene: Scene): HTMLVideoElement | null {
     if (!scene.video_url) return null;
@@ -115,6 +131,15 @@ export class ClipPool {
       el.crossOrigin = "anonymous";
       el.loop = (scene.video_fit_mode || "trim") === "loop";
       this.elements.set(scene.id, el);
+      const notify = () => {
+        // Ignore a late event from an element already released by retain/dispose.
+        if (this.elements.get(scene.id) === el) this.onFrameAvailable?.(scene.id);
+      };
+      // loadeddata repaints the initial paused frame; seeked repaints after a
+      // timeline scrub. Without these, a black canvas remained forever until
+      // the user pressed Play because no React dependency changed on decode.
+      el.addEventListener("loadeddata", notify);
+      el.addEventListener("seeked", notify);
     }
     if (el.getAttribute("data-src") !== src) {
       el.src = src;
@@ -195,12 +220,14 @@ export class ClipPool {
     const keep = new Set(sceneIds);
     for (const [id, el] of this.elements) {
       if (keep.has(id)) continue;
+      // Delete first so late loadeddata/seeked events cannot repaint a scene
+      // whose decoder has already been released.
+      this.elements.delete(id);
       try {
         el.pause();
         el.removeAttribute("src");
         el.load();
       } catch {}
-      this.elements.delete(id);
     }
   }
 
@@ -215,13 +242,14 @@ export class ClipPool {
 
   /** Release every element and its decoder. */
   dispose(): void {
-    for (const el of this.elements.values()) {
+    const elements = [...this.elements.values()];
+    this.elements.clear();
+    for (const el of elements) {
       try {
         el.pause();
         el.removeAttribute("src");
         el.load();
       } catch {}
     }
-    this.elements.clear();
   }
 }

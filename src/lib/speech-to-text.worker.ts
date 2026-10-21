@@ -1,3 +1,9 @@
+import {
+  ALL_FORMATS,
+  AudioSampleSink,
+  BlobSource,
+  Input,
+} from "mediabunny";
 import type {
   TranscriptionWorkerChunk,
   TranscriptionWorkerFailure,
@@ -8,7 +14,9 @@ import type {
 } from "./speech-to-text-protocol";
 
 /**
- * Whisper runs here, never on React's/UI thread.
+ * Every expensive part of local transcription lives here: media demuxing,
+ * WebCodecs audio decoding, 16 kHz resampling, model loading and Whisper.
+ * The React/UI thread only fetches a Blob handle and paints progress.
  *
  * Terminating this worker is also the one dependable cancellation mechanism:
  * older Transformers.js/ONNX internals do not consistently honour an
@@ -18,6 +26,7 @@ import type {
 const SAMPLE_RATE = 16_000;
 const WINDOW_SECONDS = 30;
 const STRIDE_SECONDS = 5;
+const AUDIO_PROGRESS_INTERVAL_MS = 250;
 
 const workerScope = self as unknown as {
   postMessage(message: TranscriptionWorkerResponse): void;
@@ -57,6 +66,140 @@ function formatClock(seconds: number): string {
   return `${mins}:${String(total % 60).padStart(2, "0")}`;
 }
 
+function growFloat32(source: Float32Array, requiredLength: number): Float32Array {
+  if (source.length >= requiredLength) return source;
+  let length = Math.max(1, source.length);
+  while (length < requiredLength) length = Math.max(requiredLength, Math.ceil(length * 1.5));
+  const grown = new Float32Array(length);
+  grown.set(source);
+  return grown;
+}
+
+/**
+ * Demux and decode incrementally from the Blob inside this worker. In
+ * particular, do not call AudioContext.decodeAudioData on the page: that API
+ * needs the entire video in one ArrayBuffer and was the remaining browser
+ * freeze even after Whisper itself moved off-thread.
+ */
+async function decodeSoundtrack(
+  id: number,
+  source: Blob,
+  durationHint: number
+): Promise<{ audio: Float32Array; duration: number }> {
+  progress(id, {
+    stage: "audio",
+    event: "audio-start",
+    message: "Opening the soundtrack in the background decoder…",
+    fraction: 0,
+  });
+
+  const input = new Input({
+    source: new BlobSource(source),
+    formats: ALL_FORMATS,
+  });
+
+  try {
+    if (!(await input.canRead())) {
+      throw new Error("The video container is not supported by the background decoder.");
+    }
+    const track = await input.getPrimaryAudioTrack();
+    if (!track) throw new Error("No playable audio track was found in that video.");
+    if (!(await track.canDecode())) {
+      const codec = await track.getCodec().catch(() => null);
+      throw new Error(
+        `This browser cannot decode the video's ${codec || "audio"} track in a worker. ` +
+        "Try an MP4 with AAC audio, or import an SRT/VTT caption file."
+      );
+    }
+
+    const metadataDuration = await track.getDurationFromMetadata().catch(() => null);
+    const expectedDuration = Math.max(
+      0.01,
+      Number(metadataDuration) || 0,
+      Number(durationHint) || 0
+    );
+    let mono: Float32Array = new Float32Array(Math.max(1, Math.ceil(expectedDuration * SAMPLE_RATE)));
+    let sourceData: Float32Array = new Float32Array(0);
+    let writtenFrames = 0;
+    let decodedEnd = 0;
+    let lastProgressAt = 0;
+    let lastProgressFraction = -1;
+    const sink = new AudioSampleSink(track);
+
+    for await (const sample of sink.samples()) {
+      try {
+        const channels = Math.max(1, sample.numberOfChannels);
+        const frames = Math.max(0, sample.numberOfFrames);
+        if (frames === 0) continue;
+
+        const floatCount = sample.allocationSize({ planeIndex: 0, format: "f32" }) / 4;
+        sourceData = growFloat32(sourceData, floatCount);
+        const interleaved = sourceData.subarray(0, floatCount);
+        sample.copyTo(interleaved, { planeIndex: 0, format: "f32" });
+
+        const sampleStart = sample.timestamp;
+        const sampleEnd = sample.timestamp + sample.duration;
+        const outputStart = Math.max(0, Math.ceil(sampleStart * SAMPLE_RATE));
+        const outputEnd = Math.max(outputStart, Math.ceil(sampleEnd * SAMPLE_RATE));
+        mono = growFloat32(mono, outputEnd);
+        const sourceRate = Math.max(1, sample.sampleRate);
+        const channelScale = channels === 1 ? 1 : 1 / Math.sqrt(channels);
+
+        for (let outputFrame = outputStart; outputFrame < outputEnd; outputFrame += 1) {
+          const sourcePosition = (outputFrame / SAMPLE_RATE - sampleStart) * sourceRate;
+          const lower = Math.max(0, Math.min(frames - 1, Math.floor(sourcePosition)));
+          const upper = Math.max(0, Math.min(frames - 1, lower + 1));
+          const mix = Math.max(0, Math.min(1, sourcePosition - lower));
+          let value = 0;
+          const lowerOffset = lower * channels;
+          const upperOffset = upper * channels;
+          for (let channel = 0; channel < channels; channel += 1) {
+            value +=
+              (interleaved[lowerOffset + channel] || 0) * (1 - mix) +
+              (interleaved[upperOffset + channel] || 0) * mix;
+          }
+          mono[outputFrame] = Math.max(-1, Math.min(1, value * channelScale));
+        }
+
+        writtenFrames = Math.max(writtenFrames, outputEnd);
+        decodedEnd = Math.max(decodedEnd, sampleEnd);
+        const now = Date.now();
+        const fraction = Math.min(0.99, decodedEnd / expectedDuration);
+        if (
+          now - lastProgressAt >= AUDIO_PROGRESS_INTERVAL_MS ||
+          fraction - lastProgressFraction >= 0.01
+        ) {
+          lastProgressAt = now;
+          lastProgressFraction = fraction;
+          progress(id, {
+            stage: "audio",
+            event: "audio-progress",
+            message: `Decoded ${formatClock(decodedEnd)} of about ${formatClock(expectedDuration)} in the background…`,
+            fraction,
+          });
+        }
+      } finally {
+        sample.close();
+      }
+    }
+
+    if (writtenFrames <= 0 || decodedEnd <= 0) {
+      throw new Error("No playable audio samples were found in that video.");
+    }
+
+    const duration = writtenFrames / SAMPLE_RATE;
+    progress(id, {
+      stage: "audio",
+      event: "audio-progress",
+      message: `Soundtrack ready · ${formatClock(duration)} decoded in the background.`,
+      fraction: 1,
+    });
+    return { audio: mono.subarray(0, writtenFrames), duration };
+  } finally {
+    input.dispose();
+  }
+}
+
 async function loadEngine(url: string): Promise<any> {
   if (!enginePromise || engineUrl !== url) {
     engineUrl = url;
@@ -66,11 +209,11 @@ async function loadEngine(url: string): Promise<any> {
     const engine = await enginePromise;
     engine.env.allowLocalModels = false;
     engine.env.useBrowserCache = true;
-    // Keep one CPU core free for painting buttons/progress and handling Cancel.
-    // The expensive work is off-thread, but a WASM pool using every core can
-    // still make the page feel frozen on a small laptop.
+    // One WASM thread prevents model inference from monopolising every CPU
+    // core even though it is already isolated from React in this worker.
     try {
       engine.env.backends.onnx.wasm.numThreads = 1;
+      engine.env.backends.onnx.wasm.proxy = false;
     } catch {}
     return engine;
   } catch (error) {
@@ -164,8 +307,8 @@ async function transcribeInWindows(
     const text = String(output?.text || "").trim();
     if (kept === 0 && text) {
       // Defensive fallback for a runtime that returns text despite ignoring
-      // word timestamps. The main thread will spread these words over the
-      // trusted window rather than losing otherwise useful captions.
+      // word timestamps. The main thread spreads these words over the trusted
+      // window rather than losing otherwise useful captions.
       merged.push({ text, timestamp: [trustedStart, Math.max(trustedStart, trustedEnd)] });
       untimedText.push(text);
     }
@@ -189,8 +332,30 @@ async function transcribeInWindows(
   return { text, chunks: merged };
 }
 
+async function disposeTranscriber(modelId: string, transcriber: any): Promise<void> {
+  transcribers.delete(modelId);
+  try {
+    await transcriber?.dispose?.();
+  } catch {}
+}
+
 async function run(request: TranscriptionWorkerRequest): Promise<void> {
   const { id } = request;
+  let decoded: { audio: Float32Array; duration: number };
+  try {
+    decoded = await decodeSoundtrack(id, request.source, request.durationHint);
+  } catch (error) {
+    failure(id, "audio", errorMessage(error));
+    return;
+  }
+
+  progress(id, {
+    stage: "engine",
+    event: "engine-start",
+    message: "Starting the Whisper engine in the background worker…",
+    fraction: 0,
+  });
+
   let engine: any;
   try {
     engine = await loadEngine(request.engineUrl);
@@ -276,7 +441,7 @@ async function run(request: TranscriptionWorkerRequest): Promise<void> {
         message: "Whisper is transcribing in a background worker…",
         fraction: 0,
       });
-      const output = await transcribeInWindows(id, transcriber, request.audio);
+      const output = await transcribeInWindows(id, transcriber, decoded.audio);
       if (!output.text) {
         failure(
           id,
@@ -289,12 +454,14 @@ async function run(request: TranscriptionWorkerRequest): Promise<void> {
         type: "result",
         id,
         model: modelId,
+        audioSeconds: decoded.duration,
         output,
       };
       post(result);
       return;
     } catch (error) {
       inferenceFailures.push(`${modelId}: ${errorMessage(error)}`);
+      await disposeTranscriber(modelId, transcriber);
       if (modelIndex + 1 < request.models.length) {
         progress(id, {
           stage: "model",

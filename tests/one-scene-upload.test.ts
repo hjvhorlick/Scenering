@@ -23,6 +23,7 @@ import {
   TranscriptionError,
   TranscriptionTimeoutError,
   wordsToText,
+  STT_AUDIO_TIMEOUT_MS,
   STT_ENGINE_URL,
   STT_ENGINE_TIMEOUT_MS,
   STT_INFERENCE_MIN_TIMEOUT_MS,
@@ -68,6 +69,7 @@ const setup = read("src/components/SetupStudio.tsx");
 const captions = read("src/components/CaptionsStudio.tsx");
 const render = read("src/components/RenderView.tsx");
 const preview = read("src/components/VideoPreview.tsx");
+const sceneClip = read("src/lib/scene-clip.ts");
 const server = read("server.ts");
 
 /** A three-minute music video with no script — the case that used to break. */
@@ -436,6 +438,22 @@ const footageScene = {
     /if \(cancelledRef\.current\) \{\s*setError\(null\);/.test(hook),
     "pressing Cancel clears the error instead of reporting the cancellation as one"
   );
+
+  h.ok(
+    !sceneClip.includes("new Proxy(video") &&
+      sceneClip.includes("Object.defineProperties(drawable"),
+    "canvas receives the real HTMLVideoElement, never a Proxy rejected by drawImage's browser brand check"
+  );
+  h.ok(
+    sceneClip.includes('el.addEventListener("loadeddata", notify)') &&
+      sceneClip.includes('el.addEventListener("seeked", notify)') &&
+      preview.includes("setClipFrameRevision((revision) => revision + 1)") &&
+      preview.includes("loadCustomVideos().then") &&
+      setup.includes("setVideoStoreRevision((revision) => revision + 1)") &&
+      render.includes("idleSource = asDrawableClip(video)") &&
+      render.includes("await loadCustomVideos()"),
+    "decoded or restored footage paints Setup, Studio and Render previews instead of leaving a black canvas"
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -736,15 +754,18 @@ const footageScene = {
   h.eq(
     STT_MODEL_CANDIDATES.join("|"),
     [
-      "onnx-community/whisper-base.en_timestamped",
       "onnx-community/whisper-tiny.en_timestamped",
+      "onnx-community/whisper-base.en_timestamped",
       "onnx-community/whisper-base_timestamped",
     ].join("|"),
-    "every fallback uses a published timestamped Whisper model id"
+    "every fallback uses a published timestamped Whisper model id, with the low-memory model first"
   );
   h.ok(
-    STT_ENGINE_TIMEOUT_MS > 0 && STT_MODEL_TIMEOUT_MS > 0 && STT_INFERENCE_MIN_TIMEOUT_MS > 0,
-    "engine, model download and inference all have finite timeout budgets"
+    STT_AUDIO_TIMEOUT_MS > 0 &&
+      STT_ENGINE_TIMEOUT_MS > 0 &&
+      STT_MODEL_TIMEOUT_MS > 0 &&
+      STT_INFERENCE_MIN_TIMEOUT_MS > 0,
+    "audio decode, engine, model download and inference all have finite timeout budgets"
   );
   h.ok(
     (stt.match(/armTimeout\(/g) || []).length >= 3 &&
@@ -761,10 +782,13 @@ const footageScene = {
     "engine-load, model-load and inference failures have distinct user-facing messages"
   );
   h.ok(
-    stt.includes("[audio.buffer]") &&
-      sttWorker.includes("request.audio") &&
-      !read("src/lib/speech-to-text-protocol.ts").includes("sourceUrl"),
-    "decoded PCM is transferred without a copy and the worker never receives an uploadable source address"
+    stt.includes("response.blob()") &&
+      !stt.includes("decodeAudioData(") &&
+      sttWorker.includes("new BlobSource(source)") &&
+      sttWorker.includes("new AudioSampleSink(track)") &&
+      read("src/lib/speech-to-text-protocol.ts").includes("source: Blob") &&
+      read("package.json").includes('"mediabunny": "1.62.0"'),
+    "the page clones only a Blob handle while worker-side demuxing, decoding and resampling avoid a giant UI-thread ArrayBuffer"
   );
   h.ok(
     sttWorker.includes("numThreads = 1") &&

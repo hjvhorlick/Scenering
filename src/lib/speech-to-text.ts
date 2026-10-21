@@ -50,11 +50,15 @@ export const STT_ENGINE_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transfo
  * output defensively if a runtime returns it.
  */
 export const STT_MODEL_CANDIDATES: readonly string[] = [
-  "onnx-community/whisper-base.en_timestamped",
+  // Tiny first is intentional: loading Base first can consume enough memory to
+  // make a modest laptop tab unresponsive before one word is produced.
   "onnx-community/whisper-tiny.en_timestamped",
+  "onnx-community/whisper-base.en_timestamped",
   "onnx-community/whisper-base_timestamped",
 ];
 
+/** Maximum silence while the worker demuxes and decodes the soundtrack. */
+export const STT_AUDIO_TIMEOUT_MS = 120_000;
 /** Maximum silence while the small engine module itself is fetched. */
 export const STT_ENGINE_TIMEOUT_MS = 30_000;
 /** Maximum silence between model-download progress events. */
@@ -95,7 +99,7 @@ export interface TranscriptionOptions {
   timeoutMs?: number;
   /** Override the model list (a creator who wants the larger model can set one). */
   models?: readonly string[];
-  /** Legacy duration hint retained for callers; decoded PCM now supplies the exact duration. */
+  /** Duration hint for timeout sizing; the worker-decoded soundtrack supplies the exact result. */
   audioSeconds?: number;
 }
 
@@ -173,11 +177,11 @@ export function runWithTranscriptionTimeout<T>(
   });
 }
 
-/** True when this browser can even try: ESM dynamic import and Web Audio. */
+/** True when this browser can hand a local media Blob to a module worker. */
 export function transcriptionSupported(): boolean {
   return (
     typeof window !== "undefined" &&
-    typeof AudioContext !== "undefined" &&
+    typeof Blob !== "undefined" &&
     typeof fetch === "function" &&
     typeof Worker === "function"
   );
@@ -265,9 +269,6 @@ export function wordsToText(words: readonly WordTiming[]): string {
     .trim();
 }
 
-const WHISPER_SAMPLE_RATE = 16_000;
-const AUDIO_MIX_BLOCK = 65_536;
-
 function cancelledError(): TranscriptionError {
   return new TranscriptionError("Transcription cancelled.");
 }
@@ -276,140 +277,41 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw cancelledError();
 }
 
-function yieldToBrowser(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-/** Read the local blob/URL without making one giant synchronous copy. */
-async function readAudioBytes(
+/**
+ * Fetch only a Blob handle on the page. Reading compressed bytes, demuxing the
+ * video, decoding its audio and resampling all happen inside the worker. Blob
+ * structured cloning is handle-based, so even a large upload is not copied
+ * into a giant main-thread ArrayBuffer.
+ */
+async function openSourceBlob(
   sourceUrl: string,
   signal: AbortSignal,
   report: (progress: TranscriptionProgress) => void
-): Promise<ArrayBuffer> {
-  let response: Response;
+): Promise<Blob> {
+  report({ stage: "audio", message: "Opening the video's soundtrack…", fraction: 0 });
   try {
-    response = await fetch(sourceUrl, { signal });
+    const response = await fetch(sourceUrl, { signal });
+    if (!response.ok) {
+      throw new TranscriptionError(`The video's audio could not be opened (HTTP ${response.status}).`);
+    }
+    const source = await response.blob();
+    throwIfAborted(signal);
+    if (source.size <= 0) {
+      throw new TranscriptionError("The uploaded video file is empty.");
+    }
+    report({
+      stage: "audio",
+      message: "Video opened. Sending it to the background audio decoder…",
+      fraction: 0,
+    });
+    return source;
   } catch (error) {
     if (signal.aborted) throw cancelledError();
+    if (error instanceof TranscriptionError) throw error;
     throw new TranscriptionError(
       `The video's audio could not be opened. (${(error as Error)?.message || "read failed"})`
     );
   }
-  if (!response.ok) {
-    throw new TranscriptionError(`The video's audio could not be opened (HTTP ${response.status}).`);
-  }
-
-  const total = Math.max(0, Number(response.headers.get("content-length")) || 0);
-  if (!response.body) return response.arrayBuffer();
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let received = 0;
-  try {
-    while (true) {
-      throwIfAborted(signal);
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      chunks.push(value);
-      received += value.byteLength;
-      report({
-        stage: "audio",
-        message: total > 0
-          ? `Reading the video's audio… ${Math.round((received / total) * 100)}%`
-          : `Reading the video's audio… ${(received / (1024 * 1024)).toFixed(1)} MB`,
-        fraction: total > 0 ? Math.min(0.35, (received / total) * 0.35) : undefined,
-      });
-    }
-  } catch (error) {
-    try { await reader.cancel(); } catch {}
-    if (signal.aborted) throw cancelledError();
-    throw error;
-  }
-
-  const combined = new Uint8Array(received);
-  let offset = 0;
-  for (const chunk of chunks) {
-    combined.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return combined.buffer;
-}
-
-/** Decode and down-mix on the UI thread in small yielding blocks. */
-async function prepareAudioWaveform(
-  sourceUrl: string,
-  signal: AbortSignal,
-  report: (progress: TranscriptionProgress) => void
-): Promise<Float32Array> {
-  report({ stage: "audio", message: "Reading the video's audio…", fraction: 0 });
-  const bytes = await readAudioBytes(sourceUrl, signal, report);
-  throwIfAborted(signal);
-  report({ stage: "audio", message: "Decoding the soundtrack…" });
-
-  let context: AudioContext;
-  try {
-    // Chromium honours this request; the fallback covers browsers that only
-    // permit their hardware rate. The loop below resamples either result.
-    try {
-      context = new AudioContext({ sampleRate: WHISPER_SAMPLE_RATE });
-    } catch {
-      context = new AudioContext();
-    }
-  } catch (error) {
-    throw new TranscriptionError(
-      `This browser could not start its audio decoder. (${(error as Error)?.message || "decoder unavailable"})`
-    );
-  }
-
-  let decoded: AudioBuffer;
-  try {
-    decoded = await context.decodeAudioData(bytes);
-  } catch (error) {
-    if (signal.aborted) throw cancelledError();
-    throw new TranscriptionError(
-      `The video's soundtrack could not be decoded in this browser. (${(error as Error)?.message || "unsupported audio"})`
-    );
-  } finally {
-    try { await context.close(); } catch {}
-  }
-  throwIfAborted(signal);
-  if (decoded.length <= 0 || decoded.numberOfChannels <= 0) {
-    throw new TranscriptionError("No playable audio track was found in that video.");
-  }
-
-  const channels = Array.from(
-    { length: decoded.numberOfChannels },
-    (_, index) => decoded.getChannelData(index)
-  );
-  const outputLength = Math.max(
-    1,
-    Math.round((decoded.length / decoded.sampleRate) * WHISPER_SAMPLE_RATE)
-  );
-  const mono = new Float32Array(outputLength);
-  const sourceSamplesPerOutput = decoded.sampleRate / WHISPER_SAMPLE_RATE;
-  const scale = channels.length === 1 ? 1 : 1 / Math.sqrt(channels.length);
-  for (let from = 0; from < outputLength; from += AUDIO_MIX_BLOCK) {
-    throwIfAborted(signal);
-    const to = Math.min(outputLength, from + AUDIO_MIX_BLOCK);
-    for (let sample = from; sample < to; sample += 1) {
-      const sourceAt = Math.min(decoded.length - 1, sample * sourceSamplesPerOutput);
-      const lower = Math.floor(sourceAt);
-      const upper = Math.min(decoded.length - 1, lower + 1);
-      const mix = sourceAt - lower;
-      let value = 0;
-      for (const channel of channels) {
-        value += (channel[lower] || 0) * (1 - mix) + (channel[upper] || 0) * mix;
-      }
-      mono[sample] = Math.max(-1, Math.min(1, value * scale));
-    }
-    report({
-      stage: "audio",
-      message: "Preparing 16 kHz mono audio for Whisper…",
-      fraction: 0.35 + (to / outputLength) * 0.65,
-    });
-    await yieldToBrowser();
-  }
-  return mono;
 }
 
 let sharedTranscriptionWorker: Worker | null = null;
@@ -433,6 +335,10 @@ function terminateTranscriptionWorker(worker: Worker): void {
 
 function workerFailure(error: TranscriptionWorkerFailure): TranscriptionError {
   switch (error.stage) {
+    case "audio":
+      return new TranscriptionError(
+        `The video's soundtrack could not be prepared in the background. (${error.message})`
+      );
     case "engine":
       return new TranscriptionError(
         `The transcription engine failed to load. Check the connection and try again. (${error.message})`
@@ -456,20 +362,24 @@ function workerFailure(error: TranscriptionWorkerFailure): TranscriptionError {
  * worker; cancellation terminates that worker and therefore really stops CPU.
  */
 function transcribeInWorker(
-  audio: Float32Array,
+  source: Blob,
   models: readonly string[],
-  audioSeconds: number,
+  durationHint: number,
   options: TranscriptionOptions,
   report: (progress: TranscriptionProgress) => void
 ): Promise<TranscriptionWorkerResult> {
   activeWorkerCancel?.(cancelledError());
   const worker = getTranscriptionWorker();
   const id = nextWorkerRequestId++;
+  const audioTimeoutMs = options.timeoutMs ?? Math.max(
+    STT_AUDIO_TIMEOUT_MS,
+    Math.ceil(Math.max(0, durationHint) * 1_000)
+  );
   const engineTimeoutMs = options.timeoutMs ?? STT_ENGINE_TIMEOUT_MS;
   const modelTimeoutMs = options.timeoutMs ?? STT_MODEL_TIMEOUT_MS;
   const inferenceTimeoutMs = options.timeoutMs ?? Math.max(
     STT_INFERENCE_MIN_TIMEOUT_MS,
-    Math.ceil(audioSeconds * 2_000)
+    Math.ceil(Math.max(0, durationHint) * 2_000)
   );
 
   return new Promise<TranscriptionWorkerResult>((resolve, reject) => {
@@ -543,14 +453,29 @@ function transcribeInWorker(
       }
 
       const progressMessage: TranscriptionWorkerProgress = message;
-      if (progressMessage.event === "engine-ready" ||
-          progressMessage.event === "model-start" ||
-          progressMessage.event === "model-progress" ||
-          progressMessage.event === "model-fallback") {
+      if (progressMessage.stage !== "transcribing") {
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = null;
         inferenceStartedAt = 0;
         completedFraction = 0;
+      }
+
+      if (progressMessage.stage === "audio") {
+        armTimeout(
+          audioTimeoutMs,
+          `The background audio decoder stopped making progress for ${Math.round(audioTimeoutMs / 1000)} seconds.`
+        );
+      } else if (progressMessage.event === "engine-start") {
+        armTimeout(
+          engineTimeoutMs,
+          `The transcription engine failed to load within ${Math.round(engineTimeoutMs / 1000)} seconds.`
+        );
+      } else if (
+        progressMessage.event === "engine-ready" ||
+        progressMessage.event === "model-start" ||
+        progressMessage.event === "model-progress" ||
+        progressMessage.event === "model-fallback"
+      ) {
         armTimeout(
           modelTimeoutMs,
           `The Whisper model stopped making download progress for ${Math.round(modelTimeoutMs / 1000)} seconds.`
@@ -582,20 +507,18 @@ function transcribeInWorker(
     worker.addEventListener("messageerror", onMessageError);
     options.signal?.addEventListener("abort", onAbort, { once: true });
     armTimeout(
-      engineTimeoutMs,
-      `The transcription engine failed to load within ${Math.round(engineTimeoutMs / 1000)} seconds.`
+      audioTimeoutMs,
+      `The background audio decoder did not start within ${Math.round(audioTimeoutMs / 1000)} seconds.`
     );
     try {
-      worker.postMessage(
-        {
-          type: "start",
-          id,
-          engineUrl: STT_ENGINE_URL,
-          models: [...models],
-          audio,
-        },
-        [audio.buffer]
-      );
+      worker.postMessage({
+        type: "start",
+        id,
+        engineUrl: STT_ENGINE_URL,
+        models: [...models],
+        source,
+        durationHint,
+      });
     } catch (error) {
       finish(
         () => reject(new TranscriptionError(`The transcription worker could not start. (${(error as Error)?.message || "start failed"})`)),
@@ -640,25 +563,21 @@ export async function transcribeAudioUrl(
 
   try {
     throwIfAborted(controller.signal);
-    const waveform = await prepareAudioWaveform(sourceUrl, controller.signal, report);
+    const source = await openSourceBlob(sourceUrl, controller.signal, report);
     throwIfAborted(controller.signal);
-    const audioSeconds = waveform.length / WHISPER_SAMPLE_RATE;
     const candidates = options.models?.length ? options.models : STT_MODEL_CANDIDATES;
+    const durationHint = Math.max(0, Number(options.audioSeconds) || 0);
 
-    report({
-      stage: "engine",
-      message: "Starting Whisper in a background worker so the page stays responsive…",
-      fraction: 0,
-    });
     const result = await transcribeInWorker(
-      waveform,
+      source,
       candidates,
-      audioSeconds,
+      durationHint,
       { ...options, signal: controller.signal },
       report
     );
     throwIfAborted(controller.signal);
 
+    const audioSeconds = result.audioSeconds;
     const chunks: RawChunk[] = Array.isArray(result.output?.chunks) ? result.output.chunks : [];
     const { words, wordLevel } = chunksToWordTimings(chunks, audioSeconds);
     const text = wordsToText(words) || String(result.output?.text ?? "").trim();

@@ -45,6 +45,7 @@ import {
   CustomVideoError,
   CUSTOM_VIDEO_PREFIX,
   describeClip,
+  loadCustomVideos,
   resolveVideoUrl,
   type CustomVideoClip,
 } from "../lib/custom-video";
@@ -278,6 +279,7 @@ export default function SetupStudio({
   /** Where the single scene's picture/sound comes from. */
   const [singleSource, setSingleSource] = useState<"script" | "upload" | "audio">("script");
   const [uploadedClip, setUploadedClip] = useState<CustomVideoClip | null>(null);
+  const [, setVideoStoreRevision] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const clipInputRef = useRef<HTMLInputElement | null>(null);
@@ -347,6 +349,16 @@ export default function SetupStudio({
   useEffect(() => {
     setOneScene(singleScene);
   }, [singleScene]);
+
+  // A restored project's stable custom-video id resolves only after IndexedDB
+  // hydration. Repaint this Setup preview when that object URL becomes ready.
+  useEffect(() => {
+    let active = true;
+    void loadCustomVideos().then(() => {
+      if (active) setVideoStoreRevision((revision) => revision + 1);
+    });
+    return () => { active = false; };
+  }, []);
 
   /** An existing one-scene project reopens on the source it already uses. */
   useEffect(() => {

@@ -11,6 +11,7 @@ import { stopAllSoundPreviews } from "../data/media-library";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
+import { loadCustomVideos } from "../lib/custom-video";
 import { narratableText, projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
@@ -227,8 +228,15 @@ export default function VideoPreview({
   const playEpochRef = useRef(0);
   /** True once playPreview() has begun preparing, before playingRef is set. */
   const startingRef = useRef(false);
+  /** Hidden media decode events must repaint a paused canvas when a frame arrives. */
+  const [clipFrameRevision, setClipFrameRevision] = useState(0);
   /** Hidden <video> elements for scenes that use a short clip instead of a still. */
-  const clipPoolRef = useRef<ClipPool>(new ClipPool());
+  const [clipPool] = useState(
+    () => new ClipPool(() => {
+      if (!playingRef.current) setClipFrameRevision((revision) => revision + 1);
+    })
+  );
+  const clipPoolRef = useRef<ClipPool>(clipPool);
   const audioCtxRef = useRef<AudioContext | null>(null);
   // Voice and background-music are analysed on separate buses so a visualiser
   // set to "moves with the music" reacts to the music, not to the narration.
@@ -548,6 +556,19 @@ export default function VideoPreview({
       cancelled = true;
     };
   }, [captionsConfig?.fontId, captionsConfig?.preset]);
+
+  // Resolve saved `custom-video:<id>` addresses before asking the pool to
+  // decode them. App also starts this at boot, but the preview must subscribe
+  // to completion itself or an already-mounted black canvas never repaints.
+  useEffect(() => {
+    let active = true;
+    void loadCustomVideos().then(() => {
+      if (active && !playingRef.current) {
+        setClipFrameRevision((revision) => revision + 1);
+      }
+    });
+    return () => { active = false; };
+  }, []);
 
   // Release clip decoders when the preview goes away.
   useEffect(() => {
@@ -965,6 +986,7 @@ export default function VideoPreview({
   }, [
     currentPlayheadTime,
     isPlaying,
+    clipFrameRevision,
     scenesWithImages,
     drawScene,
     customerLogo,

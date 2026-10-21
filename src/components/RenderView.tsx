@@ -20,6 +20,7 @@ import { startVoiceSource } from "../lib/voice-fade";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
+import { loadCustomVideos } from "../lib/custom-video";
 import { clipAudioPlanFor, loadClipAudio, scheduleClipAudio } from "../lib/clip-audio";
 import { narratableText, projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";
 import {
@@ -543,10 +544,23 @@ export default function RenderView({
     let rafId = 0;
     let startedAt = 0;
     const LOOP_SECONDS = 14;
+    const idleClipPool = new ClipPool();
+    // The render-page preview is visual only. A video's own soundtrack belongs
+    // to the Studio Play button and the final file, never to an autoplaying card.
+    const idleScene = sceneHasClip(first) ? { ...first, video_mute: true } : first;
 
     const paint = (progress: number) => {
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, width, height);
+
+      let idleSource: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
+        idleImgRef.current as any;
+      if (sceneHasClip(idleScene)) {
+        const video = idleClipPool.get(idleScene);
+        if (video && video.readyState >= 2 && video.videoWidth > 0) {
+          idleSource = asDrawableClip(video) as any;
+        }
+      }
 
       if (sceneIsBlankColor(first) && first.blank_color) {
         ctx.save();
@@ -554,7 +568,7 @@ export default function RenderView({
         ctx.fillStyle = first.blank_color;
         ctx.fillRect(0, 0, width, height);
         ctx.restore();
-      } else if (idleImgRef.current && idleImgRef.current.naturalWidth > 0) {
+      } else if (idleSource && idleSource.naturalWidth > 0) {
         const { scale, dx, dy } = getSceneCameraTransform(
           first,
           sceneAnimationEnabled,
@@ -567,7 +581,7 @@ export default function RenderView({
         const safeDx = isNaN(dx) ? 0 : dx;
         const safeDy = isNaN(dy) ? 0 : dy;
         try {
-          drawSceneImage(ctx, idleImgRef.current, first, width, height, {
+          drawSceneImage(ctx, idleSource, first, width, height, {
             motionScale: safeScale,
             motionDx: safeDx + (width * safeScale - width) / 2,
             motionDy: safeDy + (height * safeScale - height) / 2,
@@ -619,24 +633,36 @@ export default function RenderView({
       rafId = requestAnimationFrame(tick);
     };
 
-    void loadCaptionFonts()
-      .then(() =>
-        ensureCaptionFont(captionsConfig?.fontId || getCaptionStyle(captionsConfig?.preset).fontId)
-      )
-      .then(() => {
+    void (async () => {
+      try {
+        await loadCaptionFonts();
+        await ensureCaptionFont(
+          captionsConfig?.fontId || getCaptionStyle(captionsConfig?.preset).fontId
+        );
+      } catch {}
+      await loadCustomVideos();
       if (cancelled) return;
       // Load through the shared loader: a failed photo shows the gradient
       // card exactly like the preview, never a black canvas.
-      loadSceneImage(first.image_url || "", 0).then((res) => {
-        if (cancelled) return;
-        idleImgRef.current = res ? res.img : null;
-        paint(0.35);
-        rafId = requestAnimationFrame(tick);
-      });
-    });
+      const res = await loadSceneImage(first.image_url || "", 0);
+      if (cancelled) return;
+      idleImgRef.current = res ? res.img : null;
+      if (sceneHasClip(idleScene)) {
+        // Muted autoplay keeps this visual preview moving without producing a
+        // second soundtrack beside the Studio's explicit Play control.
+        void idleClipPool.play(
+          idleScene,
+          0,
+          Math.max(0.1, idleScene.video_duration || idleScene.duration || LOOP_SECONDS)
+        );
+      }
+      paint(0.35);
+      rafId = requestAnimationFrame(tick);
+    })();
 
     return () => {
       cancelled = true;
+      idleClipPool.dispose();
       if (rafId && typeof cancelAnimationFrame === "function") cancelAnimationFrame(rafId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -797,6 +823,9 @@ export default function RenderView({
     if (scenesWithImages.length === 0 || isRendering || renderStartPendingRef.current) return null;
     renderStartPendingRef.current = true;
     setIsPreparingRender(true);
+    // Stable `custom-video:<id>` addresses are useless to the clip pool until
+    // IndexedDB has restored their live Blob URLs for this page load.
+    await loadCustomVideos();
 
     // The watermark is Free-plan policy, not a best-effort visual detail. Do
     // not produce a file if its required, fixed mark failed to load.

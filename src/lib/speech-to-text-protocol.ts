@@ -10,11 +10,20 @@ export interface TranscriptionWorkerStart {
   id: number;
   engineUrl: string;
   models: string[];
-  /** Mono 16 kHz PCM. Its ArrayBuffer is transferred, not copied. */
-  audio: Float32Array;
+  /**
+   * The browser clones Blob handles without copying their bytes. Demuxing,
+   * audio decoding, resampling and Whisper all therefore stay off the UI
+   * thread; the original video is never uploaded.
+   */
+  source: Blob;
+  /** Used only to choose a generous extraction timeout before exact duration is known. */
+  durationHint: number;
 }
 
 export type TranscriptionWorkerEvent =
+  | "audio-start"
+  | "audio-progress"
+  | "engine-start"
   | "engine-ready"
   | "model-start"
   | "model-progress"
@@ -25,7 +34,7 @@ export type TranscriptionWorkerEvent =
 export interface TranscriptionWorkerProgress {
   type: "progress";
   id: number;
-  stage: "engine" | "model" | "transcribing";
+  stage: "audio" | "engine" | "model" | "transcribing";
   event: TranscriptionWorkerEvent;
   message: string;
   fraction?: number;
@@ -35,6 +44,8 @@ export interface TranscriptionWorkerResult {
   type: "result";
   id: number;
   model: string;
+  /** Duration of the decoded soundtrack, not a metadata guess from the video. */
+  audioSeconds: number;
   output: {
     text: string;
     chunks: TranscriptionWorkerChunk[];
@@ -44,7 +55,7 @@ export interface TranscriptionWorkerResult {
 export interface TranscriptionWorkerFailure {
   type: "failure";
   id: number;
-  stage: "engine" | "model" | "inference" | "no-speech";
+  stage: "audio" | "engine" | "model" | "inference" | "no-speech";
   message: string;
 }
 
