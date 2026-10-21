@@ -70,6 +70,9 @@ import { useClipTranscription } from "../lib/use-clip-transcription";
 import { sceneUpdatesForTranscript } from "../lib/clip-transcript";
 import type { TranscriptionResult } from "../lib/speech-to-text";
 import VoiceoverSwitch from "./VoiceoverSwitch";
+import TranscriptionProgressStatus, {
+  transcriptionButtonLabel,
+} from "./TranscriptionProgressStatus";
 import type { NewProjectOptions } from "../App";
 import Icon, { iconify } from "./icons/Icon";
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "../config/plans";
@@ -1575,7 +1578,7 @@ export default function SetupStudio({
                         >
                           <Icon glyph={transcription.busy ? "⏳" : "✨"} />
                           {transcription.busy
-                            ? "Listening…"
+                            ? transcriptionButtonLabel(transcription.progress)
                             : transcript || existingTranscript
                               ? "Transcribe again"
                               : "Generate captions"}
@@ -1596,11 +1599,7 @@ export default function SetupStudio({
                         )}
                       </div>
                       {transcription.progress && transcription.busy && (
-                        <p className="text-[10px] text-gray-400 mt-1.5">
-                          {transcription.progress.message}
-                          {typeof transcription.progress.fraction === "number" &&
-                            ` ${Math.round(transcription.progress.fraction * 100)}%`}
-                        </p>
+                        <TranscriptionProgressStatus progress={transcription.progress} />
                       )}
                       {transcription.error && (
                         <p className="text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2 mt-2">

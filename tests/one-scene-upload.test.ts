@@ -705,17 +705,23 @@ const footageScene = {
     "which matters: the opening hold is long enough to see a caption drift"
   );
 
-  // The engine: free, on-device, pinned, and out of the main bundle.
+  // The engine: free, on-device, pinned, and out of the main/UI bundle.
   const stt = read("src/lib/speech-to-text.ts");
+  const sttWorker = read("src/lib/speech-to-text.worker.ts");
+  const progressUi = read("src/components/TranscriptionProgressStatus.tsx");
   h.ok(STT_ENGINE_URL.startsWith("https://cdn.jsdelivr.net/npm/@huggingface/transformers@"), "the engine comes from one pinned version");
   h.ok(
     /transformers@\d+\.\d+\.\d+/.test(STT_ENGINE_URL),
     "pinned to an exact version, so a new release cannot arrive by itself"
   );
   h.ok(STT_MODEL_CANDIDATES.every((m) => m.startsWith("onnx-community/whisper")), "the models are Whisper");
-  h.ok(stt.includes("import(/* @vite-ignore */ STT_ENGINE_URL)"), "loaded on demand, not from the main bundle");
+  h.ok(
+    sttWorker.includes("import(/* @vite-ignore */ url)") &&
+      stt.includes('new URL("./speech-to-text.worker.ts", import.meta.url)'),
+    "loaded on demand inside a dedicated module worker, not the main/UI bundle"
+  );
   h.ok(!read("package.json").includes("transformers"), "and it is not an install-time dependency, so the install cannot fail because of it");
-  h.ok(stt.includes("allowLocalModels = false"), "weights come from the hub, never a local folder");
+  h.ok(sttWorker.includes("allowLocalModels = false"), "weights come from the hub, never a local folder");
   h.ok(
     server.includes("https://cdn.jsdelivr.net") && server.includes("https://huggingface.co"),
     "the policy allows exactly the two hosts the engine needs"
@@ -741,16 +747,54 @@ const footageScene = {
     "engine, model download and inference all have finite timeout budgets"
   );
   h.ok(
-    (stt.match(/await runWithTranscriptionTimeout\(/g) || []).length >= 3 &&
-      stt.includes("(signal, keepAlive) => engine.pipeline") &&
-      stt.includes("(signal) => transcriber(sourceUrl"),
-    "timeouts and abort signals wrap both model construction and inference"
+    (stt.match(/armTimeout\(/g) || []).length >= 3 &&
+      stt.includes("terminateTranscriptionWorker(worker)") &&
+      stt.includes("worker.terminate()") &&
+      sttWorker.includes('engine.pipeline("automatic-speech-recognition"') &&
+      sttWorker.includes("transcriber(audio.subarray(start, end)"),
+    "UI-thread timers can terminate stalled engine, model and windowed-inference work"
   );
   h.ok(
     stt.includes("The transcription engine failed to load") &&
       stt.includes("The Whisper transcription models failed to load") &&
-      stt.includes("Whisper loaded, but transcription failed or timed out while listening"),
+      stt.includes("Whisper loaded, but transcription failed while listening"),
     "engine-load, model-load and inference failures have distinct user-facing messages"
+  );
+  h.ok(
+    stt.includes("[audio.buffer]") &&
+      sttWorker.includes("request.audio") &&
+      !read("src/lib/speech-to-text-protocol.ts").includes("sourceUrl"),
+    "decoded PCM is transferred without a copy and the worker never receives an uploadable source address"
+  );
+  h.ok(
+    sttWorker.includes("numThreads = 1") &&
+      stt.includes("setInterval(() =>") &&
+      stt.includes("first 30-second section in the background"),
+    "Whisper cannot occupy the UI thread or every CPU core, and a heartbeat remains visible during inference"
+  );
+  h.ok(
+    sttWorker.includes('event: "inference-progress"') &&
+      sttWorker.includes("completedSeconds / duration") &&
+      sttWorker.includes("audio.subarray(start, end)"),
+    "transcription percentage comes from completed audio windows rather than an invented timer"
+  );
+  h.ok(
+    sttWorker.includes("midpoint < trustedStart || midpoint >= trustedEnd") &&
+      sttWorker.includes("Math.min(duration, absoluteEnd)") &&
+      sttWorker.includes('"no-speech"'),
+    "overlap merging keeps one bounded timestamp per word and preserves the distinct no-speech result"
+  );
+  h.ok(
+    progressUi.includes('role="progressbar"') &&
+      progressUi.includes('aria-live="polite"') &&
+      progressUi.includes("progress.fraction") &&
+      read("src/components/SetupStudio.tsx").includes("<TranscriptionProgressStatus progress={transcription.progress}") &&
+      read("src/components/SetupStudio.tsx").includes("transcriptionButtonLabel(transcription.progress)") &&
+      read("src/components/CaptionsStudio.tsx").includes("<TranscriptionProgressStatus progress={transcription.progress}") &&
+      read("src/components/CaptionsStudio.tsx").includes("transcriptionButtonLabel(transcription.progress)") &&
+      !read("src/components/SetupStudio.tsx").includes('"Listening…"') &&
+      !read("src/components/CaptionsStudio.tsx").includes('"Listening…"'),
+    "Setup and Captions have an accessible live progress bar rather than a frozen-looking label"
   );
   const transcriptionHook = read("src/lib/use-clip-transcription.ts");
   h.ok(

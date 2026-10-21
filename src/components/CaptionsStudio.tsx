@@ -29,6 +29,9 @@ import {
   type MetalFinish,
 } from "../data/caption-styles";
 import CaptionsSwitch from "./CaptionsSwitch";
+import TranscriptionProgressStatus, {
+  transcriptionButtonLabel,
+} from "./TranscriptionProgressStatus";
 import Icon, { iconify } from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { isPlanCaptionIncluded, type PlanSlug } from "../config/plans";
@@ -117,7 +120,7 @@ function SceneTranscriptControls({
         >
           <Icon glyph={transcription.busy ? "⏳" : "✨"} />
           {transcription.busy
-            ? "Listening…"
+            ? transcriptionButtonLabel(transcription.progress)
             : hasWords
               ? "Transcribe again"
               : `Generate captions from ${source?.label ?? "the audio"}`}
@@ -159,11 +162,7 @@ function SceneTranscriptControls({
         )}
       </div>
       {transcription.progress && transcription.busy && (
-        <p className="text-[10px] text-gray-400">
-          {transcription.progress.message}
-          {typeof transcription.progress.fraction === "number" &&
-            ` ${Math.round(transcription.progress.fraction * 100)}%`}
-        </p>
+        <TranscriptionProgressStatus progress={transcription.progress} />
       )}
       {(transcription.error || fileError) && (
         <p className="text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2">

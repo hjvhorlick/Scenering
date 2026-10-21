@@ -73,7 +73,7 @@ export function useClipTranscription(): ClipTranscriptionState {
       setBusy(true);
       setError(null);
       setResult(null);
-      setProgress({ stage: "engine", message: "Loading the transcription engine…", fraction: 0 });
+      setProgress({ stage: "audio", message: "Reading the video's audio…", fraction: 0 });
       try {
         const done = await transcribeAudioUrl(sourceUrl, {
           audioSeconds,

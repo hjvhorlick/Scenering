@@ -29,6 +29,12 @@
  */
 
 import type { WordTiming } from "./word-sync";
+import type {
+  TranscriptionWorkerFailure,
+  TranscriptionWorkerProgress,
+  TranscriptionWorkerResponse,
+  TranscriptionWorkerResult,
+} from "./speech-to-text-protocol";
 
 /** Where the engine is loaded from. Pinned: a new major must not arrive by itself. */
 export const STT_ENGINE_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/+esm";
@@ -56,7 +62,7 @@ export const STT_MODEL_TIMEOUT_MS = 90_000;
 /** Minimum inference allowance; longer clips get proportionally more time. */
 export const STT_INFERENCE_MIN_TIMEOUT_MS = 120_000;
 
-export type TranscriptionStage = "engine" | "model" | "transcribing" | "done";
+export type TranscriptionStage = "audio" | "engine" | "model" | "transcribing" | "done";
 
 export interface TranscriptionProgress {
   stage: TranscriptionStage;
@@ -79,12 +85,9 @@ export interface TranscriptionResult {
 
 export class TranscriptionError extends Error {}
 
-/** A valid inference result with no words is not a broken model to retry. */
-class NoSpeechTranscriptionError extends TranscriptionError {}
-
 export interface TranscriptionOptions {
   onProgress?: (progress: TranscriptionProgress) => void;
-  /** Checked between stages for callers that pre-date AbortSignal support. */
+  /** Legacy polling cancellation hook, converted internally to the same AbortSignal. */
   cancelled?: () => boolean;
   /** Cancels a download/inference immediately when the caller stops the run. */
   signal?: AbortSignal;
@@ -92,14 +95,9 @@ export interface TranscriptionOptions {
   timeoutMs?: number;
   /** Override the model list (a creator who wants the larger model can set one). */
   models?: readonly string[];
-  /** Seconds of audio being transcribed, echoed back on the result. */
+  /** Legacy duration hint retained for callers; decoded PCM now supplies the exact duration. */
   audioSeconds?: number;
 }
-
-/** The engine's own module, loaded once per page. */
-let enginePromise: Promise<any> | null = null;
-/** A loaded transcriber per model id, so a second run does not reload weights. */
-const transcribers = new Map<string, any>();
 
 /** A timeout is operational, not a user cancellation or a no-speech result. */
 export class TranscriptionTimeoutError extends Error {
@@ -185,30 +183,6 @@ export function transcriptionSupported(): boolean {
   );
 }
 
-async function loadEngine(signal: AbortSignal | undefined, timeoutMs: number): Promise<any> {
-  if (!enginePromise) {
-    enginePromise = import(/* @vite-ignore */ STT_ENGINE_URL);
-  }
-  try {
-    return await runWithTranscriptionTimeout(
-      async () => enginePromise!,
-      timeoutMs,
-      `The transcription engine failed to load within ${Math.round(timeoutMs / 1000)} seconds.`,
-      signal
-    );
-  } catch (error) {
-    // A timed-out/rejected module must be retryable on the next button press.
-    enginePromise = null;
-    if (signal?.aborted || (error instanceof TranscriptionError && error.message === "Transcription cancelled.")) {
-      throw new TranscriptionError("Transcription cancelled.");
-    }
-    throw new TranscriptionError(
-      "The transcription engine failed to load. Check the connection — it is fetched once from jsDelivr and cached after that." +
-        ` (${(error as Error)?.message || "unknown error"})`
-    );
-  }
-}
-
 interface RawChunk {
   text?: string;
   timestamp?: [number | null, number | null] | null;
@@ -291,6 +265,346 @@ export function wordsToText(words: readonly WordTiming[]): string {
     .trim();
 }
 
+const WHISPER_SAMPLE_RATE = 16_000;
+const AUDIO_MIX_BLOCK = 65_536;
+
+function cancelledError(): TranscriptionError {
+  return new TranscriptionError("Transcription cancelled.");
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw cancelledError();
+}
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Read the local blob/URL without making one giant synchronous copy. */
+async function readAudioBytes(
+  sourceUrl: string,
+  signal: AbortSignal,
+  report: (progress: TranscriptionProgress) => void
+): Promise<ArrayBuffer> {
+  let response: Response;
+  try {
+    response = await fetch(sourceUrl, { signal });
+  } catch (error) {
+    if (signal.aborted) throw cancelledError();
+    throw new TranscriptionError(
+      `The video's audio could not be opened. (${(error as Error)?.message || "read failed"})`
+    );
+  }
+  if (!response.ok) {
+    throw new TranscriptionError(`The video's audio could not be opened (HTTP ${response.status}).`);
+  }
+
+  const total = Math.max(0, Number(response.headers.get("content-length")) || 0);
+  if (!response.body) return response.arrayBuffer();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  try {
+    while (true) {
+      throwIfAborted(signal);
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      chunks.push(value);
+      received += value.byteLength;
+      report({
+        stage: "audio",
+        message: total > 0
+          ? `Reading the video's audio… ${Math.round((received / total) * 100)}%`
+          : `Reading the video's audio… ${(received / (1024 * 1024)).toFixed(1)} MB`,
+        fraction: total > 0 ? Math.min(0.35, (received / total) * 0.35) : undefined,
+      });
+    }
+  } catch (error) {
+    try { await reader.cancel(); } catch {}
+    if (signal.aborted) throw cancelledError();
+    throw error;
+  }
+
+  const combined = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined.buffer;
+}
+
+/** Decode and down-mix on the UI thread in small yielding blocks. */
+async function prepareAudioWaveform(
+  sourceUrl: string,
+  signal: AbortSignal,
+  report: (progress: TranscriptionProgress) => void
+): Promise<Float32Array> {
+  report({ stage: "audio", message: "Reading the video's audio…", fraction: 0 });
+  const bytes = await readAudioBytes(sourceUrl, signal, report);
+  throwIfAborted(signal);
+  report({ stage: "audio", message: "Decoding the soundtrack…" });
+
+  let context: AudioContext;
+  try {
+    // Chromium honours this request; the fallback covers browsers that only
+    // permit their hardware rate. The loop below resamples either result.
+    try {
+      context = new AudioContext({ sampleRate: WHISPER_SAMPLE_RATE });
+    } catch {
+      context = new AudioContext();
+    }
+  } catch (error) {
+    throw new TranscriptionError(
+      `This browser could not start its audio decoder. (${(error as Error)?.message || "decoder unavailable"})`
+    );
+  }
+
+  let decoded: AudioBuffer;
+  try {
+    decoded = await context.decodeAudioData(bytes);
+  } catch (error) {
+    if (signal.aborted) throw cancelledError();
+    throw new TranscriptionError(
+      `The video's soundtrack could not be decoded in this browser. (${(error as Error)?.message || "unsupported audio"})`
+    );
+  } finally {
+    try { await context.close(); } catch {}
+  }
+  throwIfAborted(signal);
+  if (decoded.length <= 0 || decoded.numberOfChannels <= 0) {
+    throw new TranscriptionError("No playable audio track was found in that video.");
+  }
+
+  const channels = Array.from(
+    { length: decoded.numberOfChannels },
+    (_, index) => decoded.getChannelData(index)
+  );
+  const outputLength = Math.max(
+    1,
+    Math.round((decoded.length / decoded.sampleRate) * WHISPER_SAMPLE_RATE)
+  );
+  const mono = new Float32Array(outputLength);
+  const sourceSamplesPerOutput = decoded.sampleRate / WHISPER_SAMPLE_RATE;
+  const scale = channels.length === 1 ? 1 : 1 / Math.sqrt(channels.length);
+  for (let from = 0; from < outputLength; from += AUDIO_MIX_BLOCK) {
+    throwIfAborted(signal);
+    const to = Math.min(outputLength, from + AUDIO_MIX_BLOCK);
+    for (let sample = from; sample < to; sample += 1) {
+      const sourceAt = Math.min(decoded.length - 1, sample * sourceSamplesPerOutput);
+      const lower = Math.floor(sourceAt);
+      const upper = Math.min(decoded.length - 1, lower + 1);
+      const mix = sourceAt - lower;
+      let value = 0;
+      for (const channel of channels) {
+        value += (channel[lower] || 0) * (1 - mix) + (channel[upper] || 0) * mix;
+      }
+      mono[sample] = Math.max(-1, Math.min(1, value * scale));
+    }
+    report({
+      stage: "audio",
+      message: "Preparing 16 kHz mono audio for Whisper…",
+      fraction: 0.35 + (to / outputLength) * 0.65,
+    });
+    await yieldToBrowser();
+  }
+  return mono;
+}
+
+let sharedTranscriptionWorker: Worker | null = null;
+let activeWorkerCancel: ((error: Error) => void) | null = null;
+let nextWorkerRequestId = 1;
+
+function getTranscriptionWorker(): Worker {
+  if (!sharedTranscriptionWorker) {
+    sharedTranscriptionWorker = new Worker(
+      new URL("./speech-to-text.worker.ts", import.meta.url),
+      { type: "module", name: "scenering-transcription" }
+    );
+  }
+  return sharedTranscriptionWorker;
+}
+
+function terminateTranscriptionWorker(worker: Worker): void {
+  try { worker.terminate(); } catch {}
+  if (sharedTranscriptionWorker === worker) sharedTranscriptionWorker = null;
+}
+
+function workerFailure(error: TranscriptionWorkerFailure): TranscriptionError {
+  switch (error.stage) {
+    case "engine":
+      return new TranscriptionError(
+        `The transcription engine failed to load. Check the connection and try again. (${error.message})`
+      );
+    case "model":
+      return new TranscriptionError(
+        `The Whisper transcription models failed to load. Check the connection and try again. (${error.message})`
+      );
+    case "inference":
+      return new TranscriptionError(
+        `Whisper loaded, but transcription failed while listening to the audio. Try again, or import an SRT file. (${error.message})`
+      );
+    case "no-speech":
+      return new TranscriptionError(error.message);
+  }
+}
+
+/**
+ * Runs Whisper in a persistent module worker. Timeouts live here on the UI
+ * thread, so they still fire even if ONNX/WASM stops yielding inside the
+ * worker; cancellation terminates that worker and therefore really stops CPU.
+ */
+function transcribeInWorker(
+  audio: Float32Array,
+  models: readonly string[],
+  audioSeconds: number,
+  options: TranscriptionOptions,
+  report: (progress: TranscriptionProgress) => void
+): Promise<TranscriptionWorkerResult> {
+  activeWorkerCancel?.(cancelledError());
+  const worker = getTranscriptionWorker();
+  const id = nextWorkerRequestId++;
+  const engineTimeoutMs = options.timeoutMs ?? STT_ENGINE_TIMEOUT_MS;
+  const modelTimeoutMs = options.timeoutMs ?? STT_MODEL_TIMEOUT_MS;
+  const inferenceTimeoutMs = options.timeoutMs ?? Math.max(
+    STT_INFERENCE_MIN_TIMEOUT_MS,
+    Math.ceil(audioSeconds * 2_000)
+  );
+
+  return new Promise<TranscriptionWorkerResult>((resolve, reject) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
+    let inferenceStartedAt = 0;
+    let completedFraction = 0;
+
+    const cleanup = () => {
+      if (timeout) clearTimeout(timeout);
+      if (heartbeat) clearInterval(heartbeat);
+      timeout = null;
+      heartbeat = null;
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onWorkerError);
+      worker.removeEventListener("messageerror", onMessageError);
+      options.signal?.removeEventListener("abort", onAbort);
+      if (activeWorkerCancel === cancelRun) activeWorkerCancel = null;
+    };
+    const finish = (callback: () => void, terminate = false) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (terminate) terminateTranscriptionWorker(worker);
+      callback();
+    };
+    const armTimeout = (milliseconds: number, message: string) => {
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        finish(() => reject(new TranscriptionTimeoutError(message)), true);
+      }, Math.max(1, milliseconds));
+    };
+    const startHeartbeat = () => {
+      if (!inferenceStartedAt) inferenceStartedAt = Date.now();
+      if (heartbeat) return;
+      heartbeat = setInterval(() => {
+        if (settled) return;
+        const elapsed = Math.max(1, Math.round((Date.now() - inferenceStartedAt) / 1000));
+        const percent = Math.round(completedFraction * 100);
+        report({
+          stage: "transcribing",
+          message: completedFraction > 0
+            ? `Whisper is working in the background · ${percent}% of the audio completed · ${elapsed}s elapsed`
+            : `Whisper is working on the first 30-second section in the background · ${elapsed}s elapsed`,
+          fraction: completedFraction,
+        });
+      }, 1_000);
+    };
+    const cancelRun = (error: Error) => finish(() => reject(error), true);
+    const onAbort = () => cancelRun(cancelledError());
+    const onWorkerError = (event: ErrorEvent) => {
+      finish(
+        () => reject(new TranscriptionError(`The transcription worker stopped unexpectedly. (${event.message || "worker error"})`)),
+        true
+      );
+    };
+    const onMessageError = () => {
+      finish(() => reject(new TranscriptionError("The transcription worker returned unreadable data.")), true);
+    };
+    const onMessage = (event: MessageEvent<TranscriptionWorkerResponse>) => {
+      const message = event.data;
+      if (!message || message.id !== id) return;
+      if (message.type === "result") {
+        finish(() => resolve(message));
+        return;
+      }
+      if (message.type === "failure") {
+        finish(() => reject(workerFailure(message)));
+        return;
+      }
+
+      const progressMessage: TranscriptionWorkerProgress = message;
+      if (progressMessage.event === "engine-ready" ||
+          progressMessage.event === "model-start" ||
+          progressMessage.event === "model-progress" ||
+          progressMessage.event === "model-fallback") {
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = null;
+        inferenceStartedAt = 0;
+        completedFraction = 0;
+        armTimeout(
+          modelTimeoutMs,
+          `The Whisper model stopped making download progress for ${Math.round(modelTimeoutMs / 1000)} seconds.`
+        );
+      } else {
+        if (typeof progressMessage.fraction === "number") {
+          completedFraction = Math.max(completedFraction, progressMessage.fraction);
+        }
+        startHeartbeat();
+        armTimeout(
+          inferenceTimeoutMs,
+          `Whisper stopped making transcription progress for ${Math.round(inferenceTimeoutMs / 1000)} seconds.`
+        );
+      }
+      report({
+        stage: progressMessage.stage,
+        message: progressMessage.message,
+        fraction: progressMessage.fraction,
+      });
+    };
+
+    if (options.signal?.aborted) {
+      finish(() => reject(cancelledError()), true);
+      return;
+    }
+    activeWorkerCancel = cancelRun;
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onWorkerError);
+    worker.addEventListener("messageerror", onMessageError);
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    armTimeout(
+      engineTimeoutMs,
+      `The transcription engine failed to load within ${Math.round(engineTimeoutMs / 1000)} seconds.`
+    );
+    try {
+      worker.postMessage(
+        {
+          type: "start",
+          id,
+          engineUrl: STT_ENGINE_URL,
+          models: [...models],
+          audio,
+        },
+        [audio.buffer]
+      );
+    } catch (error) {
+      finish(
+        () => reject(new TranscriptionError(`The transcription worker could not start. (${(error as Error)?.message || "start failed"})`)),
+        true
+      );
+    }
+  });
+}
+
 /**
  * Transcribes the audio at `sourceUrl` (a `blob:`, `http(s):` or data address).
  *
@@ -312,153 +626,59 @@ export async function transcribeAudioUrl(
       /* a broken progress UI must not fail the transcription */
     }
   };
-  const bailIfCancelled = () => {
-    if (options.signal?.aborted || options.cancelled?.()) {
-      throw new TranscriptionError("Transcription cancelled.");
-    }
-  };
 
-  report({ stage: "engine", message: "Loading the transcription engine…", fraction: 0 });
-  const engine = await loadEngine(
-    options.signal,
-    options.timeoutMs ?? STT_ENGINE_TIMEOUT_MS
-  );
-  bailIfCancelled();
+  // Convert the legacy polling cancellation hook into the same AbortSignal the
+  // audio preparation and worker runner use. Cancel now terminates WASM rather
+  // than merely ignoring its eventual answer.
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted || options.cancelled?.()) controller.abort();
+  else options.signal?.addEventListener("abort", forwardAbort, { once: true });
+  const cancelPoll = setInterval(() => {
+    if (options.cancelled?.()) controller.abort();
+  }, 100);
 
   try {
-    // Weights come from the hub, never from a local folder, and the browser's
-    // own cache keeps them after the first run.
-    engine.env.allowLocalModels = false;
-    engine.env.useBrowserCache = true;
-  } catch {
-    /* older engine builds name these differently; the defaults are the same */
-  }
+    throwIfAborted(controller.signal);
+    const waveform = await prepareAudioWaveform(sourceUrl, controller.signal, report);
+    throwIfAborted(controller.signal);
+    const audioSeconds = waveform.length / WHISPER_SAMPLE_RATE;
+    const candidates = options.models?.length ? options.models : STT_MODEL_CANDIDATES;
 
-  const candidates = options.models?.length ? options.models : STT_MODEL_CANDIDATES;
-  const modelFailures: string[] = [];
-  const inferenceFailures: string[] = [];
-  const audioSeconds = Math.max(0, options.audioSeconds ?? 0);
-  const modelTimeoutMs = options.timeoutMs ?? STT_MODEL_TIMEOUT_MS;
-  // Whisper can take roughly the clip's own length on CPU. Give it at least two
-  // minutes and twice the source length, while still putting a ceiling on a
-  // worker that has stopped responding altogether.
-  const inferenceTimeoutMs = options.timeoutMs ?? Math.max(
-    STT_INFERENCE_MIN_TIMEOUT_MS,
-    Math.ceil(audioSeconds * 2_000)
-  );
-
-  for (const modelId of candidates) {
-    bailIfCancelled();
-    let transcriber = transcribers.get(modelId);
-    if (!transcriber) {
-      try {
-        report({ stage: "model", message: `Downloading ${modelId.split("/")[1]} (one time)…`, fraction: 0 });
-        const progressByFile = new Map<string, number>();
-        const seenModelActivities = new Set<string>();
-        transcriber = await runWithTranscriptionTimeout(
-          (signal, keepAlive) => engine.pipeline("automatic-speech-recognition", modelId, {
-            // Quantised weights make the first download and browser memory use
-            // substantially smaller than full precision.
-            dtype: { encoder_model: "q8", decoder_model_merged: "q4" },
-            signal,
-            progress_callback: (item: any) => {
-              // A timed-out/superseded loader may keep invoking callbacks when
-              // an older engine ignores AbortSignal. Never let that stale run
-              // overwrite the next model's progress or a cleared UI.
-              if (signal.aborted) return;
-              const status = String(item?.status || "unknown");
-              const file = String(item?.file || item?.name || "model");
-              const progress = typeof item?.progress === "number" ? item.progress : null;
-              if (status === "progress" && progress !== null) {
-                const previous = progressByFile.get(file) ?? -1;
-                // Repeated callbacks at the same percentage are still a stall;
-                // only forward progress refreshes the deadline.
-                if (progress > previous) {
-                  progressByFile.set(file, progress);
-                  keepAlive();
-                }
-              } else {
-                // Initiating/finishing a new file is progress too, but a worker
-                // repeating one status forever cannot defeat the timeout.
-                const activity = `${status}:${file}`;
-                if (!seenModelActivities.has(activity)) {
-                  seenModelActivities.add(activity);
-                  keepAlive();
-                }
-              }
-              if (status !== "progress" || progress === null) return;
-              report({
-                stage: "model",
-                message: `Downloading ${modelId.split("/")[1]}…`,
-                fraction: Math.max(0, Math.min(1, progress / 100)),
-              });
-            },
-          }),
-          modelTimeoutMs,
-          `The Whisper model ${modelId} stopped loading for ${Math.round(modelTimeoutMs / 1000)} seconds.`,
-          options.signal
-        );
-        transcribers.set(modelId, transcriber);
-      } catch (error) {
-        if (options.signal?.aborted || (error instanceof TranscriptionError && error.message === "Transcription cancelled.")) {
-          throw new TranscriptionError("Transcription cancelled.");
-        }
-        const message = (error as Error)?.message || String(error);
-        modelFailures.push(`${modelId}: ${message}`);
-        console.warn("Transcription model failed to load:", message);
-        continue;
-      }
-    }
-
-    bailIfCancelled();
-    try {
-      report({ stage: "transcribing", message: "Listening to your video's audio…" });
-      const output: any = await runWithTranscriptionTimeout(
-        (signal) => transcriber(sourceUrl, {
-          chunk_length_s: 30,
-          stride_length_s: 5,
-          return_timestamps: "word",
-          signal,
-        }),
-        inferenceTimeoutMs,
-        `The Whisper model ${modelId} stopped responding during transcription after ${Math.round(inferenceTimeoutMs / 1000)} seconds.`,
-        options.signal
-      );
-      bailIfCancelled();
-
-      const chunks: RawChunk[] = Array.isArray(output?.chunks) ? output.chunks : [];
-      const { words, wordLevel } = chunksToWordTimings(chunks, audioSeconds);
-      const text = wordsToText(words) || String(output?.text ?? "").trim();
-      if (!text) {
-        throw new NoSpeechTranscriptionError(
-          "No speech was found in that video's audio. If it is mostly music, type the captions in the Captions step instead."
-        );
-      }
-      report({ stage: "done", message: "Transcript ready.", fraction: 1 });
-      return { words, text, model: modelId, wordLevel, audioSeconds };
-    } catch (error) {
-      if (options.signal?.aborted || (error instanceof TranscriptionError && error.message === "Transcription cancelled.")) {
-        throw new TranscriptionError("Transcription cancelled.");
-      }
-      if (error instanceof NoSpeechTranscriptionError) throw error;
-      const message = (error as Error)?.message || String(error);
-      inferenceFailures.push(`${modelId}: ${message}`);
-      console.warn("Transcription model failed during inference:", message);
-    }
-  }
-
-  if (inferenceFailures.length > 0) {
-    throw new TranscriptionError(
-      "Whisper loaded, but transcription failed or timed out while listening to the audio. " +
-        `(${inferenceFailures[0]}) ` +
-        "Try again, or type captions in the Captions step or import an SRT file."
+    report({
+      stage: "engine",
+      message: "Starting Whisper in a background worker so the page stays responsive…",
+      fraction: 0,
+    });
+    const result = await transcribeInWorker(
+      waveform,
+      candidates,
+      audioSeconds,
+      { ...options, signal: controller.signal },
+      report
     );
+    throwIfAborted(controller.signal);
+
+    const chunks: RawChunk[] = Array.isArray(result.output?.chunks) ? result.output.chunks : [];
+    const { words, wordLevel } = chunksToWordTimings(chunks, audioSeconds);
+    const text = wordsToText(words) || String(result.output?.text ?? "").trim();
+    if (!text) {
+      throw new TranscriptionError(
+        "No speech was found in that video's audio. If it is mostly music, type the captions in the Captions step instead."
+      );
+    }
+    report({ stage: "done", message: "Transcript ready.", fraction: 1 });
+    return { words, text, model: result.model, wordLevel, audioSeconds };
+  } catch (error) {
+    if (controller.signal.aborted) throw cancelledError();
+    if (error instanceof TranscriptionError || error instanceof TranscriptionTimeoutError) throw error;
+    throw new TranscriptionError(
+      `Transcription failed unexpectedly. (${(error as Error)?.message || "unknown error"})`
+    );
+  } finally {
+    clearInterval(cancelPoll);
+    options.signal?.removeEventListener("abort", forwardAbort);
   }
-  throw new TranscriptionError(
-    "The Whisper transcription models failed to load. " +
-      (modelFailures.length > 0 ? `(${modelFailures[0]}) ` : "") +
-      "Check the connection and try again. You can still type captions in the Captions step, or import an SRT file."
-  );
 }
 
 /**
