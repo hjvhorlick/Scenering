@@ -31,6 +31,23 @@
   fixed the audio plan, which ran every music bed to the end of the video
   regardless of its own length — a play-once track was scheduled for the whole
   timeline and only stopped because the buffer ran out.
+- **Fixed: captions were read aloud over the sound they came from.** A
+  transcript writes the words it heard into `scene.text`, because that is the
+  field the caption renderer reads. Voiceover defaults to ON and the renderer
+  speaks whatever it finds in `scene.text` — so captioning a music video and
+  then switching narration back on put a synthesised voice reading the lyrics
+  over the song. The soundtrack was never removed or replaced; a second voice
+  was simply laid on top of it. `caption_source` already recorded where the
+  words came from and nothing ever read it. `narratableText` now does: words
+  that came out of the picture are captions and are never spoken, words the
+  creator wrote are narrated exactly as before.
+- **A video with nothing spoken no longer opens on a silent held frame.** The
+  two-second lead-in exists to hold the first image until the first words. It
+  was keyed to the voiceover SWITCH rather than to whether anything would be
+  said, so a captioned music video opened on two seconds of frozen silence
+  before the song started. The renderer, the timeline readout and the live
+  preview now all ask one question — `projectHasNarration` — so the export and
+  the preview open on the same frame.
 - **Choosing "use the file's length" now says what it costs.** The video is
   never cut to fit a track, so a track shorter than the video leaves its tail
   with no music, and a track longer than the video simply is not all heard. Both

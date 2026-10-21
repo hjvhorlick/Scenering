@@ -49,7 +49,7 @@ import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
 
 import { loadCustomVideos } from "./lib/custom-video";
-import { TRANSCRIPT_KEYS } from "./lib/clip-transcript";
+import { TRANSCRIPT_KEYS, projectHasNarration } from "./lib/clip-transcript";
 import { loadCustomImages } from "./lib/custom-image";
 import { loadCustomMusic } from "./lib/custom-music";
 import { getSession } from "./lib/session";
@@ -1795,7 +1795,11 @@ export default function App() {
        visualiser disappear two seconds before the end of its own video —
        `renderTimelineInsert` stops drawing once time passes startTime +
        duration. Same rule, same arguments as RenderView, so the two agree. */
-    const leadIn = narrationLeadIn(intro > 0, voiceoverEnabled);
+    /* The hold only happens when there are first words to wait for. A scene
+       whose text is a transcript of its own soundtrack has nothing spoken over
+       it, so the render starts straight away — same rule as RenderView. */
+    const speaks = voiceoverEnabled && projectHasNarration(scenes);
+    const leadIn = narrationLeadIn(intro > 0, speaks);
     return Math.max(1, Math.round((intro + leadIn + script + outro) * 10) / 10);
   }, [scenes, introSection, outroSection, voiceoverEnabled]);
 

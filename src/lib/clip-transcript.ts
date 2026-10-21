@@ -95,6 +95,30 @@ export function sceneHasTranscript(scene: Scene | null | undefined): boolean {
  * Kept as one function because three places install one (Setup, the Captions
  * step and the clip panel) and they must all produce the same scene.
  */
+/**
+ * The words a scene should be SPOKEN as narration — which is not the same as
+ * the words it shows.
+ *
+ * A transcript writes the words it heard into `scene.text`, because that is the
+ * field the caption renderer reads. Those words came OUT of the video's own
+ * soundtrack, so reading them back would put a synthesised voice over the song
+ * they were transcribed from. `caption_source` records where the words came
+ * from, and text that came from the picture is captions, never a script.
+ */
+export function narratableText(scene: {
+  text?: string;
+  caption_source?: "transcript" | "manual";
+}): string {
+  return scene.caption_source === "transcript" ? "" : (scene.text || "").trim();
+}
+
+/** Whether any scene in the project has words that will actually be spoken. */
+export function projectHasNarration(
+  scenes: readonly { text?: string; caption_source?: "transcript" | "manual" }[]
+): boolean {
+  return scenes.some((scene) => Boolean(narratableText(scene)));
+}
+
 export function sceneUpdatesForTranscript(
   words: readonly WordTiming[],
   audioDurationSeconds: number

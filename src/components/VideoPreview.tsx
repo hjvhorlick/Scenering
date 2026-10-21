@@ -11,7 +11,7 @@ import { stopAllSoundPreviews } from "../data/media-library";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
-import { sceneCaptionWords } from "../lib/clip-transcript";
+import { projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
@@ -305,6 +305,13 @@ export default function VideoPreview({
 
   // A scene counts as renderable if it has a still OR a short video clip.
   const scenesWithImages = scenes.filter(sceneHasVisual);
+
+  /* Whether anything in this project will actually be spoken. The voiceover switch
+     alone is not the answer: a scene whose text is a transcript of its own
+     soundtrack is never read aloud, so there are no first words to wait for
+     and the picture starts at zero. Same rule, same input as RenderView, so
+     the preview and the export open on the same frame. */
+  const speaks = voiceoverEnabled && projectHasNarration(scenesWithImages);
 
 
   // Bind local Scenering styles to the customer's Speechify catalogue directly.
@@ -674,7 +681,7 @@ export default function VideoPreview({
       const outroDur = outroSec ? Math.max(0.5, outroSec.duration) : 0;
       const scriptDur = scenesWithImages.reduce((sum, s, i) => {
         const sa = audioBuffersRef.current.get(s.id);
-        return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
+        return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), speaks, singleScene);
       }, 0);
 
       const isIntroSegment = Boolean(introSec && absoluteTime < introDur);
@@ -685,7 +692,7 @@ export default function VideoPreview({
       // The first scene's speech begins speechOffset seconds into its window
       // (the opening lead-in); captions are held back until then so they
       // appear exactly when the voice starts speaking — same as the export.
-      const speechOffsetSec = sceneSpeechOffset(sceneIdx, Boolean(introSec), voiceoverEnabled);
+      const speechOffsetSec = sceneSpeechOffset(sceneIdx, Boolean(introSec), speaks);
       const speechElapsed =
         elapsedInScene !== undefined ? Math.max(0, elapsedInScene - speechOffsetSec) : undefined;
       const speechStarted = elapsedInScene === undefined || elapsedInScene >= speechOffsetSec;
@@ -855,7 +862,7 @@ export default function VideoPreview({
     const outroDur = outroDuration;
     const scriptDur = scenesWithImages.reduce((sum, s, i) => {
       const sa = audioBuffersRef.current.get(s.id);
-      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
+      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), speaks, singleScene);
     }, 0);
 
     let targetScene = scenesWithImages[0];
@@ -879,7 +886,7 @@ export default function VideoPreview({
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = audioBuffersRef.current.get(s.id);
-        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), speaks, singleScene);
         if (scriptTime >= acc && scriptTime < acc + sDur) {
           targetScene = s;
           targetIdx = i;
@@ -1237,7 +1244,7 @@ export default function VideoPreview({
 
     const scriptDur = scenesWithImages.reduce((sum, s, i) => {
       const sa = buffers.get(s.id);
-      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
+      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), speaks, singleScene);
     }, 0);
 
     const totalDur = introDur + scriptDur + outroDur;
@@ -1333,11 +1340,11 @@ export default function VideoPreview({
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = buffers.get(s.id);
-        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), speaks, singleScene);
         if (initialScriptTime >= acc && initialScriptTime < acc + sDur) {
           currentPlayingSceneIdx = i;
           setCurrentSceneIndex(i);
-          const speechOffset = initialScriptTime - acc - sceneSpeechOffset(i, Boolean(introSec), voiceoverEnabled);
+          const speechOffset = initialScriptTime - acc - sceneSpeechOffset(i, Boolean(introSec), speaks);
           if (speechOffset >= 0) playSceneAudio(i, speechOffset);
           else pendingAudioSceneIdx = i;
           break;
@@ -1346,7 +1353,7 @@ export default function VideoPreview({
         if (i === scenesWithImages.length - 1) {
           currentPlayingSceneIdx = i;
           setCurrentSceneIndex(i);
-          const speechOffset = Math.max(0, initialScriptTime - acc) - sceneSpeechOffset(i, Boolean(introSec), voiceoverEnabled);
+          const speechOffset = Math.max(0, initialScriptTime - acc) - sceneSpeechOffset(i, Boolean(introSec), speaks);
           if (speechOffset >= 0) playSceneAudio(i, speechOffset);
           else pendingAudioSceneIdx = i;
         }
@@ -1463,7 +1470,7 @@ export default function VideoPreview({
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = buffers.get(s.id);
-        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), speaks, singleScene);
         if (scriptTime >= accum && scriptTime < accum + sDur) {
           activeIdx = i;
           activeOffset = scriptTime - accum;
@@ -1483,7 +1490,7 @@ export default function VideoPreview({
         setCurrentSceneIndex(activeIdx);
         // Narration starts at the scene's speech offset — during the opening
         // lead-in it waits, then begins exactly when the export's would.
-        const speechOffset = activeOffset - sceneSpeechOffset(activeIdx, Boolean(introSec), voiceoverEnabled);
+        const speechOffset = activeOffset - sceneSpeechOffset(activeIdx, Boolean(introSec), speaks);
         if (speechOffset >= 0) playSceneAudio(activeIdx, speechOffset);
         else pendingAudioSceneIdx = activeIdx;
 
@@ -1499,7 +1506,7 @@ export default function VideoPreview({
 
       // The lead-in elapsed: start this scene's narration now.
       if (pendingAudioSceneIdx === activeIdx && activeIdx === currentPlayingSceneIdx) {
-        const speechOffset = activeOffset - sceneSpeechOffset(activeIdx, Boolean(introSec), voiceoverEnabled);
+        const speechOffset = activeOffset - sceneSpeechOffset(activeIdx, Boolean(introSec), speaks);
         if (speechOffset >= 0) {
           playSceneAudio(activeIdx, speechOffset);
           pendingAudioSceneIdx = -999;

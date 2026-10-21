@@ -21,7 +21,7 @@ import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } 
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { clipAudioPlanFor, loadClipAudio, scheduleClipAudio } from "../lib/clip-audio";
-import { sceneCaptionWords } from "../lib/clip-transcript";
+import { narratableText, projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";
 import {
   renderTimelineInsert,
 } from "../lib/render-effects";
@@ -1021,23 +1021,28 @@ export default function RenderView({
         const sceneVoice = s.voice_id || selectedVoice;
 
         // 1. Resolve directly from the saved voiceover section (memory, IndexedDB, or audio_url)
+        /* Only words the creator WROTE are narration. A scene's text can just
+           as easily be a transcript of the soundtrack the video already has,
+           and reading that back would put a synthesised voice over the song it
+           came from — so `narratableText` is empty for a transcript. */
+        const spokenText = narratableText(s);
         let resolved = await resolveSceneAudioBuffer(s, audioCtx);
         if (!resolved && voiceoverEnabled) {
           if (s.audio_url) {
             throw new Error(`The saved audio for scene ${i + 1} could not be loaded. Re-import or regenerate that track.`);
           }
-          if ((s.text || "").trim()) {
-            const withTimeline = await fetchSceneAudioWithTimeline(s.text || "", sceneVoice, { timeoutMs: 20000 });
+          if (spokenText) {
+            const withTimeline = await fetchSceneAudioWithTimeline(spokenText, sceneVoice, { timeoutMs: 20000 });
             if (!withTimeline) throw new Error(`Speechify returned no audio for scene ${i + 1}.`);
             const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
             const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
             const blobUrl = URL.createObjectURL(blob);
-            setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
+            setCachedSceneAudio(s.id, sceneVoice, spokenText, {
               audioBuffer,
               blobUrl,
               duration: audioBuffer.duration,
               voiceId: sceneVoice,
-              text: (s.text || "").trim(),
+              text: spokenText,
               rawBuffer: withTimeline.rawBuffer,
               blob,
               words: withTimeline.words,
@@ -1056,7 +1061,7 @@ export default function RenderView({
             duration: resolved.duration,
             words: resolved.words && resolved.words.length > 0 ? resolved.words : undefined,
           });
-        } else if ((s.text || "").trim()) {
+        } else if (spokenText) {
           throw new Error(`No narration audio is available for scene ${i + 1}.`);
         }
 
@@ -1075,7 +1080,8 @@ export default function RenderView({
       // spoken — the narration used to begin ~0.1s in, too soon to take in
       // the opening. An enabled intro section is its own opening, so the
       // lead-in only applies without one.
-      const leadIn = narrationLeadIn(Boolean(introSec), voiceoverEnabled);
+      const speaks = voiceoverEnabled && projectHasNarration(scenesWithImages);
+      const leadIn = narrationLeadIn(Boolean(introSec), speaks);
 
       let timelineOffset = introDuration;
       const sceneSchedule = scenesWithImages.map((s, idx) => {

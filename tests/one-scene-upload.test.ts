@@ -19,6 +19,8 @@ import { stretchFullVideoMedia } from "../src/lib/render-visualizers";
 import type { TimelineInsert } from "../src/types";
 import { chunksToWordTimings, wordsToText, STT_ENGINE_URL, STT_MODEL_CANDIDATES } from "../src/lib/speech-to-text";
 import {
+  narratableText,
+  projectHasNarration,
   sceneCaptionWords,
   sceneHasTranscript,
   sceneUpdatesForTranscript,
@@ -722,7 +724,8 @@ const footageScene = {
 {
   // App's formula, read back from the source so this cannot drift from it.
   h.ok(
-    /const leadIn = narrationLeadIn\(intro > 0, voiceoverEnabled\);/.test(app) &&
+    /const speaks = voiceoverEnabled && projectHasNarration\(scenes\);/.test(app) &&
+      /const leadIn = narrationLeadIn\(intro > 0, speaks\);/.test(app) &&
       /Math\.round\(\(intro \+ leadIn \+ script \+ outro\) \* 10\) \/ 10/.test(app),
     "the timeline total includes the narration lead-in the render actually adds"
   );
@@ -783,6 +786,90 @@ const footageScene = {
   h.ok(
     !(t < stretched.startTime || t > stretched.startTime + stretched.duration),
     `and it is still drawn at ${t}s, inside the last two seconds of the export`
+  );
+}
+
+/* ------------------------------------------------------------------
+ * 9. Captions are never read aloud over the sound they came from
+ *
+ * A transcript writes the words it heard into `scene.text`, because that is
+ * the field the caption renderer reads. Voiceover defaults to ON, and the
+ * renderer speaks whatever it finds in `scene.text` — so captioning a music
+ * video and then switching narration back on used to put a synthesised voice
+ * reading the lyrics over the song. Nothing ever replaced or removed the
+ * soundtrack; a second voice was simply laid on top of it.
+ * ------------------------------------------------------------------ */
+{
+  const transcript = sceneUpdatesForTranscript(
+    [
+      { text: "Never", start: 1.2, end: 1.6 },
+      { text: "gonna", start: 1.6, end: 1.9 },
+      { text: "give", start: 1.9, end: 2.2 },
+      { text: "you", start: 2.2, end: 2.5 },
+      { text: "up", start: 2.5, end: 2.9 },
+    ],
+    187.4
+  );
+
+  h.eq(transcript.caption_source, "transcript", "a transcript records where its words came from");
+  h.eq(transcript.text, "Never gonna give you up", "and those words still become the captions");
+
+  // The point of the change: captions are shown, never spoken.
+  h.eq(narratableText(transcript), "", "words transcribed from the soundtrack are never narrated");
+  h.eq(
+    narratableText({ text: "Welcome to the show" }),
+    "Welcome to the show",
+    "words the creator wrote are still narrated, exactly as before"
+  );
+  h.eq(
+    narratableText({ text: "   " }),
+    "",
+    "a scene with nothing but whitespace has nothing to say"
+  );
+
+  // And so the render no longer holds the first frame waiting for words that
+  // will never come.
+  h.eq(projectHasNarration([transcript]), false, "a captioned music video speaks nothing");
+  h.eq(
+    projectHasNarration([transcript, { text: "Welcome to the show" }]),
+    true,
+    "one written scene is enough to make the project a narrated one"
+  );
+  h.eq(projectHasNarration([]), false, "an empty project speaks nothing");
+
+  h.eq(
+    narrationLeadIn(false, projectHasNarration([transcript])),
+    0,
+    "so a captioned music video starts at zero instead of holding a silent frame"
+  );
+  h.eq(
+    narrationLeadIn(false, projectHasNarration([{ text: "Welcome to the show" }])),
+    NARRATION_LEAD_IN_SECONDS,
+    "while a narrated project still holds its opening for the first words"
+  );
+
+  // The renderer, the timeline readout and the preview must all ask the same
+  // question, or the export opens on a different frame from the preview.
+  const render = read("src/components/RenderView.tsx");
+  h.ok(
+    /const speaks = voiceoverEnabled && projectHasNarration\(scenesWithImages\);/.test(render) &&
+      /const leadIn = narrationLeadIn\(Boolean\(introSec\), speaks\);/.test(render),
+    "the renderer decides its lead-in from what will actually be spoken"
+  );
+  h.ok(
+    /const spokenText = narratableText\(s\);/.test(render) &&
+      /await fetchSceneAudioWithTimeline\(spokenText,/.test(render),
+    "and it sends only the creator's own words to the speech engine"
+  );
+
+  const preview = read("src/components/VideoPreview.tsx");
+  h.ok(
+    /const speaks = voiceoverEnabled && projectHasNarration\(scenesWithImages\);/.test(preview),
+    "the preview asks the same question over the same scenes"
+  );
+  h.ok(
+    !/Boolean\(introSec\), voiceoverEnabled/.test(preview),
+    "no preview call site still passes the bare voiceover switch as the lead-in"
   );
 }
 
