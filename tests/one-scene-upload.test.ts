@@ -248,9 +248,13 @@ const footageScene = {
     "a project built from footage is created at the footage's length, not the target that was showing"
   );
   h.ok(
-    /const footage = oneScene \? sceneClipSeconds\(prev\[0\]\) : 0;/.test(app) &&
+    /const footage = oneScene \? sceneClipSeconds\(scenes\[0\]\) : 0;/.test(app) &&
       app.includes("const projectDuration = footage > 0 ? Math.round(footage * 10) / 10 : dur;"),
     "and re-timing keeps the project at that length"
+  );
+  h.ok(
+    !/setScenes\(\(prev\) => \{\s*\n\s*const footage = oneScene/.test(app),
+    "that decision is taken outside the state updater, which must stay pure"
   );
 
   // Nothing trims the file away: the trim window is the whole clip.

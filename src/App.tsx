@@ -585,39 +585,41 @@ export default function App() {
    */
   const handleUpdateSceneDuration = useCallback((dur: number, overrideSingleScene?: boolean) => {
     const oneScene = overrideSingleScene ?? singleScene;
-    const retimed = (list: Scene[]) =>
-      list.map((s) => ({ ...s, duration: sceneDurationForScene(s, { singleScene: oneScene, targetDuration: dur }) }));
-    setScenes((prev) => {
-      const updated = retimed(prev);
-      /* The project's own length follows the footage in a one-scene project,
-         so "20 seconds" chosen on the setup frame cannot quietly shorten the
-         video the creator uploaded. */
-      const footage = oneScene ? sceneClipSeconds(prev[0]) : 0;
-      const projectDuration = footage > 0 ? Math.round(footage * 10) / 10 : dur;
-      setSceneDuration(projectDuration);
-      saveCurrentProjectSettings({ scene_duration: projectDuration });
-      setCurrentProject((current) => (current ? { ...current, default_duration: projectDuration } : null));
-      try {
-        for (const s of updated) {
-          supabase.from("scenes").update({ duration: s.duration }).eq("id", s.id).then();
+    /* The project's own length follows the footage in a one-scene project, so
+       "20 seconds" chosen on the setup frame cannot quietly shorten the video
+       the creator uploaded. Read here, from the scenes in scope, rather than
+       from inside the state updater below: an updater must be pure, and React
+       runs it twice under StrictMode. */
+    const footage = oneScene ? sceneClipSeconds(scenes[0]) : 0;
+    const projectDuration = footage > 0 ? Math.round(footage * 10) / 10 : dur;
+    setSceneDuration(projectDuration);
+    saveCurrentProjectSettings({ scene_duration: projectDuration });
+    setCurrentProject((current) => (current ? { ...current, default_duration: projectDuration } : null));
+    setScenes((prev) =>
+      prev.map((s) => {
+        // Fit each scene to its own narration rather than stamping them all —
+        // unless the scene IS footage, which keeps its own length.
+        const duration = sceneDurationForScene(s, { singleScene: oneScene, targetDuration: dur });
+        try {
+          supabase.from("scenes").update({ duration }).eq("id", s.id).then();
           const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
           const parsed = existingMeta ? JSON.parse(existingMeta) : {};
-          localStorage.setItem(`scenering_scene_meta_${s.id}`, JSON.stringify({ ...parsed, duration: s.duration }));
-        }
-      } catch {}
-      return updated;
-    });
-  }, [saveCurrentProjectSettings, singleScene]);
+          localStorage.setItem(`scenering_scene_meta_${s.id}`, JSON.stringify({ ...parsed, duration }));
+        } catch {}
+        return { ...s, duration };
+      })
+    );
+  }, [saveCurrentProjectSettings, singleScene, scenes]);
 
   const handleCalibrateScenesWordCount = useCallback((targetSeconds: number, overrideSingleScene?: boolean) => {
     const oneScene = overrideSingleScene ?? singleScene;
-    setScenes((prev) => {
-      const footage = oneScene ? sceneClipSeconds(prev[0]) : 0;
-      const projectDuration = footage > 0 ? Math.round(footage * 10) / 10 : targetSeconds;
-      setSceneDuration(projectDuration);
-      saveCurrentProjectSettings({ scene_duration: projectDuration });
-      setCurrentProject((current) => (current ? { ...current, default_duration: projectDuration } : null));
-      return prev.map((s) => {
+    const footage = oneScene ? sceneClipSeconds(scenes[0]) : 0;
+    const projectDuration = footage > 0 ? Math.round(footage * 10) / 10 : targetSeconds;
+    setSceneDuration(projectDuration);
+    saveCurrentProjectSettings({ scene_duration: projectDuration });
+    setCurrentProject((current) => (current ? { ...current, default_duration: projectDuration } : null));
+    setScenes((prev) =>
+      prev.map((s) => {
         // Each scene is timed to its own narration, bounded by the target —
         // unless the scene IS footage, which keeps its own length.
         const fitted = sceneDurationForScene(s, { singleScene: oneScene, targetDuration: targetSeconds });
@@ -635,9 +637,9 @@ export default function App() {
           ...s,
           duration: fitted,
         };
-      });
-    });
-  }, [saveCurrentProjectSettings, singleScene]);
+      })
+    );
+  }, [saveCurrentProjectSettings, singleScene, scenes]);
 
   const handleFitAllScenesDurationToSpeech = useCallback(() => {
     setScenes((prev) =>
