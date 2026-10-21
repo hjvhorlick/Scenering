@@ -1794,7 +1794,6 @@ export default function RenderView({
              mastering, and a scene whose creator chose "remove the sound"
              produces no plan and therefore no track in the file. */
           renderTimer.stage("clip soundtracks");
-          const offlineClipSources: AudioBufferSourceNode[] = [];
           const clipAudioCache = new Map<number, AudioBuffer | null>();
           for (const entry of sceneSchedule) {
             const plan = clipAudioPlanFor(entry.scene, entry.startTime, entry.duration);
@@ -1809,8 +1808,10 @@ export default function RenderView({
               );
               continue;
             }
-            const started = scheduleClipAudio(offlineCtx, track, plan, offlineMusicAnalyser, 0);
-            if (started) offlineClipSources.push(started);
+            /* No source list to keep here: an offline context runs to
+               completion on its own, and cancelling the render abandons the
+               whole context rather than stopping individual tracks. */
+            scheduleClipAudio(offlineCtx, track, plan, offlineMusicAnalyser, 0);
           }
 
           // One packed allocation replaces tens of thousands of retained

@@ -57,11 +57,6 @@ function sourceBytes(url: string): Promise<ArrayBuffer | null> {
   return task;
 }
 
-/** Drop a cached clip (called when an upload is deleted). */
-export function forgetClipAudio(url: string | null | undefined): void {
-  if (url) sourceCache.delete(url);
-}
-
 /**
  * Decodes the soundtrack of a clip.
  *
