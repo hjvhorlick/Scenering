@@ -1032,7 +1032,7 @@ export default function RenderView({
            transcript does not clear it. Resolving first would resurrect that
            old voice over the song the captions came from. */
         const spokenText = narratableText(s);
-        if ((s.text || "").trim() && !spokenText) continue;
+        if (s.caption_source === "transcript") continue;
         let resolved = await resolveSceneAudioBuffer(s, audioCtx);
         if (!resolved && voiceoverEnabled) {
           if (s.audio_url) {

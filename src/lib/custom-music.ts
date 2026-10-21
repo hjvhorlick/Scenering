@@ -22,6 +22,7 @@
  *    playback.
  */
 
+import type { TimelineInsert } from "../types";
 import { assertMediaFile, probeAudioFile } from "./media-file";
 
 const DB_NAME = "scenering-media";
@@ -194,6 +195,61 @@ export function getCustomMusicTrack(url: string | undefined | null): CustomMusic
   if (!isCustomMusicUrl(url)) return undefined;
   const id = customMusicId(url!);
   return tracks.find((t) => t.id === id);
+}
+
+export const MUSIC_VIDEO_SOURCE_TYPE_PREFIX = "bgm_music_video_source_";
+
+/** Distinguishes source audio from an ordinary bed added to a narrated project. */
+export function isMusicVideoSourceInsert(insert: Pick<TimelineInsert, "category" | "type">): boolean {
+  return insert.category === "background_music" &&
+    typeof insert.type === "string" &&
+    insert.type.startsWith(MUSIC_VIDEO_SOURCE_TYPE_PREFIX);
+}
+
+/**
+ * Makes an uploaded track the soundtrack of a still-image music video.
+ *
+ * This is intentionally different from ordinary background music: the track is
+ * the project's source material, so it plays once at its own length and starts
+ * at frame zero. If the creator later makes the pictures run longer, the video
+ * wins and the tail is silent — this helper never loops or stretches the song.
+ */
+export function createMusicVideoInsert(
+  track: Pick<CustomMusicTrack, "id" | "name" | "duration">,
+  volume = 1
+): TimelineInsert {
+  const duration = Math.max(1, Number(track.duration) || 0);
+  const soundUrl = `${CUSTOM_MUSIC_PREFIX}${track.id}`;
+  return {
+    id: `bgm_setup_${track.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    category: "background_music",
+    type: `${MUSIC_VIDEO_SOURCE_TYPE_PREFIX}${track.id}`,
+    title: track.name,
+    startTime: 0,
+    duration,
+    position: { x: 0.5, y: 0.5 },
+    presetPosition: "bottom",
+    size: 1,
+    opacity: 1,
+    intensity: 1,
+    audioSource: "music",
+    // Explicit scope keeps stretchFullVideoMedia from treating this play-once
+    // source as a legacy looping bed when the creator later adds more scenes.
+    scope: "this_scene",
+    content: {
+      primaryText: track.name,
+      secondaryText: "Uploaded by you — you are responsible for its licence",
+      label: "My music",
+      soundUrl,
+      soundVolume: Math.max(0, Math.min(1, volume)),
+    },
+    audioSettings: {
+      soundUrl,
+      soundName: track.name,
+      volume: Math.max(0, Math.min(1, volume)),
+      loop: false,
+    },
+  };
 }
 
 function prettyName(filename: string): string {

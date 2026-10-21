@@ -52,7 +52,12 @@ import { loadCustomVideos } from "./lib/custom-video";
 import { TRANSCRIPT_KEYS, projectHasNarration } from "./lib/clip-transcript";
 import { projectMusicBed } from "./lib/insert-audio";
 import { loadCustomImages } from "./lib/custom-image";
-import { loadCustomMusic } from "./lib/custom-music";
+import {
+  createMusicVideoInsert,
+  isMusicVideoSourceInsert,
+  loadCustomMusic,
+  type CustomMusicTrack,
+} from "./lib/custom-music";
 import { getSession } from "./lib/session";
 import { getApiKeysHeaders, getApiKeysQueryParams } from "./lib/api-keys";
 import {
@@ -102,6 +107,11 @@ export interface NewProjectOptions {
      * first scene as it is created.
      */
     transcript?: Partial<Scene>;
+  };
+  /** An uploaded song plus the first still for a voiceover-free music video. */
+  audio?: {
+    track: CustomMusicTrack;
+    image: { url: string; name: string };
   };
 }
 
@@ -496,6 +506,20 @@ export default function App() {
     saveCurrentProjectSettings({ scene_animation_enabled: enabled });
   }, [saveCurrentProjectSettings]);
 
+  /** Source-media projects keep their own soundtrack; narration never overlays it. */
+  const mediaSourceVoiceoverLocked = singleScene && (
+    scenes.some((scene) => scene.source_media_kind === "uploaded_video" && Boolean(scene.video_url)) ||
+    inserts.some(isMusicVideoSourceInsert)
+  );
+
+  // Repair stale settings from projects created before source modes enforced
+  // this invariant. Keeping it in App protects preview and export, not only UI.
+  useEffect(() => {
+    if (!mediaSourceVoiceoverLocked || !voiceoverEnabled) return;
+    setVoiceoverEnabled(false);
+    saveCurrentProjectSettings({ voiceover_enabled: false });
+  }, [mediaSourceVoiceoverLocked, voiceoverEnabled, saveCurrentProjectSettings]);
+
   /**
    * Narration on or off for the whole project.
    *
@@ -504,9 +528,10 @@ export default function App() {
    * regenerated or re-applied afterwards.
    */
   const handleUpdateVoiceoverEnabled = useCallback((enabled: boolean) => {
-    setVoiceoverEnabled(enabled);
-    saveCurrentProjectSettings({ voiceover_enabled: enabled });
-  }, [saveCurrentProjectSettings]);
+    const next = mediaSourceVoiceoverLocked ? false : enabled;
+    setVoiceoverEnabled(next);
+    saveCurrentProjectSettings({ voiceover_enabled: next });
+  }, [mediaSourceVoiceoverLocked, saveCurrentProjectSettings]);
 
   /**
    * Switch an existing project between split scenes and one single scene.
@@ -524,9 +549,16 @@ export default function App() {
    */
   const handleAttachSingleSceneClip = useCallback(
     (clip: { url: string; name: string; duration: number; /** false silences the clip's own soundtrack in the render. */ mute?: boolean }) => {
+      // Uploaded-video sound and a separate music insert are mutually
+      // exclusive source modes; never leave a background track over footage.
+      setInserts((prev) => prev.filter((insert) => insert.category !== "background_music"));
       setScenes((prev) => {
         if (prev.length === 0) return prev;
+        const transcriptReset: Partial<Scene> = prev[0].caption_source === "transcript"
+          ? { text: "", caption_words: [], caption_source: "manual", caption_audio_duration: 0 }
+          : {};
         const clipFields: Partial<Scene> = {
+          source_media_kind: "uploaded_video",
           video_url: clip.url,
           video_name: clip.name,
           video_duration: clip.duration,
@@ -537,12 +569,22 @@ export default function App() {
           video_mute: clip.mute ?? false,
           video_volume: 1,
           video_fit_mode: "trim",
+          // A transcript belongs to the source it was heard from. Replacing
+          // source audio must not leave the old song's words on new footage.
+          ...transcriptReset,
         };
         const duration = singleSceneDuration(prev[0].text || "", clip.duration);
         const updated = prev.map((sc, i) => (i === 0 ? { ...sc, ...clipFields, duration } : sc));
         try {
           const first = updated[0];
-          supabase.from("scenes").update({ duration }).eq("id", first.id).then();
+          supabase
+            .from("scenes")
+            .update({
+              duration,
+              ...(transcriptReset.text !== undefined ? { text: transcriptReset.text } : {}),
+            })
+            .eq("id", first.id)
+            .then();
           const existingMeta = localStorage.getItem(`scenering_scene_meta_${first.id}`);
           const parsedMeta = existingMeta ? JSON.parse(existingMeta) : {};
           localStorage.setItem(
@@ -931,13 +973,22 @@ export default function App() {
     const chosenDuration = targetDuration || 20;
     const oneScene = options?.singleScene ?? false;
     const clip = oneScene ? options?.clip : undefined;
-    const narration = options?.voiceoverEnabled ?? true;
-    /* The footage is the project's length. The project row and its settings
-       carry that length from the moment it is created, so nothing later
-       defaults the video back to the 10/20/30 target the creator had picked
-       before uploading. */
+    const audio = oneScene ? options?.audio : undefined;
+    // Source media keeps its own soundtrack; neither route synthesises a
+    // second voice over the uploaded video or song.
+    const narration = audio || clip ? false : options?.voiceoverEnabled ?? true;
+    /* Footage decides the length when there is footage; otherwise an uploaded
+       song decides it. Both are source media, so neither is cut back to the
+       10/20/30 spoken-scene target. */
     const footageDuration = clip && clip.duration > 0 ? Math.round(clip.duration * 10) / 10 : 0;
-    const projectDuration = footageDuration > 0 ? footageDuration : chosenDuration;
+    const audioDuration = audio && audio.track.duration > 0
+      ? Math.round(audio.track.duration * 10) / 10
+      : 0;
+    const projectDuration = footageDuration > 0
+      ? footageDuration
+      : audioDuration > 0
+        ? audioDuration
+        : chosenDuration;
     // Keep the canvas choices made on the single setup frame (aspect ratio, resolution, motion)
     const chosenAspect = aspectRatio;
     const chosenResolution = resolution;
@@ -953,6 +1004,7 @@ export default function App() {
 
       const project = projectData as Project;
       const parsedScenes = parseScript(script, chosenDuration, oneScene);
+      const initialInserts = audio ? [createMusicVideoInsert(audio.track)] : [];
 
       // Clean, isolated project setup with defaults
       const freshSettings: ProjectSettings = {
@@ -968,7 +1020,7 @@ export default function App() {
 
       try {
         localStorage.setItem(`scenering_project_settings_${project.id}`, JSON.stringify(freshSettings));
-        localStorage.setItem(`scenering_inserts_${project.id}`, JSON.stringify([]));
+        localStorage.setItem(`scenering_inserts_${project.id}`, JSON.stringify(initialInserts));
       } catch {}
 
       // Create scenes from user's script segments.
@@ -978,7 +1030,7 @@ export default function App() {
       // the rest of the app (captions, music, the studio, the timeline) is
       // built around there being a scene to hang them on.
       const sceneSources = oneScene && parsedScenes.length === 0
-        ? [{ text: "", imageQuery: clip ? "" : "abstract background" }]
+        ? [{ text: "", imageQuery: clip ? "" : (audio?.image.name || "abstract background") }]
         : parsedScenes;
 
       const sceneRows = sceneSources.map((s, i) => {
@@ -988,8 +1040,9 @@ export default function App() {
           order_index: i,
           text: sceneText,
           image_query: s.imageQuery,
+          image_url: audio && i === 0 ? audio.image.url : null,
           duration: oneScene
-            ? singleSceneDuration(sceneText, clip?.duration)
+            ? singleSceneDuration(sceneText, clip?.duration || audio?.track.duration)
             : sceneDurationForText(sceneText, chosenDuration),
         };
       });
@@ -1025,6 +1078,7 @@ export default function App() {
       let createdScenes = (scenesData as Scene[]).map((sc) => ({ ...sc, transition: freshSettings.transition }));
       if (clip && createdScenes.length > 0) {
         const clipFields: Partial<Scene> = {
+          source_media_kind: "uploaded_video",
           video_url: clip.url,
           video_name: clip.name,
           video_duration: clip.duration,
@@ -1054,10 +1108,33 @@ export default function App() {
         } catch {}
       }
 
+      // `addCustomImage` supplied a stable custom-image address in Setup. Pin
+      // it exactly as SceneEditor's upload path does, so a later script edit or
+      // image search cannot silently replace the creator's chosen artwork.
+      if (audio && createdScenes.length > 0) {
+        const imageFields: Partial<Scene> = {
+          source_media_kind: "audio_image",
+          image_url: audio.image.url,
+          image_query: audio.image.name,
+          image_query_locked: true,
+          blank_color: null,
+        };
+        createdScenes = createdScenes.map((sc, i) => (i === 0 ? { ...sc, ...imageFields } : sc));
+        try {
+          const first = createdScenes[0];
+          const existingMeta = localStorage.getItem(`scenering_scene_meta_${first.id}`);
+          const parsedMeta = existingMeta ? JSON.parse(existingMeta) : {};
+          localStorage.setItem(
+            `scenering_scene_meta_${first.id}`,
+            JSON.stringify({ ...parsedMeta, ...imageFields, duration: first.duration })
+          );
+        } catch {}
+      }
+
       setNavNotice(null);
       setCurrentProject(project);
       setScenes(createdScenes);
-      setInserts([]);
+      setInserts(initialInserts);
       setCurrentPlayheadTime(0);
       setEditorStep("scenes");
       setView("editor");
@@ -1441,6 +1518,7 @@ export default function App() {
 
   /** Short-video-clip fields, persisted with the scene like the framing keys. */
   const CLIP_KEYS = [
+    "source_media_kind",
     "video_url",
     "video_name",
     "video_duration",
@@ -1758,6 +1836,14 @@ export default function App() {
 
   // Timeline & Insert Actions
   const handleAddInsert = (insert: TimelineInsert) => {
+    if (
+      mediaSourceVoiceoverLocked &&
+      insert.category === "background_music" &&
+      !isMusicVideoSourceInsert(insert)
+    ) {
+      setNavNotice("This video's uploaded source is already its soundtrack. Replace that source in Setup instead of layering another music track over it.");
+      return;
+    }
     setInserts((prev) => {
       let filtered = prev;
       if (insert.category === "intro") {
@@ -1772,6 +1858,42 @@ export default function App() {
       return [...filtered, insert];
     });
     setSelectedInsert(insert);
+  };
+
+  /** Attach Setup's audio + image source to an already-created project. */
+  const handleAttachAudioSource = (
+    source: NonNullable<NewProjectOptions["audio"]>,
+    changed: { audio: boolean; image: boolean }
+  ) => {
+    const target = scenes[0];
+    if (!target) return;
+    const transcriptReset: Partial<Scene> = changed.audio && target.caption_source === "transcript"
+      ? { text: "", caption_words: [], caption_source: "manual", caption_audio_duration: 0 }
+      : {};
+    void handleUpdateScene(target.id, {
+      // Source modes are alternatives. Removing the clip here prevents the
+      // uploaded song from ever being layered over an uploaded-video soundtrack.
+      source_media_kind: "audio_image",
+      video_url: null,
+      video_name: null,
+      image_url: source.image.url,
+      image_query: source.image.name,
+      image_query_locked: true,
+      blank_color: null,
+      ...(changed.audio ? { duration: Math.max(1, source.track.duration) } : {}),
+      ...transcriptReset,
+    });
+    // Replacing only the picture must not mint a second id for the same song.
+    // This explicit replacement also permits switching from uploaded video to
+    // audio source while the old source lock is still true in this render.
+    if (changed.audio) {
+      const sourceInsert = createMusicVideoInsert(source.track);
+      setInserts((prev) => [
+        ...prev.filter((insert) => insert.category !== "background_music"),
+        sourceInsert,
+      ]);
+      setSelectedInsert(sourceInsert);
+    }
   };
 
   /** Open the properties editor and park the playhead on the element being edited,
@@ -1845,14 +1967,27 @@ export default function App() {
   }, [currentProject?.title]);
 
   const handleUpdateInsert = (updated: TimelineInsert) => {
+    // A source soundtrack is not an ordinary editable music bed. Timeline and
+    // properties edits may change volume, but never turn it into a loop or move
+    // it away from frame zero.
+    const safeUpdated = isMusicVideoSourceInsert(updated)
+      ? {
+          ...updated,
+          startTime: 0,
+          scope: "this_scene" as const,
+          audioSettings: updated.audioSettings
+            ? { ...updated.audioSettings, loop: false }
+            : updated.audioSettings,
+        }
+      : updated;
     setInserts((prev) => {
-      const withoutOtherMusic = updated.category === "background_music"
-        ? prev.filter((ins) => ins.id === updated.id || ins.category !== "background_music")
+      const withoutOtherMusic = safeUpdated.category === "background_music"
+        ? prev.filter((ins) => ins.id === safeUpdated.id || ins.category !== "background_music")
         : prev;
-      return withoutOtherMusic.map((ins) => (ins.id === updated.id ? updated : ins));
+      return withoutOtherMusic.map((ins) => (ins.id === safeUpdated.id ? safeUpdated : ins));
     });
-    if (selectedInsert?.id === updated.id) setSelectedInsert(updated);
-    if (editingInsert?.id === updated.id) setEditingInsert(updated);
+    if (selectedInsert?.id === safeUpdated.id) setSelectedInsert(safeUpdated);
+    if (editingInsert?.id === safeUpdated.id) setEditingInsert(safeUpdated);
   };
 
   const handleDeleteInsert = (insertId: string) => {
@@ -2063,6 +2198,7 @@ export default function App() {
                 project={currentProject}
                 projects={projects}
                 scenes={scenes}
+                inserts={inserts}
                 aspectRatio={aspectRatio}
                 resolution={resolution}
                 pacingMode={pacingMode}
@@ -2089,6 +2225,7 @@ export default function App() {
                 onAttachSingleSceneClip={handleAttachSingleSceneClip}
                 onUpdateSingleSceneAudio={handleUpdateSingleSceneAudio}
                 onUpdateSingleSceneCaptions={handleApplySingleSceneCaptions}
+                onAttachAudioSource={handleAttachAudioSource}
                 onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
                 onFitScenesToSpeech={handleFitAllScenesDurationToSpeech}
                 onUpdateMotionStyle={handleUpdateMotionStyle}
@@ -2405,6 +2542,7 @@ export default function App() {
                   onInsertItem={handleAddInsert}
                   onConfigureItem={openInsertEditor}
                   voiceoverEnabled={voiceoverEnabled}
+                  voiceoverLockedOff={mediaSourceVoiceoverLocked}
                   onUpdateVoiceoverEnabled={handleUpdateVoiceoverEnabled}
                 />
               ) : editorStep === "captions" ? (

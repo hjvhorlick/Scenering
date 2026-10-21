@@ -135,7 +135,14 @@ h.ok(read("server.ts").includes("canonicalAudioMimeType"), "/api/upload-audio us
 /* ------------- every upload surface routes through the module ------------- */
 
 const surfaces: Record<string, string[]> = {
-  "src/components/SetupStudio.tsx": ["VIDEO_UPLOAD_ACCEPT", "addCustomVideo"],
+  "src/components/SetupStudio.tsx": [
+    "VIDEO_UPLOAD_ACCEPT",
+    "AUDIO_UPLOAD_ACCEPT",
+    "IMAGE_UPLOAD_ACCEPT",
+    "addCustomVideo",
+    "addCustomMusic",
+    "addCustomImage",
+  ],
   "src/components/SceneEditor.tsx": ["IMAGE_UPLOAD_ACCEPT", "VIDEO_UPLOAD_ACCEPT", "addCustomImage"],
   "src/components/SceneClipPanel.tsx": ["VIDEO_UPLOAD_ACCEPT", "sceneUpdatesForVideoFile"],
   "src/components/VoiceMediaLibrary.tsx": ["AUDIO_UPLOAD_ACCEPT", "addCustomMusic"],

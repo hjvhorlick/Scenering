@@ -57,6 +57,8 @@ interface VoiceoverStudioProps {
   /** Narration on/off for the whole project. Off hides everything to do with
    *  the spoken track and leaves music, captions and the Studio untouched. */
   voiceoverEnabled?: boolean;
+  /** Uploaded video/music is the soundtrack and cannot have narration layered over it. */
+  voiceoverLockedOff?: boolean;
   onUpdateVoiceoverEnabled?: (enabled: boolean) => void;
 }
 
@@ -88,6 +90,7 @@ export default function VoiceoverStudio({
   onInsertItem,
   onConfigureItem,
   voiceoverEnabled = true,
+  voiceoverLockedOff = false,
   onUpdateVoiceoverEnabled,
 }: VoiceoverStudioProps) {
   const { account } = useSession();
@@ -615,6 +618,8 @@ export default function VoiceoverStudio({
           enabled={voiceoverEnabled}
           onChange={onUpdateVoiceoverEnabled}
           sceneCount={scenes.length}
+          lockedOff={voiceoverLockedOff}
+          lockedReason="This project's uploaded video or song is its soundtrack. Captions and visual effects stay available, but narration is not layered over it."
         />
       )}
 
@@ -624,9 +629,9 @@ export default function VoiceoverStudio({
             <Icon glyph="🔉" /> This video has no narration
           </span>
           Nothing is spoken in the preview or the exported file, and each scene runs for as long as
-          its own footage or script says — not for as long as a voice would have taken. Background
-          music, captions and everything in the Video Studio still work normally. Turn the switch
-          back on to pick a narrator.
+          its own footage or script says — not for as long as a voice would have taken. {voiceoverLockedOff
+            ? "Captions and everything visual in the Video Studio still work normally. Source media keeps narration off so its soundtrack is never covered by a generated voice."
+            : "Background music, captions and everything in the Video Studio still work normally. Turn the switch back on to pick a narrator."}
         </div>
       )}
 
@@ -756,13 +761,19 @@ export default function VoiceoverStudio({
           Voiceover step could silently change what the Captions step was
           showing, and neither screen was obviously the one in charge. */}
 
-      <BackgroundMusicLibrary
-        inserts={inserts}
-        totalDuration={totalDuration}
-        customerLogo={customerLogo}
-        onInsertItem={onInsertItem}
-        onConfigureItem={onConfigureItem}
-      />
+      {voiceoverLockedOff ? (
+        <div className="rounded-2xl border border-indigo-800/50 bg-indigo-950/20 p-4 text-xs text-indigo-200">
+          This project's soundtrack is its source media. Replace that source in Setup; a separate background-music layer is not added over it.
+        </div>
+      ) : (
+        <BackgroundMusicLibrary
+          inserts={inserts}
+          totalDuration={totalDuration}
+          customerLogo={customerLogo}
+          onInsertItem={onInsertItem}
+          onConfigureItem={onConfigureItem}
+        />
+      )}
 
       {voiceoverEnabled && (
         <>

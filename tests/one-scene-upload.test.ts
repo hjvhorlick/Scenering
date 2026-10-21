@@ -17,7 +17,18 @@ import {
 import { clipAudioPlanFor } from "../src/lib/clip-audio";
 import { stretchFullVideoMedia } from "../src/lib/render-visualizers";
 import type { TimelineInsert } from "../src/types";
-import { chunksToWordTimings, wordsToText, STT_ENGINE_URL, STT_MODEL_CANDIDATES } from "../src/lib/speech-to-text";
+import {
+  chunksToWordTimings,
+  runWithTranscriptionTimeout,
+  TranscriptionError,
+  TranscriptionTimeoutError,
+  wordsToText,
+  STT_ENGINE_URL,
+  STT_ENGINE_TIMEOUT_MS,
+  STT_INFERENCE_MIN_TIMEOUT_MS,
+  STT_MODEL_CANDIDATES,
+  STT_MODEL_TIMEOUT_MS,
+} from "../src/lib/speech-to-text";
 import {
   narratableText,
   projectHasNarration,
@@ -271,10 +282,14 @@ const footageScene = {
 
   // The project's duration follows the footage from the moment it exists.
   h.ok(
-    /const projectDuration = footageDuration > 0 \? footageDuration : chosenDuration;/.test(app) &&
+    /const projectDuration = footageDuration > 0\s*\? footageDuration\s*:\s*audioDuration > 0\s*\? audioDuration\s*:\s*chosenDuration;/.test(app) &&
       app.includes("default_duration: projectDuration") &&
       app.includes("scene_duration: projectDuration"),
-    "a project built from footage is created at the footage's length, not the target that was showing"
+    "a project built from footage is still created at the footage's length, not the target that was showing"
+  );
+  h.ok(
+    /: audioDuration > 0\s*\? audioDuration\s*: chosenDuration;/.test(app),
+    "and the new audio source uses its own length only when there is no footage"
   );
   h.ok(
     /const footage = oneScene \? sceneClipSeconds\(scenes\[0\]\) : 0;/.test(app) &&
@@ -546,9 +561,10 @@ const footageScene = {
     "the 10/20/30 cards are not rendered in one-scene mode"
   );
   h.ok(
-    setup.includes("const durToApply = oneScene") &&
-      setup.includes("singleSceneDuration(scriptText, footageSeconds || undefined)"),
-    "and starting a one-scene project uses the footage's length, never the 20s target"
+    setup.includes('const sourceSeconds = singleSource === "upload"') &&
+      setup.includes("? footageSeconds") &&
+      setup.includes("singleSceneDuration(scriptText, sourceSeconds || undefined)"),
+    "and starting a footage one-scene project still uses the footage's length, never the 20s target"
   );
   h.ok(
     !/const durToApply = selectedDuration \|\| 20;/.test(setup),
@@ -708,6 +724,80 @@ const footageScene = {
     server.includes("'wasm-unsafe-eval'") && !/script-src[^;]*'unsafe-eval'/.test(server),
     "and permits WASM compilation without permitting arbitrary eval"
   );
+
+  // These are the canonical timestamped ids used in upstream examples/tests;
+  // the old base_en spellings did not match that published model family.
+  h.eq(
+    STT_MODEL_CANDIDATES.join("|"),
+    [
+      "onnx-community/whisper-base.en_timestamped",
+      "onnx-community/whisper-tiny.en_timestamped",
+      "onnx-community/whisper-base_timestamped",
+    ].join("|"),
+    "every fallback uses a published timestamped Whisper model id"
+  );
+  h.ok(
+    STT_ENGINE_TIMEOUT_MS > 0 && STT_MODEL_TIMEOUT_MS > 0 && STT_INFERENCE_MIN_TIMEOUT_MS > 0,
+    "engine, model download and inference all have finite timeout budgets"
+  );
+  h.ok(
+    (stt.match(/await runWithTranscriptionTimeout\(/g) || []).length >= 3 &&
+      stt.includes("(signal, keepAlive) => engine.pipeline") &&
+      stt.includes("(signal) => transcriber(sourceUrl"),
+    "timeouts and abort signals wrap both model construction and inference"
+  );
+  h.ok(
+    stt.includes("The transcription engine failed to load") &&
+      stt.includes("The Whisper transcription models failed to load") &&
+      stt.includes("Whisper loaded, but transcription failed or timed out while listening"),
+    "engine-load, model-load and inference failures have distinct user-facing messages"
+  );
+  const transcriptionHook = read("src/lib/use-clip-transcription.ts");
+  h.ok(
+    (transcriptionHook.match(/abortRef\.current\?\.abort\(\)/g) || []).length >= 3 &&
+      transcriptionHook.includes("runRef.current += 1") &&
+      transcriptionHook.includes("signal: abortController.signal"),
+    "cancel, reset and a superseding run abort in-flight work instead of waiting for its timeout"
+  );
+
+  let timeoutError: unknown = null;
+  let operationWasAborted = false;
+  try {
+    await runWithTranscriptionTimeout(
+      (signal) => new Promise<never>(() => {
+        signal.addEventListener("abort", () => { operationWasAborted = true; }, { once: true });
+      }),
+      5,
+      "Whisper test operation stalled."
+    );
+  } catch (error) {
+    timeoutError = error;
+  }
+  h.ok(timeoutError instanceof TranscriptionTimeoutError, "a stalled operation rejects instead of hanging forever");
+  h.eq((timeoutError as Error)?.message, "Whisper test operation stalled.", "the timeout reason is fit to show in the UI");
+  h.ok(operationWasAborted, "the timed-out operation receives an AbortSignal as well as a rejected race");
+
+  const parentAbort = new AbortController();
+  let cancelledOperationStarted = false;
+  let cancellationError: unknown = null;
+  const cancelledRun = runWithTranscriptionTimeout(
+    async () => {
+      cancelledOperationStarted = true;
+      return "too late";
+    },
+    1_000,
+    "unused timeout",
+    parentAbort.signal
+  );
+  parentAbort.abort();
+  try {
+    await cancelledRun;
+  } catch (error) {
+    cancellationError = error;
+  }
+  h.ok(cancellationError instanceof TranscriptionError, "caller cancellation rejects with the distinct cancellation error");
+  h.eq((cancellationError as Error)?.message, "Transcription cancelled.", "cancellation never masquerades as an engine timeout");
+  h.eq(cancelledOperationStarted, false, "an immediately superseded run never starts its expensive operation");
 }
 
 /* ------------------------------------------------------------------ *
@@ -868,10 +958,10 @@ const footageScene = {
      would resurrect that old voice over the song the captions came from, so a
      caption-only scene has to be skipped before the resolve, not after it. */
   h.ok(
-    /if \(\(s\.text \|\| ""\)\.trim\(\) && !spokenText\) continue;/.test(render),
+    /if \(s\.caption_source === "transcript"\) continue;/.test(render),
     "a caption-only scene is skipped before its saved narration is resolved"
   );
-  const gateAt = render.indexOf('if ((s.text || "").trim() && !spokenText) continue;');
+  const gateAt = render.indexOf('if (s.caption_source === "transcript") continue;');
   const resolveAt = render.indexOf("let resolved = await resolveSceneAudioBuffer(s, audioCtx);");
   h.ok(
     gateAt > 0 && resolveAt > gateAt,
@@ -913,6 +1003,44 @@ const footageScene = {
   h.ok(
     !/Boolean\(introSec\), voiceoverEnabled/.test(preview),
     "no preview call site still passes the bare voiceover switch as the lead-in"
+  );
+
+  /* The live preview has its own narration loader, separate from RenderView.
+     It must apply the same rule before resolving stale saved narration, or the
+     preview speaks captions even though the exported file is clean. */
+  h.ok(
+    preview.includes('import { narratableText, projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";'),
+    "the preview imports the shared captions-versus-narration rule"
+  );
+  const synthAt = preview.indexOf("const synthesizeScene = useCallback(");
+  const generateAt = preview.indexOf("const generateAllAudio = useCallback(");
+  const synthSource = preview.slice(synthAt, generateAt);
+  h.ok(
+    synthAt > 0 && /const text = narratableText\(scene\);/.test(synthSource),
+    "preview synthesis derives speech from narratableText rather than raw caption text"
+  );
+  const previewSkipAt = synthSource.indexOf('if (scene.caption_source === "transcript") return null;');
+  const previewResolveAt = synthSource.indexOf("const resolved = await resolveSceneAudioBuffer(scene, audioCtx);");
+  h.ok(
+    previewSkipAt > 0 && previewResolveAt > previewSkipAt,
+    "the preview skips caption-only scenes before stale saved narration can be resolved"
+  );
+  h.ok(
+    /const spokenText = narratableText\(s\);[\s\S]{0,260}if \(s\.caption_source === "transcript"\) return false;/.test(preview),
+    "the play-button missing-audio check is caption-aware too"
+  );
+
+  /* One failed provider request must not throw away voices that succeeded for
+     other scenes. The warning is rendered in the controls, not console-only. */
+  h.ok(
+    preview.includes("await Promise.allSettled(") && !synthSource.includes("Promise.allSettled"),
+    "preview narration settles each scene independently"
+  );
+  h.ok(
+    preview.includes("Narration failed for scene") &&
+      preview.includes("Preview continues without") &&
+      preview.includes('role="status" aria-live="polite"'),
+    "a missing scene voice is surfaced to the creator while the preview continues"
   );
 }
 
