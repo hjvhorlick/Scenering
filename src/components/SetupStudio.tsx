@@ -258,8 +258,6 @@ export default function SetupStudio({
    * panel has always used, so the two never disagree.
    */
   const [keepOriginalAudio, setKeepOriginalAudio] = useState(true);
-  /** Asked for captions transcribed from the footage's own audio. */
-  const [wantCaptions, setWantCaptions] = useState(false);
   const transcription = useClipTranscription();
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -333,6 +331,17 @@ export default function SetupStudio({
     const init = initialFor(project, scenes);
     setTitle(init.title);
     setScript(init.script);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
+
+  /* The sound switch has to open showing what the project already says. It
+     used to start at "keep" whatever the scene held, so a project whose footage
+     was muted in the clip panel came back to Setup claiming the sound was on.
+     Keyed on the project id, not on the scene, so a choice made here is never
+     overwritten by a later render. */
+  useEffect(() => {
+    const clipScene = scenes.find((sc) => sc.video_url);
+    if (clipScene) setKeepOriginalAudio(!clipScene.video_mute);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
@@ -600,7 +609,6 @@ export default function SetupStudio({
       return;
     }
     setUploadError(null);
-    setWantCaptions(true);
     const done = await transcription.generate(playable, footageSeconds);
     if (!done) return;
     setTranscript(done);

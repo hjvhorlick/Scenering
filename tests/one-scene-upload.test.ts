@@ -381,6 +381,28 @@ const footageScene = {
       app.includes("void handleUpdateScene(target.id, { video_mute: !keepOriginalAudio });"),
     "changing it later writes the same field, so Setup and the scene editor cannot disagree"
   );
+
+  /* The switch has to OPEN showing what the project already says. It used to
+     start at "keep" whatever the scene held, so footage muted in the clip panel
+     came back to Setup claiming its sound was on. */
+  h.ok(
+    /useEffect\(\(\) => \{\s*const clipScene = scenes\.find\(\(sc\) => sc\.video_url\);\s*if \(clipScene\) setKeepOriginalAudio\(!clipScene\.video_mute\);/.test(
+      setup
+    ),
+    "the sound switch opens on the scene's own mute field, not on a default"
+  );
+  h.ok(
+    !/wantCaptions/.test(setup),
+    "and the caption request is not tracked in state nothing ever reads"
+  );
+
+  /* Cancelling a transcription is the creator's decision, not a failure. The
+     engine reports it by throwing, so it must be told apart here. */
+  const hook = read("src/lib/use-clip-transcription.ts");
+  h.ok(
+    /if \(cancelledRef\.current\) \{\s*setError\(null\);/.test(hook),
+    "pressing Cancel clears the error instead of reporting the cancellation as one"
+  );
 }
 
 /* ------------------------------------------------------------------ *

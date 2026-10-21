@@ -75,6 +75,14 @@ export function useClipTranscription(): ClipTranscriptionState {
         return done;
       } catch (err) {
         if (runRef.current !== run) return null;
+        /* Cancelling is the creator's decision, not a failure. The engine
+           reports it by throwing, so it has to be told apart here or the word
+           "cancelled" is shown in the red error box meant for real problems. */
+        if (cancelledRef.current) {
+          setError(null);
+          setProgress(null);
+          return null;
+        }
         const message =
           err instanceof TranscriptionError
             ? err.message
