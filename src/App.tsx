@@ -58,6 +58,7 @@ import {
   calculateDynamicDuration,
   calibrateTextToTargetDuration,
   fitSceneDurationForScene,
+  narrationLeadIn,
   sceneClipSeconds,
   sceneDurationForScene,
   sceneDurationForText,
@@ -1787,8 +1788,16 @@ export default function App() {
     const intro = introSection?.enabled ? Math.max(0.5, introSection.duration) : 0;
     const outro = outroSection?.enabled ? Math.max(0.5, outroSection.duration) : 0;
     const script = scenes.reduce((sum, sc) => sum + Math.max(1, sc.duration || 0), 0);
-    return Math.max(1, Math.round((intro + script + outro) * 10) / 10);
-  }, [scenes, introSection, outroSection]);
+    /* The render holds the first frame for the narration lead-in before the
+       first words, so the exported file really is this much longer. Leaving it
+       out here made the timeline read two seconds short, and because
+       whole-video media is stretched to THIS number it also made a full-video
+       visualiser disappear two seconds before the end of its own video —
+       `renderTimelineInsert` stops drawing once time passes startTime +
+       duration. Same rule, same arguments as RenderView, so the two agree. */
+    const leadIn = narrationLeadIn(intro > 0, voiceoverEnabled);
+    return Math.max(1, Math.round((intro + leadIn + script + outro) * 10) / 10);
+  }, [scenes, introSection, outroSection, voiceoverEnabled]);
 
   // Visualisers and music added for the entire video stay pinned to its full
   // length, even after scenes are re-timed or the voiceover changes.

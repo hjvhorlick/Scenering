@@ -31,6 +31,19 @@
   fixed the audio plan, which ran every music bed to the end of the video
   regardless of its own length — a play-once track was scheduled for the whole
   timeline and only stopped because the buffer ran out.
+- **Fixed: whole-video overlays vanished two seconds before the end.** The
+  renderer holds the first frame for the narration lead-in before the first
+  words, so the exported file is two seconds longer than the sum of the scene
+  durations. `App.estimatedTotalDuration` omitted that hold. It was more than a
+  short readout: whole-video media is stretched to that same number, and
+  `renderTimelineInsert` stops drawing once time passes
+  `startTime + duration` — so a full-video visualiser disappeared two seconds
+  before the end of its own video, and the timeline disagreed with the file.
+  The timeline now adds the same lead-in, with the same rule and the same
+  arguments the renderer uses, so the two agree with and without an intro or
+  outro. Music beds were unaffected: `buildInsertAudioPlan` pins an
+  `entire_video` bed to the renderer's own total, not to the insert's stored
+  length.
 - **Fixed: saving the script stored the wrong project length.** Rebuilding the
   scenes from the script also writes the project row's `default_duration`, and
   it wrote the 10/20/30 target unconditionally. In a one-scene project whose

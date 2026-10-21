@@ -15,6 +15,8 @@ import {
   singleSceneDuration,
 } from "../src/lib/duration-utils";
 import { clipAudioPlanFor } from "../src/lib/clip-audio";
+import { stretchFullVideoMedia } from "../src/lib/render-visualizers";
+import type { TimelineInsert } from "../src/types";
 import { chunksToWordTimings, wordsToText, STT_ENGINE_URL, STT_MODEL_CANDIDATES } from "../src/lib/speech-to-text";
 import {
   sceneCaptionWords,
@@ -703,6 +705,84 @@ const footageScene = {
   h.ok(
     server.includes("'wasm-unsafe-eval'") && !/script-src[^;]*'unsafe-eval'/.test(server),
     "and permits WASM compilation without permitting arbitrary eval"
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 8. the timeline and the exported file are the same length
+ *
+ * The render holds the first frame for the narration lead-in before the
+ * first words, so the file really is two seconds longer than the sum of
+ * the scene durations. App's `estimatedTotalDuration` used to omit that
+ * hold, which was not just a wrong readout: whole-video media is
+ * stretched to that same number, and `renderTimelineInsert` stops drawing
+ * once time passes `startTime + duration` — so a full-video visualiser
+ * vanished two seconds before the end of its own video.
+ * ------------------------------------------------------------------ */
+{
+  // App's formula, read back from the source so this cannot drift from it.
+  h.ok(
+    /const leadIn = narrationLeadIn\(intro > 0, voiceoverEnabled\);/.test(app) &&
+      /Math\.round\(\(intro \+ leadIn \+ script \+ outro\) \* 10\) \/ 10/.test(app),
+    "the timeline total includes the narration lead-in the render actually adds"
+  );
+  h.ok(
+    /\}, \[scenes, introSection, outroSection, voiceoverEnabled\]\);/.test(app),
+    "and it is recomputed when the narration switch changes"
+  );
+
+  /* Both sides, computed the way each side computes it. The render adds the
+     hold to the FIRST scene's window; the timeline adds it once. */
+  const timeline = (sceneDur: number, introSec: number, outroSec: number, voiceover: boolean) => {
+    const intro = introSec > 0 ? Math.max(0.5, introSec) : 0;
+    const outro = outroSec > 0 ? Math.max(0.5, outroSec) : 0;
+    const leadIn = narrationLeadIn(intro > 0, voiceover);
+    return Math.max(1, Math.round((intro + leadIn + Math.max(1, sceneDur) + outro) * 10) / 10);
+  };
+  const exported = (sceneDur: number, introSec: number, outroSec: number, voiceover: boolean) => {
+    const intro = introSec > 0 ? Math.max(0.5, introSec) : 0;
+    const outro = outroSec > 0 ? Math.max(0.5, outroSec) : 0;
+    return Math.max(1, intro + sceneDur + narrationLeadIn(intro > 0, voiceover) + outro);
+  };
+
+  const cases: [string, number, number, number, boolean][] = [
+    ["a one-scene upload, no narration", 187.4, 0, 0, false],
+    ["a one-scene upload, narration on", 187.4, 0, 0, true],
+    ["a script project, narration on", 60, 0, 0, true],
+    ["with an intro", 60, 4, 0, true],
+    ["with an intro and an outro", 60, 4, 3, true],
+    ["intro and outro, no narration", 60, 4, 3, false],
+  ];
+  for (const [label, sceneDur, introSec, outroSec, voiceover] of cases) {
+    h.near(
+      timeline(sceneDur, introSec, outroSec, voiceover),
+      exported(sceneDur, introSec, outroSec, voiceover),
+      0.05,
+      `timeline and export agree: ${label}`
+    );
+  }
+
+  // The visible symptom: a full-video visualiser stretched to the timeline
+  // total must still be on screen in the last two seconds of the file.
+  const visualiser = {
+    id: "v1",
+    category: "audio_visualizers",
+    type: "bars",
+    title: "Bars",
+    startTime: 0,
+    duration: 10,
+    position: { x: 0.5, y: 0.5 },
+    size: 1,
+    visualOptions: { spanFullVideo: true },
+  } as TimelineInsert;
+  const total = timeline(187.4, 0, 0, true);
+  const stretched = stretchFullVideoMedia([visualiser], total)[0];
+  h.near(stretched.duration, 189.4, 0.05, "a full-video visualiser is stretched to the real length");
+  // The exact visibility test renderTimelineInsert applies.
+  const t = 188.5;
+  h.ok(
+    !(t < stretched.startTime || t > stretched.startTime + stretched.duration),
+    `and it is still drawn at ${t}s, inside the last two seconds of the export`
   );
 }
 
