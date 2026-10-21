@@ -269,6 +269,19 @@ ok(
   ok(headerStart >= 0 && topRowEnd > headerStart && phaseRowStart > topRowEnd, "the phase rail follows the logo and utility-control row");
   ok(/t-tabbar[^\"]*w-full[^\"]*overflow-x-auto/.test(app), "the second-row phase rail scrolls inside its reserved width");
   ok(app.includes("pr-[var(--sc-corner-reserve)]"), "neither header row can put controls behind the fixed menu button");
+  // …and the reserved slot survives the cascade. An arbitrary `pr-[…]` value
+  // compiles into the base utilities, so a breakpointed `sm:px-*` shorthand
+  // lands AFTER it in the sheet and silently resets padding-right at that
+  // width — which is how the theme picker ended up hidden under the fixed
+  // corner button on every screen 640px and wider while the reserved slot was
+  // still present in the markup. A base `px-*` is fine (it compiles before the
+  // reserve); a `sm:`/`md:`/… shorthand on the same element is not.
+  const headerTag = app.slice(headerStart, app.indexOf(">", headerStart));
+  ok(/pr-\[var\(--sc-corner-reserve\)\]/.test(headerTag), "the header itself carries the reserved right padding");
+  ok(
+    !/(?:^|[\s"])(?:sm|md|lg|xl|2xl):px-/.test(headerTag),
+    "no breakpointed px-* shorthand can re-set the header's reserved right padding"
+  );
   ok(/hidden 2xl:flex shrink-0/.test(app), "the optional social strip remains only on ultrawide top rows");
   ok(/document\.title = name \? `\$\{name\} \| Scenering` : "Studio \| Scenering"/.test(app), "the open project remains identifiable in the browser tab");
 }

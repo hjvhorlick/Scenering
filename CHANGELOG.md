@@ -9,6 +9,16 @@
   the browser tab title. The optional social strip and scene-count badge are
   reserved for ultrawide screens so they cannot force the working tabs onto a
   new header row. This returns the saved header height to the editing area.
+- **The theme picker is clear of the fixed corner menu button.** The studio
+  header's `pr-[var(--sc-corner-reserve)]` is an arbitrary value, so it
+  compiled into the base utilities — and the `sm:px-4` shorthand that follows
+  it in the sheet (same specificity, later rule) reset `padding-right` to 16px
+  on every screen 640px and wider. The reserved 152px slot never applied on a
+  desktop, so the picker sat 40px from the window edge, underneath the ~140px
+  menu button, with only its left end sticking out. The header now sets
+  `px-2 sm:pl-4` and lets the reserve own the right padding at every width, and
+  the picker keeps a further 48px margin (`mr-12`) between itself and the
+  button.
 
 ## Unreleased — FastSpring merchant-of-record billing
 
