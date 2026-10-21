@@ -8,7 +8,7 @@
  */
 import type { TimelineInsert } from "../types";
 import { sectionSoundUrl, type SectionConfig } from "../data/intro-outro";
-import { resolveAudioUrl } from "./custom-music";
+import { getCustomMusicTrack, resolveAudioUrl } from "./custom-music";
 
 export interface InsertAudioPlan {
   key: string;
@@ -23,6 +23,37 @@ export interface InsertAudioPlan {
  * Computes when every insert's sound should play on the absolute video
  * timeline (intro + script scenes + outro).
  */
+/**
+ * The project's background music bed, resolved to an address this browser can
+ * actually read.
+ *
+ * A music video built from stills has no footage soundtrack to listen to, so
+ * the music track is the only place its words and their timings can come from.
+ * The rule for WHICH track that is matches `buildInsertAudioPlan` exactly — the
+ * last music selection wins — so the captions are always transcribed from the
+ * same audio the finished video plays.
+ */
+export function projectMusicBed(
+  inserts: TimelineInsert[] | undefined
+): { url: string; seconds: number; name: string } | null {
+  if (!inserts || inserts.length === 0) return null;
+  let lastMusicIndex = -1;
+  for (let i = 0; i < inserts.length; i++) {
+    if (inserts[i].category === "background_music") lastMusicIndex = i;
+  }
+  if (lastMusicIndex < 0) return null;
+  const ins = inserts[lastMusicIndex];
+  const as = ins.audioSettings;
+  if (!as || !as.soundUrl || as.muted) return null;
+  const url = resolveAudioUrl(as.soundUrl);
+  if (!url) return null;
+  /* The stored track knows its own length; the insert's `duration` is how much
+     of the video it covers, which is a different number for a looping bed. */
+  const track = getCustomMusicTrack(as.soundUrl);
+  const seconds = track?.duration || Math.max(0, ins.duration || 0);
+  return { url, seconds, name: track?.name || "the music track" };
+}
+
 export function buildInsertAudioPlan(
   inserts: TimelineInsert[] | undefined,
   totalDuration: number
@@ -79,10 +110,16 @@ export function buildInsertAudioPlan(
       endTime = Math.min(totalDuration, ins.startTime + Math.max(0.5, ins.duration));
     } else {
       startTime = Math.max(0, ins.startTime);
-      // Music keeps going to the end of the video; everything else is bounded
-      endTime = isMusic
-        ? totalDuration
-        : Math.min(totalDuration, ins.startTime + Math.max(0.5, ins.duration));
+      /* Looping music keeps going to the end of the video. A bed the creator
+         set to its own length stops when the file stops — that is the whole
+         meaning of the choice, and scheduling it to the end of the video would
+         quietly undo it. Everything else is bounded by its own duration.
+         Legacy beds with no explicit `loop` resolve to looping above, so this
+         only ever changes a track that was deliberately set to play once. */
+      endTime =
+        isMusic && loop
+          ? totalDuration
+          : Math.min(totalDuration, ins.startTime + Math.max(0.5, ins.duration));
     }
 
     // Delay shifts the whole sound window

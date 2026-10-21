@@ -256,8 +256,8 @@ const LONG_SCRIPT = Array.from(
     "the renderer skips the whole narration pass when it is off"
   );
   ok(
-    /const speechDur = !voiceoverEnabled/.test(render),
-    "with no voice, the caption clock follows the scene rather than an imagined speech length"
+    /!voiceoverEnabled \|\| !narratableText\(s\)/.test(render),
+    "with nothing spoken, the caption clock follows the scene rather than an imagined speech length"
   );
   ok(
     /if \(voiceoverEnabled\) \{\s+const savedSnapshot = readAudioSnapshot\(\);\s+const targets = planVoiceoverGeneration/.test(studio),
@@ -300,8 +300,12 @@ const LONG_SCRIPT = Array.from(
     "uploading footage switches narration off, because that footage has its own sound"
   );
   ok(
-    /video_mute: false/.test(read("src/App.tsx")),
-    "an uploaded clip keeps its own soundtrack — the whole point of a music video"
+    /video_mute: clip\.mute \?\? false/.test(read("src/App.tsx")),
+    "an uploaded clip keeps its own soundtrack by default — the whole point of a music video"
+  );
+  ok(
+    /const keepOriginalAudio|\[keepOriginalAudio, setKeepOriginalAudio\]/.test(read("src/components/SetupStudio.tsx")),
+    "and the only way it is silenced is the creator choosing to remove it"
   );
 }
 

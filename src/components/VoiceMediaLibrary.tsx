@@ -18,7 +18,9 @@ import {
   formatTrackLength,
   getCustomMusicTracks,
   loadCustomMusic,
+  playOnceConsequence,
   removeCustomMusic,
+  setCustomMusicLoop,
   subscribeToCustomMusic,
   type CustomMusicTrack,
 } from "../lib/custom-music";
@@ -68,36 +70,38 @@ function LibraryToggle({
   );
 }
 
-function makeFullVideoInsert(
-  item: CatalogItem,
-  actions: LibraryActions,
-  volume?: number
-): TimelineInsert {
-  return createCatalogInsert(item, {
-    totalDuration: actions.totalDuration,
-    customerLogo: actions.customerLogo,
-    volume,
-    forceFullVideo: true,
-  });
+/**
+ * How an uploaded track is used: repeat it to fill the video, or play it once
+ * at its own length. Not answered yet (`undefined`) means loop, which is what
+ * an upload always did before the question existed.
+ */
+export function trackLoops(track: CustomMusicTrack): boolean {
+  return track.loop !== false;
 }
 
 /** One uploaded file, dressed as a catalogue card so it behaves like any other track. */
-function customTrackToItem(track: CustomMusicTrack): CatalogItem {
+export function customTrackToItem(track: CustomMusicTrack): CatalogItem {
+  const loop = trackLoops(track);
   return {
     type: `bgm_custom_${track.id}`,
     category: "background_music" as InsertCategory,
     subCategory: "my music",
     name: track.name,
     icon: "🎵",
-    description: `Your upload • ${formatTrackLength(track.duration)} • Saved in this browser`,
+    description: `Your upload • ${formatTrackLength(track.duration)} • ${
+      loop ? "Loops to fill the video" : "Plays once, its own length"
+    } • Saved in this browser`,
     defaultDuration: Math.max(1, Math.round(track.duration)),
     defaultPosition: "bottom" as const,
     defaultSize: 1.0,
+    /* A track that plays once must not be stretched across the whole video,
+       or its own length would mean nothing. Everything else still spans it. */
+    spansFullVideo: loop,
     defaultAudioSettings: {
       soundUrl: `${CUSTOM_MUSIC_PREFIX}${track.id}`,
       soundName: track.name,
       volume: 0.5,
-      loop: true,
+      loop,
     },
     defaultContent: {
       primaryText: track.name,
@@ -144,6 +148,8 @@ export function BackgroundMusicLibrary({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [justAdded, setJustAdded] = useState<string | null>(null);
+  /** The upload waiting for its "loop it, or use its length?" answer. */
+  const [awaitingLoopChoice, setAwaitingLoopChoice] = useState<CustomMusicTrack | null>(null);
   const [mood, setMood] = useState<string>("all");
   const [query, setQuery] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -215,7 +221,14 @@ export function BackgroundMusicLibrary({
   const toggleExpanded = () => setExpanded((current) => !current);
 
   const makeInsert = (item: CatalogItem) =>
-    makeFullVideoInsert(item, actions, itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? 0.5);
+    createCatalogInsert(item, {
+      totalDuration: actions.totalDuration,
+      customerLogo: actions.customerLogo,
+      volume: itemVolumes[item.type] ?? item.defaultAudioSettings?.volume ?? 0.5,
+      // An uploaded track the creator asked to play once keeps its own length;
+      // every other track still stretches across the whole video.
+      forceFullVideo: item.spansFullVideo !== false,
+    });
 
   const choose = (item: CatalogItem, configure = false) => {
     const isVip = !isPlanCatalogItemIncluded(currentPlan, item.category, item.type);
@@ -239,11 +252,13 @@ export function BackgroundMusicLibrary({
       // One bad file in a multi-select must not stop the rest: each track
       // is added (or refused, with its own reason) independently.
       let lastName = "";
+      let lastTrack: CustomMusicTrack | null = null;
       const failures: string[] = [];
       for (const file of Array.from(files)) {
         try {
           const track = await addCustomMusic(file);
           lastName = track.name;
+          lastTrack = track;
         } catch (err: any) {
           failures.push(
             err instanceof CustomMusicError ? err.message : err?.message || `"${file.name}" could not be added.`,
@@ -255,6 +270,10 @@ export function BackgroundMusicLibrary({
         setMood("my music");
         window.setTimeout(() => setJustAdded(null), 6000);
       }
+      /* The imported file's length is now known, and it is the moment to ask
+         what should happen with it: repeat it until the video ends, or let it
+         run once and be exactly as long as the file. */
+      if (lastTrack) setAwaitingLoopChoice(lastTrack);
       if (failures.length > 0) {
         setUploadError(
           failures.length === 1 ? failures[0] : `${failures[0]} (${failures.length - 1} more file${failures.length > 2 ? "s were" : " was"} also refused.)`,
@@ -264,6 +283,26 @@ export function BackgroundMusicLibrary({
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  /* What "use the file's length" costs, said out loud before it is chosen:
+     the video is never cut to fit a track, so a short track leaves the tail of
+     the video with no music and a long track is simply not all heard. */
+  const onceConsequence = awaitingLoopChoice
+    ? playOnceConsequence(awaitingLoopChoice.duration, totalDuration)
+    : "";
+
+  /** Stores the answer on the track, so a saved project comes back with it. */
+  const answerLoopChoice = (loop: boolean) => {
+    const track = awaitingLoopChoice;
+    setAwaitingLoopChoice(null);
+    if (!track) return;
+    void setCustomMusicLoop(track.id, loop);
+  };
+
+  /** Changes the answer on a track that is already in the library. */
+  const toggleTrackLoop = (track: CustomMusicTrack) => {
+    void setCustomMusicLoop(track.id, !trackLoops(track));
   };
 
   const handleRemoveCustom = async (track: CustomMusicTrack) => {
@@ -343,6 +382,48 @@ export function BackgroundMusicLibrary({
         </p>
       )}
 
+      {awaitingLoopChoice && (
+        <div
+          role="group"
+          aria-label="How should this track be used?"
+          className="mb-3 p-3.5 rounded-xl bg-indigo-950/40 border border-indigo-700/60"
+        >
+          <p className="text-xs text-gray-200 font-semibold">
+            <Icon glyph="ℹ" /> “{awaitingLoopChoice.name}” is{" "}
+            {formatTrackLength(awaitingLoopChoice.duration)} long. How should it be used?
+          </p>
+          <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => answerLoopChoice(true)}
+              className="p-2.5 rounded-lg border text-left bg-gray-800/80 border-hairline hover:bg-indigo-950 hover:border-indigo-500 transition-colors"
+            >
+              <span className="text-xs font-bold text-white">Loop it across the video</span>
+              <span className="block text-[10px] text-gray-400 mt-0.5">
+                Repeats until the video ends, whatever its length.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => answerLoopChoice(false)}
+              className="p-2.5 rounded-lg border text-left bg-gray-800/80 border-hairline hover:bg-indigo-950 hover:border-indigo-500 transition-colors"
+            >
+              <span className="text-xs font-bold text-white">
+                Use the file's length — {formatTrackLength(awaitingLoopChoice.duration)}
+              </span>
+              <span className="block text-[10px] text-gray-400 mt-0.5">
+                Plays once, exactly as long as the music file.
+              </span>
+              {onceConsequence && (
+                <span className="block text-[10px] text-amber-300/90 mt-1 leading-relaxed">
+                  {onceConsequence}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Thirty tracks is too many to scan, so the library filters by feel. */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="opt-group flex flex-wrap gap-1.5">
@@ -406,9 +487,26 @@ export function BackgroundMusicLibrary({
                 <span className="text-[10px] text-indigo-300 font-semibold tracking-wide uppercase">
                   {(item.subCategory || "instrumental").replace("_", " ")}
                 </span>
-                <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/60 border border-emerald-800/60 px-1.5 py-0.5 rounded">
-                  Full video
-                </span>
+                {custom ? (
+                  /* The imported file's length is a real choice, so the card
+                     shows which one was made and lets it be changed. */
+                  <button
+                    type="button"
+                    onClick={() => toggleTrackLoop(custom)}
+                    title={
+                      trackLoops(custom)
+                        ? "Loops until the video ends — click to play it once at its own length"
+                        : `Plays once for ${formatTrackLength(custom.duration)} — click to loop it`
+                    }
+                    className="text-[10px] font-mono text-emerald-300 bg-emerald-950/60 border border-emerald-800/60 px-1.5 py-0.5 rounded hover:bg-emerald-900/70 transition-colors"
+                  >
+                    {trackLoops(custom) ? "Loops" : formatTrackLength(custom.duration)}
+                  </button>
+                ) : (
+                  <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/60 border border-emerald-800/60 px-1.5 py-0.5 rounded">
+                    Full video
+                  </span>
+                )}
               </div>
               <div className="flex items-center justify-between gap-2">
                 <h4 className="text-sm font-semibold text-white group-hover:text-indigo-200 transition-colors">

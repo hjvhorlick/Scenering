@@ -4,6 +4,12 @@ import { fileURLToPath } from "node:url";
 import { createHarness } from "./harness";
 import { BACKGROUND_MUSIC_TRACKS } from "../src/data/media-library";
 import { CATALOG_ITEMS } from "../src/lib/video-studio-catalog";
+import { createCatalogInsert } from "../src/lib/catalog-insert";
+import { buildInsertAudioPlan, projectMusicBed } from "../src/lib/insert-audio";
+import { customTrackToItem, trackLoops } from "../src/components/VoiceMediaLibrary";
+import { playOnceConsequence } from "../src/lib/custom-music";
+import type { CustomMusicTrack } from "../src/lib/custom-music";
+import type { TimelineInsert } from "../src/types";
 
 /**
  * The background music library.
@@ -148,6 +154,212 @@ for (const item of CATALOG_ITEMS.background_music) {
   h.ok(
     library.includes("loadCustomMusic"),
     "previously uploaded tracks are read back when the step opens"
+  );
+}
+
+// ---- an imported file asks: loop it, or use its own length? ------------------
+/* The whole point of the question is that the creator decides, so both answers
+   have to survive all the way into the render plan. These are the real
+   functions the library uses, not a copy of their logic. */
+{
+  const track: CustomMusicTrack = {
+    id: "cm_probe",
+    name: "My track",
+    mime: "audio/mpeg",
+    size: 1024,
+    duration: 187.4,
+    addedAt: 1,
+  };
+
+  // Not answered yet (an upload from before the question existed) behaves
+  // exactly as it always did: it loops.
+  h.eq(trackLoops(track), true, "an upload nobody has answered yet still loops, as it always did");
+  h.eq(trackLoops({ ...track, loop: true }), true, "and answering 'loop' loops");
+  h.eq(trackLoops({ ...track, loop: false }), false, "while answering 'use its length' does not");
+
+  const looping = customTrackToItem({ ...track, loop: true });
+  h.eq(looping.spansFullVideo, true, "a looping upload still stretches across the whole video");
+  h.eq(looping.defaultAudioSettings?.loop, true, "and repeats");
+
+  const once = customTrackToItem({ ...track, loop: false });
+  h.eq(once.spansFullVideo, false, "an upload set to its own length is not stretched across the video");
+  h.eq(once.defaultAudioSettings?.loop, false, "and does not repeat");
+  h.eq(once.defaultDuration, 187, "its card carries the file's own length");
+
+  // The insert the timeline actually receives. `totalDuration` is deliberately
+  // much longer than the file: if the answer were ignored, the bed would be
+  // stretched to 600s and looped, which is the other answer.
+  const loopingInsert = createCatalogInsert(looping, { totalDuration: 600, forceFullVideo: true });
+  const onceInsert = createCatalogInsert(once, {
+    totalDuration: 600,
+    forceFullVideo: once.spansFullVideo !== false,
+  });
+
+  h.eq(loopingInsert.duration, 600, "looping: the bed covers the whole video");
+  h.eq(loopingInsert.audioSettings?.loop, true, "looping: and repeats to get there");
+  h.eq(onceInsert.duration, 187, "its own length: the bed is exactly as long as the file");
+  h.eq(onceInsert.audioSettings?.loop, false, "its own length: and plays once");
+  h.eq(onceInsert.scope, undefined, "its own length: it is not pinned as an entire-video element");
+
+  // And the audio plan the renderer plays honours both.
+  const loopingPlan = buildInsertAudioPlan([loopingInsert], 600);
+  const oncePlan = buildInsertAudioPlan([onceInsert], 600);
+  h.eq(loopingPlan.length, 1, "a looping bed reaches the audio plan");
+  h.eq(loopingPlan[0].loop, true, "looping: the plan repeats the track");
+  h.eq(oncePlan.length, 1, "a play-once bed reaches the audio plan");
+  h.eq(oncePlan[0].loop, false, "its own length: the plan plays it once");
+  h.near(oncePlan[0].endTime, 187, 0.6, "its own length: and stops when the file ends");
+
+  // The choice is stored on the track, so a saved project comes back with it.
+  const read = (rel: string) => readFileSync(join(repoRoot, rel), "utf8");
+  const store = read("src/lib/custom-music.ts");
+  h.ok(
+    store.includes("export async function setCustomMusicLoop"),
+    "the answer is written back to the stored upload, not held in one component"
+  );
+  h.ok(
+    store.includes("store.put({ ...existing, loop })"),
+    "and it is persisted in IndexedDB, so it survives a reload"
+  );
+
+  // The question is actually asked, at the moment the file is imported.
+  const library = read("src/components/VoiceMediaLibrary.tsx");
+  h.ok(
+    library.includes("if (lastTrack) setAwaitingLoopChoice(lastTrack)"),
+    "importing a file asks the question"
+  );
+  h.ok(
+    library.includes("Loop it across the video") && library.includes("Use the file's length"),
+    "and offers both answers: loop it, or use the length of the music file"
+  );
+  h.ok(
+    library.includes("forceFullVideo: item.spansFullVideo !== false"),
+    "the insert is built from that answer rather than always spanning the video"
+  );
+
+  // ------------------------------------------------------------------
+  // 6. "Use the file's length" states its cost before it is chosen
+  // ------------------------------------------------------------------
+  /* The video is never cut to fit a track, so this answer can leave the tail of
+     the video with no music at all. That is a legitimate choice, but a creator
+     who only finds out in the finished file has lost the render. The
+     consequence is therefore computed and shown on the button itself. */
+  h.ok(
+    library.includes("playOnceConsequence(awaitingLoopChoice.duration, totalDuration)"),
+    "the question compares the track against the real video length"
+  );
+  h.ok(
+    library.includes("{onceConsequence && ("),
+    "and shows the answer's consequence under the button that carries it"
+  );
+
+  // A 3m07s video with a 1m30s track: 97.4s of the video would have no music.
+  h.eq(
+    playOnceConsequence(90, 187.4),
+    "Your video is 3:07, so the last 1:37 would play with no music.",
+    "a track shorter than the video names the silence it leaves behind"
+  );
+  // A 5m00s track over the same video: 112.6s of it is never heard.
+  h.eq(
+    playOnceConsequence(300, 187.4),
+    "Your video is 3:07, so the last 1:53 of the track would not be heard.",
+    "a track longer than the video names the part that will not play"
+  );
+  h.eq(
+    playOnceConsequence(187.4, 187.4),
+    "It matches your video's length almost exactly.",
+    "an exact match says so rather than warning about nothing"
+  );
+  // Under a second apart is not worth interrupting for.
+  h.eq(
+    playOnceConsequence(186.9, 187.4),
+    "It matches your video's length almost exactly.",
+    "a difference under a second is reported as a match, not as silence"
+  );
+  // No video yet (a script-only project): nothing to compare against.
+  h.eq(playOnceConsequence(90, 0), "", "with no video length there is no warning");
+  h.eq(playOnceConsequence(0, 187.4), "", "with no track length there is no warning");
+}
+
+// ------------------------------------------------------------------
+// 7. Which track the Captions step listens to
+// ------------------------------------------------------------------
+{
+  /* A music video built from stills has no footage soundtrack, so the music
+     track is the only place its captions can come from. `projectMusicBed` has
+     to pick the same track the renderer plays, or the words would be
+     transcribed from audio the finished video never uses. */
+  const bed = (soundUrl: string, duration: number, extra = {}): TimelineInsert =>
+    ({
+      id: `ins_${soundUrl}`,
+      category: "background_music",
+      type: "bgm_x",
+      title: "Track",
+      startTime: 0,
+      duration,
+      position: { x: 0.5, y: 0.5 },
+      size: 1,
+      audioSettings: { soundUrl, volume: 0.5, ...extra },
+    }) as unknown as TimelineInsert;
+
+  const visual = {
+    id: "ins_visual",
+    category: "visual_effect",
+    type: "fx_x",
+    title: "FX",
+    startTime: 0,
+    duration: 10,
+    position: { x: 0.5, y: 0.5 },
+    size: 1,
+  } as unknown as TimelineInsert;
+
+  h.eq(projectMusicBed(undefined), null, "no inserts means no track to listen to");
+  h.eq(projectMusicBed([]), null, "an empty timeline has no track either");
+  h.eq(projectMusicBed([visual]), null, "an effects-only timeline has no soundtrack to read");
+
+  const one = projectMusicBed([bed("https://cdn/x.mp3", 187)]);
+  h.ok(one !== null, "a music bed is found");
+  h.eq(one!.url, "https://cdn/x.mp3", "and it resolves to the file the renderer plays");
+  h.near(one!.seconds, 187, 0.6, "with the length the transcriber needs for progress");
+
+  // A music selection REPLACES the previous one, so captions must follow the
+  // survivor rather than the first track anyone added.
+  const swapped = projectMusicBed([
+    bed("https://cdn/first.mp3", 120),
+    visual,
+    bed("https://cdn/second.mp3", 240),
+  ]);
+  h.eq(swapped!.url, "https://cdn/second.mp3", "the last music selection is the one read");
+
+  // And the same guards the audio plan applies.
+  h.eq(
+    projectMusicBed([bed("https://cdn/x.mp3", 187, { muted: true })]),
+    null,
+    "a muted bed is not playing, so there is nothing to transcribe"
+  );
+  h.eq(
+    projectMusicBed([bed("", 187)]),
+    null,
+    "a bed with no file behind it has nothing to read"
+  );
+
+  // The Captions step must actually offer the button for a stills-and-music
+  // video, not only for footage.
+  const read = (rel: string) => readFileSync(join(repoRoot, rel), "utf8");
+  const captions = read("src/components/CaptionsStudio.tsx");
+  h.ok(
+    /\{\(sceneHasClip\(scene\) \|\| musicBed\) &&/.test(captions),
+    "the transcript panel appears for a video built from stills as well as footage"
+  );
+  h.ok(
+    captions.includes("musicBed={musicBed}"),
+    "and it is handed the project's track"
+  );
+
+  const app = read("src/App.tsx");
+  h.ok(
+    /const captionsMusicBed = useMemo\(\(\) => projectMusicBed\(inserts\), \[inserts\]\);/.test(app),
+    "App derives it from the same insert list the renderer plays"
   );
 }
 

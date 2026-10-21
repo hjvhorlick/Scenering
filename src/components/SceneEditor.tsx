@@ -88,6 +88,8 @@ interface SceneEditorProps {
   totalScenes?: number;
   aspectRatio?: AspectRatioType;
   targetDuration?: number;
+  /** One-scene project: an uploaded clip is the video, so it is never trimmed. */
+  singleScene?: boolean;
   onUpdateTargetDuration?: (duration: number) => void;
   onUpdate: (sceneId: number, updates: Partial<Scene>) => void;
   /** project-wide look (applied in Video Studio → Filters); shown here read-only */
@@ -112,6 +114,7 @@ export default function SceneEditor({
   totalScenes = 1,
   aspectRatio = "16:9",
   targetDuration = 20,
+  singleScene = false,
   onUpdateTargetDuration,
   onUpdate,
   videoFilter = null,
@@ -637,7 +640,9 @@ export default function SceneEditor({
     if (!file) return;
     setUploadError(null);
     setUploading("video");
-    void sceneUpdatesForVideoFile(file, scene, sceneDurationForText(textValue, targetDuration))
+    void sceneUpdatesForVideoFile(file, scene, sceneDurationForText(textValue, targetDuration), {
+      singleScene,
+    })
       .then((updates) => onUpdate(scene.id, updates))
       .catch((err) => setUploadError(videoUploadMessage(err)))
       .finally(() => setUploading(null));
@@ -1021,6 +1026,7 @@ export default function SceneEditor({
           <SceneClipPanel
             scene={scene}
             narrationDuration={sceneDurationForText(textValue, targetDuration)}
+            singleScene={singleScene}
             onUpdate={onUpdate}
           />
 

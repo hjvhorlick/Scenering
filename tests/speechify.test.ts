@@ -154,8 +154,22 @@ h.eq(activeWordIndexAt(captionSlots, 0.6), 1, "caption preview advances at the n
 
 const previewSource = readFileSync("src/components/VideoPreview.tsx", "utf8");
 const renderSource = readFileSync("src/components/RenderView.tsx", "utf8");
-h.ok(previewSource.includes("wordTimings: sa?.words") && previewSource.includes("audioTimeSec: speechElapsed"), "live captions use provider timings and the playback clock");
-h.ok(renderSource.includes("wordTimings: audioBuffers.get(currentScene.id)?.words") && renderSource.includes("audioTimeSec: speechElapsed"), "exported captions use the same provider timings and render clock");
+/* Captions follow the provider's own word marks, on the clock the picture is
+   drawn from. Footage with no narration has no provider, so its transcript
+   supplies the marks and the footage supplies the clock — both branches are
+   asserted, because a transcript read against the speech clock would put
+   every caption a lead-in late. */
+h.ok(
+  previewSource.includes("wordTimings: sa?.words ?? footageWords") &&
+    /audioTimeSec: footageWords \? Math\.max\(0, elapsedInScene \?\? 0\) : speechElapsed \?\? 0/.test(previewSource),
+  "live captions use provider timings and the playback clock, or the footage's clock when the words came from its soundtrack"
+);
+h.ok(
+  renderSource.includes("const spokenWords = audioBuffers.get(currentScene.id)?.words;") &&
+    renderSource.includes("wordTimings: spokenWords ?? footageWords,") &&
+    /audioTimeSec: footageWords \? elapsedInScene : speechElapsed/.test(renderSource),
+  "exported captions use the same provider timings and render clock, falling back to a transcript only when there is no narration"
+);
 h.ok(previewSource.includes("sceneSpeechOffset(sceneIdx") && renderSource.includes("const speechOffset = idx === 0 ? leadIn : 0"), "preview and export apply the same narration lead-in before captions and speech");
 
 const apiKeysModal = readFileSync("src/components/ApiKeysModal.tsx", "utf8");

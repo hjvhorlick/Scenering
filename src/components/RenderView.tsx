@@ -20,6 +20,8 @@ import { startVoiceSource } from "../lib/voice-fade";
 import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
+import { clipAudioPlanFor, loadClipAudio, scheduleClipAudio } from "../lib/clip-audio";
+import { narratableText, projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";
 import {
   renderTimelineInsert,
 } from "../lib/render-effects";
@@ -185,6 +187,8 @@ interface RenderViewProps {
   captionsConfig?: CaptionsConfig;
   /** Project-wide narration switch. Off renders a video with no spoken track. */
   voiceoverEnabled?: boolean;
+  /** One-scene project: the footage is the video, so nothing may shorten it. */
+  singleScene?: boolean;
   onUpdateCaptionsConfig?: (config: CaptionsConfig) => void;
   renderedBlob?: Blob | null;
   renderedUrl?: string | null;
@@ -272,6 +276,7 @@ export default function RenderView({
   customerLogo,
   captionsConfig,
   voiceoverEnabled = true,
+  singleScene = false,
   onUpdateCaptionsConfig,
   renderedBlob: propRenderedBlob,
   renderedUrl: propRenderedUrl,
@@ -388,6 +393,13 @@ export default function RenderView({
    * mistaken for a successful fix. */
   const [renderEngine, setRenderEngine] = useState<"checking" | "frame-exact" | "compatibility" | null>(null);
   const [offlineFailureReason, setOfflineFailureReason] = useState<string | null>(null);
+  /**
+   * Said out loud when an uploaded clip's own soundtrack could not be read by
+   * this browser: the render continues, but "keep the original sound" silently
+   * producing silence is exactly the kind of failure the creator must hear
+   * about.
+   */
+  const [clipAudioNotice, setClipAudioNotice] = useState<string | null>(null);
   const [requireFrameExact, setRequireFrameExact] = useState(true);
   /** How many scene photos had to be replaced by placeholder cards in the
    *  last render — surfaced so a dead image URL is never silent again. */
@@ -912,6 +924,7 @@ export default function RenderView({
     setShowFailureDetail(false);
     setRenderEngine("checking");
     setOfflineFailureReason(null);
+    setClipAudioNotice(null);
     abortControllerRef.current = false;
     const renderStartedAt = Date.now();
     setRenderHealth({
@@ -1008,23 +1021,35 @@ export default function RenderView({
         const sceneVoice = s.voice_id || selectedVoice;
 
         // 1. Resolve directly from the saved voiceover section (memory, IndexedDB, or audio_url)
+        /* Only words the creator WROTE are narration. A scene's text can just
+           as easily be a transcript of the soundtrack the video already has,
+           and reading that back would put a synthesised voice over the song it
+           came from — so `narratableText` is empty for a transcript.
+
+           Such a scene is skipped whole rather than merely not synthesised:
+           `resolveSceneAudioBuffer` reads `scene.audio_url`, which a narration
+           generated for an EARLIER script leaves behind, and installing a
+           transcript does not clear it. Resolving first would resurrect that
+           old voice over the song the captions came from. */
+        const spokenText = narratableText(s);
+        if ((s.text || "").trim() && !spokenText) continue;
         let resolved = await resolveSceneAudioBuffer(s, audioCtx);
         if (!resolved && voiceoverEnabled) {
           if (s.audio_url) {
             throw new Error(`The saved audio for scene ${i + 1} could not be loaded. Re-import or regenerate that track.`);
           }
-          if ((s.text || "").trim()) {
-            const withTimeline = await fetchSceneAudioWithTimeline(s.text || "", sceneVoice, { timeoutMs: 20000 });
+          if (spokenText) {
+            const withTimeline = await fetchSceneAudioWithTimeline(spokenText, sceneVoice, { timeoutMs: 20000 });
             if (!withTimeline) throw new Error(`Speechify returned no audio for scene ${i + 1}.`);
             const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
             const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
             const blobUrl = URL.createObjectURL(blob);
-            setCachedSceneAudio(s.id, sceneVoice, (s.text || "").trim(), {
+            setCachedSceneAudio(s.id, sceneVoice, spokenText, {
               audioBuffer,
               blobUrl,
               duration: audioBuffer.duration,
               voiceId: sceneVoice,
-              text: (s.text || "").trim(),
+              text: spokenText,
               rawBuffer: withTimeline.rawBuffer,
               blob,
               words: withTimeline.words,
@@ -1043,7 +1068,7 @@ export default function RenderView({
             duration: resolved.duration,
             words: resolved.words && resolved.words.length > 0 ? resolved.words : undefined,
           });
-        } else if ((s.text || "").trim()) {
+        } else if (spokenText) {
           throw new Error(`No narration audio is available for scene ${i + 1}.`);
         }
 
@@ -1062,19 +1087,23 @@ export default function RenderView({
       // spoken — the narration used to begin ~0.1s in, too soon to take in
       // the opening. An enabled intro section is its own opening, so the
       // lead-in only applies without one.
-      const leadIn = narrationLeadIn(Boolean(introSec), voiceoverEnabled);
+      const speaks = voiceoverEnabled && projectHasNarration(scenesWithImages);
+      const leadIn = narrationLeadIn(Boolean(introSec), speaks);
 
       let timelineOffset = introDuration;
       const sceneSchedule = scenesWithImages.map((s, idx) => {
         const item = audioBuffers.get(s.id);
-        const sceneLength = sceneTimelineDuration(s, item ? item.duration : undefined);
-        const speechDur = !voiceoverEnabled
-          ? // Nothing is spoken, so the "speech" simply spans the scene. Any
-            // other value would drift the captions away from the picture.
-            sceneLength
-          : item && item.duration > 0.3
-            ? item.duration
-            : calculateDynamicDuration(s.text, s.audio_duration);
+        const sceneLength = sceneTimelineDuration(s, item ? item.duration : undefined, { singleScene });
+        /* Nothing spoken means the "speech" simply spans the scene; any other
+           value would drift the captions away from the picture. Estimating it
+           from the text would be wrong twice over for a transcript, where the
+           text is captions rather than something being read. */
+        const speechDur =
+          !voiceoverEnabled || !narratableText(s)
+            ? sceneLength
+            : item && item.duration > 0.3
+              ? item.duration
+              : calculateDynamicDuration(s.text, s.audio_duration);
         // The exact same scene-length formula the live preview uses
         // (src/lib/duration-utils.ts → sceneTimelineDuration): one number for
         // both, so the cut, the audio start and the caption flip all land on
@@ -1568,6 +1597,8 @@ export default function RenderView({
         ) {
           try {
             const activeCaptionsConfig: CaptionsConfig = captionsConfig || DEFAULT_CAPTIONS_CONFIG;
+            const spokenWords = audioBuffers.get(currentScene.id)?.words;
+            const footageWords = spokenWords ? null : sceneCaptionWords(currentScene);
 
             renderCanvasCaptions(
               ctx,
@@ -1578,9 +1609,15 @@ export default function RenderView({
               height,
               {
                 // Real per-word spoken timings: the highlight follows the
-                // voice itself, not an estimate of it.
-                wordTimings: audioBuffers.get(currentScene.id)?.words,
-                audioTimeSec: speechElapsed,
+                // voice itself, not an estimate of it. Footage has no TTS, so
+                // its captions follow the transcript of its own soundtrack
+                // instead — the same word clock, from the other direction.
+                wordTimings: spokenWords ?? footageWords,
+                /* The two clocks differ by the opening lead-in, and using the
+                   wrong one puts every caption two seconds late. A provider's
+                   timings start when the speech starts; a transcript's
+                   timings are the footage's own, which start with the scene. */
+                audioTimeSec: footageWords ? elapsedInScene : speechElapsed,
               }
             );
           } catch (capErr) {
@@ -1768,6 +1805,33 @@ export default function RenderView({
           // Placed on the timeline up front, to the sample, so the render does
           // not have to stop once per frame to ask whether a sound is due.
           offlineInsertMixer.scheduleAll();
+
+          /* The soundtrack of any clip attached to a scene.
+             Seeking a video element to draw it makes no noise, so without this
+             the exported file had no original sound at all. It rides the music bus,
+             which means narration ducks it automatically in "automatic"
+             mastering, and a scene whose creator chose "remove the sound"
+             produces no plan and therefore no track in the file. */
+          renderTimer.stage("clip soundtracks");
+          const clipAudioCache = new Map<number, AudioBuffer | null>();
+          for (const entry of sceneSchedule) {
+            const plan = clipAudioPlanFor(entry.scene, entry.startTime, entry.duration);
+            if (!plan) continue;
+            if (!clipAudioCache.has(entry.scene.id)) {
+              clipAudioCache.set(entry.scene.id, await loadClipAudio(entry.scene.video_url, offlineCtx));
+            }
+            const track = clipAudioCache.get(entry.scene.id);
+            if (!track) {
+              setClipAudioNotice(
+                `"${entry.scene.video_name || "The uploaded video"}" has no soundtrack this browser can read, so the export is silent over it.`
+              );
+              continue;
+            }
+            /* No source list to keep here: an offline context runs to
+               completion on its own, and cancelling the render abandons the
+               whole context rather than stopping individual tracks. */
+            scheduleClipAudio(offlineCtx, track, plan, offlineMusicAnalyser, 0);
+          }
 
           // One packed allocation replaces tens of thousands of retained
           // AudioFrame objects/ArrayBuffers on a long render. Scratch arrays
@@ -2270,6 +2334,30 @@ export default function RenderView({
           }
         }
       });
+
+      /* The soundtrack of any clip attached to a scene, on the very same
+         clock. This is the compatibility renderer's twin of the offline
+         pass: a seeked video element makes no noise, so the original sound
+         has to be decoded and placed here or the exported file has none. */
+      const realtimeClipTracks = new Map<number, AudioBuffer | null>();
+      for (const entry of sceneSchedule) {
+        if (abortControllerRef.current) throw new Error("Render cancelled");
+        const plan = clipAudioPlanFor(entry.scene, entry.startTime, entry.duration);
+        if (!plan) continue;
+        if (!realtimeClipTracks.has(entry.scene.id)) {
+          realtimeClipTracks.set(entry.scene.id, await loadClipAudio(entry.scene.video_url, audioCtx));
+        }
+        const track = realtimeClipTracks.get(entry.scene.id);
+        if (!track) {
+          setClipAudioNotice(
+            `"${entry.scene.video_name || "The uploaded video"}" has no soundtrack this browser can read, so the export is silent over it.`
+          );
+          continue;
+        }
+        const started = scheduleClipAudio(audioCtx, track, plan, musicAnalyser, renderAudioT0);
+        // Registered with the narration so cancelling stops this too.
+        if (started) scheduledSources.push(started);
+      }
 
       if (insertMixer) {
         try {
@@ -3549,6 +3637,16 @@ export default function RenderView({
                 <div className="p-3 rounded-lg bg-amber-950/50 border border-amber-800/70">
                   <p className="text-[11px] font-bold text-amber-200">Frame-exact diagnostic</p>
                   <p className="mt-1 text-[10px] leading-relaxed text-amber-300 break-words">{offlineFailureReason}</p>
+                </div>
+              )}
+
+              {/* An unreadable clip soundtrack is a real problem with the
+                  finished file, so it stands here with the other pre-render
+                  warnings rather than sitting in the console. */}
+              {clipAudioNotice && (
+                <div className="p-3 rounded-lg bg-amber-950/50 border border-amber-800/70">
+                  <p className="text-[11px] font-bold text-amber-200">Original sound</p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-amber-300 break-words">{clipAudioNotice}</p>
                 </div>
               )}
 

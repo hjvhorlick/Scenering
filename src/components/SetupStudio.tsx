@@ -48,6 +48,9 @@ import {
   type CustomVideoClip,
 } from "../lib/custom-video";
 import { VIDEO_UPLOAD_ACCEPT } from "../lib/media-file";
+import { useClipTranscription } from "../lib/use-clip-transcription";
+import { sceneUpdatesForTranscript } from "../lib/clip-transcript";
+import type { TranscriptionResult } from "../lib/speech-to-text";
 import VoiceoverSwitch from "./VoiceoverSwitch";
 import type { NewProjectOptions } from "../App";
 import Icon, { iconify } from "./icons/Icon";
@@ -112,12 +115,30 @@ interface SetupStudioProps {
   renderProfile?: RenderProfileSettings;
   onUpdateRenderProfile?: (patch: Partial<RenderProfileSettings>) => void;
   onUpdatePacingMode?: (mode: PacingModeType) => void;
-  onUpdateSceneDuration?: (duration: number) => void;
+  /**
+   * Re-times the scenes for a chosen target length.
+   *
+   * `overrideSingleScene` is passed by the 10/20/30 cards, which turn the
+   * one-scene choice OFF in the same click: the parent's state has not landed
+   * yet, and without the override the footage rule would answer a request for
+   * twenty-second scenes.
+   */
+  onUpdateSceneDuration?: (duration: number, overrideSingleScene?: boolean) => void;
   onUpdateSingleScene?: (enabled: boolean) => void;
   onUpdateVoiceoverEnabled?: (enabled: boolean) => void;
   /** Attaches footage uploaded here to the single scene of an existing project. */
-  onAttachSingleSceneClip?: (clip: { url: string; name: string; duration: number }) => void;
-  onCalibrateScenesWordCount?: (targetSeconds: number) => void;
+  onAttachSingleSceneClip?: (clip: {
+    url: string;
+    name: string;
+    duration: number;
+    /** true takes the original sound out of the final render. */
+    mute?: boolean;
+  }) => void;
+  /** Keeps or removes the soundtrack inside the footage, on an existing project. */
+  onUpdateSingleSceneAudio?: (keepOriginalAudio: boolean) => void;
+  /** Installs a transcript (caption text + word timings) on the project's scene. */
+  onUpdateSingleSceneCaptions?: (updates: Partial<Scene>) => void;
+  onCalibrateScenesWordCount?: (targetSeconds: number, overrideSingleScene?: boolean) => void;
   onFitScenesToSpeech?: () => void;
   onUpdateMotionStyle?: (style: string) => void;
   onNavigateToStep: (step: "scenes") => void;
@@ -196,6 +217,8 @@ export default function SetupStudio({
   onUpdateSingleScene,
   onUpdateVoiceoverEnabled,
   onAttachSingleSceneClip,
+  onUpdateSingleSceneAudio,
+  onUpdateSingleSceneCaptions,
   onCalibrateScenesWordCount,
   onUpdateMotionStyle,
   onNavigateToStep,
@@ -228,6 +251,14 @@ export default function SetupStudio({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const clipInputRef = useRef<HTMLInputElement | null>(null);
+  /**
+   * Whether the finished video keeps the soundtrack inside the uploaded
+   * footage. On by default — it is the creator's own audio — and stored on the
+   * scene as `video_mute`, which is the same field the scene editor's clip
+   * panel has always used, so the two never disagree.
+   */
+  const [keepOriginalAudio, setKeepOriginalAudio] = useState(true);
+  const transcription = useClipTranscription();
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -303,6 +334,17 @@ export default function SetupStudio({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
+  /* The sound switch has to open showing what the project already says. It
+     used to start at "keep" whatever the scene held, so a project whose footage
+     was muted in the clip panel came back to Setup claiming the sound was on.
+     Keyed on the project id, not on the scene, so a choice made here is never
+     overwritten by a later render. */
+  useEffect(() => {
+    const clipScene = scenes.find((sc) => sc.video_url);
+    if (clipScene) setKeepOriginalAudio(!clipScene.video_mute);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
+
   /** Once the project exists, the anonymous "new" draft has served its purpose */
   useEffect(() => {
     if (project?.id) clearDraft(null);
@@ -356,6 +398,22 @@ export default function SetupStudio({
     : resolveVideoUrl(existingClipScene?.video_url);
   /** A one-scene project can be started from footage alone — no script needed. */
   const canStart = script.trim().length > 0 || (oneScene && hasFootage);
+  /** The stored address of the footage, whichever of the two routes supplied it. */
+  const footageAddress = uploadedClip
+    ? `${CUSTOM_VIDEO_PREFIX}${uploadedClip.id}`
+    : existingClipScene?.video_url || null;
+  /** A transcript made here, waiting for the project that will carry it. */
+  const [transcript, setTranscript] = useState<TranscriptionResult | null>(null);
+  /**
+   * The scene fields a transcript becomes, or null until one exists. Computed
+   * once here so the create path and the existing-project path install exactly
+   * the same thing.
+   */
+  const transcriptFields = transcript
+    ? sceneUpdatesForTranscript(transcript.words, transcript.audioSeconds || footageSeconds)
+    : null;
+  /** Captions already on the footage, from a previous run in this project. */
+  const existingTranscript = existingClipScene?.caption_source === "transcript";
 
   const showNotice = (msg: string) => {
     setAppliedNotice(msg);
@@ -405,12 +463,16 @@ export default function SetupStudio({
     );
   };
 
-  const handleSelectDuration = (seconds: DurationOption) => {
+  const handleSelectDuration = (seconds: DurationOption, noticeOverride?: string) => {
     setSelectedDuration(seconds);
     setOneScene(false);
     onUpdateSingleScene?.(false);
-    onUpdateSceneDuration?.(seconds);
-    onCalibrateScenesWordCount?.(seconds);
+    /* `false` is passed explicitly to both, for the reason the script rebuild
+       below gives: the one-scene switch has not reached the parent yet, and a
+       request for twenty-second scenes must not be answered by the rule that
+       lets footage decide its own length. */
+    onUpdateSceneDuration?.(seconds, false);
+    onCalibrateScenesWordCount?.(seconds, false);
 
     const currentScriptText = script.trim();
     if (isExistingProject && currentScriptText) {
@@ -420,7 +482,37 @@ export default function SetupStudio({
     }
 
     const words = getTargetWordCount(seconds);
-    showNotice(`Scene duration set to ${formatDuration(seconds)} (~${words} target words/scene).`);
+    showNotice(
+      noticeOverride ?? `Scene duration set to ${formatDuration(seconds)} (~${words} target words/scene).`
+    );
+  };
+
+  /**
+   * The length a one-scene project actually is: the footage when there is
+   * footage, otherwise the time the script takes to read. There is no target
+   * length involved, which is the whole point of the mode.
+   */
+  const oneSceneLengthSeconds = footageSeconds > 0 ? footageSeconds : singleSceneDuration(script);
+  const oneSceneLengthLabel =
+    footageSeconds > 0
+      ? formatDuration(footageSeconds)
+      : `~${formatDuration(oneSceneLengthSeconds)}`;
+
+  /**
+   * Leaves one-scene mode and splits the script at the chosen target length.
+   *
+   * It goes through `handleSelectDuration` rather than repeating it: that
+   * handler is what a click on the card for this same length does, and it is
+   * the one that also tells the parent the new target and re-calibrates the
+   * word counts. Doing a partial version here left the project's stored
+   * `scene_duration` at the footage's length after the split, so the scenes
+   * were twenty seconds long and the project still claimed three minutes.
+   */
+  const handleExitSingleScene = () => {
+    handleSelectDuration(
+      activeDuration,
+      `Scenes are now split to about ${formatDuration(activeDuration)} each.`
+    );
   };
 
   /**
@@ -470,10 +562,15 @@ export default function SetupStudio({
         url: `${CUSTOM_VIDEO_PREFIX}${clip.id}`,
         name: clip.name,
         duration: clip.duration,
+        mute: !keepOriginalAudio,
       });
       if (voiceoverEnabled) onUpdateVoiceoverEnabled?.(false);
       showNotice(
-        `"${clip.name}" is now the whole video (${describeClip(clip)}). Voiceover switched off — turn it back on below if you want narration over it.`
+        `"${clip.name}" is now the whole video — all ${formatDuration(clip.duration)} of it, start to finish. ` +
+          (keepOriginalAudio
+            ? "Its own sound is kept."
+            : "Its original sound will be left out of the finished video.") +
+          " Voiceover switched off — turn it back on below if you want narration over it."
       );
     } catch (err) {
       setUploadError(
@@ -486,6 +583,50 @@ export default function SetupStudio({
   };
 
   /**
+   * Keep the soundtrack inside the footage, or leave it out of the finished
+   * video.
+   *
+   * The choice is stored as the scene's `video_mute`, the field the clip panel
+   * in the Scenes step has always used, so the two places can never disagree —
+   * and the render reads that one field too (`src/lib/clip-audio.ts`).
+   */
+  const handleSetKeepOriginalAudio = (keep: boolean) => {
+    setKeepOriginalAudio(keep);
+    onUpdateSingleSceneAudio?.(keep);
+    showNotice(
+      keep
+        ? "The finished video keeps the sound inside your footage."
+        : "The original sound will be left out of the finished video. Captions are still taken from it first."
+    );
+  };
+
+  /**
+   * Transcribes the footage's own audio into captions.
+   *
+   * It reads the uploaded FILE, never the rendered audio, so it works just the
+   * same when the original sound is being taken out of the final video — the
+   * words are captured before the track is dropped.
+   */
+  const handleGenerateCaptions = async () => {
+    const playable = footageAddress ? resolveVideoUrl(footageAddress) : null;
+    if (!playable) {
+      setUploadError(
+        "That video is not in this browser's storage any more, so its audio cannot be read. Upload it again and try once more."
+      );
+      return;
+    }
+    setUploadError(null);
+    const done = await transcription.generate(playable, footageSeconds);
+    if (!done) return;
+    setTranscript(done);
+    const fields = sceneUpdatesForTranscript(done.words, done.audioSeconds || footageSeconds);
+    if (existingClipScene?.id) onUpdateSingleSceneCaptions?.(fields);
+    showNotice(
+      `${countWords(fields.text)} words transcribed and timed. Style them in the Captions step, or correct the words in Scenes.`
+    );
+  };
+
+  /**
    * Primary action: create the project (new) or save the setup (existing) and
    * continue to Scenes.
    *
@@ -495,8 +636,14 @@ export default function SetupStudio({
    */
   const handleStartProject = async () => {
     if (starting) return;
-    const durToApply = selectedDuration || 20;
     const scriptText = script.trim();
+    /* The 10/20/30 target is a rule about how long a SPOKEN scene should be,
+       so it has no meaning for a one-scene project: there the length is the
+       footage's, or the script's own reading time when there is no footage.
+       Passing 20 here is what used to stamp a 3-minute upload back down. */
+    const durToApply = oneScene
+      ? singleSceneDuration(scriptText, footageSeconds || undefined)
+      : selectedDuration || 20;
 
     // A one-scene project built from uploaded footage needs no script at all —
     // a music video has no words to read.
@@ -523,6 +670,12 @@ export default function SetupStudio({
                   url: `${CUSTOM_VIDEO_PREFIX}${uploadedClip.id}`,
                   name: uploadedClip.name,
                   duration: uploadedClip.duration,
+                  mute: !keepOriginalAudio,
+                  /* Transcribed here, before the project exists, and carried in
+                     so the first scene is born with its captions already on it.
+                     It is read from the file's own audio, so it works whether
+                     or not that audio survives into the render. */
+                  transcript: transcriptFields ?? undefined,
                 }
               : undefined,
         });
@@ -535,7 +688,10 @@ export default function SetupStudio({
       }
 
       if (title.trim()) onUpdateTitle(title.trim());
-      onUpdateSceneDuration?.(durToApply);
+      /* Passing the one-scene choice explicitly: an existing project that is
+         one scene keeps the footage's own length here, which is what stopped
+         an uploaded video being cut to this frame's 10/20/30 target. */
+      onUpdateSceneDuration?.(durToApply, oneScene);
       // Only a real change rebuilds the scenes: coming back to Setup and on
       // again must not undo what was set on them in the other sections.
       if (scriptText) onUpdateScript(scriptText, "if-changed", durToApply, oneScene);
@@ -897,13 +1053,56 @@ export default function SetupStudio({
         <SectionHeading
           step={4}
           title="Scene length"
-          subtitle="Target spoken length for every scene — the script is chunked to match. Or keep the whole thing as one scene."
+          subtitle={
+            oneScene
+              ? "One scene: its length is the footage's, or the time the script takes to read — no target length is applied."
+              : "Target spoken length for every scene — the script is chunked to match. Or keep the whole thing as one scene."
+          }
           badge={
             <span className="px-2.5 py-0.5 bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 rounded-full text-[10px] font-bold shrink-0">
               {oneScene ? "1 Scene" : `${activeDuration}s Active`}
             </span>
           }
         />
+        {oneScene ? (
+          /* One scene has no target length to choose. Its length is decided by
+             what is in it, so the 10/20/30 cards are not offered at all. */
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 sm:gap-2.5">
+            <div className="p-3.5 rounded-xl border bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-bold">{SINGLE_SCENE_OPTION.label}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-indigo-600 text-white">
+                    {oneSceneLengthLabel}
+                  </span>
+                </div>
+                <p className="text-[11px] text-indigo-200/80 mt-0.5 leading-relaxed">
+                  {hasFootage
+                    ? `The whole of “${footageName}” — start to finish, never cut to a target length.`
+                    : "The whole script reads as one scene, timed to the voice."}
+                </p>
+              </div>
+              <div className="w-4 h-4 mt-0.5 rounded-full border border-indigo-400 bg-indigo-600 shrink-0 flex items-center justify-center">
+                <div className="w-1.5 h-1.5 rounded-full bg-white" />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleExitSingleScene}
+              className="p-3.5 rounded-xl border text-left transition-all bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-bold text-white">Split into scenes</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-gray-700 text-gray-300">
+                  ~{activeDuration}s each
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
+                Cut the script into scenes of a chosen length and find a picture for each.
+              </p>
+            </button>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
           {DURATION_OPTIONS.map((opt) => {
             const isSelected = !oneScene && activeDuration === opt.seconds;
@@ -974,6 +1173,7 @@ export default function SetupStudio({
             </div>
           </button>
         </div>
+        )}
 
         {/* ---- One-scene project: where does the single scene come from? ---- */}
         {oneScene && (
@@ -1090,6 +1290,117 @@ export default function SetupStudio({
                       MP4, MOV, WebM or M4V · up to 500 MB · kept in this browser, never uploaded anywhere
                     </p>
                   </button>
+                )}
+
+                {/* The two choices that belong to footage and to nothing else:
+                    what happens to its own sound, and whether the words in it
+                    become captions. Both sit with the upload, where the video
+                    is on screen, rather than being hunted for later. */}
+                {hasFootage && (
+                  <div className="rounded-xl border border-hairline bg-gray-900/70 p-3 space-y-3">
+                    <div>
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Icon glyph="🔊" /> The sound inside your video
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSetKeepOriginalAudio(true)}
+                          aria-pressed={keepOriginalAudio}
+                          className={`p-2.5 rounded-lg border text-left transition-all ${
+                            keepOriginalAudio
+                              ? "bg-indigo-950/80 border-indigo-500 text-white ring-1 ring-indigo-400"
+                              : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+                          }`}
+                        >
+                          <div className="text-[11px] font-bold flex items-center gap-1.5">
+                            <Icon glyph={keepOriginalAudio ? "✓" : "○"} /> Keep the original sound
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">
+                            The finished video plays your footage's own soundtrack under any music
+                            you add.
+                          </p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetKeepOriginalAudio(false)}
+                          aria-pressed={!keepOriginalAudio}
+                          className={`p-2.5 rounded-lg border text-left transition-all ${
+                            !keepOriginalAudio
+                              ? "bg-indigo-950/80 border-indigo-500 text-white ring-1 ring-indigo-400"
+                              : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+                          }`}
+                        >
+                          <div className="text-[11px] font-bold flex items-center gap-1.5">
+                            <Icon glyph={!keepOriginalAudio ? "✓" : "○"} /> Remove it
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">
+                            The picture plays silently. Anything you add in the Studio is all that
+                            is heard.
+                          </p>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-hairline pt-3">
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Icon glyph="💬" /> Captions from your video's audio
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
+                        Whisper listens to the soundtrack and times every word, then the words go
+                        to the Captions step to be styled. Free and on this device — no key, no
+                        account, nothing uploaded; the model (about 40 MB) is fetched once and
+                        cached.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleGenerateCaptions()}
+                          disabled={transcription.busy}
+                          className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold border border-indigo-500 transition-colors disabled:opacity-60 flex items-center gap-1.5"
+                        >
+                          <Icon glyph={transcription.busy ? "⏳" : "✨"} />
+                          {transcription.busy
+                            ? "Listening…"
+                            : transcript || existingTranscript
+                              ? "Transcribe again"
+                              : "Generate captions"}
+                        </button>
+                        {transcription.busy && (
+                          <button
+                            type="button"
+                            onClick={transcription.cancel}
+                            className="px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[11px] font-semibold border border-hairline transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        )}
+                        {(transcript || existingTranscript) && !transcription.busy && (
+                          <span className="text-[10px] text-emerald-300">
+                            Timed captions are on this scene — style them in the Captions step.
+                          </span>
+                        )}
+                      </div>
+                      {transcription.progress && transcription.busy && (
+                        <p className="text-[10px] text-gray-400 mt-1.5">
+                          {transcription.progress.message}
+                          {typeof transcription.progress.fraction === "number" &&
+                            ` ${Math.round(transcription.progress.fraction * 100)}%`}
+                        </p>
+                      )}
+                      {transcription.error && (
+                        <p className="text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2 mt-2">
+                          {transcription.error}
+                        </p>
+                      )}
+                      {!keepOriginalAudio && (
+                        <p className="text-[10px] text-gray-500 mt-1.5">
+                          Taken from the file's own audio, so captions still work with the sound
+                          removed.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 {uploadError && (

@@ -42,6 +42,14 @@ export interface CustomMusicTrack {
   /** Seconds, measured from the decoded file rather than guessed. */
   duration: number;
   addedAt: number;
+  /**
+   * How the track is used, chosen by the creator when they import it:
+   * `true` repeats it to fill the whole video, `false` plays it once at its
+   * own length. Absent means "not asked yet" (an upload from before this
+   * choice existed), which the library treats as looping — the behaviour it
+   * always had.
+   */
+  loop?: boolean;
 }
 
 interface CustomMusicRecord extends CustomMusicTrack {
@@ -269,6 +277,29 @@ export async function addCustomMusic(file: File): Promise<CustomMusicTrack> {
   return stripBlob(record);
 }
 
+/**
+ * Records the creator's answer to "loop it, or use the track's own length?".
+ *
+ * It is stored on the track, not on the timeline insert, because the question
+ * belongs to the file: the same upload reused tomorrow should not have to be
+ * asked again, and a saved project must come back with the choice intact.
+ */
+export async function setCustomMusicLoop(id: string, loop: boolean): Promise<void> {
+  tracks = tracks.map((t) => (t.id === id ? { ...t, loop } : t));
+  notify();
+
+  const db = await openDb();
+  if (!db) return;
+  try {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    const existing = await idbRequest<CustomMusicRecord>(store.get(id) as IDBRequest<CustomMusicRecord>);
+    if (existing) store.put({ ...existing, loop });
+  } catch {
+    /* the in-memory list is already correct */
+  }
+}
+
 export async function removeCustomMusic(id: string): Promise<void> {
   const url = objectUrls.get(id);
   if (url) {
@@ -298,4 +329,34 @@ export function formatTrackLength(seconds: number): string {
   const mins = Math.floor(total / 60);
   const secs = total % 60;
   return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+/**
+ * What choosing "use the file's length" actually does to a video of
+ * `videoSeconds`, said in one sentence before the creator commits to it.
+ *
+ * The video is never cut to fit a track — a one-scene project is always the
+ * length of its footage — so a track shorter than the video leaves the tail of
+ * the video with no music, and a track longer than the video simply is not all
+ * heard. Both are legitimate choices; they just should not be a surprise in
+ * the finished file. Returns "" when there is no video to compare against.
+ */
+export function playOnceConsequence(trackSeconds: number, videoSeconds: number): string {
+  if (!(trackSeconds > 0) || !(videoSeconds > 0)) return "";
+  const toTenth = (n: number) => Math.round(n * 10) / 10;
+  const silenceAfterTrack = toTenth(Math.max(0, videoSeconds - trackSeconds));
+  const unheardTail = toTenth(Math.max(0, trackSeconds - videoSeconds));
+  const video = formatTrackLength(videoSeconds);
+  // Under a second of difference is not worth interrupting the creator for.
+  if (silenceAfterTrack >= 1) {
+    return `Your video is ${video}, so the last ${formatTrackLength(
+      silenceAfterTrack
+    )} would play with no music.`;
+  }
+  if (unheardTail >= 1) {
+    return `Your video is ${video}, so the last ${formatTrackLength(
+      unheardTail
+    )} of the track would not be heard.`;
+  }
+  return "It matches your video's length almost exactly.";
 }

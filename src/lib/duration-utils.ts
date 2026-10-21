@@ -293,6 +293,96 @@ export function sceneDurationForText(text: string, targetDuration: number = 20):
   return Math.round(Math.min(hi, Math.max(lo, withPad)) * 10) / 10;
 }
 
+/* -------------------------------------------------------------------------- *
+ * Scene length, given the SHAPE of the project
+ * -------------------------------------------------------------------------- *
+ * THE BUG THIS REPLACES: an uploaded video kept being cut short.
+ *
+ * Creating a one-scene project from footage set the scene's length correctly
+ * (`singleSceneDuration`), but three later actions re-timed every scene from
+ * its WORD COUNT alone, which knows nothing about footage:
+ *
+ *   • Setup's "Continue" on an existing project → `handleUpdateSceneDuration`
+ *     stamped every scene with `sceneDurationForText(text, 20)`;
+ *   • the 10/20/30 cards → `handleCalibrateScenesWordCount`, same stamp;
+ *   • "Fit scenes to speech" → `fitDurationToText("")`, three seconds.
+ *
+ * A music video with no script has no words, so all three cut it to the
+ * project's target — a 3-minute upload became a 20-second (or 3-second) video
+ * the first time the creator went back through Setup. Every re-timing path now
+ * asks `sceneDurationForScene`, which is the ONE rule for how long a scene
+ * holds: the footage decides in a one-scene project, the words decide
+ * everywhere else.
+ * -------------------------------------------------------------------------- */
+
+/** A scene's own length, as far as the timing rule needs to know it. */
+export interface TimableScene {
+  text?: string;
+  video_url?: string | null;
+  video_duration?: number;
+}
+
+/** How the project is shaped, which is what decides who owns a scene's length. */
+export interface SceneDurationContext {
+  /** One-scene project: the scene IS the video, so the footage decides. */
+  singleScene?: boolean;
+  /** The per-scene target used when the script is timed by its words. */
+  targetDuration?: number;
+}
+
+/**
+ * The measured length of the footage attached to a scene, or 0 when there is
+ * none. Only a scene that really points at a clip counts: a stale
+ * `video_duration` left behind by a removed clip must never re-time anything.
+ */
+export function sceneClipSeconds(scene: TimableScene | null | undefined): number {
+  if (!scene?.video_url) return 0;
+  const seconds = Number(scene.video_duration);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+}
+
+/**
+ * How long this scene holds.
+ *
+ * In a one-scene project the footage is the video, so its measured length is
+ * the scene's length and no word-count target may shrink it. Anywhere else the
+ * clip is trimmed to the narration (see `scene-clip-attach.ts`), so the words
+ * stay in charge exactly as they always have.
+ */
+export function sceneDurationForScene(scene: TimableScene, context: SceneDurationContext = {}): number {
+  if (context.singleScene) {
+    return singleSceneDuration(scene.text || "", sceneClipSeconds(scene) || undefined);
+  }
+  return sceneDurationForText(scene.text || "", context.targetDuration ?? 20);
+}
+
+/**
+ * "Fit to speech" for one scene.
+ *
+ * A scene whose picture is footage and whose words are empty used to be fitted
+ * to three seconds — the floor — which is the shortest cut of all. Footage is
+ * not fitted to anything: it runs to its own end.
+ */
+export function fitSceneDurationForScene(scene: TimableScene, context: SceneDurationContext = {}): number {
+  const clip = sceneClipSeconds(scene);
+  if (context.singleScene && clip > 0) return Math.round(clip * 10) / 10;
+  return fitDurationToText(scene.text);
+}
+
+/**
+ * The length a ONE-SCENE project runs, in seconds.
+ *
+ * Setup and the project row both report the project's own length, and for a
+ * one-scene project that is the footage's length — not the 10/20/30 target the
+ * project was created with. Returns 0 when there is no footage to measure.
+ */
+export function projectDurationForScenes(
+  scenes: readonly TimableScene[],
+  context: SceneDurationContext = {}
+): number {
+  return scenes.reduce((sum, scene) => sum + sceneDurationForScene(scene, context), 0);
+}
+
 export interface SceneTimingAssessment {
   wordsCount: number;
   spokenSeconds: number;
@@ -401,16 +491,57 @@ export function narrationLeadIn(hasIntro: boolean, voiceoverEnabled: boolean = t
 }
 
 export function sceneTimelineDuration(
-  scene: { text?: string; duration?: number; audio_duration?: number },
-  audioDuration?: number
+  scene: {
+    text?: string;
+    duration?: number;
+    audio_duration?: number;
+    video_url?: string | null;
+    video_trim_start?: number;
+    video_trim_end?: number;
+    video_duration?: number;
+  },
+  audioDuration?: number,
+  /** The shape of the project, which decides whether footage may set a floor. */
+  options: { singleScene?: boolean } = {}
 ): number {
-  if (audioDuration && audioDuration > 0.3) {
-    return Math.max(1.5, Math.round((audioDuration + 0.35) * 10) / 10);
-  }
-  if (scene.duration && scene.duration > 0) {
-    return scene.duration;
-  }
-  return calculateDynamicDuration(scene.text, scene.audio_duration, 20);
+  /* A one-scene project never runs shorter than the footage it is made of.
+     The narration is still the authority on how long a scene holds — but in a
+     one-scene project the footage IS the video, and a narration switched back
+     on (or re-synthesised shorter) must not quietly take the last minute off
+     it. Everywhere else this floor does not apply, and deliberately so: a
+     script scene's clip is trimmed to its narration, and applying it there
+     would let the export run longer than the timeline says it does — a
+     3-minute file the timeline reports as twenty seconds. */
+  const footage = options.singleScene ? sceneFootageLength(scene) : 0;
+  const spoken =
+    audioDuration && audioDuration > 0.3
+      ? Math.max(1.5, Math.round((audioDuration + 0.35) * 10) / 10)
+      : scene.duration && scene.duration > 0
+        ? scene.duration
+        : calculateDynamicDuration(scene.text, scene.audio_duration, 20);
+  return Math.max(spoken, footage);
+}
+
+/**
+ * How much footage a scene has to show, in seconds — 0 when it has none.
+ *
+ * The trim window is what the creator chose to use, so that is the floor: a
+ * clip trimmed to its middle thirty seconds must run for thirty seconds, and a
+ * clip left whole must run to its end.
+ */
+export function sceneFootageLength(scene: {
+  video_url?: string | null;
+  video_trim_start?: number;
+  video_trim_end?: number;
+  video_duration?: number;
+}): number {
+  if (!scene?.video_url) return 0;
+  const start = Math.max(0, Number(scene.video_trim_start) || 0);
+  const full = Number(scene.video_duration) || 0;
+  const end = Number(scene.video_trim_end) || full;
+  const length = Math.max(0, end) - start;
+  if (!Number.isFinite(length) || length <= 0) return 0;
+  return Math.round(length * 10) / 10;
 }
 
 // Topic-aware sentence expansions to turn 1-line text into a coherent 20s narration

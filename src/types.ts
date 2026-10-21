@@ -252,6 +252,20 @@ export interface Scene {
   /** How the clip is fitted when its length differs from the scene's. */
   video_fit_mode?: "trim" | "loop" | "slow";
 
+  // --- Captions taken from the clip's own audio -------------------------
+  /**
+   * Per-word timings of the speech inside the attached clip, in seconds from
+   * the start of the SOURCE FILE (see `src/lib/clip-transcript.ts`, which
+   * shifts them into scene time when it draws). Narrated scenes get their
+   * timings from the TTS engine instead, so this is only ever set by a
+   * transcription of uploaded footage.
+   */
+  caption_words?: { text: string; start: number; end: number }[];
+  /** Where the caption words came from: the footage, or typed by hand. */
+  caption_source?: "transcript" | "manual";
+  /** Length of the audio the transcript covers, used to spot a stale one. */
+  caption_audio_duration?: number;
+
   /**
    * Marks a scene the user inserted manually rather than one generated from
    * the script. Inserted scenes keep their clip audio and are not forced to

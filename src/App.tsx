@@ -49,6 +49,8 @@ import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
 
 import { loadCustomVideos } from "./lib/custom-video";
+import { TRANSCRIPT_KEYS, projectHasNarration } from "./lib/clip-transcript";
+import { projectMusicBed } from "./lib/insert-audio";
 import { loadCustomImages } from "./lib/custom-image";
 import { loadCustomMusic } from "./lib/custom-music";
 import { getSession } from "./lib/session";
@@ -56,7 +58,10 @@ import { getApiKeysHeaders, getApiKeysQueryParams } from "./lib/api-keys";
 import {
   calculateDynamicDuration,
   calibrateTextToTargetDuration,
-  fitDurationToText,
+  fitSceneDurationForScene,
+  narrationLeadIn,
+  sceneClipSeconds,
+  sceneDurationForScene,
   sceneDurationForText,
   singleSceneDuration,
   splitScriptIntoScenes,
@@ -86,6 +91,17 @@ export interface NewProjectOptions {
     url: string;
     name: string;
     duration: number;
+    /**
+     * True when the creator chose to take the original sound out of the final
+     * render. Captions are still transcribed from it first — see
+     * `src/lib/speech-to-text.ts`.
+     */
+    mute?: boolean;
+    /**
+     * A transcript made in Setup before the project existed, installed on the
+     * first scene as it is created.
+     */
+    transcript?: Partial<Scene>;
   };
 }
 
@@ -507,7 +523,7 @@ export default function App() {
    * becomes the scene's length, because the footage is the video now.
    */
   const handleAttachSingleSceneClip = useCallback(
-    (clip: { url: string; name: string; duration: number }) => {
+    (clip: { url: string; name: string; duration: number; /** false silences the clip's own soundtrack in the render. */ mute?: boolean }) => {
       setScenes((prev) => {
         if (prev.length === 0) return prev;
         const clipFields: Partial<Scene> = {
@@ -515,8 +531,10 @@ export default function App() {
           video_name: clip.name,
           video_duration: clip.duration,
           video_trim_start: 0,
+          // The whole file, start to finish: a one-scene project is the
+          // footage, so nothing is trimmed away.
           video_trim_end: clip.duration,
-          video_mute: false,
+          video_mute: clip.mute ?? false,
           video_volume: 1,
           video_fit_mode: "trim",
         };
@@ -534,8 +552,21 @@ export default function App() {
         } catch {}
         return updated;
       });
+      /* The footage is the project's length now, so the project's own duration
+         reads as the video's length rather than the 10/20/30 target the
+         project was created with. Everything that reports "how long is this
+         video" (Setup, the timeline, the render summary) reads this. */
+      const clipDuration = Math.round(clip.duration * 10) / 10;
+      setSceneDuration(clipDuration);
+      saveCurrentProjectSettings({ scene_duration: clipDuration });
+      setCurrentProject((prev) => (prev ? { ...prev, default_duration: clipDuration } : null));
+      try {
+        if (currentProject?.id) {
+          supabase.from("projects").update({ default_duration: clipDuration }).eq("id", currentProject.id).then();
+        }
+      } catch {}
     },
-    []
+    [currentProject?.id, saveCurrentProjectSettings]
   );
 
   const handleUpdateSingleScene = useCallback((enabled: boolean) => {
@@ -543,33 +574,57 @@ export default function App() {
     saveCurrentProjectSettings({ single_scene: enabled });
   }, [saveCurrentProjectSettings]);
 
-  const handleUpdateSceneDuration = useCallback((dur: number) => {
-    setSceneDuration(dur);
-    saveCurrentProjectSettings({ scene_duration: dur });
-    setCurrentProject((prev) => (prev ? { ...prev, default_duration: dur } : null));
-    setScenes((prev) => {
-      // fit each scene to its own narration rather than stamping them all
-      const updated = prev.map((s) => ({ ...s, duration: sceneDurationForText(s.text, dur) }));
-      try {
-        for (const s of updated) {
-          supabase.from("scenes").update({ duration: s.duration }).eq("id", s.id).then();
-          const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
-          const parsed = existingMeta ? JSON.parse(existingMeta) : {};
-          localStorage.setItem(`scenering_scene_meta_${s.id}`, JSON.stringify({ ...parsed, duration: s.duration }));
-        }
-      } catch {}
-      return updated;
-    });
-  }, [saveCurrentProjectSettings]);
-
-  const handleCalibrateScenesWordCount = useCallback((targetSeconds: number) => {
-    setSceneDuration(targetSeconds);
-    saveCurrentProjectSettings({ scene_duration: targetSeconds });
-    setCurrentProject((prev) => (prev ? { ...prev, default_duration: targetSeconds } : null));
+  /**
+   * Re-times every scene for a chosen target length.
+   *
+   * `overrideSingleScene` exists for the same reason `handleUpdateScript` has
+   * one: Setup flips the one-scene switch in the same click, and that state
+   * update has not landed yet. Without it, picking "20 Seconds" on a one-scene
+   * project would still be answered by the footage rule.
+   *
+   * A one-scene project's footage is never re-timed — that is the cut this
+   * handler used to make. See `sceneDurationForScene`.
+   */
+  const handleUpdateSceneDuration = useCallback((dur: number, overrideSingleScene?: boolean) => {
+    const oneScene = overrideSingleScene ?? singleScene;
+    /* The project's own length follows the footage in a one-scene project, so
+       "20 seconds" chosen on the setup frame cannot quietly shorten the video
+       the creator uploaded. Read here, from the scenes in scope, rather than
+       from inside the state updater below: an updater must be pure, and React
+       runs it twice under StrictMode. */
+    const footage = oneScene ? sceneClipSeconds(scenes[0]) : 0;
+    const projectDuration = footage > 0 ? Math.round(footage * 10) / 10 : dur;
+    setSceneDuration(projectDuration);
+    saveCurrentProjectSettings({ scene_duration: projectDuration });
+    setCurrentProject((current) => (current ? { ...current, default_duration: projectDuration } : null));
     setScenes((prev) =>
       prev.map((s) => {
-        // Each scene is timed to its own narration, bounded by the target
-        const fitted = sceneDurationForText(s.text, targetSeconds);
+        // Fit each scene to its own narration rather than stamping them all —
+        // unless the scene IS footage, which keeps its own length.
+        const duration = sceneDurationForScene(s, { singleScene: oneScene, targetDuration: dur });
+        try {
+          supabase.from("scenes").update({ duration }).eq("id", s.id).then();
+          const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
+          const parsed = existingMeta ? JSON.parse(existingMeta) : {};
+          localStorage.setItem(`scenering_scene_meta_${s.id}`, JSON.stringify({ ...parsed, duration }));
+        } catch {}
+        return { ...s, duration };
+      })
+    );
+  }, [saveCurrentProjectSettings, singleScene, scenes]);
+
+  const handleCalibrateScenesWordCount = useCallback((targetSeconds: number, overrideSingleScene?: boolean) => {
+    const oneScene = overrideSingleScene ?? singleScene;
+    const footage = oneScene ? sceneClipSeconds(scenes[0]) : 0;
+    const projectDuration = footage > 0 ? Math.round(footage * 10) / 10 : targetSeconds;
+    setSceneDuration(projectDuration);
+    saveCurrentProjectSettings({ scene_duration: projectDuration });
+    setCurrentProject((current) => (current ? { ...current, default_duration: projectDuration } : null));
+    setScenes((prev) =>
+      prev.map((s) => {
+        // Each scene is timed to its own narration, bounded by the target —
+        // unless the scene IS footage, which keeps its own length.
+        const fitted = sceneDurationForScene(s, { singleScene: oneScene, targetDuration: targetSeconds });
         // Persist updated duration without mutating text
         try {
           supabase.from("scenes").update({ duration: fitted }).eq("id", s.id).then();
@@ -586,12 +641,12 @@ export default function App() {
         };
       })
     );
-  }, [saveCurrentProjectSettings]);
+  }, [saveCurrentProjectSettings, singleScene, scenes]);
 
   const handleFitAllScenesDurationToSpeech = useCallback(() => {
     setScenes((prev) =>
       prev.map((s) => {
-        const fitDur = fitDurationToText(s.text);
+        const fitDur = fitSceneDurationForScene(s, { singleScene });
         try {
           supabase.from("scenes").update({ duration: fitDur }).eq("id", s.id).then();
           const existingMeta = localStorage.getItem(`scenering_scene_meta_${s.id}`);
@@ -607,7 +662,7 @@ export default function App() {
         };
       })
     );
-  }, []);
+  }, [singleScene]);
 
   /**
    * Persists the title as well as holding it in state. Previously this only
@@ -692,10 +747,18 @@ export default function App() {
               oneScene ? singleSceneDuration(text, existing?.video_duration) : sceneDurationForText(text, targetDur),
           });
 
+          /* What the project row should say its length is. For a split-scene
+             project that is the per-scene target, as it has always been. In a
+             one-scene project the target means nothing — the scene's own
+             length is the project's, so writing the target here left the row
+             claiming twenty seconds for a project whose only scene was three
+             minutes long, and the next reload read the claim back. */
+          const projectDuration = oneScene && newScenes.length > 0 ? newScenes[0].duration : targetDur;
+
           // Persist each scene to Supabase & localStorage
           try {
             if (currentProject?.id) {
-              supabase.from("projects").update({ script: newScript, default_duration: targetDur }).eq("id", currentProject.id).then();
+              supabase.from("projects").update({ script: newScript, default_duration: projectDuration }).eq("id", currentProject.id).then();
             }
             // Re-splitting can produce FEWER scenes than before — most
             // dramatically when switching to a one-scene project, where a
@@ -869,6 +932,12 @@ export default function App() {
     const oneScene = options?.singleScene ?? false;
     const clip = oneScene ? options?.clip : undefined;
     const narration = options?.voiceoverEnabled ?? true;
+    /* The footage is the project's length. The project row and its settings
+       carry that length from the moment it is created, so nothing later
+       defaults the video back to the 10/20/30 target the creator had picked
+       before uploading. */
+    const footageDuration = clip && clip.duration > 0 ? Math.round(clip.duration * 10) / 10 : 0;
+    const projectDuration = footageDuration > 0 ? footageDuration : chosenDuration;
     // Keep the canvas choices made on the single setup frame (aspect ratio, resolution, motion)
     const chosenAspect = aspectRatio;
     const chosenResolution = resolution;
@@ -877,7 +946,7 @@ export default function App() {
     try {
       const { data: projectData, error: projectError } = await supabase
         .from("projects")
-        .insert({ title, script, default_duration: chosenDuration, user_id: getSession()?.user.id ?? null })
+        .insert({ title, script, default_duration: projectDuration, user_id: getSession()?.user.id ?? null })
         .select()
         .single();
       if (projectError) throw projectError;
@@ -888,7 +957,7 @@ export default function App() {
       // Clean, isolated project setup with defaults
       const freshSettings: ProjectSettings = {
         ...DEFAULT_PROJECT_SETTINGS,
-        scene_duration: chosenDuration,
+        scene_duration: projectDuration,
         aspect_ratio: chosenAspect,
         resolution: chosenResolution,
         motion_style: chosenMotion,
@@ -940,7 +1009,7 @@ export default function App() {
       setAspectRatio(freshSettings.aspect_ratio);
       setResolution(freshSettings.resolution);
       setPacingMode(freshSettings.pacing_mode);
-      setSceneDuration(chosenDuration);
+      setSceneDuration(projectDuration);
       setMotionStyle(freshSettings.motion_style);
       setSceneAnimationEnabled(freshSettings.scene_animation_enabled);
       setVideoTransition(freshSettings.transition);
@@ -961,11 +1030,17 @@ export default function App() {
           video_duration: clip.duration,
           video_trim_start: 0,
           video_trim_end: clip.duration,
-          // It is their own footage: its soundtrack plays unless they mute it
-          // in the scene editor. This is the whole point of a music video.
-          video_mute: false,
+          // It is their own footage: its soundtrack plays unless they chose to
+          // take it out in Setup (or mute it later in the scene editor). This
+          // is the whole point of a music video.
+          video_mute: clip.mute ?? false,
           video_volume: 1,
           video_fit_mode: "trim",
+          /* A transcript made in Setup rides along, so the first scene is born
+             with its captions already on it — words in `text`, timings in
+             `caption_words`, which is exactly what the Captions step and the
+             renderer read. */
+          ...(clip.transcript || {}),
         };
         createdScenes = createdScenes.map((sc, i) => (i === 0 ? { ...sc, ...clipFields } : sc));
         try {
@@ -1442,8 +1517,10 @@ export default function App() {
             : parsed.image_query_locked,
       };
       // Image framing (crop, fit, blurred fill, zoom, rotation...) is persisted
-      // here too, so a reloaded project renders exactly as it was framed.
-      for (const key of [...FRAMING_KEYS, ...CLIP_KEYS]) {
+      // here too, so a reloaded project renders exactly as it was framed — and
+      // with them the transcript of a clip's own audio, whose word timings are
+      // what the captions of an uploaded video are locked to.
+      for (const key of [...FRAMING_KEYS, ...CLIP_KEYS, ...TRANSCRIPT_KEYS]) {
         const v = (updates as Record<string, unknown>)[key];
         if (v !== undefined) newMeta[key] = v;
         else if (parsed[key] !== undefined) newMeta[key] = parsed[key];
@@ -1468,6 +1545,32 @@ export default function App() {
     } catch (err) {
       console.error("Supabase update error (non-fatal):", err);
     }
+  };
+
+  /**
+   * Keeps or removes the soundtrack inside the project's footage.
+   *
+   * Setup holds the choice next to the upload; the scene holds the truth, in
+   * the same `video_mute` field the clip panel uses, so the two can never
+   * disagree — and it is the field the renderer reads (`src/lib/clip-audio.ts`).
+   */
+  const handleUpdateSingleSceneAudio = (keepOriginalAudio: boolean) => {
+    const target = scenes.find((scene) => scene.video_url);
+    if (!target) return;
+    void handleUpdateScene(target.id, { video_mute: !keepOriginalAudio });
+  };
+
+  /**
+   * Installs a transcript on the project's scene: the words become the scene's
+   * caption text, and their timings are what the karaoke highlight follows.
+   *
+   * From here it is the ordinary caption path — the Captions step styles it,
+   * the scene text editor corrects it, the renderer burns it in.
+   */
+  const handleApplySingleSceneCaptions = (updates: Partial<Scene>) => {
+    const target = scenes.find((scene) => scene.video_url) || scenes[0];
+    if (!target) return;
+    void handleUpdateScene(target.id, updates);
   };
 
   const handleImageSearch = async (
@@ -1686,8 +1789,26 @@ export default function App() {
     const intro = introSection?.enabled ? Math.max(0.5, introSection.duration) : 0;
     const outro = outroSection?.enabled ? Math.max(0.5, outroSection.duration) : 0;
     const script = scenes.reduce((sum, sc) => sum + Math.max(1, sc.duration || 0), 0);
-    return Math.max(1, Math.round((intro + script + outro) * 10) / 10);
-  }, [scenes, introSection, outroSection]);
+    /* The render holds the first frame for the narration lead-in before the
+       first words, so the exported file really is this much longer. Leaving it
+       out here made the timeline read two seconds short, and because
+       whole-video media is stretched to THIS number it also made a full-video
+       visualiser disappear two seconds before the end of its own video —
+       `renderTimelineInsert` stops drawing once time passes startTime +
+       duration. Same rule, same arguments as RenderView, so the two agree. */
+    /* The hold only happens when there are first words to wait for. A scene
+       whose text is a transcript of its own soundtrack has nothing spoken over
+       it, so the render starts straight away — same rule as RenderView. */
+    const speaks = voiceoverEnabled && projectHasNarration(scenes);
+    const leadIn = narrationLeadIn(intro > 0, speaks);
+    return Math.max(1, Math.round((intro + leadIn + script + outro) * 10) / 10);
+  }, [scenes, introSection, outroSection, voiceoverEnabled]);
+
+  /* A music video built from stills has no footage soundtrack, so the music
+     track is the only thing its captions can be transcribed from. Derived from
+     the same insert list the renderer plays, so the words always come from the
+     audio the finished video actually uses. */
+  const captionsMusicBed = useMemo(() => projectMusicBed(inserts), [inserts]);
 
   // Visualisers and music added for the entire video stay pinned to its full
   // length, even after scenes are re-timed or the voiceover changes.
@@ -1966,6 +2087,8 @@ export default function App() {
                 onUpdateSingleScene={handleUpdateSingleScene}
                 onUpdateVoiceoverEnabled={handleUpdateVoiceoverEnabled}
                 onAttachSingleSceneClip={handleAttachSingleSceneClip}
+                onUpdateSingleSceneAudio={handleUpdateSingleSceneAudio}
+                onUpdateSingleSceneCaptions={handleApplySingleSceneCaptions}
                 onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
                 onFitScenesToSpeech={handleFitAllScenesDurationToSpeech}
                 onUpdateMotionStyle={handleUpdateMotionStyle}
@@ -2011,6 +2134,7 @@ export default function App() {
                 captionsConfig={captionsConfig}
                 onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
                 voiceoverEnabled={voiceoverEnabled}
+                singleScene={singleScene}
                 sceneDuration={sceneDuration}
                 motionStyle={motionStyle}
                 sceneAnimationEnabled={sceneAnimationEnabled}
@@ -2233,6 +2357,7 @@ export default function App() {
                             totalScenes={scenes.length}
                             aspectRatio={aspectRatio}
                             targetDuration={sceneDuration || 20}
+                            singleScene={singleScene}
                             onUpdateTargetDuration={handleUpdateSceneDuration}
                             onUpdate={handleUpdateScene}
                             onImageSearch={handleImageSearch}
@@ -2292,6 +2417,7 @@ export default function App() {
                   onUpdateScene={handleUpdateScene}
                   onApplyStyleToAll={handleApplyCaptionStyleToAll}
                   onNavigateToStep={handleStepRequest}
+                  musicBed={captionsMusicBed}
                 />
               ) : (
                 /* Step 4: Video Studio & Timeline View */
@@ -2326,6 +2452,7 @@ export default function App() {
                     customerLogo={customerLogo}
                     captionsConfig={captionsConfig}
                     voiceoverEnabled={voiceoverEnabled}
+                    singleScene={singleScene}
                     currentPlayheadTime={currentPlayheadTime}
                     onSeek={setCurrentPlayheadTime}
                     onSelectInsert={(ins) => setSelectedInsert(ins)}
