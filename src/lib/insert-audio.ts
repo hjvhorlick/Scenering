@@ -79,10 +79,16 @@ export function buildInsertAudioPlan(
       endTime = Math.min(totalDuration, ins.startTime + Math.max(0.5, ins.duration));
     } else {
       startTime = Math.max(0, ins.startTime);
-      // Music keeps going to the end of the video; everything else is bounded
-      endTime = isMusic
-        ? totalDuration
-        : Math.min(totalDuration, ins.startTime + Math.max(0.5, ins.duration));
+      /* Looping music keeps going to the end of the video. A bed the creator
+         set to its own length stops when the file stops — that is the whole
+         meaning of the choice, and scheduling it to the end of the video would
+         quietly undo it. Everything else is bounded by its own duration.
+         Legacy beds with no explicit `loop` resolve to looping above, so this
+         only ever changes a track that was deliberately set to play once. */
+      endTime =
+        isMusic && loop
+          ? totalDuration
+          : Math.min(totalDuration, ins.startTime + Math.max(0.5, ins.duration));
     }
 
     // Delay shifts the whole sound window

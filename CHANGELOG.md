@@ -14,6 +14,23 @@
   one-scene project, the words decide everywhere else, so split-scene projects
   behave exactly as they did. `sceneTimelineDuration` gained the same floor, so
   a narration switched back on can never shorten the picture either.
+- **One scene has no 10/20/30 target at all.** The target length is a rule
+  about how long a SPOKEN scene should be, so it does not apply to a one-scene
+  project: there the length is the footage's, or the time the script takes to
+  read. The duration cards are no longer offered in that mode — the panel shows
+  the actual length instead, with one click back to splitting the script — and
+  starting a one-scene project passes the footage's length rather than
+  `selectedDuration || 20`, which is what still stamped a 3-minute upload back
+  down to 20 seconds on the way in.
+- **An imported music file asks how it should be used.** Uploading a track now
+  asks: *loop it across the video*, or *use the file's own length*. The answer
+  is stored on the upload itself (`setCustomMusicLoop`), so a saved project
+  comes back with it and the card can change it later. Choosing the file's
+  length builds a bed that is exactly as long as the file and plays once,
+  instead of being stretched across the whole video and repeated. This also
+  fixed the audio plan, which ran every music bed to the end of the video
+  regardless of its own length — a play-once track was scheduled for the whole
+  timeline and only stopped because the buffer ran out.
 - **The project's own length is the footage's length.** A project created from
   an upload is stored at the clip's measured duration (`default_duration` and
   the `scene_duration` setting) rather than the 10/20/30 target that was

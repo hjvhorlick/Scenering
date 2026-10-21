@@ -46,6 +46,8 @@ interface VideoPreviewProps {
   captionsConfig?: CaptionsConfig;
   /** Project-wide narration switch. Off means nothing is synthesised or heard. */
   voiceoverEnabled?: boolean;
+  /** One-scene project: the footage is the video, so nothing may shorten it. */
+  singleScene?: boolean;
   onSeek?: (time: number) => void;
   onSelectInsert?: (insert: TimelineInsert) => void;
   onUpdateInsert?: (updated: TimelineInsert) => void;
@@ -81,20 +83,27 @@ function sceneWindowDuration(
   audioBuf: AudioBuffer | undefined,
   sceneIdx: number,
   hasIntro: boolean,
-  voiceoverOn: boolean = true
+  voiceoverOn: boolean = true,
+  singleScene: boolean = false
 ): number {
-  return getSceneSpeechDuration(scene, audioBuf) + sceneSpeechOffset(sceneIdx, hasIntro, voiceoverOn);
+  return (
+    getSceneSpeechDuration(scene, audioBuf, singleScene) + sceneSpeechOffset(sceneIdx, hasIntro, voiceoverOn)
+  );
 }
 
 // Playback timing helper: respects scene.duration while ensuring audio is never cut short.
 // The formula itself lives in duration-utils and is shared with the render
 // pipeline, so the preview and the export agree on every scene boundary.
-function getSceneSpeechDuration(scene: Scene, audioBuf?: AudioBuffer): number {
+function getSceneSpeechDuration(
+  scene: Scene,
+  audioBuf?: AudioBuffer,
+  singleScene: boolean = false
+): number {
   // The decoded narration is the authority on how long the scene runs, so the
   // video never sits on a still frame in silence. Previously a longer
   // configured `scene.duration` won, which is exactly what produced the quiet
   // stretches at the end of scenes.
-  return sceneTimelineDuration(scene, audioBuf?.duration);
+  return sceneTimelineDuration(scene, audioBuf?.duration, { singleScene });
 }
 
 interface SceneAudio {
@@ -123,6 +132,7 @@ export default function VideoPreview({
   currentPlayheadTime = 0,
   captionsConfig,
   voiceoverEnabled = true,
+  singleScene = false,
   onSeek,
   onSelectInsert,
   onUpdateInsert,
@@ -664,7 +674,7 @@ export default function VideoPreview({
       const outroDur = outroSec ? Math.max(0.5, outroSec.duration) : 0;
       const scriptDur = scenesWithImages.reduce((sum, s, i) => {
         const sa = audioBuffersRef.current.get(s.id);
-        return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled);
+        return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
       }, 0);
 
       const isIntroSegment = Boolean(introSec && absoluteTime < introDur);
@@ -845,7 +855,7 @@ export default function VideoPreview({
     const outroDur = outroDuration;
     const scriptDur = scenesWithImages.reduce((sum, s, i) => {
       const sa = audioBuffersRef.current.get(s.id);
-      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled);
+      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
     }, 0);
 
     let targetScene = scenesWithImages[0];
@@ -869,7 +879,7 @@ export default function VideoPreview({
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = audioBuffersRef.current.get(s.id);
-        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
         if (scriptTime >= acc && scriptTime < acc + sDur) {
           targetScene = s;
           targetIdx = i;
@@ -1227,7 +1237,7 @@ export default function VideoPreview({
 
     const scriptDur = scenesWithImages.reduce((sum, s, i) => {
       const sa = buffers.get(s.id);
-      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled);
+      return sum + sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
     }, 0);
 
     const totalDur = introDur + scriptDur + outroDur;
@@ -1323,7 +1333,7 @@ export default function VideoPreview({
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = buffers.get(s.id);
-        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
         if (initialScriptTime >= acc && initialScriptTime < acc + sDur) {
           currentPlayingSceneIdx = i;
           setCurrentSceneIndex(i);
@@ -1453,7 +1463,7 @@ export default function VideoPreview({
       for (let i = 0; i < scenesWithImages.length; i++) {
         const s = scenesWithImages[i];
         const sa = buffers.get(s.id);
-        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled);
+        const sDur = sceneWindowDuration(s, sa?.buffer, i, Boolean(introSec), voiceoverEnabled, singleScene);
         if (scriptTime >= accum && scriptTime < accum + sDur) {
           activeIdx = i;
           activeOffset = scriptTime - accum;

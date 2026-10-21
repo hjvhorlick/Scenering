@@ -500,16 +500,19 @@ export function sceneTimelineDuration(
     video_trim_end?: number;
     video_duration?: number;
   },
-  audioDuration?: number
+  audioDuration?: number,
+  /** The shape of the project, which decides whether footage may set a floor. */
+  options: { singleScene?: boolean } = {}
 ): number {
-  /* A scene never runs shorter than the footage on it.
-     The narration is the authority on how long a scene holds, and that is
-     still true — but "authority" must not mean "cuts the picture off". For a
-     script scene the clip is trimmed to the narration, so the two agree and
-     this changes nothing; for a one-scene project the footage IS the video,
-     and a narration switched back on (or re-synthesised shorter) must not
-     quietly take the last minute off it. */
-  const footage = sceneFootageLength(scene);
+  /* A one-scene project never runs shorter than the footage it is made of.
+     The narration is still the authority on how long a scene holds — but in a
+     one-scene project the footage IS the video, and a narration switched back
+     on (or re-synthesised shorter) must not quietly take the last minute off
+     it. Everywhere else this floor does not apply, and deliberately so: a
+     script scene's clip is trimmed to its narration, and applying it there
+     would let the export run longer than the timeline says it does — a
+     3-minute file the timeline reports as twenty seconds. */
+  const footage = options.singleScene ? sceneFootageLength(scene) : 0;
   const spoken =
     audioDuration && audioDuration > 0.3
       ? Math.max(1.5, Math.round((audioDuration + 0.35) * 10) / 10)

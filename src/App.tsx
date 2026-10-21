@@ -2106,6 +2106,7 @@ export default function App() {
                 captionsConfig={captionsConfig}
                 onUpdateCaptionsConfig={handleUpdateCaptionsConfig}
                 voiceoverEnabled={voiceoverEnabled}
+                singleScene={singleScene}
                 sceneDuration={sceneDuration}
                 motionStyle={motionStyle}
                 sceneAnimationEnabled={sceneAnimationEnabled}
@@ -2421,6 +2422,7 @@ export default function App() {
                     customerLogo={customerLogo}
                     captionsConfig={captionsConfig}
                     voiceoverEnabled={voiceoverEnabled}
+                    singleScene={singleScene}
                     currentPlayheadTime={currentPlayheadTime}
                     onSeek={setCurrentPlayheadTime}
                     onSelectInsert={(ins) => setSelectedInsert(ins)}

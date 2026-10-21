@@ -151,7 +151,7 @@ const footageScene = {
     const leadIn = narrationLeadIn(false, voiceover);
     return scenes.reduce((total, scene, index) => {
       const windowDur =
-        sceneTimelineDuration(scene, voiceover ? audioSeconds : undefined) +
+        sceneTimelineDuration(scene, voiceover ? audioSeconds : undefined, { singleScene: true }) +
         (index === 0 ? leadIn : 0);
       return total + windowDur;
     }, 0);
@@ -200,6 +200,31 @@ const footageScene = {
     sceneTimelineDuration(scriptScene, 7.6),
     8,
     "a clip trimmed to its narration still follows the voice, exactly as before"
+  );
+
+  /* And the floor does not leak into a multi-scene project. A creator can turn
+     the one-scene switch off and ask for twenty-second scenes; the export must
+     then be the twenty seconds the timeline shows, not the whole 3m07s clip.
+     Without the flag the render and the timeline would disagree. */
+  h.eq(
+    sceneTimelineDuration({ ...footageScene, video_trim_end: 187.4, duration: 20 }, undefined),
+    20,
+    "outside a one-scene project the export matches the timeline, not the raw footage"
+  );
+  h.eq(
+    sceneTimelineDuration({ ...footageScene, video_trim_end: 187.4, duration: 20 }, undefined, {
+      singleScene: true,
+    }),
+    187.4,
+    "and the same footage does hold its full length once the switch is on"
+  );
+  h.ok(
+    /sceneTimelineDuration\(s, item \? item\.duration : undefined, \{ singleScene \}\)/.test(render),
+    "the render passes the one-scene flag into its scene schedule"
+  );
+  h.ok(
+    /singleScene: boolean = false/.test(preview) && /\{ singleScene \}\)/.test(preview),
+    "the preview threads the same flag through its timing helpers"
   );
   h.eq(
     sceneFootageLength({ ...footageScene, video_trim_start: 10, video_trim_end: 40 }),
@@ -444,6 +469,84 @@ const footageScene = {
   h.ok(
     app.includes("[...FRAMING_KEYS, ...CLIP_KEYS, ...TRANSCRIPT_KEYS]"),
     "and the app persists those keys"
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 5b. one scene has no 10/20/30 target at all
+ *
+ * The target length is a rule about how long a SPOKEN scene should be. A
+ * one-scene project is not measured that way: its length is the footage's, or
+ * the time the script takes to read. So the cards are not offered in that
+ * mode, and nothing on the way to a new project reaches for 20.
+ * ------------------------------------------------------------------ */
+{
+  // The length of a one-scene project, whatever target the frame was showing.
+  h.eq(
+    singleSceneDuration("", 187.4),
+    187.4,
+    "with footage the one-scene length is the footage's, not a target"
+  );
+  h.eq(
+    singleSceneDuration("A short line of narration.", 187.4),
+    187.4,
+    "and a script does not pull it back to its reading time"
+  );
+  h.ok(
+    singleSceneDuration("A short line of narration.") < 20,
+    "with no footage the length is the script's own reading time, not the 20s target"
+  );
+
+  // Setup must not offer a target length while in one-scene mode, and must not
+  // pass one when the project is created.
+  h.ok(
+    /\{oneScene \? \([\s\S]*?Split into scenes[\s\S]*?\) : \(\s*<div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4/.test(
+      setup
+    ),
+    "the 10/20/30 cards are not rendered in one-scene mode"
+  );
+  h.ok(
+    setup.includes("const durToApply = oneScene") &&
+      setup.includes("singleSceneDuration(scriptText, footageSeconds || undefined)"),
+    "and starting a one-scene project uses the footage's length, never the 20s target"
+  );
+  h.ok(
+    !/const durToApply = selectedDuration \|\| 20;/.test(setup),
+    "the unconditional 20-second default is gone from that path"
+  );
+  h.ok(
+    setup.includes("handleExitSingleScene"),
+    "leaving one-scene mode is still one click, so the target length is reachable when wanted"
+  );
+
+  /* The regression this guards end to end: a 3m07s upload in a one-scene
+     project stays 3m07s through every re-timing pass and into the render. */
+  const clipScene = {
+    text: "",
+    duration: 187.4,
+    video_url: "custom-video:x",
+    video_name: "my-video.mp4",
+    video_duration: 187.4,
+    video_trim_start: 0,
+    video_trim_end: 187.4,
+  } as Scene;
+  for (const target of [10, 20, 30]) {
+    h.eq(
+      sceneDurationForScene(clipScene, { singleScene: true, targetDuration: target }),
+      187.4,
+      `a ${target}s target on the frame does not shorten a one-scene upload`
+    );
+  }
+  h.eq(
+    projectDurationForScenes([clipScene], { singleScene: true, targetDuration: 20 }),
+    187.4,
+    "and the project's own length is the footage's"
+  );
+  // The same footage in a split-scene project follows its words, as before.
+  h.eq(
+    sceneDurationForScene(clipScene, { singleScene: false, targetDuration: 20 }),
+    20,
+    "outside one-scene mode a target length still applies, exactly as before"
   );
 }
 

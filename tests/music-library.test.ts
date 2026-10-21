@@ -4,6 +4,10 @@ import { fileURLToPath } from "node:url";
 import { createHarness } from "./harness";
 import { BACKGROUND_MUSIC_TRACKS } from "../src/data/media-library";
 import { CATALOG_ITEMS } from "../src/lib/video-studio-catalog";
+import { createCatalogInsert } from "../src/lib/catalog-insert";
+import { buildInsertAudioPlan } from "../src/lib/insert-audio";
+import { customTrackToItem, trackLoops } from "../src/components/VoiceMediaLibrary";
+import type { CustomMusicTrack } from "../src/lib/custom-music";
 
 /**
  * The background music library.
@@ -148,6 +152,87 @@ for (const item of CATALOG_ITEMS.background_music) {
   h.ok(
     library.includes("loadCustomMusic"),
     "previously uploaded tracks are read back when the step opens"
+  );
+}
+
+// ---- an imported file asks: loop it, or use its own length? ------------------
+/* The whole point of the question is that the creator decides, so both answers
+   have to survive all the way into the render plan. These are the real
+   functions the library uses, not a copy of their logic. */
+{
+  const track: CustomMusicTrack = {
+    id: "cm_probe",
+    name: "My track",
+    mime: "audio/mpeg",
+    size: 1024,
+    duration: 187.4,
+    addedAt: 1,
+  };
+
+  // Not answered yet (an upload from before the question existed) behaves
+  // exactly as it always did: it loops.
+  h.eq(trackLoops(track), true, "an upload nobody has answered yet still loops, as it always did");
+  h.eq(trackLoops({ ...track, loop: true }), true, "and answering 'loop' loops");
+  h.eq(trackLoops({ ...track, loop: false }), false, "while answering 'use its length' does not");
+
+  const looping = customTrackToItem({ ...track, loop: true });
+  h.eq(looping.spansFullVideo, true, "a looping upload still stretches across the whole video");
+  h.eq(looping.defaultAudioSettings?.loop, true, "and repeats");
+
+  const once = customTrackToItem({ ...track, loop: false });
+  h.eq(once.spansFullVideo, false, "an upload set to its own length is not stretched across the video");
+  h.eq(once.defaultAudioSettings?.loop, false, "and does not repeat");
+  h.eq(once.defaultDuration, 187, "its card carries the file's own length");
+
+  // The insert the timeline actually receives. `totalDuration` is deliberately
+  // much longer than the file: if the answer were ignored, the bed would be
+  // stretched to 600s and looped, which is the other answer.
+  const loopingInsert = createCatalogInsert(looping, { totalDuration: 600, forceFullVideo: true });
+  const onceInsert = createCatalogInsert(once, {
+    totalDuration: 600,
+    forceFullVideo: once.spansFullVideo !== false,
+  });
+
+  h.eq(loopingInsert.duration, 600, "looping: the bed covers the whole video");
+  h.eq(loopingInsert.audioSettings?.loop, true, "looping: and repeats to get there");
+  h.eq(onceInsert.duration, 187, "its own length: the bed is exactly as long as the file");
+  h.eq(onceInsert.audioSettings?.loop, false, "its own length: and plays once");
+  h.eq(onceInsert.scope, undefined, "its own length: it is not pinned as an entire-video element");
+
+  // And the audio plan the renderer plays honours both.
+  const loopingPlan = buildInsertAudioPlan([loopingInsert], 600);
+  const oncePlan = buildInsertAudioPlan([onceInsert], 600);
+  h.eq(loopingPlan.length, 1, "a looping bed reaches the audio plan");
+  h.eq(loopingPlan[0].loop, true, "looping: the plan repeats the track");
+  h.eq(oncePlan.length, 1, "a play-once bed reaches the audio plan");
+  h.eq(oncePlan[0].loop, false, "its own length: the plan plays it once");
+  h.near(oncePlan[0].endTime, 187, 0.6, "its own length: and stops when the file ends");
+
+  // The choice is stored on the track, so a saved project comes back with it.
+  const read = (rel: string) => readFileSync(join(repoRoot, rel), "utf8");
+  const store = read("src/lib/custom-music.ts");
+  h.ok(
+    store.includes("export async function setCustomMusicLoop"),
+    "the answer is written back to the stored upload, not held in one component"
+  );
+  h.ok(
+    store.includes("store.put({ ...existing, loop })"),
+    "and it is persisted in IndexedDB, so it survives a reload"
+  );
+
+  // The question is actually asked, at the moment the file is imported.
+  const library = read("src/components/VoiceMediaLibrary.tsx");
+  h.ok(
+    library.includes("if (lastTrack) setAwaitingLoopChoice(lastTrack)"),
+    "importing a file asks the question"
+  );
+  h.ok(
+    library.includes("Loop it across the video") && library.includes("Use the file's length"),
+    "and offers both answers: loop it, or use the length of the music file"
+  );
+  h.ok(
+    library.includes("forceFullVideo: item.spansFullVideo !== false"),
+    "the insert is built from that answer rather than always spanning the video"
   );
 }
 

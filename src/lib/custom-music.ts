@@ -42,6 +42,14 @@ export interface CustomMusicTrack {
   /** Seconds, measured from the decoded file rather than guessed. */
   duration: number;
   addedAt: number;
+  /**
+   * How the track is used, chosen by the creator when they import it:
+   * `true` repeats it to fill the whole video, `false` plays it once at its
+   * own length. Absent means "not asked yet" (an upload from before this
+   * choice existed), which the library treats as looping — the behaviour it
+   * always had.
+   */
+  loop?: boolean;
 }
 
 interface CustomMusicRecord extends CustomMusicTrack {
@@ -267,6 +275,29 @@ export async function addCustomMusic(file: File): Promise<CustomMusicTrack> {
   loaded = true;
   notify();
   return stripBlob(record);
+}
+
+/**
+ * Records the creator's answer to "loop it, or use the track's own length?".
+ *
+ * It is stored on the track, not on the timeline insert, because the question
+ * belongs to the file: the same upload reused tomorrow should not have to be
+ * asked again, and a saved project must come back with the choice intact.
+ */
+export async function setCustomMusicLoop(id: string, loop: boolean): Promise<void> {
+  tracks = tracks.map((t) => (t.id === id ? { ...t, loop } : t));
+  notify();
+
+  const db = await openDb();
+  if (!db) return;
+  try {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    const existing = await idbRequest<CustomMusicRecord>(store.get(id) as IDBRequest<CustomMusicRecord>);
+    if (existing) store.put({ ...existing, loop });
+  } catch {
+    /* the in-memory list is already correct */
+  }
 }
 
 export async function removeCustomMusic(id: string): Promise<void> {

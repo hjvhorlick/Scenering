@@ -160,7 +160,11 @@ classes to components, regenerate the matrix with `npm run theme:css`.
    Or pick **One Scene** and bring your own video: the file becomes the whole
    project, and it plays start to finish. Its measured duration becomes the
    scene's and the project's, and nothing re-times it later — not Setup's
-   Continue, not the 10/20/30 cards, not Fit to speech. Two choices sit beside
+   Continue, not the 10/20/30 cards, not Fit to speech. Those cards are not
+   even offered in this mode: a one-scene project has no target length, its
+   length is the footage's (or the time the script takes to read when there is
+   no footage), and one click splits the script again when you want that back.
+   Two choices sit beside
    the upload: keep the sound inside your footage or leave it out of the
    finished video, and whether to transcribe that sound into captions.
    Captions are made by Whisper running on your own device (`src/lib/speech-
@@ -178,7 +182,10 @@ classes to components, regenerate the matrix with `npm run theme:css`.
    draws the narration while you listen to it. The music library holds 30
    cleared instrumental beds — filter them by feel (soft piano, classical,
    acoustic, ambient, cinematic, electronic, upbeat) or search by name — and
-   **Upload your music** puts your own file under the video instead. Uploads
+   **Upload your music** puts your own file under the video instead, and asks
+   how it should be used: loop it across the video, or use the file's own
+   length and play it once. The answer is kept with the upload, so a saved
+   project comes back with it. Uploads
    are kept in this browser and survive a reload; you are responsible for
    their licence, and the credits document says so. Captions can be switched
    on and off from here as well as from the Captions step.

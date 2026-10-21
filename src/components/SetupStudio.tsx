@@ -477,6 +477,29 @@ export default function SetupStudio({
   };
 
   /**
+   * The length a one-scene project actually is: the footage when there is
+   * footage, otherwise the time the script takes to read. There is no target
+   * length involved, which is the whole point of the mode.
+   */
+  const oneSceneLengthSeconds = footageSeconds > 0 ? footageSeconds : singleSceneDuration(script);
+  const oneSceneLengthLabel =
+    footageSeconds > 0
+      ? formatDuration(footageSeconds)
+      : `~${formatDuration(oneSceneLengthSeconds)}`;
+
+  /** Leaves one-scene mode and splits the script at the chosen target length. */
+  const handleExitSingleScene = () => {
+    setOneScene(false);
+    onUpdateSingleScene?.(false);
+
+    const currentScriptText = script.trim();
+    if (isExistingProject && currentScriptText) {
+      onUpdateScript(currentScriptText, true, activeDuration, false);
+    }
+    showNotice(`Scenes are now split to about ${formatDuration(activeDuration)} each.`);
+  };
+
+  /**
    * One scene for the whole project.
    *
    * On an existing project this immediately merges the scenes back into one —
@@ -598,8 +621,14 @@ export default function SetupStudio({
    */
   const handleStartProject = async () => {
     if (starting) return;
-    const durToApply = selectedDuration || 20;
     const scriptText = script.trim();
+    /* The 10/20/30 target is a rule about how long a SPOKEN scene should be,
+       so it has no meaning for a one-scene project: there the length is the
+       footage's, or the script's own reading time when there is no footage.
+       Passing 20 here is what used to stamp a 3-minute upload back down. */
+    const durToApply = oneScene
+      ? singleSceneDuration(scriptText, footageSeconds || undefined)
+      : selectedDuration || 20;
 
     // A one-scene project built from uploaded footage needs no script at all —
     // a music video has no words to read.
@@ -1009,13 +1038,56 @@ export default function SetupStudio({
         <SectionHeading
           step={4}
           title="Scene length"
-          subtitle="Target spoken length for every scene — the script is chunked to match. Or keep the whole thing as one scene."
+          subtitle={
+            oneScene
+              ? "One scene: its length is the footage's, or the time the script takes to read — no target length is applied."
+              : "Target spoken length for every scene — the script is chunked to match. Or keep the whole thing as one scene."
+          }
           badge={
             <span className="px-2.5 py-0.5 bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 rounded-full text-[10px] font-bold shrink-0">
               {oneScene ? "1 Scene" : `${activeDuration}s Active`}
             </span>
           }
         />
+        {oneScene ? (
+          /* One scene has no target length to choose. Its length is decided by
+             what is in it, so the 10/20/30 cards are not offered at all. */
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 sm:gap-2.5">
+            <div className="p-3.5 rounded-xl border bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-bold">{SINGLE_SCENE_OPTION.label}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-indigo-600 text-white">
+                    {oneSceneLengthLabel}
+                  </span>
+                </div>
+                <p className="text-[11px] text-indigo-200/80 mt-0.5 leading-relaxed">
+                  {hasFootage
+                    ? `The whole of “${footageName}” — start to finish, never cut to a target length.`
+                    : "The whole script reads as one scene, timed to the voice."}
+                </p>
+              </div>
+              <div className="w-4 h-4 mt-0.5 rounded-full border border-indigo-400 bg-indigo-600 shrink-0 flex items-center justify-center">
+                <div className="w-1.5 h-1.5 rounded-full bg-white" />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleExitSingleScene}
+              className="p-3.5 rounded-xl border text-left transition-all bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-bold text-white">Split into scenes</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-gray-700 text-gray-300">
+                  ~{activeDuration}s each
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
+                Cut the script into scenes of a chosen length and find a picture for each.
+              </p>
+            </button>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
           {DURATION_OPTIONS.map((opt) => {
             const isSelected = !oneScene && activeDuration === opt.seconds;
@@ -1086,6 +1158,7 @@ export default function SetupStudio({
             </div>
           </button>
         </div>
+        )}
 
         {/* ---- One-scene project: where does the single scene come from? ---- */}
         {oneScene && (

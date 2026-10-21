@@ -187,6 +187,8 @@ interface RenderViewProps {
   captionsConfig?: CaptionsConfig;
   /** Project-wide narration switch. Off renders a video with no spoken track. */
   voiceoverEnabled?: boolean;
+  /** One-scene project: the footage is the video, so nothing may shorten it. */
+  singleScene?: boolean;
   onUpdateCaptionsConfig?: (config: CaptionsConfig) => void;
   renderedBlob?: Blob | null;
   renderedUrl?: string | null;
@@ -274,6 +276,7 @@ export default function RenderView({
   customerLogo,
   captionsConfig,
   voiceoverEnabled = true,
+  singleScene = false,
   onUpdateCaptionsConfig,
   renderedBlob: propRenderedBlob,
   renderedUrl: propRenderedUrl,
@@ -1077,7 +1080,7 @@ export default function RenderView({
       let timelineOffset = introDuration;
       const sceneSchedule = scenesWithImages.map((s, idx) => {
         const item = audioBuffers.get(s.id);
-        const sceneLength = sceneTimelineDuration(s, item ? item.duration : undefined);
+        const sceneLength = sceneTimelineDuration(s, item ? item.duration : undefined, { singleScene });
         const speechDur = !voiceoverEnabled
           ? // Nothing is spoken, so the "speech" simply spans the scene. Any
             // other value would drift the captions away from the picture.
