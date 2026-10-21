@@ -1024,8 +1024,15 @@ export default function RenderView({
         /* Only words the creator WROTE are narration. A scene's text can just
            as easily be a transcript of the soundtrack the video already has,
            and reading that back would put a synthesised voice over the song it
-           came from — so `narratableText` is empty for a transcript. */
+           came from — so `narratableText` is empty for a transcript.
+
+           Such a scene is skipped whole rather than merely not synthesised:
+           `resolveSceneAudioBuffer` reads `scene.audio_url`, which a narration
+           generated for an EARLIER script leaves behind, and installing a
+           transcript does not clear it. Resolving first would resurrect that
+           old voice over the song the captions came from. */
         const spokenText = narratableText(s);
+        if ((s.text || "").trim() && !spokenText) continue;
         let resolved = await resolveSceneAudioBuffer(s, audioCtx);
         if (!resolved && voiceoverEnabled) {
           if (s.audio_url) {
@@ -1087,13 +1094,16 @@ export default function RenderView({
       const sceneSchedule = scenesWithImages.map((s, idx) => {
         const item = audioBuffers.get(s.id);
         const sceneLength = sceneTimelineDuration(s, item ? item.duration : undefined, { singleScene });
-        const speechDur = !voiceoverEnabled
-          ? // Nothing is spoken, so the "speech" simply spans the scene. Any
-            // other value would drift the captions away from the picture.
-            sceneLength
-          : item && item.duration > 0.3
-            ? item.duration
-            : calculateDynamicDuration(s.text, s.audio_duration);
+        /* Nothing spoken means the "speech" simply spans the scene; any other
+           value would drift the captions away from the picture. Estimating it
+           from the text would be wrong twice over for a transcript, where the
+           text is captions rather than something being read. */
+        const speechDur =
+          !voiceoverEnabled || !narratableText(s)
+            ? sceneLength
+            : item && item.duration > 0.3
+              ? item.duration
+              : calculateDynamicDuration(s.text, s.audio_duration);
         // The exact same scene-length formula the live preview uses
         // (src/lib/duration-utils.ts → sceneTimelineDuration): one number for
         // both, so the cut, the audio start and the caption flip all land on

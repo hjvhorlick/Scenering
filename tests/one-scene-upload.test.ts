@@ -862,6 +862,29 @@ const footageScene = {
     "and it sends only the creator's own words to the speech engine"
   );
 
+  /* The bypass this guards: `resolveSceneAudioBuffer` reads `scene.audio_url`,
+     which a narration generated for an EARLIER script leaves behind, and
+     installing a transcript does not clear it. Resolving before the text check
+     would resurrect that old voice over the song the captions came from, so a
+     caption-only scene has to be skipped before the resolve, not after it. */
+  h.ok(
+    /if \(\(s\.text \|\| ""\)\.trim\(\) && !spokenText\) continue;/.test(render),
+    "a caption-only scene is skipped before its saved narration is resolved"
+  );
+  const gateAt = render.indexOf('if ((s.text || "").trim() && !spokenText) continue;');
+  const resolveAt = render.indexOf("let resolved = await resolveSceneAudioBuffer(s, audioCtx);");
+  h.ok(
+    gateAt > 0 && resolveAt > gateAt,
+    "and the skip really does come before the resolve it is guarding"
+  );
+
+  // With nothing spoken, the caption clock spans the scene rather than being
+  // estimated from words that are only ever drawn.
+  h.ok(
+    /!voiceoverEnabled \|\| !narratableText\(s\)/.test(render),
+    "a caption-only scene times its captions to the picture, not to an imagined reading"
+  );
+
   const preview = read("src/components/VideoPreview.tsx");
   h.ok(
     /const speaks = voiceoverEnabled && projectHasNarration\(scenesWithImages\);/.test(preview),

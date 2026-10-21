@@ -256,8 +256,8 @@ const LONG_SCRIPT = Array.from(
     "the renderer skips the whole narration pass when it is off"
   );
   ok(
-    /const speechDur = !voiceoverEnabled/.test(render),
-    "with no voice, the caption clock follows the scene rather than an imagined speech length"
+    /!voiceoverEnabled \|\| !narratableText\(s\)/.test(render),
+    "with nothing spoken, the caption clock follows the scene rather than an imagined speech length"
   );
   ok(
     /if \(voiceoverEnabled\) \{\s+const savedSnapshot = readAudioSnapshot\(\);\s+const targets = planVoiceoverGeneration/.test(studio),

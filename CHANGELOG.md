@@ -31,6 +31,15 @@
   fixed the audio plan, which ran every music bed to the end of the video
   regardless of its own length — a play-once track was scheduled for the whole
   timeline and only stopped because the buffer ran out.
+- **Fixed: a narration from an earlier script survived a transcript.** The
+  gate that stops captions being read aloud only covered the speech engine.
+  `resolveSceneAudioBuffer` runs first and reads `scene.audio_url` — the track a
+  narration generated for an EARLIER script left behind — and installing a
+  transcript does not clear it. So a scene that once had narration and was then
+  transcribed still played the old voice over the song the captions came from.
+  A caption-only scene is now skipped before its saved narration is resolved,
+  and its caption clock follows the picture instead of an estimated reading of
+  words that are only ever drawn.
 - **A music video built from stills can now get its captions.** The Captions
   step only offered to transcribe a scene with footage attached — the gate was
   `sceneHasClip`, which is just `Boolean(scene.video_url)`. So a video made from
