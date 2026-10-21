@@ -31,6 +31,12 @@
   fixed the audio plan, which ran every music bed to the end of the video
   regardless of its own length — a play-once track was scheduled for the whole
   timeline and only stopped because the buffer ran out.
+- **Fixed: saving the script stored the wrong project length.** Rebuilding the
+  scenes from the script also writes the project row's `default_duration`, and
+  it wrote the 10/20/30 target unconditionally. In a one-scene project whose
+  only scene was three minutes of footage, that saved a row claiming twenty
+  seconds — and the next reload read the claim back as the project's target
+  length. It now stores the length the scene actually got.
 - **Fixed: a clip attached later was still trimmed to the narration.** The
   scene editor's Upload Video button and the clip panel both go through
   `sceneUpdatesForVideoFile`, which trimmed the file to the narration window

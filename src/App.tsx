@@ -745,10 +745,18 @@ export default function App() {
               oneScene ? singleSceneDuration(text, existing?.video_duration) : sceneDurationForText(text, targetDur),
           });
 
+          /* What the project row should say its length is. For a split-scene
+             project that is the per-scene target, as it has always been. In a
+             one-scene project the target means nothing — the scene's own
+             length is the project's, so writing the target here left the row
+             claiming twenty seconds for a project whose only scene was three
+             minutes long, and the next reload read the claim back. */
+          const projectDuration = oneScene && newScenes.length > 0 ? newScenes[0].duration : targetDur;
+
           // Persist each scene to Supabase & localStorage
           try {
             if (currentProject?.id) {
-              supabase.from("projects").update({ script: newScript, default_duration: targetDur }).eq("id", currentProject.id).then();
+              supabase.from("projects").update({ script: newScript, default_duration: projectDuration }).eq("id", currentProject.id).then();
             }
             // Re-splitting can produce FEWER scenes than before — most
             // dramatically when switching to a one-scene project, where a

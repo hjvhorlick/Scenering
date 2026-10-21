@@ -277,6 +277,20 @@ const footageScene = {
       app.includes("const projectDuration = footage > 0 ? Math.round(footage * 10) / 10 : dur;"),
     "and re-timing keeps the project at that length"
   );
+  /* Saving the script rebuilds the scenes, and it writes the project's length
+     too. That write used to be the target unconditionally, so a one-scene
+     project whose scene was three minutes long saved a row claiming twenty
+     seconds — and the next reload believed it. */
+  h.ok(
+    /const projectDuration = oneScene && newScenes\.length > 0 \? newScenes\[0\]\.duration : targetDur;/.test(
+      app
+    ) && app.includes("default_duration: projectDuration }"),
+    "saving the script stores the length the scene actually got, not the target"
+  );
+  h.ok(
+    !/default_duration: targetDur \}/.test(app),
+    "no path writes the bare target as a one-scene project's length"
+  );
   h.ok(
     !/setScenes\(\(prev\) => \{\s*\n\s*const footage = oneScene/.test(app),
     "that decision is taken outside the state updater, which must stay pure"
