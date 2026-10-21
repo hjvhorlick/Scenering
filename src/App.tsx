@@ -2329,6 +2329,7 @@ export default function App() {
                             totalScenes={scenes.length}
                             aspectRatio={aspectRatio}
                             targetDuration={sceneDuration || 20}
+                            singleScene={singleScene}
                             onUpdateTargetDuration={handleUpdateSceneDuration}
                             onUpdate={handleUpdateScene}
                             onImageSearch={handleImageSearch}

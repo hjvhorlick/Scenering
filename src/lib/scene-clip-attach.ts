@@ -17,6 +17,12 @@
  *    with), while an INSERTED scene keeps its own audio, because there the
  *    clip IS the content;
  *  - a clip shorter than the narration loops instead of leaving dead frames.
+ *
+ * A ONE-SCENE project is the exception, and it has to be, because there the
+ * footage is not decoration behind a narration — it is the whole video. Trimming
+ * it to the narration window is exactly what cut an uploaded video short, so
+ * the whole file is used, it plays once rather than looping, and its own sound
+ * is kept the way an inserted scene's is.
  */
 
 import type { Scene } from "../types";
@@ -26,20 +32,23 @@ import { addCustomVideo, CustomVideoError } from "./custom-video";
 export async function sceneUpdatesForVideoFile(
   file: File,
   scene: Pick<Scene, "is_inserted" | "video_volume">,
-  narrationDuration: number
+  narrationDuration: number,
+  /** A one-scene project: the clip is the video, so nothing trims or loops it. */
+  options: { singleScene?: boolean } = {}
 ): Promise<Partial<Scene>> {
   const clip = await addCustomVideo(file);
   const full = clip.duration > 0 ? clip.duration : narrationDuration;
   const isInserted = Boolean(scene.is_inserted);
+  const singleScene = Boolean(options.singleScene);
   return {
     video_url: `custom-video:${clip.id}`,
     video_name: clip.name,
     video_duration: full,
     video_trim_start: 0,
-    video_trim_end: Math.min(full, narrationDuration),
-    video_mute: !isInserted,
+    video_trim_end: singleScene ? full : Math.min(full, narrationDuration),
+    video_mute: singleScene ? false : !isInserted,
     video_volume: scene.video_volume ?? 0.8,
-    video_fit_mode: full < narrationDuration ? "loop" : "trim",
+    video_fit_mode: !singleScene && full < narrationDuration ? "loop" : "trim",
   };
 }
 

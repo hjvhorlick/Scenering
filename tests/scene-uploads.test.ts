@@ -124,7 +124,21 @@ h.ok(
   editor.includes("sceneUpdatesForVideoFile"),
   "the row's video button produces exactly the same scene as the clip panel"
 );
-h.ok(attach.includes("video_mute: !isInserted"), "a script scene still mutes the clip under the narration");
+h.ok(
+  attach.includes("video_mute: singleScene ? false : !isInserted"),
+  "a script scene still mutes the clip under the narration"
+);
+/* The one exception, and the reason for it: in a one-scene project the clip is
+   not decoration behind a narration, it is the whole video. Trimming it to the
+   narration window is what cut an uploaded video short. */
+h.ok(
+  attach.includes("video_trim_end: singleScene ? full : Math.min(full, narrationDuration)"),
+  "a one-scene project keeps the whole file instead of trimming it to the narration"
+);
+h.ok(
+  attach.includes('video_fit_mode: !singleScene && full < narrationDuration ? "loop" : "trim"'),
+  "and it plays once start to finish rather than looping to fill a longer scene"
+);
 h.ok(attach.includes('"loop"'), "a clip shorter than the narration still loops");
 
 /* ------------------------------------- every drawing path resolves uploads */

@@ -10,6 +10,8 @@ interface SceneClipPanelProps {
   scene: Scene;
   /** Length the narration needs, in seconds. The clip is trimmed to this. */
   narrationDuration: number;
+  /** One-scene project: the clip is the video, so it is never trimmed to the narration. */
+  singleScene?: boolean;
   onUpdate: (sceneId: number, updates: Partial<Scene>) => void;
 }
 
@@ -29,7 +31,12 @@ function fmt(seconds: number): string {
  *    with by the clip's own audio;
  *  - an INSERTED scene keeps its own audio, because that clip is the content.
  */
-export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: SceneClipPanelProps) {
+export default function SceneClipPanel({
+  scene,
+  narrationDuration,
+  singleScene = false,
+  onUpdate,
+}: SceneClipPanelProps) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   /**
    * Collapsed unless the scene actually uses a clip. Kept open permanently the
@@ -66,7 +73,7 @@ export default function SceneClipPanel({ scene, narrationDuration, onUpdate }: S
   const handlePick = (file: File | undefined) => {
     if (!file) return;
     setLoadError(null);
-    void sceneUpdatesForVideoFile(file, scene, narrationDuration)
+    void sceneUpdatesForVideoFile(file, scene, narrationDuration, { singleScene })
       .then((updates) => onUpdate(scene.id, updates))
       .catch((err) => setLoadError(videoUploadMessage(err)));
   };

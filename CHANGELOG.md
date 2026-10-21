@@ -31,6 +31,13 @@
   fixed the audio plan, which ran every music bed to the end of the video
   regardless of its own length — a play-once track was scheduled for the whole
   timeline and only stopped because the buffer ran out.
+- **Fixed: a clip attached later was still trimmed to the narration.** The
+  scene editor's Upload Video button and the clip panel both go through
+  `sceneUpdatesForVideoFile`, which trimmed the file to the narration window
+  and looped it when it was shorter. That is right for a script scene, where a
+  clip is decoration behind a voice, and wrong in a one-scene project, where
+  the footage is the whole video. Both callers now pass the one-scene flag, and
+  there the whole file is used, it plays once, and its own sound is kept.
 - **The project's own length is the footage's length.** A project created from
   an upload is stored at the clip's measured duration (`default_duration` and
   the `scene_duration` setting) rather than the 10/20/30 target that was
