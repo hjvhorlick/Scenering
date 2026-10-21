@@ -8,42 +8,16 @@ import { resolveVideoUrl } from "./custom-video";
  * (`drawSceneImage`), so a clip is cropped, letterboxed and blur-filled with
  * identical rules and is never stretched out of its aspect ratio. A
  * `<video>` element exposes its size as videoWidth/videoHeight rather than
- * naturalWidth/naturalHeight, so it is wrapped in a thin adapter.
+ * naturalWidth/naturalHeight, so the framing engine handles both natively.
  */
-
-/** Framing code reads naturalWidth/naturalHeight; videos do not have them. */
-export interface DrawableClip {
-  readonly naturalWidth: number;
-  readonly naturalHeight: number;
-  readonly element: HTMLVideoElement;
-}
 
 /**
- * Make the real video element satisfy the framing engine's image-size shape.
- *
- * This must NOT return a Proxy. Canvas drawImage performs a Web-IDL brand
- * check that can reject a Proxy around an HTMLVideoElement, leaving uploaded
- * video scenes black even though metadata has loaded.
+ * Return the real platform element. Canvas drawImage performs a Web-IDL brand
+ * check that can reject Proxies or look-alike wrappers. The framing engine now
+ * reads videoWidth/videoHeight directly, so no mutation or adapter is needed.
  */
-export function asDrawableClip(video: HTMLVideoElement): DrawableClip & HTMLVideoElement {
-  const drawable = video as HTMLVideoElement & DrawableClip;
-  if (!("naturalWidth" in drawable)) {
-    Object.defineProperties(drawable, {
-      naturalWidth: {
-        configurable: true,
-        get: () => video.videoWidth,
-      },
-      naturalHeight: {
-        configurable: true,
-        get: () => video.videoHeight,
-      },
-      element: {
-        configurable: true,
-        get: () => video,
-      },
-    });
-  }
-  return drawable;
+export function asDrawableClip(video: HTMLVideoElement): HTMLVideoElement {
+  return video;
 }
 
 /** True when this scene should show a clip rather than a still image. */
@@ -111,8 +85,15 @@ export function clipTimeForProgress(scene: Scene, sceneProgress: number, sceneDu
  */
 export class ClipPool {
   private elements = new Map<number, HTMLVideoElement>();
+  private missingReported = new Set<number>();
 
-  constructor(private readonly onFrameAvailable?: (sceneId: number) => void) {}
+  constructor(
+    private readonly onStatus?: (
+      sceneId: number,
+      status: "frame" | "error",
+      message?: string
+    ) => void
+  ) {}
 
   /** Get (or create) the element for a scene, returning null without a clip. */
   get(scene: Scene): HTMLVideoElement | null {
@@ -121,27 +102,77 @@ export class ClipPool {
     // only exists for this page load, so it is resolved here rather than
     // being written into the saved scene.
     const src = resolveVideoUrl(scene.video_url);
-    if (!src) return null;
+    if (!src) {
+      if (!this.missingReported.has(scene.id)) {
+        this.missingReported.add(scene.id);
+        this.onStatus?.(
+          scene.id,
+          "error",
+          "The uploaded video is no longer available in this browser's storage. Re-upload it in Setup."
+        );
+      }
+      return null;
+    }
+    this.missingReported.delete(scene.id);
 
     let el = this.elements.get(scene.id);
     if (!el) {
       el = document.createElement("video");
       el.preload = "auto";
       el.playsInline = true;
-      el.crossOrigin = "anonymous";
+      el.setAttribute("playsinline", "");
+      el.setAttribute("webkit-playsinline", "");
+      el.setAttribute("aria-hidden", "true");
+      el.tabIndex = -1;
       el.loop = (scene.video_fit_mode || "trim") === "loop";
+      // Safari and some mobile media pipelines do not reliably decode or
+      // advance a detached media element. Keep the real element mounted one
+      // pixel off-screen; canvas still receives that exact platform object.
+      el.style.position = "fixed";
+      el.style.left = "-10000px";
+      el.style.top = "0";
+      el.style.width = "1px";
+      el.style.height = "1px";
+      el.style.pointerEvents = "none";
+      document.body?.appendChild(el);
       this.elements.set(scene.id, el);
-      const notify = () => {
+      const notifyFrame = () => {
         // Ignore a late event from an element already released by retain/dispose.
-        if (this.elements.get(scene.id) === el) this.onFrameAvailable?.(scene.id);
+        if (this.elements.get(scene.id) === el) this.onStatus?.(scene.id, "frame");
+      };
+      const notifyError = () => {
+        if (this.elements.get(scene.id) !== el) return;
+        const mediaError = el?.error;
+        this.onStatus?.(
+          scene.id,
+          "error",
+          mediaError?.message || `The browser could not decode this video (media error ${mediaError?.code || "unknown"}).`
+        );
+      };
+      const primeFirstFrame = () => {
+        if (this.elements.get(scene.id) !== el || !el || el.readyState >= 2) return;
+        // A few engines stop at metadata for a detached/paused element and do
+        // not decode frame zero until the first seek. A tiny seek is invisible
+        // but guarantees loadeddata/seeked and therefore a canvas repaint.
+        const wanted = clipTiming(scene).start;
+        const last = Number.isFinite(el.duration) ? Math.max(0, el.duration - 0.001) : wanted;
+        const target = Math.min(last, wanted > 0 ? wanted : 0.001);
+        try { el.currentTime = target; } catch {}
       };
       // loadeddata repaints the initial paused frame; seeked repaints after a
       // timeline scrub. Without these, a black canvas remained forever until
       // the user pressed Play because no React dependency changed on decode.
-      el.addEventListener("loadeddata", notify);
-      el.addEventListener("seeked", notify);
+      el.addEventListener("loadedmetadata", primeFirstFrame);
+      el.addEventListener("loadeddata", notifyFrame);
+      el.addEventListener("seeked", notifyFrame);
+      el.addEventListener("error", notifyError);
     }
     if (el.getAttribute("data-src") !== src) {
+      // Local upload Blob URLs are same-origin and need no CORS mode. In
+      // particular, avoiding a crossorigin fetch here sidesteps WebKit Blob
+      // decoding failures while preserving anonymous CORS for remote clips.
+      if (/^https?:/i.test(src)) el.crossOrigin = "anonymous";
+      else el.removeAttribute("crossorigin");
       el.src = src;
       el.setAttribute("data-src", src);
       el.load();
@@ -227,6 +258,7 @@ export class ClipPool {
         el.pause();
         el.removeAttribute("src");
         el.load();
+        el.remove();
       } catch {}
     }
   }
@@ -244,11 +276,13 @@ export class ClipPool {
   dispose(): void {
     const elements = [...this.elements.values()];
     this.elements.clear();
+    this.missingReported.clear();
     for (const el of elements) {
       try {
         el.pause();
         el.removeAttribute("src");
         el.load();
+        el.remove();
       } catch {}
     }
   }

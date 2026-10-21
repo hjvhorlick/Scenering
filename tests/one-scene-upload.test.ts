@@ -41,6 +41,12 @@ import {
   TRANSCRIPT_KEYS,
 } from "../src/lib/clip-transcript";
 import { parseCaptionFile, CaptionFileError } from "../src/lib/caption-file";
+import {
+  sourceHasPixels,
+  sourcePixelHeight,
+  sourcePixelWidth,
+  sourceRect,
+} from "../src/lib/scene-framing";
 import type { Scene } from "../src/types";
 
 /**
@@ -70,6 +76,7 @@ const captions = read("src/components/CaptionsStudio.tsx");
 const render = read("src/components/RenderView.tsx");
 const preview = read("src/components/VideoPreview.tsx");
 const sceneClip = read("src/lib/scene-clip.ts");
+const sceneFraming = read("src/lib/scene-framing.ts");
 const server = read("server.ts");
 
 /** A three-minute music video with no script — the case that used to break. */
@@ -439,15 +446,32 @@ const footageScene = {
     "pressing Cancel clears the error instead of reporting the cancellation as one"
   );
 
+  const nativeVideoSize = { videoWidth: 1920, videoHeight: 1080 };
+  h.eq(sourcePixelWidth(nativeVideoSize), 1920, "native videoWidth is accepted as a canvas source width");
+  h.eq(sourcePixelHeight(nativeVideoSize), 1080, "native videoHeight is accepted as a canvas source height");
+  h.ok(sourceHasPixels(nativeVideoSize), "a decoded native video element is recognised as drawable");
+  const videoCrop = sourceRect(nativeVideoSize, { x: 0.25, y: 0.1, w: 0.5, h: 0.75 });
+  h.eq(videoCrop.sx, 480, "video crop x uses the native width");
+  h.eq(videoCrop.sy, 108, "video crop y uses the native height");
+  h.eq(videoCrop.sw, 960, "video crop width uses the native width");
+  h.eq(videoCrop.sh, 810, "video crop height uses the native height");
+
   h.ok(
     !sceneClip.includes("new Proxy(video") &&
-      sceneClip.includes("Object.defineProperties(drawable"),
-    "canvas receives the real HTMLVideoElement, never a Proxy rejected by drawImage's browser brand check"
+      !sceneClip.includes("Object.defineProperties(drawable") &&
+      sceneClip.includes("return video;") &&
+      sceneFraming.includes('if ("videoWidth" in source)'),
+    "canvas receives the unmodified HTMLVideoElement and framing reads its native video dimensions"
   );
   h.ok(
-    sceneClip.includes('el.addEventListener("loadeddata", notify)') &&
-      sceneClip.includes('el.addEventListener("seeked", notify)') &&
+    sceneClip.includes('document.body?.appendChild(el)') &&
+      sceneClip.includes("The uploaded video is no longer available") &&
+      sceneClip.includes('el.addEventListener("loadedmetadata", primeFirstFrame)') &&
+      sceneClip.includes('el.addEventListener("loadeddata", notifyFrame)') &&
+      sceneClip.includes('el.addEventListener("seeked", notifyFrame)') &&
       preview.includes("setClipFrameRevision((revision) => revision + 1)") &&
+      preview.includes("Loading uploaded video frame…") &&
+      preview.includes("Video preview failed:") &&
       preview.includes("loadCustomVideos().then") &&
       setup.includes("setVideoStoreRevision((revision) => revision + 1)") &&
       render.includes("idleSource = asDrawableClip(video)") &&

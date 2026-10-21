@@ -8,7 +8,14 @@ import {
 } from "../lib/render-effects";
 import { getSceneCameraTransform, renderSceneAnimationEffects } from "../lib/scene-animation";
 import { stopAllSoundPreviews } from "../data/media-library";
-import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
+import {
+  drawSceneImage,
+  sceneHasVisual,
+  sceneIsBlankColor,
+  prewarmSceneFrame,
+  sourceHasPixels,
+  type SceneDrawable,
+} from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { loadCustomVideos } from "../lib/custom-video";
@@ -229,14 +236,33 @@ export default function VideoPreview({
   /** True once playPreview() has begun preparing, before playingRef is set. */
   const startingRef = useRef(false);
   /** Hidden media decode events must repaint a paused canvas when a frame arrives. */
+  const clipSourceKey = scenes.map((scene) => scene.video_url || "").join("|");
   const [clipFrameRevision, setClipFrameRevision] = useState(0);
-  /** Hidden <video> elements for scenes that use a short clip instead of a still. */
+  const [clipPreviewError, setClipPreviewError] = useState<string | null>(null);
+  const [videoStoreReady, setVideoStoreReady] = useState(false);
+  const [clipPreviewLoading, setClipPreviewLoading] = useState(
+    () => scenes.some((scene) => sceneHasClip(scene))
+  );
+  const clipDrawErrorRef = useRef(false);
+  /** Hidden media elements for scenes that use a clip instead of a still. */
   const [clipPool] = useState(
-    () => new ClipPool(() => {
+    () => new ClipPool((_sceneId, status, message) => {
+      if (status === "error") {
+        setClipPreviewLoading(false);
+        setClipPreviewError(message || "This browser could not decode the uploaded video for preview.");
+        return;
+      }
+      setClipPreviewLoading(false);
+      if (!clipDrawErrorRef.current) setClipPreviewError(null);
       if (!playingRef.current) setClipFrameRevision((revision) => revision + 1);
     })
   );
   const clipPoolRef = useRef<ClipPool>(clipPool);
+  useEffect(() => {
+    clipDrawErrorRef.current = false;
+    setClipPreviewError(null);
+    setClipPreviewLoading(clipSourceKey.split("|").some(Boolean));
+  }, [clipSourceKey]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   // Voice and background-music are analysed on separate buses so a visualiser
   // set to "moves with the music" reacts to the music, not to the narration.
@@ -563,7 +589,9 @@ export default function VideoPreview({
   useEffect(() => {
     let active = true;
     void loadCustomVideos().then(() => {
-      if (active && !playingRef.current) {
+      if (!active) return;
+      setVideoStoreReady(true);
+      if (!playingRef.current) {
         setClipFrameRevision((revision) => revision + 1);
       }
     });
@@ -604,8 +632,7 @@ export default function VideoPreview({
       // A scene with a short clip draws the clip's current frame instead of the
       // still. It goes through the same framing engine, so crop, blur-fill and
       // aspect handling are identical and the clip is never squashed.
-      let source: (CanvasImageSource & { naturalWidth: number; naturalHeight: number; complete?: boolean }) | null =
-        img as any;
+      let source: SceneDrawable | null = img as any;
       if (sceneHasClip(scene)) {
         const pool = clipPoolRef.current;
         const el = pool.get(scene);
@@ -614,7 +641,7 @@ export default function VideoPreview({
             pool.seekToProgress(scene, sceneProgress, Math.max(0.1, scene.duration || 1));
           }
           if (el.readyState >= 2 && el.videoWidth > 0) {
-            source = asDrawableClip(el) as any;
+            source = asDrawableClip(el);
           }
         }
       }
@@ -631,6 +658,15 @@ export default function VideoPreview({
         ctx.restore();
       }
 
+      const reportClipDrawError = (error: unknown) => {
+        if (!clipDrawErrorRef.current) {
+          clipDrawErrorRef.current = true;
+          setClipPreviewLoading(false);
+          setClipPreviewError(
+            `The video decoded, but the canvas could not draw its frame. (${(error as Error)?.message || "canvas draw failed"})`
+          );
+        }
+      };
       let handledTransition = false;
       const sceneIdx = Math.max(0, scenesWithImages.findIndex((s) => s.id === scene.id));
       if (
@@ -648,12 +684,11 @@ export default function VideoPreview({
             h,
             sceneIdx
           );
-          let prevSource: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
-            prevImg as any;
+          let prevSource: SceneDrawable | null = prevImg as any;
           if (prevScene && sceneHasClip(prevScene)) {
             const el = clipPoolRef.current.get(prevScene);
             if (el && el.readyState >= 2 && el.videoWidth > 0) {
-              prevSource = asDrawableClip(el) as any;
+              prevSource = asDrawableClip(el);
             }
           }
           const { scale: prevScale, dx: prevDx, dy: prevDy } = prevScene
@@ -673,33 +708,37 @@ export default function VideoPreview({
           const safePrevDx = isNaN(prevDx) ? 0 : prevDx;
           const safePrevDy = isNaN(prevDy) ? 0 : prevDy;
 
-          handledTransition = drawSceneTransition(
-            ctx,
-            scene,
-            source && (!("complete" in source) || (source as any).complete) && source.naturalWidth > 0 ? source : null,
-            prevScene || null,
-            prevSource && (!("complete" in prevSource) || (prevSource as any).complete) && prevSource.naturalWidth > 0 ? prevSource : null,
-            elapsedInScene,
-            scene.duration || 20,
-            w,
-            h,
-            {
-              motionScale: safeScale,
-              motionDx: safeDx + (w * safeScale - w) / 2,
-              motionDy: safeDy + (h * safeScale - h) / 2,
-              filter: getFilterCanvas(videoFilterRef.current, w),
-            },
-            prevScene ? {
-              motionScale: safePrevScale,
-              motionDx: safePrevDx + (w * safePrevScale - w) / 2,
-              motionDy: safePrevDy + (h * safePrevScale - h) / 2,
-              filter: getFilterCanvas(videoFilterRef.current, w),
-            } : undefined
-          );
+          try {
+            handledTransition = drawSceneTransition(
+              ctx,
+              scene,
+              sourceHasPixels(source) ? source : null,
+              prevScene || null,
+              sourceHasPixels(prevSource) ? prevSource : null,
+              elapsedInScene,
+              scene.duration || 20,
+              w,
+              h,
+              {
+                motionScale: safeScale,
+                motionDx: safeDx + (w * safeScale - w) / 2,
+                motionDy: safeDy + (h * safeScale - h) / 2,
+                filter: getFilterCanvas(videoFilterRef.current, w),
+              },
+              prevScene ? {
+                motionScale: safePrevScale,
+                motionDx: safePrevDx + (w * safePrevScale - w) / 2,
+                motionDy: safePrevDy + (h * safePrevScale - h) / 2,
+                filter: getFilterCanvas(videoFilterRef.current, w),
+              } : undefined
+            );
+          } catch (error) {
+            if (sceneHasClip(scene) || sceneHasClip(prevScene)) reportClipDrawError(error);
+          }
         }
       }
 
-      if (!handledTransition && source && (source.complete ?? true) && source.naturalWidth > 0) {
+      if (!handledTransition && sourceHasPixels(source)) {
         const img = source;
         const { scale: motionScale, dx: motionDx, dy: motionDy } = getSceneCameraTransform(
           scene,
@@ -712,12 +751,16 @@ export default function VideoPreview({
         // getMotionTransform returns an offset that recentres a canvas-sized
         // draw; the framing engine centres the photo itself, so only the
         // leftover wobble is passed through.
-        drawSceneImage(ctx, img, scene, w, h, {
-          motionScale,
-          motionDx: motionDx + (w * motionScale - w) / 2,
-          motionDy: motionDy + (h * motionScale - h) / 2,
-          filter: getFilterCanvas(videoFilterRef.current, w),
-        });
+        try {
+          drawSceneImage(ctx, img, scene, w, h, {
+            motionScale,
+            motionDx: motionDx + (w * motionScale - w) / 2,
+            motionDy: motionDy + (h * motionScale - h) / 2,
+            filter: getFilterCanvas(videoFilterRef.current, w),
+          });
+        } catch (error) {
+          if (sceneHasClip(scene)) reportClipDrawError(error);
+        }
       }
 
       // Per-scene living-scene animation layers (weather, water, particles,
@@ -914,7 +957,7 @@ export default function VideoPreview({
 
   // Redraw when user scrubs playhead while paused OR when logo/captions/scene changes
   useEffect(() => {
-    if (isPlaying || scenesWithImages.length === 0) return;
+    if (!videoStoreReady || isPlaying || scenesWithImages.length === 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -986,6 +1029,7 @@ export default function VideoPreview({
   }, [
     currentPlayheadTime,
     isPlaying,
+    videoStoreReady,
     clipFrameRevision,
     scenesWithImages,
     drawScene,
@@ -1142,6 +1186,8 @@ export default function VideoPreview({
   // ------ PLAY PREVIEW ------
   const playPreview = useCallback(async (seekTime?: number) => {
     if (scenesWithImages.length === 0) return;
+    await loadCustomVideos();
+    setVideoStoreReady(true);
 
     // Starting the video silences any library preview still playing, so the
     // play button always gives one soundtrack.
@@ -1720,6 +1766,15 @@ export default function VideoPreview({
             title="Drag a badge to move it, or drag the corner handle to resize it"
           />
 
+          {clipPreviewLoading && !clipPreviewError && (
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center pointer-events-none z-10">
+              <div className="rounded-lg border border-hairline bg-gray-950/85 px-3 py-2 text-xs text-gray-200 flex items-center gap-2">
+                <span className="inline-block h-2.5 w-2.5 rounded-full bg-indigo-400 animate-pulse" />
+                Loading uploaded video frame…
+              </div>
+            </div>
+          )}
+
           {/* Hint Overlay when hovering canvas */}
           <div className="absolute bottom-2 right-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur px-2.5 py-1 rounded-md text-[11px] text-gray-300 border border-hairline">
             <Icon glyph="🖱" /> Drag elements to reposition
@@ -1747,6 +1802,14 @@ export default function VideoPreview({
           </div>
 
           {/* Status */}
+          {clipPreviewError && (
+            <div
+              className="text-xs text-amber-200 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2 text-center"
+              role="alert"
+            >
+              Video preview failed: {clipPreviewError}
+            </div>
+          )}
           {audioStatus && (
             <div className="text-xs text-gray-400 text-center" role="status" aria-live="polite">
               {audioStatus}

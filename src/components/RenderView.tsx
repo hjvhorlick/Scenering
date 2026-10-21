@@ -17,7 +17,14 @@ import {
 } from "../lib/vip-export-audit";
 import { isCtaCustomised, isFreeCtaInsert } from "../data/cta-library";
 import { startVoiceSource } from "../lib/voice-fade";
-import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
+import {
+  drawSceneImage,
+  sceneHasVisual,
+  sceneIsBlankColor,
+  prewarmSceneFrame,
+  sourceHasPixels,
+  type SceneDrawable,
+} from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { loadCustomVideos } from "../lib/custom-video";
@@ -553,12 +560,11 @@ export default function RenderView({
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, width, height);
 
-      let idleSource: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
-        idleImgRef.current as any;
+      let idleSource: SceneDrawable | null = idleImgRef.current as any;
       if (sceneHasClip(idleScene)) {
         const video = idleClipPool.get(idleScene);
         if (video && video.readyState >= 2 && video.videoWidth > 0) {
-          idleSource = asDrawableClip(video) as any;
+          idleSource = asDrawableClip(video);
         }
       }
 
@@ -568,7 +574,7 @@ export default function RenderView({
         ctx.fillStyle = first.blank_color;
         ctx.fillRect(0, 0, width, height);
         ctx.restore();
-      } else if (idleSource && idleSource.naturalWidth > 0) {
+      } else if (sourceHasPixels(idleSource)) {
         const { scale, dx, dy } = getSceneCameraTransform(
           first,
           sceneAnimationEnabled,
@@ -1228,7 +1234,7 @@ export default function RenderView({
        * Sequential export only needs previous/current/next (the previous one
        * is retained for transitions), so keep exactly that three-scene window.
        */
-      type RenderImage = (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null;
+      type RenderImage = SceneDrawable | null;
       const images: RenderImage[] = new Array(scenesWithImages.length).fill(null);
       const imageLoads = new Map<number, Promise<void>>();
       const fallbackScenes = new Set<number>();
@@ -1438,26 +1444,25 @@ export default function RenderView({
         ctx.fillRect(0, 0, width, height);
 
         // --- Draw image (or video clip) ---
-        let img: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
-          images[currentSceneIdx] as any;
+        let img: SceneDrawable | null = images[currentSceneIdx] as any;
         if (sceneHasClip(currentScene)) {
           const el = clipPool.get(currentScene);
           if (el) {
             clipPool.seekToProgress(currentScene, progressInScene, activeEntry.duration);
             if (el.readyState >= 2 && el.videoWidth > 0) {
-              img = asDrawableClip(el) as any;
+              img = asDrawableClip(el);
             }
           }
         }
 
         const prevEntry = currentSceneIdx > 0 ? sceneSchedule[currentSceneIdx - 1] : null;
         const prevScene = prevEntry ? prevEntry.scene : null;
-        let prevImg: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
+        let prevImg: SceneDrawable | null =
           currentSceneIdx > 0 ? (images[currentSceneIdx - 1] as any) : null;
         if (prevScene && sceneHasClip(prevScene)) {
           const el = clipPool.get(prevScene);
           if (el && el.readyState >= 2 && el.videoWidth > 0) {
-            prevImg = asDrawableClip(el) as any;
+            prevImg = asDrawableClip(el);
           }
         }
 
@@ -1513,9 +1518,9 @@ export default function RenderView({
             handledTransition = drawSceneTransition(
               ctx,
               currentScene,
-              img && img.naturalWidth > 0 ? img : null,
+              sourceHasPixels(img) ? img : null,
               prevScene || null,
-              prevImg && prevImg.naturalWidth > 0 ? prevImg : null,
+              sourceHasPixels(prevImg) ? prevImg : null,
               elapsedInScene,
               activeEntry.duration,
               width,
@@ -1536,7 +1541,7 @@ export default function RenderView({
           }
         }
 
-        if (!handledTransition && img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+        if (!handledTransition && sourceHasPixels(img)) {
           try {
             drawSceneImage(ctx, img, currentScene, width, height, {
               motionScale: safeScale,
