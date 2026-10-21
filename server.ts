@@ -313,8 +313,13 @@ export function createApp(): express.Express {
            • 'wasm-unsafe-eval' — lets the engine's ONNX runtime compile its
              own WebAssembly. It permits WASM compilation and nothing else; it
              is not 'unsafe-eval', so no string of JS can still be run.
+         jsDelivr is also in worker-src because the ONNX runtime runs inference
+         in a Web Worker it creates from its own bundle. That host is already
+         trusted with script, so this grants it nothing new — but leaving it out
+         would fail only as a console error, on the customer's machine, minutes
+         into a transcription.
          The audio itself never leaves the browser. */
-      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.onfastspring.com https://*.fastspring.com; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://sbl.onfastspring.com https://*.onfastspring.com https://*.fastspring.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.onfastspring.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co https://api.fastspring.com https://*.onfastspring.com https://*.fastspring.com https://cdn.jsdelivr.net https://huggingface.co; frame-src 'self' https://*.onfastspring.com https://*.fastspring.com; worker-src 'self' blob:");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.onfastspring.com https://*.fastspring.com; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://sbl.onfastspring.com https://*.onfastspring.com https://*.fastspring.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.onfastspring.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co https://api.fastspring.com https://*.onfastspring.com https://*.fastspring.com https://cdn.jsdelivr.net https://huggingface.co; frame-src 'self' https://*.onfastspring.com https://*.fastspring.com; worker-src 'self' blob: https://cdn.jsdelivr.net");
     }
     next();
   });
