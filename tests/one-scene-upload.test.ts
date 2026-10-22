@@ -402,42 +402,13 @@ const footageScene = {
  * 4. the choice itself, where the creator can see it
  * ------------------------------------------------------------------ */
 {
-  h.ok(setup.includes("Keep the original sound"), "Setup offers to keep the soundtrack");
-  h.ok(setup.includes("> Remove it") || setup.includes("Remove it\n"), "and to take it out");
   h.ok(
-    setup.includes("handleSetKeepOriginalAudio(true)") && setup.includes("handleSetKeepOriginalAudio(false)"),
-    "both choices are reachable"
+    !setup.includes("Keep the original sound") && !setup.includes("handleSetKeepOriginalAudio"),
+    "Setup no longer exposes the experimental uploaded-video soundtrack controls"
   );
   h.ok(
-    setup.includes("aria-pressed={keepOriginalAudio}"),
-    "and they are announced as the state they are in"
-  );
-  h.ok(
-    setup.includes("mute: !keepOriginalAudio"),
-    "the choice is stored as the scene's own mute field, the one the clip panel already used"
-  );
-  h.ok(
-    /video_mute: clip\.mute \?\? false/.test(app),
-    "a project created from footage keeps its sound unless the creator said otherwise"
-  );
-  h.ok(
-    app.includes("const handleUpdateSingleSceneAudio") &&
-      app.includes("void handleUpdateScene(target.id, { video_mute: !keepOriginalAudio });"),
-    "changing it later writes the same field, so Setup and the scene editor cannot disagree"
-  );
-
-  /* The switch has to OPEN showing what the project already says. It used to
-     start at "keep" whatever the scene held, so footage muted in the clip panel
-     came back to Setup claiming its sound was on. */
-  h.ok(
-    /useEffect\(\(\) => \{\s*const clipScene = scenes\.find\(\(sc\) => sc\.video_url\);\s*if \(clipScene\) setKeepOriginalAudio\(!clipScene\.video_mute\);/.test(
-      setup
-    ),
-    "the sound switch opens on the scene's own mute field, not on a default"
-  );
-  h.ok(
-    !/wantCaptions/.test(setup),
-    "and the caption request is not tracked in state nothing ever reads"
+    /video_mute: clip\.mute \?\? false/.test(app) && app.includes("const handleUpdateSingleSceneAudio"),
+    "existing scene/video tools still preserve and edit the clip's soundtrack state"
   );
 
   /* Cancelling a transcription is the creator's decision, not a failure. The
@@ -475,10 +446,10 @@ const footageScene = {
       preview.includes("Loading uploaded video frame…") &&
       preview.includes("Video preview failed:") &&
       preview.includes("loadCustomVideos().then") &&
-      setup.includes("setVideoStoreRevision((revision) => revision + 1)") &&
+      !setup.includes("loadCustomVideos") &&
       render.includes("idleSource = asDrawableClip(video)") &&
       render.includes("await loadCustomVideos()"),
-    "decoded or restored footage paints Setup, Studio and Render previews instead of leaving a black canvas"
+    "decoded or restored footage paints scene and render previews while Setup remains script-only"
   );
 }
 
@@ -596,35 +567,23 @@ const footageScene = {
     "with no footage the length is the script's own reading time, not the 20s target"
   );
 
-  // Setup must not offer a target length while in one-scene mode, and must not
-  // pass one when the project is created.
+  // Setup is now script-only: all three duration choices stay visible beside
+  // the one-scene option, which only controls scene splitting.
   h.ok(
-    /\{oneScene \? \([\s\S]*?Split into scenes[\s\S]*?\) : \(\s*<div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4/.test(
-      setup
-    ),
-    "the 10/20/30 cards are not rendered in one-scene mode"
+    setup.includes("DURATION_OPTIONS.map((opt) =>") &&
+      setup.includes("onClick={handleSelectSingleScene}") &&
+      setup.includes("onUpdateSingleScene?.(true)"),
+    "Setup keeps 10/20/30 and one-scene mode as script scene-splitting choices"
   );
   h.ok(
-    setup.includes('const sourceSeconds = singleSource === "upload"') &&
-      setup.includes("? footageSeconds") &&
-      setup.includes("singleSceneDuration(scriptText, sourceSeconds || undefined)"),
-    "and starting a footage one-scene project still uses the footage's length, never the 20s target"
+    setup.includes("singleSceneDuration(scriptText)") &&
+      !setup.includes("sourceSeconds = singleSource") &&
+      !setup.includes("VIDEO_UPLOAD_ACCEPT"),
+    "one-scene script duration no longer depends on a Setup media source"
   );
   h.ok(
-    !/const durToApply = selectedDuration \|\| 20;/.test(setup),
-    "the unconditional 20-second default is gone from that path"
-  );
-  h.ok(
-    setup.includes("handleExitSingleScene"),
-    "leaving one-scene mode is still one click, so the target length is reachable when wanted"
-  );
-  /* And it has to be the SAME click as picking that length on a card. A partial
-     copy split the scenes but never told the parent the new target, so the
-     project kept the footage's length stored while its scenes were twenty
-     seconds long. */
-  h.ok(
-    /handleSelectDuration\(\s*activeDuration,/.test(setup),
-    "leaving one-scene mode goes through the same handler a duration card uses"
+    setup.includes("handleSelectDuration") && setup.includes("onUpdateSingleScene?.(false)"),
+    "choosing 10/20/30 returns the project to split-scene mode"
   );
 
   /* The regression this guards end to end: a 3m07s upload in a one-scene
@@ -707,16 +666,8 @@ const footageScene = {
     /Generate captions from \$\{source\?\.label \?\? "the audio"\}/.test(captions),
     "the Captions step offers to transcribe a scene's footage, and names the audio it will read"
   );
-  h.ok(setup.includes("Generate captions"), "Setup offers it next to the upload");
-  h.ok(
-    setup.includes("Free and on this device") && setup.includes("no key"),
-    "and says plainly that it costs nothing and uploads nothing"
-  );
-  h.ok(
-    setup.includes("Captions are still taken from it first") ||
-      setup.includes("captions still work with the sound removed"),
-    "removing the sound is said out loud not to remove the captions"
-  );
+  h.ok(!setup.includes("Generate captions") && !setup.includes("Free and on this device"),
+    "Setup no longer contains the experimental video-audio transcription controls");
   h.ok(
     captions.includes("sceneHasClip(scene)") && captions.includes("<SceneTranscriptControls"),
     "the controls appear on scenes that have footage, and only on those"
@@ -882,16 +833,12 @@ const footageScene = {
       progressUi.includes("Audio completed") &&
       progressUi.includes("waitingForFirstWindow") &&
       progressUi.includes("Cancel transcription") &&
-      read("src/components/SetupStudio.tsx").includes("<TranscriptionProgressStatus") &&
-      read("src/components/SetupStudio.tsx").includes("sourceSeconds={footageSeconds}") &&
-      read("src/components/SetupStudio.tsx").includes("onCancel={transcription.cancel}") &&
-      read("src/components/SetupStudio.tsx").includes("transcriptionButtonLabel(transcription.progress)") &&
       read("src/components/CaptionsStudio.tsx").includes("<TranscriptionProgressStatus") &&
       read("src/components/CaptionsStudio.tsx").includes("sourceSeconds={source?.seconds || 0}") &&
       read("src/components/CaptionsStudio.tsx").includes("transcriptionButtonLabel(transcription.progress)") &&
       !read("src/components/SetupStudio.tsx").includes('"Listening…"') &&
       !read("src/components/CaptionsStudio.tsx").includes('"Listening…"'),
-    "Setup and Captions open an accessible process window with elapsed time, real audio progress and cancellation"
+    "Captions opens an accessible process window with elapsed time, real audio progress and cancellation"
   );
   const transcriptionHook = read("src/lib/use-clip-transcription.ts");
   h.ok(

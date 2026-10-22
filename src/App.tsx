@@ -2204,7 +2204,6 @@ export default function App() {
                 project={currentProject}
                 projects={projects}
                 scenes={scenes}
-                inserts={inserts}
                 aspectRatio={aspectRatio}
                 resolution={resolution}
                 pacingMode={pacingMode}
@@ -2227,11 +2226,6 @@ export default function App() {
                 onUpdatePacingMode={handleUpdatePacingMode}
                 onUpdateSceneDuration={handleUpdateSceneDuration}
                 onUpdateSingleScene={handleUpdateSingleScene}
-                onUpdateVoiceoverEnabled={handleUpdateVoiceoverEnabled}
-                onAttachSingleSceneClip={handleAttachSingleSceneClip}
-                onUpdateSingleSceneAudio={handleUpdateSingleSceneAudio}
-                onUpdateSingleSceneCaptions={handleApplySingleSceneCaptions}
-                onAttachAudioSource={handleAttachAudioSource}
                 onCalibrateScenesWordCount={handleCalibrateScenesWordCount}
                 onFitScenesToSpeech={handleFitAllScenesDurationToSpeech}
                 onUpdateMotionStyle={handleUpdateMotionStyle}

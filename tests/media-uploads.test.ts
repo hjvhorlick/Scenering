@@ -135,14 +135,6 @@ h.ok(read("server.ts").includes("canonicalAudioMimeType"), "/api/upload-audio us
 /* ------------- every upload surface routes through the module ------------- */
 
 const surfaces: Record<string, string[]> = {
-  "src/components/SetupStudio.tsx": [
-    "VIDEO_UPLOAD_ACCEPT",
-    "AUDIO_UPLOAD_ACCEPT",
-    "IMAGE_UPLOAD_ACCEPT",
-    "addCustomVideo",
-    "addCustomMusic",
-    "addCustomImage",
-  ],
   "src/components/SceneEditor.tsx": ["IMAGE_UPLOAD_ACCEPT", "VIDEO_UPLOAD_ACCEPT", "addCustomImage"],
   "src/components/SceneClipPanel.tsx": ["VIDEO_UPLOAD_ACCEPT", "sceneUpdatesForVideoFile"],
   "src/components/VoiceMediaLibrary.tsx": ["AUDIO_UPLOAD_ACCEPT", "addCustomMusic"],
@@ -200,18 +192,17 @@ h.ok(
 );
 const setupStore = read("src/components/SetupStudio.tsx");
 h.ok(
-  setupStore.includes("addCustomVideo(file, {") &&
-    setupStore.includes("allowSessionFallback: true") &&
+  !setupStore.includes("VIDEO_UPLOAD_ACCEPT") &&
     read("src/lib/scene-clip-attach.ts").includes("replaceIds: replaceId ? [replaceId] : []") &&
     read("src/components/SectionStudio.tsx").includes("replaceIds: previousId ? [previousId] : []"),
-  "Setup, scene clips and section backgrounds replace superseded videos instead of accumulating hidden copies",
+  "Setup stays script-only, while scene clips and section backgrounds replace superseded videos",
 );
 h.ok(
   videoStore.includes("keepVideoForCurrentTab") &&
     videoStore.includes("persistent: false") &&
     videoStore.includes('window.addEventListener("beforeunload"') &&
-    setupStore.includes("Video loaded for this tab only."),
-  "a full store no longer blocks Setup, but the session-only fallback is prominent and warns before closing",
+    !setupStore.includes("Video loaded for this tab only."),
+  "a full store fallback remains available to video tools, not in the script-only Setup screen",
 );
 h.ok(read("src/lib/media-file.ts").includes("Number.MAX_SAFE_INTEGER"), "the probe seeks to the end so infinite-duration WebM measures its real length");
 h.ok(!read("src/components/VoiceImportModal.tsx").includes("duration: 5"), "a voice import is never accepted with an invented 5-second length");

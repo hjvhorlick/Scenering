@@ -14,11 +14,16 @@ import "./sign-in.css";
  */
 export default function StudioEntry() {
   const { signedIn, checking } = useSession();
+  // A local, read-only-ish UI preview for this development build. This switch
+  // is compiled out of production and never grants a real account/session.
+  const previewOnly = import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("preview") === "studio";
+  const canOpenStudio = signedIn || previewOnly;
   const [studio, setStudio] = useState<StudioComponent | null>(() => getPreloadedStudio());
   const LoadedStudio = studio ?? getPreloadedStudio();
 
   useEffect(() => {
-    if (!signedIn || LoadedStudio) return;
+    if (!canOpenStudio || LoadedStudio) return;
     let active = true;
     let attempt = 0;
     const load = () => {
@@ -49,10 +54,10 @@ export default function StudioEntry() {
     return () => {
       active = false;
     };
-  }, [signedIn, LoadedStudio]);
+  }, [canOpenStudio, LoadedStudio]);
 
-  if (checking) return <StudioLoading />;
-  if (!signedIn) return <SignIn />;
+  if (checking && !previewOnly) return <StudioLoading />;
+  if (!canOpenStudio) return <SignIn />;
   if (!LoadedStudio) return <StudioLoading />;
 
   return <LoadedStudio />;
