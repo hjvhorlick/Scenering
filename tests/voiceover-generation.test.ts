@@ -165,7 +165,10 @@ const downloads = read("src/lib/voice-download.ts");
 h.ok(!studio.includes("Generate & Save Voiceover for All Scenes"), "the duplicate whole-project Generate button is removed");
 h.ok(studio.includes('onNext={() => handleProceedNext("captions")}'), "Next remains the whole-project generation action");
 h.ok(studio.includes("planVoiceoverGeneration(scenes"), "Next uses the input-aware generation plan");
-h.ok(studio.includes("await setCachedSceneAudio("), "new audio is durably written before Next leaves the section");
+h.ok(
+  studio.includes("await replaceSceneNarration("),
+  "new audio replaces the old file outright (and is durably written) before Next leaves the section"
+);
 h.ok(studio.includes("resolveSceneAudioBuffer(scene, getSharedAudioContext())"), "scene playback restores saved audio instead of synthesizing it again");
 h.ok(cache.includes("scene.audio_url?.startsWith(\"blob:\")"), "expired generated blob URLs fall back to the persistent voiceover cache");
 h.ok(downloads.includes("resolveSceneAudioBuffer(scene, getSharedAudioContext())"), "downloads can recover voiceover files after a page reload");

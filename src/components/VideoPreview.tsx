@@ -39,7 +39,13 @@ import {
   voiceEchoIsActive,
   resolveVoiceEcho,
 } from "../lib/voice-echo";
-import { getCachedSceneAudio, resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
+import {
+  getCachedSceneAudio,
+  resolveSceneAudioBuffer,
+  replaceSceneNarration,
+  fetchSceneAudioWithTimeline,
+} from "../lib/tts-cache";
+import { isPreparedVoiceoverId } from "../lib/voiceover-generation";
 import { loadSceneImage } from "../lib/scene-image-loader";
 import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from "../lib/insert-audio";
 import { drawSceneringWatermark, planRequiresSceneringWatermark } from "../lib/scenering-watermark";
@@ -412,6 +418,12 @@ export default function VideoPreview({
           audioBuffersRef.current.delete(scene.id);
           continue;
         }
+        // Nothing to say and not the creator's own recording: whatever file is
+        // still attached belongs to an earlier script and is not narration.
+        if (!spokenText && !isPreparedVoiceoverId(scene.voice_id)) {
+          audioBuffersRef.current.delete(scene.id);
+          continue;
+        }
         if (!audioBuffersRef.current.has(scene.id)) {
           const resolved = await resolveSceneAudioBuffer(scene, audioCtx);
           if (resolved && !cancelled) {
@@ -445,7 +457,10 @@ export default function VideoPreview({
          This guard must precede saved-audio resolution: captioning can leave an
          old audio_url behind, and resolving it would revive that earlier voice. */
       if (scene.caption_source === "transcript") return null;
-      if (!text && !scene.audio_url) return null;
+      /* A scene with nothing to say has no narration of its own: any file
+         still attached is what an earlier script left behind. A prepared
+         track is the creator's own recording and is kept. */
+      if (!text && !isPreparedVoiceoverId(scene.voice_id)) return null;
 
       // 0. Check pre-generated/saved audio from Voiceover Studio cache, memory or IndexedDB.
       const resolved = await resolveSceneAudioBuffer(scene, audioCtx);
@@ -457,7 +472,11 @@ export default function VideoPreview({
           words: resolved.words,
         };
       }
-      if (scene.audio_url) {
+      // A prepared file is the creator's own recording and cannot be re-made;
+      // an unreadable one is an error worth saying out loud. A generated line
+      // whose saved file no longer belongs to this scene is simply generated
+      // again, in the narrator and words the scene has now.
+      if (scene.audio_url && isPreparedVoiceoverId(scene.voice_id)) {
         throw new Error(`The saved audio for scene ${(scene.order_index ?? 0) + 1} could not be loaded.`);
       }
 
@@ -469,7 +488,9 @@ export default function VideoPreview({
         const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
         const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
         const url = URL.createObjectURL(blob);
-        setCachedSceneAudio(scene.id, voiceToUse, text, {
+        // Replacement, not addition: an older narrator's file for this scene
+        // is forgotten as this one is filed.
+        await replaceSceneNarration(scene.id, voiceToUse, text, {
           audioBuffer,
           blobUrl: url,
           duration: audioBuffer.duration,
@@ -1436,7 +1457,22 @@ export default function VideoPreview({
           // Dry voice + echo tail, both landing on the voice bus
           ? echo.graph.input
           : analyserRef.current || audioCtx.destination;
-        const handle = startVoiceSource(audioCtx, sceneAudio.buffer, destination, { offsetSeconds: offset });
+        /* The line may only sound for the scene it narrates. A file left over
+           from a longer voice used to be heard past its own scene — and, at
+           the end of the video, past the last frame. */
+        const windowDur = sceneWindowDuration(
+          scene,
+          sceneAudio.buffer,
+          idx,
+          Boolean(introSec),
+          speaks,
+          singleScene
+        );
+        const speechStartsAt = sceneSpeechOffset(idx, Boolean(introSec), speaks);
+        const handle = startVoiceSource(audioCtx, sceneAudio.buffer, destination, {
+          offsetSeconds: offset,
+          durationSeconds: Math.max(0.05, windowDur - speechStartsAt - offset),
+        });
         currentAudioSource = handle;
         currentSourceRef.current = handle;
       }

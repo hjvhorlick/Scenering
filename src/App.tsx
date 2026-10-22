@@ -2314,6 +2314,7 @@ export default function App() {
                 onBack={() => setEditorStep("studio")}
                 onNavigateToStep={handleStepRequest}
                 onNavigatePhase={(phase) => navigateToPhase(phase)}
+                onUpdateScene={handleUpdateScene}
               />
             </div>
           )}
