@@ -278,6 +278,9 @@ export default function SetupStudio({
   const [oneScene, setOneScene] = useState<boolean>(singleScene);
   /** Where the single scene's picture/sound comes from. */
   const [singleSource, setSingleSource] = useState<"script" | "upload" | "audio">("script");
+  // Prop changes may hydrate an existing project's source, but must never
+  // overwrite a choice the user has made in this Setup session.
+  const sourceChoiceMadeRef = useRef(false);
   const [uploadedClip, setUploadedClip] = useState<CustomVideoClip | null>(null);
   const [, setVideoStoreRevision] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -362,6 +365,7 @@ export default function SetupStudio({
 
   /** An existing one-scene project reopens on the source it already uses. */
   useEffect(() => {
+    if (sourceChoiceMadeRef.current) return;
     const clipScene = scenes.find((sc) => sc.video_url);
     if (clipScene?.video_url) {
       setSingleSource("upload");
@@ -371,10 +375,10 @@ export default function SetupStudio({
     // audio. Only Setup's explicit marker may reopen this workflow.
     const hasMusicSource = inserts.some(isMusicVideoSourceInsert);
     if (hasMusicSource && scenes.some((scene) => scene.image_url)) {
-      setSingleSource("audio");
+      setSingleSource((current) => current === "script" ? "audio" : current);
       return;
     }
-    setSingleSource("script");
+    // No recognized media source: the initial Script choice remains in place.
   }, [scenes, inserts]);
 
   /**
@@ -578,6 +582,7 @@ export default function SetupStudio({
   };
 
   const handleSelectDuration = (seconds: DurationOption, noticeOverride?: string) => {
+    sourceChoiceMadeRef.current = true;
     setSelectedDuration(seconds);
     setOneScene(false);
     setSingleSource("script");
@@ -660,6 +665,7 @@ export default function SetupStudio({
 
   /** Select uploaded footage and keep its soundtrack free of narration. */
   const handleSelectVideoSource = () => {
+    sourceChoiceMadeRef.current = true;
     setSingleSource("upload");
     if (!oneScene) {
       setOneScene(true);
@@ -670,6 +676,7 @@ export default function SetupStudio({
 
   /** Select the stills-and-audio source and enforce its no-voiceover rule. */
   const handleSelectAudioSource = () => {
+    sourceChoiceMadeRef.current = true;
     setSingleSource("audio");
     if (!oneScene) {
       setOneScene(true);
@@ -731,6 +738,9 @@ export default function SetupStudio({
    */
   const handleUploadClip = async (file: File | null | undefined) => {
     if (!file || uploading) return;
+    // Record the source choice before starting asynchronous probing/storage.
+    // Scene and settings updates during the await cannot reset it to Script.
+    handleSelectVideoSource();
     setUploading(true);
     setUploadError(null);
     try {
@@ -745,7 +755,6 @@ export default function SetupStudio({
         allowSessionFallback: true,
       });
       setUploadedClip(clip);
-      handleSelectVideoSource();
       onAttachSingleSceneClip?.({
         url: `${CUSTOM_VIDEO_PREFIX}${clip.id}`,
         name: clip.name,
@@ -925,6 +934,7 @@ export default function SetupStudio({
     onStartNewProject();
     setTitle("");
     setScript("");
+    sourceChoiceMadeRef.current = false;
     setSingleSource("script");
     setUploadedClip(null);
     setUploadedAudioTrack(null);
@@ -1417,7 +1427,10 @@ export default function SetupStudio({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5">
               <button
                 type="button"
-                onClick={() => setSingleSource("script")}
+                onClick={() => {
+                  sourceChoiceMadeRef.current = true;
+                  setSingleSource("script");
+                }}
                 className={`p-3 rounded-xl border text-left transition-all ${
                   singleSource === "script"
                     ? "bg-indigo-950/80 border-indigo-500 text-white ring-1 ring-indigo-400"

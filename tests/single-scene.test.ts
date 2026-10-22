@@ -291,6 +291,14 @@ const LONG_SCRIPT = Array.from(
     "picking one scene still offers both original routes: script or footage"
   );
   ok(
+    setup.includes('setSingleSource("upload");') &&
+      setup.includes("sourceChoiceMadeRef.current = true;") &&
+      setup.includes("if (sourceChoiceMadeRef.current) return;") &&
+      setup.includes("No recognized media source: the initial Script choice remains in place.") &&
+      setup.includes("setSingleSource((current) => current === \"script\" ? \"audio\" : current)"),
+    "attaching an uploaded clip cannot reset the selected source after storage completes"
+  );
+  ok(
     /const footageSourceReady = oneScene && singleSource === "upload" && hasFootage;/.test(setup) &&
       /const canStart = script\.trim\(\)\.length > 0 \|\| footageSourceReady \|\| stillsSourceReady;/.test(setup),
     "a footage music video with no script at all can still be started"
