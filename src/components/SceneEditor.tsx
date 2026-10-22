@@ -546,14 +546,17 @@ export default function SceneEditor({
   };
 
   /**
-   * A freshly chosen photo is shown whole — the original, uncut image.
+   * A freshly chosen photo is stored uncut and fills the frame by default.
    *
    * The reset lands first (full crop, default fit, cleared pan/zoom) so the
    * scene never shows the new photo through the previous one's crop while
    * the measurement is in flight. Then `autoFrame` confirms the default:
-   * "Show Full" at the photo's own shape — in a 9:16 project it fits
-   * between the top and bottom edges, in 16:9 it always fits. Cropping only
-   * ever happens if the user asks for it in Crop & Fit.
+   * "Fill Frame" (cover) over the ORIGINAL, uncut image — in a 9:16 project
+   * the photo is scaled until it touches the top and bottom edges (the sides
+   * may overflow and be clipped), in 16:9 it always fills. The scale is
+   * uniform, so the photo is never stretched, and the stored crop stays full
+   * {0,0,1,1}: cropping only ever happens if the user asks for it in
+   * Crop & Fit.
    */
   const adoptImage = (url: string) => {
     const frame = frameSizeFor(aspectRatio);
@@ -583,7 +586,7 @@ export default function SceneEditor({
     // visible in the preview, but its framing was never confirmed. Going
     // through the loader means the measurement succeeds in exactly the cases
     // the preview itself succeeds, so a photo that can be shown is always
-    // shown whole, at its original shape.
+    // shown full-frame at its original shape, never stretched or pre-cut.
     void loadSceneImage(url, 0, { fallback: "none" }).then((res) => {
       const measured = res?.img;
       if (!measured || !measured.naturalWidth) return;
@@ -619,8 +622,8 @@ export default function SceneEditor({
    * given the stable `custom-image:<id>` address rather than a `blob:` URL,
    * which would stop resolving on the next reload. From there it goes
    * through the very same `adoptImage` as a searched photo, so an uploaded
-   * picture is shown exactly like every other one: whole, uncut, at its own
-   * shape.
+   * picture is framed exactly like every other one: stored uncut at its own
+   * resolution and shape, filling the frame by default without distortion.
    */
   const handleUploadImage = (file: File | undefined) => {
     if (!file) return;
@@ -726,7 +729,7 @@ export default function SceneEditor({
       image_offset_x: 0,
       image_offset_y: 0,
       image_zoom: 1.0,
-      // Back to the import default: the original, uncut photo shown whole.
+      // Back to the import default: the original, uncut photo, "Fill Frame".
       image_fit: DEFAULT_FRAMING.fit,
       image_crop: { x: 0, y: 0, w: 1, h: 1 },
       image_rotate: 0,
@@ -1161,7 +1164,8 @@ export default function SceneEditor({
             {/* The creator's own files, at the end of the row: everything to
                 the left finds a picture for you, these two let you bring
                 your own. An uploaded photo goes through the same adoptImage
-                as a searched one, so it is shown whole, uncut, too. */}
+                as a searched one, so it is stored uncut and fills the frame
+                by default, too. */}
             <input
               ref={imageUploadRef}
               type="file"
