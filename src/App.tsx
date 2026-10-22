@@ -1648,7 +1648,13 @@ export default function App() {
   const handleApplySingleSceneCaptions = (updates: Partial<Scene>) => {
     const target = scenes.find((scene) => scene.video_url) || scenes[0];
     if (!target) return;
-    void handleUpdateScene(target.id, updates);
+    // "Generate captions" is an affirmative request to show them. Do not
+    // install valid words behind either a scene-level or project-level switch
+    // that happened to be off from an earlier edit.
+    void handleUpdateScene(target.id, { ...updates, burn_caption: true });
+    if (captionsConfig.enabled === false) {
+      handleUpdateCaptionsConfig({ ...captionsConfig, enabled: true });
+    }
   };
 
   const handleImageSearch = async (

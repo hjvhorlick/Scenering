@@ -1,5 +1,8 @@
 /** Messages exchanged with the dedicated on-device transcription worker. */
 
+/** Long clips must never escalate from Tiny to a larger Whisper model. */
+export const STT_LOW_MEMORY_CLIP_SECONDS = 5 * 60;
+
 export interface TranscriptionWorkerChunk {
   text?: string;
   timestamp?: [number | null, number | null] | null;

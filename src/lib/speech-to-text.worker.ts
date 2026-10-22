@@ -4,13 +4,14 @@ import {
   BlobSource,
   Input,
 } from "mediabunny";
-import type {
-  TranscriptionWorkerChunk,
-  TranscriptionWorkerFailure,
-  TranscriptionWorkerProgress,
-  TranscriptionWorkerRequest,
-  TranscriptionWorkerResponse,
-  TranscriptionWorkerResult,
+import {
+  STT_LOW_MEMORY_CLIP_SECONDS,
+  type TranscriptionWorkerChunk,
+  type TranscriptionWorkerFailure,
+  type TranscriptionWorkerProgress,
+  type TranscriptionWorkerRequest,
+  type TranscriptionWorkerResponse,
+  type TranscriptionWorkerResult,
 } from "./speech-to-text-protocol";
 
 /**
@@ -320,6 +321,10 @@ async function transcribeInWindows(
       message: `Transcribed ${formatClock(completedSeconds)} of ${formatClock(duration)} in the background…`,
       fraction: duration > 0 ? Math.min(1, completedSeconds / duration) : 1,
     });
+    // Give Chrome a scheduling/collection point between ONNX calls. The worker
+    // remains isolated, but a long uninterrupted chain of WASM allocations can
+    // otherwise pressure the whole browser process even with one WASM thread.
+    if (!isLast) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
   const text = merged
@@ -371,10 +376,15 @@ async function run(request: TranscriptionWorkerRequest): Promise<void> {
   }
 
   const modelFailures: string[] = [];
-  const inferenceFailures: string[] = [];
+  // Trust the duration measured from decoded samples too. Metadata can be
+  // absent, so the page's hint alone is not enough to protect a long recording
+  // from escalating to a much larger fallback model.
+  const models = decoded.duration >= STT_LOW_MEMORY_CLIP_SECONDS
+    ? request.models.slice(0, 1)
+    : request.models;
 
-  for (let modelIndex = 0; modelIndex < request.models.length; modelIndex += 1) {
-    const modelId = request.models[modelIndex];
+  for (let modelIndex = 0; modelIndex < models.length; modelIndex += 1) {
+    const modelId = models[modelIndex];
     let transcriber = transcribers.get(modelId);
 
     if (!transcriber) {
@@ -422,11 +432,11 @@ async function run(request: TranscriptionWorkerRequest): Promise<void> {
       } catch (error) {
         acceptingProgress = false;
         modelFailures.push(`${modelId}: ${errorMessage(error)}`);
-        if (modelIndex + 1 < request.models.length) {
+        if (modelIndex + 1 < models.length) {
           progress(id, {
             stage: "model",
             event: "model-fallback",
-            message: `That Whisper model did not load. Trying fallback ${modelIndex + 2} of ${request.models.length}…`,
+            message: `That Whisper model did not load. Trying fallback ${modelIndex + 2} of ${models.length}…`,
             fraction: 0,
           });
         }
@@ -460,24 +470,19 @@ async function run(request: TranscriptionWorkerRequest): Promise<void> {
       post(result);
       return;
     } catch (error) {
-      inferenceFailures.push(`${modelId}: ${errorMessage(error)}`);
+      const detail = `${modelId}: ${errorMessage(error)}`;
       await disposeTranscriber(modelId, transcriber);
-      if (modelIndex + 1 < request.models.length) {
-        progress(id, {
-          stage: "model",
-          event: "model-fallback",
-          message: `That model could not finish the transcription. Trying fallback ${modelIndex + 2} of ${request.models.length}…`,
-          fraction: 0,
-        });
-      }
+      // Once inference has started, never load a larger fallback and repeat the
+      // whole recording. On long footage that doubled peak memory precisely at
+      // the end of an already expensive run and could freeze the browser. A
+      // clear failure is safer, while model *load* failures above may still try
+      // the next published candidate for short clips.
+      failure(id, "inference", detail);
+      return;
     }
   }
 
-  if (inferenceFailures.length > 0) {
-    failure(id, "inference", inferenceFailures[0]);
-  } else {
-    failure(id, "model", modelFailures[0] || "No Whisper model could be loaded.");
-  }
+  failure(id, "model", modelFailures[0] || "No Whisper model could be loaded.");
 }
 
 workerScope.onmessage = (event) => {

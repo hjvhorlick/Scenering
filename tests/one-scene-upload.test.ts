@@ -19,6 +19,7 @@ import { stretchFullVideoMedia } from "../src/lib/render-visualizers";
 import type { TimelineInsert } from "../src/types";
 import {
   chunksToWordTimings,
+  defaultTranscriptionModels,
   runWithTranscriptionTimeout,
   TranscriptionError,
   TranscriptionTimeoutError,
@@ -27,6 +28,7 @@ import {
   STT_ENGINE_URL,
   STT_ENGINE_TIMEOUT_MS,
   STT_INFERENCE_MIN_TIMEOUT_MS,
+  STT_LOW_MEMORY_CLIP_SECONDS,
   STT_MODEL_CANDIDATES,
   STT_MODEL_TIMEOUT_MS,
 } from "../src/lib/speech-to-text";
@@ -784,6 +786,21 @@ const footageScene = {
     ].join("|"),
     "every fallback uses a published timestamped Whisper model id, with the low-memory model first"
   );
+  h.eq(
+    defaultTranscriptionModels(STT_LOW_MEMORY_CLIP_SECONDS - 1).length,
+    STT_MODEL_CANDIDATES.length,
+    "short clips retain the published model-load fallback list"
+  );
+  h.eq(
+    defaultTranscriptionModels(STT_LOW_MEMORY_CLIP_SECONDS).length,
+    1,
+    "five-minute and longer clips stay on Tiny instead of loading a larger model into an already full browser"
+  );
+  h.eq(
+    defaultTranscriptionModels(STT_LOW_MEMORY_CLIP_SECONDS)[0],
+    STT_MODEL_CANDIDATES[0],
+    "the long-clip model is the low-memory Tiny candidate"
+  );
   h.ok(
     STT_AUDIO_TIMEOUT_MS > 0 &&
       STT_ENGINE_TIMEOUT_MS > 0 &&
@@ -798,6 +815,26 @@ const footageScene = {
       sttWorker.includes('engine.pipeline("automatic-speech-recognition"') &&
       sttWorker.includes("transcriber(audio.subarray(start, end)"),
     "UI-thread timers can terminate stalled engine, model and windowed-inference work"
+  );
+  h.ok(
+    stt.includes("finish(() => resolve(message), true)") &&
+      stt.includes("finish(() => reject(workerFailure(message)), true)") &&
+      read("src/lib/use-clip-transcription.ts").includes("useEffect(() => () =>") &&
+      read("src/lib/use-clip-transcription.ts").includes("abortRef.current?.abort()"),
+    "success, failure and section exit all terminate Whisper so model memory cannot freeze the next screen"
+  );
+  h.ok(
+    sttWorker.includes("decoded.duration >= STT_LOW_MEMORY_CLIP_SECONDS") &&
+      sttWorker.includes("request.models.slice(0, 1)") &&
+      sttWorker.includes('failure(id, "inference", detail);') &&
+      !sttWorker.includes("That model could not finish the transcription. Trying fallback"),
+    "measured long audio and late inference failures cannot load a larger model and repeat the recording"
+  );
+  h.ok(
+    app.includes("{ ...updates, burn_caption: true }") &&
+      app.includes("handleUpdateCaptionsConfig({ ...captionsConfig, enabled: true })") &&
+      captions.includes("onEnableCaptions={enableGeneratedCaptions}"),
+    "a successful transcript turns project and scene captions on rather than hiding the generated words"
   );
   h.ok(
     stt.includes("The transcription engine failed to load") &&

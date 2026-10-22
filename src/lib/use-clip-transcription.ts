@@ -11,7 +11,7 @@
  * is what lets Setup run a transcription before the project even exists.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   transcribeAudioUrl,
   TranscriptionError,
@@ -40,6 +40,16 @@ export function useClipTranscription(): ClipTranscriptionState {
   const cancelledRef = useRef(false);
   const runRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    // Leaving Setup/Captions must stop the worker immediately. Otherwise a
+    // long Whisper run (and its WASM/model memory) survives behind the next
+    // section even though there is no longer any UI capable of cancelling it.
+    runRef.current += 1;
+    cancelledRef.current = true;
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;

@@ -29,12 +29,15 @@
  */
 
 import type { WordTiming } from "./word-sync";
-import type {
-  TranscriptionWorkerFailure,
-  TranscriptionWorkerProgress,
-  TranscriptionWorkerResponse,
-  TranscriptionWorkerResult,
+import {
+  STT_LOW_MEMORY_CLIP_SECONDS,
+  type TranscriptionWorkerFailure,
+  type TranscriptionWorkerProgress,
+  type TranscriptionWorkerResponse,
+  type TranscriptionWorkerResult,
 } from "./speech-to-text-protocol";
+
+export { STT_LOW_MEMORY_CLIP_SECONDS } from "./speech-to-text-protocol";
 
 /** Where the engine is loaded from. Pinned: a new major must not arrive by itself. */
 export const STT_ENGINE_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/+esm";
@@ -65,6 +68,16 @@ export const STT_ENGINE_TIMEOUT_MS = 30_000;
 export const STT_MODEL_TIMEOUT_MS = 90_000;
 /** Minimum inference allowance; longer clips get proportionally more time. */
 export const STT_INFERENCE_MIN_TIMEOUT_MS = 120_000;
+/**
+ * Long recordings already hold decoded PCM beside Whisper. They stay on the
+ * tiny model rather than risking an automatic Base-model fallback that can
+ * push a healthy Chrome tab over its memory limit after several minutes.
+ */
+export function defaultTranscriptionModels(audioSeconds: number): readonly string[] {
+  return audioSeconds >= STT_LOW_MEMORY_CLIP_SECONDS
+    ? STT_MODEL_CANDIDATES.slice(0, 1)
+    : STT_MODEL_CANDIDATES;
+}
 
 export type TranscriptionStage = "audio" | "engine" | "model" | "transcribing" | "done";
 
@@ -357,9 +370,10 @@ function workerFailure(error: TranscriptionWorkerFailure): TranscriptionError {
 }
 
 /**
- * Runs Whisper in a persistent module worker. Timeouts live here on the UI
+ * Runs Whisper in a disposable module worker. Timeouts live here on the UI
  * thread, so they still fire even if ONNX/WASM stops yielding inside the
- * worker; cancellation terminates that worker and therefore really stops CPU.
+ * worker; cancellation and every terminal result terminate that worker and
+ * therefore stop CPU and release its ONNX/WASM memory.
  */
 function transcribeInWorker(
   source: Blob,
@@ -444,11 +458,18 @@ function transcribeInWorker(
       const message = event.data;
       if (!message || message.id !== id) return;
       if (message.type === "result") {
-        finish(() => resolve(message));
+        // The model is cached by the browser, but its live ONNX/WASM session
+        // can occupy hundreds of megabytes. Keeping that worker alive after a
+        // long transcript caused Chrome to freeze as soon as Captions mounted
+        // its video and canvases. A fresh worker can reuse the downloaded files
+        // next time without retaining this run's model or decoded PCM in RAM.
+        finish(() => resolve(message), true);
         return;
       }
       if (message.type === "failure") {
-        finish(() => reject(workerFailure(message)));
+        // Failures must release the same memory too; in particular no-speech
+        // and late inference errors happen only after the model has loaded.
+        finish(() => reject(workerFailure(message)), true);
         return;
       }
 
@@ -565,8 +586,10 @@ export async function transcribeAudioUrl(
     throwIfAborted(controller.signal);
     const source = await openSourceBlob(sourceUrl, controller.signal, report);
     throwIfAborted(controller.signal);
-    const candidates = options.models?.length ? options.models : STT_MODEL_CANDIDATES;
     const durationHint = Math.max(0, Number(options.audioSeconds) || 0);
+    const candidates = options.models?.length
+      ? options.models
+      : defaultTranscriptionModels(durationHint);
 
     const result = await transcribeInWorker(
       source,
