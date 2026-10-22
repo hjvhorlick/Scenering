@@ -267,10 +267,10 @@ const LONG_SCRIPT = Array.from(
     "leaving the Voiceover step only runs generation planning when narration is enabled"
   );
 
-  // The switch is reachable from both the place you set a project up and the
-  // place you would go looking for it.
-  ok(setup.includes("<VoiceoverSwitch"), "Setup carries the switch, next to the one-scene choice");
-  ok(studio.includes("<VoiceoverSwitch"), "the Voiceover step carries the same switch");
+  // The project Setup is deliberately simplified; narration remains available
+  // in its dedicated Voiceover step.
+  ok(!setup.includes("<VoiceoverSwitch"), "Setup stays focused on script and scene count");
+  ok(studio.includes("<VoiceoverSwitch"), "the Voiceover step carries the switch");
   ok(
     app.includes("onUpdateVoiceoverEnabled={handleUpdateVoiceoverEnabled}"),
     "both switches write to the same project setting"
@@ -281,54 +281,36 @@ const LONG_SCRIPT = Array.from(
 }
 
 /* ------------------------------------------------------------------ *
- * 7. Setup offers the choice, and a complete media source can start
+ * 7. Setup is the original script + scene-duration workflow
  * ------------------------------------------------------------------ */
 {
   const setup = read("src/components/SetupStudio.tsx");
-  ok(setup.includes("SINGLE_SCENE_OPTION"), "the fourth scene-length card comes from the shared definition");
+  ok(setup.includes("DURATION_OPTIONS.map((opt) =>") && setup.includes("SINGLE_SCENE_OPTION.label"),
+    "Setup keeps the 10/20/30 duration choices and the one-scene option together");
   ok(
-    setup.includes("Make the video from my script") && setup.includes("Upload my own video"),
-    "picking one scene still offers both original routes: script or footage"
+    setup.includes("Choose a target of 10, 20 or 30 seconds") &&
+      setup.includes("onClick={handleSelectSingleScene}") &&
+      setup.includes("onUpdateSingleScene?.(true)"),
+    "one-scene mode changes the scene count without switching to a media-source workflow"
   );
   ok(
-    /const footageSourceReady = oneScene && singleSource === "upload" && hasFootage;/.test(setup) &&
-      /const canStart = script\.trim\(\)\.length > 0 \|\| footageSourceReady \|\| stillsSourceReady;/.test(setup),
-    "a footage music video with no script at all can still be started"
+    !setup.includes("Choose what you already have") &&
+      !setup.includes("Upload my own video") &&
+      !setup.includes("Upload music/audio + pictures") &&
+      !setup.includes("VIDEO_UPLOAD_ACCEPT") &&
+      !setup.includes("AUDIO_UPLOAD_ACCEPT"),
+    "Setup no longer contains the experimental video or music upload sections"
   );
   ok(
-    /if \(!scriptText && !footageSourceReady && !stillsSourceReady\)/.test(setup),
-    "the guard that demands a script still makes an exception for uploaded footage"
-  );
-  ok(
-    setup.includes("Upload music/audio + pictures") &&
-      setup.includes("Choose what you already have") &&
-      setup.includes("Project source: always visible") &&
-      /const stillsSourceReady = oneScene && singleSource === "audio" && audioSourceReady;/.test(setup),
-    "Setup always visibly offers and accepts a complete audio-plus-pictures music-video source"
-  );
-  ok(
-    setup.includes("onUpdateVoiceoverEnabled?.(false)"),
-    "uploading footage switches narration off, because that footage has its own sound"
+    /if \(!scriptText && !isExistingProject\)/.test(setup) &&
+      setup.includes("singleScene: oneScene"),
+    "a new Setup project starts from a script and carries the one-scene choice into Scenes"
   );
   const app = read("src/App.tsx");
   ok(
     app.includes('source_media_kind: "uploaded_video"') &&
-      /scene\.source_media_kind === "uploaded_video" && Boolean\(scene\.video_url\)/.test(app) &&
-      app.includes("voiceoverLockedOff={mediaSourceVoiceoverLocked}"),
-    "the uploaded-video source keeps narration locked off in the Voiceover step too"
-  );
-  ok(
-    app.includes("inserts.some(isMusicVideoSourceInsert)") &&
-      setup.includes('onUpdateVoiceoverEnabled && singleSource === "script"'),
-    "both music-video sources reserve the narration switch for the unchanged script route"
-  );
-  ok(
-    /video_mute: clip\.mute \?\? false/.test(app),
-    "an uploaded clip keeps its own soundtrack by default — the whole point of a music video"
-  );
-  ok(
-    /const keepOriginalAudio|\[keepOriginalAudio, setKeepOriginalAudio\]/.test(read("src/components/SetupStudio.tsx")),
-    "and the only way it is silenced is the creator choosing to remove it"
+      /scene\.source_media_kind === "uploaded_video" && Boolean\(scene\.video_url\)/.test(app),
+    "uploaded footage from existing scene-editing tools remains represented correctly in the project"
   );
 }
 

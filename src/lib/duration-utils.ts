@@ -33,8 +33,7 @@ export const SINGLE_SCENE_OPTION = {
   id: SINGLE_SCENE,
   label: "One Scene",
   tag: "Whole script, one shot",
-  description:
-    "No scene splitting at all — the entire script becomes a single scene, or upload your own video and use it as that scene.",
+  description: "No scene splitting — keep the entire script together as one scene.",
 } as const;
 
 export const DURATION_OPTIONS: {

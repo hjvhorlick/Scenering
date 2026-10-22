@@ -400,35 +400,16 @@ for (const item of CATALOG_ITEMS.background_music) {
   const setup = read("src/components/SetupStudio.tsx");
   const app = read("src/App.tsx");
   h.ok(
-    setup.includes('useState<"script" | "upload" | "audio">("script")') &&
-      setup.includes("Upload music/audio + pictures") &&
-      setup.includes("Project source: always visible"),
-    "Setup always offers music/audio plus pictures as a third source"
+    !setup.includes("Upload music/audio + pictures") &&
+      !setup.includes("Choose what you already have") &&
+      !setup.includes("AUDIO_UPLOAD_ACCEPT") &&
+      !setup.includes("IMAGE_UPLOAD_ACCEPT"),
+    "the experimental audio-plus-picture upload source has been removed from Setup"
   );
   h.ok(
-    setup.includes("accept={AUDIO_UPLOAD_ACCEPT}") &&
-      setup.includes("accept={IMAGE_UPLOAD_ACCEPT}") &&
-      setup.includes("await addCustomMusic(file)") &&
-      setup.includes("await addCustomImage(file)"),
-    "the new source validates and stores both files through the existing upload stores"
-  );
-  h.ok(
-    setup.includes("await setCustomMusicLoop(track.id, false)") &&
-      setup.includes("onUpdateVoiceoverEnabled?.(false)"),
-    "choosing this source makes play-once and voiceover-off explicit"
-  );
-  h.ok(
-    setup.includes("inserts.some(isMusicVideoSourceInsert)") &&
-      setup.includes(".find(isMusicVideoSourceInsert)"),
-    "reopening Setup cannot mistake a script project's ordinary music bed for source audio"
-  );
-  h.ok(
-    /if \(!scriptText && !footageSourceReady && !stillsSourceReady\)/.test(setup),
-    "the no-script creation gate admits a complete audio-and-image source"
-  );
-  h.ok(
-    /if \(scriptText && singleSource === "script"\)/.test(setup),
-    "revisiting Setup cannot rewrite source-audio caption text as a narration script"
+    /if \(!scriptText && !isExistingProject\)/.test(setup) &&
+      setup.includes("singleScene: oneScene"),
+    "Setup now creates projects from a script and only passes through the scene-count choice"
   );
   h.ok(
     app.includes("const initialInserts = audio ? [createMusicVideoInsert(audio.track)] : [];") &&

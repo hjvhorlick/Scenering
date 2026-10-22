@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 603 utility
+   Colour matrix for every non-classic theme. 602 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -467,9 +467,6 @@ html[data-theme="apple"] .bg-red-900\/60 {
 }
 html[data-theme="apple"] .bg-red-950 {
   background-color: rgb(255 235 235 / 1);
-}
-html[data-theme="apple"] .bg-red-950\/50 {
-  background-color: rgb(255 235 235 / 0.5);
 }
 html[data-theme="apple"] .bg-red-950\/60 {
   background-color: rgb(255 235 235 / 0.6);
@@ -2328,9 +2325,6 @@ html[data-theme="windows"] .bg-red-900\/60 {
 html[data-theme="windows"] .bg-red-950 {
   background-color: rgb(65 14 14 / 1);
 }
-html[data-theme="windows"] .bg-red-950\/50 {
-  background-color: rgb(65 14 14 / 0.5);
-}
 html[data-theme="windows"] .bg-red-950\/60 {
   background-color: rgb(65 14 14 / 0.6);
 }
@@ -4187,9 +4181,6 @@ html[data-theme="playful"] .bg-red-900\/60 {
 }
 html[data-theme="playful"] .bg-red-950 {
   background-color: rgb(80 1 1 / 1);
-}
-html[data-theme="playful"] .bg-red-950\/50 {
-  background-color: rgb(80 1 1 / 0.5);
 }
 html[data-theme="playful"] .bg-red-950\/60 {
   background-color: rgb(80 1 1 / 0.6);
@@ -6048,9 +6039,6 @@ html[data-theme="glass"] .bg-red-900\/60 {
 html[data-theme="glass"] .bg-red-950 {
   background-color: rgb(255 241 241 / 1);
 }
-html[data-theme="glass"] .bg-red-950\/50 {
-  background-color: rgb(255 241 241 / 0.5);
-}
 html[data-theme="glass"] .bg-red-950\/60 {
   background-color: rgb(255 241 241 / 0.6);
 }
@@ -7907,9 +7895,6 @@ html[data-theme="porcelain"] .bg-red-900\/60 {
 }
 html[data-theme="porcelain"] .bg-red-950 {
   background-color: rgb(255 233 233 / 1);
-}
-html[data-theme="porcelain"] .bg-red-950\/50 {
-  background-color: rgb(255 233 233 / 0.5);
 }
 html[data-theme="porcelain"] .bg-red-950\/60 {
   background-color: rgb(255 233 233 / 0.6);
