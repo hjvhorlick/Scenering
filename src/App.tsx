@@ -506,32 +506,47 @@ export default function App() {
     saveCurrentProjectSettings({ scene_animation_enabled: enabled });
   }, [saveCurrentProjectSettings]);
 
-  /** Source-media projects keep their own soundtrack; narration never overlays it. */
-  const mediaSourceVoiceoverLocked = singleScene && (
+  /**
+   * A project whose whole picture is uploaded footage or an uploaded song.
+   *
+   * This is a DESCRIPTION, not a cage. It decides which copy the UI shows —
+   * "your uploaded source is the soundtrack" — and it is used to keep a second
+   * background-music layer from being stacked on that same source.
+   *
+   * IT MUST NOT TURN NARRATION OFF. It used to: an effect here force-wrote
+   * `voiceover_enabled: false`, and the switch itself was disabled, so a
+   * creator who filmed a take — or uploaded footage and wanted their script
+   * read over it — had no voiceover in the preview or the export, and no way
+   * to ask for one. The narration the Voiceover step had already generated was
+   * still saved on every scene; nothing would play it. Turning a voiceover ON
+   * is an explicit instruction and is now honoured.
+   *
+   * The default is unchanged: a project created FROM source media still starts
+   * with narration off (see `narration` in handleCreateProject), so a music
+   * video never gets a synthetic voice it never asked for.
+   */
+  const mediaSourceProject = singleScene && (
     scenes.some((scene) => scene.source_media_kind === "uploaded_video" && Boolean(scene.video_url)) ||
     inserts.some(isMusicVideoSourceInsert)
   );
-
-  // Repair stale settings from projects created before source modes enforced
-  // this invariant. Keeping it in App protects preview and export, not only UI.
-  useEffect(() => {
-    if (!mediaSourceVoiceoverLocked || !voiceoverEnabled) return;
-    setVoiceoverEnabled(false);
-    saveCurrentProjectSettings({ voiceover_enabled: false });
-  }, [mediaSourceVoiceoverLocked, voiceoverEnabled, saveCurrentProjectSettings]);
 
   /**
    * Narration on or off for the whole project.
    *
    * The preview and the renderer both read this before they synthesise a
    * single word, so flipping it is heard immediately — nothing has to be
-   * regenerated or re-applied afterwards.
+   * regenerated or re-applied afterwards. The choice is saved as made: a
+   * hidden clamp here is what made the switch appear to do nothing.
    */
   const handleUpdateVoiceoverEnabled = useCallback((enabled: boolean) => {
-    const next = mediaSourceVoiceoverLocked ? false : enabled;
-    setVoiceoverEnabled(next);
-    saveCurrentProjectSettings({ voiceover_enabled: next });
-  }, [mediaSourceVoiceoverLocked, saveCurrentProjectSettings]);
+    setVoiceoverEnabled(enabled);
+    saveCurrentProjectSettings({ voiceover_enabled: enabled });
+    if (enabled && mediaSourceProject) {
+      setNavNotice(
+        "Narration is on. Your uploaded clip's own sound plays under it — mute or remove it in Scenes → Short video clip if you want the voice alone."
+      );
+    }
+  }, [mediaSourceProject, saveCurrentProjectSettings]);
 
   /**
    * Switch an existing project between split scenes and one single scene.
@@ -1843,11 +1858,11 @@ export default function App() {
   // Timeline & Insert Actions
   const handleAddInsert = (insert: TimelineInsert) => {
     if (
-      mediaSourceVoiceoverLocked &&
+      mediaSourceProject &&
       insert.category === "background_music" &&
       !isMusicVideoSourceInsert(insert)
     ) {
-      setNavNotice("This video's uploaded source is already its soundtrack. Replace that source in Setup instead of layering another music track over it.");
+      setNavNotice("This video's uploaded source is already its soundtrack. Replace it in the scene instead of layering another music track over it.");
       return;
     }
     setInserts((prev) => {
@@ -2542,7 +2557,7 @@ export default function App() {
                   onInsertItem={handleAddInsert}
                   onConfigureItem={openInsertEditor}
                   voiceoverEnabled={voiceoverEnabled}
-                  voiceoverLockedOff={mediaSourceVoiceoverLocked}
+                  voiceoverLockedOff={mediaSourceProject}
                   onUpdateVoiceoverEnabled={handleUpdateVoiceoverEnabled}
                 />
               ) : editorStep === "captions" ? (

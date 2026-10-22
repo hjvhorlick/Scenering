@@ -435,7 +435,7 @@ for (const item of CATALOG_ITEMS.background_music) {
     "replacing only the still preserves the existing source insert instead of minting a duplicate"
   );
   h.ok(
-    /mediaSourceVoiceoverLocked &&\s*insert\.category === "background_music"/.test(app) &&
+    /mediaSourceProject &&\s*insert\.category === "background_music"/.test(app) &&
       /isMusicVideoSourceInsert\(updated\)[\s\S]*?loop: false/.test(app),
     "source projects reject a second music bed and keep their own track at frame zero without looping"
   );

@@ -2,6 +2,22 @@
 
 ## Unreleased — your own video, start to finish, with its sound and its captions
 
+- **Fixed: narration went silent on a video made from your own footage — in
+  the preview and in the export.** A project whose picture is an uploaded clip
+  (or an uploaded song) was treated as though it could never be narrated: an
+  effect in the Studio wrote `voiceover_enabled: false` back to the project on
+  load and the narration switch in the Voiceover step was disabled, so a
+  creator who wanted their script read over their own take heard nothing and
+  had no way to ask for it. The saves were never the problem — every scene
+  still held its narration and its audio; nothing would play them. Turning the
+  switch on now stores exactly what was chosen, and the preview and the
+  exported file both read that same switch and the same "is there anything to
+  say" rule, so they cannot disagree. The default is unchanged: a project
+  created from source media still starts with narration off, so a music video
+  is never given a voice it never asked for. If your project was saved while
+  the switch was locked, turn narration back on once in the Voiceover step; it
+  stays on.
+
 - **The clip settings can now remove the audio from the video, not just mute
   it.** Mute is a playback switch: the track stays inside the stored file,
   still taking space and still there for any player or caption pass. The new
