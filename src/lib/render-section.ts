@@ -112,6 +112,11 @@ export function renderSection(
   ctx.filter = "none";
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  try {
+    (ctx as unknown as { textRendering?: string }).textRendering = "geometricPrecision";
+  } catch {}
 
   /* ---------------------------- 1. background ---------------------------- */
   let drewMedia = false;

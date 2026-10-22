@@ -53,6 +53,9 @@ export interface ResearchOptions {
   queryParams?: string;
   /** Abort a superseded search so a fast double-click cannot race. */
   signal?: AbortSignal;
+  /** Target output frame dimensions so candidates are ranked for minimal crop/upscale. */
+  frameWidth?: number;
+  frameHeight?: number;
 }
 
 /** Build the proxied URL the rest of the app expects for an image.
@@ -73,14 +76,19 @@ async function fetchPool(
   query: string,
   options: ResearchOptions
 ): Promise<ImageCandidate[]> {
-  const { headers = {}, queryParams = "", signal } = options;
+  const { headers = {}, queryParams = "", signal, frameWidth, frameHeight } = options;
   const q = (query || "").trim();
   if (!q) return [];
+
+  const frameSuffix =
+    frameWidth && frameHeight
+      ? `&frameW=${Math.round(frameWidth)}&frameH=${Math.round(frameHeight)}`
+      : "";
 
   try {
     const res = await fetch(
       `${EDGE_FUNCTION_BASE}/image-search?q=${encodeURIComponent(q)}` +
-        `&count=${IMAGE_SEARCH_COUNT}${queryParams}`,
+        `&count=${IMAGE_SEARCH_COUNT}${frameSuffix}${queryParams}`,
       { headers, signal }
     );
     if (!res.ok) return [];

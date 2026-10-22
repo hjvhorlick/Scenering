@@ -9,7 +9,7 @@
     "dev": "node scripts/generate-theme-css.mjs && concurrently -n vite,worker -c blue,green \"vite build --watch\" \"wrangler dev --live-reload\"",
     "build": "node scripts/generate-theme-css.mjs && vite build",
     "start": "wrangler dev",
-    "deploy": "node scripts/check-deploy-config.mjs && npm run build && wrangler deploy",
+    "deploy": "node scripts/check-deploy-config.mjs --remote && npm run build && wrangler deploy",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",

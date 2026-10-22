@@ -54,16 +54,20 @@ export function createFrameTicker(onFrame: () => void): FrameTicker {
   let worker: Worker | null = null;
   let workerUrl: string | null = null;
   let lastFrameAt = 0;
+  let nextDueAt = 0;
   let onVisibilityChange: (() => void) | null = null;
 
   const now = () =>
     typeof performance !== "undefined" ? performance.now() : Date.now();
 
-  /** Drop re-entrant fires that arrive sooner than 70% of a frame. */
+  /** Phase-locked cadence: advances a target deadline by `interval` on each
+   *  frame so 24/25/30/60 fps hold exact long-term cadence across 60Hz, 75Hz,
+   *  120Hz and 144Hz displays without bursts or drift. */
   const fire = () => {
     const t = now();
-    const hold = Math.max(4, interval * 0.7);
-    if (t - lastFrameAt < hold) return;
+    const vsyncSlack = Math.min(2.5, interval * 0.15);
+    if (lastFrameAt > 0 && t + vsyncSlack < nextDueAt) return;
+    nextDueAt = lastFrameAt === 0 ? t + interval : Math.max(t - interval * 0.5, nextDueAt + interval);
     lastFrameAt = t;
     try {
       onFrame();
@@ -187,6 +191,7 @@ export function createFrameTicker(onFrame: () => void): FrameTicker {
       interval = next;
       running = true;
       lastFrameAt = 0;
+      nextDueAt = 0;
       if (typeof document !== "undefined" && !onVisibilityChange) {
         onVisibilityChange = () => pump();
         document.addEventListener("visibilitychange", onVisibilityChange);

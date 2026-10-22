@@ -4,7 +4,12 @@ import { computeMotion, applyMotion, type MotionPreset } from "./overlay-motion"
 import { drawSticker, resolveStickerId, STICKER_BY_ID } from "./sticker-3d";
 import { renderTextTemplate, getTextTemplateBounds } from "./render-text-template";
 import { AudioFrame, makeAudioFrame } from "./audio-reactive";
-import { renderAudioVisualizer, getVisualizerFootprint } from "./render-visualizers";
+import {
+  renderAudioVisualizer,
+  getVisualizerFootprint,
+  isImmersiveVisualizer,
+  isRoundVisualizer,
+} from "./render-visualizers";
 import { drawSceneImage, drawMediaCover } from "./scene-framing";
 
 // Convert preset position string into normalized (0..1) coordinates
@@ -381,6 +386,9 @@ export function renderTimelineInsert(
     case "audio_visualizers":
     case "speech_reactive":
     case "meditation":
+      if (insert.visualOptions?.floatShadow !== false && !isImmersiveVisualizer(insert.type)) {
+        paintVisualizerGroundingShadow(ctx, insert, cx, cy, w, h, shadowStrength);
+      }
       renderAudioVisualizer({
         ctx,
         item: insert,
@@ -409,16 +417,18 @@ export function renderTimelineInsert(
     FLOAT_SHADOW_CATEGORIES[insert.category] === true && insert.visualOptions?.floatShadow !== false;
 
   if (wantsFloat) {
-    // Full-frame buffer: overlays such as full-width wave effects can never be
-    // clipped by their own shadow pass.
+    // Full-frame buffer: solid badges, stickers and cards are never clipped by
+    // their own shadow pass.
     const scratch = getFloatScratch(w, h);
     const sctx = scratch ? (scratch.getContext("2d") as CanvasRenderingContext2D | null) : null;
 
     if (scratch && sctx) {
       sctx.setTransform(1, 0, 0, 1, 0, 0);
-      sctx.clearRect(0, 0, w, h);
+      sctx.clearRect(0, 0, scratch.width, scratch.height);
       sctx.save();
       mirrorCanvasState(ctx, sctx);
+      sctx.imageSmoothingEnabled = true;
+      sctx.imageSmoothingQuality = "high";
       sctx.globalAlpha = opacity;
       paintInto(sctx, 0, 0);
       sctx.restore();
@@ -433,6 +443,8 @@ export function renderTimelineInsert(
 
       ctx.save();
       ctx.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       ctx.shadowColor = `rgba(0, 0, 0, ${(0.34 + shadowStrength * 0.42).toFixed(3)})`;
       ctx.shadowBlur = Math.max(5, (11 + shadowStrength * 15) * floatScale);
       ctx.shadowOffsetX = 0;
@@ -648,12 +660,61 @@ const FLOAT_SHADOW_CATEGORIES: Record<string, boolean> = {
   content_cards: true,
   other_cards: true,
   text_templates: true,
-  audio_visualizers: true,
-  speech_reactive: true,
-  meditation: true,
+  // Audio visualisers paint directly onto the target canvas rather than through
+  // floatScratch: routing additive ("lighter") light and fine glass/chrome lines
+  // through an empty 8-bit RGBA scratch buffer quantizes thin rims and turns
+  // additive bloom into muddy source-over alpha. Their grounding depth comes
+  // from paintVisualizerGroundingShadow() below instead.
   branding: true,
   logo: true,
 };
+
+/**
+ * Smooth, zero-blur grounding shadow cushion behind a floating visualiser so
+ * bright spectrum bars and radial strokes hold high contrast over light footage
+ * while keeping direct native-resolution additive compositing on top.
+ */
+function paintVisualizerGroundingShadow(
+  ctx: CanvasRenderingContext2D,
+  insert: TimelineInsert,
+  cx: number,
+  cy: number,
+  canvasW: number,
+  canvasH: number,
+  strength: number
+) {
+  if (!(strength > 0.02) || !(canvasW > 0) || !(canvasH > 0)) return;
+  const foot = getVisualizerFootprint(insert, canvasW, canvasH);
+  if (!Number.isFinite(foot.w) || !Number.isFinite(foot.h) || foot.w <= 2 || foot.h <= 2) return;
+  const sx = Number.isFinite(cx) ? cx : canvasW * 0.5;
+  const sy = Number.isFinite(cy) ? cy : canvasH * 0.5;
+  const alpha = Math.max(0, Math.min(0.42, 0.14 + strength * 0.24));
+
+  ctx.save();
+  if (isRoundVisualizer(insert.type) || insert.type.startsWith("px_ring_")) {
+    const r = Math.max(8, Math.min(canvasW, canvasH) * 0.5, Math.max(foot.w, foot.h) * 0.52);
+    const radius = Math.min(r, Math.max(foot.w, foot.h) * 0.56);
+    const grad = ctx.createRadialGradient(sx, sy + radius * 0.04, 0, sx, sy + radius * 0.04, radius);
+    grad.addColorStop(0, `rgba(4, 8, 18, ${alpha.toFixed(3)})`);
+    grad.addColorStop(0.55, `rgba(4, 8, 18, ${(alpha * 0.45).toFixed(3)})`);
+    grad.addColorStop(1, "rgba(4, 8, 18, 0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(sx, sy + radius * 0.04, radius, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    const rx = Math.max(12, foot.w * 0.52);
+    const ry = Math.max(8, foot.h * 0.48);
+    const grad = ctx.createLinearGradient(sx, sy - ry, sx, sy + ry * 0.55);
+    grad.addColorStop(0, "rgba(4, 8, 18, 0)");
+    grad.addColorStop(0.52, `rgba(4, 8, 18, ${(alpha * 0.55).toFixed(3)})`);
+    grad.addColorStop(0.84, `rgba(4, 8, 18, ${alpha.toFixed(3)})`);
+    grad.addColorStop(1, "rgba(4, 8, 18, 0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(Math.max(0, sx - rx), sy - ry, Math.min(canvasW, rx * 2), ry * 1.55);
+  }
+  ctx.restore();
+}
 
 /**
  * Mirrors the live canvas state onto the shadow buffer. Some overlays rely on the

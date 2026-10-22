@@ -28,11 +28,23 @@ export interface StockCandidate {
   source: string;
   width: number;
   height: number;
+  /** Original uncropped camera dimensions when reported by the provider. */
+  nativeWidth?: number;
+  nativeHeight?: number;
+  /** Optional higher-resolution master URL when available (e.g. >1080p export). */
+  highResUrl?: string;
 }
 
 /** Every delivered image must be at least Full HD. */
 export const PHOTO_MIN_WIDTH = 1920;
 export const PHOTO_MIN_HEIGHT = 1080;
+
+/**
+ * Maximum aspect-ratio mismatch accepted for server-cropped Pexels sources.
+ * Allows standard 16:9 (1.0), 3:2 (1.19), and 4:3 (1.33) camera originals while
+ * rejecting extreme portrait or panoramic slivers that lose >55% to cropping.
+ */
+export const MAX_SOURCE_ASPECT_MISMATCH = 2.25;
 
 /**
  * How far an image's aspect may sit from 16:9 and still count. ±0.06 covers
@@ -59,17 +71,68 @@ export function isUsableStockDimensions(w?: number, h?: number): boolean {
   return is16x9Aspect(w, h) && meetsFullHd(w, h);
 }
 
+/**
+ * Score how cleanly a stock candidate fills `frameW × frameH` (including ~1.44×
+ * Ken Burns camera headroom) without enlargement or excessive cropping.
+ */
+export function scoreCandidateForFrame(
+  candidate: Pick<StockCandidate, "width" | "height" | "nativeWidth" | "nativeHeight">,
+  frameW = PHOTO_MIN_WIDTH,
+  frameH = PHOTO_MIN_HEIGHT
+): number {
+  const srcW = Number(candidate.nativeWidth || candidate.width) || 0;
+  const srcH = Number(candidate.nativeHeight || candidate.height) || 0;
+  const targetW = Math.max(1, frameW);
+  const targetH = Math.max(1, frameH);
+  if (srcW <= 0 || srcH <= 0) return 0;
+
+  const srcRatio = srcW / srcH;
+  const targetRatio = targetW / targetH;
+  const mismatch = Math.max(srcRatio / targetRatio, targetRatio / srcRatio, 1);
+
+  // Effective pixels remaining AFTER cropping `srcW × srcH` to `targetRatio`:
+  const croppedW = srcRatio > targetRatio ? srcH * targetRatio : srcW;
+  const croppedH = srcRatio > targetRatio ? srcH : srcW / targetRatio;
+
+  // Ideal pixel coverage includes 1.44× Ken Burns zoom headroom on both axes.
+  const idealW = targetW * 1.44;
+  const idealH = targetH * 1.44;
+  const scaleCoverage = Math.min(croppedW / idealW, croppedH / idealH);
+  // 0..65 points for resolution coverage (50 at 1.0× frame, 65 at ≥1.44× headroom)
+  const resolutionScore = Math.min(65, Math.max(0, scaleCoverage * 52));
+  // 0..35 points for aspect match (35 when exact shape, tapering down as crop waste grows)
+  const aspectScore = 35 / Math.pow(mismatch, 1.35);
+
+  return Math.round((resolutionScore + aspectScore) * 100) / 100;
+}
+
+/**
+ * Stable descending sort of candidates by frame fitness (resolution headroom +
+ * minimal crop loss) so higher-grade sources sit at the front of the pool.
+ */
+export function rankCandidatesForFrame<
+  T extends Pick<StockCandidate, "width" | "height" | "nativeWidth" | "nativeHeight">
+>(candidates: readonly T[], frameW = PHOTO_MIN_WIDTH, frameH = PHOTO_MIN_HEIGHT): T[] {
+  return candidates
+    .map((item, idx) => ({ item, idx, score: scoreCandidateForFrame(item, frameW, frameH) }))
+    .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.idx - b.idx))
+    .map((entry) => entry.item);
+}
+
 /* ------------------------------------------------------------------ Pexels */
 
 /**
  * Pexels photos can be served as an exact 1920×1080 crop by their CDN, so the
- * only requirement on the source is that the crop never has to *up*scale:
- * both source dimensions must already be ≥ the target.
+ * source must be at least Full HD and reasonably landscape-proportioned so the
+ * CDN crop never discards most of the composition.
  */
 export function pexelsPhotoToCandidate(p: any): StockCandidate | null {
   const w = Number(p?.width);
   const h = Number(p?.height);
   if (!meetsFullHd(w, h)) return null;
+  const ratio = w / h;
+  const mismatch = Math.max(ratio / ASPECT_16_9, ASPECT_16_9 / ratio, 1);
+  if (mismatch > MAX_SOURCE_ASPECT_MISMATCH) return null;
 
   const base = String(p?.src?.original || "").split("?")[0];
   if (!/^https?:\/\//i.test(base)) return null;
@@ -80,6 +143,8 @@ export function pexelsPhotoToCandidate(p: any): StockCandidate | null {
     source: "pexels",
     width: 1920,
     height: 1080,
+    nativeWidth: w,
+    nativeHeight: h,
   };
 }
 
@@ -97,12 +162,14 @@ export function pixabayHitToCandidate(h: any): StockCandidate | null {
   const hh = Number(h?.imageHeight);
   if (!isUsableStockDimensions(w, hh)) return null;
 
-  const url = String(h?.fullHDURL || h?.imageURL || "").trim();
+  const fullHd = String(h?.fullHDURL || "").trim();
+  const original = String(h?.imageURL || "").trim();
+  const url = fullHd || original;
   if (!/^https?:\/\//i.test(url)) return null;
 
   // fullHDURL scales the longest side to 1920; report the served size.
   const longest = Math.max(w, hh);
-  const scale = longest > 1920 ? 1920 / longest : 1;
+  const scale = fullHd && longest > 1920 ? 1920 / longest : 1;
   const servedW = Math.round(w * scale);
   const servedH = Math.round(hh * scale);
 
@@ -112,6 +179,9 @@ export function pixabayHitToCandidate(h: any): StockCandidate | null {
     source: "pixabay",
     width: servedW,
     height: servedH,
+    nativeWidth: w,
+    nativeHeight: hh,
+    ...(original && original !== url && longest > 1920 ? { highResUrl: original } : {}),
   };
 }
 
@@ -163,5 +233,66 @@ export function wikimediaInfoToCandidate(info: any): StockCandidate | null {
     source: "wikimedia",
     width: servedW,
     height: servedH,
+    nativeWidth: w,
+    nativeHeight: h,
   };
+}
+
+/**
+ * Upgrades a saved 16:9 stock CDN URL to a higher-resolution, lower-compression
+ * 16:9 master of the exact same composition when the render needs zoom/crop
+ * headroom. Returns null when no safe same-aspect upgrade exists.
+ */
+export function upgradeStockUrlForRender(
+  rawUrl: string,
+  minWidth = 0,
+  minHeight = 0
+): string | null {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+
+    // Pixabay CDN: if a legacy _640 or _1280 URL was saved on a scene, lift it
+    // to the Full HD _1920 variant so it is never upscaled at render time.
+    if (host === "pixabay.com" || host.endsWith(".pixabay.com")) {
+      return pixabayUpgradeUrlTo1920(rawUrl);
+    }
+
+    const neededH = Math.max(minHeight, Math.ceil((minWidth * 9) / 16));
+    if (!(neededH > PHOTO_MIN_HEIGHT)) return null;
+    const targetH = neededH <= 1440 ? 1440 : 2160;
+    const targetW = targetH === 1440 ? 2560 : 3840;
+
+    // Pexels Imgix CDN: preserve exact 16:9 fit=crop composition while lifting
+    // resolution and replacing aggressive auto=compress with clean q=92 JPEG.
+    if (
+      (host === "images.pexels.com" || host.endsWith(".pexels.com")) &&
+      parsed.searchParams.get("fit") === "crop"
+    ) {
+      const curW = Number(parsed.searchParams.get("w") || 0);
+      const curH = Number(parsed.searchParams.get("h") || 0);
+      if (curW > 0 && curH > 0 && Math.abs(curW / curH - ASPECT_16_9) < 0.05 && curW < targetW) {
+        const base = `${parsed.origin}${parsed.pathname}`;
+        return `${base}?cs=tinysrgb&q=92&w=${targetW}&h=${targetH}&fit=crop`;
+      }
+    }
+
+    // Wikimedia Commons thumb URLs (/1920px-Filename.jpg): request a wider
+    // thumb of the exact same source file; if the original upload is smaller
+    // than targetW, the caller's fallback chain drops straight back to 1920px.
+    if (host === "upload.wikimedia.org") {
+      const match = parsed.pathname.match(/\/(\d+)px-([^/]+)$/);
+      if (match) {
+        const curW = Number(match[1]);
+        if (curW > 0 && curW < targetW) {
+          parsed.pathname = parsed.pathname.replace(/\/\d+px-([^/]+)$/, `/${targetW}px-$1`);
+          return parsed.toString();
+        }
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }

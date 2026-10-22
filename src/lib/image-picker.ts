@@ -13,6 +13,7 @@
  */
 
 import { NATURE_FALLBACKS, type NatureBackground } from "../data/nature-fallbacks";
+import { scoreCandidateForFrame } from "./image-candidates";
 import { matchFallbackPhotos } from "./search-query";
 
 /** How many candidates we ask the server for before picking one at random. */
@@ -83,6 +84,9 @@ export interface ImageCandidate {
   source: string;
   width?: number;
   height?: number;
+  nativeWidth?: number;
+  nativeHeight?: number;
+  highResUrl?: string;
 }
 
 /**
@@ -170,8 +174,47 @@ function uniqueByUrl(pool: readonly ImageCandidate[]): ImageCandidate[] {
   return out;
 }
 
+/** Order unseen candidates by frame quality when dimension metadata exists,
+ *  then sample from the leading quality tier so selections stay sharp and
+ *  well-proportioned without repeating or starving rotation. */
+function qualityBiasedSample(
+  candidates: readonly ImageCandidate[],
+  n: number,
+  rng: () => number,
+  frameW = 1920,
+  frameH = 1080
+): ImageCandidate[] {
+  if (candidates.length <= n) return pickRandomSample(candidates, candidates.length, rng);
+  const hasDimensions = candidates.some(
+    (c) => (c.nativeWidth ?? c.width ?? 0) > 0 && (c.nativeHeight ?? c.height ?? 0) > 0
+  );
+  if (!hasDimensions) return pickRandomSample(candidates, n, rng);
+
+  const ranked = candidates
+    .map((item, idx) => ({
+      item,
+      idx,
+      score: scoreCandidateForFrame(
+        {
+          width: item.width ?? 0,
+          height: item.height ?? 0,
+          nativeWidth: item.nativeWidth,
+          nativeHeight: item.nativeHeight,
+        },
+        frameW,
+        frameH
+      ),
+    }))
+    .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.idx - b.idx))
+    .map((entry) => entry.item);
+
+  const tierSize = Math.min(ranked.length, Math.max(n * 2, Math.ceil(ranked.length * 0.55)));
+  return pickRandomSample(ranked.slice(0, tierSize), n, rng);
+}
+
 /**
- * Choose `n` candidates, strongly preferring ones never shown before.
+ * Choose `n` candidates, strongly preferring ones never shown before and
+ * favouring photos with generous resolution headroom for the target frame.
  *
  * When there are not enough unseen photos to fill the grid — a small result
  * set, or a session that has already seen everything — the remainder is
@@ -181,18 +224,21 @@ function uniqueByUrl(pool: readonly ImageCandidate[]): ImageCandidate[] {
 export function selectFreshCandidates(
   pool: readonly ImageCandidate[],
   n: number = VISIBLE_CANDIDATES,
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  frameSize?: { width: number; height: number }
 ): ImageCandidate[] {
   const unique = uniqueByUrl(pool);
   const unseen = unique.filter((img) => !shownUrls.has(img.url));
+  const fw = frameSize?.width || 1920;
+  const fh = frameSize?.height || 1080;
 
   let chosen: ImageCandidate[];
   if (unseen.length >= n) {
-    chosen = pickRandomSample(unseen, n, rng);
+    chosen = qualityBiasedSample(unseen, n, rng, fw, fh);
   } else {
     const remainder = unique.filter((img) => shownUrls.has(img.url));
     chosen = pickRandomSample(unseen, unseen.length, rng).concat(
-      pickRandomSample(remainder, Math.max(0, n - unseen.length), rng)
+      qualityBiasedSample(remainder, Math.max(0, n - unseen.length), rng, fw, fh)
     );
   }
 
@@ -211,14 +257,15 @@ export function selectFreshCandidates(
  */
 export function pickOneFreshCandidate(
   pool: readonly ImageCandidate[],
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  frameSize?: { width: number; height: number }
 ): ImageCandidate | null {
   const unique = uniqueByUrl(pool);
   if (unique.length === 0) return null;
 
   const unseen = unique.filter((img) => !shownUrls.has(img.url));
   const source = unseen.length > 0 ? unseen : unique;
-  const pick = source[Math.floor(rng() * source.length)] ?? null;
+  const pick = qualityBiasedSample(source, 1, rng, frameSize?.width || 1920, frameSize?.height || 1080)[0] ?? null;
 
   // Recorded here rather than by the caller. Leaving it to the caller meant a
   // hand-out that was never remembered could be served again on the very

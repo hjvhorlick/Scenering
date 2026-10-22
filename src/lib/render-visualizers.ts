@@ -374,9 +374,10 @@ export function getVisualizerFootprint(
 }
 
 /** 720p is the reference frame: every pixel dimension scales from it, so the
- *  studio thumbnails are true miniatures of what lands in the video. */
+ *  studio thumbnails are true miniatures of what lands in the video, including
+ *  full 2K (2×) and 4K UHD (3×) exports. */
 function frameScale(canvasHeight: number): number {
-  return Math.max(0.28, Math.min(2.2, canvasHeight / 720));
+  return Math.max(0.28, Math.min(3.2, canvasHeight / 720));
 }
 
 /**

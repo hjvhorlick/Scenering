@@ -46,8 +46,17 @@ export default defineConfig({
     // Let a local Vite preview reach the companion Wrangler worker using
     // same-origin URLs, just like the production asset/worker deployment.
     proxy: {
-      "/api": { target: "http://127.0.0.1:8787", changeOrigin: true },
-      "/functions/v1": { target: "http://127.0.0.1:8787", changeOrigin: true },
+      "/api": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true },
+      "/functions/v1": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true },
+    },
+  },
+  preview: {
+    host: "0.0.0.0",
+    port: 3000,
+    allowedHosts: true,
+    proxy: {
+      "/api": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true },
+      "/functions/v1": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true },
     },
   },
   build: {

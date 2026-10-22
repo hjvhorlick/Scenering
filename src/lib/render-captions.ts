@@ -196,8 +196,18 @@ export function cleanCaptionText(raw: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/** Effective typographic reference edge: full frame height on landscape/square
+ *  canvases, and bounded against frame width on tall 9:16 vertical canvases so
+ *  lines retain generous side breathing room instead of crowding screen edges. */
+function captionReferenceEdge(h: number, w?: number): number {
+  if (w !== undefined && Number.isFinite(w) && w > 0 && w < h) {
+    return Math.min(h, Math.round(w * 1.18));
+  }
+  return h;
+}
+
 /**
- * Type size for a caption at a given frame height.
+ * Type size for a caption at a given frame size.
  *
  * Exported because the Captions studio needs the exact same numbers to decide
  * where to point its close-up: a preview that guesses the caption band is a
@@ -205,21 +215,23 @@ export function cleanCaptionText(raw: string): string {
  */
 export function captionTypeMetrics(
   fontSize: CaptionsConfig["fontSize"] | undefined,
-  h: number
+  h: number,
+  w?: number
 ): { fontPx: number; lineSpacingPx: number } {
+  const ref = captionReferenceEdge(h, w);
   switch (fontSize) {
     case "small": {
-      const fontPx = Math.max(16, Math.round(h * 0.032));
-      return { fontPx, lineSpacingPx: Math.round(fontPx * 1.35) };
+      const fontPx = Math.max(16, Math.round(ref * 0.032));
+      return { fontPx, lineSpacingPx: Math.round(fontPx * 1.38) };
     }
     case "large": {
-      const fontPx = Math.max(26, Math.round(h * 0.052));
-      return { fontPx, lineSpacingPx: Math.round(fontPx * 1.38) };
+      const fontPx = Math.max(26, Math.round(ref * 0.052));
+      return { fontPx, lineSpacingPx: Math.round(fontPx * 1.4) };
     }
     case "medium":
     default: {
-      const fontPx = Math.max(20, Math.round(h * 0.04));
-      return { fontPx, lineSpacingPx: Math.round(fontPx * 1.36) };
+      const fontPx = Math.max(20, Math.round(ref * 0.04));
+      return { fontPx, lineSpacingPx: Math.round(fontPx * 1.38) };
     }
   }
 }
@@ -228,26 +240,29 @@ export function captionTypeMetrics(
 export function captionBlockStartY(
   position: CaptionsConfig["position"] | undefined,
   h: number,
-  lineSpacingPx: number
+  lineSpacingPx: number,
+  w?: number
 ): number {
+  const isVertical = w !== undefined && Number.isFinite(w) && w > 0 && w < h;
   switch (position) {
     case "top":
-      return Math.max(32, Math.round(h * 0.12)) + lineSpacingPx / 2;
+      return Math.max(36, Math.round(h * (isVertical ? 0.135 : 0.12))) + lineSpacingPx / 2;
     case "center":
       return Math.round((h - 2 * lineSpacingPx) / 2) + lineSpacingPx / 2;
     case "bottom":
     default:
-      // Fixed bottom-anchored baseline so 1-line and 2-line cards align consistently
-      return h - Math.max(42, Math.round(h * 0.1)) - lineSpacingPx;
+      // Fixed bottom-anchored baseline with generous safe-area clearance on both
+      // landscape and 9:16 vertical platform players.
+      return h - Math.max(46, Math.round(h * (isVertical ? 0.15 : 0.105))) - lineSpacingPx;
   }
 }
 
 /**
  * The middle of the two-line caption card — what a close-up should centre on.
  */
-export function captionBandCenterY(config: CaptionsConfig, h: number): number {
-  const { lineSpacingPx } = captionTypeMetrics(config.fontSize, h);
-  return captionBlockStartY(config.position, h, lineSpacingPx) + lineSpacingPx / 2;
+export function captionBandCenterY(config: CaptionsConfig, h: number, w?: number): number {
+  const { lineSpacingPx } = captionTypeMetrics(config.fontSize, h, w);
+  return captionBlockStartY(config.position, h, lineSpacingPx, w) + lineSpacingPx / 2;
 }
 
 /**
@@ -274,7 +289,11 @@ export function renderCanvasCaptions(
   const style = getCaptionStyle(resolveCaptionStyleId(config.preset));
   const fontDef = getCaptionFont(config.fontId || style.fontId);
   const fontFamily = captionFontStack(config.fontId || style.fontId);
-  const fontWeight = config.fontWeight ?? fontDef.weight;
+  const rawWeight = config.fontWeight ?? fontDef.weight;
+  const numericWeight = Number(rawWeight);
+  const fontWeight = Number.isFinite(numericWeight) && numericWeight > 0
+    ? Math.max(600, numericWeight)
+    : rawWeight || 700;
   const uppercase = config.uppercase ?? style.uppercase;
   const letterSpacingEm = config.letterSpacing ?? style.letterSpacing ?? 0;
   // An explicit config choice wins; otherwise the style's own finish applies,
@@ -285,27 +304,47 @@ export function renderCanvasCaptions(
   const words = textToRender.split(/\s+/).filter(Boolean);
   if (words.length === 0) return;
 
-  // Reference everything to 720p so caption sizing is identical in preview and render
-  const scale = h / 720;
-  const { fontPx, lineSpacingPx } = captionTypeMetrics(config.fontSize, h);
+  // Reference everything to final output dimensions so caption sizing and
+  // outlines render directly at the export's full native resolution.
+  const refEdge = captionReferenceEdge(h, w);
+  const scale = refEdge / 720;
+  let { fontPx, lineSpacingPx } = captionTypeMetrics(config.fontSize, h, w);
 
   // Border and shadow, both scaled to the frame
-  const borderWidth = Math.max(0, (config.borderWidth ?? style.borderWidth) * scale);
+  const rawBorder = config.borderWidth ?? style.borderWidth;
+  const borderWidth = rawBorder > 0 ? Math.max(1.25 * scale, rawBorder * scale) : 0;
   const borderColor = config.borderColor || style.borderColor;
   const shadowOn = config.shadow ?? true;
   const shadowStrength = (config.shadowStrength ?? style.shadowStrength) * (shadowOn ? 1 : 0);
   const shadowOffsetY = Math.max(1, (config.shadowOffset ?? style.shadowOffset) * scale);
   const shadowBlur = Math.max(2, (config.shadowBlur ?? style.shadowBlur) * scale);
 
+  // Safe horizontal width leaves ≥11% breathing room on each side of the frame.
+  const maxLineWidth = Math.round(w * (w < h ? 0.8 : 0.78));
+
   ctx.save();
   ctx.font = `${fontWeight} ${fontPx}px ${fontFamily}`;
   ctx.textBaseline = "middle";
   applyTextQuality(ctx, letterSpacingEm, fontPx);
 
+  // If a single long word exceeds the safe zone, step the font size down just
+  // enough to keep generous side padding rather than clipping at the edge.
+  let widestSingleWord = 0;
+  for (const word of words) {
+    const measured = ctx.measureText(word).width;
+    if (measured > widestSingleWord) widestSingleWord = measured;
+  }
+  if (widestSingleWord > maxLineWidth && widestSingleWord > 0) {
+    const fitRatio = Math.max(0.68, (maxLineWidth * 0.96) / widestSingleWord);
+    fontPx = Math.max(15, Math.floor(fontPx * fitRatio));
+    lineSpacingPx = Math.round(fontPx * 1.38);
+    ctx.font = `${fontWeight} ${fontPx}px ${fontFamily}`;
+    applyTextQuality(ctx, letterSpacingEm, fontPx);
+  }
+
   const spaceWidth = ctx.measureText(" ").width;
 
   // Wrap words into lines based on safe canvas width (ensuring text fits inside video borders)
-  const maxLineWidth = Math.round(w * 0.78);
   const lines: { words: string[]; text: string; startIndex: number; lineIndex: number }[] = [];
   let curLineWords: string[] = [];
   let curStartIndex = 0;
@@ -417,7 +456,7 @@ export function renderCanvasCaptions(
   const visibleLines = lines.slice(firstVisibleIdx, firstVisibleIdx + 2);
 
   // Calculate vertical position with generous safety margin from canvas borders
-  const startY = captionBlockStartY(config.position, h, lineSpacingPx);
+  const startY = captionBlockStartY(config.position, h, lineSpacingPx, w);
 
   /**
    * The outline and the shadow the text sits on.
@@ -446,29 +485,53 @@ export function renderCanvasCaptions(
     if (width <= 0 && shadowStrength <= 0) return;
     ctx.save();
     ctx.textAlign = align;
-    if (shadowStrength > 0) {
-      ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.95, shadowStrength)})`;
-      ctx.shadowBlur = shadowBlur;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = shadowOffsetY;
-    }
     if (width > 0) {
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.miterLimit = 2;
       ctx.lineWidth = width * 2;
       ctx.strokeStyle = color;
+      if (shadowStrength > 0) {
+        // Two-pass smooth drop shadow behind the glyph prevents 8-bit YUV420
+        // banding while keeping the final outline stroke itself unblurred.
+        ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.65, shadowStrength * 0.5)})`;
+        ctx.shadowBlur = Math.round(shadowBlur * 1.65);
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = Math.round(shadowOffsetY * 1.25);
+        ctx.strokeText(text, x, y);
+
+        ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.95, shadowStrength)})`;
+        ctx.shadowBlur = shadowBlur;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = shadowOffsetY;
+        ctx.strokeText(text, x, y);
+
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+      }
       ctx.strokeText(text, x, y);
-    } else {
+    } else if (shadowStrength > 0) {
       // No outline, but the shadow still has to come from somewhere.
       //
       // A canvas shadow is cast by whatever is painted, and this pass used to
       // paint only the stroke — so turning the border down to 0 silently
       // turned the drop shadow off with it, and the captions lost the one
       // thing holding them off a busy background. Painting the glyph itself
-      // here casts the shadow; the real fill lands on top of it immediately
-      // after and covers it completely.
+      // here casts a smooth two-layer shadow; the real fill lands on top of it
+      // immediately after and covers it completely.
       ctx.fillStyle = color;
+      ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.6, shadowStrength * 0.45)})`;
+      ctx.shadowBlur = Math.round(shadowBlur * 1.6);
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = Math.round(shadowOffsetY * 1.2);
+      ctx.fillText(text, x, y);
+
+      ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.95, shadowStrength)})`;
+      ctx.shadowBlur = shadowBlur;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = shadowOffsetY;
       ctx.fillText(text, x, y);
     }
     ctx.restore();
@@ -494,9 +557,9 @@ export function renderCanvasCaptions(
 
     // 1. Background backdrop (if blocked) — floating on its own shadow
     if (config.backgroundStyle === "blocked") {
-      const padX = Math.round(fontPx * 0.65);
-      const padY = Math.round(fontPx * 0.35);
-      const maxBgW = Math.round(w * 0.88);
+      const padX = Math.round(fontPx * 0.78);
+      const padY = Math.round(fontPx * 0.44);
+      const maxBgW = Math.round(w * 0.9);
       // Rounded to whole pixels: a half-pixel rectangle edge is drawn as two
       // half-lit rows, which reads as a soft grey smear along the top of the
       // bar rather than a clean edge.
@@ -506,14 +569,14 @@ export function renderCanvasCaptions(
       const bgY = Math.round(lineY - bgH / 2);
 
       ctx.save();
-      ctx.fillStyle = config.bgColor || "rgba(0, 0, 0, 0.72)";
-      ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.6, 0.28 + shadowStrength * 0.4)})`;
+      ctx.fillStyle = config.bgColor || "rgba(8, 12, 22, 0.78)";
+      ctx.shadowColor = `rgba(0, 0, 0, ${Math.min(0.65, 0.3 + shadowStrength * 0.4)})`;
       ctx.shadowBlur = shadowBlur * 0.9;
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = Math.max(1.5, shadowOffsetY * 0.8);
       ctx.beginPath();
       if (typeof ctx.roundRect === "function") {
-        ctx.roundRect(bgX, bgY, bgW, bgH, Math.min(12, Math.round(bgH * 0.25)));
+        ctx.roundRect(bgX, bgY, bgW, bgH, Math.min(14, Math.round(bgH * 0.26)));
       } else {
         ctx.rect(bgX, bgY, bgW, bgH);
       }
@@ -543,16 +606,16 @@ export function renderCanvasCaptions(
         if (isCurrentActive) {
           // Chrome keeps its surface on the active word too; flattening it to
           // one colour made the highlight look like a different typeface.
+          // Do not attach a dark shadow to the inner fill here: strokeWord
+          // already placed the shadow behind the outline, and a second shadow
+          // on fillText bled across the border and dulled bright highlights.
           ctx.fillStyle = metalFill ?? (config.highlightColor || style.highlightColor);
-          ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-          ctx.shadowBlur = shadowBlur;
-          ctx.shadowOffsetY = shadowOffsetY;
         } else if (isAlreadySung) {
           ctx.fillStyle = metalFill ?? (config.textColor || style.textColor);
         } else {
           // Upcoming words in soft clean tone for anticipation
-          ctx.fillStyle = metalFill ?? "rgba(255, 255, 255, 0.70)";
-          if (metalFill) ctx.globalAlpha = 0.72;
+          ctx.fillStyle = metalFill ?? "rgba(255, 255, 255, 0.82)";
+          if (metalFill) ctx.globalAlpha = 0.78;
         }
 
         ctx.fillText(wrd, wordX, lineY);

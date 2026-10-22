@@ -521,7 +521,7 @@ export default function CaptionsStudio({
         const viewH = zoomCanvas.height;
         const regionH = FRAME_H / zoom;
         const regionW = regionH * (viewW / viewH);
-        const bandY = captionBandCenterY(config, FRAME_H);
+        const bandY = captionBandCenterY(config, FRAME_H, FRAME_W);
         // Clamp so the window never runs off the frame and shows dead space.
         const originX = Math.max(0, Math.min(FRAME_W - regionW, (FRAME_W - regionW) / 2));
         const originY = Math.max(0, Math.min(Math.max(0, FRAME_H - regionH), bandY - regionH / 2));

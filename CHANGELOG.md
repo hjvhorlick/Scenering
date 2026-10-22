@@ -1,5 +1,95 @@
 # Changelog
 
+## Unreleased — true-resolution rendering, source photo selection, voice clarity & verified exports
+
+- **Improved: source-image selection, rendering fidelity, encoder bitrate,
+  caption sharpness, motion cadence, vocal clarity, and post-render validation.**
+  - **Source-image selection (`image-candidates.ts`, `image-picker.ts`,
+    `server.ts`, `scene-image-loader.ts`).** Candidate mappers record native
+    dimensions and high-resolution variants across Pexels, Pixabay and Wikimedia
+    Commons, reject extreme aspect-mismatch photos (`> 2.25×` vs `16:9`) before
+    selection, rank candidates by resolution headroom and frame aspect fit, and
+    upgrade saved stock URLs at render time (`2560×1440` / `3840×2160` `q=92` on
+    Pexels, `2560px` / `3840px` on Wikimedia, `_1920` on legacy Pixabay URLs)
+    when zoom, `9:16` framing, `2K` or `4K` output needs additional pixels.
+  - **True output resolution & high-quality scaling (`VideoPreview.tsx`,
+    `offline-export.ts`, `scene-framing.ts`, `render-section.ts`,
+    `RenderView.tsx`).** `VideoPreview` renders onto Full HD (`1920×1080`,
+    `1080×1920`, `1080×1080`, `1440×1080`) RGBX surfaces; `OfflineExporter`
+    sets explicit `displayWidth`/`displayHeight`, checks canvas dimensions on
+    every encoded frame, and selects H.264 levels up to `5.2`; `scene-framing`
+    uses progressive `2×` mip downsampling and `imageSmoothingQuality = "high"`
+    to prevent stair-stepped edges on multi-megapixel photos.
+  - **Quality-oriented bitrate & colour fidelity (`render-profile.ts`,
+    `offline-export.ts`, `render-effects.ts`, `visualizer-materials.ts`).**
+    Above `1080p`, video bitrate scales with pixel count (`0.88` exponent —
+    `~16.6 Mbps` at `2K30` High, `~33.9–40.6 Mbps` at `4K30` High/Maximum) with
+    variable-bitrate probing and `bt709` colour primaries; audio visualizers
+    render directly onto the destination canvas so additive bloom stays bright
+    and un-blurred.
+  - **Sharp captions & smooth motion (`render-captions.ts`, `frame-ticker.ts`).**
+    Captions render at final output resolution with `geometricPrecision`, a
+    `>= 600` weight floor, portrait-aware safe margins (`9:16`), automatic
+    single-word width fitting, and two-pass shadow/outline separation so dark
+    drop shadows never bleed across bright active karaoke fills; `frame-ticker`
+    uses a phase-locked `nextDueAt` deadline accumulator for steady cadence
+    across `60`/`75`/`120`/`144 Hz` displays.
+  - **Vocal clarity & backend responsiveness (`audio-mastering.ts`, `db.ts`,
+    `server/platform.ts`, `server/workspace.ts`, `server.ts`).** Automatic
+    mastering applies a four-band vocal clarity EQ, isolated vocal compression,
+    `2.8 kHz` music speech-pocket EQ, and `35 ms` lookahead voice ducking;
+    authenticated API paths run hot reads in parallel, avoid full-table grant
+    sweeps and redundant DDL checks, and serve `ETag`/`304` responses on custom
+    audio and stock search endpoints.
+  - **Post-export validation (`export-validator.ts`, `RenderView.tsx`).** Every
+    finished render is checked for non-empty container payload, exact output
+    dimensions, frame count/rate cadence, video duration, and audio-video
+    synchronisation (`<= 140 ms`) before saving to the Vault or presenting the
+    download.
+
+## Unreleased — a deployment can no longer outrun its database
+
+- **Fixed: sign-in answered 500 when the Worker moved ahead of its D1 schema,
+  and the migration ledger had drifted behind the live tables.** `POST
+  /api/auth/login` failed with an unexplained HTTP `500` and locked production
+  out because `db.createSession()` inserted `sessions(device_id, device_label,
+  platform, last_seen_at)` — columns added by
+  `migrations/0007_devices_workspace.sql` — before `0007` had been applied to
+  `scenering-db`. Running `wrangler d1 migrations apply --remote` to catch up
+  then failed partway too: production's `d1_migrations` ledger only recorded
+  `0001` and `0002`, while `0003`–`0006` had already been applied to the schema
+  by hand and by first-use table helpers without updating the ledger. Wrangler
+  re-ran `0003`–`0005` cleanly (they are idempotent), recorded them, and stopped
+  dead on `0006_billing.sql` with `no such column: provider_variant_id`, because
+  that column had already been renamed to `provider_price_id` in the live
+  `subscriptions` table. Production `scenering-db` and `d1_migrations` are now
+  aligned through `0007`, `/api/workspace` is mounted in `server.ts`, and four
+  code-side guards stop this happening again:
+  - **The Worker checks its required schema at the edge and answers `503`
+    instead of `500`.** Once per isolate (`PRAGMA table_info`, cached only after
+    passing so a repair takes effect on the next request without a redeploy),
+    `worker.ts` and `server/platform.ts` verify that `sessions.device_id`,
+    `device_label`, `platform`, `last_seen_at` and `workspace_documents` exist
+    without running silent DDL behind `d1_migrations`'s back. When a migration
+    is missing, the Worker returns `503` (`code: "SCHEMA_OUT_OF_DATE"`) carrying
+    the exact `wrangler d1 migrations apply` command and SQL to fix it, while
+    leaving unrelated database and application errors untouched.
+  - **Session database failures are logged instead of looking like "signed
+    out".** `db.touchSession()`, `db.listActiveSessionsForUser()` and the
+    browser's `refreshSession()` keep their graceful fallbacks, so an auxiliary
+    read or timestamp update never drops a valid session, while logging every
+    non-`401` error so a broken schema is visible in Workers Logs and the
+    browser console.
+  - **`npm run deploy` refuses to deploy while migrations are pending.**
+    `scripts/check-deploy-config.mjs --remote` queries
+    `wrangler d1 migrations list scenering-db --remote` before building or
+    uploading the Worker and aborts with the pending filenames and apply
+    command whenever production D1 is behind `./migrations`.
+  - **Unmigrated column references cannot pass the test gate.**
+    `tests/schema-drift.test.ts` builds the column set produced by
+    `migrations/*.sql` and fails if `src/db.ts` reads or writes any table or
+    column no migration creates.
+
 ## Unreleased — the new voice replaces the old one
 
 - **Fixed: a piece of the previous voice could still be heard at the end of a
