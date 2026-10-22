@@ -49,6 +49,21 @@
 https://:version.:subdomain.workers.dev/*
   X-Robots-Tag: noindex
 
+# The app shell names hashed JavaScript files, so it must be revalidated after
+# every deployment. Otherwise an already-tested feature can remain pinned to
+# yesterday's bundle even though the new branch preview finished deploying.
+/
+  Cache-Control: no-cache, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/app
+  Cache-Control: no-cache, must-revalidate
+
+/app/*
+  Cache-Control: no-cache, must-revalidate
+
 # The brand tile and the icons never change between deployments: the artwork
 # behind them is committed and the filenames are stable, so they can be cached
 # hard. Google's favicon guidance asks for a stable URL — this is how stable.

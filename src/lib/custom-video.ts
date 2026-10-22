@@ -48,6 +48,10 @@ export interface CustomVideoClip {
   width: number;
   height: number;
   addedAt: number;
+  /** False only when storage failed and the selected File is usable in this tab. */
+  persistent?: boolean;
+  /** Actionable explanation shown beside a session-only upload. */
+  storageWarning?: string;
 }
 
 interface CustomVideoRecord extends CustomVideoClip {
@@ -65,6 +69,8 @@ let loadPromise: Promise<CustomVideoClip[]> | null = null;
 export interface AddCustomVideoOptions {
   /** Existing clips this upload replaces, deleted atomically with the new put. */
   replaceIds?: readonly string[];
+  /** Setup may continue in this tab when a reload-safe copy cannot be written. */
+  allowSessionFallback?: boolean;
 }
 
 function browserHasIdb(): boolean {
@@ -103,8 +109,13 @@ function idbRequest<T>(request: IDBRequest<T>): Promise<T | null> {
 }
 
 function stripBlob(record: CustomVideoRecord): CustomVideoClip {
-  const { blob: _blob, ...rest } = record;
-  return rest;
+  const {
+    blob: _blob,
+    persistent: _persistent,
+    storageWarning: _storageWarning,
+    ...rest
+  } = record;
+  return { ...rest, persistent: true };
 }
 
 function forgetInMemory(id: string): void {
@@ -251,7 +262,43 @@ async function storageFailureMessage(fileSize: number, reclaimed: number): Promi
   const reclaimedText = reclaimed > 0
     ? ` ${reclaimed} unused saved video${reclaimed === 1 ? " was" : "s were"} cleared automatically, but there is still not enough room.`
     : "";
-  return `The upload could not be saved because browser storage is full.${reclaimedText}${capacity} Remove old projects/site data or choose a smaller file, then try again.`;
+  return `Browser storage could not keep a reload-safe copy of this video.${reclaimedText}${capacity} The video is loaded for this tab, so you can continue now, but keep this tab open and download your finished work before closing it. To retain the upload after a refresh, remove old site data or choose a smaller file and upload it again.`;
+}
+
+let sessionWarningInstalled = false;
+
+/** Keep work moving when persistence is unavailable without pretending it survived. */
+function keepVideoForCurrentTab(
+  record: CustomVideoRecord,
+  warning: string,
+  replaceIds: readonly string[] = []
+): CustomVideoClip {
+  // Replacing one session-only choice is safe and prevents retries from
+  // retaining every rejected large File in memory. Persisted predecessors stay.
+  for (const id of replaceIds) {
+    if (clips.find((candidate) => candidate.id === id)?.persistent === false) {
+      forgetInMemory(id);
+    }
+  }
+  const clip: CustomVideoClip = {
+    ...stripBlob(record),
+    persistent: false,
+    storageWarning: warning,
+  };
+  objectUrls.set(record.id, URL.createObjectURL(record.blob));
+  createdThisSession.add(record.id);
+  clips.push(clip);
+  loaded = true;
+
+  if (!sessionWarningInstalled && typeof window !== "undefined") {
+    sessionWarningInstalled = true;
+    window.addEventListener("beforeunload", (event) => {
+      if (!clips.some((candidate) => candidate.persistent === false)) return;
+      event.preventDefault();
+      event.returnValue = "";
+    });
+  }
+  return clip;
 }
 
 /**
@@ -274,9 +321,10 @@ export async function loadCustomVideos(): Promise<CustomVideoClip[]> {
       const all = await idbRequest<CustomVideoRecord[]>(
         tx.objectStore(STORE).getAll() as IDBRequest<CustomVideoRecord[]>
       );
-      clips = [];
+      const currentTabClips = clips.filter((clip) => createdThisSession.has(clip.id));
+      clips = currentTabClips;
       for (const record of all || []) {
-        if (!record?.id || !record.blob) continue;
+        if (!record?.id || !record.blob || createdThisSession.has(record.id)) continue;
         try {
           objectUrls.set(record.id, URL.createObjectURL(record.blob));
           clips.push(stripBlob(record));
@@ -335,9 +383,6 @@ export async function addCustomVideo(
   file: File,
   options: AddCustomVideoOptions = {}
 ): Promise<CustomVideoClip> {
-  if (!browserHasIdb()) {
-    throw new CustomVideoError("This browser cannot store uploads. Try a normal (non-private) window.");
-  }
   // Shared classification (media-file.ts): MP4, MOV and WebM lead, and a
   // file whose OS reported no/generic MIME type is recognised by its
   // extension and re-typed so the browser will decode it.
@@ -382,7 +427,11 @@ export async function addCustomVideo(
 
   const db = await openDb();
   if (!db) {
-    throw new CustomVideoError("Storage is unavailable, so the upload could not be saved.");
+    const warning = `Video storage recovery: ${await storageFailureMessage(file.size, 0)}`;
+    if (options.allowSessionFallback) {
+      return keepVideoForCurrentTab(record, warning, options.replaceIds || []);
+    }
+    throw new CustomVideoError(warning);
   }
 
   const requestedReplaceIds = [...new Set(
@@ -408,12 +457,14 @@ export async function addCustomVideo(
   }
 
   if (!result.ok) {
-    if (isQuotaError(result.error)) {
-      throw new CustomVideoError(await storageFailureMessage(file.size, reclaimed));
+    const warning = isQuotaError(result.error)
+      ? await storageFailureMessage(file.size, reclaimed)
+      : `Browser storage could not keep a reload-safe copy of this video (${result.error?.message || "storage write failed"}). The video is loaded for this tab, so you can continue now, but keep this tab open and download your finished work before closing it. To retain the upload after a refresh, remove old site data or choose a smaller file and upload it again.`;
+    const identifiedWarning = `Video storage recovery: ${warning}`;
+    if (options.allowSessionFallback) {
+      return keepVideoForCurrentTab(record, identifiedWarning, requestedReplaceIds);
     }
-    throw new CustomVideoError(
-      `The upload could not be saved in browser storage. (${result.error?.message || "storage write failed"})`
-    );
+    throw new CustomVideoError(identifiedWarning);
   }
 
   for (const replacedId of replaceIds) forgetInMemory(replacedId);

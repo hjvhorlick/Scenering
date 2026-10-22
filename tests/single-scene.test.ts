@@ -300,9 +300,11 @@ const LONG_SCRIPT = Array.from(
     "the guard that demands a script still makes an exception for uploaded footage"
   );
   ok(
-    setup.includes("Upload audio + image") &&
+    setup.includes("Upload music/audio + pictures") &&
+      setup.includes("Choose what you already have") &&
+      setup.includes("Project source: always visible") &&
       /const stillsSourceReady = oneScene && singleSource === "audio" && audioSourceReady;/.test(setup),
-    "and additionally accepts a complete audio-plus-image music-video source"
+    "Setup always visibly offers and accepts a complete audio-plus-pictures music-video source"
   );
   ok(
     setup.includes("onUpdateVoiceoverEnabled?.(false)"),

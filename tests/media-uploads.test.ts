@@ -198,11 +198,20 @@ h.ok(
     videoStore.includes("navigator.storage?.estimate?.()"),
   "a quota failure reclaims only unreferenced uploads, preserves shared footage and reports the real allowance",
 );
+const setupStore = read("src/components/SetupStudio.tsx");
 h.ok(
-  read("src/components/SetupStudio.tsx").includes("addCustomVideo(file, { replaceIds })") &&
+  setupStore.includes("addCustomVideo(file, {") &&
+    setupStore.includes("allowSessionFallback: true") &&
     read("src/lib/scene-clip-attach.ts").includes("replaceIds: replaceId ? [replaceId] : []") &&
     read("src/components/SectionStudio.tsx").includes("replaceIds: previousId ? [previousId] : []"),
   "Setup, scene clips and section backgrounds replace superseded videos instead of accumulating hidden copies",
+);
+h.ok(
+  videoStore.includes("keepVideoForCurrentTab") &&
+    videoStore.includes("persistent: false") &&
+    videoStore.includes('window.addEventListener("beforeunload"') &&
+    setupStore.includes("Video loaded for this tab only."),
+  "a full store no longer blocks Setup, but the session-only fallback is prominent and warns before closing",
 );
 h.ok(read("src/lib/media-file.ts").includes("Number.MAX_SAFE_INTEGER"), "the probe seeks to the end so infinite-duration WebM measures its real length");
 h.ok(!read("src/components/VoiceImportModal.tsx").includes("duration: 5"), "a voice import is never accepted with an invented 5-second length");

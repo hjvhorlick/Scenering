@@ -401,8 +401,9 @@ for (const item of CATALOG_ITEMS.background_music) {
   const app = read("src/App.tsx");
   h.ok(
     setup.includes('useState<"script" | "upload" | "audio">("script")') &&
-      setup.includes("Upload audio + image"),
-    "one-scene Setup offers audio plus image as a third source"
+      setup.includes("Upload music/audio + pictures") &&
+      setup.includes("Project source: always visible"),
+    "Setup always offers music/audio plus pictures as a third source"
   );
   h.ok(
     setup.includes("accept={AUDIO_UPLOAD_ACCEPT}") &&

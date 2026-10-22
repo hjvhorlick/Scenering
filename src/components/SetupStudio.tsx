@@ -580,6 +580,7 @@ export default function SetupStudio({
   const handleSelectDuration = (seconds: DurationOption, noticeOverride?: string) => {
     setSelectedDuration(seconds);
     setOneScene(false);
+    setSingleSource("script");
     onUpdateSingleScene?.(false);
     /* `false` is passed explicitly to both, for the reason the script rebuild
        below gives: the one-scene switch has not reached the parent yet, and a
@@ -739,7 +740,10 @@ export default function SetupStudio({
           ? existingClipScene.video_url.slice(CUSTOM_VIDEO_PREFIX.length)
           : null,
       ].filter((id): id is string => Boolean(id));
-      const clip = await addCustomVideo(file, { replaceIds });
+      const clip = await addCustomVideo(file, {
+        replaceIds,
+        allowSessionFallback: true,
+      });
       setUploadedClip(clip);
       handleSelectVideoSource();
       onAttachSingleSceneClip?.({
@@ -749,11 +753,13 @@ export default function SetupStudio({
         mute: !keepOriginalAudio,
       });
       showNotice(
-        `"${clip.name}" is now the whole video — all ${formatDuration(clip.duration)} of it, start to finish. ` +
-          (keepOriginalAudio
-            ? "Its own sound is kept."
-            : "Its original sound will be left out of the finished video.") +
-          " Voiceover stays off for uploaded-video projects."
+        clip.persistent === false
+          ? `"${clip.name}" is loaded and ready for this tab. Keep this tab open until you download the finished video.`
+          : `"${clip.name}" is now the whole video — all ${formatDuration(clip.duration)} of it, start to finish. ` +
+            (keepOriginalAudio
+              ? "Its own sound is kept."
+              : "Its original sound will be left out of the finished video.") +
+            " Voiceover stays off for uploaded-video projects."
       );
     } catch (err) {
       setUploadError(
@@ -1272,10 +1278,10 @@ export default function SetupStudio({
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
           step={4}
-          title="Scene length"
+          title={oneScene ? "Scene source and length" : "Scene length"}
           subtitle={
             oneScene
-              ? "One scene: its length is the footage's, or the time the script takes to read — no target length is applied."
+              ? "Choose a script, a finished video, or music/audio plus pictures. The source sets the full length; no target length is applied."
               : "Target spoken length for every scene — the script is chunked to match. Or keep the whole thing as one scene."
           }
           badge={
@@ -1395,16 +1401,17 @@ export default function SetupStudio({
         </div>
         )}
 
-        {/* ---- One-scene project: where does the single scene come from? ---- */}
-        {oneScene && (
-          <div className="mt-4 space-y-3 rounded-xl border border-indigo-800/50 bg-indigo-950/20 p-3.5">
+        {/* ---- Project source: always visible; media choices select one scene. ---- */}
+        <div className="mt-4 space-y-3 rounded-xl border border-indigo-800/50 bg-indigo-950/20 p-3.5">
             <div className="flex items-start gap-2">
               <span className="text-indigo-300 mt-0.5"><Icon glyph="🎬" /></span>
-              <p className="text-[11px] text-gray-300 leading-relaxed">
-                <span className="text-white font-semibold">One scene, one video.</span> Captions, music,
-                stickers and everything else in the Studio work exactly as they do on a multi-scene
-                project — there is simply one scene to hang them on.
-              </p>
+              <div>
+                <h3 className="text-sm font-bold text-white">Choose what you already have</h3>
+                <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
+                  Start from a script, upload a finished video with its own sound, or make a music
+                  video from an audio file and pictures. Captions and effects remain available for all three.
+                </p>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5">
@@ -1452,10 +1459,10 @@ export default function SetupStudio({
                 }`}
               >
                 <div className="text-xs font-bold flex items-center gap-1.5">
-                  <Icon glyph="🎵" /> Upload audio + image
+                  <Icon glyph="🎵" /> Upload music/audio + pictures
                 </div>
                 <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
-                  Your song becomes the soundtrack; your still becomes the first scene. No voiceover.
+                  Add the soundtrack and first picture here, then add more pictures in Scenes. No voiceover.
                 </p>
               </button>
             </div>
@@ -1527,6 +1534,17 @@ export default function SetupStudio({
                       MP4, MOV, WebM or M4V · up to 500 MB · kept in this browser, never uploaded anywhere
                     </p>
                   </button>
+                )}
+
+                {uploadedClip?.persistent === false && uploadedClip.storageWarning && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="text-[11px] text-amber-200 bg-amber-950/60 border border-amber-700/70 rounded-lg px-3 py-2 leading-relaxed"
+                  >
+                    <span className="font-bold">Video loaded for this tab only.</span>{" "}
+                    {uploadedClip.storageWarning}
+                  </div>
                 )}
 
                 {/* The two choices that belong to footage and to nothing else:
@@ -1786,7 +1804,6 @@ export default function SetupStudio({
               />
             )}
           </div>
-        )}
       </div>
 
       {/* ---------------- 5. Output & destination ----------------
