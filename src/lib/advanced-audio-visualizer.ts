@@ -1,4 +1,4 @@
-import type { TimelineInsert, InsertVisualOptions } from "../types";
+import type { CentreStyle, TimelineInsert, InsertVisualOptions } from "../types";
 import {
   type AudioBus,
   type AudioFrame,
@@ -95,6 +95,10 @@ export interface AdvancedFineRadialSettings {
   beatExpansion: number;
   beatGlow: number;
   centreLogo: boolean;
+  /** What occupies the centre: the logo, the orb, or nothing at all. */
+  centreStyle: CentreStyle;
+  /** 0.4–2.2 multiplier for the logo inside the centre. */
+  centreLogoScale: number;
   centreScale: number;
   centreOpacity: number;
   barRoundness: number;
@@ -165,6 +169,8 @@ export const FINE_RADIAL_PROFESSIONAL_DEFAULTS: AdvancedFineRadialSettings = {
   beatExpansion: 0.045,
   beatGlow: 0.35,
   centreLogo: true,
+  centreStyle: "logo",
+  centreLogoScale: 1,
   centreScale: 1,
   centreOpacity: 1,
   barRoundness: 1,
@@ -615,6 +621,17 @@ export function isAdvancedAudioVisualizerType(type: string): type is AdvancedVis
 export function advancedVisualizerSettings(vo: InsertVisualOptions | undefined): AdvancedFineRadialSettings {
   const d = FINE_RADIAL_PROFESSIONAL_DEFAULTS;
   const count = Math.round(Number(vo?.elementCount ?? vo?.bandCount ?? d.barCount));
+  /* Three-way middle. Projects saved before it existed carry only the old
+     checkbox: on meant "logo" (which already fell back to the glowing orb when
+     there was no image), off meant "the orb without the logo". */
+  const centreStyle: CentreStyle = (() => {
+    const requested = vo?.centreStyle;
+    if (requested === "logo" || requested === "orb" || requested === "none") return requested;
+    const legacy = vo?.centreLogo;
+    if (legacy === true) return "logo";
+    if (legacy === false) return "orb";
+    return d.centreLogo ? "logo" : "orb";
+  })();
   return {
     barCount: clampInt(count, 16, 512),
     barThickness: clamp(Number(vo?.barThickness ?? d.barThickness), 0.75, 36),
@@ -639,7 +656,9 @@ export function advancedVisualizerSettings(vo: InsertVisualOptions | undefined):
     beatEnabled: vo?.beatResponse === undefined ? d.beatEnabled : Boolean(vo.beatResponse),
     beatExpansion: clamp(Number(vo?.beatExpansion ?? d.beatExpansion), 0, 0.18),
     beatGlow: clamp(Number(vo?.beatGlow ?? d.beatGlow), 0, 1),
-    centreLogo: vo?.centreLogo === undefined ? d.centreLogo : Boolean(vo.centreLogo),
+    centreLogo: centreStyle === "logo",
+    centreStyle,
+    centreLogoScale: clamp(Number(vo?.centreLogoScale ?? d.centreLogoScale), 0.4, 2.2),
     centreScale: clamp(Number(vo?.centreScale ?? d.centreScale), 0.35, 1.8),
     centreOpacity: clamp(Number(vo?.centreOpacity ?? d.centreOpacity), 0, 1),
     barRoundness: clamp(Number(vo?.barRoundness ?? d.barRoundness), 0, 1),
@@ -941,7 +960,7 @@ function renderFineRadialBars({ ctx, item, canvasWidth, canvasHeight, elapsed, f
     minDim,
     settings,
     palette,
-    logo: settings.centreLogo ? logo || null : null,
+    logo: settings.centreStyle === "logo" ? logo || null : null,
     beat: bands.beat,
     energy,
     low: bands.bass,
@@ -1011,7 +1030,7 @@ function renderFineRadialBars3D(opts: AdvancedVisualizerRenderOptions) {
     minDim,
     settings,
     palette,
-    logo: settings.centreLogo ? logo || null : null,
+    logo: settings.centreStyle === "logo" ? logo || null : null,
     beat: bands.beat,
     energy: bands.energy,
     low: bands.bass,
@@ -1083,7 +1102,7 @@ function renderFlatCircularSpectrum(opts: AdvancedVisualizerRenderOptions) {
   ctx.shadowBlur = 14 * glow;
   ctx.stroke();
   ctx.shadowBlur = 0;
-  drawFineRadialCentre(ctx, { radius, minDim, settings, palette, logo: settings.centreLogo ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
+  drawFineRadialCentre(ctx, { radius, minDim, settings, palette, logo: settings.centreStyle === "logo" ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
   ctx.restore();
 }
 
@@ -1116,7 +1135,7 @@ function renderCircularWaveform(opts: AdvancedVisualizerRenderOptions) {
   drawCircularTrace(ctx, wave, radius, maxHeight, rotation, rgba(palette.primary, 0.25), Math.max(4, settings.barThickness * 2.2), 22 * glow);
   drawCircularTrace(ctx, wave, radius, maxHeight, rotation, mixColors(palette.primary, palette.secondary, 0.45), Math.max(1.6, settings.barThickness * 0.75), 10 * glow);
   drawCircularTrace(ctx, wave, radius, maxHeight * 0.9, rotation, "#ffffff", Math.max(0.9, settings.barThickness * 0.22), 4 * glow);
-  drawFineRadialCentre(ctx, { radius, minDim, settings, palette, logo: settings.centreLogo ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
+  drawFineRadialCentre(ctx, { radius, minDim, settings, palette, logo: settings.centreStyle === "logo" ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
   ctx.restore();
 }
 
@@ -1154,7 +1173,7 @@ function renderCircularPulse(opts: AdvancedVisualizerRenderOptions) {
     ctx.stroke();
   }
   ctx.shadowBlur = 0;
-  drawFineRadialCentre(ctx, { radius: base, minDim, settings, palette, logo: settings.centreLogo ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
+  drawFineRadialCentre(ctx, { radius: base, minDim, settings, palette, logo: settings.centreStyle === "logo" ? logo || null : null, beat: bands.beat, energy: bands.energy, low: bands.bass });
   ctx.restore();
 }
 
@@ -1352,7 +1371,7 @@ function renderParticleRing(opts: AdvancedVisualizerRenderOptions, threeD: boole
     minDim,
     settings,
     palette,
-    logo: settings.centreLogo ? logo || null : null,
+    logo: settings.centreStyle === "logo" ? logo || null : null,
     beat: bands.beat,
     energy: bands.energy,
     low: bands.bass,
@@ -1436,7 +1455,7 @@ function renderGlassBubbles(opts: AdvancedVisualizerRenderOptions, marbles: bool
     minDim,
     settings,
     palette,
-    logo: settings.centreLogo ? logo || null : null,
+    logo: settings.centreStyle === "logo" ? logo || null : null,
     beat: bands.beat,
     energy: bands.energy,
     low: bands.bass,
@@ -1523,7 +1542,7 @@ function renderCircularSmoke(opts: AdvancedVisualizerRenderOptions, bloomStyle: 
     minDim,
     settings,
     palette,
-    logo: settings.centreLogo ? logo || null : null,
+    logo: settings.centreStyle === "logo" ? logo || null : null,
     beat: bands.beat,
     energy: bands.energy,
     low: bands.bass,
@@ -1620,7 +1639,7 @@ function renderGlitterSwirl(opts: AdvancedVisualizerRenderOptions, finish: "gold
     minDim,
     settings,
     palette,
-    logo: settings.centreLogo ? logo || null : null,
+    logo: settings.centreStyle === "logo" ? logo || null : null,
     beat: bands.beat,
     energy: bands.energy,
     low: bands.bass,
@@ -1990,6 +2009,9 @@ function drawFineRadialCentre(
   }
 ) {
   const { radius, settings, palette, logo } = opts;
+  // "No centre" means exactly that: the ring and its bars are the effect, so
+  // not one pixel is painted in the hub.
+  if (settings.centreStyle === "none") return;
   const coreR = radius * 0.54 * settings.centreScale;
   if (coreR <= 1 || settings.centreOpacity <= 0.01) return;
   ctx.save();
@@ -2011,12 +2033,14 @@ function drawFineRadialCentre(
   ctx.lineWidth = Math.max(0.7, radius * 0.01);
   ctx.stroke();
 
-  if (logo) {
+  if (logo && settings.centreStyle === "logo") {
     const anyLogo = logo as { naturalWidth?: number; naturalHeight?: number; width?: number; height?: number };
     const iw = Number(anyLogo.naturalWidth || anyLogo.width || 0);
     const ih = Number(anyLogo.naturalHeight || anyLogo.height || 0);
     if (iw > 0 && ih > 0) {
-      const box = coreR * 1.24;
+      // The logo has its own size, independent of the hub: 1 = the old fixed
+      // fit, 2.2 = it may spill past the glowing disc.
+      const box = coreR * 1.24 * settings.centreLogoScale;
       const scale = Math.min(box / iw, box / ih);
       const dw = iw * scale;
       const dh = ih * scale;

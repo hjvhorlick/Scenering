@@ -7,7 +7,7 @@
  * every rack is lit by the real audio buses and every element is drawn on a
  * glass plate / floor reflection so the floating shadow reads as real depth.
  */
-import type { TimelineInsert } from "../types";
+import type { CentreStyle, TimelineInsert } from "../types";
 import {
   AudioBus,
   AudioFrame,
@@ -168,12 +168,37 @@ export function supportsCentreLogo(type: string): boolean {
   return CENTRE_LOGO_TYPES.has(type);
 }
 
+/**
+ * What belongs in this round visualiser's middle?
+ *
+ * The oldest projects only had a checkbox (`centreLogo`), the orb and disc
+ * styles were built around a branded hub, and everything else was clean. That
+ * history is read here once, so the drawing code has a single three-way
+ * answer to work from:
+ *
+ *   undefined → the orb/disc stages show the logo; the other round styles
+ *               keep their glowing core; the Pixabay circular clips stay clean
+ *   false     → every round style keeps its glowing core, without the logo;
+ *               the Pixabay circular clips lose their hub (as before)
+ *   true      → the logo
+ */
+export function resolveCentreStyle(item: TimelineInsert): CentreStyle {
+  if (!CENTRE_LOGO_TYPES.has(item.type)) return "none";
+  const requested = item.visualOptions?.centreStyle;
+  if (requested === "logo" || requested === "orb" || requested === "none") return requested;
+  const legacy = item.visualOptions?.centreLogo;
+  if (legacy === true) return "logo";
+  /* The Pixabay circular clips are whole pictures with no hub of their own, so
+     they stayed clean unless the member asked for a logo. Every other round
+     style already drew a core, and keeps drawing one. */
+  if (item.type.startsWith("px_ring_")) return "none";
+  if (CENTRE_STAGE_TYPES.has(item.type)) return legacy === false ? "orb" : "logo";
+  return "orb";
+}
+
 /** Does this insert want the user's logo in its middle? */
 export function wantsCentreLogo(item: TimelineInsert): boolean {
-  if (!CENTRE_LOGO_TYPES.has(item.type)) return false;
-  const choice = item.visualOptions?.centreLogo;
-  if (choice === undefined) return CENTRE_STAGE_TYPES.has(item.type);
-  return choice === true;
+  return resolveCentreStyle(item) === "logo";
 }
 
 /** Types that stretch across the full frame width */
@@ -713,14 +738,38 @@ function rainbowRackColor(t: number): string {
  * no logo, the hub falls back to a plain glowing core — no third-party mark is
  * ever drawn here.
  */
+function clampNumber(value: number, min: number, max: number): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return min;
+  return Math.min(max, Math.max(min, number));
+}
+
+/**
+ * The hub of a round visualiser: the member's logo, a glowing orb, or nothing.
+ *
+ * `style`, `radiusScale` and `logoScale` come from the insert's own settings so
+ * the same drawing code serves every round family — the advanced engine has its
+ * own copy of this idea (drawFineRadialCentre) with the same three choices.
+ */
 function drawCentreCore(
   ctx: CanvasRenderingContext2D,
   radius: number,
   colours: { primary: string; secondary: string; accent: string },
-  opts: { logo?: CanvasImageSource | null; beat: number; low: number; glow: number; reveal?: number }
+  opts: {
+    logo?: CanvasImageSource | null;
+    beat: number;
+    low: number;
+    glow: number;
+    reveal?: number;
+    style?: CentreStyle;
+    radiusScale?: number;
+    logoScale?: number;
+  }
 ) {
+  const style: CentreStyle = opts.style ?? "orb";
+  if (style === "none") return;
   const { primary, secondary, accent } = colours;
-  const r = Math.max(6, radius);
+  const r = Math.max(6, radius * clampNumber(opts.radiusScale ?? 1, 0.35, 1.8));
   const pulse = 1 + opts.beat * 0.05 + opts.low * 0.06;
 
   // halo behind the disc so the logo sits in light
@@ -755,13 +804,15 @@ function drawCentreCore(
   ctx.shadowBlur = 0;
   ctx.restore();
 
-  const logo = opts.logo;
+  const logo = style === "logo" ? opts.logo : null;
   if (logo) {
     // fit the logo inside the hub without ever distorting it
     const nat = logo as unknown as { naturalWidth?: number; naturalHeight?: number; width?: number; height?: number };
     const iw = nat.naturalWidth || nat.width || 1;
     const ih = nat.naturalHeight || nat.height || 1;
-    const box = r * 1.52;
+    // The slider lives in the hub, so its range is expressed in hub widths:
+    // 1 = the old fixed fit, 2.2 = the logo may spill past the disc edge.
+    const box = r * 1.52 * clampNumber(opts.logoScale ?? 1, 0.4, 2.2);
     const scale = Math.min(box / iw, box / ih);
     const dw = iw * scale;
     const dh = ih * scale;
@@ -1650,13 +1701,19 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
     }
     drawPixabayStyle(item.type, scene);
     // the circular family can be branded: the user's own logo in the hub
-    if (box.shape === "round" && wantsCentreLogo(item)) {
-      drawCentreCore(ctx, box.span * 0.21, { primary, secondary, accent }, {
-        logo,
-        beat: scene.beat,
-        low: bars.low,
-        glow,
-      });
+    if (box.shape === "round") {
+      const centreStyle = resolveCentreStyle(item);
+      if (centreStyle !== "none") {
+        drawCentreCore(ctx, box.span * 0.21, { primary, secondary, accent }, {
+          logo,
+          beat: scene.beat,
+          low: bars.low,
+          glow,
+          style: centreStyle,
+          radiusScale: item.visualOptions?.centreScale,
+          logoScale: item.visualOptions?.centreLogoScale,
+        });
+      }
     }
     ctx.restore();
     return;
@@ -1714,6 +1771,10 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       strength: bloomStrength * 0.85,
     });
   }
+
+  // What sits in the middle of every round style, resolved once: the logo, the
+  // glowing orb, or nothing at all.
+  const centreStyle = resolveCentreStyle(item);
 
   switch (item.type) {
     /* ---------------- WAVE TRACES: waveform, voice_wave, neon_ribbon ---------------- */
@@ -2012,22 +2073,36 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       const baseR = Math.max(10, 62 * size * frameScale(canvasHeight));
       const numBars = compact ? 40 : 64;
       const bars = getBars(key, numBars, elapsed, bus, source, reactivity);
-      const hub = ctx.createRadialGradient(0, 0, 1, 0, 0, baseR);
-      hub.addColorStop(0, "rgba(255, 255, 255, 0.95)");
-      hub.addColorStop(0.35, rgba(primary, 0.75));
-      hub.addColorStop(0.85, "rgba(8, 12, 22, 0.92)");
-      hub.addColorStop(1, rgba(secondary, 0.9));
-      ctx.fillStyle = hub;
       ctx.beginPath();
       ctx.arc(0, 0, Math.max(3, baseR - 3), 0, Math.PI * 2);
-      ctx.fill();
+      if (centreStyle !== "none") {
+        const hub = ctx.createRadialGradient(0, 0, 1, 0, 0, baseR);
+        hub.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+        hub.addColorStop(0.35, rgba(primary, 0.75));
+        hub.addColorStop(0.85, "rgba(8, 12, 22, 0.92)");
+        hub.addColorStop(1, rgba(secondary, 0.9));
+        ctx.fillStyle = hub;
+        ctx.fill();
+      }
 
+      // The zero line is part of the ring, so it stays even with an empty middle.
       ctx.strokeStyle = rgba(primary, 0.95);
       ctx.lineWidth = 3 + beat * 2;
       ctx.shadowColor = primary;
       ctx.shadowBlur = 18 * glow;
       ctx.stroke();
       ctx.shadowBlur = 0;
+      if (centreStyle === "logo") {
+        drawCentreCore(ctx, Math.max(6, baseR * 0.82), { primary, secondary, accent }, {
+          logo: opts.logo,
+          beat,
+          low: bars.low,
+          glow,
+          style: "logo",
+          radiusScale: item.visualOptions?.centreScale,
+          logoScale: item.visualOptions?.centreLogoScale,
+        });
+      }
 
       for (let i = 0; i < numBars; i++) {
         const angle = (i / numBars) * Math.PI * 2 - Math.PI / 2 + elapsed * 0.06;
@@ -2110,10 +2185,13 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       }
 
       drawCentreCore(ctx, coreR, { primary, secondary, accent }, {
-        logo: wantsCentreLogo(item) ? opts.logo : null,
+        logo: centreStyle === "logo" ? opts.logo : null,
         beat,
         low: orbBars.low,
         glow,
+        style: centreStyle,
+        radiusScale: item.visualOptions?.centreScale,
+        logoScale: item.visualOptions?.centreLogoScale,
       });
       break;
     }
@@ -2202,10 +2280,13 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
 
       // the label: the user's logo, or a plain pulsing core
       drawCentreCore(ctx, discR * 0.47, { primary, secondary, accent }, {
-        logo: wantsCentreLogo(item) ? opts.logo : null,
+        logo: centreStyle === "logo" ? opts.logo : null,
         beat,
         low: discBars.low,
         glow,
+        style: centreStyle,
+        radiusScale: item.visualOptions?.centreScale,
+        logoScale: item.visualOptions?.centreLogoScale,
       });
 
       // beat ring rippling out across the disc
@@ -2247,23 +2328,37 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         ctx.shadowBlur = 0;
       }
 
-      // pulsing core
-      const coreR = Math.max(2, (18 + beat * 14) * size * frameScale(canvasHeight));
-      const core = ctx.createRadialGradient(0, 0, 1, 0, 0, coreR);
-      core.addColorStop(0, "#ffffff");
-      core.addColorStop(0.45, rgba(c1, 0.95));
-      core.addColorStop(1, rgba(c2, 0));
-      ctx.fillStyle = core;
-      ctx.beginPath();
-      ctx.arc(0, 0, coreR, 0, Math.PI * 2);
-      ctx.fill();
+      // pulsing core — skipped entirely when the middle is asked to be empty,
+      // so these styles can be the rings alone.
+      if (centreStyle !== "none") {
+        const coreR = Math.max(2, (18 + beat * 14) * size * frameScale(canvasHeight));
+        const core = ctx.createRadialGradient(0, 0, 1, 0, 0, coreR);
+        core.addColorStop(0, "#ffffff");
+        core.addColorStop(0.45, rgba(c1, 0.95));
+        core.addColorStop(1, rgba(c2, 0));
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.arc(0, 0, coreR, 0, Math.PI * 2);
+        ctx.fill();
 
-      // inner glass disc so the shadow reads as a floating object
-      ctx.beginPath();
-      ctx.arc(0, 0, Math.max(2, baseR * 0.72), 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
-      ctx.lineWidth = Math.max(1, 2 * size);
-      ctx.stroke();
+        // inner glass disc so the shadow reads as a floating object
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.max(2, baseR * 0.72), 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+        ctx.lineWidth = Math.max(1, 2 * size);
+        ctx.stroke();
+      }
+      if (centreStyle === "logo") {
+        drawCentreCore(ctx, Math.max(6, baseR * 0.6), { primary, secondary, accent }, {
+          logo: opts.logo,
+          beat,
+          low: beat * 0.4,
+          glow,
+          style: "logo",
+          radiusScale: item.visualOptions?.centreScale,
+          logoScale: item.visualOptions?.centreLogoScale,
+        });
+      }
       break;
     }
 

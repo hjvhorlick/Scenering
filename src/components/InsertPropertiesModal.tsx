@@ -29,7 +29,7 @@ import { makeBus, type AudioFrame, type ReactionSource } from "../lib/audio-reac
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { VISUALIZER_PALETTES } from "../lib/visualizer-palettes";
 import { FINE_RADIAL_PRESET_PATCHES, isAdvancedAudioVisualizerType, isAdvancedLinearVisualizerType } from "../lib/advanced-audio-visualizer";
-import { isImmersiveVisualizer, isRoundVisualizer, supportsCentreLogo, wantsCentreLogo } from "../lib/render-visualizers";
+import { isImmersiveVisualizer, isRoundVisualizer, resolveCentreStyle, supportsCentreLogo } from "../lib/render-visualizers";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
   SOUND_LIBRARY,
@@ -119,6 +119,9 @@ const SLIDER_HINTS = {
   glassFinish: "Sandblast turns crystal-clear glass into frosted glass. Leave it at 0 for sharp, see-through glass; raise it for a soft, matte, sandblasted pane.",
   bottomLight: "The coloured light shining up from below the effect. Raise it until the base glows; at 0 there is no floor light at all.",
   smokeSize: "How big each cloud of smoke is. Raise it for fat rolling clouds, lower it for thin drifting wisps.",
+  centreStyle: "What sits in the middle of a round visualiser. My logo uses the brand mark you upload in Studio → 🏷️ Logo (with no logo uploaded, the glowing orb shows instead). Glowing orb keeps the light without the logo. Nothing leaves the ring alone, with an empty middle.",
+  centreSize: "How big the middle is — the glowing orb, and the logo with it. At the smallest setting it is a small bright dot; at the largest it fills the ring.",
+  logoSize: "How big your logo is inside the middle, independent of the middle's own size. Push it up and the logo can spill past the glowing disc; pull it down for a small mark with plenty of light around it.",
   smokeSoftness: "How fuzzy the smoke is. Low keeps tight curls with visible shape; high dissolves the edges into soft gas.",
 } as const;
 
@@ -2055,28 +2058,85 @@ function InsertPropertiesContent({
                   </div>
                   )}
 
-                  {/* Centre logo — the user's own brand mark in the middle */}
-                  {supportsCentreLogo(data.type) && (
-                    <div className="pt-3 border-t border-hairline space-y-1.5">
-                      <div className="flex items-center justify-between">
+                  {/* The middle of a round visualiser: your logo, the orb, or
+                      nothing at all. One choice, then two sizes — the middle
+                      and the logo inside it. */}
+                  {supportsCentreLogo(data.type) && (() => {
+                    const centreStyle = resolveCentreStyle(data as unknown as TimelineInsert);
+                    const centreSize = data.visualOptions?.centreScale ?? 1;
+                    const logoSize = data.visualOptions?.centreLogoScale ?? 1;
+                    return (
+                      <div className="pt-3 border-t border-hairline space-y-3">
                         <div>
-                          <span className="text-xs font-medium text-white block">
-                            Show My Logo in the Middle
-                          </span>
-                          <span className="text-[11px] text-gray-400">
-                            Uses the logo you upload in Studio → 🏷️ Logo. With no logo, the middle
-                            stays a glowing core
-                          </span>
+                          <SliderWithHelp hint={SLIDER_HINTS.centreStyle}>
+                            <span className="text-xs font-medium text-white underline decoration-dotted decoration-gray-500 underline-offset-4">In the middle</span>
+                          </SliderWithHelp>
+                          <div className="grid grid-cols-3 gap-1.5 mt-1.5" role="group" aria-label="What sits in the middle">
+                            {([
+                              { id: "logo" as const, label: "My logo" },
+                              { id: "orb" as const, label: "Glowing orb" },
+                              { id: "none" as const, label: "Nothing" },
+                            ]).map((option) => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                aria-pressed={centreStyle === option.id}
+                                onClick={() => updateVisualOptions("centreStyle", option.id)}
+                                className={`rounded-lg border px-2 py-1.5 text-[11px] font-bold ${
+                                  centreStyle === option.id
+                                    ? "border-indigo-400 bg-indigo-500/20 text-white"
+                                    : "border-hairline bg-gray-900/60 text-gray-300 hover:bg-gray-800"
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-[11px] text-gray-400 mt-1.5">
+                            {centreStyle === "none"
+                              ? "The ring and its bars stand alone — nothing is drawn in the middle."
+                              : centreStyle === "orb"
+                                ? "A glowing core in the middle, with no logo."
+                                : "Your logo from Studio → 🏷️ Logo. With no logo uploaded, the glowing orb shows instead."}
+                          </p>
                         </div>
-                        <input
-                          type="checkbox"
-                          checked={wantsCentreLogo(data)}
-                          onChange={(e) => updateVisualOptions("centreLogo", e.target.checked)}
-                          className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
-                        />
+                        {centreStyle !== "none" && (
+                          <div className={`grid gap-3 ${centreStyle === "logo" ? "grid-cols-2" : "grid-cols-1"}`}>
+                            <label className="space-y-1">
+                              <span className="text-[10px] text-gray-400">Middle size: {Math.round(centreSize * 100)}%</span>
+                              <SliderWithHelp hint={SLIDER_HINTS.centreSize}>
+                                <input
+                                  type="range"
+                                  min={0.35}
+                                  max={1.8}
+                                  step={0.05}
+                                  value={centreSize}
+                                  onChange={(e) => updateVisualOptions("centreScale", parseFloat(e.target.value))}
+                                  className="w-full accent-indigo-500"
+                                />
+                              </SliderWithHelp>
+                            </label>
+                            {centreStyle === "logo" && (
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-gray-400">Logo size: {Math.round(logoSize * 100)}%</span>
+                                <SliderWithHelp hint={SLIDER_HINTS.logoSize}>
+                                  <input
+                                    type="range"
+                                    min={0.4}
+                                    max={2.2}
+                                    step={0.05}
+                                    value={logoSize}
+                                    onChange={(e) => updateVisualOptions("centreLogoScale", parseFloat(e.target.value))}
+                                    className="w-full accent-indigo-500"
+                                  />
+                                </SliderWithHelp>
+                              </label>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Sound detail — how many frequency bands / radial elements the analyser splits */}
                   <div className="space-y-1.5 pt-3 border-t border-hairline">

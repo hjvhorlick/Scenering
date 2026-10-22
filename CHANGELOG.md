@@ -41,6 +41,16 @@
 
 ## Unreleased — your own video, start to finish, with its sound and its captions
 
+- **The middle of a round visualiser is now a choice, and the logo has its own
+  size.** Every circular style offers three middles — **My logo**, **Glowing
+  orb** or **Nothing** — instead of a single on/off box. "My logo" is the brand
+  mark from Studio → 🏷️ Logo, and falls back to the glowing orb when the project
+  has no logo yet; "Nothing" leaves the ring and its bars standing alone, with
+  no hub of any kind. Two sliders sit under the choice: **Middle size** (the
+  orb, and the logo with it) and **Logo size**, which sizes the logo inside the
+  middle so a wide wordmark and a square icon can each fill the hub. Projects
+  saved before this read exactly as they did: the old checkbox is translated,
+  never rewritten.
 - **The visualisers now look like the things they are named after, and the
   panel stopped asking twenty questions.** The Audio Visualiser settings were a
   wall of engineering dials, and several of them changed nothing on screen.

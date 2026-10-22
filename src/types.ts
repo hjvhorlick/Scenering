@@ -286,6 +286,9 @@ export interface CustomerLogoConfig {
   margin: number; // in pixels, default 24
 }
 
+/** What occupies the middle of a round visualiser. */
+export type CentreStyle = "logo" | "orb" | "none";
+
 export interface InsertVisualOptions {
   has3DLook?: boolean;
   /* ---- Call-to-action badge styling ---- */
@@ -357,7 +360,9 @@ export interface InsertVisualOptions {
   beatExpansion?: number;
   beatGlow?: number;
   voiceMode?: boolean;
+  /** 0.35–1.8: the centre's own size (orb, logo and anything in the hub). */
   centreScale?: number;
+  /** 0–1: how strongly the centre glows. */
   centreOpacity?: number;
   centreContentType?: "none" | "image" | "logo" | "text" | "media";
   frequencyColorMode?: "gradient" | "frequency" | "amplitude";
@@ -395,8 +400,23 @@ export interface InsertVisualOptions {
    * Draw the user's own logo in the middle of a centre visualiser (audio orb,
    * orbit disc, circular analysers). Defaults to on for the orb and the disc,
    * off elsewhere. No logo is drawn when the project has none.
+   *
+   * Superseded by `centreStyle`; still read for projects saved before the
+   * middle became a choice rather than a checkbox.
    */
   centreLogo?: boolean;
+  /**
+   * What sits in the middle of a round visualiser:
+   *
+   *   "logo" — the member's own logo (the glowing orb behind it, sized to the
+   *            centre). If the project has no logo, the orb alone shows.
+   *   "orb"  — the glowing orb / core, never the logo.
+   *   "none" — nothing at all: the ring and its bars stand alone.
+   */
+  centreStyle?: CentreStyle;
+  /** 0.4–2.2: the logo's size inside the centre, independent of the centre's
+   *  own size, so a wide wordmark and a square icon can each fill the hub. */
+  centreLogoScale?: number;
 }
 
 export interface InsertAudioSettings {

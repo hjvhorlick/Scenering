@@ -36,6 +36,7 @@ import {
   supportsCentreLogo,
   isVisualizerFullWidth,
   pixabayBoxOf,
+  resolveCentreStyle,
   pixabayVisualizerShape,
   visualizerBodyHeight,
   getVisualizerFootprint,
@@ -1335,5 +1336,210 @@ for (const v of speechVisualisers) {
     "attack/release sit inside the folded advanced section"
   );
 }
+
+/* ------------------------------------------------- what sits in the middle */
+
+/*
+ * The middle of a round visualiser became a choice rather than a checkbox:
+ * the member's logo (with its own size), the glowing orb, or nothing at all.
+ * Old projects only carry `centreLogo`, so that is read — never rewritten.
+ */
+h.eq(resolveCentreStyle(makeInsert("audio_orb")), "logo", "the orb stage still shows the logo by default");
+h.eq(
+  resolveCentreStyle(makeInsert("audio_orb", { visualOptions: { centreLogo: false } })),
+  "orb",
+  "turning the old logo checkbox off keeps the orb's glowing core"
+);
+h.eq(resolveCentreStyle(makeInsert("px_ring_bars")), "none", "a circular analyser is still clean by default");
+h.eq(
+  resolveCentreStyle(makeInsert("px_ring_bars", { visualOptions: { centreLogo: true } })),
+  "logo",
+  "and can still take the logo when asked"
+);
+h.eq(
+  resolveCentreStyle(makeInsert("px_ring_bars", { visualOptions: { centreStyle: "orb" } })),
+  "orb",
+  "an explicit orb beats the old flag"
+);
+h.eq(
+  resolveCentreStyle(makeInsert("fine_radial_bars", { visualOptions: { centreStyle: "none", centreLogo: true } })),
+  "none",
+  "an explicit \"nothing\" wins over a saved logo flag"
+);
+h.eq(
+  resolveCentreStyle(makeInsert("spectrum", { visualOptions: { centreStyle: "logo" } })),
+  "none",
+  "a rack has no hub to brand, whatever it is asked for"
+);
+h.eq(resolveCentreStyle(makeInsert("voice_pulse")), "orb", "a round badge keeps its glowing core by default");
+h.eq(
+  resolveCentreStyle(makeInsert("voice_pulse", { visualOptions: { centreStyle: "none" } })),
+  "none",
+  "…and can be asked for the rings alone"
+);
+h.eq(wantsCentreLogo(makeInsert("audio_orb")), true, "the logo answer and the old flag agree");
+h.eq(wantsCentreLogo(makeInsert("fine_radial_bars", { visualOptions: { centreStyle: "none" } })), false, "…and agree on nothing");
+
+// The settings mapping clamps both sizes and carries the choice through.
+const clampedCentre = advancedVisualizerSettings({ centreStyle: "logo", centreLogoScale: 9, centreScale: 0.01 });
+h.eq(clampedCentre.centreLogoScale, 2.2, "logo size clamps to its maximum");
+h.near(clampedCentre.centreScale, 0.35, 1e-9, "middle size clamps to its minimum");
+h.eq(clampedCentre.centreStyle, "logo", "the middle choice survives the settings mapping");
+h.near(advancedVisualizerSettings({ centreLogoScale: 0 }).centreLogoScale, 0.4, 1e-9, "logo size clamps to its minimum");
+h.eq(advancedVisualizerSettings({ centreLogo: false }).centreStyle, "orb", "an old project without a choice maps to the orb");
+h.eq(advancedVisualizerSettings({}).centreStyle, "logo", "an untouched project keeps the logo middle");
+
+/* The three choices really change what is painted — and the logo size slider
+   really changes the logo's size, not just a number in a settings object. */
+const centreLogoImage = { naturalWidth: 512, naturalHeight: 512, width: 512, height: 512 } as unknown as CanvasImageSource;
+const baseOptions = { ...((VISUALISERS.find((v) => v.type === "fine_radial_bars")!.defaultVisualOptions) || {}) };
+function drawCentre(visualOptions: Record<string, unknown>) {
+  const stub = createStubContext(1920, 1080);
+  renderAudioVisualizer({
+    ctx: stub.ctx,
+    item: makeInsert("fine_radial_bars", { visualOptions: { ...baseOptions, ...visualOptions } }),
+    x: 960,
+    y: 540,
+    canvasWidth: 1920,
+    canvasHeight: 1080,
+    elapsed: 1.6,
+    frame: null,
+    logo: centreLogoImage,
+  });
+  return stub;
+}
+const drawnLogoWidth = (stub: ReturnType<typeof createStubContext>): number => {
+  const call = stub.opsWithArgs.find((entry) => entry.startsWith("drawImage("));
+  if (!call) return 0;
+  const args = call.slice("drawImage(".length, -1).split(",");
+  return Number(args[3]) || 0;
+};
+
+const nothingDrawn = drawCentre({ centreStyle: "none" });
+const orbDrawn = drawCentre({ centreStyle: "orb" });
+const logoDrawn = drawCentre({ centreStyle: "logo" });
+h.ok(
+  !nothingDrawn.opsWithArgs.some((entry) => entry.startsWith("drawImage(")),
+  "\"nothing\" draws no logo in the middle"
+);
+h.ok(
+  !orbDrawn.opsWithArgs.some((entry) => entry.startsWith("drawImage(")),
+  "the orb draws no logo"
+);
+h.eq(
+  logoDrawn.opsWithArgs.filter((entry) => entry.startsWith("drawImage(")).length,
+  1,
+  "the logo is drawn exactly once in the middle"
+);
+h.ok(
+  orbDrawn.ops.length > nothingDrawn.ops.length,
+  `the orb paints a core that "nothing" does not (${orbDrawn.ops.length} > ${nothingDrawn.ops.length})`
+);
+h.ok(
+  logoDrawn.opsWithArgs.some((entry) => entry.startsWith("arc(")),
+  "the logo still sits inside a glowing middle"
+);
+
+const smallLogo = drawnLogoWidth(drawCentre({ centreStyle: "logo", centreLogoScale: 0.5 }));
+const bigLogo = drawnLogoWidth(drawCentre({ centreStyle: "logo", centreLogoScale: 2 }));
+h.ok(smallLogo > 0 && bigLogo > 0, `the logo is drawn at both sizes (${smallLogo}px, ${bigLogo}px)`);
+h.ok(bigLogo > smallLogo * 2.5, `the logo size slider really scales the logo (${Math.round(smallLogo)} → ${Math.round(bigLogo)})`);
+
+const wideHub = drawCentre({ centreStyle: "orb", centreScale: 1.7 });
+const smallHub = drawCentre({ centreStyle: "orb", centreScale: 0.4 });
+const widestArc = (stub: ReturnType<typeof createStubContext>): number => {
+  const radii = stub.opsWithArgs
+    .filter((entry) => entry.startsWith("arc("))
+    .map((entry) => Number(entry.slice(4, -1).split(",")[2]))
+    .filter((value) => Number.isFinite(value));
+  return radii.length ? Math.max(...radii) : 0;
+};
+h.ok(
+  widestArc(wideHub) > widestArc(smallHub),
+  `the middle size slider really changes the core (${Math.round(widestArc(smallHub))} → ${Math.round(widestArc(wideHub))})`
+);
+
+// "Nothing" really empties the middle of the classic round badges too.
+function drawRound(type: string, visualOptions: Record<string, unknown>) {
+  const stub = createStubContext(1280, 720);
+  renderAudioVisualizer({
+    ctx: stub.ctx,
+    item: makeInsert(type, {
+      visualOptions: {
+        ...(((VISUALISERS.find((v) => v.type === type) || PIXABAY_CATALOG_ITEMS.find((v) => v.type === type))?.defaultVisualOptions) || {}),
+        ...visualOptions,
+      },
+    }),
+    x: 640,
+    y: 380,
+    canvasWidth: 1280,
+    canvasHeight: 720,
+    elapsed: 1.5,
+    frame: null,
+    logo: centreLogoImage,
+  });
+  return stub;
+}
+for (const type of ["voice_pulse"]) {
+  const hub = drawRound(type, {});
+  const ringOnly = drawRound(type, { centreStyle: "none" });
+  const branded = drawRound(type, { centreStyle: "logo" });
+  h.ok(hub.ops.length > ringOnly.ops.length, `${type}: the glowing middle is painted by default and absent with "Nothing"`);
+  h.ok(!ringOnly.opsWithArgs.some((entry) => entry.startsWith("drawImage(")), `${type}: "Nothing" draws no logo`);
+  h.eq(
+    branded.opsWithArgs.filter((entry) => entry.startsWith("drawImage(")).length,
+    1,
+    `${type}: "My logo" puts the member's logo in the middle`
+  );
+  h.eq(
+    drawRound(type, { centreStyle: "orb" }).opsWithArgs.filter((entry) => entry.startsWith("drawImage(")).length,
+    0,
+    `${type}: "Glowing orb" shows the light without the logo`
+  );
+}
+
+// The Pixabay circular clips have no hub of their own; the member can now add
+// one — a logo, or the glowing orb — or leave them exactly as they ship.
+{
+  const asShipped = drawRound("px_ring_bars", {});
+  const orbHub = drawRound("px_ring_bars", { centreStyle: "orb" });
+  const logoHub = drawRound("px_ring_bars", { centreStyle: "logo" });
+  h.ok(!asShipped.opsWithArgs.some((entry) => entry.startsWith("drawImage(")), "a circular clip is unbranded as it ships");
+  h.ok(orbHub.ops.length > asShipped.ops.length, "a glowing orb can be added to a circular clip's middle");
+  h.eq(
+    logoHub.opsWithArgs.filter((entry) => entry.startsWith("drawImage(")).length,
+    1,
+    "a circular clip can carry the member's logo in a new hub"
+  );
+}
+
+// The panel offers the three choices and both sizes, with help text.
+const centreModal = read("src/components/InsertPropertiesModal.tsx");
+h.ok(centreModal.includes("In the middle"), "the panel names the middle");
+h.ok(
+  centreModal.includes('updateVisualOptions("centreStyle", option.id)'),
+  "the three choices write centreStyle"
+);
+h.ok(
+  centreModal.includes('label: "My logo"') && centreModal.includes('label: "Glowing orb"') && centreModal.includes('label: "Nothing"'),
+  "the choices are spelled out in plain words"
+);
+h.ok(
+  centreModal.includes('updateVisualOptions("centreLogoScale"') && centreModal.includes("Logo size:"),
+  "the logo has its own size slider"
+);
+h.ok(
+  centreModal.includes('updateVisualOptions("centreScale"') && centreModal.includes("Middle size:"),
+  "the middle has its own size slider"
+);
+h.ok(
+  centreModal.includes("SLIDER_HINTS.centreStyle") && centreModal.includes("SLIDER_HINTS.logoSize") && centreModal.includes("SLIDER_HINTS.centreSize"),
+  "each new control explains itself"
+);
+h.ok(!centreModal.includes("Show My Logo in the Middle"), "the old on/off checkbox is gone");
+h.ok(
+  centreModal.includes("With no logo uploaded, the glowing orb shows instead"),
+  "the panel says what happens when there is no logo yet"
+);
 
 h.done("visualizers");
