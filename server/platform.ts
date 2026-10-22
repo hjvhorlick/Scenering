@@ -9,7 +9,7 @@ import { FASTSPRING_DEFAULT_PRODUCT_PATHS, FASTSPRING_PRODUCT_PATH_ENV, fastspri
    plan-mapping helpers. */
 export { fastspringCheckoutTags, fastspringProductPath, planForFastSpringProduct };
 import { DEFAULT_STORE_NOTICE, STORE_NOTICE_SETTING_KEY, parseStoredStoreNotice, sanitizeStoreNotice, type StoreNotice } from "../src/config/store-notice.ts";
-import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
+import { EmailConfigurationError, emailProviderConfigurationProblem, sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
 import { env } from "../src/env.ts";
 import { db, type ComplimentaryGrant, type EmailPreference, type Membership, type Subscription, type UsageRecord, type User } from "../src/db.ts";
 import { inboxSummarySafe, recordContactFormMessage } from "./inbox-core.ts";
@@ -62,8 +62,15 @@ export function sanitizeSocialLinks(input: unknown): { links: SocialLinks } | { 
 
 /** The social links as the public site and app read them — never missing keys. */
 async function publicSocialLinks(): Promise<SocialLinks> {
-  const raw = await db.getSetting(SOCIAL_LINKS_SETTING_KEY);
-  const stored = raw ? (JSON.parse(raw) as Partial<SocialLinks>) : {};
+  let stored: Partial<SocialLinks> = {};
+  try {
+    if (env().DB && typeof env().DB.prepare === "function") {
+      const raw = await db.getSetting(SOCIAL_LINKS_SETTING_KEY);
+      if (raw) stored = JSON.parse(raw) as Partial<SocialLinks>;
+    }
+  } catch (err) {
+    logAuthDiagnostic("social-links-fallback", err);
+  }
   /* Built from SOCIAL_LINK_PLATFORMS, not a literal: a platform added to that
      one list is published, sanitized and defaulted here with no second edit,
      and a stored record saved before the platform existed still answers with
@@ -77,8 +84,66 @@ export { DEFAULT_STORE_NOTICE, sanitizeStoreNotice, type StoreNotice };
 
 /** The store notice as the front pages read it — defaults to the launch notice until edited. */
 async function publicStoreNotice(): Promise<StoreNotice> {
-  const raw = await db.getSetting(STORE_NOTICE_SETTING_KEY);
-  return parseStoredStoreNotice(raw);
+  try {
+    if (!env().DB || typeof env().DB.prepare !== "function") return { ...DEFAULT_STORE_NOTICE };
+    const raw = await db.getSetting(STORE_NOTICE_SETTING_KEY);
+    return parseStoredStoreNotice(raw);
+  } catch (err) {
+    logAuthDiagnostic("store-notice-fallback", err);
+    return { ...DEFAULT_STORE_NOTICE };
+  }
+}
+
+export type PlatformErrorCode =
+  | "AUTH_CONFIG_UNAVAILABLE"
+  | "DATABASE_UNAVAILABLE"
+  | "EMAIL_DELIVERY_UNAVAILABLE";
+
+export class PlatformConfigError extends Error {
+  readonly status = 503 as const;
+  readonly code: PlatformErrorCode;
+  readonly publicMessage: string;
+  constructor(operatorMessage: string, code: PlatformErrorCode, publicMessage: string) {
+    super(operatorMessage);
+    this.name = "PlatformConfigError";
+    this.code = code;
+    this.publicMessage = publicMessage;
+  }
+}
+
+/**
+ * Scrub secrets and bearer/verification tokens before writing any diagnostic
+ * string to Worker logs. Operators see subsystem + error class/code without
+ * ever risking secret leakage in retained logs.
+ */
+export function redactDiagnosticError(err: unknown): string {
+  let raw = err instanceof Error ? `${err.name}: ${err.message}` : String(err || "unknown error");
+  try {
+    const e = env();
+    for (const candidate of [
+      e.SESSION_SECRET,
+      e.SCENERING_AUTH_SECRET,
+      e.RESEND_API_KEY,
+      e.FASTSPRING_WEBHOOK_SECRET,
+      e.FASTSPRING_API_PASSWORD,
+      e.PEXELS_API_KEY,
+      e.PIXABAY_API_KEY,
+    ]) {
+      const secret = typeof candidate === "string" ? candidate.trim() : "";
+      if (secret.length >= 6) raw = raw.split(secret).join("[REDACTED]");
+    }
+  } catch {
+    // env() may not be initialized yet.
+  }
+  return raw
+    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [REDACTED]")
+    .replace(/\bre_[A-Za-z0-9_-]{8,}\b/g, "re_[REDACTED]")
+    .replace(/([?&]token=)[^&\s]+/gi, "$1[REDACTED]")
+    .slice(0, 400);
+}
+
+function logAuthDiagnostic(context: string, err: unknown) {
+  console.warn(`[auth:${context}] ${redactDiagnosticError(err)}`);
 }
 
 const now = () => new Date().toISOString();
@@ -103,10 +168,124 @@ function sessionSecret() {
      secret in production. */
   const configured = env().SESSION_SECRET || env().SCENERING_AUTH_SECRET;
   const secret = configured || (!isProduction() ? DEVELOPMENT_SESSION_SECRET : "");
-  if (!secret || (isProduction() && secret.length < 32)) throw new Error("SESSION_SECRET must be a unique production secret of at least 32 characters");
+  if (!secret || (isProduction() && secret.length < 32)) {
+    throw new PlatformConfigError(
+      "SESSION_SECRET must be a unique production secret of at least 32 characters",
+      "AUTH_CONFIG_UNAVAILABLE",
+      "Sign-in is temporarily unavailable while authentication is being configured. Please try again shortly.",
+    );
+  }
   return secret;
 }
 const hashToken = (token: string) => createHmac("sha256", sessionSecret()).update(token).digest("hex");
+
+function ensureDatabaseAvailable() {
+  if (!env().DB || typeof env().DB.prepare !== "function") {
+    throw new PlatformConfigError(
+      "D1 database binding DB is unavailable",
+      "DATABASE_UNAVAILABLE",
+      "Account service is temporarily unavailable. Please try again shortly.",
+    );
+  }
+}
+
+function assertAuthRuntimeAvailable() {
+  ensureDatabaseAvailable();
+  sessionSecret();
+}
+
+function publicAppUrlProblem(): string | null {
+  const publicAppUrl = String(env().PUBLIC_APP_URL || "").trim();
+  if (!publicAppUrl) {
+    return isProduction() ? "PUBLIC_APP_URL is required in production" : null;
+  }
+  let url: URL;
+  try {
+    url = new URL(publicAppUrl);
+  } catch {
+    return "PUBLIC_APP_URL must be a valid URL";
+  }
+  if (isProduction() && url.protocol !== "https:") {
+    return "PUBLIC_APP_URL must use HTTPS in production";
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return "PUBLIC_APP_URL must use HTTP or HTTPS";
+  }
+  return null;
+}
+
+function transactionalEmailConfigurationProblem(): string | null {
+  const urlProblem = publicAppUrlProblem();
+  if (urlProblem) return urlProblem;
+  return emailProviderConfigurationProblem(env());
+}
+
+function assertTransactionalEmailAvailable(publicMessage: string) {
+  const problem = transactionalEmailConfigurationProblem();
+  if (problem) {
+    logAuthDiagnostic("email-config", problem);
+    throw new PlatformConfigError(problem, "EMAIL_DELIVERY_UNAVAILABLE", publicMessage);
+  }
+}
+
+function transactionalEmailBaseUrl(req: Request): string {
+  const problem = publicAppUrlProblem();
+  if (problem) {
+    throw new EmailConfigurationError(problem);
+  }
+  const configured = String(env().PUBLIC_APP_URL || "").trim();
+  if (configured) return new URL(configured).origin;
+  return `${req.protocol}://${req.get("host")}`;
+}
+
+export interface PlatformConfigurationDiagnostic {
+  ok: boolean;
+  issues: Array<{
+    subsystem: "database" | "session" | "public_url" | "owner" | "email";
+    code: string;
+    message: string;
+  }>;
+}
+
+/**
+ * Non-throwing configuration check used during Worker/Express startup and
+ * health reporting so a single missing mail or owner variable is surfaced
+ * clearly in operator logs without crashing the entire public site or
+ * breaking verified-user sign-in.
+ */
+export function inspectPlatformConfiguration(): PlatformConfigurationDiagnostic {
+  const issues: PlatformConfigurationDiagnostic["issues"] = [];
+  if (!env().DB || typeof env().DB.prepare !== "function") {
+    issues.push({ subsystem: "database", code: "DATABASE_UNAVAILABLE", message: "D1 database binding DB is unavailable" });
+  }
+  try {
+    sessionSecret();
+  } catch (err: any) {
+    issues.push({ subsystem: "session", code: "AUTH_CONFIG_UNAVAILABLE", message: String(err?.message || "SESSION_SECRET is invalid") });
+  }
+  const urlProblem = publicAppUrlProblem();
+  if (urlProblem) {
+    issues.push({ subsystem: "public_url", code: "PUBLIC_URL_INVALID", message: urlProblem });
+  }
+  if (isProduction()) {
+    if (!configuredOwnerEmail()) {
+      issues.push({
+        subsystem: "owner",
+        code: "OWNER_CONFIG_INVALID",
+        message: "SCENERING_OWNER_EMAIL must be a valid owner-administrator email in production",
+      });
+    }
+    const emailProblem = emailProviderConfigurationProblem(env());
+    if (emailProblem) {
+      issues.push({
+        subsystem: "email",
+        code: "EMAIL_DELIVERY_UNAVAILABLE",
+        message: emailProblem,
+      });
+    }
+  }
+  return { ok: issues.length === 0, issues };
+}
 
 export function assertSecurePlatformConfiguration() {
   sessionSecret();
@@ -156,7 +335,11 @@ function safeUser(user: User) { return { id: user.id, email: user.email, display
  * a source-code default. A public default email would let somebody register
  * that address first on a fresh database and claim the owner role.
  */
-function configuredOwnerEmail() { return String(env().SCENERING_OWNER_EMAIL || "").trim().toLowerCase(); }
+function configuredOwnerEmail() {
+  const candidate = String(env().SCENERING_OWNER_EMAIL || "").trim().toLowerCase();
+  if (!candidate || candidate.length > 254 || !/^\S+@\S+\.\S+$/.test(candidate)) return "";
+  return candidate;
+}
 function isConfiguredOwner(user: Pick<User, "email">) {
   const ownerEmail = configuredOwnerEmail();
   return Boolean(ownerEmail && user.email === ownerEmail);
@@ -432,6 +615,7 @@ type Auth = { user: User; plan: PlanSlug; sessionId?: string; deviceId?: string 
 export async function findSession(req: Request): Promise<Auth | null> {
   const raw = sessionTokenFromRequest(req);
   if (raw) {
+    assertAuthRuntimeAvailable();
     const session = await db.findSessionByToken(hashToken(raw));
     const user = session && (await db.findUserById(session.userId));
     // A session may have been issued before verification enforcement was
@@ -448,7 +632,11 @@ export async function findSession(req: Request): Promise<Auth | null> {
           const lastSeen = session.lastSeenAt ? Date.parse(session.lastSeenAt) : 0;
           if (!lastSeen || Date.now() - lastSeen > 10 * 60_000) void db.touchSession(session.id).catch(() => {});
         }
-        return { user: resolved, plan: await getUserPlan(resolved), sessionId: session?.id, deviceId: session?.deviceId ?? null };
+        const plan = await getUserPlan(resolved).catch((err) => {
+          logAuthDiagnostic("session-plan-fallback", err);
+          return resolved.role === "admin" && isConfiguredOwner(resolved) ? ("sceneforge" as PlanSlug) : ("free" as PlanSlug);
+        });
+        return { user: resolved, plan, sessionId: session?.id, deviceId: session?.deviceId ?? null };
       }
       // Revoke any legacy session that belongs to an unverified account. This
       // prevents it becoming usable if verification state changes later.
@@ -463,6 +651,7 @@ export async function findSession(req: Request): Promise<Auth | null> {
      administrator, so the product can be reviewed end to end. Double-gated:
      ignored in production, and never set in any deployment configuration. */
   if (!explicitSignOut && !isProduction() && env().DEV_AUTO_OWNER === "1") {
+    ensureDatabaseAvailable();
     const ownerEmail = configuredOwnerEmail();
     const owner = ownerEmail && (await db.findUserByEmail(ownerEmail));
     if (owner) {
@@ -566,10 +755,48 @@ function parseCreativeManifest(value: unknown): ExportCreativeManifest | null {
 }
 
 async function accountPayload(user: User, current: { sessionId?: string; deviceId?: string } = {}) {
-  const plan = await getUserPlan(user);
+  const plan = await getUserPlan(user).catch((err) => {
+    logAuthDiagnostic("account-plan-fallback", err);
+    return user.role === "admin" && isConfiguredOwner(user) ? ("sceneforge" as PlanSlug) : ("free" as PlanSlug);
+  });
   const [usage, remaining, subscription, membership, resolvedFastSpringCustomer, sessions] = await Promise.all([
-    weeklyUsage(user.id), remainingUsage(user.id, plan), subscriptionForUser(user.id), effectiveMembership(user, plan), resolveFastSpringCustomerForUser(user),
-    db.listActiveSessionsForUser(user.id).catch(() => []),
+    weeklyUsage(user.id).catch((err) => {
+      logAuthDiagnostic("usage-fallback", err);
+      return { finalExports: 0, finalExportMinutes: 0 };
+    }),
+    remainingUsage(user.id, plan).catch((err) => {
+      logAuthDiagnostic("remaining-fallback", err);
+      const limits = getPlanConfig(plan).limits;
+      return {
+        finalExports: limits.finalExportsPerWeek ?? null,
+        shortExports: limits.shortExportsPerWeek ?? null,
+        longExports: limits.longExportsPerWeek ?? null,
+      };
+    }),
+    subscriptionForUser(user.id).catch((err) => {
+      logAuthDiagnostic("subscription-fallback", err);
+      return null;
+    }),
+    effectiveMembership(user, plan).catch((err) => {
+      logAuthDiagnostic("membership-fallback", err);
+      return {
+        id: "",
+        user_id: user.id,
+        status: "active",
+        plan_id: plan,
+        source: user.role === "admin" && isConfiguredOwner(user) ? "owner_admin" : "free",
+        complimentary_ends_at: null,
+        complimentary_period: null,
+      };
+    }),
+    resolveFastSpringCustomerForUser(user).catch((err) => {
+      logAuthDiagnostic("billing-customer-fallback", err);
+      return null;
+    }),
+    db.listActiveSessionsForUser(user.id).catch((err) => {
+      logAuthDiagnostic("sessions-fallback", err);
+      return [];
+    }),
   ]);
   const deviceLimit = getPlanConfig(plan).limits.maxConcurrentDevices;
   // Where this membership is signed in — the panel a member checks when they
@@ -1244,7 +1471,11 @@ export function registerPlatformRoutes(app: Express) {
   app.post("/api/auth/register", rateLimit("register", 5, 3600000), asyncHandlerVoid(async (req, res) => {
     const email = String(req.body?.email || "").trim().toLowerCase(); const displayName = String(req.body?.displayName || "").trim(); const password = String(req.body?.password || "");
     if (email.length > 254 || !/^\S+@\S+\.\S+$/.test(email) || displayName.length < 2 || displayName.length > 100 || password.length < 10 || password.length > 256) return res.status(400).json({ error: "Use a valid email, a display name of 2–100 characters, and a password of 10–256 characters." });
+    assertAuthRuntimeAvailable();
     const sandboxAutoProvision = !isProduction() && env().DEV_SANDBOX_AUTO_PROVISION === "1";
+    if (!sandboxAutoProvision) {
+      assertTransactionalEmailAvailable("Account registration is temporarily unavailable because verification email delivery is offline. Please try again shortly.");
+    }
     const existing = await db.findUserByEmail(email);
     if (existing && !sandboxAutoProvision) return res.status(409).json({ error: "An account with that email already exists." });
     let user: User;
@@ -1266,23 +1497,30 @@ export function registerPlatformRoutes(app: Express) {
     const raw = randomBytes(32).toString("base64url");
     await db.deleteVerificationTokensForUser(user.id, "verify");
     await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
+    let emailDelivered = true;
     try {
-      await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(raw)}`);
+      await sendVerificationEmail(user.email, user.displayName, `${transactionalEmailBaseUrl(req)}/verify-email?token=${encodeURIComponent(raw)}`);
     } catch (err: any) {
-      console.warn("[auth] verification email could not be sent:", err?.message || err);
+      emailDelivered = false;
+      logAuthDiagnostic("register-verification-email", err);
     }
     /* The link belongs in the email and nowhere else. It used to be returned
        to the caller unconditionally, which let anyone create an account and
        verify it without ever reading the mailbox — one throwaway address per
        Free allowance. Development keeps the shortcut; production does not. */
     return res.status(201).json({
-      message: "Account created. Check your email to verify it.",
+      message: emailDelivered
+        ? "Account created. Check your email to verify it."
+        : "Account created, but the verification email could not be sent right now. Use Resend verification to request a new link shortly.",
       requiresVerification: true,
+      emailDelivered,
+      ...(emailDelivered ? {} : { code: "EMAIL_DELIVERY_DEGRADED" }),
       ...(isDevelopmentRuntime(env()) ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(raw)}` } : {}),
     });
   }));
 
   app.post("/api/auth/login", rateLimit("login", 12, 900000), asyncHandlerVoid(async (req, res) => {
+    assertAuthRuntimeAvailable();
     const email = String(req.body?.email || "").trim().toLowerCase(); const password = String(req.body?.password || "");
     let user = await db.findUserByEmail(email);
     const sandboxAutoProvision = !isProduction() && env().DEV_SANDBOX_AUTO_PROVISION === "1";
@@ -1313,14 +1551,24 @@ export function registerPlatformRoutes(app: Express) {
       const rawVerify = randomBytes(32).toString("base64url");
       await db.deleteVerificationTokensForUser(user.id, "verify");
       await db.createVerificationToken(user.id, hashToken(rawVerify), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
-      try {
-        await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}/verify-email?token=${encodeURIComponent(rawVerify)}`);
-      } catch {
-        // Email delivery must not block the inline verification flow.
+      let emailDelivered = false;
+      const emailConfigProblem = transactionalEmailConfigurationProblem();
+      if (emailConfigProblem) {
+        logAuthDiagnostic("unverified-login-email-config", emailConfigProblem);
+      } else {
+        try {
+          await sendVerificationEmail(user.email, user.displayName, `${transactionalEmailBaseUrl(req)}/verify-email?token=${encodeURIComponent(rawVerify)}`);
+          emailDelivered = true;
+        } catch (err) {
+          logAuthDiagnostic("unverified-login-email-send", err);
+        }
       }
       return res.status(403).json({
-        error: "Verify your email before signing in.",
+        error: emailDelivered
+          ? "Verify your email before signing in."
+          : "Verify your email before signing in. Verification email delivery is temporarily unavailable; please try again shortly or use Resend verification.",
         code: "EMAIL_UNVERIFIED",
+        emailDelivered,
         ...(isDevelopmentRuntime(env()) ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(rawVerify)}` } : {}),
       });
     }
@@ -1332,7 +1580,14 @@ export function registerPlatformRoutes(app: Express) {
     // devices may be open at once, and the device that has been idle longest
     // gives up its place. Signing in again on the same browser replaces its
     // own session, so one person on one device never loses their seat.
-    const { evicted, limit } = await claimDeviceSeat(user.id, await getUserPlan(user), session.id);
+    const planForSeat = await getUserPlan(user).catch((err) => {
+      logAuthDiagnostic("seat-plan-fallback", err);
+      return user!.role === "admin" && isConfiguredOwner(user!) ? ("sceneforge" as PlanSlug) : ("free" as PlanSlug);
+    });
+    const { evicted, limit } = await claimDeviceSeat(user.id, planForSeat, session.id).catch((err) => {
+      logAuthDiagnostic("device-seat-fallback", err);
+      return { evicted: 0, limit: getPlanConfig(planForSeat).limits.maxConcurrentDevices };
+    });
     const payload = await accountPayload(user, { sessionId: session.id, deviceId: device.id });
     // Production authentication is cookie-only. Only an explicitly configured
     // embedded development preview receives a short-lived bridge token for
@@ -1343,7 +1598,14 @@ export function registerPlatformRoutes(app: Express) {
 
   app.post("/api/auth/logout", asyncHandlerVoid(async (req, res) => {
     const raw = sessionTokenFromRequest(req);
-    if (raw) await db.deleteSessionByToken(hashToken(raw));
+    if (raw) {
+      try {
+        assertAuthRuntimeAvailable();
+        await db.deleteSessionByToken(hashToken(raw));
+      } catch (err) {
+        logAuthDiagnostic("logout-cleanup", err);
+      }
+    }
     clearSessionCookie(res); res.json({ ok: true });
   }));
 
@@ -1354,11 +1616,16 @@ export function registerPlatformRoutes(app: Express) {
        the plan's device count here as well as at sign-in means a membership
        that lapses from SceneFlow to Free cannot keep two machines open just
        because they were signed in while it was paid. */
-    if (auth.sessionId) await claimDeviceSeat(auth.user.id, auth.plan, auth.sessionId);
+    if (auth.sessionId) {
+      await claimDeviceSeat(auth.user.id, auth.plan, auth.sessionId).catch((err) => {
+        logAuthDiagnostic("session-seat-fallback", err);
+      });
+    }
     return res.json(await accountPayload(auth.user, { sessionId: auth.sessionId, deviceId: auth.deviceId ?? undefined }));
   }));
 
   app.post("/api/auth/verify-email", rateLimit("verify", 10, 3600000), asyncHandlerVoid(async (req, res) => {
+    assertAuthRuntimeAvailable();
     const hash = hashToken(String(req.body?.token || ""));
     const token = await db.findVerificationToken(hash, "verify");
     const user = token && (await db.findUserById(token.userId));
@@ -1370,20 +1637,20 @@ export function registerPlatformRoutes(app: Express) {
   }));
 
   app.post("/api/auth/resend-verification", rateLimit("resend", 3, 3600000), asyncHandlerVoid(async (req, res) => {
+    assertAuthRuntimeAvailable();
+    assertTransactionalEmailAvailable("Verification email delivery is temporarily unavailable. Please try again shortly.");
     const email = String(req.body?.email || "").trim().toLowerCase();
     const user = await db.findUserByEmail(email);
     let developmentVerificationUrl = "";
-    let emailDelivered = true;
     if (user && !user.isVerified) {
       const raw = randomBytes(32).toString("base64url");
       await db.deleteVerificationTokensForUser(user.id, "verify");
       await db.createVerificationToken(user.id, hashToken(raw), "verify", new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString());
       developmentVerificationUrl = `/verify-email?token=${encodeURIComponent(raw)}`;
       try {
-        await sendVerificationEmail(user.email, user.displayName, `${baseUrl(req)}${developmentVerificationUrl}`);
+        await sendVerificationEmail(user.email, user.displayName, `${transactionalEmailBaseUrl(req)}${developmentVerificationUrl}`);
       } catch (err: any) {
-        emailDelivered = false;
-        console.warn("[auth] resend verification email could not be sent:", err?.message || err);
+        logAuthDiagnostic("resend-verification-email", err);
       }
     }
     /* Never in production — including when the mail provider fails, and
@@ -1394,20 +1661,20 @@ export function registerPlatformRoutes(app: Express) {
   }));
 
   app.post("/api/auth/forgot-password", rateLimit("forgot", 3, 3600000), asyncHandlerVoid(async (req, res) => {
+    assertAuthRuntimeAvailable();
+    assertTransactionalEmailAvailable("Password reset email delivery is temporarily unavailable. Please try again shortly.");
     const email = String(req.body?.email || "").trim().toLowerCase();
     const user = await db.findUserByEmail(email);
     let developmentResetUrl = "";
-    let emailDelivered = true;
     if (user) {
       const raw = randomBytes(32).toString("base64url");
       await db.deleteVerificationTokensForUser(user.id, "reset");
       await db.createVerificationToken(user.id, hashToken(raw), "reset", new Date(Date.now() + PASSWORD_RESET_TTL_MS).toISOString());
       developmentResetUrl = `/reset-password?token=${encodeURIComponent(raw)}`;
       try {
-        await sendPasswordResetEmail(user.email, user.displayName, `${baseUrl(req)}${developmentResetUrl}`);
+        await sendPasswordResetEmail(user.email, user.displayName, `${transactionalEmailBaseUrl(req)}${developmentResetUrl}`);
       } catch (err: any) {
-        emailDelivered = false;
-        console.warn("[auth] password reset email could not be sent:", err?.message || err);
+        logAuthDiagnostic("forgot-password-email", err);
       }
     }
     const includeDevUrl = !isProduction() && Boolean(developmentResetUrl);
@@ -1417,6 +1684,7 @@ export function registerPlatformRoutes(app: Express) {
   app.post("/api/auth/reset-password", rateLimit("reset", 5, 3600000), asyncHandlerVoid(async (req, res) => {
     const password = String(req.body?.password || "");
     if (password.length < 10 || password.length > 256) return res.status(400).json({ error: "Use between 10 and 256 characters." });
+    assertAuthRuntimeAvailable();
     const hash = hashToken(String(req.body?.token || ""));
     const token = await db.findVerificationToken(hash, "reset");
     const user = token && (await db.findUserById(token.userId));
@@ -1913,7 +2181,18 @@ export function registerPlatformRoutes(app: Express) {
   }));
 }
 
-function baseUrl(req: Request) { return (env().PUBLIC_APP_URL as string) || `${req.protocol}://${req.get("host")}`; }
+function baseUrl(req: Request) {
+  const configured = String(env().PUBLIC_APP_URL || "").trim();
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") return parsed.origin;
+    } catch {
+      // Malformed PUBLIC_APP_URL must not crash robots.txt or sitemap.xml.
+    }
+  }
+  return `${req.protocol}://${req.get("host")}`;
+}
 export { baseUrl as publicBaseUrl };
 
 /**

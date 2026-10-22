@@ -72,7 +72,11 @@ export default function SignIn() {
     try {
       if (mode === "forgot") {
         const response = await fetch("/api/auth/forgot-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
-        const data = await response.json(); setMessage(data.message || "Check your email for a reset link."); if (data.developmentResetUrl) window.location.href = data.developmentResetUrl; return;
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Something went wrong.");
+        setMessage(data.message || "Check your email for a reset link.");
+        if (data.developmentResetUrl) window.location.href = data.developmentResetUrl;
+        return;
       }
       if (mode === "register") {
         if (password !== confirm) throw new Error("The two passwords are different.");
@@ -93,6 +97,11 @@ export default function SignIn() {
             return;
           }
           window.location.href = result.developmentVerificationUrl;
+          return;
+        }
+        if (result.emailDelivered === false) {
+          setNeedsVerification(true);
+          setError(result.message);
           return;
         }
         setMessage(result.message);

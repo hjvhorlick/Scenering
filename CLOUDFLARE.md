@@ -293,17 +293,24 @@ Then:
 
 1. **Custom domain** — in the Cloudflare dashboard, attach the zone (e.g.
    `scenering.com`) and add a Worker *Custom Domain* or route for it.
-2. **`PUBLIC_APP_URL`** — set to the production origin (it is a plain var in
-   `wrangler.jsonc`; override with `wrangler secret` if you prefer). It drives
-   absolute links (verification emails, sitemap, webhook URL) and production
-   origin checks.
-3. **`SESSION_SECRET`** — ≥ 32 chars; production refuses to boot without it
-   (the setup script generates one).
+2. **`PUBLIC_APP_URL`** — set to the production HTTPS origin (it is a plain var
+   in `wrangler.jsonc`; override with `wrangler secret` if you prefer). It
+   drives absolute links (verification and password-reset emails, sitemap,
+   webhook URL) and production origin checks. If missing or non-HTTPS in
+   production, outbound auth-email routes return `503 EMAIL_DELIVERY_UNAVAILABLE`
+   rather than building token links from an unvalidated `Host` header, while
+   existing verified accounts can still sign in on the deployed host.
+3. **`SESSION_SECRET`** — ≥ 32 chars in production (the setup script generates
+   one). If missing or too short, authentication routes return
+   `503 AUTH_CONFIG_UNAVAILABLE` and log a redacted `[startup:config]` /
+   `[api:config]` diagnostic while keeping `/api/health` and public pages live.
 4. **`SCENERING_OWNER_EMAIL`** — the one mailbox that may receive the
    owner-admin role and SceneForge access. Register or reset the account with
    this exact address, complete the email-verification link, then sign in at
    `/admin`. Matching the configured email alone never grants access. If this
-   setting changes, the previous owner loses admin access on their next request.
+   setting changes (or is unset/invalid), the previous owner loses admin access
+   on their next request and `/api/admin/*` fails closed (`403`) without
+   blocking normal verified member sign-in.
 5. **FastSpring** — the full connection runbook is **[FASTSPRING.md](FASTSPRING.md)**;
    the shape of it:
    1. In FastSpring: create a popup storefront (`popup-scenering`) and set
@@ -327,7 +334,15 @@ Then:
       loud if a production deployment is still pointed at a `.test.` storefront.
 6. **Resend** — campaign sends from the Email Centre use the same provider as
    transactional mail: set the `RESEND_API_KEY` secret
-   (`EMAIL_PROVIDER=resend` is already the default var). Optional: set
+   (`EMAIL_PROVIDER=resend` is already the default var). If `EMAIL_PROVIDER` or
+   `RESEND_API_KEY` is unavailable in production, email-sending auth routes
+   (`/api/auth/register`, `/api/auth/resend-verification`,
+   `/api/auth/forgot-password`) return a uniform non-enumerating
+   `503 EMAIL_DELIVERY_UNAVAILABLE` response, unverified sign-ins return
+   `403 EMAIL_UNVERIFIED` (`emailDelivered: false`), and already-verified
+   members can continue signing in normally. `GET /api/health` reports boolean
+   subsystem readiness (`subsystems: { database, auth, email, owner }`) without
+   exposing configuration values or secrets. Optional: set
    `EMAIL_REPLY_TO` for a Reply-To override, and to record real delivery
    outcomes in campaign history, add a Resend webhook pointing at
    `https://<your-domain>/api/webhooks/resend` (the `delivered`, `bounced`,
@@ -335,11 +350,15 @@ Then:
    unsubscribe, and inbox replies show their delivery state) and
    copy its signing secret into `RESEND_WEBHOOK_SECRET`. The scheduled-send
    queue drains on the five-minute Cron Trigger — no further wiring needed.
-7. **Migrations** — `wrangler d1 migrations apply scenering-db --remote`
+7. **Migrations** — run `npx wrangler d1 migrations apply scenering-db --remote`
+   before shifting production traffic when new SQL files land in `migrations/`
    (`0007_devices_workspace.sql` adds the per-device session columns and the
    `workspace_documents` table that keeps a member's projects in step across
-   devices; without it the device limits cannot be enforced and nothing syncs)
-   (the setup script does this; re-run after adding a migration).
+   devices). As a safety backstop when Workers Builds deploys before a manual
+   migration run, `src/db.ts` also inspects `PRAGMA table_info(sessions)` and
+   self-heals missing `0007` columns and `workspace_documents` at runtime so
+   sign-in cannot fail with `D1_ERROR`. Applying `migrations apply --remote`
+   first keeps D1's `d1_migrations` ledger in sync cleanly.
 8. **`NODE_ENV`** — already `production` in `wrangler.jsonc`. Leave it. Every
    development affordance (inline verification/reset links, auto-owner
    sessions, sandbox provisioning) is gated on an explicit `development`/`test`,
