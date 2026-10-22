@@ -47,6 +47,8 @@ export default function SceneClipPanel({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [previewTime, setPreviewTime] = useState(0);
+  /** 0–100 while a container this browser cannot open is re-wrapped as MP4. */
+  const [conversionProgress, setConversionProgress] = useState<number | null>(null);
 
   const isInserted = Boolean(scene.is_inserted);
   const hasClip = Boolean(scene.video_url);
@@ -73,9 +75,14 @@ export default function SceneClipPanel({
   const handlePick = (file: File | undefined) => {
     if (!file) return;
     setLoadError(null);
-    void sceneUpdatesForVideoFile(file, scene, narrationDuration, { singleScene })
+    setConversionProgress(null);
+    void sceneUpdatesForVideoFile(file, scene, narrationDuration, {
+      singleScene,
+      onProgress: (progress) => setConversionProgress(Math.round(progress * 100)),
+    })
       .then((updates) => onUpdate(scene.id, updates))
-      .catch((err) => setLoadError(videoUploadMessage(err)));
+      .catch((err) => setLoadError(videoUploadMessage(err)))
+      .finally(() => setConversionProgress(null));
   };
 
   const setTrim = (start: number, end: number) => {
@@ -135,9 +142,9 @@ export default function SceneClipPanel({
           type="button"
           onClick={() => fileRef.current?.click()}
           className="px-2 py-1 rounded-lg border border-hairline bg-gray-900/60 text-[11px] text-gray-400 hover:text-white hover:border-indigo-600 transition-colors flex items-center gap-1"
-          title="Use a short video clip for this scene instead of a still image"
+          title="Use a short video clip for this scene instead of a still image — MP4, MOV, WebM, MKV or MTS"
         >
-          <Icon glyph="🎬" /> Add video clip
+          {conversionProgress !== null ? `Converting ${conversionProgress}%` : <><Icon glyph="🎬" /> Add video clip</>}
         </button>
         {loadError && <span className="text-[10px] text-rose-400">{loadError}</span>}
       </div>
@@ -170,7 +177,9 @@ export default function SceneClipPanel({
             onClick={() => fileRef.current?.click()}
             className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition-colors"
           >
-            {iconify(hasClip ? "Replace clip" : "➕ Add clip")}
+            {conversionProgress !== null
+              ? `Converting ${conversionProgress}%`
+              : iconify(hasClip ? "Replace clip" : "➕ Add clip")}
           </button>
           {hasClip && (
             <button

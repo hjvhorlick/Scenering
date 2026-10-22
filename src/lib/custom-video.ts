@@ -22,7 +22,8 @@
  * and a failed upgrade would take the music library down with it.
  */
 
-import { assertMediaFile, probeVideoFile } from "./media-file";
+import { assertMediaFile, MediaProbeError, probeVideoFile } from "./media-file";
+import { convertVideoForBrowser, inspectMediaBlob, unplayableVideoMessage } from "./media-convert";
 
 const DB_NAME = "scenering-video";
 const DB_VERSION = 1;
@@ -71,6 +72,8 @@ export interface AddCustomVideoOptions {
   replaceIds?: readonly string[];
   /** Setup may continue in this tab when a reload-safe copy cannot be written. */
   allowSessionFallback?: boolean;
+  /** 0–1 while an unsupported container is being re-wrapped for this browser. */
+  onProgress?: (progress: number) => void;
 }
 
 function browserHasIdb(): boolean {
@@ -385,14 +388,14 @@ export async function addCustomVideo(
 ): Promise<CustomVideoClip> {
   // Shared classification (media-file.ts): MP4, MOV and WebM lead, and a
   // file whose OS reported no/generic MIME type is recognised by its
-  // extension and re-typed so the browser will decode it.
+  // extension and re-typed so the browser will decode it. Matroska and
+  // MPEG-TS are on that list too — they are re-wrapped below.
   let classified;
   try {
     classified = assertMediaFile(file, ["video"]);
   } catch (err: any) {
     throw new CustomVideoError(err?.message || "That file is not a supported video.");
   }
-  const uploadFile = classified.file;
   if (file.size > MAX_CUSTOM_VIDEO_BYTES) {
     const mb = Math.round(file.size / (1024 * 1024));
     throw new CustomVideoError(`"${file.name}" is ${mb} MB. Keep uploads under 500 MB.`);
@@ -400,11 +403,40 @@ export async function addCustomVideo(
 
   const id = `cv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
+  /**
+   * The file that actually gets stored.
+   *
+   * A container the `<video>` element cannot open (Matroska, MPEG-TS) or a
+   * codec it cannot find a decoder for is not automatically the customer's
+   * problem: if this browser can decode the picture, mediabunny re-wraps it
+   * as MP4 (or WebM) and the upload proceeds. Only when that is impossible
+   * here does the refusal stand — and then it names the codec instead of
+   * pretending the whole format is unsupported.
+   */
+  let uploadFile: File = classified.file;
+  let uploadMime = classified.mimeType;
   let measured: { duration: number; width: number; height: number };
   try {
     measured = await probeVideoFile(uploadFile);
   } catch (err: any) {
-    throw new CustomVideoError(err?.message || "That file could not be read as video.");
+    const unsupported = err instanceof MediaProbeError && err.reason === "unsupported";
+    const converted = unsupported
+      ? await convertVideoForBrowser(uploadFile, file.name, { onProgress: options.onProgress })
+      : null;
+    if (!converted) {
+      if (unsupported) {
+        const inspection = await inspectMediaBlob(uploadFile).catch(() => null);
+        throw new CustomVideoError(inspection ? unplayableVideoMessage(inspection) : err?.message || "That file could not be read as video.");
+      }
+      throw new CustomVideoError(err?.message || "That file could not be read as video.");
+    }
+    uploadFile = converted;
+    uploadMime = converted.type || "video/mp4";
+    try {
+      measured = await probeVideoFile(uploadFile);
+    } catch (again: any) {
+      throw new CustomVideoError(again?.message || "That video could not be read after converting it.");
+    }
   }
   if (measured.duration <= 0) {
     throw new CustomVideoError("That file has no playable video in it.");
@@ -416,8 +448,8 @@ export async function addCustomVideo(
   const record: CustomVideoRecord = {
     id,
     name: prettyName(file.name),
-    mime: classified.mimeType,
-    size: file.size,
+    mime: uploadMime,
+    size: uploadFile.size,
     duration: measured.duration,
     width: measured.width,
     height: measured.height,
@@ -427,7 +459,7 @@ export async function addCustomVideo(
 
   const db = await openDb();
   if (!db) {
-    const warning = `Video storage recovery: ${await storageFailureMessage(file.size, 0)}`;
+    const warning = `Video storage recovery: ${await storageFailureMessage(uploadFile.size, 0)}`;
     if (options.allowSessionFallback) {
       return keepVideoForCurrentTab(record, warning, options.replaceIds || []);
     }
@@ -458,7 +490,7 @@ export async function addCustomVideo(
 
   if (!result.ok) {
     const warning = isQuotaError(result.error)
-      ? await storageFailureMessage(file.size, reclaimed)
+      ? await storageFailureMessage(uploadFile.size, reclaimed)
       : `Browser storage could not keep a reload-safe copy of this video (${result.error?.message || "storage write failed"}). The video is loaded for this tab, so you can continue now, but keep this tab open and download your finished work before closing it. To retain the upload after a refresh, remove old site data or choose a smaller file and upload it again.`;
     const identifiedWarning = `Video storage recovery: ${warning}`;
     if (options.allowSessionFallback) {

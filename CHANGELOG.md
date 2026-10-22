@@ -2,6 +2,31 @@
 
 ## Unreleased — your own video, start to finish, with its sound and its captions
 
+- **Fixed: good videos were refused as the wrong format.** The Scenes screen's
+  Upload Video button — and the clip panel, and the intro/outro background —
+  ran a decode probe that could fail on perfectly ordinary files. It read a
+  `<video>` element that was never in the document, which is the exact quirk
+  `scene-clip.ts` already works around for Safari and mobile: a detached
+  element is not loaded there, so an iPhone MP4 waited out the 20-second limit
+  and came back as "could not be played". It also read `videoWidth` the moment
+  `loadedmetadata` fired, which is still 0 in some browsers, and treated one
+  failed end-seek as proof that a recorder WebM had no length. The probe now
+  mounts the element, waits for `loadeddata`, retries the seek, and — when the
+  element is merely slow — reads the duration and frame size from the container
+  instead of refusing the file.
+- **MKV, MTS and MPEG-TS uploads now work.** They used to be refused with "web
+  browsers cannot play ... directly", even though the picture inside is usually
+  ordinary H.264 and the app can do the conversion itself. The file is
+  re-wrapped as MP4 (H.264 + AAC) on upload by mediabunny — loaded on demand,
+  packet-copied when the codecs already match — with WebM as the fallback for
+  browsers without an H.264 encoder. The scene buttons show "Converting 42%"
+  instead of appearing frozen. AVI, WMV and FLV are still refused (nothing here
+  can demux them), and still say so.
+- **A refusal names the codec.** "MP4 (H.264), MOV and WebM are supported" was
+  shown even to someone uploading an MP4, because the file held HEVC (H.265) or
+  ProRes, which this browser cannot decode. The message now says exactly that,
+  names the export that works, and for HEVC points iPhone users at Settings →
+  Camera → Formats → Most Compatible.
 - **Fixed: an uploaded video was cut short.** Creating a one-scene project from
   footage set the scene's length correctly, but three later actions re-timed
   every scene from its WORD COUNT alone, which knows nothing about footage:

@@ -14,6 +14,11 @@ import {
   isSupportedMediaFile,
 } from "../src/lib/media-file";
 import { canonicalAudioMimeType, canonicalMimeType } from "../src/lib/media-mime";
+import {
+  MAX_CONVERT_VIDEO_BYTES,
+  describeCodec,
+  unplayableVideoMessage,
+} from "../src/lib/media-convert";
 import { parsePhoneticDictionaryImport } from "../src/lib/phonetic-dictionary";
 
 /**
@@ -43,6 +48,10 @@ for (const ext of ["mp4", "mov", "webm"]) {
   h.ok(VIDEO_UPLOAD_ACCEPT.includes(`.${ext}`), `the video picker offers .${ext} even when the OS has no MIME type for it`);
   h.ok(IMAGE_OR_VIDEO_UPLOAD_ACCEPT.includes(`.${ext}`), `the intro/outro picker offers .${ext}`);
 }
+for (const ext of ["mkv", "mts", "m2ts", "ts"]) {
+  h.ok(VIDEO_UPLOAD_ACCEPT.includes(`.${ext}`), `the video picker offers .${ext} (a container the upload re-wraps)`);
+  h.ok(IMAGE_OR_VIDEO_UPLOAD_ACCEPT.includes(`.${ext}`), `the intro/outro picker offers .${ext}`);
+}
 for (const ext of ["mp3", "wav", "m4a"]) {
   h.ok(AUDIO_UPLOAD_ACCEPT.includes(`.${ext}`), `the audio picker offers .${ext}`);
 }
@@ -60,6 +69,10 @@ const videoCases: Array<[string, string, string]> = [
   ["clip.webm", "", "video/webm"],
   ["clip.m4v", "video/x-m4v", "video/mp4"],
   ["phone.3gp", "", "video/3gpp"],
+  ["download.mkv", "", "video/x-matroska"],
+  ["download.mkv", "video/x-matroska", "video/x-matroska"],
+  ["camera.mts", "video/mp2t", "video/mp2t"],
+  ["camera.m2ts", "", "video/mp2t"],
 ];
 for (const [name, type, mime] of videoCases) {
   const picked = file(name, type);
@@ -115,8 +128,21 @@ const refusal = (name: string, kinds: Array<"video" | "audio" | "image">): strin
     return String(err?.message || "");
   }
 };
-h.ok(refusal("movie.mkv", ["video"]).includes("Convert it to MP4, MOV or WebM"), "MKV gets a conversion instruction, not a vague refusal");
-h.ok(refusal("movie.avi", ["video"]).includes("cannot play AVI directly"), "AVI is named as the problem");
+/*
+ * MKV and MPEG-TS used to be refused outright, and that was the bug: the
+ * picture inside is ordinary H.264 often enough that asking the customer to
+ * go and convert it was asking them to fix something the app can fix itself.
+ * They are accepted now and re-wrapped as MP4 on the way into storage.
+ */
+h.ok(isSupportedMediaFile(file("movie.mkv", "video/x-matroska"), ["video"]), "MKV is accepted instead of refused");
+h.ok(isSupportedMediaFile(file("camera.mts", "video/mp2t"), ["video"]), "a camera .mts is accepted instead of refused");
+h.eq(classifyMediaFile(file("movie.mkv"), ["video"])?.mimeType, "video/x-matroska", "MKV is classified as Matroska");
+h.eq(classifyMediaFile(file("clip.ts"), ["video"])?.mimeType, "video/mp2t", "MPEG-TS is classified from its extension");
+h.ok(read("src/lib/media-mime.ts").includes('mkv: "video/x-matroska"'), "the Matroska MIME type is in the shared table");
+h.ok(!/\bmkv:\s*"video"/.test(read("src/lib/media-file.ts")), "MKV is no longer on the browser-unfriendly refusal list");
+h.ok(!/\bmts:\s*"video"/.test(read("src/lib/media-file.ts")), "MPEG-TS is no longer on the refusal list either");
+h.ok(refusal("movie.avi", ["video"]).includes("cannot play AVI directly"), "AVI is still named as the problem (no demuxer for it)");
+h.ok(refusal("movie.wmv", ["video"]).includes("cannot play WMV directly"), "WMV still gets a conversion instruction");
 h.ok(refusal("photo.heic", ["image"]).includes("Convert it to JPG, PNG or WebP"), "HEIC gets a conversion instruction");
 h.ok(refusal("song.wma", ["audio"]).includes("MP3, WAV or M4A"), "WMA is pointed at the formats that work");
 h.ok(refusal("notes.pdf", ["video"]).includes("MP4, MOV or WebM"), "a non-video is refused with the supported formats named");
@@ -131,6 +157,81 @@ h.eq(canonicalAudioMimeType("audio/mpeg", "song.mp3"), "audio/mpeg", "MP3 passes
 h.eq(canonicalAudioMimeType("application/octet-stream", "song.wav"), "audio/wav", "WAV passes the server check from its extension");
 h.eq(canonicalAudioMimeType("video/mp4", "clip.mp4"), "", "a video is not an audio upload on the server");
 h.ok(read("server.ts").includes("canonicalAudioMimeType"), "/api/upload-audio uses the shared audio types");
+
+/* ----------------- the probe that decides playability -------------------- */
+
+const mediaSource = read("src/lib/media-file.ts");
+
+// A detached <video> is not loaded by Safari or by several mobile media
+// pipelines — the exact quirk scene-clip.ts already works around. The probe
+// used to create one, wait for metadata that never came, and refuse a good
+// iPhone MP4 twenty seconds later.
+h.ok(mediaSource.includes("document.body.appendChild"), "the decode probe mounts its element so Safari will load it");
+h.ok(mediaSource.includes("detach()") || mediaSource.includes("element.remove()"), "the probe takes its element out of the document afterwards");
+h.ok(mediaSource.includes('"loadeddata"'), "the probe waits for decoded data, because videoWidth is still 0 at loadedmetadata in some browsers");
+h.ok(mediaSource.includes("MediaProbeError"), "a failed probe says WHY (unsupported, slow, empty) so the caller can convert instead of refuse");
+h.ok(mediaSource.includes("inspectMediaBlob"), "a probe that merely ran out of time falls back to the container's own metadata");
+
+/* --------------------- converting what cannot be played ------------------- */
+
+const convertSource = read("src/lib/media-convert.ts");
+h.ok(convertSource.includes('import("mediabunny")'), "the demuxer/converter is loaded on demand, so the main bundle does not pay for it");
+h.ok(convertSource.includes("new mb.Mp4OutputFormat()"), "a playable file is written as MP4 first");
+h.ok(convertSource.includes("new mb.WebMOutputFormat()"), "WebM is the fallback when this browser has no H.264 encoder");
+h.ok(convertSource.includes("copy: {}"), "matching codecs are copied rather than re-encoded, so an MKV of H.264 is quick");
+h.ok(convertSource.includes("canEncodeVideo") && convertSource.includes("canDecode"), "a conversion only runs when this browser can decode the source");
+h.ok(
+  MAX_CONVERT_VIDEO_BYTES > 100 * 1024 * 1024 && MAX_CONVERT_VIDEO_BYTES <= 500 * 1024 * 1024,
+  "conversion is allowed up to a sensible size and never past the upload ceiling",
+);
+
+h.eq(describeCodec("hevc"), "HEVC (H.265)", "the refusal names HEVC the way customers see it");
+h.eq(describeCodec("avc"), "H.264", "H.264 is named correctly");
+h.eq(describeCodec("prores"), "Apple ProRes", "ProRes is named correctly");
+h.eq(describeCodec("vp9"), "VP9", "VP9 is named correctly");
+const hevcRefusal = unplayableVideoMessage({
+  container: "MP4",
+  mimeType: "video/mp4",
+  duration: 12,
+  width: 1920,
+  height: 1080,
+  videoCodec: "hevc",
+  audioCodec: "aac",
+  videoDecodable: false,
+});
+h.ok(hevcRefusal.includes("HEVC (H.265)"), "an unplayable MP4 is explained as HEVC, not as 'MP4 is unsupported'");
+h.ok(hevcRefusal.includes("MP4 (H.264 + AAC)"), "and it names the export that does work");
+h.ok(unplayableVideoMessage(null).includes("MP4 (H.264)"), "with no inspection the refusal still names the formats that work");
+h.ok(
+  unplayableVideoMessage({
+    container: "MP4",
+    mimeType: "video/mp4",
+    duration: 3,
+    width: 0,
+    height: 0,
+    videoCodec: null,
+    audioCodec: "aac",
+    videoDecodable: false,
+  }).includes("no picture in it"),
+  "an audio-only container is explained as audio, not as a broken format",
+);
+
+const videoStoreSource = read("src/lib/custom-video.ts");
+h.ok(
+  /probeVideoFile\(uploadFile\)[\s\S]{0,900}convertVideoForBrowser/.test(videoStoreSource) &&
+    /convertVideoForBrowser[\s\S]{0,1200}probeVideoFile\(uploadFile\)/.test(videoStoreSource),
+  "a video this browser cannot open is re-wrapped, then measured again before the upload is refused",
+);
+h.ok(videoStoreSource.includes("unplayableVideoMessage"), "when conversion is impossible the refusal names the codec");
+h.ok(
+  videoStoreSource.includes("record") && videoStoreSource.includes("uploadMime") && videoStoreSource.includes("size: uploadFile.size"),
+  "the converted file, not the original, is what gets stored and described",
+);
+h.ok(
+  read("src/components/SceneEditor.tsx").includes("Converting ${videoConversion}%") &&
+    read("src/components/SceneClipPanel.tsx").includes("Converting ${conversionProgress}%"),
+  "the scene upload buttons show conversion progress instead of appearing frozen",
+);
 
 /* ------------- every upload surface routes through the module ------------- */
 
