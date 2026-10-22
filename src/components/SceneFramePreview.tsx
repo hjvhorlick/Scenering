@@ -122,8 +122,12 @@ export default function SceneFramePreview({
       ctx.restore();
     }
 
-    // outline the uncovered region so the user can see where bars will appear
-    if (img && img.naturalWidth > 0) {
+    // Outline the uncovered region so the user can see where bars will
+    // appear — only on the interactive editing canvas (Crop & Fit, guides).
+    // Scene-card thumbnails must stay clean: the whole point of the default
+    // is that the scene section shows the original photo, uncut and
+    // unannotated.
+    if (img && img.naturalWidth > 0 && (interactive || showGuides)) {
       const f = resolveFraming(scene);
       if (f.fit !== "cover") {
         const p = placeImage(img, w, h, f, { mode: "contain" });
@@ -135,7 +139,7 @@ export default function SceneFramePreview({
         ctx.restore();
       }
     }
-  }, [scene, width, height, videoFilter, showGuides, loaded]);
+  }, [scene, width, height, videoFilter, showGuides, interactive, loaded]);
 
   useEffect(() => {
     draw();

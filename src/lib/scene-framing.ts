@@ -10,12 +10,20 @@
  * keep the source aspect ratio.
  *
  * Fit modes
- *  - "cover"      fill the frame, crop the overflow (default)
- *  - "contain"    show the whole photo, letterbox the remainder
+ *  - "contain"    show the whole photo, letterbox the remainder (default)
+ *  - "cover"      fill the frame, crop the overflow
  *  - "blur_fill"  show the whole photo, and fill the empty bars with a
  *                 blurred, zoomed copy of the same photo — the TikTok /
  *                 Reels / Shorts look. Works for the top-and-bottom bars of a
  *                 vertical video and for the side bars of a landscape one.
+ *
+ * THE DEFAULT IS THE ORIGINAL, UNCUT PHOTO. A freshly imported image keeps
+ * every pixel the creator gave it — never pre-cropped, never re-shaped:
+ * it is shown whole inside the frame. In a 9:16 video a landscape photo fits
+ * between the top and bottom edges (bars only where the photo does not
+ * reach); in a 16:9 video it always fits. Cropping to fill the frame is a
+ * choice made by hand in Crop & Fit, never something the app applies on
+ * import.
  */
 
 import type { Scene, SceneMotionType } from "../types";
@@ -81,7 +89,7 @@ export interface ResolvedFraming {
 }
 
 export const DEFAULT_FRAMING: ResolvedFraming = {
-  fit: "cover",
+  fit: "contain",
   crop: DEFAULT_CROP,
   offsetX: 0,
   offsetY: 0,
@@ -108,8 +116,11 @@ function clamp(v: number, lo: number, hi: number): number {
 export function resolveFraming(scene: Partial<Scene> | null | undefined): ResolvedFraming {
   const s = (scene || {}) as Record<string, unknown>;
   const rawFit = s.image_fit as string | undefined;
+  // DEFAULT: "contain" — the whole imported photo, uncut. A scene with no
+  // stored choice shows the original image exactly as it was imported;
+  // cropping to fill the frame is opt-in, never the fallback.
   const fit: SceneFitMode =
-    rawFit === "contain" || rawFit === "blur_fill" || rawFit === "cover" ? rawFit : "cover";
+    rawFit === "contain" || rawFit === "blur_fill" || rawFit === "cover" ? rawFit : "contain";
 
   const rawCrop = s.image_crop as Partial<SceneCropRect> | undefined;
   let crop = DEFAULT_CROP;
@@ -680,14 +691,14 @@ export function drawSceneImage(
 }
 
 /* ---------------------------------------------------------------------------
- * Automatic framing — what a freshly chosen photo should look like before the
- * user touches a single control.
+ * Automatic framing — what a freshly chosen photo looks like before the user
+ * touches a single control.
  *
- * A photo almost never matches the video frame exactly. Left alone, "cover"
- * crops whatever overflows from the edges, which is right for a mild mismatch
- * and badly wrong for a severe one: a portrait photo in a 16:9 frame loses
- * most of its subject. These helpers decide between the two and pre-compute
- * the centred crop so the scene opens correctly framed.
+ * A photo almost never matches the video frame exactly. The rule is simple:
+ * show the ORIGINAL, UNCUT photo — every pixel the creator imported, at its
+ * own resolution and shape. It fits inside the frame whole (in a 9:16 video
+ * between the top and bottom edges; in a 16:9 video it always fits), and
+ * only the user's own Crop & Fit choices may cut it. Nothing here pre-crops.
  * ------------------------------------------------------------------------- */
 
 /**
@@ -695,12 +706,10 @@ export function drawSceneImage(
  * photo — a 4:3 photo in a 9:16 frame is ≈2.37, a portrait photo in a
  * landscape frame ≈3.16.
  *
- * This NO LONGER decides the automatic framing. A chosen photo is always
- * cropped to fill the frame, edge to edge and top to bottom, because that is
- * what a scene is expected to look like; bars are something the user asks
- * for in Crop & Fit, not something the app imposes. The number survives as
- * the hint behind `suggestFit` and as the threshold the UI uses to warn that
- * a particular photo is losing a lot of itself to the crop.
+ * This NEVER decides the automatic framing: a chosen photo is shown whole,
+ * whatever the mismatch. The number survives only as the threshold behind
+ * `cropLosesALot`, which warns that a particular manual crop would cost a
+ * lot of the picture.
  */
 export const AUTO_CROP_MAX_MISMATCH = 2.4;
 
@@ -729,6 +738,9 @@ export function aspectMismatch(img: SourceSize, frameW: number, frameH: number):
  * Returned in the same normalised 0..1 space as `Scene.image_crop`, so it can
  * be stored on the scene directly. A photo already the right shape gives the
  * full rectangle, never a sliver off the edge.
+ *
+ * NOT applied automatically: importing a photo never crops it (see
+ * `autoFrame`). This only ever runs when the user asks for a crop by hand.
  */
 export function autoCropToFrame(
   img: SourceSize,
@@ -765,21 +777,20 @@ export interface AutoFraming {
 /**
  * The framing to apply to a photo the moment it is chosen.
  *
- * ALWAYS a crop to the frame. The photo fills the scene edge to edge and top
- * to bottom, with the overflow trimmed evenly from both sides (or both of
- * top and bottom), centred on the middle of the picture.
+ * NEVER a crop. The photo lands exactly as it was imported: full resolution,
+ * original shape, every pixel — shown whole inside the frame. In a 9:16
+ * video it fits between the top and bottom edges; in a 16:9 video it always
+ * fits. Any cropping is a deliberate choice the user makes in Crop & Fit,
+ * and nothing here makes that choice for them.
  *
- * This used to bail out to `blur_fill` past AUTO_CROP_MAX_MISMATCH, which
- * meant that in a vertical project — where every landscape photo is a ≈3.16
- * mismatch — nothing ever filled the frame: every scene opened as a small
- * photo floating between blurred bars, and the user had to fix each one by
- * hand. Filling is the expectation; bars are a deliberate choice, made in
- * Crop & Fit, and nothing here overrides a choice already made there.
+ * The photo is still measured by the caller (which also forces the browser
+ * to decode it for the preview), so the signature keeps its parameters —
+ * but a photo whose dimensions cannot be read still lands whole.
  */
-export function autoFrame(img: SourceSize, frameW: number, frameH: number): AutoFraming {
+export function autoFrame(_img: SourceSize, _frameW: number, _frameH: number): AutoFraming {
   return {
-    image_fit: "cover",
-    image_crop: autoCropToFrame(img, frameW, frameH),
+    image_fit: "contain",
+    image_crop: { ...DEFAULT_CROP },
   };
 }
 
@@ -817,20 +828,20 @@ export function measureImage(url: string): Promise<SourceSize | null> {
 }
 
 /**
- * The fit a newly chosen photo gets: always `cover`, so it fills the frame.
+ * The fit a newly chosen photo gets: always `contain`, so the ORIGINAL,
+ * uncut photo is shown whole — in a 9:16 video it fits the top and bottom
+ * edges, in a 16:9 video it always fits.
  *
  * Kept as a named function because two screens ask the question, and they
- * must never answer it differently — which is exactly what happened when
- * this returned `blur_fill` on a shape mismatch while the scene editor
- * cropped anyway. Whether the crop is expensive is a separate question, and
- * `cropLosesALot` answers that one.
+ * must never answer it differently. Whether a manual crop is expensive is a
+ * separate question, and `cropLosesALot` answers that one.
  */
 export function suggestFit(
   _img: SourceSize,
   _frameW: number,
   _frameH: number
 ): SceneFitMode {
-  return "cover";
+  return "contain";
 }
 
 /** Frame pixel size for an aspect-ratio id, used by the editor previews. */
