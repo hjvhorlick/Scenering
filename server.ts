@@ -1,6 +1,6 @@
 import express from "express";
 import { NATURE_FALLBACKS } from "./src/data/nature-fallbacks.ts";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { env } from "./src/env.ts";
 import { isDevelopmentRuntime, isProductionRuntime } from "./src/runtime-mode.ts";
 import { audioStore } from "./src/audio-store.ts";
@@ -20,6 +20,7 @@ import {
   pexelsPhotoToCandidate,
   pixabayHitToCandidate,
   pixabayUpgradeUrlTo1920,
+  rankCandidatesForFrame,
   wikimediaInfoToCandidate,
   type StockCandidate,
 } from "./src/lib/image-candidates.ts";
@@ -207,35 +208,41 @@ async function searchWikimedia(query: string, count: number): Promise<ImageResul
     if (!searchResults || searchResults.length === 0) return [];
 
     const allTitles: string[] = searchResults.map((r: any) => String(r.title));
-    const results: ImageResult[] = [];
-
+    const titleBatches: string[] = [];
     for (let start = 0; start < allTitles.length; start += WIKIMEDIA_MAX_TITLES) {
-      const titles = allTitles.slice(start, start + WIKIMEDIA_MAX_TITLES).join("|");
-      const imageInfoUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1920&titles=${encodeURIComponent(titles)}&origin=*`;
-      const imageRes = await fetch(imageInfoUrl, {
-        headers: { "User-Agent": "SceneringApp/1.0 (https://ai.studio)" },
-        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-      });
-      if (!imageRes.ok) {
-        console.warn(`Wikimedia imageinfo failed (${imageRes.status}) for "${query}"`);
-        continue;
-      }
-      const imageData = (await imageRes.json()) as any;
-
-      const pages = imageData?.query?.pages;
-      if (!pages) continue;
-
-      for (const key of Object.keys(pages)) {
-        const page = pages[key];
-        const info = page?.imageinfo?.[0];
-        if (!info) continue;
-        if (info.mime && !info.mime.startsWith("image/")) continue;
-        if (info.mime === "image/svg+xml") continue;
-
-        const candidate = wikimediaInfoToCandidate(info);
-        if (candidate) results.push(candidate);
-      }
+      titleBatches.push(allTitles.slice(start, start + WIKIMEDIA_MAX_TITLES).join("|"));
     }
+
+    const batchResults = await Promise.all(
+      titleBatches.map(async (titles): Promise<ImageResult[]> => {
+        const imageInfoUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1920&titles=${encodeURIComponent(titles)}&origin=*`;
+        const imageRes = await fetch(imageInfoUrl, {
+          headers: { "User-Agent": "SceneringApp/1.0 (https://ai.studio)" },
+          signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+        });
+        if (!imageRes.ok) {
+          console.warn(`Wikimedia imageinfo failed (${imageRes.status}) for "${query}"`);
+          return [];
+        }
+        const imageData = (await imageRes.json()) as any;
+        const pages = imageData?.query?.pages;
+        if (!pages) return [];
+
+        const chunkCandidates: ImageResult[] = [];
+        for (const key of Object.keys(pages)) {
+          const page = pages[key];
+          const info = page?.imageinfo?.[0];
+          if (!info) continue;
+          if (info.mime && !info.mime.startsWith("image/")) continue;
+          if (info.mime === "image/svg+xml") continue;
+
+          const candidate = wikimediaInfoToCandidate(info);
+          if (candidate) chunkCandidates.push(candidate);
+        }
+        return chunkCandidates;
+      })
+    );
+    const results = batchResults.flat();
 
     if (results.length === 0 && allTitles.length > 0) {
       console.warn(`Wikimedia returned ${allTitles.length} files for "${query}", none were 16:9 and at least 1920×1080`);
@@ -369,6 +376,7 @@ export function createApp(): express.Express {
   // The workspace repository: a member's projects, scenes and per-project
   // documents, so every device signed in to the membership sees the same work
   // (server/workspace.ts).
+  registerWorkspaceRoutes(app);
   // The Admin Email Centre (marketing templates, campaigns, consented
   // audiences, public unsubscribe/preferences endpoints) — registered after
   // the JSON parser, mounted on the same admin middleware the owner's other
@@ -390,6 +398,12 @@ export function createApp(): express.Express {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // Short-lived, key-isolated search cache so repeated scene/drawer queries
+  // resolve immediately without hammering upstream stock APIs.
+  const IMAGE_SEARCH_CACHE_TTL_MS = 5 * 60_000;
+  const IMAGE_SEARCH_CACHE_MAX = 64;
+  const imageSearchCache = new Map<string, { expiresAt: number; images: ImageResult[]; source: string }>();
+
   // Image search handler (supports both /api/image-search and /functions/v1/image-search)
   const handleImageSearch = async (req: express.Request, res: express.Response) => {
     try {
@@ -397,12 +411,29 @@ export function createApp(): express.Express {
       // Up to 100 candidates so the client can pick randomly instead of
       // always receiving (and showing) the identical first-ranked image.
       const count = Math.min(parseInt((req.query.count as string) || "10", 10), 100);
+      const frameW = Math.max(320, Math.min(7680, parseInt((req.query.frameW as string) || "1920", 10) || 1920));
+      const frameH = Math.max(320, Math.min(7680, parseInt((req.query.frameH as string) || "1080", 10) || 1080));
       const customPexelsKey = (req.headers["x-pexels-key"] as string) || undefined;
       const customPixabayKey = (req.headers["x-pixabay-key"] as string) || undefined;
 
       if (!query.trim()) {
         return res.status(400).json({ error: "Missing query parameter 'q'" });
       }
+
+      const cacheKey = createHash("sha256")
+        .update(
+          `${query.trim().toLowerCase()}|${count}|${frameW}x${frameH}|${(customPexelsKey && customPexelsKey.trim()) || env().PEXELS_API_KEY || ""}|${(customPixabayKey && customPixabayKey.trim()) || env().PIXABAY_API_KEY || ""}`
+        )
+        .digest("hex");
+      const cached = imageSearchCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return res.json({
+          images: cached.images,
+          query,
+          source: cached.source,
+        });
+      }
+      if (cached) imageSearchCache.delete(cacheKey);
 
       // Try Pexels first (with customer's key or env key)
       let results = await searchPexels(query, count, customPexelsKey);
@@ -433,6 +464,19 @@ export function createApp(): express.Express {
           width: 1920,
           height: 1080,
         }));
+      } else {
+        // Rank candidates so photos with generous native pixel headroom and
+        // minimal crop loss for the requested frame lead the candidate pool.
+        results = rankCandidatesForFrame(results, frameW, frameH);
+        if (imageSearchCache.size >= IMAGE_SEARCH_CACHE_MAX) {
+          const oldest = imageSearchCache.keys().next().value;
+          if (oldest !== undefined) imageSearchCache.delete(oldest);
+        }
+        imageSearchCache.set(cacheKey, {
+          expiresAt: Date.now() + IMAGE_SEARCH_CACHE_TTL_MS,
+          images: results,
+          source: results[0]?.source || "none",
+        });
       }
 
       return res.json({
@@ -552,6 +596,24 @@ export function createApp(): express.Express {
         }
       }
 
+      const edgeCache = (globalThis as any).caches?.default;
+      const edgeCacheKey =
+        edgeCache && typeof edgeCache.match === "function"
+          ? new Request(`https://image-proxy.scenering.internal/?url=${encodeURIComponent(targetUrl)}`, { method: "GET" })
+          : null;
+      if (edgeCacheKey) {
+        const cached = await edgeCache.match(edgeCacheKey).catch(() => null);
+        if (cached && cached.ok) {
+          const cachedType = cached.headers.get("content-type") || "image/jpeg";
+          const cachedBuf = await cached.arrayBuffer();
+          res.setHeader("Content-Type", cachedType);
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+          res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+          return res.send(Buffer.from(cachedBuf));
+        }
+      }
+
       const response = await fetchAllowedImage(targetUrl);
 
       if (!response.ok) {
@@ -567,6 +629,19 @@ export function createApp(): express.Express {
 
       const arrayBuf = await response.arrayBuffer();
       if (arrayBuf.byteLength > 20 * 1024 * 1024) return res.status(413).json({ error: "Image is too large" });
+      if (edgeCacheKey && typeof edgeCache.put === "function") {
+        void edgeCache
+          .put(
+            edgeCacheKey,
+            new Response(arrayBuf.slice(0), {
+              headers: {
+                "Content-Type": contentType,
+                "Cache-Control": "public, max-age=86400, immutable",
+              },
+            })
+          )
+          .catch(() => {});
+      }
       res.setHeader("Content-Type", contentType);
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
@@ -626,18 +701,30 @@ export function createApp(): express.Express {
     try {
       const audioId = String(req.params.id);
       const ownerId = String((req as any).auth.user.id);
-      // audioStore.get() doesn't carry an owner check (it's a thin R2/D1
-      // lookup by id), so ownership is verified here against the D1 row
-      // before the R2 object is returned.
-      const row = await env().DB.prepare("SELECT user_id FROM audio_files WHERE id = ?").bind(audioId).first();
+      // Resolve ownership and storage metadata in a single D1 lookup before
+      // reading R2, and support ETag revalidation so repeat studio previews
+      // skip re-transferring large audio blobs.
+      const row = await env()
+        .DB.prepare("SELECT user_id, r2_key, mime_type, size_bytes FROM audio_files WHERE id = ?")
+        .bind(audioId)
+        .first();
       if (!row || String((row as any).user_id) !== ownerId) {
         return res.status(404).json({ error: "Audio not found" });
       }
-      const item = await audioStore.get(audioId);
+      const etag = `W/"${audioId}-${Number((row as any).size_bytes || 0)}"`;
+      res.setHeader("ETag", etag);
+      res.setHeader("Cache-Control", "private, no-cache");
+      if (req.headers["if-none-match"] === etag) {
+        return res.status(304).end();
+      }
+      const bucket = (env() as any).AUDIO_BUCKET;
+      const object = bucket ? await bucket.get(String((row as any).r2_key)) : null;
+      const item = object
+        ? { body: object.body as ReadableStream, mimeType: String((row as any).mime_type || "audio/mpeg") }
+        : await audioStore.get(audioId);
       if (!item) return res.status(404).json({ error: "Audio not found" });
       const arrayBuf = await new Response(item.body).arrayBuffer();
       res.setHeader("Content-Type", item.mimeType);
-      res.setHeader("Cache-Control", "private, no-store");
       return res.send(Buffer.from(arrayBuf));
     } catch (e: any) {
       return res.status(500).json({ error: "Failed to load audio" });

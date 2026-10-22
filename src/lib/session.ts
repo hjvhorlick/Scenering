@@ -124,7 +124,17 @@ export async function refreshSession(): Promise<AccountSession | null> {
     current = data;
     beginWorkspaceSync(current);
     return current;
-  }).catch(() => { current = null; beginWorkspaceSync(null); return null; }).finally(() => { checked = true; pending = null; announce(); });
+  }).catch((err: any) => {
+    // 401 is the normal answer for an anonymous visitor; any other failure
+    // (a 503 schema check, a 500, or a network error) must be logged so a
+    // broken database never looks like "signed out".
+    if (err?.status !== 401) {
+      console.error("[session] refreshSession failed:", err?.code ? `${err.code}: ${err.message}` : err?.message || err);
+    }
+    current = null;
+    beginWorkspaceSync(null);
+    return null;
+  }).finally(() => { checked = true; pending = null; announce(); });
   return pending;
 }
 export function isSignedIn() { return Boolean(current); }

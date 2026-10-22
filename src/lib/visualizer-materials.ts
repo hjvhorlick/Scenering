@@ -301,8 +301,9 @@ export function drawGlassBar(
 
   const frost = finish.frost;
   // Transparent body: the lower the transparency, the more colour the pane
-  // holds. Even the most solid setting keeps a visible gap of footage.
-  const bodyAlpha = clamp(0.14 + (1 - finish.transparency) * 0.62, 0.12, 0.78);
+  // holds. Lifted enough to keep vibrant chroma through yuv420p video encoding
+  // while still letting the footage behind it read clearly through the glass.
+  const bodyAlpha = clamp(0.26 + (1 - finish.transparency) * 0.56, 0.22, 0.84);
 
   ctx.save();
   roundRectPath(ctx, x, y, width, height, radius);
@@ -310,10 +311,10 @@ export function drawGlassBar(
 
   // ---- body ------------------------------------------------------------
   const body = ctx.createLinearGradient(x, y + height, x, y);
-  body.addColorStop(0, rgba(mixColors(opts.primary, accent, 0.55), Math.min(1, bodyAlpha * 1.15)));
-  body.addColorStop(0.22, rgba(opts.primary, bodyAlpha * 0.82));
-  body.addColorStop(0.62, rgba(mixColors(opts.primary, secondary, 0.4), bodyAlpha * 0.5));
-  body.addColorStop(1, rgba(mixColors(opts.primary, "#ffffff", 0.5), bodyAlpha * 0.34));
+  body.addColorStop(0, rgba(mixColors(opts.primary, accent, 0.55), Math.min(1, bodyAlpha * 1.18)));
+  body.addColorStop(0.26, rgba(opts.primary, Math.min(1, bodyAlpha * 0.92)));
+  body.addColorStop(0.64, rgba(mixColors(opts.primary, secondary, 0.4), bodyAlpha * 0.66));
+  body.addColorStop(1, rgba(mixColors(opts.primary, "#ffffff", 0.42), bodyAlpha * 0.48));
   ctx.fillStyle = body;
   ctx.fillRect(x, y, width, height);
 
@@ -369,7 +370,7 @@ export function drawGlassBar(
   ctx.restore();
 
   // ---- crisp rim (never a blurry edge) ---------------------------------
-  const rimAlpha = 0.5 + frost * 0.18 + shine * 0.3;
+  const rimAlpha = 0.58 + frost * 0.16 + shine * 0.28;
   roundRectPath(
     ctx,
     x + 0.5,
@@ -379,7 +380,7 @@ export function drawGlassBar(
     Math.max(0, radius - 0.5)
   );
   ctx.strokeStyle = rgba(mixColors(accent, "#ffffff", 0.65), Math.min(1, rimAlpha));
-  ctx.lineWidth = Math.max(0.9, Math.min(1.4, width * 0.09));
+  ctx.lineWidth = Math.max(1.05, Math.min(2.4, width * 0.11));
   ctx.stroke();
 
   // A second, darker edge just inside the rim is what makes a transparent
@@ -471,8 +472,8 @@ export function drawChromeBar(
   ctx.restore();
 
   roundRectPath(ctx, x + 0.5, y + 0.5, Math.max(1, width - 1), Math.max(1, height - 1), Math.max(0, radius - 0.5));
-  ctx.strokeStyle = rgba("#ffffff", 0.55 + shine * 0.3);
-  ctx.lineWidth = Math.max(0.8, Math.min(1.2, width * 0.08));
+  ctx.strokeStyle = rgba("#ffffff", 0.62 + shine * 0.3);
+  ctx.lineWidth = Math.max(0.95, Math.min(2.2, width * 0.1));
   ctx.stroke();
 }
 
@@ -721,8 +722,8 @@ export function drawGlassRadialStroke(
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
-    ctx.strokeStyle = rgba("#ffffff", 0.55 + shine * 0.4);
-    ctx.lineWidth = Math.max(0.5, width * 0.2);
+    ctx.strokeStyle = rgba("#ffffff", 0.62 + shine * 0.36);
+    ctx.lineWidth = Math.max(0.85, width * 0.25);
     ctx.lineCap = cap;
     ctx.stroke();
     ctx.restore();
@@ -730,12 +731,12 @@ export function drawGlassRadialStroke(
   }
 
   const frost = finish.frost;
-  const bodyAlpha = clamp(0.2 + (1 - finish.transparency) * 0.62, 0.16, 0.82);
+  const bodyAlpha = clamp(0.32 + (1 - finish.transparency) * 0.56, 0.28, 0.88);
   const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
   gradient.addColorStop(0, rgba(mixColors(opts.primary, opts.accent, 0.5), Math.min(1, bodyAlpha + 0.18)));
-  gradient.addColorStop(0.34, rgba(opts.primary, bodyAlpha * 0.72));
-  gradient.addColorStop(0.76, rgba(opts.primary, bodyAlpha * 0.42));
-  gradient.addColorStop(1, rgba(mixColors(opts.accent, "#ffffff", 0.45), bodyAlpha * 0.85));
+  gradient.addColorStop(0.34, rgba(opts.primary, Math.min(1, bodyAlpha * 0.85)));
+  gradient.addColorStop(0.76, rgba(opts.primary, bodyAlpha * 0.58));
+  gradient.addColorStop(1, rgba(mixColors(opts.accent, "#ffffff", 0.45), Math.min(1, bodyAlpha * 0.94)));
 
   ctx.save();
   ctx.beginPath();
@@ -760,8 +761,8 @@ export function drawGlassRadialStroke(
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
-    ctx.strokeStyle = rgba("#ffffff", (0.3 + shine * 0.5) * (1 - frost * 0.35));
-    ctx.lineWidth = Math.max(0.45, width * 0.2);
+    ctx.strokeStyle = rgba("#ffffff", (0.38 + shine * 0.52) * (1 - frost * 0.35));
+    ctx.lineWidth = Math.max(0.85, width * 0.26);
     ctx.lineCap = cap;
     ctx.stroke();
   }

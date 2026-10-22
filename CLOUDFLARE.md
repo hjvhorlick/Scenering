@@ -287,7 +287,12 @@ npm run deploy                     # vite build → wrangler deploy (assets + wo
 actionable message — while `wrangler.jsonc` still contains
 `SCENERING_*_PLACEHOLDER` resource ids or malformed binding ids. Without the
 guard, a placeholder config only fails remotely, as the API's cryptic
-`KV namespace '…' is not valid [10042]`.
+`KV namespace '…' is not valid [10042]`. `npm run deploy` passes `--remote`,
+which also runs `wrangler d1 migrations list scenering-db --remote` and refuses
+to build or deploy while any SQL file in `./migrations` is pending against
+production D1 (or if the remote `d1_migrations` ledger cannot be verified).
+(`npm run deploy:check` keeps the offline config check for unauthenticated dry
+runs.)
 
 Then:
 
@@ -335,11 +340,19 @@ Then:
    unsubscribe, and inbox replies show their delivery state) and
    copy its signing secret into `RESEND_WEBHOOK_SECRET`. The scheduled-send
    queue drains on the five-minute Cron Trigger — no further wiring needed.
-7. **Migrations** — `wrangler d1 migrations apply scenering-db --remote`
-   (`0007_devices_workspace.sql` adds the per-device session columns and the
-   `workspace_documents` table that keeps a member's projects in step across
-   devices; without it the device limits cannot be enforced and nothing syncs)
-   (the setup script does this; re-run after adding a migration).
+7. **Migrations** — run `npx wrangler d1 migrations apply scenering-db --remote`
+   before merging a new SQL file to `main` (Workers Builds redeploys `main`
+   with `wrangler deploy` directly, whereas `npm run deploy` gates on
+   `wrangler d1 migrations list scenering-db --remote`). Always apply schema
+   changes through `wrangler d1 migrations apply` rather than hand-running DDL
+   in the D1 console without recording the file in `d1_migrations` — otherwise
+   the ledger drifts behind the live schema and a later `migrations apply` can
+   trip over non-idempotent column rewrites (`0006_billing.sql`). At the edge,
+   the Worker verifies once per isolate (`PRAGMA table_info`) that
+   `sessions(device_id, device_label, platform, last_seen_at)` and
+   `workspace_documents` (`0007_devices_workspace.sql`) exist, returning
+   `503 SCHEMA_OUT_OF_DATE` with the exact Wrangler command and SQL instead of
+   a bare `500` if code ever outruns a migration.
 8. **`NODE_ENV`** — already `production` in `wrangler.jsonc`. Leave it. Every
    development affordance (inline verification/reset links, auto-owner
    sessions, sandbox provisioning) is gated on an explicit `development`/`test`,

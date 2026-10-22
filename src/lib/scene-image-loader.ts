@@ -29,8 +29,11 @@
 
 import { proxyImageUrl } from "./image-search";
 import { rawImageUrl } from "./image-picker";
+import { upgradeStockUrlForRender } from "./image-candidates";
 import { resolveLegacyLocalImage } from "./nature-library-compat";
 import { isCustomImageUrl, resolveImageUrl } from "./custom-image";
+
+export { upgradeStockUrlForRender };
 
 export interface SceneImageResult {
   img: HTMLImageElement;
@@ -47,10 +50,17 @@ export interface LoadSceneImageOptions {
    * would be wrong — a missing watermark should simply not be drawn).
    */
   fallback?: "card" | "none";
+  /**
+   * Desired source pixel dimensions before framing/Ken Burns zoom, so stock CDNs
+   * can serve a crisp 2K/4K 16:9 master instead of upscaling a compressed 1080p
+   * derivative when zooming in or cropping to 9:16 vertical.
+   */
+  minWidth?: number;
+  minHeight?: number;
 }
 
-const FALLBACK_W = 1280;
-const FALLBACK_H = 720;
+const FALLBACK_W = 1920;
+const FALLBACK_H = 1080;
 
 /** Unwrap `/api/proxy-image?url=…` (or the Supabase form) to the real address. */
 function unwrapProxied(url: string): string {
@@ -142,11 +152,21 @@ export function loadSceneImage(
       return;
     }
 
-    // 1. the real address, loaded directly by the browser (preview behaviour)
-    // 2. the server proxy, for cross-origin hosts the browser cannot load
+    // 1. high-resolution CDN master when the render requested zoom/crop headroom
+    // 2. the saved address, loaded directly by the browser (preview behaviour)
+    // 3. the server proxy, for cross-origin hosts the browser cannot load
     const direct = unwrapProxied(raw);
-    const viaProxy = isDirectOnly(direct) ? direct : proxyImageUrl(direct);
-    const attempts = viaProxy !== direct ? [direct, viaProxy] : [direct];
+    const upgraded =
+      !isDirectOnly(direct) && (opts.minWidth || opts.minHeight)
+        ? upgradeStockUrlForRender(direct, opts.minWidth, opts.minHeight)
+        : null;
+    const candidateUrls = [
+      ...(upgraded ? [upgraded] : []),
+      direct,
+      ...(upgraded && !isDirectOnly(upgraded) ? [proxyImageUrl(upgraded)] : []),
+      ...(!isDirectOnly(direct) ? [proxyImageUrl(direct)] : []),
+    ];
+    const attempts = Array.from(new Set(candidateUrls));
 
     const attempt = (i: number) => {
       if (i >= attempts.length) {

@@ -108,6 +108,149 @@ function sessionSecret() {
 }
 const hashToken = (token: string) => createHmac("sha256", sessionSecret()).update(token).digest("hex");
 
+const REQUIRED_SESSION_COLUMNS = ["device_id", "device_label", "platform", "last_seen_at"] as const;
+const REQUIRED_WORKSPACE_COLUMNS: ReadonlyArray<{ name: string; definition: string }> = [
+  { name: "user_id", definition: "TEXT NOT NULL" },
+  { name: "doc_key", definition: "TEXT NOT NULL" },
+  { name: "body", definition: "TEXT NOT NULL DEFAULT ''" },
+  { name: "revision", definition: "INTEGER NOT NULL DEFAULT 1" },
+  { name: "updated_at", definition: "TEXT NOT NULL" },
+  { name: "deleted", definition: "INTEGER NOT NULL DEFAULT 0" },
+  { name: "device_id", definition: "TEXT" },
+];
+const WORKSPACE_TABLE_SQL =
+  "CREATE TABLE IF NOT EXISTS workspace_documents (user_id TEXT NOT NULL, doc_key TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, device_id TEXT, PRIMARY KEY (user_id, doc_key), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE); " +
+  "CREATE INDEX IF NOT EXISTS idx_workspace_documents_user ON workspace_documents(user_id);";
+
+export interface SchemaOutOfDatePayload {
+  error: string;
+  code: "SCHEMA_OUT_OF_DATE";
+  missing: string[];
+  command: string;
+  sql: string;
+}
+
+// Verified once per isolate once the database passes, because applied D1
+// migrations never un-apply themselves mid-isolate. Failures are deliberately
+// NOT cached: the moment an operator runs the migration, the next request on
+// a warm isolate should recover without waiting for a Worker redeploy.
+let schemaVerified = false;
+let verifiedTestDb: object | null = null;
+let schemaCheckInFlight: Promise<SchemaOutOfDatePayload | null> | null = null;
+
+/** Clears the per-isolate schema cache when a test mutates SQLite tables mid-run. */
+export function resetDatabaseSchemaCheck(): void {
+  schemaVerified = false;
+  verifiedTestDb = null;
+  schemaCheckInFlight = null;
+}
+
+function buildSchemaOutOfDatePayload(
+  sessionsTablePresent: boolean,
+  missingSessionColumns: string[],
+  workspaceTablePresent: boolean,
+  missingWorkspaceColumns: Array<{ name: string; definition: string }>,
+): SchemaOutOfDatePayload {
+  const missing: string[] = [];
+  const statements: string[] = [];
+
+  if (!sessionsTablePresent) {
+    missing.push("sessions", ...missingSessionColumns.map((col) => `sessions.${col}`));
+  } else if (missingSessionColumns.length > 0) {
+    for (const col of missingSessionColumns) {
+      missing.push(`sessions.${col}`);
+      statements.push(`ALTER TABLE sessions ADD COLUMN ${col} TEXT;`);
+    }
+    statements.push("CREATE INDEX IF NOT EXISTS idx_sessions_user_device ON sessions(user_id, device_id);");
+  }
+
+  if (!workspaceTablePresent) {
+    missing.push("workspace_documents");
+    statements.push(WORKSPACE_TABLE_SQL);
+  } else if (missingWorkspaceColumns.length > 0) {
+    for (const col of missingWorkspaceColumns) {
+      missing.push(`workspace_documents.${col.name}`);
+      statements.push(`ALTER TABLE workspace_documents ADD COLUMN ${col.name} ${col.definition};`);
+    }
+  }
+
+  if (sessionsTablePresent) {
+    statements.push("INSERT OR IGNORE INTO d1_migrations (name) VALUES ('0007_devices_workspace.sql');");
+  }
+
+  const command = "npx wrangler d1 migrations apply scenering-db --remote";
+  const sql = statements.join(" ");
+  const remediation = sql
+    ? `Run \`${command}\`, or in the D1 console run: ${sql}`
+    : `Run \`${command}\`.`;
+
+  return {
+    error: `Database schema is out of date (missing: ${missing.join(", ")}). ${remediation}`,
+    code: "SCHEMA_OUT_OF_DATE",
+    missing,
+    command,
+    sql,
+  };
+}
+
+/**
+ * Verifies once per isolate that the D1 tables and columns the session and
+ * workspace paths depend on actually exist — without mutating the schema
+ * behind `d1_migrations`'s back (which is how manual/runtime DDL drifted the
+ * ledger from the live schema). Unbound preview Workers (`env().DB` absent)
+ * return `null`, and genuine D1 transport errors propagate untouched rather
+ * than being misreported as schema drift.
+ */
+export async function checkDatabaseSchema(): Promise<SchemaOutOfDatePayload | null> {
+  let d1: (D1Database & { sqlite?: unknown }) | undefined;
+  try {
+    d1 = env().DB as (D1Database & { sqlite?: unknown }) | undefined;
+  } catch {
+    return null;
+  }
+  if (!d1 || typeof d1.prepare !== "function") return null;
+
+  const isTestShim = "sqlite" in (d1 as object);
+  if (schemaVerified && (!isTestShim || verifiedTestDb === d1)) return null;
+  if (schemaCheckInFlight) return schemaCheckInFlight;
+
+  schemaCheckInFlight = (async () => {
+    const [sessionsInfo, workspaceInfo] = await Promise.all([
+      d1!.prepare("PRAGMA table_info(sessions)").all(),
+      d1!.prepare("PRAGMA table_info(workspace_documents)").all(),
+    ]);
+    const sessionRows = sessionsInfo.results || [];
+    const workspaceRows = workspaceInfo.results || [];
+    const sessionColumns = new Set(sessionRows.map((row: any) => String(row.name)));
+    const workspaceColumns = new Set(workspaceRows.map((row: any) => String(row.name)));
+
+    const missingSessionColumns = REQUIRED_SESSION_COLUMNS.filter((col) => !sessionColumns.has(col));
+    const workspaceTablePresent = workspaceRows.length > 0;
+    const missingWorkspaceColumns = workspaceTablePresent
+      ? REQUIRED_WORKSPACE_COLUMNS.filter((col) => !workspaceColumns.has(col.name))
+      : [];
+
+    if (sessionRows.length === 0 || missingSessionColumns.length > 0 || !workspaceTablePresent || missingWorkspaceColumns.length > 0) {
+      const payload = buildSchemaOutOfDatePayload(
+        sessionRows.length > 0,
+        missingSessionColumns,
+        workspaceTablePresent,
+        missingWorkspaceColumns,
+      );
+      console.error(`[schema] ${payload.error}`);
+      return payload;
+    }
+
+    schemaVerified = true;
+    verifiedTestDb = isTestShim ? (d1 as object) : null;
+    return null;
+  })().finally(() => {
+    schemaCheckInFlight = null;
+  });
+
+  return schemaCheckInFlight;
+}
+
 export function assertSecurePlatformConfiguration() {
   sessionSecret();
   const publicAppUrl = env().PUBLIC_APP_URL;
@@ -191,38 +334,41 @@ async function ensureOwnerPrivileges(user: User): Promise<User> {
  *  not leave a paid plan switched on forever, so the stored end date is the
  *  backstop. Scoped to one user (not a full-table sweep) so it is cheap enough
  *  to run on the authenticated request path. */
-async function sweepUserSubscriptionExpiry(userId: string): Promise<void> {
-  const sub = await db.findActiveSubscriptionByUserId(userId);
-  if (!sub) return;
-  if ((sub.status === "active" || sub.status === "on_trial") && !sub.cancelAtPeriodEnd) return;
+async function sweepUserSubscriptionExpiry(userId: string, prefetched?: Subscription | null): Promise<{ activeSub: Subscription | null; downgraded: boolean }> {
+  const sub = prefetched !== undefined ? prefetched : await db.findActiveSubscriptionByUserId(userId);
+  if (!sub) return { activeSub: null, downgraded: false };
+  if ((sub.status === "active" || sub.status === "on_trial") && !sub.cancelAtPeriodEnd) return { activeSub: sub, downgraded: false };
   const ends = Date.parse(String(sub.expiresAt || sub.currentPeriodEnd || ""));
-  if (!Number.isFinite(ends) || ends > Date.now()) return;
+  if (!Number.isFinite(ends) || ends > Date.now()) return { activeSub: sub, downgraded: false };
   if (sub.status !== "cancelled") {
     await db.updateSubscription(sub.id, { status: "expired" });
   }
   const membership = await db.findMembershipByUserId(userId);
   if (membership && membership.plan !== "free") await db.updateMembership(membership.id, { plan: "free" });
+  return { activeSub: sub.status === "cancelled" ? sub : null, downgraded: true };
 }
 
 async function activeComplimentaryGrant(userId: string) {
-  await db.expireStaleComplimentaryGrants();
-  return db.findActiveComplimentaryGrant(userId);
+  return db.findAndSweepActiveComplimentaryGrant(userId);
 }
 
-async function getUserPlan(user: User): Promise<PlanSlug> {
-  if (user.role === "admin" && isConfiguredOwner(user)) return "sceneforge";
-  await sweepUserSubscriptionExpiry(user.id);
-  const membership = await db.findMembershipByUserId(user.id);
-  const grant = await activeComplimentaryGrant(user.id);
-  const paid: PlanSlug = membership?.plan || "free";
-  const complimentary: PlanSlug = grant?.planId || "free";
-  const rank: Record<PlanSlug, number> = { free: 0, sceneflow: 1, sceneforge: 2 };
-  return rank[complimentary] > rank[paid] ? complimentary : paid;
+interface ResolvedEntitlements {
+  plan: PlanSlug;
+  storedMembership: Membership | null;
+  grant: ComplimentaryGrant | null;
+  subscription: Subscription | null;
 }
 
-async function effectiveMembership(user: User, plan: PlanSlug) {
-  const stored = await db.findMembershipByUserId(user.id);
-  const grant = await activeComplimentaryGrant(user.id);
+function visibleSubscription(sub: Subscription | null): Subscription | null {
+  if (!sub) return null;
+  if (sub.status === "cancelled") {
+    const ends = Date.parse(String(sub.expiresAt || sub.currentPeriodEnd || ""));
+    if (!Number.isFinite(ends) || ends <= Date.now()) return null;
+  }
+  return sub;
+}
+
+function buildEffectiveMembership(user: User, plan: PlanSlug, stored: Membership | null, grant: ComplimentaryGrant | null) {
   return {
     ...(stored ? { id: stored.id, user_id: stored.userId, status: stored.status } : { id: "", user_id: user.id, status: "active" }),
     plan_id: plan,
@@ -230,6 +376,40 @@ async function effectiveMembership(user: User, plan: PlanSlug) {
     complimentary_ends_at: grant && grant.planId === plan ? grant.endsAt : null,
     complimentary_period: grant && grant.planId === plan ? grant.period : null,
   };
+}
+
+/** Resolves subscription expiry, stored membership and complimentary grant in
+ *  parallel so session checks and account payloads avoid serial D1 waterfalls. */
+async function resolveUserEntitlements(user: User): Promise<ResolvedEntitlements> {
+  const isOwnerAdmin = user.role === "admin" && isConfiguredOwner(user);
+  const [rawSub, initialMembership, grant] = await Promise.all([
+    db.findActiveSubscriptionByUserId(user.id),
+    db.findMembershipByUserId(user.id),
+    activeComplimentaryGrant(user.id),
+  ]);
+  const swept = isOwnerAdmin ? { activeSub: rawSub, downgraded: false } : await sweepUserSubscriptionExpiry(user.id, rawSub);
+  const storedMembership = swept.downgraded && initialMembership ? { ...initialMembership, plan: "free" as PlanSlug } : initialMembership;
+  if (isOwnerAdmin) {
+    return { plan: "sceneforge", storedMembership, grant, subscription: visibleSubscription(swept.activeSub) };
+  }
+  const paid: PlanSlug = storedMembership?.plan || "free";
+  const complimentary: PlanSlug = grant?.planId || "free";
+  const rank: Record<PlanSlug, number> = { free: 0, sceneflow: 1, sceneforge: 2 };
+  const plan = rank[complimentary] > rank[paid] ? complimentary : paid;
+  return { plan, storedMembership, grant, subscription: visibleSubscription(swept.activeSub) };
+}
+
+async function getUserPlan(user: User): Promise<PlanSlug> {
+  if (user.role === "admin" && isConfiguredOwner(user)) return "sceneforge";
+  return (await resolveUserEntitlements(user)).plan;
+}
+
+async function effectiveMembership(user: User, plan: PlanSlug) {
+  const [stored, grant] = await Promise.all([
+    db.findMembershipByUserId(user.id),
+    activeComplimentaryGrant(user.id),
+  ]);
+  return buildEffectiveMembership(user, plan, stored, grant);
 }
 
 /**
@@ -240,9 +420,11 @@ async function effectiveMembership(user: User, plan: PlanSlug) {
 export async function adminMemberSummary(userId: string) {
   const user = await db.findUserById(userId);
   if (!user) return null;
-  const plan = await getUserPlan(user);
-  const membership = await effectiveMembership(user, plan);
-  const preference = await db.findEmailPreference(user.id);
+  const [entitlements, preference] = await Promise.all([
+    resolveUserEntitlements(user),
+    db.findEmailPreference(user.id),
+  ]);
+  const membership = buildEffectiveMembership(user, entitlements.plan, entitlements.storedMembership, entitlements.grant);
   return {
     id: user.id,
     email: user.email,
@@ -250,7 +432,7 @@ export async function adminMemberSummary(userId: string) {
     role: user.role,
     verified: user.isVerified,
     createdAt: user.createdAt,
-    plan,
+    plan: entitlements.plan,
     source: membership.source,
     complimentaryEndsAt: membership.complimentary_ends_at,
     complimentaryPeriod: membership.complimentary_period,
@@ -263,13 +445,7 @@ export async function adminMemberSummary(userId: string) {
  *  FastSpring's Account Management links. Once its end date has passed, it is
  *  no longer current. */
 async function subscriptionForUser(userId: string) {
-  const sub = await db.findActiveSubscriptionByUserId(userId);
-  if (!sub) return null;
-  if (sub.status === "cancelled") {
-    const ends = Date.parse(String(sub.expiresAt || sub.currentPeriodEnd || ""));
-    if (!Number.isFinite(ends) || ends <= Date.now()) return null;
-  }
-  return sub;
+  return visibleSubscription(await db.findActiveSubscriptionByUserId(userId));
 }
 
 /** The API's wire format for subscriptions: snake_case, exactly the shape
@@ -373,7 +549,10 @@ function requestDevice(req: Request): DeviceIdentity {
 async function claimDeviceSeat(userId: string, plan: PlanSlug, sessionId?: string): Promise<{ evicted: number; limit: number }> {
   const limit = getPlanConfig(plan).limits.maxConcurrentDevices;
   if (!Number.isFinite(limit) || limit <= 0) return { evicted: 0, limit };
-  const sessions = await db.listActiveSessionsForUser(userId);
+  const sessions = await db.listActiveSessionsForUser(userId).catch((err): Awaited<ReturnType<typeof db.listActiveSessionsForUser>> => {
+    console.error("[auth] listActiveSessionsForUser failed:", err?.message || err);
+    return [];
+  });
   /* A device may hold more than one session — signing in again on the same
      browser, or a second tab — and that is still one device. Sessions are
      ordered most recently used first, so the first one seen for a device is
@@ -423,7 +602,7 @@ function sessionTokenFromRequest(req: Request): string {
   return "";
 }
 
-type Auth = { user: User; plan: PlanSlug; sessionId?: string; deviceId?: string | null };
+type Auth = { user: User; plan: PlanSlug; sessionId?: string; deviceId?: string | null; entitlements?: ResolvedEntitlements };
 
 /** Resolves the signed-in user (and plan) for a request, or null. Exported
  *  for the Email Centre's preference endpoints, which accept EITHER a
@@ -446,9 +625,14 @@ export async function findSession(req: Request): Promise<Auth | null> {
         // ten minutes: a busy studio must not cost a row per request.
         if (session) {
           const lastSeen = session.lastSeenAt ? Date.parse(session.lastSeenAt) : 0;
-          if (!lastSeen || Date.now() - lastSeen > 10 * 60_000) void db.touchSession(session.id).catch(() => {});
+          if (!lastSeen || Date.now() - lastSeen > 10 * 60_000) {
+            void db.touchSession(session.id).catch((err) => {
+              console.error("[auth] touchSession failed:", err?.message || err);
+            });
+          }
         }
-        return { user: resolved, plan: await getUserPlan(resolved), sessionId: session?.id, deviceId: session?.deviceId ?? null };
+        const entitlements = await resolveUserEntitlements(resolved);
+        return { user: resolved, plan: entitlements.plan, sessionId: session?.id, deviceId: session?.deviceId ?? null, entitlements };
       }
       // Revoke any legacy session that belongs to an unverified account. This
       // prevents it becoming usable if verification state changes later.
@@ -518,21 +702,28 @@ export function requirePlatformFeature(feature: FeatureKey) {
 }
 
 function weekStart() { const d = new Date(); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); d.setUTCHours(0, 0, 0, 0); return d; }
-async function weeklyUsage(userId: string) {
-  const rows = await db.listUsageSince(userId, weekStart().toISOString());
+function weeklyUsageFromRows(rows: UsageRecord[]) {
   return { finalExports: rows.length, finalExportMinutes: Number(rows.reduce((sum, r) => sum + r.durationMinutes, 0).toFixed(2)) };
 }
-async function remainingUsage(userId: string, plan: PlanSlug) {
+function remainingUsageFromRows(rows: UsageRecord[], plan: PlanSlug) {
   const config = getPlanConfig(plan);
-  const rows = await db.listUsageSince(userId, weekStart().toISOString());
-  const usage = { finalExports: rows.length };
   const shortCount = rows.filter((r) => r.format === "short" || (!r.format && r.durationMinutes <= 1)).length;
   const longCount = rows.length - shortCount;
   return {
-    finalExports: config.limits.finalExportsPerWeek == null ? null : Math.max(0, config.limits.finalExportsPerWeek - usage.finalExports),
+    finalExports: config.limits.finalExportsPerWeek == null ? null : Math.max(0, config.limits.finalExportsPerWeek - rows.length),
     shortExports: config.limits.shortExportsPerWeek == null ? null : Math.max(0, config.limits.shortExportsPerWeek - shortCount),
     longExports: config.limits.longExportsPerWeek == null ? null : Math.max(0, config.limits.longExportsPerWeek - longCount),
   };
+}
+async function weeklyUsage(userId: string) {
+  return weeklyUsageFromRows(await db.listUsageSince(userId, weekStart().toISOString()));
+}
+async function remainingUsage(userId: string, plan: PlanSlug) {
+  return remainingUsageFromRows(await db.listUsageSince(userId, weekStart().toISOString()), plan);
+}
+async function usageAndRemaining(userId: string, plan: PlanSlug) {
+  const rows = await db.listUsageSince(userId, weekStart().toISOString());
+  return { usage: weeklyUsageFromRows(rows), remaining: remainingUsageFromRows(rows, plan) };
 }
 async function canExport(
   userId: string,
@@ -565,12 +756,23 @@ function parseCreativeManifest(value: unknown): ExportCreativeManifest | null {
   return { features: features as FeatureKey[], voice: input.voice.slice(0, 100), captionStyle: input.captionStyle.slice(0, 100), backgroundMusic, audioVisualisers, callsToAction };
 }
 
-async function accountPayload(user: User, current: { sessionId?: string; deviceId?: string } = {}) {
-  const plan = await getUserPlan(user);
-  const [usage, remaining, subscription, membership, resolvedFastSpringCustomer, sessions] = await Promise.all([
-    weeklyUsage(user.id), remainingUsage(user.id, plan), subscriptionForUser(user.id), effectiveMembership(user, plan), resolveFastSpringCustomerForUser(user),
-    db.listActiveSessionsForUser(user.id).catch(() => []),
+async function accountPayload(
+  user: User,
+  current: { sessionId?: string; deviceId?: string; entitlements?: ResolvedEntitlements } = {}
+) {
+  const [entitlements, usageRows, resolvedFastSpringCustomer, sessions] = await Promise.all([
+    current.entitlements ? Promise.resolve(current.entitlements) : resolveUserEntitlements(user),
+    db.listUsageSince(user.id, weekStart().toISOString()),
+    resolveFastSpringCustomerForUser(user),
+    db.listActiveSessionsForUser(user.id).catch((err): Awaited<ReturnType<typeof db.listActiveSessionsForUser>> => {
+      console.error("[auth] listActiveSessionsForUser failed:", err?.message || err);
+      return [];
+    }),
   ]);
+  const { plan, subscription } = entitlements;
+  const membership = buildEffectiveMembership(user, plan, entitlements.storedMembership, entitlements.grant);
+  const usage = weeklyUsageFromRows(usageRows);
+  const remaining = remainingUsageFromRows(usageRows, plan);
   const deviceLimit = getPlanConfig(plan).limits.maxConcurrentDevices;
   // Where this membership is signed in — the panel a member checks when they
   // are about to be signed out on an old laptop they no longer use.
@@ -1230,6 +1432,16 @@ async function handleFastSpringEvent(event: any): Promise<string> {
 }
 
 export function registerPlatformRoutes(app: Express) {
+  app.use(["/api", "/functions/v1"], (_req, res, next) => {
+    checkDatabaseSchema().then((problem) => {
+      if (problem) {
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(503).json(problem);
+      }
+      next();
+    }, next);
+  });
+
   /* Allow: /api/social-links — the one API address the public pages read.
      Google renders pages the way a browser does but obeys robots.txt for
      every request the page makes, so with /api/ blocked it never saw the
@@ -1332,8 +1544,9 @@ export function registerPlatformRoutes(app: Express) {
     // devices may be open at once, and the device that has been idle longest
     // gives up its place. Signing in again on the same browser replaces its
     // own session, so one person on one device never loses their seat.
-    const { evicted, limit } = await claimDeviceSeat(user.id, await getUserPlan(user), session.id);
-    const payload = await accountPayload(user, { sessionId: session.id, deviceId: device.id });
+    const entitlements = await resolveUserEntitlements(user);
+    const { evicted, limit } = await claimDeviceSeat(user.id, entitlements.plan, session.id);
+    const payload = await accountPayload(user, { sessionId: session.id, deviceId: device.id, entitlements });
     // Production authentication is cookie-only. Only an explicitly configured
     // embedded development preview receives a short-lived bridge token for
     // browsers that categorically block iframe cookies.
@@ -1355,7 +1568,7 @@ export function registerPlatformRoutes(app: Express) {
        that lapses from SceneFlow to Free cannot keep two machines open just
        because they were signed in while it was paid. */
     if (auth.sessionId) await claimDeviceSeat(auth.user.id, auth.plan, auth.sessionId);
-    return res.json(await accountPayload(auth.user, { sessionId: auth.sessionId, deviceId: auth.deviceId ?? undefined }));
+    return res.json(await accountPayload(auth.user, { sessionId: auth.sessionId, deviceId: auth.deviceId ?? undefined, entitlements: auth.entitlements }));
   }));
 
   app.post("/api/auth/verify-email", rateLimit("verify", 10, 3600000), asyncHandlerVoid(async (req, res) => {
@@ -1429,10 +1642,10 @@ export function registerPlatformRoutes(app: Express) {
   }));
 
   app.get("/api/account", requireUser, asyncHandlerVoid(async (req, res) => {
-    const { user, sessionId, deviceId } = (req as any).auth as Auth;
-    res.json(await accountPayload(user, { sessionId, deviceId: deviceId ?? undefined }));
+    const { user, sessionId, deviceId, entitlements } = (req as any).auth as Auth;
+    res.json(await accountPayload(user, { sessionId, deviceId: deviceId ?? undefined, entitlements }));
   }));
-  app.get("/api/entitlements", requireUser, asyncHandlerVoid(async (req, res) => { const { user, plan } = (req as any).auth as Auth; res.json({ plan, entitlements: getPlanConfig(plan), usage: await weeklyUsage(user.id), remaining: await remainingUsage(user.id, plan) }); }));
+  app.get("/api/entitlements", requireUser, asyncHandlerVoid(async (req, res) => { const { user, plan } = (req as any).auth as Auth; const { usage, remaining } = await usageAndRemaining(user.id, plan); res.json({ plan, entitlements: getPlanConfig(plan), usage, remaining }); }));
   app.get("/api/entitlements/:feature", requireUser, (req, res) => { const { plan } = (req as any).auth as Auth; const feature = req.params.feature as FeatureKey; if (!(feature in PLAN_CONFIG.free.features)) return res.status(404).json({ error: "Unknown feature" }); res.json({ allowed: canPlanUseFeature(plan, feature), plan }); });
 
   app.post("/api/usage/final-export/check", requireUser, rateLimit("export-check", 120, 3600000), asyncHandlerVoid(async (req, res) => {

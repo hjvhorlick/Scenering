@@ -271,8 +271,12 @@ export function computeVideoBitrateKbps(
     return Math.round(Math.min(80000, Math.max(500, customKbps)));
   }
   const level = getQualityLevel(quality);
-  // 0.58 keeps the anchor ranges intact: 1080p → 8–12 Mbps, 720p → 5–7.5 Mbps
-  const pixelScale = Math.pow((width * height) / (1920 * 1080), 0.58);
+  const pixelRatio = Math.max(0.05, (width * height) / (1920 * 1080));
+  // At ≤1080p, 0.58 keeps 1080p at 8–12 Mbps and 720p at 5–7.5 Mbps.
+  // Above 1080p (2K QHD / 4K UHD), 0.88 allocates proper studio bitrate
+  // (~16.6 Mbps at 2K30 High, ~33.9–40.6 Mbps at 4K30 High/Max) instead of
+  // aggressively compressing fine detail, captions and motion.
+  const pixelScale = pixelRatio <= 1 ? Math.pow(pixelRatio, 0.58) : Math.pow(pixelRatio, 0.88);
   const fpsScale = 0.5 + 0.5 * (Math.max(10, Math.min(120, fps)) / 30);
   const kbps = level.baseKbps1080p30 * pixelScale * fpsScale;
   return Math.max(500, Math.round(kbps / 100) * 100);

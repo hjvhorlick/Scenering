@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const rawConfig = readFileSync(join(root, "wrangler.jsonc"), "utf8");
 const config = JSON.parse(rawConfig.replace(/^\s*\/\/.*$/gm, ""));
+const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const checker = readFileSync(join(root, "scripts/check-deploy-config.mjs"), "utf8");
 const setup = readFileSync(join(root, "scripts/setup-preview-resources.sh"), "utf8");
 const docs = readFileSync(join(root, "CLOUDFLARE.md"), "utf8");
@@ -77,5 +79,47 @@ check(setup.includes("config.d1_databases = config.previews.d1_databases"), "mig
 
 check(docs.includes("npx wrangler preview base-config secret put SESSION_SECRET"), "Cloudflare runbook documents the one-time preview secret step");
 check(docs.includes("missing a `previews` block"), "Cloudflare runbook explains the branch-build failure mode");
+check(docs.includes("wrangler d1 migrations list scenering-db --remote"), "Cloudflare runbook documents the remote pending-migration deploy guard");
+
+// The deploy script must refuse to build or deploy while D1 migrations are pending.
+check(
+  pkg.scripts.deploy === "node scripts/check-deploy-config.mjs --remote && npm run build && wrangler deploy",
+  "npm run deploy gates on remote D1 migrations before building or deploying",
+);
+check(
+  checker.includes('"migrations", "list"') && checker.includes('"--remote"'),
+  "check-deploy-config.mjs queries wrangler d1 migrations list --remote",
+);
+
+const tempD1Dir = mkdtempSync(join(tmpdir(), "scenering-deploy-check-"));
+try {
+  const unmigratedCheck = spawnSync(
+    "node",
+    [join(root, "scripts/check-deploy-config.mjs"), "--local", "--persist-to", tempD1Dir],
+    { cwd: root, encoding: "utf8" },
+  );
+  check(unmigratedCheck.status !== 0, "deploy-config guard refuses to deploy when migrations are pending");
+  check(
+    unmigratedCheck.stderr.includes("0007_devices_workspace.sql") &&
+      unmigratedCheck.stderr.includes("npx wrangler d1 migrations apply scenering-db"),
+    "pending-migration failure names the unapplied SQL file and the exact apply command",
+  );
+
+  const applyLocal = spawnSync(
+    "npx",
+    ["--no-install", "wrangler", "d1", "migrations", "apply", "scenering-db", "--local", "--persist-to", tempD1Dir],
+    { cwd: root, encoding: "utf8", env: { ...process.env, CI: "1" } },
+  );
+  check(applyLocal.status === 0, "local D1 migrations apply cleanly in an isolated directory");
+
+  const migratedCheck = spawnSync(
+    "node",
+    [join(root, "scripts/check-deploy-config.mjs"), "--local", "--persist-to", tempD1Dir],
+    { cwd: root, encoding: "utf8" },
+  );
+  check(migratedCheck.status === 0, "deploy-config guard allows deploy once all D1 migrations are applied");
+} finally {
+  rmSync(tempD1Dir, { recursive: true, force: true });
+}
 
 console.log(`✓ deploy-config: ${checks} checks`);

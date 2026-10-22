@@ -74,6 +74,10 @@ export interface MasteringChain {
   /** Feed the current voice-bus level (0..1) each frame; automatic mode
    *  eases the music bus toward the right level. No-op in manual mode. */
   updateVoiceLevel(voiceLevel: number, audioTime: number): void;
+  /** Pre-ducks the music bed slightly ahead of a scheduled narration entrance
+   *  during offline rendering so opening consonants are never masked before
+   *  the first analyser sample fires. */
+  primeVoiceEntrance?(speechStartSeconds: number): void;
   dispose(): void;
 }
 
@@ -87,34 +91,98 @@ export function createMasteringChain(ctx: BaseAudioContext, mode: MasteringMode)
 
   let duckGain: GainNode | null = null;
   let lastTarget = 1;
+  const internalNodes: AudioNode[] = [];
 
   if (mode === "automatic") {
     // Voice-priority ducking on the music bus only.
     duckGain = ctx.createGain();
     duckGain.gain.value = 1;
-    musicInput.connect(duckGain);
-
-    // Gentle glue compression: catches the moments when narration, music
-    // and SFX stack up, without pumping. ~2-3 dB of reduction at most.
-    const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -14;
-    compressor.knee.value = 12;
-    compressor.ratio.value = 3;
-    compressor.attack.value = 0.008;
-    compressor.release.value = 0.24;
+    internalNodes.push(duckGain);
 
     // Brick-wall-ish safety limiter: the render can never clip, no matter
     // what the user stacked on the timeline.
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -1.5;
+    limiter.threshold.value = -1.2;
     limiter.knee.value = 0;
     limiter.ratio.value = 20;
     limiter.attack.value = 0.001;
-    limiter.release.value = 0.1;
+    limiter.release.value = 0.09;
+    internalNodes.push(limiter);
 
-    voiceInput.connect(compressor);
-    duckGain.connect(compressor);
-    compressor.connect(limiter);
+    // Dedicated vocal clarity & leveling channel, isolated from music-bus
+    // compression so bass hits in the soundtrack never pump the narrator.
+    let voiceTail: AudioNode = voiceInput;
+    if (typeof ctx.createBiquadFilter === "function") {
+      const highpass = ctx.createBiquadFilter();
+      highpass.type = "highpass";
+      highpass.frequency.value = 80;
+      highpass.Q.value = 0.707;
+
+      const deMud = ctx.createBiquadFilter();
+      deMud.type = "peaking";
+      deMud.frequency.value = 250;
+      deMud.Q.value = 1.1;
+      deMud.gain.value = -1.8;
+
+      const presence = ctx.createBiquadFilter();
+      presence.type = "peaking";
+      presence.frequency.value = 3200;
+      presence.Q.value = 0.9;
+      presence.gain.value = 2.2;
+
+      const air = ctx.createBiquadFilter();
+      air.type = "highshelf";
+      air.frequency.value = 7500;
+      air.gain.value = 1.6;
+
+      voiceTail.connect(highpass);
+      highpass.connect(deMud);
+      deMud.connect(presence);
+      presence.connect(air);
+      voiceTail = air;
+      internalNodes.push(highpass, deMud, presence, air);
+    }
+
+    const voiceCompressor = ctx.createDynamicsCompressor();
+    voiceCompressor.threshold.value = -19;
+    voiceCompressor.knee.value = 12;
+    voiceCompressor.ratio.value = 2.2;
+    voiceCompressor.attack.value = 0.006;
+    voiceCompressor.release.value = 0.16;
+
+    const voiceMakeup = ctx.createGain();
+    voiceMakeup.gain.value = 1.16;
+    voiceTail.connect(voiceCompressor);
+    voiceCompressor.connect(voiceMakeup);
+    voiceMakeup.connect(limiter);
+    internalNodes.push(voiceCompressor, voiceMakeup);
+
+    // Subtle vocal-pocket dip on the music bus around 2.8 kHz so speech
+    // consonants stay intelligible without needing deeper volume ducking.
+    let musicTail: AudioNode = musicInput;
+    if (typeof ctx.createBiquadFilter === "function") {
+      const musicPocket = ctx.createBiquadFilter();
+      musicPocket.type = "peaking";
+      musicPocket.frequency.value = 2800;
+      musicPocket.Q.value = 0.85;
+      musicPocket.gain.value = -1.8;
+      musicInput.connect(musicPocket);
+      musicTail = musicPocket;
+      internalNodes.push(musicPocket);
+    }
+    musicTail.connect(duckGain);
+
+    // Gentle glue compression on the music/SFX bus so stacked beds stay smooth.
+    const musicCompressor = ctx.createDynamicsCompressor();
+    musicCompressor.threshold.value = -15;
+    musicCompressor.knee.value = 12;
+    musicCompressor.ratio.value = 2.6;
+    musicCompressor.attack.value = 0.01;
+    musicCompressor.release.value = 0.24;
+    duckGain.connect(musicCompressor);
+    musicCompressor.connect(limiter);
+    internalNodes.push(musicCompressor);
+
     limiter.connect(output);
   } else {
     // Manual: the user's own audio, untouched.
@@ -139,11 +207,20 @@ export function createMasteringChain(ctx: BaseAudioContext, mode: MasteringMode)
         duckGain.gain.value = target;
       }
     },
+    primeVoiceEntrance(speechStartSeconds: number) {
+      if (!duckGain || !Number.isFinite(speechStartSeconds)) return;
+      const lead = Math.max(0, speechStartSeconds - 0.035);
+      try {
+        duckGain.gain.setTargetAtTime(MUSIC_DUCK_FLOOR, lead, 0.04);
+      } catch {}
+    },
     dispose() {
       try {
         voiceInput.disconnect();
         musicInput.disconnect();
-        duckGain?.disconnect();
+        for (const node of internalNodes) {
+          try { node.disconnect(); } catch {}
+        }
         output.disconnect();
       } catch {}
     },

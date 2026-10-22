@@ -42,6 +42,7 @@ export interface OfflineSupport {
   videoCodec?: string;
   audioCodec?: string;
   hardwareAcceleration?: HardwareAcceleration;
+  bitrateMode?: VideoEncoderBitrateMode;
   reason?: string;
 }
 
@@ -52,17 +53,21 @@ function browserCodecs(): { VideoEncoder: typeof VideoEncoder; AudioEncoder: typ
   return video && audio ? { VideoEncoder: video, AudioEncoder: audio } : null;
 }
 
-/** H.264 High profile, with a level appropriate to the frame size. */
-export function avcCodecForSize(width: number, height: number): string {
+function avcLevelForSize(width: number, height: number, fps = 30): string {
   const pixels = width * height;
-  if (pixels <= 1280 * 720) return "avc1.64001f";
-  if (pixels <= 1920 * 1080) return "avc1.640028";
-  return "avc1.640033";
+  const highFrameRate = fps > 30;
+  if (pixels <= 1280 * 720) return highFrameRate ? "28" : "1f";
+  if (pixels <= 1920 * 1080) return highFrameRate ? "2a" : "28";
+  return highFrameRate ? "34" : "33";
 }
 
-function avcFallbacks(width: number, height: number): string[] {
-  const pixels = width * height;
-  const level = pixels <= 1280 * 720 ? "1f" : pixels <= 1920 * 1080 ? "28" : "33";
+/** H.264 High profile, with a level appropriate to the frame size and rate. */
+export function avcCodecForSize(width: number, height: number, fps = 30): string {
+  return `avc1.6400${avcLevelForSize(width, height, fps)}`;
+}
+
+function avcFallbacks(width: number, height: number, fps = 30): string[] {
+  const level = avcLevelForSize(width, height, fps);
   // High, Main, then Constrained Baseline. Some Chrome installations expose
   // only a software Main/Baseline encoder even though High hardware probing fails.
   return [`avc1.6400${level}`, `avc1.4d00${level}`, `avc1.42e0${level}`];
@@ -70,7 +75,7 @@ function avcFallbacks(width: number, height: number): string[] {
 
 function candidates(config: OfflineExportConfig): Array<{ video: string; audio: string }> {
   if (config.container === "mp4") {
-    return avcFallbacks(config.width, config.height).map((video) => ({ video, audio: "mp4a.40.2" }));
+    return avcFallbacks(config.width, config.height, config.fps).map((video) => ({ video, audio: "mp4a.40.2" }));
   }
   return [
     { video: "vp09.00.10.08", audio: "opus" },
@@ -78,17 +83,33 @@ function candidates(config: OfflineExportConfig): Array<{ video: string; audio: 
   ];
 }
 
+export interface OfflineExportStats {
+  codedWidth: number;
+  codedHeight: number;
+  submittedFrames: number;
+  encodedVideoChunks: number;
+  encodedAudioChunks: number;
+  videoDurationSec: number;
+  audioDurationSec: number;
+  effectiveFps: number;
+  maxFrameDurationDriftUs: number;
+}
+
 function videoConfig(
   config: OfflineExportConfig,
   codec: string,
-  hardwareAcceleration?: HardwareAcceleration
+  hardwareAcceleration?: HardwareAcceleration,
+  bitrateMode?: VideoEncoderBitrateMode
 ): VideoEncoderConfig {
   return {
     codec,
     width: config.width,
     height: config.height,
+    displayWidth: config.width,
+    displayHeight: config.height,
     framerate: config.fps,
     bitrate: config.videoKbps * 1000,
+    ...(bitrateMode ? { bitrateMode } : {}),
     ...(hardwareAcceleration ? { hardwareAcceleration } : {}),
     latencyMode: "quality",
     ...(config.container === "mp4" ? { avc: { format: "avc" as const } } : {}),
@@ -125,22 +146,30 @@ export async function supported(config: OfflineExportConfig): Promise<OfflineSup
       continue;
     }
 
-    // First ask for hardware. Then omit the preference so Chrome is free to
-    // select its software encoder; strict hardware-only probing caused silent fallback.
+    // First ask for hardware + VBR so detailed scenes, caption edges and
+    // visualisers receive bits where needed; fall back cleanly when a driver
+    // only exposes default rate control or software encoding.
     for (const acceleration of ["prefer-hardware", undefined] as const) {
-      try {
-        const video = await api.VideoEncoder.isConfigSupported(videoConfig(config, pair.video, acceleration));
-        if (video.supported) {
-          return {
-            supported: true,
-            videoCodec: pair.video,
-            audioCodec: pair.audio,
-            ...(acceleration ? { hardwareAcceleration: acceleration } : {}),
-          };
+      for (const bitrateMode of ["variable", undefined] as const) {
+        try {
+          const video = await api.VideoEncoder.isConfigSupported(
+            videoConfig(config, pair.video, acceleration, bitrateMode)
+          );
+          if (video.supported) {
+            return {
+              supported: true,
+              videoCodec: pair.video,
+              audioCodec: pair.audio,
+              ...(acceleration ? { hardwareAcceleration: acceleration } : {}),
+              ...(bitrateMode ? { bitrateMode } : {}),
+            };
+          }
+          attempts.push(
+            `${pair.video} video (${acceleration || "browser-selected"}, ${bitrateMode || "default-rc"}) is unsupported`
+          );
+        } catch (error) {
+          attempts.push(`${pair.video} video probe threw ${error instanceof Error ? error.message : String(error)}`);
         }
-        attempts.push(`${pair.video} video (${acceleration || "browser-selected"}) is unsupported`);
-      } catch (error) {
-        attempts.push(`${pair.video} video probe threw ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
@@ -274,7 +303,12 @@ class MemoryOutputStore implements RenderOutputStore {
 }
 
 type MuxerLike = {
-  addVideoChunk(chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata): void;
+  addVideoChunk(
+    chunk: EncodedVideoChunk,
+    meta?: EncodedVideoChunkMetadata,
+    timestamp?: number,
+    compositionTimeOffset?: number
+  ): void;
   addAudioChunk(chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata): void;
   finalize(): void;
 };
@@ -289,6 +323,14 @@ export class OfflineExporter {
   private readonly store: RenderOutputStore;
   private readonly mime: string;
   private failure: Error | null = null;
+  private decodedVideoChunks = 0;
+  private submittedVideoFrames = 0;
+  private maxVideoEndUs = 0;
+  private encodedAudioChunksCount = 0;
+  private maxAudioEndUs = 0;
+  private codedWidth = 0;
+  private codedHeight = 0;
+  private maxFrameDurationDriftUs = 0;
   /** Where the growing muxed file lives during the encode. */
   readonly outputStorage: RenderOutputStorageMode;
   /** Human-readable detail shown in the render health panel/report. */
@@ -339,9 +381,43 @@ export class OfflineExporter {
       this.mime = "video/webm";
     }
 
-    this.video = new api.VideoEncoder({ output: (chunk, meta) => this.muxer.addVideoChunk(chunk, meta), error: fail });
-    this.audio = new api.AudioEncoder({ output: (chunk, meta) => this.muxer.addAudioChunk(chunk, meta), error: fail });
-    this.video.configure(videoConfig(config, probe.videoCodec, probe.hardwareAcceleration));
+    this.video = new api.VideoEncoder({
+      output: (chunk, meta) => {
+        if (meta?.decoderConfig) {
+          if (meta.decoderConfig.codedWidth) this.codedWidth = meta.decoderConfig.codedWidth;
+          if (meta.decoderConfig.codedHeight) this.codedHeight = meta.decoderConfig.codedHeight;
+        }
+        const chunkDurUs = chunk.duration ?? Math.round(1_000_000 / this.config.fps);
+        const nominalDurUs = 1_000_000 / this.config.fps;
+        const driftUs = Math.abs(chunkDurUs - nominalDurUs);
+        if (driftUs > this.maxFrameDurationDriftUs) this.maxFrameDurationDriftUs = driftUs;
+        const endUs = chunk.timestamp + chunkDurUs;
+        if (endUs > this.maxVideoEndUs) this.maxVideoEndUs = endUs;
+
+        if (config.container === "mp4") {
+          // VideoEncoder emits chunks in decode order; supplying exact DTS→PTS
+          // offsets lets latencyMode: "quality" use B-frames cleanly in MP4.
+          const decodeTimestampUs = Math.round((this.decodedVideoChunks * 1_000_000) / this.config.fps);
+          this.decodedVideoChunks += 1;
+          const compositionTimeOffset = chunk.timestamp - decodeTimestampUs;
+          this.muxer.addVideoChunk(chunk, meta, chunk.timestamp, compositionTimeOffset);
+        } else {
+          this.decodedVideoChunks += 1;
+          this.muxer.addVideoChunk(chunk, meta);
+        }
+      },
+      error: fail,
+    });
+    this.audio = new api.AudioEncoder({
+      output: (chunk, meta) => {
+        this.encodedAudioChunksCount += 1;
+        const endUs = chunk.timestamp + (chunk.duration ?? 0);
+        if (endUs > this.maxAudioEndUs) this.maxAudioEndUs = endUs;
+        this.muxer.addAudioChunk(chunk, meta);
+      },
+      error: fail,
+    });
+    this.video.configure(videoConfig(config, probe.videoCodec, probe.hardwareAcceleration, probe.bitrateMode));
     this.audio.configure({
       codec: probe.audioCodec,
       sampleRate: this.config.sampleRate,
@@ -390,6 +466,11 @@ export class OfflineExporter {
   private throwIfFailed(): void { if (this.failure) throw this.failure; }
 
   async encodeCanvas(canvas: HTMLCanvasElement, frameIndex: number): Promise<void> {
+    if (canvas.width !== this.config.width || canvas.height !== this.config.height) {
+      throw new Error(
+        `Render canvas resolution mismatch: got ${canvas.width}×${canvas.height}, expected ${this.config.width}×${this.config.height}`
+      );
+    }
     while (this.video.encodeQueueSize > 6) {
       this.throwIfFailed();
       await yieldToBrowser();
@@ -402,6 +483,7 @@ export class OfflineExporter {
     const next = Math.round((frameIndex + 1) * 1_000_000 / this.config.fps);
     const frame = new VideoFrame(canvas, { timestamp, duration: next - timestamp });
     try {
+      this.submittedVideoFrames += 1;
       this.video.encode(frame, { keyFrame: frameIndex % Math.max(1, Math.round(this.config.fps * 2)) === 0 });
     } finally {
       frame.close();
@@ -463,6 +545,28 @@ export class OfflineExporter {
   /** Encoded bytes copied from muxer callbacks but not yet committed to disk. */
   get queuedOutputBytes(): number {
     return this.store.pendingBytes;
+  }
+
+  /** Actual stream telemetry recorded during encoding for post-export verification. */
+  getExportStats(): OfflineExportStats {
+    const videoDurationSec =
+      this.maxVideoEndUs > 0
+        ? this.maxVideoEndUs / 1_000_000
+        : this.submittedVideoFrames / Math.max(1, this.config.fps);
+    const audioDurationSec = this.maxAudioEndUs / 1_000_000;
+    const effectiveFps =
+      videoDurationSec > 0 ? this.decodedVideoChunks / videoDurationSec : 0;
+    return {
+      codedWidth: this.codedWidth || this.config.width,
+      codedHeight: this.codedHeight || this.config.height,
+      submittedFrames: this.submittedVideoFrames,
+      encodedVideoChunks: this.decodedVideoChunks,
+      encodedAudioChunks: this.encodedAudioChunksCount,
+      videoDurationSec,
+      audioDurationSec,
+      effectiveFps: Math.round(effectiveFps * 100) / 100,
+      maxFrameDurationDriftUs: Math.round(this.maxFrameDurationDriftUs),
+    };
   }
 
   async finalize(): Promise<Blob> {

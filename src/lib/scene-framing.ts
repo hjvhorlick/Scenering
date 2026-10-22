@@ -308,11 +308,12 @@ type Drawable = SceneDrawable;
 
 const gradeCaches = new WeakMap<object, Map<string, HTMLCanvasElement>>();
 const backdropCaches = new WeakMap<object, Map<string, HTMLCanvasElement>>();
+const mipCaches = new WeakMap<object, Map<string, HTMLCanvasElement>>();
 /** Per-image cap so a scene reused at several sizes cannot hoard memory. */
 const CACHE_ENTRIES_PER_IMAGE = 4;
 /** The blurred backdrop is built at a capped internal resolution — behind a
- *  40px+ blur, upscaling from ~1024px is visually identical and ~4× faster. */
-const BACKDROP_CACHE_MAX_EDGE = 1024;
+ *  40px+ blur, upscaling from ~1440px stays silky smooth even on 2K/4K frames. */
+const BACKDROP_CACHE_MAX_EDGE = 1440;
 
 function canUseDomCanvas(): boolean {
   return typeof document !== "undefined" && typeof document.createElement === "function";
@@ -354,23 +355,79 @@ function filterWorks(ctx: CanvasRenderingContext2D, filter: string): boolean {
   }
 }
 
+/**
+ * Progressive 2× downsampling cache for very large source images (>2.2× target
+ * draw dimensions). Stepping down in clean 2× high-quality stages avoids
+ * single-pass downscale aliasing/shimmer on slow Ken Burns pans, while doing
+ * zero extra copies when the source is already near the output size.
+ */
+function mipCopy(img: Drawable, minCropW: number, minCropH: number, cropWFrac: number, cropHFrac: number): HTMLCanvasElement | null {
+  if (!canUseDomCanvas() || !isCacheSafeImage(img)) return null;
+  let targetW = img.naturalWidth;
+  let targetH = img.naturalHeight;
+  const neededSrcW = Math.max(2, (minCropW * 1.5) / Math.max(0.05, cropWFrac));
+  const neededSrcH = Math.max(2, (minCropH * 1.5) / Math.max(0.05, cropHFrac));
+  while (targetW * 0.5 >= neededSrcW && targetH * 0.5 >= neededSrcH) {
+    targetW = Math.round(targetW * 0.5);
+    targetH = Math.round(targetH * 0.5);
+  }
+  if (targetW >= img.naturalWidth || targetH >= img.naturalHeight) return null;
+
+  const key = `${targetW}x${targetH}`;
+  const bucket = cacheBucket(mipCaches, img);
+  const hit = bucket.get(key);
+  if (hit) return hit;
+
+  try {
+    let curSource: CanvasImageSource = img;
+    let curW = img.naturalWidth;
+    let curH = img.naturalHeight;
+    let curCanvas: HTMLCanvasElement | null = null;
+    while (curW > targetW && curH > targetH) {
+      const nextW = Math.max(targetW, Math.round(curW * 0.5));
+      const nextH = Math.max(targetH, Math.round(curH * 0.5));
+      const stepCanvas = document.createElement("canvas");
+      stepCanvas.width = nextW;
+      stepCanvas.height = nextH;
+      const sctx = stepCanvas.getContext("2d");
+      if (!sctx) return null;
+      sctx.imageSmoothingEnabled = true;
+      sctx.imageSmoothingQuality = "high";
+      sctx.drawImage(curSource, 0, 0, curW, curH, 0, 0, nextW, nextH);
+      curSource = stepCanvas;
+      curCanvas = stepCanvas;
+      curW = nextW;
+      curH = nextH;
+    }
+    if (curCanvas) rememberInBucket(bucket, key, curCanvas);
+    return curCanvas;
+  } catch {
+    return null;
+  }
+}
+
 /** The scene photo with the project's colour grade baked in — built once,
  *  so per-frame draws skip the CPU-bound ctx.filter path entirely. */
-function gradedCopy(img: Drawable, grade: string): HTMLCanvasElement | null {
+function gradedCopy(img: Drawable, grade: string, baseCanvas?: HTMLCanvasElement | null): HTMLCanvasElement | null {
   if (!canUseDomCanvas() || !isCacheSafeImage(img)) return null;
+  const srcW = baseCanvas ? baseCanvas.width : img.naturalWidth;
+  const srcH = baseCanvas ? baseCanvas.height : img.naturalHeight;
+  const key = `${grade}@${srcW}x${srcH}`;
   const bucket = cacheBucket(gradeCaches, img);
-  const hit = bucket.get(grade);
+  const hit = bucket.get(key);
   if (hit) return hit;
   try {
     const canvas = document.createElement("canvas");
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
+    canvas.width = srcW;
+    canvas.height = srcH;
     const cctx = canvas.getContext("2d");
     if (!cctx) return null;
     if (!filterWorks(cctx, grade)) return null;
-    cctx.drawImage(img, 0, 0);
+    cctx.imageSmoothingEnabled = true;
+    cctx.imageSmoothingQuality = "high";
+    cctx.drawImage(baseCanvas || img, 0, 0);
     cctx.filter = "none";
-    rememberInBucket(bucket, grade, canvas);
+    rememberInBucket(bucket, key, canvas);
     return canvas;
   } catch {
     return null;
@@ -403,6 +460,8 @@ function blurredBackdrop(
     canvas.height = ch;
     const cctx = canvas.getContext("2d");
     if (!cctx) return null;
+    cctx.imageSmoothingEnabled = true;
+    cctx.imageSmoothingQuality = "high";
     const radius = (f.backdropBlur * cw) / 1080;
     const blurCss = radius > 0.5 ? `blur(${radius.toFixed(1)}px)` : "";
     const filter = [grade, blurCss].filter(Boolean).join(" ");
@@ -442,10 +501,26 @@ export function prewarmSceneFrame(
   if (!img) return;
   const f = resolveFraming(scene);
   const g = grade && grade !== "none" ? grade : null;
-  if (g) gradedCopy(img, g);
+  const baseMip = mipCopy(img, frameW, frameH, f.crop.w, f.crop.h);
+  if (g) gradedCopy(img, g, baseMip);
   if (f.fit !== "cover" && f.backdrop === "blur") {
     blurredBackdrop(img, frameW, frameH, f, g);
   }
+}
+
+function remapPlacedToBuffer(p: PlacedImage, origImg: Drawable, buf: HTMLCanvasElement): PlacedImage {
+  const ow = sourcePixelWidth(origImg);
+  const oh = sourcePixelHeight(origImg);
+  if (!(ow > 0) || !(oh > 0) || (buf.width === ow && buf.height === oh)) return p;
+  const kx = buf.width / ow;
+  const ky = buf.height / oh;
+  return {
+    ...p,
+    sx: p.sx * kx,
+    sy: p.sy * ky,
+    sw: p.sw * kx,
+    sh: p.sh * ky,
+  };
 }
 
 function drawPlaced(
@@ -542,6 +617,8 @@ export function drawSceneImage(
         const radius = (f.backdropBlur * frameW) / 1080;
         const blurCss = radius > 0.5 ? `blur(${radius.toFixed(1)}px)` : "";
         ctx.save();
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
         try {
           ctx.filter = [grade, blurCss].filter(Boolean).join(" ") || "none";
         } catch {
@@ -570,23 +647,30 @@ export function drawSceneImage(
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
+  const baseMip = mipCopy(img, fg.dw, fg.dh, f.crop.w, f.crop.h);
   if (grade) {
     // FAST PATH: draw the pre-graded copy of the photo (grade baked in
     // once) so the per-frame draw never pays the CPU ctx.filter cost.
-    const graded = gradedCopy(img, grade);
+    const graded = gradedCopy(img, grade, baseMip);
     if (graded) {
-      drawPlaced(ctx, graded as unknown as Drawable, fg, f);
+      drawPlaced(ctx, graded as unknown as Drawable, remapPlacedToBuffer(fg, img, graded), f);
     } else {
       try {
         ctx.filter = grade;
       } catch {
         ctx.filter = "none";
       }
-      drawPlaced(ctx, img, fg, f);
+      if (baseMip) {
+        drawPlaced(ctx, baseMip as unknown as Drawable, remapPlacedToBuffer(fg, img, baseMip), f);
+      } else {
+        drawPlaced(ctx, img, fg, f);
+      }
       try {
         ctx.filter = "none";
       } catch {}
     }
+  } else if (baseMip) {
+    drawPlaced(ctx, baseMip as unknown as Drawable, remapPlacedToBuffer(fg, img, baseMip), f);
   } else {
     drawPlaced(ctx, img, fg, f);
   }
@@ -849,6 +933,8 @@ export function drawMediaCover(
   }
 
   ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.beginPath();
   ctx.rect(x, y, w, h);
   ctx.clip();

@@ -111,7 +111,8 @@ import {
 } from "../lib/render-profile";
 import type { RenderProfileSettings } from "../types";
 import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
-import { OfflineExporter, supported as offlineExportSupported, type OfflineExportConfig } from "../lib/offline-export";
+import { OfflineExporter, supported as offlineExportSupported, type OfflineExportConfig, type OfflineExportStats } from "../lib/offline-export";
+import { validateFinishedExport, type ExportValidationReport } from "../lib/export-validator";
 import { createFrameBudget } from "../lib/yield-to-browser";
 import { RenderTimer, formatMs } from "../lib/render-timing";
 import { holdRenderWakeLock, type RenderWakeLockState } from "../lib/render-wake-lock";
@@ -427,6 +428,8 @@ export default function RenderView({
   const [imageFallbackCount, setImageFallbackCount] = useState(0);
   /** Live safety/throughput facts for the stronger long-render dashboard. */
   const [renderHealth, setRenderHealth] = useState<RenderHealthState>(EMPTY_RENDER_HEALTH);
+  /** Verified post-encode dimensions, frame rate, duration and A/V sync. */
+  const [exportValidation, setExportValidation] = useState<ExportValidationReport | null>(null);
 
   // ---- Master Render Profile UI state ---------------------------------
   /** Technical details panel (read-only — normal users never need it). */
@@ -550,8 +553,10 @@ export default function RenderView({
     const { width, height } = getDimensions(settings.resolution);
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false }) || canvas.getContext("2d");
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
 
     const first = scenesWithImages[0];
     if (!first) {
@@ -972,6 +977,7 @@ export default function RenderView({
     setShowFailureDetail(false);
     setRenderEngine("checking");
     setOfflineFailureReason(null);
+    setExportValidation(null);
     setClipAudioNotice(null);
     abortControllerRef.current = false;
     const renderStartedAt = Date.now();
@@ -1022,7 +1028,7 @@ export default function RenderView({
 
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false }) || canvas.getContext("2d");
     if (!ctx) {
       lastRenderErrorRef.current = "The browser refused a 2D drawing context";
       setRenderError("2D Context unavailable");
@@ -1030,6 +1036,8 @@ export default function RenderView({
       setIsRendering(false);
       return null;
     }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
 
     let releaseWakeLock: () => Promise<void> = async () => {};
     let renderAudioContext: AudioContext | null = null;
@@ -1063,6 +1071,7 @@ export default function RenderView({
       // resolve, synthesise or schedule. Leaving this map empty is what makes
       // every later stage — scene lengths, the audio graph, the caption
       // clock — fall back to the footage and the script instead of a voice.
+      const narrationTasks: Array<() => Promise<void>> = [];
       for (let i = 0; voiceoverEnabled && i < scenesWithImages.length; i++) {
         if (abortControllerRef.current) throw new Error("Render cancelled");
         const s = scenesWithImages[i];
@@ -1087,62 +1096,80 @@ export default function RenderView({
            since emptied. The one exception is a prepared track — the
            creator's own recording, which is never re-synthesised. */
         const speaksHere = Boolean(spokenText) || isPreparedVoiceoverId(s.voice_id);
-        let resolved = speaksHere ? await resolveSceneAudioBuffer(s, audioCtx) : null;
-        if (!resolved && voiceoverEnabled) {
-          /* A prepared file cannot be re-made, so an unreadable one is an
-             error the creator has to answer. A generated line can be: the
-             script and the narrator this scene has now are all the renderer
-             needs, and synthesising it is better than exporting whatever
-             older file happened to still be attached. */
-          if (s.audio_url && speaksHere && isPreparedVoiceoverId(s.voice_id)) {
-            throw new Error(`The saved audio for scene ${i + 1} could not be loaded. Re-import or regenerate that track.`);
+        if (!speaksHere) continue;
+        const sceneIndex = i;
+        narrationTasks.push(async () => {
+          if (abortControllerRef.current) throw new Error("Render cancelled");
+          let resolved = await resolveSceneAudioBuffer(s, audioCtx);
+          if (!resolved && voiceoverEnabled) {
+            /* A prepared file cannot be re-made, so an unreadable one is an
+               error the creator has to answer. A generated line can be: the
+               script and the narrator this scene has now are all the renderer
+               needs, and synthesising it is better than exporting whatever
+               older file happened to still be attached. */
+            if (s.audio_url && speaksHere && isPreparedVoiceoverId(s.voice_id)) {
+              throw new Error(`The saved audio for scene ${sceneIndex + 1} could not be loaded. Re-import or regenerate that track.`);
+            }
+            if (spokenText) {
+              const withTimeline = await fetchSceneAudioWithTimeline(spokenText, sceneVoice, { timeoutMs: 20000 });
+              if (!withTimeline) throw new Error(`Speechify returned no audio for scene ${sceneIndex + 1}.`);
+              const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
+              const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
+              const blobUrl = URL.createObjectURL(blob);
+              await replaceSceneNarration(s.id, sceneVoice, spokenText, {
+                audioBuffer,
+                blobUrl,
+                duration: audioBuffer.duration,
+                voiceId: sceneVoice,
+                text: spokenText,
+                rawBuffer: withTimeline.rawBuffer,
+                blob,
+                words: withTimeline.words,
+              });
+              // The scene now describes the line that was actually exported —
+              // its narrator, its file and the length it needs — instead of
+              // keeping a pointer to the file this render just replaced.
+              const fitted = Math.max(1, Math.round((audioBuffer.duration + 0.35) * 10) / 10);
+              onUpdateScene?.(s.id, {
+                audio_url: blobUrl,
+                audio_name: `${resolveVoicePreset(sceneVoice)?.name || sceneVoice} Narration`,
+                voice_id: sceneVoice,
+                duration: fitted,
+                audio_duration: audioBuffer.duration,
+              });
+              resolved = {
+                buffer: audioBuffer,
+                duration: audioBuffer.duration,
+                url: blobUrl,
+                words: withTimeline.words,
+              };
+            }
           }
-          if (spokenText) {
-            const withTimeline = await fetchSceneAudioWithTimeline(spokenText, sceneVoice, { timeoutMs: 20000 });
-            if (!withTimeline) throw new Error(`Speechify returned no audio for scene ${i + 1}.`);
-            const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
-            const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
-            const blobUrl = URL.createObjectURL(blob);
-            await replaceSceneNarration(s.id, sceneVoice, spokenText, {
-              audioBuffer,
-              blobUrl,
-              duration: audioBuffer.duration,
-              voiceId: sceneVoice,
-              text: spokenText,
-              rawBuffer: withTimeline.rawBuffer,
-              blob,
-              words: withTimeline.words,
+          if (resolved) {
+            audioBuffers.set(s.id, {
+              buffer: resolved.buffer,
+              duration: resolved.duration,
+              words: resolved.words && resolved.words.length > 0 ? resolved.words : undefined,
             });
-            // The scene now describes the line that was actually exported —
-            // its narrator, its file and the length it needs — instead of
-            // keeping a pointer to the file this render just replaced.
-            const fitted = Math.max(1, Math.round((audioBuffer.duration + 0.35) * 10) / 10);
-            onUpdateScene?.(s.id, {
-              audio_url: blobUrl,
-              audio_name: `${resolveVoicePreset(sceneVoice)?.name || sceneVoice} Narration`,
-              voice_id: sceneVoice,
-              duration: fitted,
-              audio_duration: audioBuffer.duration,
-            });
-            resolved = {
-              buffer: audioBuffer,
-              duration: audioBuffer.duration,
-              url: blobUrl,
-              words: withTimeline.words,
-            };
+          } else if (spokenText) {
+            throw new Error(`No narration audio is available for scene ${sceneIndex + 1}.`);
           }
-        }
-        if (resolved) {
-          audioBuffers.set(s.id, {
-            buffer: resolved.buffer,
-            duration: resolved.duration,
-            words: resolved.words && resolved.words.length > 0 ? resolved.words : undefined,
-          });
-        } else if (spokenText) {
-          throw new Error(`No narration audio is available for scene ${i + 1}.`);
-        }
+        });
+      }
 
-        reportProgress(0.08 + (i / scenesWithImages.length) * 0.18);
+      if (narrationTasks.length > 0) {
+        let nextTask = 0;
+        let completedTasks = 0;
+        await Promise.all(
+          Array.from({ length: Math.min(3, narrationTasks.length) }, async () => {
+            while (nextTask < narrationTasks.length) {
+              const run = narrationTasks[nextTask++];
+              await run();
+              completedTasks += 1;
+              reportProgress(0.08 + (completedTasks / narrationTasks.length) * 0.18);
+            }
+          })
+        );
       }
 
       // Build the immutable timeline before constructing either audio graph. Both
@@ -1203,8 +1230,28 @@ export default function RenderView({
       const finishSuccessfulExport = async (
         finalBlob: Blob,
         recordedContainer: "mp4" | "webm",
-        fallbackMime: string
+        fallbackMime: string,
+        engineUsed: "frame-exact" | "compatibility",
+        encoderStats?: OfflineExportStats | null,
+        recordedFrames?: number | null
       ): Promise<{ blob: Blob; container: "mp4" | "webm"; durableVaultCopy: boolean }> => {
+        reportProgress(0.985);
+        reportStage("4/4: Verifying output resolution, frame rate & audio sync…");
+        const validation = await validateFinishedExport(finalBlob, {
+          expectedWidth: width,
+          expectedHeight: height,
+          expectedFps: fpsUsed,
+          expectedDurationSec: estimatedTotalDuration,
+          expectedFrames: totalFrameCount(estimatedTotalDuration, fpsUsed),
+          engine: engineUsed,
+          encoderStats: encoderStats ?? null,
+          recordedFrames: recordedFrames ?? null,
+        });
+        if (!validation.ok) {
+          throw new Error(`Export validation failed: ${validation.errors.join(" ")}`);
+        }
+        setExportValidation(validation);
+
         // A finished render is free. It goes into the Vault, and each
         // download from there is what counts against the plan.
         let finishedBlob = finalBlob;
@@ -1219,10 +1266,10 @@ export default function RenderView({
               ? `${project?.title || "Untitled render"} — ${plan.label}`
               : project?.title || "Untitled render",
             mimeType: finalBlob.type || fallbackMime,
-            durationSec: estimatedTotalDuration,
-            width,
-            height,
-            label: `${resolutionToken(width, height)} · ${fpsUsed}fps CFR · ${recordedContainer.toUpperCase()} · ${getQualityLevel(settings.quality).name}`,
+            durationSec: validation.durationSec,
+            width: validation.width,
+            height: validation.height,
+            label: `${resolutionToken(validation.width, validation.height)} · ${Math.round(validation.fps)}fps CFR · ${recordedContainer.toUpperCase()} · ${getQualityLevel(settings.quality).name}`,
             // Provenance for the download that follows: the server keeps the
             // duration and format it authorised, so the Vault can count what
             // was actually rendered instead of trusting a retyped number.
@@ -1282,11 +1329,19 @@ export default function RenderView({
       const clipPool = new ClipPool();
       clipPoolRef.current = clipPool;
 
+      // Request ~1.45× pixel headroom so Ken Burns zoom (up to 1.44×) and 9:16
+      // crops sample native stock-photo pixels rather than upscaling 1080p URLs.
+      const targetImageWidth = Math.ceil(width * 1.45);
+      const targetImageHeight = Math.ceil(height * 1.45);
+
       const loadWindowImage = (index: number): Promise<void> => {
         if (index < 0 || index >= scenesWithImages.length || images[index]) return Promise.resolve();
         const inFlight = imageLoads.get(index);
         if (inFlight) return inFlight;
-        const task = loadSceneImage(scenesWithImages[index].image_url || "", index)
+        const task = loadSceneImage(scenesWithImages[index].image_url || "", index, {
+          minWidth: targetImageWidth,
+          minHeight: targetImageHeight,
+        })
           .then((result) => {
             if (!result) return;
             images[index] = result.img as RenderImage;
@@ -1326,10 +1381,19 @@ export default function RenderView({
         if (safeCenter === visualWindowCenter) return visualWindowTask;
         visualWindowCenter = safeCenter;
         visualWindowTask = (async () => {
-          const keep = [safeCenter - 1, safeCenter, safeCenter + 1].filter(
+          const immediate = [safeCenter - 1, safeCenter, safeCenter + 1].filter(
             (index) => index >= 0 && index < scenesWithImages.length,
           );
-          await Promise.all(keep.flatMap((index) => [loadWindowImage(index), loadWindowClip(index)]));
+          await Promise.all(immediate.flatMap((index) => [loadWindowImage(index), loadWindowClip(index)]));
+
+          // Kick off background lookahead prefetch for scene +2 so high-res
+          // masters stream in while the current scene encodes.
+          const lookaheadIndex = safeCenter + 2;
+          const keep =
+            lookaheadIndex < scenesWithImages.length ? [...immediate, lookaheadIndex] : immediate;
+          if (lookaheadIndex < scenesWithImages.length) {
+            void loadWindowImage(lookaheadIndex);
+          }
 
           // Do not release the old window until the new one is ready: a slow
           // network image can never create a black gap at a scene boundary.
@@ -1846,8 +1910,10 @@ export default function RenderView({
                whole, so a file left over from a longer voice (or a scene
                re-timed shorter) used to run on over the next scene — and, at
                the end of the video, past the last frame. */
+            const speechStart = entry.startTime + entry.speechOffset;
+            offlineMastering.primeVoiceEntrance?.(speechStart);
             startVoiceSource(offlineCtx, item.buffer, offlineEcho ? offlineEcho.input : voiceAnalyser, {
-              whenSeconds: entry.startTime + entry.speechOffset,
+              whenSeconds: speechStart,
               durationSeconds: Math.max(0.05, entry.duration - entry.speechOffset),
             });
           }
@@ -2093,6 +2159,8 @@ export default function RenderView({
           renderTimer.note("output storage", offlineEncoder.outputStorageDetail);
           renderTimer.note("audio telemetry", `${(telemetry.byteLength / 1_048_576).toFixed(1)} MB packed`);
           renderTimer.note("visual assets", "bounded 3-scene decode window");
+          const exportStats = offlineEncoder.getExportStats();
+          renderTimer.note("verified output", `${exportStats.codedWidth}x${exportStats.codedHeight} · ${exportStats.effectiveFps}fps`);
           const timingReport = renderTimer.format();
           console.log(timingReport);
           setRenderTiming(timingReport);
@@ -2102,7 +2170,13 @@ export default function RenderView({
           offlineInsertMixer.dispose();
           setRenderEngine("frame-exact");
           setOfflineFailureReason(null);
-          const finished = await finishSuccessfulExport(offlineBlob, offlineContainer, offlineBlob.type);
+          const finished = await finishSuccessfulExport(
+            offlineBlob,
+            offlineContainer,
+            offlineBlob.type,
+            "frame-exact",
+            exportStats
+          );
           if (finished.durableVaultCopy) {
             await offlineEncoder.releaseOutputStorage();
           }
@@ -2481,6 +2555,7 @@ export default function RenderView({
       let lastProgressVal = 0.35;
       let lastResumeAttempt = 0;
       let realTimeAssetScene = 0;
+      let compatibilityPaintedFrames = 0;
 
       // Frame drawing loop with robust error boundaries and background tab resilience.
       //
@@ -2603,6 +2678,7 @@ export default function RenderView({
               clipPool.seekToProgress(clipEntry.scene, Math.min(1, elapsed / Math.max(0.1, clipEntry.duration)), clipEntry.duration);
             }
             drawFrameAt(currentGlobalTime, audioFrame);
+            compatibilityPaintedFrames += 1;
           } catch (frameErr) {
             console.error("Frame render recoverable error:", frameErr);
           }
@@ -2618,7 +2694,14 @@ export default function RenderView({
       const finalBlob = await videoPromise;
       stopScheduledAudio();
 
-      return await finishSuccessfulExport(finalBlob, recordedContainer, mimeType || "video/webm");
+      return await finishSuccessfulExport(
+        finalBlob,
+        recordedContainer,
+        mimeType || "video/webm",
+        "compatibility",
+        null,
+        compatibilityPaintedFrames
+      );
     } catch (err: any) {
       const message = err?.message || "Failed to render video";
       if (abortControllerRef.current || message === "Render cancelled") {
@@ -3821,8 +3904,8 @@ export default function RenderView({
               ) : (
                 <div className="space-y-3">
                   <div className="p-3 bg-green-950/50 border border-green-800/80 rounded-xl text-green-300 text-xs flex items-center justify-between gap-2 flex-wrap">
-                    <span className="flex items-center gap-2 font-medium">
-                      <Icon glyph="✅" /> Video rendered successfully! Format: {renderedContainer.toUpperCase()} · {resLabel}
+                    <span className="flex items-center gap-2 font-medium flex-wrap">
+                      <Icon glyph="✅" /> Video rendered successfully! Format: {renderedContainer.toUpperCase()} · {exportValidation ? exportValidation.summary : resLabel}
                       <span className={`ml-1 px-2 py-0.5 rounded-full border text-[9px] font-bold ${
                         renderEngine === "frame-exact"
                           ? "bg-emerald-900 border-emerald-600 text-emerald-100"
@@ -3830,6 +3913,11 @@ export default function RenderView({
                       }`}>
                         {renderEngine === "frame-exact" ? "FRAME-EXACT WEBCODECS" : "REAL-TIME FALLBACK"}
                       </span>
+                      {exportValidation?.ok && (
+                        <span className="px-2 py-0.5 rounded-full border border-teal-500/70 bg-teal-950/80 text-teal-100 text-[9px] font-bold">
+                          VERIFIED OUTPUT
+                        </span>
+                      )}
                     </span>
                     <button
                       type="button"

@@ -19,6 +19,20 @@ async function ensureBillingCustomersTable(): Promise<void> {
   ).run();
 }
 
+/** Execute a billing_customers query directly with zero DDL round-trips on
+ *  migrated databases, self-healing transparently if migration 0006 is absent. */
+async function withBillingCustomersTable<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    if (/no such table:\s*billing_customers/i.test(String(err?.message || err))) {
+      await ensureBillingCustomersTable();
+      return fn();
+    }
+    throw err;
+  }
+}
+
 export type UserRole = "user" | "admin";
 
 export interface User {
@@ -813,6 +827,19 @@ export const db = {
     const row = await env().DB.prepare("SELECT * FROM complimentary_grants WHERE user_id = ? AND status = 'active' AND ends_at > ? ORDER BY ends_at DESC LIMIT 1").bind(userId, nowSql()).first();
     return row ? rowToComplimentaryGrant(row) : null;
   },
+  /** Per-user entitlement read backed by idx_complimentary_grants_user(user_id, status),
+   *  lazily marking only this user's elapsed rows expired instead of locking the
+   *  whole table on every authenticated request. */
+  async findAndSweepActiveComplimentaryGrant(userId: string): Promise<ComplimentaryGrant | null> {
+    const now = nowSql();
+    const result = await env().DB.prepare("SELECT * FROM complimentary_grants WHERE user_id = ? AND status = 'active' ORDER BY ends_at DESC").bind(userId).all();
+    const rows: ComplimentaryGrant[] = (result.results || []).map(rowToComplimentaryGrant);
+    if (rows.length === 0) return null;
+    if (rows.some((grant) => grant.endsAt <= now)) {
+      await env().DB.prepare("UPDATE complimentary_grants SET status = 'expired' WHERE user_id = ? AND status = 'active' AND ends_at <= ?").bind(userId, now).run();
+    }
+    return rows.find((grant) => grant.endsAt > now) || null;
+  },
   /** Bulk counterpart of findActiveComplimentaryGrant (see
    *  listActiveMemberships for why): every active, unexpired grant, latest
    *  end date first — take the first row per user_id for the same result. */
@@ -875,34 +902,37 @@ export const db = {
    *  checkout `tags`, so that later subscription webhooks can still be matched.
    *  Mapping alone never grants a plan; only a subscription event does. */
   async upsertBillingCustomer(row: { provider: string; providerCustomerId: string; userId: string; email: string; lastEventAt: string | null }): Promise<void> {
-    await ensureBillingCustomersTable();
     /* The WHERE on the update half is what makes a late redelivery harmless:
        an event older than the newest one already applied changes nothing. */
-    await env().DB.prepare(
-      `INSERT INTO billing_customers (provider, provider_customer_id, user_id, email, last_event_at, created_at, updated_at)
+    await withBillingCustomersTable(() =>
+      env().DB.prepare(
+        `INSERT INTO billing_customers (provider, provider_customer_id, user_id, email, last_event_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(provider, provider_customer_id) DO UPDATE SET user_id = excluded.user_id, email = excluded.email, last_event_at = excluded.last_event_at, updated_at = excluded.updated_at
        WHERE billing_customers.last_event_at IS NULL OR billing_customers.last_event_at < excluded.last_event_at`
-    ).bind(row.provider, row.providerCustomerId, row.userId, row.email, row.lastEventAt, nowIso(), nowIso()).run();
+      ).bind(row.provider, row.providerCustomerId, row.userId, row.email, row.lastEventAt, nowIso(), nowIso()).run()
+    );
   },
   /** One customer-id mapping for `provider` (defaults to `"fastspring"`). */
   async findBillingCustomer(providerCustomerId: string, provider?: string): Promise<{ userId: string; email: string } | null> {
-    await ensureBillingCustomersTable();
-    const row = provider
-      ? await env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? AND provider = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId, provider).first()
-      : await env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId).first();
-    return row ? { userId: String(row.user_id), email: String(row.email) } : null;
+    const row = await withBillingCustomersTable(() =>
+      provider
+        ? env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? AND provider = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId, provider).first()
+        : env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId).first()
+    );
+    return row ? { userId: String((row as any).user_id), email: String((row as any).email) } : null;
   },
   async findBillingCustomerByUser(userId: string, email?: string, provider = "fastspring"): Promise<{ providerCustomerId: string; userId: string; email: string } | null> {
-    await ensureBillingCustomersTable();
     const cleanEmail = String(email || "").trim().toLowerCase();
-    const row = cleanEmail
-      ? await env().DB.prepare(
-          "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = ? AND (user_id = ? OR lower(email) = ?) ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, updated_at DESC LIMIT 1"
-        ).bind(provider, userId, cleanEmail, userId).first()
-      : await env().DB.prepare(
-          "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = ? AND user_id = ? ORDER BY updated_at DESC LIMIT 1"
-        ).bind(provider, userId).first();
+    const row = await withBillingCustomersTable(() =>
+      cleanEmail
+        ? env().DB.prepare(
+            "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = ? AND (user_id = ? OR lower(email) = ?) ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, updated_at DESC LIMIT 1"
+          ).bind(provider, userId, cleanEmail, userId).first()
+        : env().DB.prepare(
+            "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = ? AND user_id = ? ORDER BY updated_at DESC LIMIT 1"
+          ).bind(provider, userId).first()
+    );
     return row ? { providerCustomerId: String((row as any).provider_customer_id), userId: String((row as any).user_id), email: String((row as any).email) } : null;
   },
   async listSubscriptionsForUser(userId: string): Promise<Subscription[]> {

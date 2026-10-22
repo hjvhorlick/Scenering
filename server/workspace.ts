@@ -22,6 +22,7 @@ import { platformRateLimit, requirePlatformUser } from "./platform.ts";
 
 const MAX_DOCUMENTS_PER_REQUEST = 200;
 const MAX_WORKSPACE_BYTES = 8 * 1024 * 1024;
+const SYNC_CONCURRENCY = 8;
 
 type Auth = { user: { id: string }; plan: string };
 
@@ -52,6 +53,7 @@ export function registerWorkspaceRoutes(app: Express) {
         limits: { maxConcurrentDevices: config.limits.maxConcurrentDevices },
       });
     } catch (error: any) {
+      console.error("[workspace] listWorkspaceDocuments failed:", error?.message || error);
       return res.status(500).json({ error: "Your workspace could not be loaded." });
     }
   }));
@@ -64,11 +66,12 @@ export function registerWorkspaceRoutes(app: Express) {
     if (!incoming) return res.status(400).json({ error: "documents must be an array" });
     if (incoming.length > MAX_DOCUMENTS_PER_REQUEST) return res.status(413).json({ error: "Too many documents in one request." });
 
-    const accepted: Array<{ key: string; revision: number }> = [];
-    const conflicts: Array<{ key: string; document: ReturnType<typeof apiDocument> | null }> = [];
+    type ValidWrite = { index: number; key: string; body: string; baseRevision: number; deleted: boolean; oversize: boolean };
+    const writes: ValidWrite[] = [];
     let bytes = 0;
 
-    for (const candidate of incoming) {
+    for (let i = 0; i < incoming.length; i++) {
+      const candidate = incoming[i];
       const key = candidate?.key;
       if (!validKey(key)) continue;
       const deleted = candidate?.deleted === true;
@@ -76,16 +79,61 @@ export function registerWorkspaceRoutes(app: Express) {
       if (!deleted && body === null) continue;
       bytes += (body || "").length;
       if (bytes > MAX_WORKSPACE_BYTES) return res.status(413).json({ error: "This workspace update is too large." });
-      if (!deleted && (body as string).length > MAX_SYNC_DOCUMENT_BYTES) {
-        // Too big to carry: it stays on the device that made it. Reported as a
-        // conflict with no document so the client stops retrying it.
-        conflicts.push({ key, document: null });
-        continue;
-      }
       const baseRevision = Number.isFinite(Number(candidate?.baseRevision)) ? Math.max(0, Math.trunc(Number(candidate.baseRevision))) : 0;
-      const result = await db.putWorkspaceDocumentIfRevision(user.id, key, body ?? "", baseRevision, { deleted, deviceId });
-      if (result.ok && result.document) accepted.push({ key, revision: result.document.revision });
-      else conflicts.push({ key, document: result.document ? apiDocument(result.document) : null });
+      writes.push({
+        index: i,
+        key,
+        body: body ?? "",
+        baseRevision,
+        deleted,
+        oversize: !deleted && (body as string).length > MAX_SYNC_DOCUMENT_BYTES,
+      });
+    }
+
+    // Group by key so same-key updates remain sequential while distinct
+    // project/scene documents write to D1 concurrently.
+    const byKey = new Map<string, ValidWrite[]>();
+    for (const w of writes) {
+      const list = byKey.get(w.key);
+      if (list) list.push(w);
+      else byKey.set(w.key, [w]);
+    }
+
+    type Outcome = { kind: "accepted"; key: string; revision: number } | { kind: "conflict"; key: string; document: ReturnType<typeof apiDocument> | null };
+    const outcomes = new Map<number, Outcome>();
+    const chains = Array.from(byKey.values());
+    let cursor = 0;
+    const workerCount = Math.min(SYNC_CONCURRENCY, chains.length);
+
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (cursor < chains.length) {
+          const chain = chains[cursor++];
+          for (const item of chain) {
+            if (item.oversize) {
+              // Too big to carry: it stays on the device that made it. Reported as a
+              // conflict with no document so the client stops retrying it.
+              outcomes.set(item.index, { kind: "conflict", key: item.key, document: null });
+              continue;
+            }
+            const result = await db.putWorkspaceDocumentIfRevision(user.id, item.key, item.body, item.baseRevision, { deleted: item.deleted, deviceId });
+            if (result.ok && result.document) {
+              outcomes.set(item.index, { kind: "accepted", key: item.key, revision: result.document.revision });
+            } else {
+              outcomes.set(item.index, { kind: "conflict", key: item.key, document: result.document ? apiDocument(result.document) : null });
+            }
+          }
+        }
+      })
+    );
+
+    const accepted: Array<{ key: string; revision: number }> = [];
+    const conflicts: Array<{ key: string; document: ReturnType<typeof apiDocument> | null }> = [];
+    for (const w of writes) {
+      const outcome = outcomes.get(w.index);
+      if (!outcome) continue;
+      if (outcome.kind === "accepted") accepted.push({ key: outcome.key, revision: outcome.revision });
+      else conflicts.push({ key: outcome.key, document: outcome.document });
     }
 
     return res.json({ accepted, conflicts });

@@ -210,11 +210,11 @@ export default function VideoPreview({
   const currentPlayheadTimeRef = useRef(currentPlayheadTime);
 
   const aspectConfig = {
-    "16:9": { w: 1280, h: 720, cssClass: "w-full aspect-video" },
-    "9:16": { w: 720, h: 1280, cssClass: "aspect-[9/16] max-h-[520px] mx-auto" },
+    "16:9": { w: 1920, h: 1080, cssClass: "w-full aspect-video" },
+    "9:16": { w: 1080, h: 1920, cssClass: "aspect-[9/16] max-h-[520px] mx-auto" },
     "1:1": { w: 1080, h: 1080, cssClass: "aspect-square max-h-[520px] mx-auto" },
-    "4:3": { w: 960, h: 720, cssClass: "aspect-[4/3] max-h-[520px] mx-auto" },
-  }[aspectRatio || "16:9"] || { w: 1280, h: 720, cssClass: "w-full aspect-video" };
+    "4:3": { w: 1440, h: 1080, cssClass: "aspect-[4/3] max-h-[520px] mx-auto" },
+  }[aspectRatio || "16:9"] || { w: 1920, h: 1080, cssClass: "w-full aspect-video" };
 
   useEffect(() => {
     if (propSelectedVoice) {
@@ -981,8 +981,10 @@ export default function VideoPreview({
     if (!videoStoreReady || isPlaying || scenesWithImages.length === 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false }) || canvas.getContext("2d");
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
 
     const scrubTime = currentPlayheadTime;
     const introSec = activeIntro;
@@ -1222,8 +1224,10 @@ export default function VideoPreview({
 
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false }) || canvas.getContext("2d");
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
 
     const images = await Promise.all(
       scenesWithImages.map((s, i) => loadImage(s.image_url || "", i))

@@ -1,5 +1,6 @@
 import { httpServerHandler } from "cloudflare:node";
 import { createApp } from "./server";
+import { checkDatabaseSchema } from "./server/platform.ts";
 import { setEnv } from "./src/env";
 import type { Env } from "./src/env";
 import { audioStore } from "./src/audio-store";
@@ -30,6 +31,23 @@ export default {
     // the app (server.ts, server/platform.ts, ...) can read them through
     // `env()` instead of threading `env` through every function call.
     setEnv(env);
+
+    // Refuse API traffic at the edge with an actionable 503 instead of a bare
+    // 500 when code reaches production ahead of its D1 migrations. Cheap
+    // (PRAGMA table_info) and cached once per isolate once the schema passes.
+    const { pathname } = new URL(request.url);
+    if (pathname === "/api" || pathname.startsWith("/api/") || pathname.startsWith("/functions/v1/")) {
+      const schemaProblem = await checkDatabaseSchema();
+      if (schemaProblem) {
+        return new Response(JSON.stringify(schemaProblem), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+    }
 
     if (!nodeHandler) {
       const app = createApp();
