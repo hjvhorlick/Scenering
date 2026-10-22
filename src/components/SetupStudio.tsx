@@ -733,7 +733,13 @@ export default function SetupStudio({
     setUploading(true);
     setUploadError(null);
     try {
-      const clip = await addCustomVideo(file);
+      const replaceIds = [
+        uploadedClip?.id,
+        existingClipScene?.video_url?.startsWith(CUSTOM_VIDEO_PREFIX)
+          ? existingClipScene.video_url.slice(CUSTOM_VIDEO_PREFIX.length)
+          : null,
+      ].filter((id): id is string => Boolean(id));
+      const clip = await addCustomVideo(file, { replaceIds });
       setUploadedClip(clip);
       handleSelectVideoSource();
       onAttachSingleSceneClip?.({

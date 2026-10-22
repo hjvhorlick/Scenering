@@ -181,7 +181,10 @@ const LONG_SCRIPT = Array.from(
 
   const lib = read("src/lib/custom-video.ts");
   ok(lib.includes("indexedDB.open"), "uploads are kept in IndexedDB so they survive a reload");
-  ok(!lib.includes("localStorage"), "a video file never goes into localStorage");
+  ok(
+    !lib.includes("localStorage.setItem") && lib.includes("localStorage.getItem"),
+    "video bytes never enter localStorage; it is read only to protect project references during orphan cleanup"
+  );
   ok(lib.includes("scenering-video"), "the video store has its own database, away from the music store");
   const music = read("src/lib/custom-music.ts");
   ok(

@@ -23,7 +23,7 @@ import { sectionPreviewShape } from "../lib/section-preview-size";
 import Icon, { iconify } from "./icons/Icon";
 import { addCustomImage } from "../lib/custom-image";
 import { addCustomMusic, CUSTOM_MUSIC_PREFIX } from "../lib/custom-music";
-import { addCustomVideo, CUSTOM_VIDEO_PREFIX } from "../lib/custom-video";
+import { addCustomVideo, CUSTOM_VIDEO_PREFIX, removeCustomVideo } from "../lib/custom-video";
 import {
   AUDIO_UPLOAD_ACCEPT,
   IMAGE_OR_VIDEO_UPLOAD_ACCEPT,
@@ -175,12 +175,19 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
     if (!file) return;
     void runUpload("media", async () => {
       const classified = assertMediaFile(file, ["video", "image"]);
+      const previousId = cfgRef.current.backgroundKind === "video" &&
+        cfgRef.current.mediaUrl?.startsWith(CUSTOM_VIDEO_PREFIX)
+        ? cfgRef.current.mediaUrl.slice(CUSTOM_VIDEO_PREFIX.length)
+        : null;
       if (classified.kind === "video") {
-        const clip = await addCustomVideo(classified.file);
+        const clip = await addCustomVideo(classified.file, {
+          replaceIds: previousId ? [previousId] : [],
+        });
         update({ backgroundKind: "video", mediaUrl: `${CUSTOM_VIDEO_PREFIX}${clip.id}`, mediaName: clip.name });
       } else {
         const image = await addCustomImage(classified.file);
         update({ backgroundKind: "image", mediaUrl: image.url, mediaName: image.asset.name });
+        if (previousId) await removeCustomVideo(previousId);
       }
       setRestartKey((k) => k + 1);
     });

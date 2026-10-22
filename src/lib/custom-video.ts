@@ -56,9 +56,16 @@ interface CustomVideoRecord extends CustomVideoClip {
 
 /** id -> live object URL for this page load. */
 const objectUrls = new Map<string, string>();
+/** New unsaved UI state is not visible in localStorage yet; never prune it. */
+const createdThisSession = new Set<string>();
 let clips: CustomVideoClip[] = [];
 let loaded = false;
 let loadPromise: Promise<CustomVideoClip[]> | null = null;
+
+export interface AddCustomVideoOptions {
+  /** Existing clips this upload replaces, deleted atomically with the new put. */
+  replaceIds?: readonly string[];
+}
 
 function browserHasIdb(): boolean {
   return typeof indexedDB !== "undefined" && typeof Blob !== "undefined";
@@ -98,6 +105,153 @@ function idbRequest<T>(request: IDBRequest<T>): Promise<T | null> {
 function stripBlob(record: CustomVideoRecord): CustomVideoClip {
   const { blob: _blob, ...rest } = record;
   return rest;
+}
+
+function forgetInMemory(id: string): void {
+  const url = objectUrls.get(id);
+  if (url) {
+    try { URL.revokeObjectURL(url); } catch {}
+    objectUrls.delete(id);
+  }
+  createdThisSession.delete(id);
+  clips = clips.filter((clip) => clip.id !== id);
+}
+
+function videoReferenceCounts(): Map<string, number> | null {
+  const counts = new Map<string, number>();
+  if (typeof localStorage === "undefined") return counts;
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key) continue;
+      const value = localStorage.getItem(key);
+      if (!value || !value.includes(CUSTOM_VIDEO_PREFIX)) continue;
+      for (const match of value.matchAll(/custom-video:(cv_[a-z0-9_]+)/gi)) {
+        if (match[1]) counts.set(match[1], (counts.get(match[1]) || 0) + 1);
+      }
+    }
+    return counts;
+  } catch {
+    // Without a trustworthy reference scan, delete nothing.
+    return null;
+  }
+}
+
+function referencedVideoIds(): Set<string> {
+  const counts = videoReferenceCounts();
+  return counts
+    ? new Set(counts.keys())
+    : new Set(clips.map((clip) => clip.id));
+}
+
+interface StoreResult {
+  ok: boolean;
+  error: Error | null;
+}
+
+/** Delete replacements and save their successor in one rollback-safe commit. */
+function storeVideoRecord(
+  db: IDBDatabase,
+  record: CustomVideoRecord,
+  replaceIds: readonly string[]
+): Promise<StoreResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let failure: Error | null = null;
+    const finish = (result: StoreResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    try {
+      const tx = db.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+      for (const id of replaceIds) {
+        if (id && id !== record.id) store.delete(id);
+      }
+      const put = store.put(record);
+      put.onerror = () => {
+        failure = put.error || new Error("The browser refused the video write.");
+      };
+      tx.oncomplete = () => finish({ ok: true, error: null });
+      tx.onerror = () => {
+        failure = tx.error || failure || new Error("The video storage transaction failed.");
+      };
+      tx.onabort = () => finish({
+        ok: false,
+        error: tx.error || failure || new Error("The video storage transaction was aborted."),
+      });
+    } catch (error) {
+      finish({ ok: false, error: error instanceof Error ? error : new Error(String(error)) });
+    }
+  });
+}
+
+/**
+ * Reclaim old uploads that no saved project references. This runs only after a
+ * quota failure; normal uploads never scan or delete the customer's library.
+ */
+async function pruneOrphanedVideos(
+  db: IDBDatabase,
+  keepIds: ReadonlySet<string>
+): Promise<number> {
+  let keys: IDBValidKey[] = [];
+  try {
+    const tx = db.transaction(STORE, "readonly");
+    keys = (await idbRequest<IDBValidKey[]>(tx.objectStore(STORE).getAllKeys())) || [];
+  } catch {
+    return 0;
+  }
+
+  const referenced = referencedVideoIds();
+  const orphanIds = keys
+    .map((key) => String(key))
+    .filter((id) =>
+      id.startsWith("cv_") &&
+      !referenced.has(id) &&
+      !createdThisSession.has(id) &&
+      !keepIds.has(id)
+    );
+  if (orphanIds.length === 0) return 0;
+
+  const deleted = await new Promise<boolean>((resolve) => {
+    try {
+      const tx = db.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+      for (const id of orphanIds) store.delete(id);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    } catch {
+      resolve(false);
+    }
+  });
+  if (!deleted) return 0;
+  for (const id of orphanIds) forgetInMemory(id);
+  return orphanIds.length;
+}
+
+function isQuotaError(error: Error | null): boolean {
+  return Boolean(error && /quota|space|storage full|disk full|not enough storage/i.test(
+    `${error.name} ${error.message}`
+  ));
+}
+
+async function storageFailureMessage(fileSize: number, reclaimed: number): Promise<string> {
+  let capacity = "";
+  try {
+    const estimate = await navigator.storage?.estimate?.();
+    if (estimate?.quota && typeof estimate.usage === "number") {
+      const usedMb = Math.round(estimate.usage / (1024 * 1024));
+      const quotaMb = Math.round(estimate.quota / (1024 * 1024));
+      const fileMb = Math.max(1, Math.round(fileSize / (1024 * 1024)));
+      capacity = ` This site is using about ${usedMb} MB of its ${quotaMb} MB allowance; this video needs ${fileMb} MB.`;
+    }
+  } catch {}
+  const reclaimedText = reclaimed > 0
+    ? ` ${reclaimed} unused saved video${reclaimed === 1 ? " was" : "s were"} cleared automatically, but there is still not enough room.`
+    : "";
+  return `The upload could not be saved because browser storage is full.${reclaimedText}${capacity} Remove old projects/site data or choose a smaller file, then try again.`;
 }
 
 /**
@@ -177,7 +331,10 @@ export class CustomVideoError extends Error {}
  * Stores one uploaded file and returns the clip the UI should show.
  * Throws CustomVideoError with a sentence fit to put on screen.
  */
-export async function addCustomVideo(file: File): Promise<CustomVideoClip> {
+export async function addCustomVideo(
+  file: File,
+  options: AddCustomVideoOptions = {}
+): Promise<CustomVideoClip> {
   if (!browserHasIdb()) {
     throw new CustomVideoError("This browser cannot store uploads. Try a normal (non-private) window.");
   }
@@ -228,39 +385,47 @@ export async function addCustomVideo(file: File): Promise<CustomVideoClip> {
     throw new CustomVideoError("Storage is unavailable, so the upload could not be saved.");
   }
 
-  const saved = await new Promise<boolean>((resolve) => {
-    try {
-      const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put(record);
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => resolve(false);
-      tx.onabort = () => resolve(false);
-    } catch {
-      resolve(false);
-    }
-  });
+  const requestedReplaceIds = [...new Set(
+    (options.replaceIds || []).filter((candidate) => candidate && candidate !== id)
+  )];
+  const referenceCounts = videoReferenceCounts();
+  // A duplicated scene/project can legitimately share one stored Blob. Only
+  // reclaim the predecessor when this is its sole saved reference (or when it
+  // has not been persisted yet); otherwise the other project keeps its file.
+  const replaceIds = referenceCounts
+    ? requestedReplaceIds.filter((candidate) => (referenceCounts.get(candidate) || 0) <= 1)
+    : [];
+  let result = await storeVideoRecord(db, record, replaceIds);
+  let reclaimed = 0;
 
-  if (!saved) {
-    throw new CustomVideoError("The upload could not be saved — browser storage may be full.");
+  // Repeated previews can leave large, unreachable Blobs behind. On a real
+  // quota failure, clear only uploads that no project references, then retry
+  // exactly once. Replacements stay protected until the atomic retry commits,
+  // so a failed new upload never destroys the currently attached footage.
+  if (!result.ok && isQuotaError(result.error)) {
+    reclaimed = await pruneOrphanedVideos(db, new Set(replaceIds));
+    if (reclaimed > 0) result = await storeVideoRecord(db, record, replaceIds);
   }
 
+  if (!result.ok) {
+    if (isQuotaError(result.error)) {
+      throw new CustomVideoError(await storageFailureMessage(file.size, reclaimed));
+    }
+    throw new CustomVideoError(
+      `The upload could not be saved in browser storage. (${result.error?.message || "storage write failed"})`
+    );
+  }
+
+  for (const replacedId of replaceIds) forgetInMemory(replacedId);
   objectUrls.set(id, URL.createObjectURL(uploadFile));
+  createdThisSession.add(id);
   clips.push(stripBlob(record));
   loaded = true;
   return stripBlob(record);
 }
 
 export async function removeCustomVideo(id: string): Promise<void> {
-  const url = objectUrls.get(id);
-  if (url) {
-    try {
-      URL.revokeObjectURL(url);
-    } catch {
-      /* already revoked */
-    }
-    objectUrls.delete(id);
-  }
-  clips = clips.filter((c) => c.id !== id);
+  forgetInMemory(id);
 
   const db = await openDb();
   if (!db) return;

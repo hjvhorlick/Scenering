@@ -179,8 +179,30 @@ for (const [path, probe] of [
   const source = read(path);
   h.ok(source.includes("assertMediaFile") && source.includes(probe), `${path.split("/").pop()} classifies and decodes through media-file.ts`);
 }
-h.ok(!/mkv\|avi/.test(read("src/lib/custom-video.ts")), "the video store no longer names MKV/AVI as acceptable");
-h.ok(read("src/lib/custom-video.ts").includes("no picture in it"), "an audio-only container is refused as a video upload");
+const videoStore = read("src/lib/custom-video.ts");
+h.ok(!/mkv\|avi/.test(videoStore), "the video store no longer names MKV/AVI as acceptable");
+h.ok(videoStore.includes("no picture in it"), "an audio-only container is refused as a video upload");
+h.ok(
+  videoStore.includes("replaceIds?: readonly string[]") &&
+    videoStore.includes("for (const id of replaceIds)") &&
+    videoStore.includes("store.delete(id)") &&
+    videoStore.includes("store.put(record)"),
+  "a replacement deletes the old Blob and writes the new one in the same rollback-safe transaction",
+);
+h.ok(
+  videoStore.includes("pruneOrphanedVideos") &&
+    videoStore.includes("referencedVideoIds") &&
+    videoStore.includes("videoReferenceCounts") &&
+    videoStore.includes("createdThisSession") &&
+    videoStore.includes("navigator.storage?.estimate?.()"),
+  "a quota failure reclaims only unreferenced uploads, preserves shared footage and reports the real allowance",
+);
+h.ok(
+  read("src/components/SetupStudio.tsx").includes("addCustomVideo(file, { replaceIds })") &&
+    read("src/lib/scene-clip-attach.ts").includes("replaceIds: replaceId ? [replaceId] : []") &&
+    read("src/components/SectionStudio.tsx").includes("replaceIds: previousId ? [previousId] : []"),
+  "Setup, scene clips and section backgrounds replace superseded videos instead of accumulating hidden copies",
+);
 h.ok(read("src/lib/media-file.ts").includes("Number.MAX_SAFE_INTEGER"), "the probe seeks to the end so infinite-duration WebM measures its real length");
 h.ok(!read("src/components/VoiceImportModal.tsx").includes("duration: 5"), "a voice import is never accepted with an invented 5-second length");
 h.ok(read("src/App.tsx").includes("loadCustomMusic()"), "uploaded music and section sounds are re-opened on start-up, not only when the music library mounts");
