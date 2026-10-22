@@ -36,6 +36,7 @@ import {
   supportsCentreLogo,
   isVisualizerFullWidth,
   pixabayBoxOf,
+  resolveCentreStyle,
   pixabayVisualizerShape,
   visualizerBodyHeight,
   getVisualizerFootprint,
@@ -51,8 +52,16 @@ import {
 } from "../src/lib/pixabay-styles";
 import {
   ADVANCED_VISUALIZER_TYPES,
+  advancedVisualizerSettings,
   isAdvancedLinearVisualizerType,
 } from "../src/lib/advanced-audio-visualizer";
+import {
+  drawBloomHalo,
+  drawBottomLight,
+  drawGlassBar,
+  drawSmokePuff,
+  resolveMaterialFinish,
+} from "../src/lib/visualizer-materials";
 import { VISUALIZER_PALETTES, resolveVisualizerPalette } from "../src/lib/visualizer-palettes";
 import type { TimelineInsert } from "../src/types";
 
@@ -1146,5 +1155,391 @@ for (const v of speechVisualisers) {
   h.eq(stretched[0].duration, 137, "whole-video music follows later duration changes");
   h.eq(stretched[1].duration, 137, "whole-video visualisers follow later duration changes");
 }
+
+
+/* ------------------------------------------------------------------ *
+ * Simple, working looks: glass, chrome, light, bloom and real gas
+ * ------------------------------------------------------------------ *
+ * These checks exist because every one of these controls was previously
+ * either invisible on screen or absent:
+ *   - the colour pickers were dead once a theme was chosen,
+ *   - the accent colour was mixed away to almost nothing,
+ *   - glass was milky and blurred instead of clear and crisp,
+ *   - "light from below" was too faint to see,
+ *   - bloom was a dim shadow rather than light,
+ *   - smoke was drawn as round balls.
+ */
+{
+  // The finish contract: one object decides the material for bars, orbs,
+  // strokes and gas. Chrome is a material, never a dull-metal gradient.
+  const glass = resolveMaterialFinish({ material: "glass", transparency: 0.9, frost: 0 });
+  h.eq(glass.material, "glass", "glass finish resolves to glass");
+  h.eq(glass.chrome, false, "glass is not chrome");
+  h.near(glass.transparency, 0.9, 0.0001, "glass transparency is passed through");
+  h.near(glass.frost, 0, 0.0001, "crystal glass has no frost");
+  const chrome = resolveMaterialFinish({ material: "chrome", transparency: 0.1, frost: 1 });
+  h.eq(chrome.chrome, true, "chrome finish is recognised");
+  h.near(chrome.frost, 1, 0.0001, "frost is clamped and kept");
+  h.eq(resolveMaterialFinish(undefined).transparency, 0.78, "glass defaults to a transparent pane");
+  h.eq(resolveMaterialFinish({ transparency: 9 }).transparency, 1, "transparency above 1 clamps to 1");
+  h.eq(resolveMaterialFinish({ transparency: -4 }).transparency, 0.15, "transparency below zero clamps to a solid pane");
+  h.eq(resolveMaterialFinish({ frost: -2 }).frost, 0, "frost below zero clamps to clear");
+  h.eq(resolveMaterialFinish({ frost: 7 }).frost, 1, "frost above one clamps to fully sandblasted");
+
+  // Clear glass is more transparent than sandblasted glass, and both keep a
+  // crisp rim: the body alpha falls, the rim stays visible.
+  const paintBar = (opts: Parameters<typeof drawGlassBar>[1]) => {
+    const { ctx, opsWithArgs } = createStubContext(400, 400);
+    drawGlassBar(ctx, opts);
+    return opsWithArgs.join("|");
+  };
+  const baseBar = {
+    x: 10, y: 20, width: 24, height: 220, primary: "#22d3ee", secondary: "#e879f9", accent: "#fef08a",
+  };
+  const clear = paintBar({ ...baseBar, transparency: 1, frost: 0 });
+  const solid = paintBar({ ...baseBar, transparency: 0.15, frost: 0 });
+  const frosted = paintBar({ ...baseBar, transparency: 1, frost: 1 });
+  h.ok(clear.includes("grad(") && solid.includes("grad("), "the glass bar fills with a gradient");
+  h.ok(clear !== solid, "the transparency slider changes what is painted");
+  h.ok(frosted !== clear, "the sandblast slider turns clear glass into frosted glass");
+  h.ok(clear.includes("#fef08a") || clear.includes("254, 240, 138"), "the highlight colour reaches the glass bar");
+  h.ok(clear.includes("stroke("), "the glass bar keeps a crisp rim stroke");
+  const chromeBar = paintBar({ ...baseBar, material: "chrome" });
+  h.ok(chromeBar !== clear, "chrome paints differently to glass");
+  h.ok(chromeBar.includes("rgba(") || chromeBar.includes("rgb("), "chrome is drawn from its own metallic stops");
+  h.ok(chromeBar.includes(", 1))"), "chrome is painted with fully opaque metal stops");
+
+  // Smoke is gas: a puff is many soft overlapping lobes, not one circle.
+  const paintPuff = (fuzz: number, size = 40) => {
+    const { ctx, ops, opsWithArgs } = createStubContext(400, 400);
+    drawSmokePuff(ctx, {
+      x: 0, y: 0, radius: size, primary: "#a855f7", secondary: "#22d3ee", accent: "#f0abfc",
+      fuzz, seed: 3, alpha: 0.2,
+    });
+    return { ops, opsWithArgs };
+  };
+  const tight = paintPuff(0);
+  const fuzzy = paintPuff(0.9);
+  h.ok(tight.ops.filter((op) => op === "ellipse").length >= 4, "a smoke puff is built from overlapping lobes");
+  h.ok(tight.ops.every((op) => op !== "arc"), "a smoke puff never falls back to drawing a round ball");
+  h.eq(tight.ops.length, fuzzy.ops.length, "the softness slider keeps the same number of lobes");
+  h.ok(tight.opsWithArgs.join("|") !== fuzzy.opsWithArgs.join("|"), "the softness slider changes the gas on screen");
+  h.ok(
+    paintPuff(0.6, 20).opsWithArgs.join("|") !== paintPuff(0.6, 80).opsWithArgs.join("|"),
+    "the cloud-size setting changes the gas on screen"
+  );
+
+  // Bloom is additive light, and its slider reaches it.
+  const paintBloom = (strength: number) => {
+    const { ctx, ops, opsWithArgs } = createStubContext(600, 600);
+    drawBloomHalo(ctx, { radius: 120, primary: "#22d3ee", accent: "#ffffff", strength });
+    return { ops, opsWithArgs };
+  };
+  const bloomOff = paintBloom(0);
+  const bloomMid = paintBloom(0.5);
+  const bloomFull = paintBloom(1);
+  h.eq(bloomOff.ops.length, 0, "bloom at 0 paints nothing at all");
+  h.ok(bloomMid.ops.includes("arc") && bloomMid.ops.includes("fill"), "bloom adds light around the shape");
+  h.eq((bloomMid.opsWithArgs.filter((o) => o.startsWith("grad(")) || []).length, 9, "bloom is three layered haloes of light");
+  h.ok(bloomFull.opsWithArgs.join("|") !== bloomMid.opsWithArgs.join("|"), "a brighter bloom really produces more light");
+
+  // Light from below: strong enough to see, gone at zero.
+  const paintLight = (intensity: number) => {
+    const { ctx, ops } = createStubContext(600, 400);
+    drawBottomLight(ctx, { y: 120, width: 240, primary: "#22d3ee", secondary: "#f43f5e", accent: "#ffffff", intensity });
+    return ops;
+  };
+  h.eq(paintLight(0).length, 0, "no bottom light is drawn when the slider is at zero");
+  h.ok(paintLight(0.7).includes("ellipse"), "light from below paints a pool under the effect");
+  h.ok(paintLight(0.7).includes("quadraticCurveTo"), "light from below also climbs as a shaft, not a faint smudge");
+
+  // The three colour settings each reach the pixels, distinctly.
+  const paintWithPalette = (visualOptions: Record<string, unknown>) => {
+    const item = makeInsert("fine_radial_bars", { visualOptions: { ...visualOptions } });
+    const frame = {
+      music: { values: new Array(64).fill(0.8), peaks: new Array(64).fill(0.9), energy: 0.8, low: 0.8, mid: 0.6, high: 0.4, beat: 0.7 },
+      voice: { values: [], peaks: [], energy: 0, low: 0, mid: 0, high: 0, beat: 0 },
+      all: { values: [], peaks: [], energy: 0, low: 0, mid: 0, high: 0, beat: 0 },
+    };
+    const { ctx, opsWithArgs } = createStubContext(1280, 720);
+    renderAudioVisualizer({ ctx, item, x: 640, y: 360, canvasWidth: 1280, canvasHeight: 720, elapsed: 2, frame: frame as never });
+    return opsWithArgs.join("|");
+  };
+  const custom = paintWithPalette({
+    colorTheme: "custom",
+    primaryColor: "#ff0000",
+    secondaryColor: "#00ff00",
+    accentColor: "#0000ff",
+  });
+  h.ok(custom.includes("255, 0, 0"), "the main colour is painted");
+  h.ok(custom.includes("0, 255, 0") || custom.includes("0,255,0"), "the second colour is painted");
+  h.ok(custom.includes("0, 0, 255") || custom.includes("0,0,255"), "the highlight colour is painted");
+  h.ok(
+    custom !== paintWithPalette({ colorTheme: "custom", primaryColor: "#ff0000", secondaryColor: "#00ff00", accentColor: "#00ff00" }),
+    "changing only the highlight colour changes the picture"
+  );
+
+  // Every new look control has a real effect in the engine.
+  const settingsFor = (visualOptions: Record<string, unknown>) => advancedVisualizerSettings(visualOptions as never);
+  h.eq(settingsFor({ visualizerMaterial: "chrome" }).material, "chrome", "the engine reads the chrome material");
+  h.eq(settingsFor({}).material, "glass", "the engine defaults to glass");
+  h.near(settingsFor({ glassTransparency: 0.25 }).glassTransparency, 0.25, 0.0001, "the engine reads the transparency");
+  h.near(settingsFor({ glassFrost: 0.8 }).glassFrost, 0.8, 0.0001, "the engine reads the sandblast");
+  h.near(settingsFor({ bottomLight: 0.9 }).bottomLight, 0.9, 0.0001, "the engine reads the bottom light");
+  h.near(settingsFor({ smokeSize: 2.2 }).smokeSize, 2.2, 0.0001, "the engine reads the cloud size");
+  h.near(settingsFor({ smokeFuzz: 0.9 }).smokeFuzz, 0.9, 0.0001, "the engine reads the cloud softness");
+  h.near(settingsFor({ glassFrost: 12 }).glassFrost, 1, 0.0001, "sandblast clamps to 1");
+  h.near(settingsFor({ glassTransparency: 0 }).glassTransparency, 0.15, 0.0001, "transparency clamps to a solid pane");
+
+  // The gas styles ship with gas defaults, and metals ship as chrome.
+  const smokeCard = VISUALISERS.find((v) => v.type === "smoke_bloom");
+  h.ok((smokeCard?.defaultVisualOptions?.smokeSize || 0) > 0, "smoke ships with a cloud size");
+  h.ok((smokeCard?.defaultVisualOptions?.smokeFuzz || 0) > 0.4, "smoke ships soft, like gas");
+  h.eq(
+    VISUALISERS.find((v) => v.type === "glitter_silver_vortex")?.defaultVisualOptions?.visualizerMaterial,
+    "chrome",
+    "the silver metal effect is polished chrome, never dull"
+  );
+  h.eq(
+    VISUALISERS.find((v) => v.type === "glass_orbit_bubbles")?.defaultVisualOptions?.glassTransparency,
+    0.92,
+    "glass bubbles ship almost fully see-through"
+  );
+
+  // The edit panel: one colour block, three working pickers, simple looks on
+  // top and the technical knobs folded away.
+  const modal = read("src/components/InsertPropertiesModal.tsx");
+  h.ok(!modal.includes("Color Customization for Audio Visualizers"), "the duplicated colour section is gone");
+  h.ok(!modal.includes("Quick 3D Color Themes"), "the unexplained quick-theme swatches are gone");
+  h.ok(!modal.includes("Reactivity Sensitivity"), "the dead sensitivity slider is gone");
+  h.ok(modal.includes('colorTheme: "custom"'), "changing a picker switches the insert to custom colours");
+  const mainColourPickers = (modal.match(/value=\{data\.visualOptions\?\.primaryColor \|\| "#38bdf8"\}/g) || []).length;
+  h.eq(mainColourPickers, 1, "there is exactly one main-colour picker");
+  for (const colour of ["primaryColor", "secondaryColor", "accentColor"]) {
+    h.ok(
+      new RegExp(`updateVisual\\(\\{\\s*${colour}: e\\.target\\.value,\\s*colorTheme: "custom"`).test(modal),
+      `${colour} is a working picker that takes over from the theme`
+    );
+  }
+  h.ok(modal.includes("SIMPLE_THEME_IDS"), "the theme list is trimmed to human-readable choices");
+  h.ok(!modal.includes("VISUALIZER_PALETTES.map"), "the full palette table is no longer dumped into the picker");
+  h.ok(modal.includes("Glass transparency") && modal.includes("Sandblast"), "glass has transparency and sandblast controls");
+  h.ok(modal.includes("Light from below") && modal.includes("Bloom"), "the light from below and bloom controls are visible");
+  h.ok(modal.includes("Cloud size") && modal.includes("Cloud softness"), "smoke has size and fuzziness controls");
+  h.ok(modal.includes("Polished chrome") && modal.includes("never dull"), "the metal option is explicitly polished chrome");
+  h.ok(
+    modal.includes("<details") && modal.includes("Advanced wave settings (optional)"),
+    "the technical wave settings are optional and folded away"
+  );
+  h.ok(
+    modal.indexOf("Advanced wave settings (optional)") < modal.indexOf("SLIDER_HINTS.attack"),
+    "attack/release sit inside the folded advanced section"
+  );
+}
+
+/* ------------------------------------------------- what sits in the middle */
+
+/*
+ * The middle of a round visualiser became a choice rather than a checkbox:
+ * the member's logo (with its own size), the glowing orb, or nothing at all.
+ * Old projects only carry `centreLogo`, so that is read — never rewritten.
+ */
+h.eq(resolveCentreStyle(makeInsert("audio_orb")), "logo", "the orb stage still shows the logo by default");
+h.eq(
+  resolveCentreStyle(makeInsert("audio_orb", { visualOptions: { centreLogo: false } })),
+  "orb",
+  "turning the old logo checkbox off keeps the orb's glowing core"
+);
+h.eq(resolveCentreStyle(makeInsert("px_ring_bars")), "none", "a circular analyser is still clean by default");
+h.eq(
+  resolveCentreStyle(makeInsert("px_ring_bars", { visualOptions: { centreLogo: true } })),
+  "logo",
+  "and can still take the logo when asked"
+);
+h.eq(
+  resolveCentreStyle(makeInsert("px_ring_bars", { visualOptions: { centreStyle: "orb" } })),
+  "orb",
+  "an explicit orb beats the old flag"
+);
+h.eq(
+  resolveCentreStyle(makeInsert("fine_radial_bars", { visualOptions: { centreStyle: "none", centreLogo: true } })),
+  "none",
+  "an explicit \"nothing\" wins over a saved logo flag"
+);
+h.eq(
+  resolveCentreStyle(makeInsert("spectrum", { visualOptions: { centreStyle: "logo" } })),
+  "none",
+  "a rack has no hub to brand, whatever it is asked for"
+);
+h.eq(resolveCentreStyle(makeInsert("voice_pulse")), "orb", "a round badge keeps its glowing core by default");
+h.eq(
+  resolveCentreStyle(makeInsert("voice_pulse", { visualOptions: { centreStyle: "none" } })),
+  "none",
+  "…and can be asked for the rings alone"
+);
+h.eq(wantsCentreLogo(makeInsert("audio_orb")), true, "the logo answer and the old flag agree");
+h.eq(wantsCentreLogo(makeInsert("fine_radial_bars", { visualOptions: { centreStyle: "none" } })), false, "…and agree on nothing");
+
+// The settings mapping clamps both sizes and carries the choice through.
+const clampedCentre = advancedVisualizerSettings({ centreStyle: "logo", centreLogoScale: 9, centreScale: 0.01 });
+h.eq(clampedCentre.centreLogoScale, 2.2, "logo size clamps to its maximum");
+h.near(clampedCentre.centreScale, 0.35, 1e-9, "middle size clamps to its minimum");
+h.eq(clampedCentre.centreStyle, "logo", "the middle choice survives the settings mapping");
+h.near(advancedVisualizerSettings({ centreLogoScale: 0 }).centreLogoScale, 0.4, 1e-9, "logo size clamps to its minimum");
+h.eq(advancedVisualizerSettings({ centreLogo: false }).centreStyle, "orb", "an old project without a choice maps to the orb");
+h.eq(advancedVisualizerSettings({}).centreStyle, "logo", "an untouched project keeps the logo middle");
+
+/* The three choices really change what is painted — and the logo size slider
+   really changes the logo's size, not just a number in a settings object. */
+const centreLogoImage = { naturalWidth: 512, naturalHeight: 512, width: 512, height: 512 } as unknown as CanvasImageSource;
+const baseOptions = { ...((VISUALISERS.find((v) => v.type === "fine_radial_bars")!.defaultVisualOptions) || {}) };
+function drawCentre(visualOptions: Record<string, unknown>) {
+  const stub = createStubContext(1920, 1080);
+  renderAudioVisualizer({
+    ctx: stub.ctx,
+    item: makeInsert("fine_radial_bars", { visualOptions: { ...baseOptions, ...visualOptions } }),
+    x: 960,
+    y: 540,
+    canvasWidth: 1920,
+    canvasHeight: 1080,
+    elapsed: 1.6,
+    frame: null,
+    logo: centreLogoImage,
+  });
+  return stub;
+}
+const drawnLogoWidth = (stub: ReturnType<typeof createStubContext>): number => {
+  const call = stub.opsWithArgs.find((entry) => entry.startsWith("drawImage("));
+  if (!call) return 0;
+  const args = call.slice("drawImage(".length, -1).split(",");
+  return Number(args[3]) || 0;
+};
+
+const nothingDrawn = drawCentre({ centreStyle: "none" });
+const orbDrawn = drawCentre({ centreStyle: "orb" });
+const logoDrawn = drawCentre({ centreStyle: "logo" });
+h.ok(
+  !nothingDrawn.opsWithArgs.some((entry) => entry.startsWith("drawImage(")),
+  "\"nothing\" draws no logo in the middle"
+);
+h.ok(
+  !orbDrawn.opsWithArgs.some((entry) => entry.startsWith("drawImage(")),
+  "the orb draws no logo"
+);
+h.eq(
+  logoDrawn.opsWithArgs.filter((entry) => entry.startsWith("drawImage(")).length,
+  1,
+  "the logo is drawn exactly once in the middle"
+);
+h.ok(
+  orbDrawn.ops.length > nothingDrawn.ops.length,
+  `the orb paints a core that "nothing" does not (${orbDrawn.ops.length} > ${nothingDrawn.ops.length})`
+);
+h.ok(
+  logoDrawn.opsWithArgs.some((entry) => entry.startsWith("arc(")),
+  "the logo still sits inside a glowing middle"
+);
+
+const smallLogo = drawnLogoWidth(drawCentre({ centreStyle: "logo", centreLogoScale: 0.5 }));
+const bigLogo = drawnLogoWidth(drawCentre({ centreStyle: "logo", centreLogoScale: 2 }));
+h.ok(smallLogo > 0 && bigLogo > 0, `the logo is drawn at both sizes (${smallLogo}px, ${bigLogo}px)`);
+h.ok(bigLogo > smallLogo * 2.5, `the logo size slider really scales the logo (${Math.round(smallLogo)} → ${Math.round(bigLogo)})`);
+
+const wideHub = drawCentre({ centreStyle: "orb", centreScale: 1.7 });
+const smallHub = drawCentre({ centreStyle: "orb", centreScale: 0.4 });
+const widestArc = (stub: ReturnType<typeof createStubContext>): number => {
+  const radii = stub.opsWithArgs
+    .filter((entry) => entry.startsWith("arc("))
+    .map((entry) => Number(entry.slice(4, -1).split(",")[2]))
+    .filter((value) => Number.isFinite(value));
+  return radii.length ? Math.max(...radii) : 0;
+};
+h.ok(
+  widestArc(wideHub) > widestArc(smallHub),
+  `the middle size slider really changes the core (${Math.round(widestArc(smallHub))} → ${Math.round(widestArc(wideHub))})`
+);
+
+// "Nothing" really empties the middle of the classic round badges too.
+function drawRound(type: string, visualOptions: Record<string, unknown>) {
+  const stub = createStubContext(1280, 720);
+  renderAudioVisualizer({
+    ctx: stub.ctx,
+    item: makeInsert(type, {
+      visualOptions: {
+        ...(((VISUALISERS.find((v) => v.type === type) || PIXABAY_CATALOG_ITEMS.find((v) => v.type === type))?.defaultVisualOptions) || {}),
+        ...visualOptions,
+      },
+    }),
+    x: 640,
+    y: 380,
+    canvasWidth: 1280,
+    canvasHeight: 720,
+    elapsed: 1.5,
+    frame: null,
+    logo: centreLogoImage,
+  });
+  return stub;
+}
+for (const type of ["voice_pulse"]) {
+  const hub = drawRound(type, {});
+  const ringOnly = drawRound(type, { centreStyle: "none" });
+  const branded = drawRound(type, { centreStyle: "logo" });
+  h.ok(hub.ops.length > ringOnly.ops.length, `${type}: the glowing middle is painted by default and absent with "Nothing"`);
+  h.ok(!ringOnly.opsWithArgs.some((entry) => entry.startsWith("drawImage(")), `${type}: "Nothing" draws no logo`);
+  h.eq(
+    branded.opsWithArgs.filter((entry) => entry.startsWith("drawImage(")).length,
+    1,
+    `${type}: "My logo" puts the member's logo in the middle`
+  );
+  h.eq(
+    drawRound(type, { centreStyle: "orb" }).opsWithArgs.filter((entry) => entry.startsWith("drawImage(")).length,
+    0,
+    `${type}: "Glowing orb" shows the light without the logo`
+  );
+}
+
+// The Pixabay circular clips have no hub of their own; the member can now add
+// one — a logo, or the glowing orb — or leave them exactly as they ship.
+{
+  const asShipped = drawRound("px_ring_bars", {});
+  const orbHub = drawRound("px_ring_bars", { centreStyle: "orb" });
+  const logoHub = drawRound("px_ring_bars", { centreStyle: "logo" });
+  h.ok(!asShipped.opsWithArgs.some((entry) => entry.startsWith("drawImage(")), "a circular clip is unbranded as it ships");
+  h.ok(orbHub.ops.length > asShipped.ops.length, "a glowing orb can be added to a circular clip's middle");
+  h.eq(
+    logoHub.opsWithArgs.filter((entry) => entry.startsWith("drawImage(")).length,
+    1,
+    "a circular clip can carry the member's logo in a new hub"
+  );
+}
+
+// The panel offers the three choices and both sizes, with help text.
+const centreModal = read("src/components/InsertPropertiesModal.tsx");
+h.ok(centreModal.includes("In the middle"), "the panel names the middle");
+h.ok(
+  centreModal.includes('updateVisualOptions("centreStyle", option.id)'),
+  "the three choices write centreStyle"
+);
+h.ok(
+  centreModal.includes('label: "My logo"') && centreModal.includes('label: "Glowing orb"') && centreModal.includes('label: "Nothing"'),
+  "the choices are spelled out in plain words"
+);
+h.ok(
+  centreModal.includes('updateVisualOptions("centreLogoScale"') && centreModal.includes("Logo size:"),
+  "the logo has its own size slider"
+);
+h.ok(
+  centreModal.includes('updateVisualOptions("centreScale"') && centreModal.includes("Middle size:"),
+  "the middle has its own size slider"
+);
+h.ok(
+  centreModal.includes("SLIDER_HINTS.centreStyle") && centreModal.includes("SLIDER_HINTS.logoSize") && centreModal.includes("SLIDER_HINTS.centreSize"),
+  "each new control explains itself"
+);
+h.ok(!centreModal.includes("Show My Logo in the Middle"), "the old on/off checkbox is gone");
+h.ok(
+  centreModal.includes("With no logo uploaded, the glowing orb shows instead"),
+  "the panel says what happens when there is no logo yet"
+);
 
 h.done("visualizers");

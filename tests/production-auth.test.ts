@@ -13,20 +13,42 @@ installTestPlatformEnv();
 const { db } = await import("../src/db.ts");
 const { registerPlatformRoutes, resolveFastSpringCustomerForUser } = await import("../server/platform.ts");
 
-// Successful delivery is essential: the old production code only returned a
-// verification URL when delivery failed. Never send real email in this test.
+/**
+ * A production server never hands a verification or password-reset link back
+ * in an API response. That was the hole: anybody could register with an
+ * address they do not own — or any throwaway address — and verify it instantly
+ * without ever reading the mailbox, which turns "one Free account" into
+ * unlimited Free accounts. In production the emailed link is the only way in,
+ * so this suite reads the token out of the message the server actually sends.
+ *
+ * Delivery success is essential to that: never send real email here.
+ */
 const realFetch = globalThis.fetch;
 let deliveries = 0;
 let failDelivery = false;
+let lastEmailHtml = "";
 globalThis.fetch = (async (input, init) => {
   if (String(input) === "https://api.resend.com/emails") {
     deliveries++;
+    try {
+      const payload = JSON.parse(String((init as any)?.body || "{}"));
+      lastEmailHtml = String(payload.html || payload.text || "");
+    } catch {
+      lastEmailHtml = "";
+    }
     return failDelivery
       ? new Response("Unavailable", { status: 503 })
       : Response.json({ id: `test-email-${deliveries}` });
   }
   return realFetch(input, init);
 }) as typeof fetch;
+
+/** The link the customer would click in their inbox. */
+const emailedLink = (): string => {
+  const match = lastEmailHtml.match(/https?:[^"'\s]*(?:verify-email|reset-password)\?token=[A-Za-z0-9_%.-]+/);
+  assert.ok(match, "the email carries a link");
+  return match![0].replace(/&amp;/g, "&");
+};
 
 const app = express();
 app.use(express.json());
@@ -48,9 +70,9 @@ try {
   const registration = await post("register", { ...credentials, displayName: "Preview User" });
   assert.equal(registration.status, 201);
   const registered = await registration.json();
-  assert.ok(registered.developmentVerificationUrl);
+  assert.equal(registered.developmentVerificationUrl, undefined, "production never returns the verification link");
   assert.equal(deliveries, 1);
-  await verify(registered.developmentVerificationUrl);
+  await verify(emailedLink());
   const user = await db.findUserByEmail(credentials.email);
   assert.ok(user);
   assert.equal(user.role, "user");
@@ -103,20 +125,23 @@ try {
   assert.equal(unverified.status, 403);
   const unverifiedBody = await unverified.json();
   assert.equal(unverifiedBody.code, "EMAIL_UNVERIFIED");
-  assert.ok(unverifiedBody.developmentVerificationUrl);
+  assert.equal(unverifiedBody.developmentVerificationUrl, undefined, "an unverified sign-in leaks no link either");
   assert.equal(deliveries, 2);
-  await verify(unverifiedBody.developmentVerificationUrl);
+  await verify(emailedLink());
   assert.equal((await post("login", credentials)).status, 200);
 
+  // When the mail provider is down there is simply no link to hand back — the
+  // customer asks for another one later. Failing open here would be worse.
   failDelivery = true;
   await db.updateUser(user.id, { isVerified: false });
   const failedEmailLogin = await post("login", credentials);
   assert.equal(failedEmailLogin.status, 403);
-  await verify((await failedEmailLogin.json()).developmentVerificationUrl);
+  assert.equal((await failedEmailLogin.json()).developmentVerificationUrl, undefined);
   const failedEmailRegistration = await post("register", { email: "no-mail@example.com", password: credentials.password, displayName: "No Mail" });
   assert.equal(failedEmailRegistration.status, 201);
-  await verify((await failedEmailRegistration.json()).developmentVerificationUrl);
+  assert.equal((await failedEmailRegistration.json()).developmentVerificationUrl, undefined);
   failDelivery = false;
+  await verify(emailedLink());
 
   const ownerRegistration = await post("register", { email: "hjvhorlick@gmail.com", password: credentials.password, displayName: "Owner" });
   assert.equal(ownerRegistration.status, 201);

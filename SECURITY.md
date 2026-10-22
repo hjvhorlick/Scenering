@@ -10,6 +10,7 @@ The browser is **not a trusted security boundary**. Interface locks improve usab
 
 ## Controls implemented
 
+- Production is the default. `NODE_ENV` unset, empty or unexpected means a production server (`src/runtime-mode.ts`); only an explicit `development`/`test` unlocks a development shortcut. Deployments set `NODE_ENV=production` in `wrangler.jsonc`, and previews set `development`.
 - Production startup fails without a unique `SESSION_SECRET` of at least 32 characters and an explicit `PUBLIC_APP_URL`.
 - Session cookies are HttpOnly, SameSite=Lax, Secure in production, path-scoped to the host, and marked high priority.
 - Password reset invalidates all existing account tokens and reset/verification tokens expire.
@@ -23,6 +24,11 @@ The browser is **not a trusted security boundary**. Interface locks improve usab
 - TTS, image research, key verification, imported-audio upload, and imported-audio retrieval require an authenticated account.
 - Uploaded audio uses cryptographic identifiers, MIME and size validation, private caching, and account ownership checks.
 - Sensitive production configuration is excluded from source control by `.gitignore`; only documented placeholders belong in `.env.example`.
+- Email-verification and password-reset links are returned in an API response **only** by a development or test server. In production the emailed link is the only route, even when mail delivery fails and even on a test storefront. Previously the token was handed back to the caller, so an account could be created with an address the caller does not control and verified without reading the mailbox.
+- Every session is bound to the device that opened it (`device_id`, `device_label`, `platform`, `last_seen_at`), and the plan's device allowance is enforced server-side: Free 1, SceneFlow 2, SceneForge 5, phones included. Opening one more signs out the device that has been idle longest; the account panel lists them.
+- Projects, scenes and their per-project documents are held in a server-side workspace repository (`workspace_documents`) per account, so one membership sees the same work on every device. Writes are revision-checked, deletions are tombstones, and credentials (`scenering_customer_api_keys`), the session token and this browser's identity are deliberately never synced (`src/lib/workspace-keys.ts`, checked against every key the source uses).
+- `POST /api/usage/final-export` is retired (410). It recorded an export from a client-supplied duration and format without the creative-manifest policy, the length ceilings or a reservation.
+- Export completion is atomic and time-bound: a reservation can only be completed once, while it is still within its two-hour window, and the plan's remaining allowance is re-checked against the week the usage row lands in.
 
 ## Important architecture limitation
 
@@ -39,10 +45,20 @@ Before accepting material paid usage at scale, implement a server-side export-jo
 
 The existing browser renderer can remain for unlimited previews. This split preserves the product’s responsive editing workflow while making final paid delivery enforceable.
 
+### What the browser still asserts (reviewed 2026-10)
+
+A plan-bypass review found and closed the account-side holes listed under *Controls implemented*. Two limits remain, both consequences of rendering in the browser:
+
+- **Duration.** A Vault download reports its export reservation, and the server then counts the duration and format *it* authorised at reserve time rather than a number retyped by the browser. A download with no reservation (a render made before this existed) still falls back to the reported duration, and nothing server-side can measure a file it never encoded, so the Free length ceilings remain enforced against a number the browser supplies. The reservation path makes that number consistent across the creative policy, the allowance and the download; it does not make it verifiable.
+- **A download is a browser save.** The server counts downloads and refuses when the allowance is spent, but it cannot prevent a determined user from keeping pixels it already delivered to their machine. Documented watermarks and client locks are not a control.
+
+Both are resolved only by the server-side export-job design above.
+
 ## Required production operations
 
 - Apply the Supabase commercial-platform migration and use row-level security/service-role separation. The local JSON platform store is a development fallback, not a horizontally scalable production database.
-- Set a long random `SESSION_SECRET`, explicit HTTPS `PUBLIC_APP_URL`, `NODE_ENV=production`, and `TRUST_PROXY=1` only behind a trusted single reverse proxy.
+- Set a long random `SESSION_SECRET`, explicit HTTPS `PUBLIC_APP_URL`, `NODE_ENV=production` (already the default in `wrangler.jsonc`), and `TRUST_PROXY=1` only behind a trusted single reverse proxy. `SCENERING_AUTH_SECRET` is only a legacy alias for `SESSION_SECRET` — never the name to configure a deployment with.
+- Apply migration `0007_devices_workspace.sql` with the rest of `migrations/`; the device limits and workspace sync depend on it.
 - Configure genuine FastSpring storefront path, product paths, optional API credentials and webhook secret key, and make sure `FASTSPRING_STOREFRONT` points at your live storefront in production. Rotate any secret ever exposed to a client, log, or repository.
 - Replace in-memory rate limiting with a shared Redis/database limiter when running more than one process.
 - Use a transactional email provider with SPF, DKIM, and DMARC. Do not use the console adapter in production.

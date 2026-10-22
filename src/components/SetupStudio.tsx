@@ -151,8 +151,10 @@ function setupPlanHighlights(slug: PlanSlug): string[] {
     : limits.finalExportsPerWeek == null
       ? "Unlimited final downloads, subject to fetched/upstream API service limits"
       : `${limits.finalExportsPerWeek} final video downloads each week`;
+  const devices = limits.maxConcurrentDevices === 1 ? "1 device signed in at a time" : `Up to ${limits.maxConcurrentDevices} devices signed in at once`;
   return [
     allowance,
+    devices,
     capacity,
     plan.features.full_video_studio ? "All Video Studio creative tools" : "Sample visualisers, animated Subscribe CTA and 2 music tracks",
     plan.features.premium_captions ? "All available voice and caption options" : "2 voice presets and 2 caption styles",

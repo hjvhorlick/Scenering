@@ -6,9 +6,15 @@ interface VoiceoverSwitchProps {
   onChange: (next: boolean) => void;
   /** Total scenes in the project — used to say what happens when it is off. */
   sceneCount?: number;
-  /** Source-media projects keep narration off and cannot enable it here. */
+  /**
+   * The project's picture is uploaded footage or a song, so its own sound is
+   * the soundtrack. This only changes the wording — it never disables the
+   * switch. Narration may still be laid over source media: a creator who
+   * filmed a take can want their script read over it, and a switch that
+   * silently refuses is the bug this prop used to be.
+   */
   lockedOff?: boolean;
-  /** Plain-language explanation shown while locked. */
+  /** Plain-language explanation shown for source-media projects. */
   lockedReason?: string;
   /** Compact form for a step that is not the Voiceover step. */
   compact?: boolean;
@@ -39,14 +45,14 @@ export default function VoiceoverSwitch({
   compact = false,
   onOpenVoiceover,
 }: VoiceoverSwitchProps) {
-  const active = lockedOff ? false : enabled;
+  const active = enabled;
   const state = active ? "On" : lockedOff ? "Off · source audio" : "Off";
-  const detail = lockedOff
-    ? lockedReason || "Voiceover stays off because this project keeps its uploaded source audio."
-    : active
-      ? sceneCount > 0
-        ? `Narrated with the voice you pick below, across all ${sceneCount} ${sceneCount === 1 ? "scene" : "scenes"}.`
-        : "Narrated with the voice you pick in the Voiceover step."
+  const detail = active
+    ? sceneCount > 0
+      ? `Narrated with the voice you pick below, across all ${sceneCount} ${sceneCount === 1 ? "scene" : "scenes"}.`
+      : "Narrated with the voice you pick in the Voiceover step."
+    : lockedOff
+      ? lockedReason || "Voiceover is off. This project's uploaded sound plays on its own; turn this on to read your script over it."
       : "No spoken narration anywhere — scene lengths follow your footage and script, not a voice.";
 
   return (
@@ -60,12 +66,9 @@ export default function VoiceoverSwitch({
           type="button"
           role="switch"
           aria-checked={active}
-          aria-label={lockedOff ? "Voiceover is off for source media" : "Voiceover on or off"}
-          disabled={lockedOff}
+          aria-label="Voiceover on or off"
           onClick={() => onChange(!active)}
-          className={`relative shrink-0 w-12 h-6 rounded-full border transition-colors ${
-            lockedOff ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-          } ${
+          className={`relative shrink-0 w-12 h-6 rounded-full border transition-colors cursor-pointer ${
             active ? "bg-emerald-500 border-emerald-300" : "bg-gray-700 border-hairline"
           }`}
         >

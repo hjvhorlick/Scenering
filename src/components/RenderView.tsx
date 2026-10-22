@@ -1188,6 +1188,11 @@ export default function RenderView({
             width,
             height,
             label: `${resolutionToken(width, height)} · ${fpsUsed}fps CFR · ${recordedContainer.toUpperCase()} · ${getQualityLevel(settings.quality).name}`,
+            // Provenance for the download that follows: the server keeps the
+            // duration and format it authorised, so the Vault can count what
+            // was actually rendered instead of trusting a retyped number.
+            projectId: project?.id ?? null,
+            reservationId: exportReservationId,
           });
           // IndexedDB returns its verified clone. Use that Blob for preview,
           // download and App state, then the OPFS staging file may be removed.
@@ -2684,7 +2689,7 @@ export default function RenderView({
       if (!DOWNLOADS_COUNTED_NOT_SAVED.has(row.id)) {
         setVaultBusyId(row.id);
         try {
-          await recordVideoDownload(null, Math.max(1, Number(row.durationSec) || 0) / 60);
+          await recordVideoDownload(row.projectId ?? null, Math.max(1, Number(row.durationSec) || 0) / 60, row.reservationId ?? null);
         } catch (err) {
           setVaultBusyId(null);
           setVaultMessage("");

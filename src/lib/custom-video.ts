@@ -22,7 +22,8 @@
  * and a failed upgrade would take the music library down with it.
  */
 
-import { assertMediaFile, probeVideoFile } from "./media-file";
+import { assertMediaFile, MediaProbeError, probeVideoFile } from "./media-file";
+import { convertVideoForBrowser, inspectMediaBlob, unplayableVideoMessage } from "./media-convert";
 
 const DB_NAME = "scenering-video";
 const DB_VERSION = 1;
@@ -55,8 +56,33 @@ export interface CustomVideoClip {
 }
 
 interface CustomVideoRecord extends CustomVideoClip {
-  blob: Blob;
+  /**
+   * The uploaded file. Normally the Blob itself, which IndexedDB keeps in its
+   * own file-backed blob store.
+   *
+   * Chromium writes that store through a journal that fails with
+   * `Failed to write blobs (IOError)` on some machines even when the origin's
+   * quota is fine, so a failed write is retried once with the same bytes held
+   * inline (`bytes`) instead. One of the two is always present.
+   */
+  blob?: Blob;
+  bytes?: ArrayBuffer;
 }
+
+/** The bytes of a stored upload, whichever shape this browser accepted. */
+function recordBlob(record: CustomVideoRecord): Blob | null {
+  if (record.blob) return record.blob;
+  if (record.bytes && record.bytes.byteLength > 0) {
+    return new Blob([record.bytes], { type: record.mime || "video/mp4" });
+  }
+  return null;
+}
+
+/**
+ * Above this size the inline retry is skipped: it holds the whole file in
+ * memory twice, which would take a phone tab down rather than save it.
+ */
+const MAX_INLINE_RETRY_BYTES = 200 * 1024 * 1024;
 
 /** id -> live object URL for this page load. */
 const objectUrls = new Map<string, string>();
@@ -71,6 +97,8 @@ export interface AddCustomVideoOptions {
   replaceIds?: readonly string[];
   /** Setup may continue in this tab when a reload-safe copy cannot be written. */
   allowSessionFallback?: boolean;
+  /** 0–1 while an unsupported container is being re-wrapped for this browser. */
+  onProgress?: (progress: number) => void;
 }
 
 function browserHasIdb(): boolean {
@@ -111,6 +139,7 @@ function idbRequest<T>(request: IDBRequest<T>): Promise<T | null> {
 function stripBlob(record: CustomVideoRecord): CustomVideoClip {
   const {
     blob: _blob,
+    bytes: _bytes,
     persistent: _persistent,
     storageWarning: _storageWarning,
     ...rest
@@ -196,6 +225,30 @@ function storeVideoRecord(
   });
 }
 
+/** Total bytes of every stored upload — for the "what is using space" line. */
+export async function storedVideoBytes(): Promise<number> {
+  try {
+    const all = await loadCustomVideos();
+    return all.reduce((sum, clip) => sum + (clip.size || 0), 0);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Reclaim old uploads that no saved project references, on request.
+ *
+ * The automatic path above runs after a failed write; this is the explicit
+ * "free up space" action, for a device where the browser has no room left at
+ * all. It deletes nothing a saved project points at, and nothing uploaded in
+ * this session.
+ */
+export async function pruneUnusedVideos(): Promise<number> {
+  const db = await openDb();
+  if (!db) return 0;
+  return pruneOrphanedVideos(db, new Set());
+}
+
 /**
  * Reclaim old uploads that no saved project references. This runs only after a
  * quota failure; normal uploads never scan or delete the customer's library.
@@ -242,27 +295,83 @@ async function pruneOrphanedVideos(
   return orphanIds.length;
 }
 
-function isQuotaError(error: Error | null): boolean {
-  return Boolean(error && /quota|space|storage full|disk full|not enough storage/i.test(
-    `${error.name} ${error.message}`
-  ));
+/**
+ * Whether the browser refused the write because it has no room to keep the
+ * bytes.
+ *
+ * THE REAL-WORLD FAILURE THIS MUST RECOGNISE: Chromium reports a full (or
+ * otherwise unwritable) IndexedDB blob store as
+ * `DOMException: Failed to write blobs (IOError)` — a message that contains
+ * neither "quota" nor "space". The old check only looked for those words, so
+ * the commonest storage failure of all skipped the reclaim-and-retry path and
+ * went straight to "storage could not keep a copy", stranding the customer
+ * with a message about a problem the app never tried to solve.
+ */
+export function isStorageCapacityError(error: Error | null): boolean {
+  if (!error) return false;
+  if (error.name === "QuotaExceededError") return true;
+  const text = `${error.name} ${error.message}`;
+  if (/quota|storage full|disk full|not enough storage|out of space|no space left/i.test(text)) return true;
+  // Chromium, Edge and Android WebViews phrase a failed blob write this way.
+  return /failed to write blob|failed to write the blob|ioerror|io error/i.test(text);
 }
 
-async function storageFailureMessage(fileSize: number, reclaimed: number): Promise<string> {
-  let capacity = "";
+interface StorageRoom {
+  usage: number;
+  quota: number;
+  free: number;
+  usedRatio: number;
+}
+
+/** The origin's allowance, when the browser will say. */
+async function storageRoom(): Promise<StorageRoom | null> {
   try {
     const estimate = await navigator.storage?.estimate?.();
-    if (estimate?.quota && typeof estimate.usage === "number") {
-      const usedMb = Math.round(estimate.usage / (1024 * 1024));
-      const quotaMb = Math.round(estimate.quota / (1024 * 1024));
-      const fileMb = Math.max(1, Math.round(fileSize / (1024 * 1024)));
-      capacity = ` This site is using about ${usedMb} MB of its ${quotaMb} MB allowance; this video needs ${fileMb} MB.`;
-    }
-  } catch {}
+    const quota = Number(estimate?.quota) || 0;
+    const usage = Number(estimate?.usage) || 0;
+    if (quota <= 0) return null;
+    return { usage, quota, free: Math.max(0, quota - usage), usedRatio: Math.min(1, usage / quota) };
+  } catch {
+    return null;
+  }
+}
+
+async function storageFailureMessage(
+  fileSize: number,
+  reclaimed: number,
+  sessionOnly: boolean,
+  inlineTried = false,
+): Promise<string> {
+  let capacity = "";
+  const room = await storageRoom();
+  if (room) {
+    const usedMb = Math.round(room.usage / (1024 * 1024));
+    const quotaMb = Math.round(room.quota / (1024 * 1024));
+    const freeMb = Math.round(room.free / (1024 * 1024));
+    const fileMb = Math.max(1, Math.round(fileSize / (1024 * 1024)));
+    capacity = ` This site is using about ${usedMb} MB of its ${quotaMb} MB allowance (${freeMb} MB free); this video needs ${fileMb} MB.`;
+  }
   const reclaimedText = reclaimed > 0
     ? ` ${reclaimed} unused saved video${reclaimed === 1 ? " was" : "s were"} cleared automatically, but there is still not enough room.`
     : "";
-  return `Browser storage could not keep a reload-safe copy of this video.${reclaimedText}${capacity} The video is loaded for this tab, so you can continue now, but keep this tab open and download your finished work before closing it. To retain the upload after a refresh, remove old site data or choose a smaller file and upload it again.`;
+  const attempts = inlineTried
+    ? " The browser refused the file both as a blob and as in-line data, so this is space rather than a browser quirk."
+    : "";
+  // When the allowance looks healthy but the write still failed, the disk
+  // itself is the problem — the customer's phone or laptop is out of storage.
+  // Say that plainly: it is not the video, and no amount of converting helps.
+  const deviceFull = Boolean(room && room.quota > 0 && (room.free < fileSize || room.usedRatio > 0.9));
+  const cause = deviceFull
+    ? " This device is out of storage — the file could not be written to its disk. It is not a problem with the video or its format."
+    : "";
+  const advice = sessionOnly
+    ? " The video is loaded for this tab, so you can continue now, but keep this tab open and download your finished work before closing it. To keep the upload after a refresh, free some space and upload it again."
+    : " Free some space and upload it again.";
+  const remedies =
+    " Space is shared by finished renders in the Vault, earlier uploads and the site's other data." +
+    " Use Free up space to clear the unused ones; if the device itself is full, empty its storage or trash." +
+    " A private window has a much smaller allowance, so a normal window may also help.";
+  return `Browser storage could not keep a reload-safe copy of this video.${cause}${reclaimedText}${capacity}${attempts}${advice}${remedies}`;
 }
 
 let sessionWarningInstalled = false;
@@ -285,7 +394,8 @@ function keepVideoForCurrentTab(
     persistent: false,
     storageWarning: warning,
   };
-  objectUrls.set(record.id, URL.createObjectURL(record.blob));
+  const kept = recordBlob(record);
+  if (kept) objectUrls.set(record.id, URL.createObjectURL(kept));
   createdThisSession.add(record.id);
   clips.push(clip);
   loaded = true;
@@ -326,7 +436,8 @@ export async function loadCustomVideos(): Promise<CustomVideoClip[]> {
       for (const record of all || []) {
         if (!record?.id || !record.blob || createdThisSession.has(record.id)) continue;
         try {
-          objectUrls.set(record.id, URL.createObjectURL(record.blob));
+          const kept = recordBlob(record);
+  if (kept) objectUrls.set(record.id, URL.createObjectURL(kept));
           clips.push(stripBlob(record));
         } catch {
           /* one unreadable row must not hide the rest */
@@ -385,14 +496,14 @@ export async function addCustomVideo(
 ): Promise<CustomVideoClip> {
   // Shared classification (media-file.ts): MP4, MOV and WebM lead, and a
   // file whose OS reported no/generic MIME type is recognised by its
-  // extension and re-typed so the browser will decode it.
+  // extension and re-typed so the browser will decode it. Matroska and
+  // MPEG-TS are on that list too — they are re-wrapped below.
   let classified;
   try {
     classified = assertMediaFile(file, ["video"]);
   } catch (err: any) {
     throw new CustomVideoError(err?.message || "That file is not a supported video.");
   }
-  const uploadFile = classified.file;
   if (file.size > MAX_CUSTOM_VIDEO_BYTES) {
     const mb = Math.round(file.size / (1024 * 1024));
     throw new CustomVideoError(`"${file.name}" is ${mb} MB. Keep uploads under 500 MB.`);
@@ -400,11 +511,40 @@ export async function addCustomVideo(
 
   const id = `cv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
+  /**
+   * The file that actually gets stored.
+   *
+   * A container the `<video>` element cannot open (Matroska, MPEG-TS) or a
+   * codec it cannot find a decoder for is not automatically the customer's
+   * problem: if this browser can decode the picture, mediabunny re-wraps it
+   * as MP4 (or WebM) and the upload proceeds. Only when that is impossible
+   * here does the refusal stand — and then it names the codec instead of
+   * pretending the whole format is unsupported.
+   */
+  let uploadFile: File = classified.file;
+  let uploadMime = classified.mimeType;
   let measured: { duration: number; width: number; height: number };
   try {
     measured = await probeVideoFile(uploadFile);
   } catch (err: any) {
-    throw new CustomVideoError(err?.message || "That file could not be read as video.");
+    const unsupported = err instanceof MediaProbeError && err.reason === "unsupported";
+    const converted = unsupported
+      ? await convertVideoForBrowser(uploadFile, file.name, { onProgress: options.onProgress })
+      : null;
+    if (!converted) {
+      if (unsupported) {
+        const inspection = await inspectMediaBlob(uploadFile).catch(() => null);
+        throw new CustomVideoError(inspection ? unplayableVideoMessage(inspection) : err?.message || "That file could not be read as video.");
+      }
+      throw new CustomVideoError(err?.message || "That file could not be read as video.");
+    }
+    uploadFile = converted;
+    uploadMime = converted.type || "video/mp4";
+    try {
+      measured = await probeVideoFile(uploadFile);
+    } catch (again: any) {
+      throw new CustomVideoError(again?.message || "That video could not be read after converting it.");
+    }
   }
   if (measured.duration <= 0) {
     throw new CustomVideoError("That file has no playable video in it.");
@@ -416,8 +556,8 @@ export async function addCustomVideo(
   const record: CustomVideoRecord = {
     id,
     name: prettyName(file.name),
-    mime: classified.mimeType,
-    size: file.size,
+    mime: uploadMime,
+    size: uploadFile.size,
     duration: measured.duration,
     width: measured.width,
     height: measured.height,
@@ -427,7 +567,7 @@ export async function addCustomVideo(
 
   const db = await openDb();
   if (!db) {
-    const warning = `Video storage recovery: ${await storageFailureMessage(file.size, 0)}`;
+    const warning = `Video storage recovery: ${await storageFailureMessage(uploadFile.size, 0, Boolean(options.allowSessionFallback))}`;
     if (options.allowSessionFallback) {
       return keepVideoForCurrentTab(record, warning, options.replaceIds || []);
     }
@@ -439,27 +579,66 @@ export async function addCustomVideo(
   )];
   const referenceCounts = videoReferenceCounts();
   // A duplicated scene/project can legitimately share one stored Blob. Only
-  // reclaim the predecessor when this is its sole saved reference (or when it
-  // has not been persisted yet); otherwise the other project keeps its file.
+  // reclaim the predecessor when this is its sole saved reference (or when
+  // it has not been persisted yet); otherwise the other project keeps its file.
   const replaceIds = referenceCounts
     ? requestedReplaceIds.filter((candidate) => (referenceCounts.get(candidate) || 0) <= 1)
     : [];
-  let result = await storeVideoRecord(db, record, replaceIds);
   let reclaimed = 0;
 
-  // Repeated previews can leave large, unreachable Blobs behind. On a real
-  // quota failure, clear only uploads that no project references, then retry
-  // exactly once. Replacements stay protected until the atomic retry commits,
-  // so a failed new upload never destroys the currently attached footage.
-  if (!result.ok && isQuotaError(result.error)) {
+  // Repeated previews and replaced clips leave large, unreachable Blobs
+  // behind. When the browser already says the allowance is tight, clear the
+  // ones no project references BEFORE attempting the write: recovering from a
+  // failed write is slower, and Chromium reports it as
+  // "Failed to write blobs (IOError)" with no mention of quota at all.
+  const room = await storageRoom();
+  if (room && room.free < uploadFile.size * 1.05) {
     reclaimed = await pruneOrphanedVideos(db, new Set(replaceIds));
-    if (reclaimed > 0) result = await storeVideoRecord(db, record, replaceIds);
+  }
+
+  let result = await storeVideoRecord(db, record, replaceIds);
+
+  // Clear only uploads that no project references, then retry exactly once.
+  // Replacements stay protected until the atomic retry commits, so a failed
+  // new upload never destroys the currently attached footage.
+  if (!result.ok && isStorageCapacityError(result.error)) {
+    reclaimed += await pruneOrphanedVideos(db, new Set(replaceIds));
+    result = await storeVideoRecord(db, record, replaceIds);
+  }
+
+  // Still refused, with room apparently available: this is Chromium's
+  // blob-store journal failing (`Failed to write blobs (IOError)`) rather than
+  // the origin's allowance running out. The same bytes go in inline instead,
+  // which skips the blob journal entirely — so a clip that would otherwise be
+  // lost to a browser quirk is still here tomorrow.
+  let inlineTried = false;
+  if (
+    !result.ok &&
+    isStorageCapacityError(result.error) &&
+    uploadFile.size > 0 &&
+    uploadFile.size <= MAX_INLINE_RETRY_BYTES
+  ) {
+    inlineTried = true;
+    try {
+      const bytes = await uploadFile.arrayBuffer();
+      result = await storeVideoRecord(db, { ...record, blob: undefined, bytes }, replaceIds);
+    } catch {
+      /* out of memory for the copy; the Blob attempt's failure stands */
+    }
   }
 
   if (!result.ok) {
-    const warning = isQuotaError(result.error)
-      ? await storageFailureMessage(file.size, reclaimed)
-      : `Browser storage could not keep a reload-safe copy of this video (${result.error?.message || "storage write failed"}). The video is loaded for this tab, so you can continue now, but keep this tab open and download your finished work before closing it. To retain the upload after a refresh, remove old site data or choose a smaller file and upload it again.`;
+    // The sentence depends on whether the caller will actually keep the file
+    // for this tab. The old text promised that fallback unconditionally, and
+    // then threw when the caller had not asked for it — telling the customer
+    // the video was loaded when it was not.
+    const warning =
+      (isStorageCapacityError(result.error)
+        ? await storageFailureMessage(uploadFile.size, reclaimed, Boolean(options.allowSessionFallback), inlineTried)
+        : `Browser storage could not keep a reload-safe copy of this video (${result.error?.message || "storage write failed"}).`) +
+      (options.allowSessionFallback
+        ? " The video is loaded for this tab, so you can continue now, but keep this tab open and download your finished work before closing it."
+        : " Try again, or choose a smaller file.");
     const identifiedWarning = `Video storage recovery: ${warning}`;
     if (options.allowSessionFallback) {
       return keepVideoForCurrentTab(record, identifiedWarning, requestedReplaceIds);

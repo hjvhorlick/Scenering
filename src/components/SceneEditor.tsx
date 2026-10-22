@@ -50,6 +50,7 @@ import {
   getTargetWordCount,
 } from "../lib/duration-utils";
 import Icon, { iconify } from "./icons/Icon";
+import StorageWarningNote from "./StorageWarningNote";
 
 /**
  * Swatches offered for a plain-colour scene.
@@ -166,6 +167,10 @@ export default function SceneEditor({
   const videoUploadRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState<"image" | "video" | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  /** 0–100 while an MKV/MTS clip is being re-wrapped as MP4 for this browser. */
+  const [videoConversion, setVideoConversion] = useState<number | null>(null);
+  /** The clip is usable in this tab, but the browser could not store it. */
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
 
   /** True when this scene shows a flat colour and no photo or clip. */
   const isBlank = sceneIsBlankColor(scene);
@@ -639,13 +644,20 @@ export default function SceneEditor({
   const handleUploadVideo = (file: File | undefined) => {
     if (!file) return;
     setUploadError(null);
+    setStorageWarning(null);
+    setVideoConversion(null);
     setUploading("video");
     void sceneUpdatesForVideoFile(file, scene, sceneDurationForText(textValue, targetDuration), {
       singleScene,
+      onProgress: (progress) => setVideoConversion(Math.round(progress * 100)),
+      onWarning: setStorageWarning,
     })
       .then((updates) => onUpdate(scene.id, updates))
       .catch((err) => setUploadError(videoUploadMessage(err)))
-      .finally(() => setUploading(null));
+      .finally(() => {
+        setUploading(null);
+        setVideoConversion(null);
+      });
   };
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -1176,12 +1188,24 @@ export default function SceneEditor({
               onClick={() => videoUploadRef.current?.click()}
               disabled={uploading !== null}
               className="px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap flex items-center gap-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 border-hairline text-gray-200"
-              title="Use a video clip from this device for this scene"
+              title="Use a video clip from this device for this scene — MP4, MOV, WebM, MKV or MTS (other containers are converted)"
             >
-              <span><Icon glyph="⬆" /> {uploading === "video" ? "Adding…" : "Upload Video"}</span>
+              <span>
+                <Icon glyph="⬆" />{" "}
+                {uploading === "video"
+                  ? videoConversion !== null
+                    ? `Converting ${videoConversion}%`
+                    : "Adding…"
+                  : "Upload Video"}
+              </span>
             </button>
           </div>
         </div>
+
+        {/* The clip works now, but could not be kept for the next visit. */}
+        {storageWarning && (
+          <StorageWarningNote message={storageWarning} onDismiss={() => setStorageWarning(null)} />
+        )}
 
         {/* Why an upload was refused — size, format or blocked storage. */}
         {uploadError && (

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Scene } from "../types";
-import { resolveVideoUrl } from "../lib/custom-video";
+import { addCustomVideo, CUSTOM_VIDEO_PREFIX, isCustomVideoUrl, resolveVideoUrl } from "../lib/custom-video";
+import { stripClipAudio } from "../lib/clip-audio-strip";
+import { formatStorageBytes } from "../lib/storage-health";
 import { VIDEO_UPLOAD_ACCEPT } from "../lib/media-file";
 import { sceneUpdatesForVideoFile, videoUploadMessage } from "../lib/scene-clip-attach";
 import { sceneDurationForText } from "../lib/duration-utils";
 import Icon, { iconify } from "./icons/Icon";
+import StorageWarningNote from "./StorageWarningNote";
 
 interface SceneClipPanelProps {
   scene: Scene;
@@ -47,6 +50,15 @@ export default function SceneClipPanel({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [previewTime, setPreviewTime] = useState(0);
+  /** 0–100 while a container this browser cannot open is re-wrapped as MP4. */
+  const [conversionProgress, setConversionProgress] = useState<number | null>(null);
+  /** The clip is usable in this tab, but the browser could not store it. */
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  /** Remove-audio is a two-step, irreversible action, so it has its own state. */
+  const [audioRemoval, setAudioRemoval] = useState<"idle" | "confirm" | "working">("idle");
+  const [audioProgress, setAudioProgress] = useState<number | null>(null);
+  const [audioNote, setAudioNote] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
 
   const isInserted = Boolean(scene.is_inserted);
   const hasClip = Boolean(scene.video_url);
@@ -73,9 +85,65 @@ export default function SceneClipPanel({
   const handlePick = (file: File | undefined) => {
     if (!file) return;
     setLoadError(null);
-    void sceneUpdatesForVideoFile(file, scene, narrationDuration, { singleScene })
+    setStorageWarning(null);
+    setConversionProgress(null);
+    void sceneUpdatesForVideoFile(file, scene, narrationDuration, {
+      singleScene,
+      onProgress: (progress) => setConversionProgress(Math.round(progress * 100)),
+      onWarning: setStorageWarning,
+    })
       .then((updates) => onUpdate(scene.id, updates))
-      .catch((err) => setLoadError(videoUploadMessage(err)));
+      .catch((err) => setLoadError(videoUploadMessage(err)))
+      .finally(() => setConversionProgress(null));
+  };
+
+  /**
+   * Take the soundtrack out of the stored file.
+   *
+   * Muting (above) stops the track being played and changes nothing on disk.
+   * This rewrites the clip without an audio track, so the stored upload is
+   * genuinely smaller and no player can find the sound again. The picture is
+   * copied, not re-encoded, and the new file replaces the old one through the
+   * same store as any upload — so the scene keeps a reload-safe address.
+   */
+  const removeAudioFromFile = async () => {
+    if (!scene.video_url || audioRemoval === "working") return;
+    setAudioRemoval("working");
+    setAudioProgress(null);
+    setAudioError(null);
+    setAudioNote(null);
+    try {
+      const stripped = await stripClipAudio(scene.video_url, { onProgress: setAudioProgress });
+      if (!stripped.ok) {
+        setAudioError(stripped.message);
+        setAudioRemoval("idle");
+        return;
+      }
+      const replacedId = scene.video_url.slice(CUSTOM_VIDEO_PREFIX.length);
+      const stored = await addCustomVideo(stripped.file, {
+        replaceIds: [replacedId],
+        allowSessionFallback: true,
+      });
+      onUpdate(scene.id, {
+        video_url: `${CUSTOM_VIDEO_PREFIX}${stored.id}`,
+        video_name: stored.name,
+        video_duration: stored.duration || scene.video_duration,
+        // There is no track left to play; say so in the field every renderer reads.
+        video_mute: true,
+      });
+      if (stored.storageWarning) setStorageWarning(stored.storageWarning);
+      setAudioNote(
+        stripped.savedBytes > 0
+          ? `Audio removed — the stored clip is ${formatStorageBytes(stripped.savedBytes)} smaller.`
+          : "Audio removed. The clip now has no soundtrack.",
+      );
+      setAudioRemoval("idle");
+    } catch (err: any) {
+      setAudioError(err?.message || "The audio could not be removed from that clip.");
+      setAudioRemoval("idle");
+    } finally {
+      setAudioProgress(null);
+    }
   };
 
   const setTrim = (start: number, end: number) => {
@@ -135,11 +203,18 @@ export default function SceneClipPanel({
           type="button"
           onClick={() => fileRef.current?.click()}
           className="px-2 py-1 rounded-lg border border-hairline bg-gray-900/60 text-[11px] text-gray-400 hover:text-white hover:border-indigo-600 transition-colors flex items-center gap-1"
-          title="Use a short video clip for this scene instead of a still image"
+          title="Use a short video clip for this scene instead of a still image — MP4, MOV, WebM, MKV or MTS"
         >
-          <Icon glyph="🎬" /> Add video clip
+          {conversionProgress !== null ? `Converting ${conversionProgress}%` : <><Icon glyph="🎬" /> Add video clip</>}
         </button>
         {loadError && <span className="text-[10px] text-rose-400">{loadError}</span>}
+        {storageWarning && (
+          <StorageWarningNote
+            message={storageWarning}
+            onDismiss={() => setStorageWarning(null)}
+            variant="inline"
+          />
+        )}
       </div>
     );
   }
@@ -170,7 +245,9 @@ export default function SceneClipPanel({
             onClick={() => fileRef.current?.click()}
             className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition-colors"
           >
-            {iconify(hasClip ? "Replace clip" : "➕ Add clip")}
+            {conversionProgress !== null
+              ? `Converting ${conversionProgress}%`
+              : iconify(hasClip ? "Replace clip" : "➕ Add clip")}
           </button>
           {hasClip && (
             <button
@@ -186,6 +263,10 @@ export default function SceneClipPanel({
 
       {loadError && (
         <p className="text-[11px] text-rose-400">{loadError}</p>
+      )}
+
+      {storageWarning && (
+        <StorageWarningNote message={storageWarning} onDismiss={() => setStorageWarning(null)} />
       )}
 
       {!hasClip && (
@@ -206,46 +287,60 @@ export default function SceneClipPanel({
 
       {hasClip && (
         <>
-          <div className="flex gap-3 flex-col sm:flex-row">
+          {/*
+            THE PREVIEW COMES FIRST, AND IT IS BIG.
+            It used to be a 192px thumbnail in the corner of a flex row that
+            also held the stats, and trimming a clip on a thumbnail is guesswork:
+            the detail you are cutting around — a face, a sign, a frame you want
+            to land on — was not visible. It now spans the panel above the trim
+            sliders, sized to the clip's own shape up to the panel width and a
+            viewport-relative height, so a large preview can never push the
+            sliders off the screen on a laptop or a phone.
+          */}
+          <div className="rounded-lg border border-hairline bg-black p-1">
             <video
               ref={videoRef}
               src={resolveVideoUrl(scene.video_url) || undefined}
-              className="w-full sm:w-48 rounded-lg border border-hairline bg-black"
+              className="block mx-auto w-auto max-w-full max-h-[min(52vh,420px)] xl:max-h-[min(60vh,520px)] rounded"
               muted={muted}
               controls
+              playsInline
               onTimeUpdate={(e) => setPreviewTime((e.target as HTMLVideoElement).currentTime)}
+              onSeeked={(e) => setPreviewTime((e.target as HTMLVideoElement).currentTime)}
               onError={() => setLoadError("The clip could not be played.")}
             />
-            <div className="flex-1 space-y-2 text-[11px] text-gray-400">
-              <div className="flex justify-between gap-2">
-                <span className="truncate" title={scene.video_name || ""}>
-                  {scene.video_name || "clip"}
-                </span>
-                <span className="font-mono text-gray-500">{fmt(sourceLength)} source</span>
-              </div>
-
-              <div
-                className={`flex justify-between gap-2 px-2 py-1 rounded-lg border ${
-                  lengthMatches
-                    ? "bg-emerald-950/50 border-emerald-800/60 text-emerald-300"
-                    : "bg-amber-950/40 border-amber-800/60 text-amber-300"
-                }`}
-              >
-                <span>Trimmed: {fmt(trimmedLength)}</span>
-                <span>Narration: {fmt(narrationDuration)}</span>
-              </div>
-
-              {!lengthMatches && (
-                <button
-                  type="button"
-                  onClick={fitToNarration}
-                  className="w-full px-2 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg font-semibold transition-colors"
-                >
-                  <Icon glyph="✂" /> Cut clip to fit the narration ({fmt(narrationDuration)})
-                </button>
-              )}
-            </div>
           </div>
+
+          {/* What the preview is showing, and what the trim window covers. */}
+          <div className="flex items-center justify-between gap-2 text-[11px] text-gray-400 flex-wrap">
+            <span className="truncate" title={scene.video_name || ""}>
+              {scene.video_name || "clip"}
+            </span>
+            <span className="font-mono text-gray-500">
+              playhead {fmt(previewTime)} · window {fmt(trimStart)}–{fmt(trimEnd)} · {fmt(sourceLength)} source
+            </span>
+          </div>
+
+          <div
+            className={`flex justify-between gap-2 px-2 py-1 rounded-lg border text-[11px] ${
+              lengthMatches
+                ? "bg-emerald-950/50 border-emerald-800/60 text-emerald-300"
+                : "bg-amber-950/40 border-amber-800/60 text-amber-300"
+            }`}
+          >
+            <span>Trimmed: {fmt(trimmedLength)}</span>
+            <span>Narration: {fmt(narrationDuration)}</span>
+          </div>
+
+          {!lengthMatches && (
+            <button
+              type="button"
+              onClick={fitToNarration}
+              className="w-full px-2 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-[11px] font-semibold transition-colors"
+            >
+              <Icon glyph="✂" /> Cut clip to fit the narration ({fmt(narrationDuration)})
+            </button>
+          )}
 
           {/* Trim controls */}
           <div className="space-y-2">
@@ -322,6 +417,62 @@ export default function SceneClipPanel({
                   className="w-full accent-indigo-500 cursor-pointer"
                 />
               </label>
+            )}
+
+            {/* Removing the track is a different act from muting it: one is a
+                switch, the other rewrites the stored file and cannot be undone. */}
+            {isCustomVideoUrl(scene.video_url) && (
+              <div className="pt-2 border-t border-hairline space-y-1.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-[11px] text-gray-200 font-medium">
+                    Remove the audio from the video file
+                  </span>
+                  {audioRemoval === "idle" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAudioRemoval("confirm");
+                        setAudioNote(null);
+                        setAudioError(null);
+                      }}
+                      className="px-2 py-1 rounded-lg border border-rose-800/70 bg-rose-950/40 text-rose-200 hover:bg-rose-900/50 text-[11px] transition-colors flex items-center gap-1"
+                    >
+                      <Icon glyph="🗑" /> Remove audio
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-gray-500 leading-relaxed">
+                  Muting keeps the track in the file. Removing takes it out, so the stored clip is
+                  smaller and no player can find the sound again — including the caption pass that
+                  listens to a clip. That cannot be undone; undoing it means uploading the file again.
+                </p>
+                {audioRemoval === "confirm" && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] text-amber-300">Remove it permanently?</span>
+                    <button
+                      type="button"
+                      onClick={() => void removeAudioFromFile()}
+                      className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold"
+                    >
+                      Yes, remove the audio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAudioRemoval("idle")}
+                      className="px-2 py-1 rounded-lg border border-hairline bg-gray-900 text-gray-300 hover:text-white text-[11px]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                {audioRemoval === "working" && (
+                  <p className="text-[11px] text-indigo-300">
+                    Removing the audio…{audioProgress !== null ? ` ${audioProgress}%` : ""}
+                  </p>
+                )}
+                {audioNote && <p className="text-[11px] text-emerald-300">{audioNote}</p>}
+                {audioError && <p className="text-[11px] text-rose-400">{audioError}</p>}
+              </div>
             )}
           </div>
 

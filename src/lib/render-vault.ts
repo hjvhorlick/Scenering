@@ -33,6 +33,12 @@ export interface VaultRender {
   label: string;
   /** Where this exact Blob was verified after save. */
   storageKind?: "indexeddb" | "memory";
+  /** Provenance: which project produced this render, and the server's export
+   *  reservation for it. A Vault download reports these so the server can
+   *  count the duration and format it recorded when the render was
+   *  authorised, rather than a number retyped by the browser later. */
+  projectId?: string | number | null;
+  reservationId?: string | null;
   blob: Blob;
 }
 
@@ -163,6 +169,8 @@ export interface SaveRenderInput {
   width: number;
   height: number;
   label: string;
+  projectId?: string | number | null;
+  reservationId?: string | null;
 }
 
 /**
@@ -180,6 +188,8 @@ export async function saveRenderToVault(input: SaveRenderInput): Promise<VaultRe
     width: input.width,
     height: input.height,
     label: input.label,
+    projectId: input.projectId ?? null,
+    reservationId: input.reservationId ?? null,
     blob: input.blob,
   };
 

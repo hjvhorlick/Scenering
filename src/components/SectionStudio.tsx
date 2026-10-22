@@ -21,6 +21,7 @@ import SectionPreviewCanvas from "./SectionPreviewCanvas";
 import type { AspectRatioType } from "../types";
 import { sectionPreviewShape } from "../lib/section-preview-size";
 import Icon, { iconify } from "./icons/Icon";
+import StorageWarningNote from "./StorageWarningNote";
 import { addCustomImage } from "../lib/custom-image";
 import { addCustomMusic, CUSTOM_MUSIC_PREFIX } from "../lib/custom-music";
 import { addCustomVideo, CUSTOM_VIDEO_PREFIX, removeCustomVideo } from "../lib/custom-video";
@@ -109,6 +110,10 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
   const soundInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState<"media" | "logo" | "sound" | null>(null);
+  /** 0–100 while a container this browser cannot open is re-wrapped as MP4. */
+  const [mediaConversion, setMediaConversion] = useState<number | null>(null);
+  /** The background works now, but the browser could not store it. */
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
 
   /* Sound previews go through the ONE shared preview manager (the same one
      the music library and insert modal use). This studio used to run its own
@@ -161,6 +166,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
   // and even a good one died with the page.
   const runUpload = async (slot: "media" | "logo" | "sound", work: () => Promise<void>) => {
     setUploadError(null);
+    setStorageWarning(null);
     setUploading(slot);
     try {
       await work();
@@ -180,10 +186,18 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
         ? cfgRef.current.mediaUrl.slice(CUSTOM_VIDEO_PREFIX.length)
         : null;
       if (classified.kind === "video") {
-        const clip = await addCustomVideo(classified.file, {
-          replaceIds: previousId ? [previousId] : [],
-        });
-        update({ backgroundKind: "video", mediaUrl: `${CUSTOM_VIDEO_PREFIX}${clip.id}`, mediaName: clip.name });
+        setMediaConversion(null);
+        try {
+          const clip = await addCustomVideo(classified.file, {
+            replaceIds: previousId ? [previousId] : [],
+            onProgress: (progress) => setMediaConversion(Math.round(progress * 100)),
+            allowSessionFallback: true,
+          });
+          update({ backgroundKind: "video", mediaUrl: `${CUSTOM_VIDEO_PREFIX}${clip.id}`, mediaName: clip.name });
+          if (clip.storageWarning) setStorageWarning(clip.storageWarning);
+        } finally {
+          setMediaConversion(null);
+        }
       } else {
         const image = await addCustomImage(classified.file);
         update({ backgroundKind: "image", mediaUrl: image.url, mediaName: image.asset.name });
@@ -392,6 +406,12 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                 </p>
               )}
 
+              {storageWarning && (
+                <div role="status">
+                  <StorageWarningNote message={storageWarning} onDismiss={() => setStorageWarning(null)} />
+                </div>
+              )}
+
               {/* ------------------------ BACKGROUND ------------------------ */}
               {tab === "background" && (
                 <>
@@ -403,7 +423,12 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
                       disabled={uploading !== null}
                       className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white rounded-lg text-[11px] font-semibold"
                     >
-                      <Icon glyph="⬆" /> {uploading === "media" ? "Adding…" : "Upload my own video / image"}
+                      <Icon glyph="⬆" />{" "}
+                      {uploading === "media"
+                        ? mediaConversion !== null
+                          ? `Converting ${mediaConversion}%`
+                          : "Adding…"
+                        : "Upload my own video / image"}
                     </button>
                     <input
                       ref={mediaInputRef}

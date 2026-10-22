@@ -15,6 +15,13 @@ export const MIME_BY_EXTENSION: Record<MediaKind, Record<string, string>> = {
     webm: "video/webm",
     ogv: "video/ogg",
     ogg: "video/ogg",
+    /* Matroska and MPEG-TS: browsers cannot open these containers, but the
+       upload path re-wraps them as MP4 on the way in (media-convert.ts), so
+       the customer is not asked to convert a file we can convert ourselves. */
+    mkv: "video/x-matroska",
+    ts: "video/mp2t",
+    m2ts: "video/mp2t",
+    mts: "video/mp2t",
     "3gp": "video/3gpp",
     "3g2": "video/3gpp2",
     mpg: "video/mpeg",
@@ -61,6 +68,9 @@ const MIME_ALIASES: Record<string, string> = {
   "audio/x-flac": "audio/flac",
   "audio/opus": "audio/ogg",
   "video/x-m4v": "video/mp4",
+  "video/mkv": "video/x-matroska",
+  "video/x-mkv": "video/x-matroska",
+  "video/vnd.dlna.mpeg-tts": "video/mp2t",
   "video/m4v": "video/mp4",
   "video/x-quicktime": "video/quicktime",
   "image/jpg": "image/jpeg",

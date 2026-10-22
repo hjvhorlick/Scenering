@@ -619,7 +619,7 @@ export default function VoiceoverStudio({
           onChange={onUpdateVoiceoverEnabled}
           sceneCount={scenes.length}
           lockedOff={voiceoverLockedOff}
-          lockedReason="This project's uploaded video or song is its soundtrack. Captions and visual effects stay available, but narration is not layered over it."
+          lockedReason="This project is built from uploaded footage or a song, so its own sound is the soundtrack. Turn narration on if you also want your script read over it."
         />
       )}
 
@@ -630,7 +630,7 @@ export default function VoiceoverStudio({
           </span>
           Nothing is spoken in the preview or the exported file, and each scene runs for as long as
           its own footage or script says — not for as long as a voice would have taken. {voiceoverLockedOff
-            ? "Captions and everything visual in the Video Studio still work normally. Source media keeps narration off so its soundtrack is never covered by a generated voice."
+            ? "This default keeps a song or a filmed take sounding like itself. Turning narration on reads your script over that sound; mute or remove the clip's own audio in Scenes → Short video clip if you want the voice alone."
             : "Background music, captions and everything in the Video Studio still work normally. Turn the switch back on to pick a narrator."}
         </div>
       )}

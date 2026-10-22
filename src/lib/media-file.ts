@@ -13,11 +13,17 @@
  *  - WebM files (browser recordings especially) report an infinite
  *    duration until they are seeked. A probe that simply read
  *    `duration` on `loadedmetadata` therefore measured 0 seconds and
- *    called a good file empty.
- *  - MKV/AVI were named as acceptable in one store even though web
- *    browsers generally cannot play them, so they failed later with a
- *    vague message — or, on the surfaces with no validation at all,
- *    appeared to upload and then silently never played.
+ *    called a good file empty. The same is true of fragmented MP4, and
+ *    of `videoWidth`/`videoHeight`, which some browsers only fill in at
+ *    `loadeddata`.
+ *  - The probe read a `<video>` element that was never put in the
+ *    document. Safari and several mobile pipelines do not load those, so
+ *    an ordinary iPhone MP4 timed out and was reported as unplayable.
+ *  - AVI/WMV/FLV and friends were named as acceptable in one store even
+ *    though nothing can read them, so they failed later with a vague
+ *    message. Matroska and MPEG-TS were refused on that same list even
+ *    though the picture inside is usually ordinary H.264; they are now
+ *    accepted and re-wrapped by `media-convert.ts` instead.
  *
  * The contract now: every media kind supports at least its three most
  * common formats — MP4/MOV/WebM video, MP3/WAV/M4A audio, JPG/PNG/WebP
@@ -36,6 +42,7 @@ import {
   fileExtension,
   type MediaKind,
 } from "./media-mime";
+import { inspectMediaBlob } from "./media-convert";
 
 export { canonicalAudioMimeType, canonicalMimeType, fileExtension } from "./media-mime";
 export type { MediaKind } from "./media-mime";
@@ -55,29 +62,30 @@ export const TOP_MEDIA_FORMATS: Record<MediaKind, string> = {
  * extensions rescue files whose MIME type the OS does not know
  * (notably `.mov` and `.m4a` on Windows and some Android pickers).
  */
-export const VIDEO_UPLOAD_ACCEPT = "video/*,.mp4,.mov,.webm,.m4v,.ogv,.3gp,.3g2,.mpg,.mpeg";
+export const VIDEO_UPLOAD_ACCEPT =
+  "video/*,.mp4,.mov,.webm,.m4v,.mkv,.mts,.m2ts,.ts,.ogv,.3gp,.3g2,.mpg,.mpeg";
 export const AUDIO_UPLOAD_ACCEPT = "audio/*,.mp3,.wav,.wave,.m4a,.aac,.ogg,.oga,.opus,.flac,.webm,.weba,.mp4,.aif,.aiff";
 export const IMAGE_UPLOAD_ACCEPT = "image/*,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp";
 /** Logos may be SVG — they are drawn as overlay images, where SVG is wanted. */
 export const LOGO_IMAGE_UPLOAD_ACCEPT = "image/*,.png,.jpg,.jpeg,.webp,.svg,.gif,.avif";
 export const IMAGE_OR_VIDEO_UPLOAD_ACCEPT =
-  "video/*,image/*,.mp4,.mov,.webm,.m4v,.ogv,.3gp,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp";
+  "video/*,image/*,.mp4,.mov,.webm,.m4v,.mkv,.mts,.m2ts,.ts,.ogv,.3gp,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp";
 
 /**
- * Formats customers reasonably try that a web browser cannot decode
- * directly. They get a specific "convert it" sentence instead of a
- * generic refusal (or worse, a silent black frame).
+ * Formats customers reasonably try that neither a web browser nor the
+ * bundled demuxer can read. They get a specific "convert it" sentence instead
+ * of a generic refusal (or worse, a silent black frame).
+ *
+ * Matroska (`.mkv`) and MPEG-TS (`.mts`/`.m2ts`) used to be on this list.
+ * They are now accepted and re-wrapped as MP4 on upload — the picture inside
+ * is ordinary H.264 often enough that refusing it was the real bug.
  */
 const BROWSER_UNFRIENDLY: Record<string, MediaKind> = {
-  mkv: "video",
   avi: "video",
   wmv: "video",
   flv: "video",
   rm: "video",
   rmvb: "video",
-  ts: "video",
-  m2ts: "video",
-  mts: "video",
   vob: "video",
   wma: "audio",
   heic: "image",
@@ -189,7 +197,7 @@ export function isSupportedMediaFile(
 /**
  * classifyMediaFile, or a MediaFileError whose sentence is fit to put on
  * screen: it names the file, the formats that do work, and — for the
- * MKV/HEIC-style formats browsers cannot read — the conversion to make.
+ * AVI/HEIC-style formats nothing here can read — the conversion to make.
  */
 export function assertMediaFile(
   file: File,
@@ -216,68 +224,239 @@ export function assertMediaFile(
 
 /* ------------------------------ decode probes ------------------------------ */
 
-const PROBE_TIMEOUT_MS = 20_000;
+/**
+ * How long a probe may take before the file is called *slow* rather than
+ * *wrong*. The old 20-second limit turned a large phone clip on a cold disk
+ * into "that video took too long to read", which customers read as a format
+ * refusal — and then went looking for a converter they did not need.
+ */
+const PROBE_TIMEOUT_MS = 30_000;
+
+/** Why a probe stopped, so the caller can convert, explain or carry on. */
+export type MediaProbeReason = "unsupported" | "slow";
+
+export class MediaProbeError extends MediaFileError {
+  readonly reason: MediaProbeReason;
+  /** `HTMLMediaElement.error.code`: 1 aborted, 2 network, 3 decode, 4 unsupported. */
+  readonly code: number | null;
+
+  constructor(message: string, reason: MediaProbeReason, code: number | null = null) {
+    super(message);
+    this.name = "MediaProbeError";
+    this.reason = reason;
+    this.code = code;
+  }
+}
+
+function mediaErrorMessage(kind: MediaKind, code: number | null): string {
+  if (kind === "audio") {
+    return `That file could not be read as audio by this browser. Try ${TOP_MEDIA_FORMATS.audio}, or OGG.`;
+  }
+  if (code === 3) {
+    return "That video's picture could not be decoded by this browser. MP4 (H.264), MOV and WebM are the formats that always work.";
+  }
+  return "That video is in a container this browser cannot open. MP4 (H.264), MOV and WebM are the formats that always work.";
+}
 
 /**
- * Reads a media element's duration, including the WebM case where the
- * duration only appears after a seek to the end. Rejects with a plain
- * sentence when the browser cannot decode the file at all.
+ * Keeps the element in the document, one pixel off-screen, while it is read.
+ *
+ * A detached `<video>` is not reliably loaded by Safari or by several mobile
+ * media pipelines — the exact quirk this repository already works around for
+ * clip playback in `scene-clip.ts`. A probe that created its element and never
+ * mounted it therefore waited for `loadedmetadata` that could never arrive,
+ * timed out, and refused a perfectly ordinary MP4 from an iPhone or iPad.
  */
-function probeDuration(element: HTMLMediaElement, url: string, kind: MediaKind): Promise<number> {
+function attachForProbe(element: HTMLMediaElement): () => void {
+  if (typeof document === "undefined" || !document.body) return () => {};
+  const holder = element as HTMLElement;
+  holder.style.position = "fixed";
+  holder.style.left = "-10000px";
+  holder.style.top = "0px";
+  holder.style.width = "2px";
+  holder.style.height = "2px";
+  holder.style.opacity = "0";
+  holder.style.pointerEvents = "none";
+  element.setAttribute("aria-hidden", "true");
+  element.tabIndex = -1;
+  document.body.appendChild(element);
+  return () => {
+    try {
+      element.pause();
+    } catch {
+      /* a paused element may not expose pause() in tests */
+    }
+    element.removeAttribute("src");
+    try {
+      element.load();
+    } catch {
+      /* releasing the decoder is best-effort */
+    }
+    element.remove();
+  };
+}
+
+interface ProbeMeasurement {
+  duration: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Reads duration and frame size from a media element, and keeps trying until
+ * both are known.
+ *
+ * The previous version resolved on `loadedmetadata` alone. Three real files
+ * broke on that:
+ *  - a WebM from a recorder reports `duration === Infinity` until it is
+ *    seeked (handled by seeking, as before);
+ *  - a fragmented MP4 reports `Infinity` and only answers a seek once enough
+ *    of the index has arrived, which is why the element is not abandoned
+ *    after one attempt;
+ *  - `videoWidth`/`videoHeight` are still 0 at `loadedmetadata` in some
+ *    browsers and arrive with `loadeddata`, so reading them immediately made
+ *    a good file look like it had "no picture in it".
+ */
+function probeMediaElement(
+  element: HTMLMediaElement,
+  url: string,
+  kind: MediaKind,
+): Promise<ProbeMeasurement> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    const timer = window.setTimeout(() => {
-      finish(() => reject(new MediaFileError(`That ${kind} took too long to read. Try ${TOP_MEDIA_FORMATS[kind]}.`)));
-    }, PROBE_TIMEOUT_MS);
+    let seeks = 0;
+    let metadataSeen = false;
+    let detach = () => {};
+    let poll = 0;
+    let timer = 0;
+
+    const width = () => (kind === "video" ? (element as HTMLVideoElement).videoWidth || 0 : 0);
+    const height = () => (kind === "video" ? (element as HTMLVideoElement).videoHeight || 0 : 0);
+
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      window.clearInterval(poll);
+      element.removeEventListener("loadedmetadata", onMetadata);
+      element.removeEventListener("loadeddata", onData);
+      element.removeEventListener("canplay", onData);
+      element.removeEventListener("canplaythrough", onData);
+      element.removeEventListener("resize", onStateChange);
+      element.removeEventListener("durationchange", onStateChange);
+      element.removeEventListener("progress", onStateChange);
+      element.removeEventListener("seeked", onSeeked);
+      element.removeEventListener("error", onError);
+      const release = detach;
+      detach = () => {};
+      release();
+    };
+
     const finish = (settle: () => void) => {
       if (settled) return;
       settled = true;
-      window.clearTimeout(timer);
-      element.onloadedmetadata = null;
-      element.ondurationchange = null;
-      element.onseeked = null;
-      element.onerror = null;
+      cleanup();
       settle();
     };
-    const check = () => {
-      const duration = Number(element.duration);
-      if (Number.isFinite(duration) && duration > 0) {
-        finish(() => resolve(duration));
-        return true;
-      }
-      return false;
+
+    const succeed = (duration: number) => {
+      // Measured BEFORE cleanup: detaching the element and clearing its src
+      // resets `videoWidth`/`videoHeight` to 0 in some browsers, which would
+      // put us straight back to "no picture in it" for a good file.
+      const measuredWidth = width();
+      const measuredHeight = height();
+      finish(() => resolve({ duration, width: measuredWidth, height: measuredHeight }));
     };
-    element.onloadedmetadata = () => {
-      if (check()) return;
-      // Duration is Infinity/NaN (typical of recorder WebM): seeking to
+
+    const seekToEnd = () => {
+      // A stream that never resolves its duration would otherwise be seeked
+      // forever; three attempts is plenty for the recorder-WebM/fMP4 cases.
+      if (seeks >= 3 || settled) return;
+      seeks += 1;
+      // Duration is Infinity/NaN (recorder WebM, fragmented MP4): seeking to
       // the end forces the browser to work out the real length.
       try {
         element.currentTime = Number.MAX_SAFE_INTEGER;
       } catch {
-        /* some browsers refuse before metadata settles; durationchange may still arrive */
+        /* some browsers refuse before metadata settles; polling retries */
       }
     };
-    element.ondurationchange = () => {
-      check();
-    };
-    element.onseeked = () => {
+
+    /** True when the element has answered with everything the caller needs. */
+    function check(): boolean {
+      if (settled) return true;
+      const duration = Number(element.duration);
+      if (!Number.isFinite(duration) || duration <= 0) return false;
+      if (kind === "video" && (!width() || !height())) return false;
+      succeed(duration);
+      return true;
+    }
+
+    function onMetadata() {
+      metadataSeen = true;
       if (check()) return;
-      const reached = Number(element.currentTime);
-      if (Number.isFinite(reached) && reached > 0) finish(() => resolve(reached));
-    };
-    element.onerror = () => {
+      seekToEnd();
+    }
+
+    function onData() {
+      if (check()) return;
+      if (metadataSeen) seekToEnd();
+    }
+
+    function onStateChange() {
+      if (check()) return;
+      if (metadataSeen) seekToEnd();
+    }
+
+    function onSeeked() {
+      if (check()) return;
+      // A browser that never produces a finite duration still knows where the
+      // seek landed; that position is the length it can play.
+      if (!Number.isFinite(Number(element.duration))) {
+        const reached = Number(element.currentTime);
+        if (Number.isFinite(reached) && reached > 0) {
+          succeed(reached);
+          return;
+        }
+      }
+      seekToEnd();
+    }
+
+    function onError() {
+      const code = element.error?.code ?? null;
+      finish(() => reject(new MediaProbeError(mediaErrorMessage(kind, code), "unsupported", code)));
+    }
+
+    element.addEventListener("loadedmetadata", onMetadata);
+    element.addEventListener("loadeddata", onData);
+    element.addEventListener("canplay", onData);
+    element.addEventListener("canplaythrough", onData);
+    element.addEventListener("resize", onStateChange);
+    element.addEventListener("durationchange", onStateChange);
+    element.addEventListener("progress", onStateChange);
+    element.addEventListener("seeked", onSeeked);
+    element.addEventListener("error", onError);
+
+    // Armed before the file is opened: a browser that answers synchronously
+    // must not leave a timer running behind a finished probe.
+    poll = window.setInterval(() => {
+      if (check()) return;
+      if (metadataSeen) seekToEnd();
+    }, 250);
+    timer = window.setTimeout(() => {
       finish(() =>
         reject(
-          new MediaFileError(
+          new MediaProbeError(
             kind === "video"
-              ? "That video could not be played by this browser. MP4 (H.264), MOV and WebM are supported — an MP4/MOV recorded in HEVC/H.265 may need converting to MP4 (H.264 + AAC) first."
-              : `That file could not be read as audio by this browser. Try ${TOP_MEDIA_FORMATS.audio}, or OGG.`,
+              ? "That video took too long to read. It is not necessarily the wrong format — try it again, or convert it to MP4 (H.264 + AAC)."
+              : `That ${kind} took too long to read. Try ${TOP_MEDIA_FORMATS[kind]}.`,
+            "slow",
           ),
         ),
       );
-    };
-    element.preload = "auto";
+    }, PROBE_TIMEOUT_MS);
+
+    detach = attachForProbe(element);
     element.muted = true;
+    element.preload = "auto";
     element.src = url;
     try {
       element.load();
@@ -293,16 +472,40 @@ function temporaryObjectUrl(source: Blob | string): { url: string; revoke: () =>
   return { url, revoke: () => URL.revokeObjectURL(url) };
 }
 
-/** Real duration and frame size, measured by decoding — never guessed. */
+/**
+ * Real duration and frame size, measured by decoding — never guessed.
+ *
+ * A file that decodes but will not state its duration (or whose metadata is
+ * still in flight when the probe gives up) is measured from its container
+ * instead of being refused: the demuxer can read the length without a
+ * decoder, and refusing a file the app can play is the bug this guards.
+ */
 export async function probeVideoFile(
   source: Blob | string,
 ): Promise<{ duration: number; width: number; height: number }> {
   const video = document.createElement("video");
   video.playsInline = true;
+  video.setAttribute("playsinline", "");
+  video.setAttribute("webkit-playsinline", "");
   const { url, revoke } = temporaryObjectUrl(source);
   try {
-    const duration = await probeDuration(video, url, "video");
-    return { duration, width: video.videoWidth || 0, height: video.videoHeight || 0 };
+    return await probeMediaElement(video, url, "video");
+  } catch (error) {
+    if (error instanceof MediaProbeError && error.reason === "slow" && typeof source !== "string") {
+      // The element never finished, but the container may still know its
+      // shape. Trust the file rather than the clock.
+      const measured = await inspectMediaBlob(source).catch(() => null);
+      // Trust the container only when this browser has a decoder for what is
+      // inside it. A file whose codec nothing can decode has already failed
+      // with an error, not a timeout — this guard is for slow, valid files.
+      const decodable = !measured?.videoCodec || measured.videoDecodable;
+      if (measured && measured.duration > 0 && decodable) {
+        // A container with no video track comes back with 0x0 on purpose:
+        // the caller already has the sentence for "audio-only file".
+        return { duration: measured.duration, width: measured.width, height: measured.height };
+      }
+    }
+    throw error;
   } finally {
     revoke();
   }
@@ -310,11 +513,16 @@ export async function probeVideoFile(
 
 /** Real playable length in seconds, measured by decoding. */
 export async function probeAudioFile(source: Blob | string): Promise<{ duration: number }> {
-  const audio = new Audio();
+  const audio = document.createElement("audio");
   const { url, revoke } = temporaryObjectUrl(source);
   try {
-    const duration = await probeDuration(audio, url, "audio");
-    return { duration };
+    return await probeMediaElement(audio, url, "audio");
+  } catch (error) {
+    if (error instanceof MediaProbeError && error.reason === "slow" && typeof source !== "string") {
+      const measured = await inspectMediaBlob(source).catch(() => null);
+      if (measured && measured.duration > 0) return { duration: measured.duration };
+    }
+    throw error;
   } finally {
     revoke();
   }

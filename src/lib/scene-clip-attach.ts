@@ -33,15 +33,30 @@ export async function sceneUpdatesForVideoFile(
   file: File,
   scene: Pick<Scene, "is_inserted" | "video_volume" | "video_url">,
   narrationDuration: number,
-  /** A one-scene project: the clip is the video, so nothing trims or loops it. */
-  options: { singleScene?: boolean } = {}
+  /**
+   * A one-scene project: the clip is the video, so nothing trims or loops it.
+   * `onProgress` reports 0–1 while a container this browser cannot open is
+   * being re-wrapped for it; `onWarning` carries the sentence to show when
+   * the browser could not keep a reload-safe copy and the clip is only
+   * available for this tab.
+   */
+  options: {
+    singleScene?: boolean;
+    onProgress?: (progress: number) => void;
+    onWarning?: (message: string) => void;
+  } = {}
 ): Promise<Partial<Scene>> {
   const replaceId = scene.video_url?.startsWith(CUSTOM_VIDEO_PREFIX)
     ? scene.video_url.slice(CUSTOM_VIDEO_PREFIX.length)
     : null;
   const clip = await addCustomVideo(file, {
     replaceIds: replaceId ? [replaceId] : [],
+    onProgress: options.onProgress,
+    // A scene that cannot get a reload-safe copy should still work right now,
+    // with a visible warning, rather than refusing the upload outright.
+    allowSessionFallback: true,
   });
+  if (clip.storageWarning) options.onWarning?.(clip.storageWarning);
   const full = clip.duration > 0 ? clip.duration : narrationDuration;
   const isInserted = Boolean(scene.is_inserted);
   const singleScene = Boolean(options.singleScene);

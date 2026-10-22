@@ -3,8 +3,14 @@
 #
 # In production, set each of these with `npx wrangler secret put <NAME>`.
 
-# Required in production (64 hex chars — e.g. `openssl rand -hex 32`):
-SCENERING_AUTH_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+# This file is a DEVELOPMENT machine. Production defaults to production mode
+# when NODE_ENV is unset; only say "development" here.
+NODE_ENV=development
+
+# Required in production (≥ 32 chars — e.g. `openssl rand -hex 32`).
+# The server reads SESSION_SECRET; SCENERING_AUTH_SECRET is only a legacy
+# alias, never the name to configure a deployment with.
+SESSION_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 # Optional server-side stock media fallbacks (users can also supply their own
 # keys in the studio's API-keys modal; Speechify is always browser-held):

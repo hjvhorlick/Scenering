@@ -451,6 +451,50 @@ const footageScene = {
       render.includes("await loadCustomVideos()"),
     "decoded or restored footage paints scene and render previews while Setup remains script-only"
   );
+
+  /* ------------------------------------------------------------------ *
+   * Narration is a CHOICE, even over uploaded footage.
+   *
+   * An earlier guard treated "source media project" as "narration must be
+   * off": an effect wrote `voiceover_enabled: false` back to the project and
+   * the switch was disabled, so a creator who wanted their script read over
+   * their own take heard nothing in the preview and nothing in the export,
+   * with no way to ask for it. The default (off) stays; the cage goes.
+   * ------------------------------------------------------------------ */
+  const voiceoverSwitch = read("src/components/VoiceoverSwitch.tsx");
+  h.ok(
+    !/useEffect\(\(\) => \{[\s\S]{0,240}setVoiceoverEnabled\(false\)/.test(app),
+    "nothing in App force-writes narration off after the project loads"
+  );
+  h.ok(
+    /const handleUpdateVoiceoverEnabled = useCallback\(\(enabled: boolean\) => \{\s*setVoiceoverEnabled\(enabled\);\s*saveCurrentProjectSettings\(\{ voiceover_enabled: enabled \}\);/.test(app),
+    "turning the narration switch on saves exactly what the creator asked for"
+  );
+  h.ok(
+    !/const next = mediaSource(Project|VoiceoverLocked) \? false : enabled;/.test(app),
+    "the source-media clamp that silently overrode the switch is gone"
+  );
+  h.ok(
+    voiceoverSwitch.includes("const active = enabled;") &&
+      !voiceoverSwitch.includes("disabled={lockedOff}"),
+    "the switch is operable on a source-media project and only its wording changes"
+  );
+  h.ok(
+    /const handleCreateProject[\s\S]{0,4000}const narration = audio \|\| clip \? false :/.test(app),
+    "new source-media projects still START with narration off, so a music video is never given a voice it did not ask for"
+  );
+  /* Preview and export read the same switch and the same "is there anything
+     to say" rule, so the two can never disagree about whether to speak. */
+  h.ok(
+    /const speaks = voiceoverEnabled && projectHasNarration\(scenesWithImages\);/.test(preview) &&
+      /const speaks = voiceoverEnabled && projectHasNarration\(scenesWithImages\);/.test(render),
+    "the preview and the render both speak exactly when narration is on"
+  );
+  h.ok(
+    /for \(let i = 0; voiceoverEnabled && i < scenesWithImages\.length; i\+\+\)/.test(render) &&
+      /if \(!voiceoverEnabled\) \{\s*audioBuffersRef\.current\.clear\(\);/.test(preview),
+    "the render resolves no narration with the switch off, and the preview drops its buffers"
+  );
 }
 
 /* ------------------------------------------------------------------ *

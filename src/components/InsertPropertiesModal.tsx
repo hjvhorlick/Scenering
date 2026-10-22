@@ -29,7 +29,7 @@ import { makeBus, type AudioFrame, type ReactionSource } from "../lib/audio-reac
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { VISUALIZER_PALETTES } from "../lib/visualizer-palettes";
 import { FINE_RADIAL_PRESET_PATCHES, isAdvancedAudioVisualizerType, isAdvancedLinearVisualizerType } from "../lib/advanced-audio-visualizer";
-import { isRoundVisualizer, supportsCentreLogo, wantsCentreLogo } from "../lib/render-visualizers";
+import { isImmersiveVisualizer, isRoundVisualizer, resolveCentreStyle, supportsCentreLogo } from "../lib/render-visualizers";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
   SOUND_LIBRARY,
@@ -109,12 +109,25 @@ const SLIDER_HINTS = {
   attack: "Controls how quickly the preview jumps up on a loud beat or word. Higher snaps faster; lower moves more gently.",
   release: "Controls how quickly the preview settles after the sound. Higher drops back fast; lower leaves a smoother trail.",
   smoothing: "Smooths sudden jumps between neighbouring bands. Higher is steadier; lower is more twitchy and energetic.",
-  bloom: "Adds soft light around the visualiser. Higher makes the preview glow more; lower keeps it cleaner.",
+  bloom: "Bright light spilling around the effect. Higher makes a real, visible halo; at 0 there is none. It glows around the shape, so every edge stays sharp.",
   reaction: "Overall sensitivity. Higher makes bars, waves and particles move more for the same audio; lower calms them down.",
   glow: "Changes the brightness of neon edges and highlights in the preview.",
   particleScale: "Makes each glass bubble, smoke puff or glitter star larger or smaller without changing its audio timing.",
   effectDensity: "Adds or removes the visible smoke, bubbles or pixie-dust layers while preserving the same sound reaction.",
+  material: "Glass is see-through, so the footage shows inside every bar and bubble. Chrome is polished metal: bright reflections and a sharp highlight, never a dull grey.",
+  glassTransparency: "How much of the video you can see through the glass. Higher is a thinner, clearer pane; lower is a thicker, more coloured block of glass.",
+  glassFinish: "Sandblast turns crystal-clear glass into frosted glass. Leave it at 0 for sharp, see-through glass; raise it for a soft, matte, sandblasted pane.",
+  bottomLight: "The coloured light shining up from below the effect. Raise it until the base glows; at 0 there is no floor light at all.",
+  smokeSize: "How big each cloud of smoke is. Raise it for fat rolling clouds, lower it for thin drifting wisps.",
+  centreStyle: "What sits in the middle of a round visualiser. My logo uses the brand mark you upload in Studio → 🏷️ Logo (with no logo uploaded, the glowing orb shows instead). Glowing orb keeps the light without the logo. Nothing leaves the ring alone, with an empty middle.",
+  centreSize: "How big the middle is — the glowing orb, and the logo with it. At the smallest setting it is a small bright dot; at the largest it fills the ring.",
+  logoSize: "How big your logo is inside the middle, independent of the middle's own size. Push it up and the logo can spill past the glowing disc; pull it down for a small mark with plenty of light around it.",
+  smokeSoftness: "How fuzzy the smoke is. Low keeps tight curls with visible shape; high dissolves the edges into soft gas.",
 } as const;
+
+/** The colour themes a first-time creator can tell apart at a glance. The full
+ *  table stays in the palette module so saved projects keep their colours. */
+const SIMPLE_THEME_IDS = ["neon", "fire", "ocean", "sunset", "gold", "silver_chrome", "arctic", "mono"];
 
 function makeEditPreviewAudioFrame(t: number, source: ReactionSource): AudioFrame {
   const mode: ReactionSource = source === "voice" ? "voice" : "music";
@@ -778,6 +791,7 @@ function InsertPropertiesContent({
     "glitter_silver_vortex",
     "glitter_opal_dust",
   ].includes(advancedStyle);
+  const isSmokeVisualizer = advancedStyle === "smoke_orbit" || advancedStyle === "smoke_bloom";
   const advancedPresetKey =
     advancedStyle === "fine_radial_bars"
       ? "professional"
@@ -860,7 +874,6 @@ function InsertPropertiesContent({
     { tab: "brand", id: "ipm-brand", icon: "🏷️", name: "Brand Logo", tone: "opt-btn-amber", show: isIntroOutro },
     { tab: "visuals", id: "ipm-visuals", icon: "📐", name: "Position & Size", show: !isSoundEffect && !isIntroOutro && !isCallToAction },
     { tab: "design", id: "ipm-design", icon: "🎨", name: "Design", show: !isIntroOutro && isContentCard },
-    { tab: "reactivity", id: "ipm-reactivity", icon: "🎙️", name: "Audio Reactivity", show: isAudioVisualizer },
     { tab: "cta_platform", id: "ipm-cta-platform", icon: "🌐", name: "Platform", show: isCallToAction },
     { tab: "cta_text", id: "ipm-cta-text", icon: "✏️", name: "Text & Icon", show: isCallToAction },
     { tab: "cta_style", id: "ipm-cta-style", icon: "🎨", name: "Colours", show: isCallToAction },
@@ -1790,7 +1803,7 @@ function InsertPropertiesContent({
                   {/* Colour theme — the "look" of the visualiser, in one tap */}
                   <div className="space-y-2 pt-3 border-t border-hairline">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-white">Colour Theme:</span>
+                      <span className="text-xs font-medium text-white">Colours:</span>
                       <span className="text-[11px] text-gray-400">
                         {data.visualOptions?.colorTheme
                           ? VISUALIZER_PALETTES.find((p) => p.id === data.visualOptions?.colorTheme)?.name ||
@@ -1798,8 +1811,14 @@ function InsertPropertiesContent({
                           : "Custom colours"}
                       </span>
                     </div>
+                    <p className="text-[11px] text-gray-400">
+                      One tap sets all three colours below. Pick <span className="text-gray-200">Custom</span> and use
+                      the pickers to choose your own.
+                    </p>
                     <div className="flex flex-wrap gap-1.5">
-                      {VISUALIZER_PALETTES.map((pal) => {
+                      {VISUALIZER_PALETTES.filter(
+                        (pal) => SIMPLE_THEME_IDS.includes(pal.id) || pal.id === data.visualOptions?.colorTheme
+                      ).map((pal) => {
                         const active = data.visualOptions?.colorTheme === pal.id;
                         return (
                           <button
@@ -1878,36 +1897,252 @@ function InsertPropertiesContent({
                         />
                       </div>
                     </div>
+                    <p className="text-[11px] text-gray-500">
+                      Main colour fills the bars and bubbles. Second colour shades their far end. Highlight
+                      catches the tips, edges and flashes.
+                    </p>
                   </div>
 
-                  {/* Centre logo — the user's own brand mark in the middle */}
-                  {supportsCentreLogo(data.type) && (
-                    <div className="pt-3 border-t border-hairline space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-xs font-medium text-white block">
-                            Show My Logo in the Middle
-                          </span>
-                          <span className="text-[11px] text-gray-400">
-                            Uses the logo you upload in Studio → 🏷️ Logo. With no logo, the middle
-                            stays a glowing core
-                          </span>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={wantsCentreLogo(data)}
-                          onChange={(e) => updateVisualOptions("centreLogo", e.target.checked)}
-                          className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
-                        />
-                      </div>
+                  {/* Look: material, glass finish, light and bloom — the parts you see.
+                      Immersive scenes are drawn worlds, not materials, so they keep
+                      the controls that actually change them. */}
+                  {!isImmersiveVisualizer(data.type) && (
+                  <div className="space-y-3 pt-3 border-t border-hairline">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-white">Material:</span>
+                      <span className="text-[11px] text-gray-400">
+                        {data.visualOptions?.visualizerMaterial === "chrome" ? "Polished chrome" : "Clear glass"}
+                      </span>
                     </div>
+                    <SliderWithHelp hint={SLIDER_HINTS.material}>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: "glass", label: "Clear glass", note: "You see the footage through it" },
+                          { id: "chrome", label: "Polished chrome", note: "Shiny metal — never dull" },
+                        ].map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() =>
+                              updateVisual({ visualizerMaterial: m.id, barShine: m.id === "chrome" ? 1 : undefined })
+                            }
+                            className={`px-2.5 py-2 rounded-lg border text-left transition-colors ${
+                              (data.visualOptions?.visualizerMaterial || "glass") === m.id
+                                ? "bg-indigo-600 border-indigo-500 text-white"
+                                : "bg-gray-900 border-hairline text-gray-300 hover:bg-gray-800"
+                            }`}
+                          >
+                            <span className="block text-[11px] font-semibold">{m.label}</span>
+                            <span className="block text-[10px] opacity-70">{m.note}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </SliderWithHelp>
+
+                    {(data.visualOptions?.visualizerMaterial || "glass") === "glass" && (
+                      <>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-gray-400">
+                            <span>Glass transparency</span>
+                            <span className="font-mono text-cyan-300">
+                              {Math.round((data.visualOptions?.glassTransparency ?? 0.86) * 100)}%
+                            </span>
+                          </div>
+                          <SliderWithHelp hint={SLIDER_HINTS.glassTransparency}>
+                            <input
+                              type="range"
+                              min={0.15}
+                              max={1}
+                              step={0.01}
+                              value={data.visualOptions?.glassTransparency ?? 0.86}
+                              onChange={(e) => updateVisualOptions("glassTransparency", parseFloat(e.target.value))}
+                              className="w-full accent-cyan-400 cursor-pointer"
+                            />
+                          </SliderWithHelp>
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-gray-400">
+                            <span>Sandblast</span>
+                            <span className="font-mono text-cyan-300">
+                              {Math.round((data.visualOptions?.glassFrost ?? 0) * 100)}%
+                            </span>
+                          </div>
+                          <SliderWithHelp hint={SLIDER_HINTS.glassFinish}>
+                            <input
+                              type="range"
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              value={data.visualOptions?.glassFrost ?? 0}
+                              onChange={(e) => updateVisualOptions("glassFrost", parseFloat(e.target.value))}
+                              className="w-full accent-cyan-400 cursor-pointer"
+                            />
+                          </SliderWithHelp>
+                        </div>
+                      </>
+                    )}
+
+                    <div>
+                      <div className="flex justify-between text-[10px] text-gray-400">
+                        <span>Light from below</span>
+                        <span className="font-mono text-cyan-300">
+                          {Math.round((data.visualOptions?.bottomLight ?? 0.72) * 100)}%
+                        </span>
+                      </div>
+                      <SliderWithHelp hint={SLIDER_HINTS.bottomLight}>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          value={data.visualOptions?.bottomLight ?? 0.72}
+                          onChange={(e) => updateVisualOptions("bottomLight", parseFloat(e.target.value))}
+                          className="w-full accent-amber-400 cursor-pointer"
+                        />
+                      </SliderWithHelp>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-[10px] text-gray-400">
+                        <span>Bloom</span>
+                        <span className="font-mono text-cyan-300">
+                          {Math.round((data.visualOptions?.bloomIntensity ?? 0.32) * 100)}%
+                        </span>
+                      </div>
+                      <SliderWithHelp hint={SLIDER_HINTS.bloom}>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          value={data.visualOptions?.bloomIntensity ?? 0.32}
+                          onChange={(e) => updateVisualOptions("bloomIntensity", parseFloat(e.target.value))}
+                          className="w-full accent-amber-400 cursor-pointer"
+                        />
+                      </SliderWithHelp>
+                    </div>
+
+                    {isAdvancedAtmosphericVisualizer && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Effect size: {Math.round((data.visualOptions?.particleScale ?? 1) * 100)}%</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.particleScale}>
+                            <input type="range" min={0.35} max={3} step={0.05} value={data.visualOptions?.particleScale ?? 1} onChange={(e) => updateVisualOptions("particleScale", parseFloat(e.target.value))} className="w-full accent-cyan-400" />
+                          </SliderWithHelp>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Effect density: {Math.round((data.visualOptions?.effectDensity ?? 1) * 100)}%</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.effectDensity}>
+                            <input type="range" min={0.35} max={2.4} step={0.05} value={data.visualOptions?.effectDensity ?? 1} onChange={(e) => updateVisualOptions("effectDensity", parseFloat(e.target.value))} className="w-full accent-cyan-400" />
+                          </SliderWithHelp>
+                        </label>
+                      </div>
+                    )}
+
+                    {isSmokeVisualizer && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Cloud size: {Math.round((data.visualOptions?.smokeSize ?? 1) * 100)}%</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.smokeSize}>
+                            <input type="range" min={0.35} max={3} step={0.05} value={data.visualOptions?.smokeSize ?? 1} onChange={(e) => updateVisualOptions("smokeSize", parseFloat(e.target.value))} className="w-full accent-cyan-400" />
+                          </SliderWithHelp>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-gray-400">Cloud softness: {Math.round((data.visualOptions?.smokeFuzz ?? 0.62) * 100)}%</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.smokeSoftness}>
+                            <input type="range" min={0} max={1} step={0.01} value={data.visualOptions?.smokeFuzz ?? 0.62} onChange={(e) => updateVisualOptions("smokeFuzz", parseFloat(e.target.value))} className="w-full accent-cyan-400" />
+                          </SliderWithHelp>
+                        </label>
+                      </div>
+                    )}
+                  </div>
                   )}
+
+                  {/* The middle of a round visualiser: your logo, the orb, or
+                      nothing at all. One choice, then two sizes — the middle
+                      and the logo inside it. */}
+                  {supportsCentreLogo(data.type) && (() => {
+                    const centreStyle = resolveCentreStyle(data as unknown as TimelineInsert);
+                    const centreSize = data.visualOptions?.centreScale ?? 1;
+                    const logoSize = data.visualOptions?.centreLogoScale ?? 1;
+                    return (
+                      <div className="pt-3 border-t border-hairline space-y-3">
+                        <div>
+                          <SliderWithHelp hint={SLIDER_HINTS.centreStyle}>
+                            <span className="text-xs font-medium text-white underline decoration-dotted decoration-gray-500 underline-offset-4">In the middle</span>
+                          </SliderWithHelp>
+                          <div className="grid grid-cols-3 gap-1.5 mt-1.5" role="group" aria-label="What sits in the middle">
+                            {([
+                              { id: "logo" as const, label: "My logo" },
+                              { id: "orb" as const, label: "Glowing orb" },
+                              { id: "none" as const, label: "Nothing" },
+                            ]).map((option) => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                aria-pressed={centreStyle === option.id}
+                                onClick={() => updateVisualOptions("centreStyle", option.id)}
+                                className={`rounded-lg border px-2 py-1.5 text-[11px] font-bold ${
+                                  centreStyle === option.id
+                                    ? "border-indigo-400 bg-indigo-500/20 text-white"
+                                    : "border-hairline bg-gray-900/60 text-gray-300 hover:bg-gray-800"
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-[11px] text-gray-400 mt-1.5">
+                            {centreStyle === "none"
+                              ? "The ring and its bars stand alone — nothing is drawn in the middle."
+                              : centreStyle === "orb"
+                                ? "A glowing core in the middle, with no logo."
+                                : "Your logo from Studio → 🏷️ Logo. With no logo uploaded, the glowing orb shows instead."}
+                          </p>
+                        </div>
+                        {centreStyle !== "none" && (
+                          <div className={`grid gap-3 ${centreStyle === "logo" ? "grid-cols-2" : "grid-cols-1"}`}>
+                            <label className="space-y-1">
+                              <span className="text-[10px] text-gray-400">Middle size: {Math.round(centreSize * 100)}%</span>
+                              <SliderWithHelp hint={SLIDER_HINTS.centreSize}>
+                                <input
+                                  type="range"
+                                  min={0.35}
+                                  max={1.8}
+                                  step={0.05}
+                                  value={centreSize}
+                                  onChange={(e) => updateVisualOptions("centreScale", parseFloat(e.target.value))}
+                                  className="w-full accent-indigo-500"
+                                />
+                              </SliderWithHelp>
+                            </label>
+                            {centreStyle === "logo" && (
+                              <label className="space-y-1">
+                                <span className="text-[10px] text-gray-400">Logo size: {Math.round(logoSize * 100)}%</span>
+                                <SliderWithHelp hint={SLIDER_HINTS.logoSize}>
+                                  <input
+                                    type="range"
+                                    min={0.4}
+                                    max={2.2}
+                                    step={0.05}
+                                    value={logoSize}
+                                    onChange={(e) => updateVisualOptions("centreLogoScale", parseFloat(e.target.value))}
+                                    className="w-full accent-indigo-500"
+                                  />
+                                </SliderWithHelp>
+                              </label>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Sound detail — how many frequency bands / radial elements the analyser splits */}
                   <div className="space-y-1.5 pt-3 border-t border-hairline">
                     <div className="flex justify-between text-xs text-gray-300">
                       <span className="text-xs font-medium text-white">
-                        {isAdvancedVisualizer ? "Advanced Engine Detail:" : "Sound Detail (Bands):"}
+                        {isAdvancedVisualizer ? "Wave detail (bars):" : "Wave detail (bands):"}
                       </span>
                       <span className="font-mono text-indigo-400 font-semibold">
                         {data.visualOptions?.elementCount ?? data.visualOptions?.bandCount ?? (isAdvancedVisualizer ? 256 : 64)} {isAdvancedVisualizer ? "bars" : "bands"}
@@ -1981,7 +2216,7 @@ function InsertPropertiesContent({
                   {/* Wave & Bar Thickness */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-xs text-gray-300">
-                      <span className="text-xs font-medium text-white">Wave & Bar Thickness:</span>
+                      <span className="text-xs font-medium text-white">Bar / wave thickness:</span>
                       <span className="font-mono text-indigo-400 font-semibold">
                         {data.visualOptions?.barThickness ?? 8}px
                       </span>
@@ -2015,6 +2250,16 @@ function InsertPropertiesContent({
                         </button>
                       </div>
 
+                      <p className="text-[11px] text-gray-400">
+                        The controls above are all you need for most videos. The optional details below
+                        tune how the wave is measured.
+                      </p>
+
+                      <details className="rounded-lg border border-hairline bg-gray-900/60 px-3 py-2">
+                        <summary className="cursor-pointer text-[11px] font-semibold text-gray-200">
+                          Advanced wave settings (optional)
+                        </summary>
+                        <div className="space-y-3 pt-3">
                       {!isAdvancedLinearVisualizer && (
                         <div className="grid grid-cols-3 gap-2">
                           {[
@@ -2110,29 +2355,6 @@ function InsertPropertiesContent({
                         </div>
                       )}
 
-                      {isAdvancedAtmosphericVisualizer && (
-                        <div className="space-y-2 rounded-lg border border-cyan-400/20 bg-cyan-950/20 p-3">
-                          <div>
-                            <span className="text-[11px] font-semibold text-cyan-100 block">Bubbles, smoke & glitter</span>
-                            <span className="text-[10px] text-gray-400">Tune the physical size and richness of this sound-reactive effect.</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <label className="space-y-1">
-                              <span className="text-[10px] text-gray-400">Particle Size: {Math.round((data.visualOptions?.particleScale ?? 1) * 100)}%</span>
-                              <SliderWithHelp hint={SLIDER_HINTS.particleScale}>
-                                <input type="range" min={0.35} max={3} step={0.05} value={data.visualOptions?.particleScale ?? 1} onChange={(e) => updateVisualOptions("particleScale", parseFloat(e.target.value))} className="w-full accent-cyan-400" />
-                              </SliderWithHelp>
-                            </label>
-                            <label className="space-y-1">
-                              <span className="text-[10px] text-gray-400">Effect Density: {Math.round((data.visualOptions?.effectDensity ?? 1) * 100)}%</span>
-                              <SliderWithHelp hint={SLIDER_HINTS.effectDensity}>
-                                <input type="range" min={0.35} max={2.4} step={0.05} value={data.visualOptions?.effectDensity ?? 1} onChange={(e) => updateVisualOptions("effectDensity", parseFloat(e.target.value))} className="w-full accent-cyan-400" />
-                              </SliderWithHelp>
-                            </label>
-                          </div>
-                        </div>
-                      )}
-
                       <div className="grid grid-cols-3 gap-3">
                         <label className="space-y-1">
                           <span className="text-[10px] text-gray-400">Gap: {Math.round((data.visualOptions?.barGap ?? 0.42) * 100)}%</span>
@@ -2162,9 +2384,9 @@ function InsertPropertiesContent({
                           </SliderWithHelp>
                         </label>
                         <label className="space-y-1">
-                          <span className="text-[10px] text-gray-400">Bloom: {Math.round((data.visualOptions?.bloomIntensity ?? 0.32) * 100)}%</span>
-                          <SliderWithHelp hint={SLIDER_HINTS.bloom}>
-                            <input type="range" min={0} max={1} step={0.01} value={data.visualOptions?.bloomIntensity ?? 0.32} onChange={(e) => updateVisualOptions("bloomIntensity", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                          <span className="text-[10px] text-gray-400">Roundness: {Math.round((data.visualOptions?.barRoundness ?? 1) * 100)}%</span>
+                          <SliderWithHelp hint={SLIDER_HINTS.barRoundness}>
+                            <input type="range" min={0} max={1} step={0.05} value={data.visualOptions?.barRoundness ?? 1} onChange={(e) => updateVisualOptions("barRoundness", parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                           </SliderWithHelp>
                         </label>
                       </div>
@@ -2179,13 +2401,15 @@ function InsertPropertiesContent({
                           <input type="checkbox" checked={data.visualOptions?.beatResponse !== false} onChange={(e) => updateVisualOptions("beatResponse", e.target.checked)} className="accent-indigo-500" />
                         </label>
                       </div>
+                        </div>
+                      </details>
                     </div>
                   )}
 
                   {/* Reaction Strength */}
                   <div className="space-y-1.5 pt-2 border-t border-hairline">
                     <div className="flex justify-between text-xs text-gray-300">
-                      <span className="text-xs font-medium text-white">Reaction Strength:</span>
+                      <span className="text-xs font-medium text-white">Reaction strength:</span>
                       <span className="font-mono text-indigo-400 font-semibold">
                         {Math.round((data.visualOptions?.reactivity ?? 1) * 100)}%
                       </span>
@@ -2240,7 +2464,7 @@ function InsertPropertiesContent({
                   {/* Glow & Bloom Intensity */}
                   <div className="space-y-1.5 pt-2 border-t border-hairline">
                     <div className="flex justify-between text-xs text-gray-300">
-                      <span className="text-xs font-medium text-white">Glow & Bloom Intensity:</span>
+                      <span className="text-xs font-medium text-white">Edge glow:</span>
                       <span className="font-mono text-indigo-400 font-semibold">
                         {Math.round((data.visualOptions?.glowIntensity ?? 0.85) * 100)}%
                       </span>
@@ -2558,206 +2782,7 @@ function InsertPropertiesContent({
                 </div>
               )}
 
-              {/* Color Customization for Audio Visualizers */}
-              {isAudioVisualizer && (
-                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
-                  <label className="text-xs font-semibold text-white block">
-                    <Icon glyph="🎨" /> Visualizer Colors & 3D Lighting:
-                  </label>
-
-                  {/* Primary Color */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-300 font-medium">Primary Accent Color:</span>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={data.visualOptions?.primaryColor || "#38bdf8"}
-                          onChange={(e) => updateVisualOptions("primaryColor", e.target.value)}
-                          className="w-6 h-6 rounded cursor-pointer border border-hairline bg-transparent"
-                        />
-                        <span className="font-mono text-[11px] text-gray-400">
-                          {data.visualOptions?.primaryColor || "#38bdf8"}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {[
-                        { color: "#38bdf8", name: "Neon Cyan" },
-                        { color: "#10b981", name: "CRT Green" },
-                        { color: "#a855f7", name: "Cyber Purple" },
-                        { color: "#ec4899", name: "Hot Pink" },
-                        { color: "#f59e0b", name: "Sunset Amber" },
-                        { color: "#ffffff", name: "Studio White" },
-                        { color: "#3b82f6", name: "Laser Blue" },
-                        { color: "#ef4444", name: "Crimson Red" },
-                      ].map(({ color, name }) => (
-                        <button
-                          key={color}
-                          type="button"
-                          title={name}
-                          onClick={() => updateVisualOptions("primaryColor", color)}
-                          className={`w-7 h-7 rounded-full border transition-transform ${
-                            (data.visualOptions?.primaryColor || "#38bdf8").toLowerCase() === color.toLowerCase()
-                              ? "scale-110 border-white shadow-lg ring-2 ring-indigo-400"
-                              : "border-transparent hover:scale-105"
-                          }`}
-                          style={{ backgroundColor: color }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Secondary Gradient Color */}
-                  <div className="space-y-2 pt-2 border-t border-hairline">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-300 font-medium">Secondary / Crest Color:</span>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={data.visualOptions?.secondaryColor || "#f43f5e"}
-                          onChange={(e) => updateVisualOptions("secondaryColor", e.target.value)}
-                          className="w-6 h-6 rounded cursor-pointer border border-hairline bg-transparent"
-                        />
-                        <span className="font-mono text-[11px] text-gray-400">
-                          {data.visualOptions?.secondaryColor || "#f43f5e"}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {[
-                        { color: "#f43f5e", name: "Rose Crimson" },
-                        { color: "#ec4899", name: "Hot Pink" },
-                        { color: "#8b5cf6", name: "Royal Purple" },
-                        { color: "#06b6d4", name: "Electric Cyan" },
-                        { color: "#34d399", name: "Emerald Bright" },
-                        { color: "#fbbf24", name: "Gold Glow" },
-                        { color: "#ffffff", name: "White Flash" },
-                      ].map(({ color, name }) => (
-                        <button
-                          key={color}
-                          type="button"
-                          title={name}
-                          onClick={() => updateVisualOptions("secondaryColor", color)}
-                          className={`w-7 h-7 rounded-full border transition-transform ${
-                            (data.visualOptions?.secondaryColor || "#f43f5e").toLowerCase() === color.toLowerCase()
-                              ? "scale-110 border-white shadow-lg ring-2 ring-indigo-400"
-                              : "border-transparent hover:scale-105"
-                          }`}
-                          style={{ backgroundColor: color }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Quick 3D Theme Presets */}
-                  <div className="space-y-1.5 pt-2 border-t border-hairline">
-                    <span className="text-[11px] text-gray-400 font-medium block">Quick 3D Color Themes:</span>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { name: "Rainbow 3D", c1: "#2563eb", c2: "#ef4444" },
-                        { name: "Cyber Neon", c1: "#06b6d4", c2: "#ec4899" },
-                        { name: "CRT Phosphor", c1: "#10b981", c2: "#34d399" },
-                        { name: "Deep Violet", c1: "#8b5cf6", c2: "#ec4899" },
-                        { name: "Sunset Amber", c1: "#f59e0b", c2: "#ef4444" },
-                        { name: "Studio Ice", c1: "#ffffff", c2: "#94a3b8" },
-                      ].map((th) => (
-                        <button
-                          key={th.name}
-                          type="button"
-                          onClick={() => {
-                            updateVisualOptions("primaryColor", th.c1);
-                            updateVisualOptions("secondaryColor", th.c2);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold text-white border border-hairline hover:border-hairline transition-all flex items-center justify-between"
-                          style={{ background: `linear-gradient(90deg, ${th.c1}33, ${th.c2}33)` }}
-                        >
-                          <span>{th.name}</span>
-                          <span className="flex gap-1">
-                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: th.c1 }} />
-                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: th.c2 }} />
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB: AUDIO REACTIVITY (WAVE EFFECTS) */}
-          {isAudioVisualizer && (
-            <div className="space-y-4">
-              <BlockTitle id="ipm-reactivity" icon="🎙️" title="Audio Reactivity" />
-              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
-                <label className="text-xs font-semibold text-white block">
-                  <Icon glyph="🎧" /> What should it move with?
-                </label>
-                <p className="text-xs text-gray-400">
-                  Pick the track that drives the movement. This applies to the live preview and to
-                  the rendered video, which read the same two audio buses.
-                </p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setData({ ...data, audioSource: "voice" })}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      data.audioSource === "voice"
-                        ? "bg-indigo-950/80 border-indigo-500 shadow-sm"
-                        : "bg-gray-800/60 border-hairline hover:bg-gray-800 text-gray-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-lg"><Icon glyph="🎙" /></span>
-                      <span className="text-xs font-bold text-white">Moves with the Voiceover</span>
-                    </div>
-                    <p className="text-[11px] text-gray-400 leading-relaxed">
-                      The visualiser breathes with the narration — it rises on every syllable and
-                      settles in the pauses.
-                    </p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setData({ ...data, audioSource: "music" })}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      data.audioSource === "music"
-                        ? "bg-indigo-950/80 border-indigo-500 shadow-sm"
-                        : "bg-gray-800/60 border-hairline hover:bg-gray-800 text-gray-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-lg"><Icon glyph="🎵" /></span>
-                      <span className="text-xs font-bold text-white">Moves with the Music</span>
-                    </div>
-                    <p className="text-[11px] text-gray-400 leading-relaxed">
-                      Driven by the background track alone: it kicks on the beat and rides the
-                      bass line, for music-led videos.
-                    </p>
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-2">
-                <div className="flex justify-between text-xs text-gray-300">
-                  <span className="font-medium text-white">Reactivity Sensitivity:</span>
-                  <span className="font-mono text-indigo-400">
-                    {Math.round((data.intensity ?? 1.0) * 100)}%
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0.4}
-                  max={1.8}
-                  step={0.1}
-                  value={data.intensity ?? 1.0}
-                  onChange={(e) => setData({ ...data, intensity: parseFloat(e.target.value) })}
-                  className="w-full accent-indigo-500 cursor-pointer"
-                />
-              </div>
-            </div>
+                          </div>
           )}
 
           {/* ================= TAB: CTA PLATFORM ================= */}

@@ -1,7 +1,182 @@
 # Changelog
 
+## Unreleased — one membership, every device
+
+- **Projects follow the member to every device.** A project used to live only
+  in the browser that made it: a second computer opened an empty studio, and
+  each machine could render and download on its own. The studio still writes
+  to `localStorage` synchronously (so editing stays instant and works offline),
+  but a background sync now mirrors the project list, the scenes and every
+  per-project document — settings, inserts, scene metadata, commit history,
+  section memory and setup drafts — to a server-side workspace per account, and
+  back down to the other devices. Collections merge item by item, so a project
+  created on a laptop and one created on a phone both survive; edits are
+  revision-checked; deletes are tombstones; nothing over 900 KB (an embedded
+  image) is carried. Provider API keys, the session token and this browser's
+  identity never leave the browser.
+- **A plan's device count is a benefit, and it is enforced.** Free allows one
+  signed-in device, SceneFlow two, SceneForge five — a phone counts like any
+  other device. Opening one more signs out the device that has been idle
+  longest, and the account panel lists every device with "This device" marked.
+  Signing in again on the same browser is still one device.
+- **Production is the default.** A server with no `NODE_ENV` — or an
+  unexpected value — is now treated as production. Before, one missing
+  variable turned every development shortcut on for the live site.
+- **Verification and reset links are no longer returned by a production
+  server.** The registration response carried a working verification link, so
+  an account could be verified without reading the mailbox; the reset link was
+  returned on a test storefront and when mail delivery failed. In production
+  the emailed link is the only route.
+- **The legacy export endpoint is retired.** `POST /api/usage/final-export`
+  recorded an export from a client-supplied duration and format without the
+  creative-manifest policy, the length ceilings or a reservation. It now
+  answers 410.
+- **Export completion is atomic and time-bound.** A reservation completes
+  once, only inside its two-hour window, and the remaining allowance is
+  re-checked against the week the usage row lands in — so a batch of
+  reservations opened while one export was left can no longer all be spent.
+- **`SESSION_SECRET` is the name that works.** `SCENERING_AUTH_SECRET` is kept
+  only as a legacy alias; the local dev script and `.dev.vars.example` now set
+  the real one, plus `NODE_ENV=development`.
+
 ## Unreleased — your own video, start to finish, with its sound and its captions
 
+- **The middle of a round visualiser is now a choice, and the logo has its own
+  size.** Every circular style offers three middles — **My logo**, **Glowing
+  orb** or **Nothing** — instead of a single on/off box. "My logo" is the brand
+  mark from Studio → 🏷️ Logo, and falls back to the glowing orb when the project
+  has no logo yet; "Nothing" leaves the ring and its bars standing alone, with
+  no hub of any kind. Two sliders sit under the choice: **Middle size** (the
+  orb, and the logo with it) and **Logo size**, which sizes the logo inside the
+  middle so a wide wordmark and a square icon can each fill the hub. Projects
+  saved before this read exactly as they did: the old checkbox is translated,
+  never rewritten.
+- **The visualisers now look like the things they are named after, and the
+  panel stopped asking twenty questions.** The Audio Visualiser settings were a
+  wall of engineering dials, and several of them changed nothing on screen.
+  - **Glass is glass now: clear, crisp, and adjustable.** The panes were milky
+    and soft because the shape itself carried a heavy blur. The body is now
+    genuinely transparent (the footage shows through it), the rim is a sharp
+    hairline, and the reflection is a thin, bright band — no blur on the shape.
+    **Glass transparency** controls how much of the video survives under it and
+    **Sandblast** moves the same pane from crystal clear to frosted glass.
+  - **Chrome is the only metal.** A new polished-chrome material paints bright
+    specular bands over a dark reflection, and the metal looks (silver and gold
+    glitter, the silver mirror spectrum) now ship with it. There is no matte or
+    "dull metal" option to stumble into.
+  - **The light from below is visible.** It used to be a faint ellipse that
+    disappeared under the footage. It is now an additive pool with a white-hot
+    core and a short shaft of light climbing out of it, with one
+    **Light from below** slider behind it.
+  - **Bloom is a bloom.** Instead of a dim shadow, three layered haloes are
+    painted *around* the shape with additive light, so the edges stay sharp
+    while the glow is unmistakable — and the slider is perceptual, so a third of
+    the way up is already clearly visible.
+  - **Smoke behaves like gas.** A puff used to be a single radial ball. It is
+    now four overlapping, elongated lobes that wander, drift and stretch on
+    their own slow paths, with **Cloud size** and **Cloud softness** controls.
+  - **Three colours that all show up.** Changing a picker now switches the
+    insert to custom colours (the second colour block wrote the colour but left
+    the old theme in charge, so it did nothing). The highlight colour is mixed
+    into the loudest bars instead of being blended away, so main, second and
+    highlight colours are each visible on different parts of the same shape.
+  - **Fewer, clearer settings.** The colour section appears once, with eight
+    understandable themes instead of nineteen chips, a dead "Reactivity
+    Sensitivity" slider and a second set of swatches are gone, and the technical
+    knobs (frequency mapping, FFT size, min/max frequency, attack, release,
+    smoothing, gap, radius, height) are folded into an optional **Advanced wave
+    settings** disclosure. Everything a first-time creator needs — detail,
+    thickness, reaction, material, glass finish, light, bloom, effect size and
+    density — stays on the main panel.
+
+- **Fixed: narration went silent on a video made from your own footage — in
+  the preview and in the export.** A project whose picture is an uploaded clip
+  (or an uploaded song) was treated as though it could never be narrated: an
+  effect in the Studio wrote `voiceover_enabled: false` back to the project on
+  load and the narration switch in the Voiceover step was disabled, so a
+  creator who wanted their script read over their own take heard nothing and
+  had no way to ask for it. The saves were never the problem — every scene
+  still held its narration and its audio; nothing would play them. Turning the
+  switch on now stores exactly what was chosen, and the preview and the
+  exported file both read that same switch and the same "is there anything to
+  say" rule, so they cannot disagree. The default is unchanged: a project
+  created from source media still starts with narration off, so a music video
+  is never given a voice it never asked for. If your project was saved while
+  the switch was locked, turn narration back on once in the Voiceover step; it
+  stays on.
+
+- **The clip settings can now remove the audio from the video, not just mute
+  it.** Mute is a playback switch: the track stays inside the stored file,
+  still taking space and still there for any player or caption pass. The new
+  **Remove audio** action in the same panel (scene editor → Short video clip →
+  Clip sound) rewrites the stored upload without a soundtrack. The picture is
+  packet-copied rather than re-encoded, so the clip is unchanged visually and
+  the rewrite takes a fraction of its duration; the smaller file replaces the
+  old upload through the normal store, so the reload-safe address and the
+  storage-quota handling are the same as any upload. The panel reports how much
+  smaller the clip became, asks once before doing it (it cannot be undone), and
+  offers mute instead where rewriting is impossible — a clip streamed from a
+  web address, or a file whose codec cannot be re-wrapped without re-encoding.
+- **The clip trim panel has a preview you can actually see.** Its video was a
+  192px thumbnail in the corner of a row shared with the stats, which made
+  trimming guesswork — the detail you are cutting around was not visible. The
+  preview now sits **above** the trim sliders at the panel's full width (up to
+  ~750px wide on a laptop, ~920px on a wide screen), capped only by a
+  viewport-relative height so the sliders stay on screen. It also reports the
+  playhead and the trim window underneath (`playhead 0:04.1 · window
+  0:02.0–0:12.0 · 0:20.0 source`) and updates as a slider is dragged.
+- **A full device now says so, and offers the space back.** Chromium's
+  `Failed to write blobs (IOError)` is what a full disk looks like from inside
+  the browser, and it was being reported as a problem with the video. When the
+  allowance shows the file will not fit — or a 90% full origin — the message
+  now states plainly that the device is out of storage and that the video and
+  its format are fine. It also carries a **Free up space** button that clears
+  only what can be proven unused: uploaded clips no saved project references
+  and `.part` render files left behind by renders that were cancelled or lost
+  with their tab (the invisible ones — they can be gigabytes). Finished
+  renders, voiceovers and anything a project uses are never touched; the note
+  shows what the site is using, how much of it is Vault renders, and says that
+  deleting ones already downloaded frees the most. The brief "using 1.4 GB of
+  2.0 GB" line appears beside the warning, and the cleanup reports exactly
+  what it freed before inviting a retry.
+- **Fixed: a good clip was refused because the browser's storage said no.**
+  Chromium reports a refused IndexedDB blob write as
+  `Failed to write blobs (IOError)` — a message containing neither "quota" nor
+  "space" — so the upload skipped the reclaim-and-retry path entirely and told
+  the customer the video could not be kept. Three changes: that message is now
+  recognised as a capacity failure; unreferenced uploads are cleared *before*
+  the write when `navigator.storage.estimate()` already shows the file will not
+  fit; and if the blob journal still refuses, the same bytes are stored inline
+  instead (under 200 MB), which bypasses it. A scene upload now also keeps the
+  clip for the current tab, with an on-screen warning, when nothing else works
+  — that fallback was always described in the message but was never actually
+  granted to the Scenes screen, so the sentence promised something the code
+  then threw away.
+- **Fixed: good videos were refused as the wrong format.** The Scenes screen's
+  Upload Video button — and the clip panel, and the intro/outro background —
+  ran a decode probe that could fail on perfectly ordinary files. It read a
+  `<video>` element that was never in the document, which is the exact quirk
+  `scene-clip.ts` already works around for Safari and mobile: a detached
+  element is not loaded there, so an iPhone MP4 waited out the 20-second limit
+  and came back as "could not be played". It also read `videoWidth` the moment
+  `loadedmetadata` fired, which is still 0 in some browsers, and treated one
+  failed end-seek as proof that a recorder WebM had no length. The probe now
+  mounts the element, waits for `loadeddata`, retries the seek, and — when the
+  element is merely slow — reads the duration and frame size from the container
+  instead of refusing the file.
+- **MKV, MTS and MPEG-TS uploads now work.** They used to be refused with "web
+  browsers cannot play ... directly", even though the picture inside is usually
+  ordinary H.264 and the app can do the conversion itself. The file is
+  re-wrapped as MP4 (H.264 + AAC) on upload by mediabunny — loaded on demand,
+  packet-copied when the codecs already match — with WebM as the fallback for
+  browsers without an H.264 encoder. The scene buttons show "Converting 42%"
+  instead of appearing frozen. AVI, WMV and FLV are still refused (nothing here
+  can demux them), and still say so.
+- **A refusal names the codec.** "MP4 (H.264), MOV and WebM are supported" was
+  shown even to someone uploading an MP4, because the file held HEVC (H.265) or
+  ProRes, which this browser cannot decode. The message now says exactly that,
+  names the export that works, and for HEVC points iPhone users at Settings →
+  Camera → Formats → Most Compatible.
 - **Fixed: an uploaded video was cut short.** Creating a one-scene project from
   footage set the scene's length correctly, but three later actions re-timed
   every scene from its WORD COUNT alone, which knows nothing about footage:
