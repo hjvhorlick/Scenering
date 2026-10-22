@@ -29,6 +29,9 @@ import {
   type MetalFinish,
 } from "../data/caption-styles";
 import CaptionsSwitch from "./CaptionsSwitch";
+import TranscriptionProgressStatus, {
+  transcriptionButtonLabel,
+} from "./TranscriptionProgressStatus";
 import Icon, { iconify } from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { isPlanCaptionIncluded, type PlanSlug } from "../config/plans";
@@ -49,10 +52,13 @@ import { oneOf, useRememberedChoice } from "../lib/section-memory";
 function SceneTranscriptControls({
   scene,
   onUpdateScene,
+  onEnableCaptions,
   musicBed,
 }: {
   scene: Scene;
   onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
+  /** A successful generation is an explicit request for captions to be on. */
+  onEnableCaptions: () => void;
   /** The project's music track, for a video built from stills. Such a scene has
    *  no footage soundtrack of its own, so the music is the only place its words
    *  — and their timings — can come from. */
@@ -83,9 +89,13 @@ function SceneTranscriptControls({
     setFileError(null);
     const done = await transcription.generate(source.url, source.seconds);
     if (done) {
+      onEnableCaptions();
       onUpdateScene(
         scene.id,
-        sceneUpdatesForTranscript(done.words, done.audioSeconds || source.seconds || 0)
+        {
+          ...sceneUpdatesForTranscript(done.words, done.audioSeconds || source.seconds || 0),
+          burn_caption: true,
+        }
       );
     }
   };
@@ -117,7 +127,7 @@ function SceneTranscriptControls({
         >
           <Icon glyph={transcription.busy ? "⏳" : "✨"} />
           {transcription.busy
-            ? "Listening…"
+            ? transcriptionButtonLabel(transcription.progress)
             : hasWords
               ? "Transcribe again"
               : `Generate captions from ${source?.label ?? "the audio"}`}
@@ -159,11 +169,11 @@ function SceneTranscriptControls({
         )}
       </div>
       {transcription.progress && transcription.busy && (
-        <p className="text-[10px] text-gray-400">
-          {transcription.progress.message}
-          {typeof transcription.progress.fraction === "number" &&
-            ` ${Math.round(transcription.progress.fraction * 100)}%`}
-        </p>
+        <TranscriptionProgressStatus
+          progress={transcription.progress}
+          sourceSeconds={source?.seconds || 0}
+          onCancel={transcription.cancel}
+        />
       )}
       {(transcription.error || fileError) && (
         <p className="text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2">
@@ -245,6 +255,9 @@ export default function CaptionsStudio({
   const [burnCaptionsGlobal, setBurnCaptionsGlobal] = useState(
     captionsConfig?.enabled !== undefined ? captionsConfig.enabled : true
   );
+  useEffect(() => {
+    setBurnCaptionsGlobal(captionsConfig?.enabled !== false);
+  }, [captionsConfig?.enabled, projectId]);
   const [fontSize, setFontSize] = useState<"small" | "medium" | "large">(
     captionsConfig?.fontSize || "medium"
   );
@@ -378,6 +391,11 @@ export default function CaptionsStudio({
 
   /** Scenes switched off one at a time, which the master switch reports. */
   const mutedSceneCount = scenes.filter((s) => (s.burn_caption ?? true) === false).length;
+
+  const enableGeneratedCaptions = () => {
+    setBurnCaptionsGlobal(true);
+    emitConfigUpdate({ enabled: true });
+  };
 
   const turnOnEveryScene = () => {
     scenes.forEach((s) => {
@@ -1278,6 +1296,7 @@ export default function CaptionsStudio({
                     <SceneTranscriptControls
                       scene={scene}
                       onUpdateScene={onUpdateScene}
+                      onEnableCaptions={enableGeneratedCaptions}
                       musicBed={musicBed}
                     />
                   )}

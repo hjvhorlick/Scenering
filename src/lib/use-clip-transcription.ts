@@ -11,7 +11,7 @@
  * is what lets Setup run a transcription before the project even exists.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   transcribeAudioUrl,
   TranscriptionError,
@@ -39,13 +39,30 @@ export function useClipTranscription(): ClipTranscriptionState {
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const cancelledRef = useRef(false);
   const runRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    // Leaving Setup/Captions must stop the worker immediately. Otherwise a
+    // long Whisper run (and its WASM/model memory) survives behind the next
+    // section even though there is no longer any UI capable of cancelling it.
+    runRef.current += 1;
+    cancelledRef.current = true;
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;
+    abortRef.current?.abort();
   }, []);
 
   const reset = useCallback(() => {
+    // Invalidate the old callbacks before aborting: its cancellation rejection
+    // must not repopulate the error that reset is about to clear.
+    runRef.current += 1;
     cancelledRef.current = false;
+    abortRef.current?.abort();
+    abortRef.current = null;
     setBusy(false);
     setProgress(null);
     setError(null);
@@ -57,14 +74,20 @@ export function useClipTranscription(): ClipTranscriptionState {
       // A second run supersedes the first: its result must not land on top of
       // the newer one just because it finished later.
       const run = ++runRef.current;
+      // Superseding a run also stops its model fetch/inference rather than only
+      // ignoring the eventual result.
+      abortRef.current?.abort();
+      const abortController = new AbortController();
+      abortRef.current = abortController;
       cancelledRef.current = false;
       setBusy(true);
       setError(null);
       setResult(null);
-      setProgress({ stage: "engine", message: "Loading the transcription engine…", fraction: 0 });
+      setProgress({ stage: "audio", message: "Reading the video's audio…", fraction: 0 });
       try {
         const done = await transcribeAudioUrl(sourceUrl, {
           audioSeconds,
+          signal: abortController.signal,
           cancelled: () => cancelledRef.current,
           onProgress: (next) => {
             if (runRef.current === run) setProgress(next);
@@ -91,6 +114,7 @@ export function useClipTranscription(): ClipTranscriptionState {
         return null;
       } finally {
         if (runRef.current === run) {
+          if (abortRef.current === abortController) abortRef.current = null;
           setBusy(false);
         }
       }

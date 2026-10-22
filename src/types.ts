@@ -233,6 +233,8 @@ export interface Scene {
   blank_color?: string | null;
 
   // --- Short video clip attached to this scene -------------------------
+  /** Setup source marker; ordinary clips added to narrated scenes leave this unset. */
+  source_media_kind?: "uploaded_video" | "audio_image";
   /** Object URL or remote URL of a short clip used instead of a still image. */
   video_url?: string | null;
   video_name?: string | null;

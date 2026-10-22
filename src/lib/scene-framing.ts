@@ -156,17 +156,45 @@ export function resolveFraming(scene: Partial<Scene> | null | undefined): Resolv
 }
 
 export interface SourceSize {
-  naturalWidth: number;
-  naturalHeight: number;
+  /** Still-image intrinsic dimensions. */
+  naturalWidth?: number;
+  naturalHeight?: number;
+  /** Video intrinsic dimensions. */
+  videoWidth?: number;
+  videoHeight?: number;
+  /** Canvas/bitmap dimensions, used only when neither intrinsic pair exists. */
+  width?: number;
+  height?: number;
 }
+
+/** Intrinsic dimensions for every CanvasImageSource the scene renderer accepts. */
+export function sourcePixelWidth(source: SourceSize | null | undefined): number {
+  if (!source) return 0;
+  if ("videoWidth" in source) return Math.max(0, Number(source.videoWidth) || 0);
+  if ("naturalWidth" in source) return Math.max(0, Number(source.naturalWidth) || 0);
+  return Math.max(0, Number(source.width) || 0);
+}
+
+export function sourcePixelHeight(source: SourceSize | null | undefined): number {
+  if (!source) return 0;
+  if ("videoHeight" in source) return Math.max(0, Number(source.videoHeight) || 0);
+  if ("naturalHeight" in source) return Math.max(0, Number(source.naturalHeight) || 0);
+  return Math.max(0, Number(source.height) || 0);
+}
+
+export function sourceHasPixels<T extends SourceSize>(source: T | null | undefined): source is T {
+  return sourcePixelWidth(source) > 0 && sourcePixelHeight(source) > 0;
+}
+
+export type SceneDrawable = CanvasImageSource & SourceSize;
 
 /** The pixel rectangle of the source that will be sampled. */
 export function sourceRect(
   img: SourceSize,
   crop: SceneCropRect
 ): { sx: number; sy: number; sw: number; sh: number } {
-  const nw = Math.max(1, img.naturalWidth || 1);
-  const nh = Math.max(1, img.naturalHeight || 1);
+  const nw = Math.max(1, sourcePixelWidth(img) || 1);
+  const nh = Math.max(1, sourcePixelHeight(img) || 1);
   return {
     sx: crop.x * nw,
     sy: crop.y * nh,
@@ -251,7 +279,7 @@ export function leavesGap(p: PlacedImage, frameW: number, frameH: number): boole
   return p.dx > 0.5 || p.dy > 0.5 || p.dx + p.dw < frameW - 0.5 || p.dy + p.dh < frameH - 0.5;
 }
 
-type Drawable = CanvasImageSource & SourceSize;
+type Drawable = SceneDrawable;
 
 /* ------------------------- per-scene render caches -----------------------
  *
@@ -601,8 +629,8 @@ export const AUTO_CROP_MAX_MISMATCH = 2.4;
  * rather than to guess at a crop.
  */
 export function aspectMismatch(img: SourceSize, frameW: number, frameH: number): number {
-  const iw = Number(img?.naturalWidth);
-  const ih = Number(img?.naturalHeight);
+  const iw = sourcePixelWidth(img);
+  const ih = sourcePixelHeight(img);
   // Nothing measured on either side: report a perfect match so the caller
   // leaves the default framing alone instead of acting on a guess.
   if (!(iw > 0) || !(ih > 0) || !(frameW > 0) || !(frameH > 0)) return 1;
@@ -623,8 +651,8 @@ export function autoCropToFrame(
   frameW: number,
   frameH: number
 ): SceneCropRect {
-  const iw = Number(img?.naturalWidth);
-  const ih = Number(img?.naturalHeight);
+  const iw = sourcePixelWidth(img);
+  const ih = sourcePixelHeight(img);
   const target = frameW > 0 && frameH > 0 ? frameW / frameH : 0;
   if (!(iw > 0) || !(ih > 0) || !(target > 0)) return { ...DEFAULT_CROP };
 

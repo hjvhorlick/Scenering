@@ -113,7 +113,10 @@ h.ok(!/image_url:\s*URL\.createObjectURL/.test(editor), "no raw object URL is ev
 
 /* ------------------------------------------- video uploads that persist */
 
-h.ok(attach.includes("addCustomVideo(file)"), "video uploads go through the persistent store");
+h.ok(
+  attach.includes("addCustomVideo(file, {") && attach.includes("replaceIds: replaceId ? [replaceId] : []"),
+  "video uploads go through the persistent store and atomically replace the scene's previous Blob"
+);
 h.ok(attach.includes("custom-video:"), "and the scene keeps the stable address");
 h.ok(clipPanel.includes("sceneUpdatesForVideoFile"), "the clip panel uses the shared attach helper");
 h.ok(

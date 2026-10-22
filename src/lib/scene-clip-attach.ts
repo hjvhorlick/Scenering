@@ -26,17 +26,22 @@
  */
 
 import type { Scene } from "../types";
-import { addCustomVideo, CustomVideoError } from "./custom-video";
+import { addCustomVideo, CustomVideoError, CUSTOM_VIDEO_PREFIX } from "./custom-video";
 
 /** The scene fields to write for a newly uploaded clip. */
 export async function sceneUpdatesForVideoFile(
   file: File,
-  scene: Pick<Scene, "is_inserted" | "video_volume">,
+  scene: Pick<Scene, "is_inserted" | "video_volume" | "video_url">,
   narrationDuration: number,
   /** A one-scene project: the clip is the video, so nothing trims or loops it. */
   options: { singleScene?: boolean } = {}
 ): Promise<Partial<Scene>> {
-  const clip = await addCustomVideo(file);
+  const replaceId = scene.video_url?.startsWith(CUSTOM_VIDEO_PREFIX)
+    ? scene.video_url.slice(CUSTOM_VIDEO_PREFIX.length)
+    : null;
+  const clip = await addCustomVideo(file, {
+    replaceIds: replaceId ? [replaceId] : [],
+  });
   const full = clip.duration > 0 ? clip.duration : narrationDuration;
   const isInserted = Boolean(scene.is_inserted);
   const singleScene = Boolean(options.singleScene);

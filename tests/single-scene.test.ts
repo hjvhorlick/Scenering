@@ -181,7 +181,10 @@ const LONG_SCRIPT = Array.from(
 
   const lib = read("src/lib/custom-video.ts");
   ok(lib.includes("indexedDB.open"), "uploads are kept in IndexedDB so they survive a reload");
-  ok(!lib.includes("localStorage"), "a video file never goes into localStorage");
+  ok(
+    !lib.includes("localStorage.setItem") && lib.includes("localStorage.getItem"),
+    "video bytes never enter localStorage; it is read only to protect project references during orphan cleanup"
+  );
   ok(lib.includes("scenering-video"), "the video store has its own database, away from the music store");
   const music = read("src/lib/custom-music.ts");
   ok(
@@ -274,33 +277,53 @@ const LONG_SCRIPT = Array.from(
   );
   const switchSrc = read("src/components/VoiceoverSwitch.tsx");
   ok(switchSrc.includes('role="switch"'), "it is a real switch, announced as one to a screen reader");
-  ok(switchSrc.includes("aria-checked={enabled}"), "its state is announced too");
+  ok(switchSrc.includes("aria-checked={active}"), "its effective (including source-locked) state is announced too");
 }
 
 /* ------------------------------------------------------------------ *
- * 7. Setup offers the choice, and a video alone is enough to start
+ * 7. Setup offers the choice, and a complete media source can start
  * ------------------------------------------------------------------ */
 {
   const setup = read("src/components/SetupStudio.tsx");
   ok(setup.includes("SINGLE_SCENE_OPTION"), "the fourth scene-length card comes from the shared definition");
   ok(
     setup.includes("Make the video from my script") && setup.includes("Upload my own video"),
-    "picking one scene offers both routes: the script, or your own footage"
+    "picking one scene still offers both original routes: script or footage"
   );
   ok(
-    /canStart = script\.trim\(\)\.length > 0 \|\| \(oneScene && hasFootage\)/.test(setup),
-    "a music video with no script at all can still be started"
+    /const footageSourceReady = oneScene && singleSource === "upload" && hasFootage;/.test(setup) &&
+      /const canStart = script\.trim\(\)\.length > 0 \|\| footageSourceReady \|\| stillsSourceReady;/.test(setup),
+    "a footage music video with no script at all can still be started"
   );
   ok(
-    /!scriptText && !\(oneScene && hasFootage\)/.test(setup),
-    "the guard that demands a script makes an exception for uploaded footage"
+    /if \(!scriptText && !footageSourceReady && !stillsSourceReady\)/.test(setup),
+    "the guard that demands a script still makes an exception for uploaded footage"
+  );
+  ok(
+    setup.includes("Upload music/audio + pictures") &&
+      setup.includes("Choose what you already have") &&
+      setup.includes("Project source: always visible") &&
+      /const stillsSourceReady = oneScene && singleSource === "audio" && audioSourceReady;/.test(setup),
+    "Setup always visibly offers and accepts a complete audio-plus-pictures music-video source"
   );
   ok(
     setup.includes("onUpdateVoiceoverEnabled?.(false)"),
     "uploading footage switches narration off, because that footage has its own sound"
   );
+  const app = read("src/App.tsx");
   ok(
-    /video_mute: clip\.mute \?\? false/.test(read("src/App.tsx")),
+    app.includes('source_media_kind: "uploaded_video"') &&
+      /scene\.source_media_kind === "uploaded_video" && Boolean\(scene\.video_url\)/.test(app) &&
+      app.includes("voiceoverLockedOff={mediaSourceVoiceoverLocked}"),
+    "the uploaded-video source keeps narration locked off in the Voiceover step too"
+  );
+  ok(
+    app.includes("inserts.some(isMusicVideoSourceInsert)") &&
+      setup.includes('onUpdateVoiceoverEnabled && singleSource === "script"'),
+    "both music-video sources reserve the narration switch for the unchanged script route"
+  );
+  ok(
+    /video_mute: clip\.mute \?\? false/.test(app),
     "an uploaded clip keeps its own soundtrack by default — the whole point of a music video"
   );
   ok(

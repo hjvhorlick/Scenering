@@ -6,6 +6,10 @@ interface VoiceoverSwitchProps {
   onChange: (next: boolean) => void;
   /** Total scenes in the project — used to say what happens when it is off. */
   sceneCount?: number;
+  /** Source-media projects keep narration off and cannot enable it here. */
+  lockedOff?: boolean;
+  /** Plain-language explanation shown while locked. */
+  lockedReason?: string;
   /** Compact form for a step that is not the Voiceover step. */
   compact?: boolean;
   /** Shown under the switch in the compact form. */
@@ -30,36 +34,44 @@ export default function VoiceoverSwitch({
   enabled,
   onChange,
   sceneCount = 0,
+  lockedOff = false,
+  lockedReason,
   compact = false,
   onOpenVoiceover,
 }: VoiceoverSwitchProps) {
-  const state = enabled ? "On" : "Off";
-  const detail = enabled
-    ? sceneCount > 0
-      ? `Narrated with the voice you pick below, across all ${sceneCount} ${sceneCount === 1 ? "scene" : "scenes"}.`
-      : "Narrated with the voice you pick in the Voiceover step."
-    : "No spoken narration anywhere — scene lengths follow your footage and script, not a voice.";
+  const active = lockedOff ? false : enabled;
+  const state = active ? "On" : lockedOff ? "Off · source audio" : "Off";
+  const detail = lockedOff
+    ? lockedReason || "Voiceover stays off because this project keeps its uploaded source audio."
+    : active
+      ? sceneCount > 0
+        ? `Narrated with the voice you pick below, across all ${sceneCount} ${sceneCount === 1 ? "scene" : "scenes"}.`
+        : "Narrated with the voice you pick in the Voiceover step."
+      : "No spoken narration anywhere — scene lengths follow your footage and script, not a voice.";
 
   return (
     <div
       className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border border-hairline ${
-        enabled ? "bg-emerald-950/40" : "bg-gray-900/60"
+        active ? "bg-emerald-950/40" : "bg-gray-900/60"
       } ${compact ? "px-3 py-2.5" : "p-3"}`}
     >
       <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"
           role="switch"
-          aria-checked={enabled}
-          aria-label="Voiceover on or off"
-          onClick={() => onChange(!enabled)}
-          className={`relative shrink-0 w-12 h-6 rounded-full border transition-colors cursor-pointer ${
-            enabled ? "bg-emerald-500 border-emerald-300" : "bg-gray-700 border-hairline"
+          aria-checked={active}
+          aria-label={lockedOff ? "Voiceover is off for source media" : "Voiceover on or off"}
+          disabled={lockedOff}
+          onClick={() => onChange(!active)}
+          className={`relative shrink-0 w-12 h-6 rounded-full border transition-colors ${
+            lockedOff ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+          } ${
+            active ? "bg-emerald-500 border-emerald-300" : "bg-gray-700 border-hairline"
           }`}
         >
           <span
             className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
-              enabled ? "left-[26px]" : "left-0.5"
+              active ? "left-[26px]" : "left-0.5"
             }`}
           />
         </button>
@@ -70,7 +82,7 @@ export default function VoiceoverSwitch({
             </span>
             <span
               className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                enabled
+                active
                   ? "bg-emerald-950 border-emerald-600/60 text-emerald-300"
                   : "bg-gray-800 border-hairline text-gray-400"
               }`}

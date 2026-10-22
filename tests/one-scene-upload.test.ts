@@ -17,7 +17,21 @@ import {
 import { clipAudioPlanFor } from "../src/lib/clip-audio";
 import { stretchFullVideoMedia } from "../src/lib/render-visualizers";
 import type { TimelineInsert } from "../src/types";
-import { chunksToWordTimings, wordsToText, STT_ENGINE_URL, STT_MODEL_CANDIDATES } from "../src/lib/speech-to-text";
+import {
+  chunksToWordTimings,
+  defaultTranscriptionModels,
+  runWithTranscriptionTimeout,
+  TranscriptionError,
+  TranscriptionTimeoutError,
+  wordsToText,
+  STT_AUDIO_TIMEOUT_MS,
+  STT_ENGINE_URL,
+  STT_ENGINE_TIMEOUT_MS,
+  STT_INFERENCE_MIN_TIMEOUT_MS,
+  STT_LOW_MEMORY_CLIP_SECONDS,
+  STT_MODEL_CANDIDATES,
+  STT_MODEL_TIMEOUT_MS,
+} from "../src/lib/speech-to-text";
 import {
   narratableText,
   projectHasNarration,
@@ -29,6 +43,12 @@ import {
   TRANSCRIPT_KEYS,
 } from "../src/lib/clip-transcript";
 import { parseCaptionFile, CaptionFileError } from "../src/lib/caption-file";
+import {
+  sourceHasPixels,
+  sourcePixelHeight,
+  sourcePixelWidth,
+  sourceRect,
+} from "../src/lib/scene-framing";
 import type { Scene } from "../src/types";
 
 /**
@@ -57,6 +77,8 @@ const setup = read("src/components/SetupStudio.tsx");
 const captions = read("src/components/CaptionsStudio.tsx");
 const render = read("src/components/RenderView.tsx");
 const preview = read("src/components/VideoPreview.tsx");
+const sceneClip = read("src/lib/scene-clip.ts");
+const sceneFraming = read("src/lib/scene-framing.ts");
 const server = read("server.ts");
 
 /** A three-minute music video with no script — the case that used to break. */
@@ -271,10 +293,14 @@ const footageScene = {
 
   // The project's duration follows the footage from the moment it exists.
   h.ok(
-    /const projectDuration = footageDuration > 0 \? footageDuration : chosenDuration;/.test(app) &&
+    /const projectDuration = footageDuration > 0\s*\? footageDuration\s*:\s*audioDuration > 0\s*\? audioDuration\s*:\s*chosenDuration;/.test(app) &&
       app.includes("default_duration: projectDuration") &&
       app.includes("scene_duration: projectDuration"),
-    "a project built from footage is created at the footage's length, not the target that was showing"
+    "a project built from footage is still created at the footage's length, not the target that was showing"
+  );
+  h.ok(
+    /: audioDuration > 0\s*\? audioDuration\s*: chosenDuration;/.test(app),
+    "and the new audio source uses its own length only when there is no footage"
   );
   h.ok(
     /const footage = oneScene \? sceneClipSeconds\(scenes\[0\]\) : 0;/.test(app) &&
@@ -421,6 +447,39 @@ const footageScene = {
     /if \(cancelledRef\.current\) \{\s*setError\(null\);/.test(hook),
     "pressing Cancel clears the error instead of reporting the cancellation as one"
   );
+
+  const nativeVideoSize = { videoWidth: 1920, videoHeight: 1080 };
+  h.eq(sourcePixelWidth(nativeVideoSize), 1920, "native videoWidth is accepted as a canvas source width");
+  h.eq(sourcePixelHeight(nativeVideoSize), 1080, "native videoHeight is accepted as a canvas source height");
+  h.ok(sourceHasPixels(nativeVideoSize), "a decoded native video element is recognised as drawable");
+  const videoCrop = sourceRect(nativeVideoSize, { x: 0.25, y: 0.1, w: 0.5, h: 0.75 });
+  h.eq(videoCrop.sx, 480, "video crop x uses the native width");
+  h.eq(videoCrop.sy, 108, "video crop y uses the native height");
+  h.eq(videoCrop.sw, 960, "video crop width uses the native width");
+  h.eq(videoCrop.sh, 810, "video crop height uses the native height");
+
+  h.ok(
+    !sceneClip.includes("new Proxy(video") &&
+      !sceneClip.includes("Object.defineProperties(drawable") &&
+      sceneClip.includes("return video;") &&
+      sceneFraming.includes('if ("videoWidth" in source)'),
+    "canvas receives the unmodified HTMLVideoElement and framing reads its native video dimensions"
+  );
+  h.ok(
+    sceneClip.includes('document.body?.appendChild(el)') &&
+      sceneClip.includes("The uploaded video is no longer available") &&
+      sceneClip.includes('el.addEventListener("loadedmetadata", primeFirstFrame)') &&
+      sceneClip.includes('el.addEventListener("loadeddata", notifyFrame)') &&
+      sceneClip.includes('el.addEventListener("seeked", notifyFrame)') &&
+      preview.includes("setClipFrameRevision((revision) => revision + 1)") &&
+      preview.includes("Loading uploaded video frame…") &&
+      preview.includes("Video preview failed:") &&
+      preview.includes("loadCustomVideos().then") &&
+      setup.includes("setVideoStoreRevision((revision) => revision + 1)") &&
+      render.includes("idleSource = asDrawableClip(video)") &&
+      render.includes("await loadCustomVideos()"),
+    "decoded or restored footage paints Setup, Studio and Render previews instead of leaving a black canvas"
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -546,9 +605,10 @@ const footageScene = {
     "the 10/20/30 cards are not rendered in one-scene mode"
   );
   h.ok(
-    setup.includes("const durToApply = oneScene") &&
-      setup.includes("singleSceneDuration(scriptText, footageSeconds || undefined)"),
-    "and starting a one-scene project uses the footage's length, never the 20s target"
+    setup.includes('const sourceSeconds = singleSource === "upload"') &&
+      setup.includes("? footageSeconds") &&
+      setup.includes("singleSceneDuration(scriptText, sourceSeconds || undefined)"),
+    "and starting a footage one-scene project still uses the footage's length, never the 20s target"
   );
   h.ok(
     !/const durToApply = selectedDuration \|\| 20;/.test(setup),
@@ -689,17 +749,23 @@ const footageScene = {
     "which matters: the opening hold is long enough to see a caption drift"
   );
 
-  // The engine: free, on-device, pinned, and out of the main bundle.
+  // The engine: free, on-device, pinned, and out of the main/UI bundle.
   const stt = read("src/lib/speech-to-text.ts");
+  const sttWorker = read("src/lib/speech-to-text.worker.ts");
+  const progressUi = read("src/components/TranscriptionProgressStatus.tsx");
   h.ok(STT_ENGINE_URL.startsWith("https://cdn.jsdelivr.net/npm/@huggingface/transformers@"), "the engine comes from one pinned version");
   h.ok(
     /transformers@\d+\.\d+\.\d+/.test(STT_ENGINE_URL),
     "pinned to an exact version, so a new release cannot arrive by itself"
   );
   h.ok(STT_MODEL_CANDIDATES.every((m) => m.startsWith("onnx-community/whisper")), "the models are Whisper");
-  h.ok(stt.includes("import(/* @vite-ignore */ STT_ENGINE_URL)"), "loaded on demand, not from the main bundle");
+  h.ok(
+    sttWorker.includes("import(/* @vite-ignore */ url)") &&
+      stt.includes('new URL("./speech-to-text.worker.ts", import.meta.url)'),
+    "loaded on demand inside a dedicated module worker, not the main/UI bundle"
+  );
   h.ok(!read("package.json").includes("transformers"), "and it is not an install-time dependency, so the install cannot fail because of it");
-  h.ok(stt.includes("allowLocalModels = false"), "weights come from the hub, never a local folder");
+  h.ok(sttWorker.includes("allowLocalModels = false"), "weights come from the hub, never a local folder");
   h.ok(
     server.includes("https://cdn.jsdelivr.net") && server.includes("https://huggingface.co"),
     "the policy allows exactly the two hosts the engine needs"
@@ -708,6 +774,171 @@ const footageScene = {
     server.includes("'wasm-unsafe-eval'") && !/script-src[^;]*'unsafe-eval'/.test(server),
     "and permits WASM compilation without permitting arbitrary eval"
   );
+
+  // These are the canonical timestamped ids used in upstream examples/tests;
+  // the old base_en spellings did not match that published model family.
+  h.eq(
+    STT_MODEL_CANDIDATES.join("|"),
+    [
+      "onnx-community/whisper-tiny.en_timestamped",
+      "onnx-community/whisper-base.en_timestamped",
+      "onnx-community/whisper-base_timestamped",
+    ].join("|"),
+    "every fallback uses a published timestamped Whisper model id, with the low-memory model first"
+  );
+  h.eq(
+    defaultTranscriptionModels(STT_LOW_MEMORY_CLIP_SECONDS - 1).length,
+    STT_MODEL_CANDIDATES.length,
+    "short clips retain the published model-load fallback list"
+  );
+  h.eq(
+    defaultTranscriptionModels(STT_LOW_MEMORY_CLIP_SECONDS).length,
+    1,
+    "five-minute and longer clips stay on Tiny instead of loading a larger model into an already full browser"
+  );
+  h.eq(
+    defaultTranscriptionModels(STT_LOW_MEMORY_CLIP_SECONDS)[0],
+    STT_MODEL_CANDIDATES[0],
+    "the long-clip model is the low-memory Tiny candidate"
+  );
+  h.ok(
+    STT_AUDIO_TIMEOUT_MS > 0 &&
+      STT_ENGINE_TIMEOUT_MS > 0 &&
+      STT_MODEL_TIMEOUT_MS > 0 &&
+      STT_INFERENCE_MIN_TIMEOUT_MS > 0,
+    "audio decode, engine, model download and inference all have finite timeout budgets"
+  );
+  h.ok(
+    (stt.match(/armTimeout\(/g) || []).length >= 3 &&
+      stt.includes("terminateTranscriptionWorker(worker)") &&
+      stt.includes("worker.terminate()") &&
+      sttWorker.includes('engine.pipeline("automatic-speech-recognition"') &&
+      sttWorker.includes("transcriber(audio.subarray(start, end)"),
+    "UI-thread timers can terminate stalled engine, model and windowed-inference work"
+  );
+  h.ok(
+    stt.includes("finish(() => resolve(message), true)") &&
+      stt.includes("finish(() => reject(workerFailure(message)), true)") &&
+      read("src/lib/use-clip-transcription.ts").includes("useEffect(() => () =>") &&
+      read("src/lib/use-clip-transcription.ts").includes("abortRef.current?.abort()"),
+    "success, failure and section exit all terminate Whisper so model memory cannot freeze the next screen"
+  );
+  h.ok(
+    sttWorker.includes("decoded.duration >= STT_LOW_MEMORY_CLIP_SECONDS") &&
+      sttWorker.includes("request.models.slice(0, 1)") &&
+      sttWorker.includes('failure(id, "inference", detail);') &&
+      !sttWorker.includes("That model could not finish the transcription. Trying fallback"),
+    "measured long audio and late inference failures cannot load a larger model and repeat the recording"
+  );
+  h.ok(
+    app.includes("{ ...updates, burn_caption: true }") &&
+      app.includes("handleUpdateCaptionsConfig({ ...captionsConfig, enabled: true })") &&
+      captions.includes("onEnableCaptions={enableGeneratedCaptions}"),
+    "a successful transcript turns project and scene captions on rather than hiding the generated words"
+  );
+  h.ok(
+    stt.includes("The transcription engine failed to load") &&
+      stt.includes("The Whisper transcription models failed to load") &&
+      stt.includes("Whisper loaded, but transcription failed while listening"),
+    "engine-load, model-load and inference failures have distinct user-facing messages"
+  );
+  h.ok(
+    stt.includes("response.blob()") &&
+      !stt.includes("decodeAudioData(") &&
+      sttWorker.includes("new BlobSource(source)") &&
+      sttWorker.includes("new AudioSampleSink(track)") &&
+      read("src/lib/speech-to-text-protocol.ts").includes("source: Blob") &&
+      read("package.json").includes('"mediabunny": "1.62.0"'),
+    "the page clones only a Blob handle while worker-side demuxing, decoding and resampling avoid a giant UI-thread ArrayBuffer"
+  );
+  h.ok(
+    sttWorker.includes("numThreads = 1") &&
+      stt.includes("setInterval(() =>") &&
+      stt.includes("first 30-second section in the background"),
+    "Whisper cannot occupy the UI thread or every CPU core, and a heartbeat remains visible during inference"
+  );
+  h.ok(
+    sttWorker.includes('event: "inference-progress"') &&
+      sttWorker.includes("completedSeconds / duration") &&
+      sttWorker.includes("audio.subarray(start, end)"),
+    "transcription percentage comes from completed audio windows rather than an invented timer"
+  );
+  h.ok(
+    sttWorker.includes('return_timestamps: useWordTimestamps ? "word" : true') &&
+      sttWorker.includes('encoder_model: decoded.duration >= STT_LOW_MEMORY_CLIP_SECONDS ? "q4" : "q8"'),
+    "long recordings use lower-memory segment timing and q4 encoding while still yielding timed caption words"
+  );
+  h.ok(
+    sttWorker.includes("midpoint < trustedStart || midpoint >= trustedEnd") &&
+      sttWorker.includes("Math.min(duration, absoluteEnd)") &&
+      sttWorker.includes('"no-speech"'),
+    "overlap merging keeps one bounded timestamp per word and preserves the distinct no-speech result"
+  );
+  h.ok(
+    progressUi.includes('role="dialog"') &&
+      progressUi.includes('role="progressbar"') &&
+      progressUi.includes('aria-live="polite"') &&
+      progressUi.includes("Large on-device process") &&
+      progressUi.includes("Audio completed") &&
+      progressUi.includes("waitingForFirstWindow") &&
+      progressUi.includes("Cancel transcription") &&
+      read("src/components/SetupStudio.tsx").includes("<TranscriptionProgressStatus") &&
+      read("src/components/SetupStudio.tsx").includes("sourceSeconds={footageSeconds}") &&
+      read("src/components/SetupStudio.tsx").includes("onCancel={transcription.cancel}") &&
+      read("src/components/SetupStudio.tsx").includes("transcriptionButtonLabel(transcription.progress)") &&
+      read("src/components/CaptionsStudio.tsx").includes("<TranscriptionProgressStatus") &&
+      read("src/components/CaptionsStudio.tsx").includes("sourceSeconds={source?.seconds || 0}") &&
+      read("src/components/CaptionsStudio.tsx").includes("transcriptionButtonLabel(transcription.progress)") &&
+      !read("src/components/SetupStudio.tsx").includes('"Listening…"') &&
+      !read("src/components/CaptionsStudio.tsx").includes('"Listening…"'),
+    "Setup and Captions open an accessible process window with elapsed time, real audio progress and cancellation"
+  );
+  const transcriptionHook = read("src/lib/use-clip-transcription.ts");
+  h.ok(
+    (transcriptionHook.match(/abortRef\.current\?\.abort\(\)/g) || []).length >= 3 &&
+      transcriptionHook.includes("runRef.current += 1") &&
+      transcriptionHook.includes("signal: abortController.signal"),
+    "cancel, reset and a superseding run abort in-flight work instead of waiting for its timeout"
+  );
+
+  let timeoutError: unknown = null;
+  let operationWasAborted = false;
+  try {
+    await runWithTranscriptionTimeout(
+      (signal) => new Promise<never>(() => {
+        signal.addEventListener("abort", () => { operationWasAborted = true; }, { once: true });
+      }),
+      5,
+      "Whisper test operation stalled."
+    );
+  } catch (error) {
+    timeoutError = error;
+  }
+  h.ok(timeoutError instanceof TranscriptionTimeoutError, "a stalled operation rejects instead of hanging forever");
+  h.eq((timeoutError as Error)?.message, "Whisper test operation stalled.", "the timeout reason is fit to show in the UI");
+  h.ok(operationWasAborted, "the timed-out operation receives an AbortSignal as well as a rejected race");
+
+  const parentAbort = new AbortController();
+  let cancelledOperationStarted = false;
+  let cancellationError: unknown = null;
+  const cancelledRun = runWithTranscriptionTimeout(
+    async () => {
+      cancelledOperationStarted = true;
+      return "too late";
+    },
+    1_000,
+    "unused timeout",
+    parentAbort.signal
+  );
+  parentAbort.abort();
+  try {
+    await cancelledRun;
+  } catch (error) {
+    cancellationError = error;
+  }
+  h.ok(cancellationError instanceof TranscriptionError, "caller cancellation rejects with the distinct cancellation error");
+  h.eq((cancellationError as Error)?.message, "Transcription cancelled.", "cancellation never masquerades as an engine timeout");
+  h.eq(cancelledOperationStarted, false, "an immediately superseded run never starts its expensive operation");
 }
 
 /* ------------------------------------------------------------------ *
@@ -868,10 +1099,10 @@ const footageScene = {
      would resurrect that old voice over the song the captions came from, so a
      caption-only scene has to be skipped before the resolve, not after it. */
   h.ok(
-    /if \(\(s\.text \|\| ""\)\.trim\(\) && !spokenText\) continue;/.test(render),
+    /if \(s\.caption_source === "transcript"\) continue;/.test(render),
     "a caption-only scene is skipped before its saved narration is resolved"
   );
-  const gateAt = render.indexOf('if ((s.text || "").trim() && !spokenText) continue;');
+  const gateAt = render.indexOf('if (s.caption_source === "transcript") continue;');
   const resolveAt = render.indexOf("let resolved = await resolveSceneAudioBuffer(s, audioCtx);");
   h.ok(
     gateAt > 0 && resolveAt > gateAt,
@@ -913,6 +1144,44 @@ const footageScene = {
   h.ok(
     !/Boolean\(introSec\), voiceoverEnabled/.test(preview),
     "no preview call site still passes the bare voiceover switch as the lead-in"
+  );
+
+  /* The live preview has its own narration loader, separate from RenderView.
+     It must apply the same rule before resolving stale saved narration, or the
+     preview speaks captions even though the exported file is clean. */
+  h.ok(
+    preview.includes('import { narratableText, projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";'),
+    "the preview imports the shared captions-versus-narration rule"
+  );
+  const synthAt = preview.indexOf("const synthesizeScene = useCallback(");
+  const generateAt = preview.indexOf("const generateAllAudio = useCallback(");
+  const synthSource = preview.slice(synthAt, generateAt);
+  h.ok(
+    synthAt > 0 && /const text = narratableText\(scene\);/.test(synthSource),
+    "preview synthesis derives speech from narratableText rather than raw caption text"
+  );
+  const previewSkipAt = synthSource.indexOf('if (scene.caption_source === "transcript") return null;');
+  const previewResolveAt = synthSource.indexOf("const resolved = await resolveSceneAudioBuffer(scene, audioCtx);");
+  h.ok(
+    previewSkipAt > 0 && previewResolveAt > previewSkipAt,
+    "the preview skips caption-only scenes before stale saved narration can be resolved"
+  );
+  h.ok(
+    /const spokenText = narratableText\(s\);[\s\S]{0,260}if \(s\.caption_source === "transcript"\) return false;/.test(preview),
+    "the play-button missing-audio check is caption-aware too"
+  );
+
+  /* One failed provider request must not throw away voices that succeeded for
+     other scenes. The warning is rendered in the controls, not console-only. */
+  h.ok(
+    preview.includes("await Promise.allSettled(") && !synthSource.includes("Promise.allSettled"),
+    "preview narration settles each scene independently"
+  );
+  h.ok(
+    preview.includes("Narration failed for scene") &&
+      preview.includes("Preview continues without") &&
+      preview.includes('role="status" aria-live="polite"'),
+    "a missing scene voice is surfaced to the creator while the preview continues"
   );
 }
 

@@ -1,5 +1,9 @@
 import type { Scene, SceneTransitionType } from "../types";
-import { drawSceneImage } from "./scene-framing";
+import {
+  drawSceneImage,
+  sourceHasPixels,
+  type SceneDrawable,
+} from "./scene-framing";
 
 /**
  * Scene-to-scene transitions.
@@ -235,7 +239,7 @@ export interface TransitionFrameOptions {
   filter?: string;
 }
 
-type Img = (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null;
+type Img = SceneDrawable | null;
 
 /** Smooth hermite ease — no linear midpoint dip on a dissolve. */
 const smooth = (t: number): number => t * t * (3 - 2 * t);
@@ -243,7 +247,7 @@ const smooth = (t: number): number => t * t * (3 - 2 * t);
 const easeInOut = (t: number): number =>
   t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
-const usable = (img: Img): boolean => Boolean(img && img.naturalWidth > 0);
+const usable = (img: Img): boolean => sourceHasPixels(img);
 
 /** The scene's own colour grade with an extra blur stacked on top. */
 function withBlur(opts: TransitionFrameOptions | undefined, px: number): TransitionFrameOptions {

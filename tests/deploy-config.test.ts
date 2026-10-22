@@ -10,6 +10,7 @@ const config = JSON.parse(rawConfig.replace(/^\s*\/\/.*$/gm, ""));
 const checker = readFileSync(join(root, "scripts/check-deploy-config.mjs"), "utf8");
 const setup = readFileSync(join(root, "scripts/setup-preview-resources.sh"), "utf8");
 const docs = readFileSync(join(root, "CLOUDFLARE.md"), "utf8");
+const staticHeaders = readFileSync(join(root, "public/_headers"), "utf8");
 let checks = 0;
 function check(condition: unknown, message: string) {
   assert.ok(condition, message);
@@ -59,6 +60,11 @@ check(preview.vars.FASTSPRING_STOREFRONT === "", "previews do not point at a liv
 check(checker.includes("delete config.previews"), "production validator excludes preview-only settings");
 const productionCheck = spawnSync("node", [join(root, "scripts/check-deploy-config.mjs")], { cwd: root, encoding: "utf8" });
 check(productionCheck.status === 0, "production deploy-config validation passes");
+check(
+  staticHeaders.includes("/app\n  Cache-Control: no-cache, must-revalidate") &&
+    staticHeaders.includes("/index.html\n  Cache-Control: no-cache, must-revalidate"),
+  "the app shell revalidates after deployment instead of pinning an obsolete hashed bundle",
+);
 
 // The one-time setup has to fill the committed markers in place, point
 // migrations at the preview database only, and create the named resources.

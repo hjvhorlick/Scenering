@@ -9,6 +9,7 @@ import type {
   SceneMotionType,
   RenderProfileSettings,
   PublishDestinationType,
+  TimelineInsert,
 } from "../types";
 import {
   PLATFORM_PROFILES,
@@ -44,14 +45,35 @@ import {
   CustomVideoError,
   CUSTOM_VIDEO_PREFIX,
   describeClip,
+  loadCustomVideos,
   resolveVideoUrl,
   type CustomVideoClip,
 } from "../lib/custom-video";
-import { VIDEO_UPLOAD_ACCEPT } from "../lib/media-file";
+import { AUDIO_UPLOAD_ACCEPT, IMAGE_UPLOAD_ACCEPT, VIDEO_UPLOAD_ACCEPT } from "../lib/media-file";
+import {
+  addCustomMusic,
+  CustomMusicError,
+  CUSTOM_MUSIC_PREFIX,
+  formatTrackLength,
+  getCustomMusicTrack,
+  isMusicVideoSourceInsert,
+  resolveAudioUrl,
+  setCustomMusicLoop,
+  type CustomMusicTrack,
+} from "../lib/custom-music";
+import {
+  addCustomImage,
+  CustomImageError,
+  resolveImageUrl,
+  type CustomImageAsset,
+} from "../lib/custom-image";
 import { useClipTranscription } from "../lib/use-clip-transcription";
 import { sceneUpdatesForTranscript } from "../lib/clip-transcript";
 import type { TranscriptionResult } from "../lib/speech-to-text";
 import VoiceoverSwitch from "./VoiceoverSwitch";
+import TranscriptionProgressStatus, {
+  transcriptionButtonLabel,
+} from "./TranscriptionProgressStatus";
 import type { NewProjectOptions } from "../App";
 import Icon, { iconify } from "./icons/Icon";
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "../config/plans";
@@ -78,6 +100,8 @@ interface SetupStudioProps {
   /** All saved projects, shown in the first section of this single setup frame */
   projects: Project[];
   scenes: Scene[];
+  /** Existing timeline audio, so a saved audio-source project reopens honestly. */
+  inserts?: TimelineInsert[];
   aspectRatio: AspectRatioType;
   resolution: ResolutionType;
   pacingMode?: PacingModeType;
@@ -138,6 +162,11 @@ interface SetupStudioProps {
   onUpdateSingleSceneAudio?: (keepOriginalAudio: boolean) => void;
   /** Installs a transcript (caption text + word timings) on the project's scene. */
   onUpdateSingleSceneCaptions?: (updates: Partial<Scene>) => void;
+  /** Attaches Setup's uploaded song and/or still to an existing project. */
+  onAttachAudioSource?: (
+    source: NonNullable<NewProjectOptions["audio"]>,
+    changed: { audio: boolean; image: boolean }
+  ) => void;
   onCalibrateScenesWordCount?: (targetSeconds: number, overrideSingleScene?: boolean) => void;
   onFitScenesToSpeech?: () => void;
   onUpdateMotionStyle?: (style: string) => void;
@@ -194,6 +223,7 @@ export default function SetupStudio({
   project,
   projects,
   scenes,
+  inserts = [],
   aspectRatio,
   resolution = "1080p",
   pacingMode = "auto_speech",
@@ -219,6 +249,7 @@ export default function SetupStudio({
   onAttachSingleSceneClip,
   onUpdateSingleSceneAudio,
   onUpdateSingleSceneCaptions,
+  onAttachAudioSource,
   onCalibrateScenesWordCount,
   onUpdateMotionStyle,
   onNavigateToStep,
@@ -245,12 +276,23 @@ export default function SetupStudio({
    * saved settings yet) can be set up before it exists.
    */
   const [oneScene, setOneScene] = useState<boolean>(singleScene);
-  /** Where the single scene's picture comes from. */
-  const [singleSource, setSingleSource] = useState<"script" | "upload">("script");
+  /** Where the single scene's picture/sound comes from. */
+  const [singleSource, setSingleSource] = useState<"script" | "upload" | "audio">("script");
   const [uploadedClip, setUploadedClip] = useState<CustomVideoClip | null>(null);
+  const [, setVideoStoreRevision] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const clipInputRef = useRef<HTMLInputElement | null>(null);
+  /** The song and first still for a music video made without footage. */
+  const [uploadedAudioTrack, setUploadedAudioTrack] = useState<CustomMusicTrack | null>(null);
+  const [uploadedAudioImage, setUploadedAudioImage] = useState<{
+    url: string;
+    asset: CustomImageAsset;
+  } | null>(null);
+  const [audioSourceUploading, setAudioSourceUploading] = useState<"audio" | "image" | null>(null);
+  const [audioSourceError, setAudioSourceError] = useState<string | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const audioImageInputRef = useRef<HTMLInputElement | null>(null);
   /**
    * Whether the finished video keeps the soundtrack inside the uploaded
    * footage. On by default — it is the creator's own audio — and stored on the
@@ -308,11 +350,32 @@ export default function SetupStudio({
     setOneScene(singleScene);
   }, [singleScene]);
 
-  /** An existing one-scene project that already has footage shows it here. */
+  // A restored project's stable custom-video id resolves only after IndexedDB
+  // hydration. Repaint this Setup preview when that object URL becomes ready.
+  useEffect(() => {
+    let active = true;
+    void loadCustomVideos().then(() => {
+      if (active) setVideoStoreRevision((revision) => revision + 1);
+    });
+    return () => { active = false; };
+  }, []);
+
+  /** An existing one-scene project reopens on the source it already uses. */
   useEffect(() => {
     const clipScene = scenes.find((sc) => sc.video_url);
-    if (clipScene?.video_url) setSingleSource("upload");
-  }, [scenes]);
+    if (clipScene?.video_url) {
+      setSingleSource("upload");
+      return;
+    }
+    // An ordinary background bed on a narrated script project is not source
+    // audio. Only Setup's explicit marker may reopen this workflow.
+    const hasMusicSource = inserts.some(isMusicVideoSourceInsert);
+    if (hasMusicSource && scenes.some((scene) => scene.image_url)) {
+      setSingleSource("audio");
+      return;
+    }
+    setSingleSource("script");
+  }, [scenes, inserts]);
 
   /**
    * Strict isolation: reload the fields ONLY when the user actually switches
@@ -331,6 +394,13 @@ export default function SetupStudio({
     const init = initialFor(project, scenes);
     setTitle(init.title);
     setScript(init.script);
+    // Files selected for one project must never become another project's
+    // source merely because Setup stayed mounted while the project changed.
+    setUploadedClip(null);
+    setUploadedAudioTrack(null);
+    setUploadedAudioImage(null);
+    setUploadError(null);
+    setAudioSourceError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
@@ -396,8 +466,52 @@ export default function SetupStudio({
   const footagePreviewUrl = uploadedClip
     ? resolveVideoUrl(`${CUSTOM_VIDEO_PREFIX}${uploadedClip.id}`)
     : resolveVideoUrl(existingClipScene?.video_url);
-  /** A one-scene project can be started from footage alone — no script needed. */
-  const canStart = script.trim().length > 0 || (oneScene && hasFootage);
+
+  /** Reopen only Setup's source track, never a narrated project's ordinary bed. */
+  const existingMusicInsert = [...inserts]
+    .reverse()
+    .find(isMusicVideoSourceInsert);
+  const existingMusicUrl = existingMusicInsert?.audioSettings?.soundUrl || null;
+  const storedMusicTrack = getCustomMusicTrack(existingMusicUrl);
+  // IndexedDB hydration can finish just after Setup's first render. The insert
+  // still carries enough metadata to recognise our own saved source meanwhile.
+  const existingMusicTrack: CustomMusicTrack | null = storedMusicTrack ||
+    (existingMusicUrl?.startsWith(CUSTOM_MUSIC_PREFIX)
+      ? {
+          id: existingMusicUrl.slice(CUSTOM_MUSIC_PREFIX.length),
+          name: existingMusicInsert?.title || "My audio",
+          mime: "audio/*",
+          size: 0,
+          duration: Math.max(1, existingMusicInsert?.duration || 0),
+          addedAt: 0,
+          loop: false,
+        }
+      : null);
+  const activeAudioTrack = uploadedAudioTrack || existingMusicTrack;
+  const existingImageScene = scenes.find((scene) => scene.image_url) || null;
+  const activeAudioImage = uploadedAudioImage
+    ? { url: uploadedAudioImage.url, name: uploadedAudioImage.asset.name }
+    : existingImageScene?.image_url
+      ? {
+          url: existingImageScene.image_url,
+          name: existingImageScene.image_query || "My picture",
+        }
+      : null;
+  const audioSourceReady = Boolean(activeAudioTrack && activeAudioImage);
+  const pendingAudioSource = activeAudioTrack && activeAudioImage
+    ? { track: activeAudioTrack, image: activeAudioImage }
+    : null;
+  const audioSeconds = activeAudioTrack?.duration || existingMusicInsert?.duration || 0;
+  const audioName = activeAudioTrack?.name || existingMusicInsert?.title || "Your audio";
+  const audioPreviewUrl = activeAudioTrack
+    ? resolveAudioUrl(`${CUSTOM_MUSIC_PREFIX}${activeAudioTrack.id}`)
+    : resolveAudioUrl(existingMusicUrl);
+  const audioImagePreviewUrl = resolveImageUrl(activeAudioImage?.url);
+
+  /** Media-source projects need no script, but each source must be complete. */
+  const footageSourceReady = oneScene && singleSource === "upload" && hasFootage;
+  const stillsSourceReady = oneScene && singleSource === "audio" && audioSourceReady;
+  const canStart = script.trim().length > 0 || footageSourceReady || stillsSourceReady;
   /** The stored address of the footage, whichever of the two routes supplied it. */
   const footageAddress = uploadedClip
     ? `${CUSTOM_VIDEO_PREFIX}${uploadedClip.id}`
@@ -466,6 +580,7 @@ export default function SetupStudio({
   const handleSelectDuration = (seconds: DurationOption, noticeOverride?: string) => {
     setSelectedDuration(seconds);
     setOneScene(false);
+    setSingleSource("script");
     onUpdateSingleScene?.(false);
     /* `false` is passed explicitly to both, for the reason the script rebuild
        below gives: the one-scene switch has not reached the parent yet, and a
@@ -492,11 +607,17 @@ export default function SetupStudio({
    * footage, otherwise the time the script takes to read. There is no target
    * length involved, which is the whole point of the mode.
    */
-  const oneSceneLengthSeconds = footageSeconds > 0 ? footageSeconds : singleSceneDuration(script);
-  const oneSceneLengthLabel =
-    footageSeconds > 0
-      ? formatDuration(footageSeconds)
-      : `~${formatDuration(oneSceneLengthSeconds)}`;
+  const selectedMediaSeconds = singleSource === "upload"
+    ? footageSeconds
+    : singleSource === "audio"
+      ? audioSeconds
+      : 0;
+  const oneSceneLengthSeconds = selectedMediaSeconds > 0
+    ? selectedMediaSeconds
+    : singleSceneDuration(script);
+  const oneSceneLengthLabel = selectedMediaSeconds > 0
+    ? formatDuration(selectedMediaSeconds)
+    : `~${formatDuration(oneSceneLengthSeconds)}`;
 
   /**
    * Leaves one-scene mode and splits the script at the chosen target length.
@@ -537,40 +658,108 @@ export default function SetupStudio({
     );
   };
 
+  /** Select uploaded footage and keep its soundtrack free of narration. */
+  const handleSelectVideoSource = () => {
+    setSingleSource("upload");
+    if (!oneScene) {
+      setOneScene(true);
+      onUpdateSingleScene?.(true);
+    }
+    if (voiceoverEnabled) onUpdateVoiceoverEnabled?.(false);
+  };
+
+  /** Select the stills-and-audio source and enforce its no-voiceover rule. */
+  const handleSelectAudioSource = () => {
+    setSingleSource("audio");
+    if (!oneScene) {
+      setOneScene(true);
+      onUpdateSingleScene?.(true);
+    }
+    if (voiceoverEnabled) onUpdateVoiceoverEnabled?.(false);
+  };
+
+  /** Store the music locally and mark it play-once before it reaches a project. */
+  const handleUploadAudioSource = async (file: File | null | undefined) => {
+    if (!file || audioSourceUploading) return;
+    setAudioSourceUploading("audio");
+    setAudioSourceError(null);
+    try {
+      const track = await addCustomMusic(file);
+      await setCustomMusicLoop(track.id, false);
+      setUploadedAudioTrack({ ...track, loop: false });
+      handleSelectAudioSource();
+      showNotice(
+        `“${track.name}” is the soundtrack. It will play once for ${formatTrackLength(track.duration)}; voiceover is off.`
+      );
+    } catch (err) {
+      setAudioSourceError(
+        err instanceof CustomMusicError ? err.message : "That audio file could not be loaded."
+      );
+    } finally {
+      setAudioSourceUploading(null);
+      if (audioInputRef.current) audioInputRef.current.value = "";
+    }
+  };
+
+  /** Store the first still exactly as SceneEditor's own image uploader does. */
+  const handleUploadAudioImage = async (file: File | null | undefined) => {
+    if (!file || audioSourceUploading) return;
+    setAudioSourceUploading("image");
+    setAudioSourceError(null);
+    try {
+      const stored = await addCustomImage(file);
+      setUploadedAudioImage(stored);
+      handleSelectAudioSource();
+      showNotice(`“${stored.asset.name}” is the first picture. Add or split scenes later for more images.`);
+    } catch (err) {
+      setAudioSourceError(
+        err instanceof CustomImageError ? err.message : "That image could not be loaded."
+      );
+    } finally {
+      setAudioSourceUploading(null);
+      if (audioImageInputRef.current) audioImageInputRef.current.value = "";
+    }
+  };
+
   /**
    * Upload footage to use as the single scene.
    *
    * The file is kept in the browser's own storage and the scene records the
    * stable address for it, so the project still plays the clip after a
-   * reload. Uploading also switches the voiceover off: someone bringing their
-   * own footage has no script to read, and the switch is right there to turn
-   * narration back on if they do want it.
+   * reload. Uploaded-video projects keep voiceover off: captions and visual
+   * effects may be added, but no synthesised voice is layered over the source.
    */
   const handleUploadClip = async (file: File | null | undefined) => {
     if (!file || uploading) return;
     setUploading(true);
     setUploadError(null);
     try {
-      const clip = await addCustomVideo(file);
+      const replaceIds = [
+        uploadedClip?.id,
+        existingClipScene?.video_url?.startsWith(CUSTOM_VIDEO_PREFIX)
+          ? existingClipScene.video_url.slice(CUSTOM_VIDEO_PREFIX.length)
+          : null,
+      ].filter((id): id is string => Boolean(id));
+      const clip = await addCustomVideo(file, {
+        replaceIds,
+        allowSessionFallback: true,
+      });
       setUploadedClip(clip);
-      setSingleSource("upload");
-      if (!oneScene) {
-        setOneScene(true);
-        onUpdateSingleScene?.(true);
-      }
+      handleSelectVideoSource();
       onAttachSingleSceneClip?.({
         url: `${CUSTOM_VIDEO_PREFIX}${clip.id}`,
         name: clip.name,
         duration: clip.duration,
         mute: !keepOriginalAudio,
       });
-      if (voiceoverEnabled) onUpdateVoiceoverEnabled?.(false);
       showNotice(
-        `"${clip.name}" is now the whole video — all ${formatDuration(clip.duration)} of it, start to finish. ` +
-          (keepOriginalAudio
-            ? "Its own sound is kept."
-            : "Its original sound will be left out of the finished video.") +
-          " Voiceover switched off — turn it back on below if you want narration over it."
+        clip.persistent === false
+          ? `"${clip.name}" is loaded and ready for this tab. Keep this tab open until you download the finished video.`
+          : `"${clip.name}" is now the whole video — all ${formatDuration(clip.duration)} of it, start to finish. ` +
+            (keepOriginalAudio
+              ? "Its own sound is kept."
+              : "Its original sound will be left out of the finished video.") +
+            " Voiceover stays off for uploaded-video projects."
       );
     } catch (err) {
       setUploadError(
@@ -641,16 +830,23 @@ export default function SetupStudio({
        so it has no meaning for a one-scene project: there the length is the
        footage's, or the script's own reading time when there is no footage.
        Passing 20 here is what used to stamp a 3-minute upload back down. */
+    const sourceSeconds = singleSource === "upload"
+      ? footageSeconds
+      : singleSource === "audio"
+        ? audioSeconds
+        : 0;
     const durToApply = oneScene
-      ? singleSceneDuration(scriptText, footageSeconds || undefined)
+      ? singleSceneDuration(scriptText, sourceSeconds || undefined)
       : selectedDuration || 20;
 
-    // A one-scene project built from uploaded footage needs no script at all —
-    // a music video has no words to read.
-    if (!scriptText && !(oneScene && hasFootage)) {
+    // A complete media source needs no script: footage carries its picture,
+    // while an audio source needs both its song and its first still.
+    if (!scriptText && !footageSourceReady && !stillsSourceReady) {
       showNotice(
         oneScene
-          ? "Add a script in section 3, or upload your video in section 4, before continuing."
+          ? singleSource === "audio"
+            ? "Add both an audio file and an image in section 4 before continuing."
+            : "Add a script in section 3, or choose a complete media source in section 4, before continuing."
           : "Add a script in section 3 before continuing."
       );
       document.getElementById("screenplay-script")?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -663,9 +859,9 @@ export default function SetupStudio({
       if (!isExistingProject) {
         const ok = await onCreateProject(title.trim() || "Untitled Video", scriptText, durToApply, {
           singleScene: oneScene,
-          voiceoverEnabled,
+          voiceoverEnabled: singleSource === "script" ? voiceoverEnabled : false,
           clip:
-            oneScene && uploadedClip
+            oneScene && singleSource === "upload" && uploadedClip
               ? {
                   url: `${CUSTOM_VIDEO_PREFIX}${uploadedClip.id}`,
                   name: uploadedClip.name,
@@ -677,6 +873,10 @@ export default function SetupStudio({
                      or not that audio survives into the render. */
                   transcript: transcriptFields ?? undefined,
                 }
+              : undefined,
+          audio:
+            oneScene && singleSource === "audio" && pendingAudioSource
+              ? pendingAudioSource
               : undefined,
         });
         // A create that returns false failed; anything else is treated as
@@ -692,9 +892,23 @@ export default function SetupStudio({
          one scene keeps the footage's own length here, which is what stopped
          an uploaded video being cut to this frame's 10/20/30 target. */
       onUpdateSceneDuration?.(durToApply, oneScene);
-      // Only a real change rebuilds the scenes: coming back to Setup and on
-      // again must not undo what was set on them in the other sections.
-      if (scriptText) onUpdateScript(scriptText, "if-changed", durToApply, oneScene);
+      // Only the script source rebuilds scenes. Media transcripts also live in
+      // scene.text for captions, but they must never be mistaken for a script
+      // and written back as narration when Setup is revisited.
+      if (scriptText && singleSource === "script") {
+        onUpdateScript(scriptText, "if-changed", durToApply, oneScene);
+      }
+      if (singleSource !== "script") onUpdateVoiceoverEnabled?.(false);
+      if (singleSource === "audio") {
+        // Re-attach only when something was chosen on this visit. Merely
+        // revisiting Setup must not replace the saved insert with a new id.
+        if ((uploadedAudioTrack || uploadedAudioImage) && pendingAudioSource) {
+          onAttachAudioSource?.(pendingAudioSource, {
+            audio: Boolean(uploadedAudioTrack),
+            image: Boolean(uploadedAudioImage),
+          });
+        }
+      }
       onNavigateToStep("scenes");
     } catch (err) {
       console.error("Setup save failed:", err);
@@ -711,6 +925,12 @@ export default function SetupStudio({
     onStartNewProject();
     setTitle("");
     setScript("");
+    setSingleSource("script");
+    setUploadedClip(null);
+    setUploadedAudioTrack(null);
+    setUploadedAudioImage(null);
+    setUploadError(null);
+    setAudioSourceError(null);
     setStartError(null);
   };
 
@@ -849,9 +1069,15 @@ export default function SetupStudio({
             note={
               canStart
                 ? isExistingProject
-                  ? "saves title, script & format"
-                  : "creates the project from your script"
-                : "add a script in section 3 to continue"
+                  ? "saves this setup and source"
+                  : singleSource === "audio"
+                    ? "creates the project from your audio and image"
+                    : singleSource === "upload"
+                      ? "creates the project from your video"
+                      : "creates the project from your script"
+                : singleSource === "audio"
+                  ? "add both audio and an image in section 4"
+                  : "add a script or complete media source to continue"
             }
           />
         </div>
@@ -1011,7 +1237,7 @@ export default function SetupStudio({
           rows={11}
           placeholder={
             oneScene
-              ? "Write the whole thing here — it all stays in one scene.\n\nMaking a music video? Leave this empty, upload your video in section 4, and add captions, overlays and extra music in the steps that follow."
+              ? "Write the whole thing here — it all stays in one scene.\n\nMaking a music video? Leave this empty, then choose either your finished video or an audio file plus an image in section 4."
               : `Scene 1: Type ~${targetWordsPerScene} words to last ${activeDuration} seconds when read aloud...\n\nScene 2: Type another ~${targetWordsPerScene} words for the second scene...\n\nScene 3: Each paragraph becomes a separate scene.`
           }
           className="w-full px-4 py-3.5 bg-gray-800/90 border border-hairline rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y font-mono text-xs leading-relaxed shadow-inner"
@@ -1052,10 +1278,10 @@ export default function SetupStudio({
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <SectionHeading
           step={4}
-          title="Scene length"
+          title={oneScene ? "Scene source and length" : "Scene length"}
           subtitle={
             oneScene
-              ? "One scene: its length is the footage's, or the time the script takes to read — no target length is applied."
+              ? "Choose a script, a finished video, or music/audio plus pictures. The source sets the full length; no target length is applied."
               : "Target spoken length for every scene — the script is chunked to match. Or keep the whole thing as one scene."
           }
           badge={
@@ -1175,19 +1401,20 @@ export default function SetupStudio({
         </div>
         )}
 
-        {/* ---- One-scene project: where does the single scene come from? ---- */}
-        {oneScene && (
-          <div className="mt-4 space-y-3 rounded-xl border border-indigo-800/50 bg-indigo-950/20 p-3.5">
+        {/* ---- Project source: always visible; media choices select one scene. ---- */}
+        <div className="mt-4 space-y-3 rounded-xl border border-indigo-800/50 bg-indigo-950/20 p-3.5">
             <div className="flex items-start gap-2">
               <span className="text-indigo-300 mt-0.5"><Icon glyph="🎬" /></span>
-              <p className="text-[11px] text-gray-300 leading-relaxed">
-                <span className="text-white font-semibold">One scene, one video.</span> Captions, music,
-                stickers and everything else in the Studio work exactly as they do on a multi-scene
-                project — there is simply one scene to hang them on.
-              </p>
+              <div>
+                <h3 className="text-sm font-bold text-white">Choose what you already have</h3>
+                <p className="text-[11px] text-gray-300 leading-relaxed mt-0.5">
+                  Start from a script, upload a finished video with its own sound, or make a music
+                  video from an audio file and pictures. Captions and effects remain available for all three.
+                </p>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5">
               <button
                 type="button"
                 onClick={() => setSingleSource("script")}
@@ -1207,7 +1434,7 @@ export default function SetupStudio({
 
               <button
                 type="button"
-                onClick={() => setSingleSource("upload")}
+                onClick={handleSelectVideoSource}
                 className={`p-3 rounded-xl border text-left transition-all ${
                   singleSource === "upload"
                     ? "bg-indigo-950/80 border-indigo-500 text-white ring-1 ring-indigo-400"
@@ -1219,6 +1446,23 @@ export default function SetupStudio({
                 </div>
                 <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
                   Your footage becomes the scene — a music video, a filmed take, a screen recording.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSelectAudioSource}
+                className={`p-3 rounded-xl border text-left transition-all ${
+                  singleSource === "audio"
+                    ? "bg-indigo-950/80 border-indigo-500 text-white ring-1 ring-indigo-400"
+                    : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+                }`}
+              >
+                <div className="text-xs font-bold flex items-center gap-1.5">
+                  <Icon glyph="🎵" /> Upload music/audio + pictures
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
+                  Add the soundtrack and first picture here, then add more pictures in Scenes. No voiceover.
                 </p>
               </button>
             </div>
@@ -1260,8 +1504,8 @@ export default function SetupStudio({
                         the whole video is {formatDuration(footageSeconds)} long
                       </p>
                       <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">
-                        Trim it, mute its own sound or swap it later in the Scenes step. Add music and
-                        overlays in the Studio exactly as usual.
+                        Trim it, mute its own sound or swap it later in the Scenes step. Add captions,
+                        effects and overlays in the Studio exactly as usual.
                       </p>
                       <div className="flex flex-wrap items-center gap-2 mt-2">
                         <button
@@ -1292,6 +1536,17 @@ export default function SetupStudio({
                   </button>
                 )}
 
+                {uploadedClip?.persistent === false && uploadedClip.storageWarning && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="text-[11px] text-amber-200 bg-amber-950/60 border border-amber-700/70 rounded-lg px-3 py-2 leading-relaxed"
+                  >
+                    <span className="font-bold">Video loaded for this tab only.</span>{" "}
+                    {uploadedClip.storageWarning}
+                  </div>
+                )}
+
                 {/* The two choices that belong to footage and to nothing else:
                     what happens to its own sound, and whether the words in it
                     become captions. Both sit with the upload, where the video
@@ -1317,8 +1572,7 @@ export default function SetupStudio({
                             <Icon glyph={keepOriginalAudio ? "✓" : "○"} /> Keep the original sound
                           </div>
                           <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">
-                            The finished video plays your footage's own soundtrack under any music
-                            you add.
+                            The finished video uses the soundtrack already inside your footage.
                           </p>
                         </button>
                         <button
@@ -1349,8 +1603,7 @@ export default function SetupStudio({
                       <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
                         Whisper listens to the soundtrack and times every word, then the words go
                         to the Captions step to be styled. Free and on this device — no key, no
-                        account, nothing uploaded; the model (about 40 MB) is fetched once and
-                        cached.
+                        account, nothing uploaded; the model files are fetched once and cached.
                       </p>
                       <div className="flex flex-wrap items-center gap-2 mt-2">
                         <button
@@ -1361,7 +1614,7 @@ export default function SetupStudio({
                         >
                           <Icon glyph={transcription.busy ? "⏳" : "✨"} />
                           {transcription.busy
-                            ? "Listening…"
+                            ? transcriptionButtonLabel(transcription.progress)
                             : transcript || existingTranscript
                               ? "Transcribe again"
                               : "Generate captions"}
@@ -1382,11 +1635,11 @@ export default function SetupStudio({
                         )}
                       </div>
                       {transcription.progress && transcription.busy && (
-                        <p className="text-[10px] text-gray-400 mt-1.5">
-                          {transcription.progress.message}
-                          {typeof transcription.progress.fraction === "number" &&
-                            ` ${Math.round(transcription.progress.fraction * 100)}%`}
-                        </p>
+                        <TranscriptionProgressStatus
+                          progress={transcription.progress}
+                          sourceSeconds={footageSeconds}
+                          onCancel={transcription.cancel}
+                        />
                       )}
                       {transcription.error && (
                         <p className="text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2 mt-2">
@@ -1411,8 +1664,139 @@ export default function SetupStudio({
               </div>
             )}
 
-            {/* Narration on or off — the same switch as the Voiceover step. */}
-            {onUpdateVoiceoverEnabled && (
+            {singleSource === "audio" && (
+              <div className="space-y-3 rounded-xl border border-emerald-800/60 bg-emerald-950/20 p-3">
+                <input
+                  ref={audioInputRef}
+                  type="file"
+                  accept={AUDIO_UPLOAD_ACCEPT}
+                  className="hidden"
+                  aria-label="Choose the music video's audio file"
+                  onChange={(event) => void handleUploadAudioSource(event.target.files?.[0])}
+                />
+                <input
+                  ref={audioImageInputRef}
+                  type="file"
+                  accept={IMAGE_UPLOAD_ACCEPT}
+                  className="hidden"
+                  aria-label="Choose the music video's first image"
+                  onChange={(event) => void handleUploadAudioImage(event.target.files?.[0])}
+                />
+
+                <div className="flex items-start gap-2">
+                  <span className="text-emerald-300"><Icon glyph="🎵" /></span>
+                  <div>
+                    <div className="text-xs font-bold text-white">Build from a song and still images</div>
+                    <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">
+                      The song plays once at its own length and is never looped. Voiceover stays off.
+                      Add more images, captions, motion and effects in the existing steps after creation.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className={`rounded-xl border p-3 ${activeAudioTrack ? "border-emerald-700/70 bg-gray-900/80" : "border-dashed border-indigo-700/60 bg-gray-900/50"}`}>
+                    <div className="text-[10px] uppercase tracking-wide font-bold text-gray-400">1 · Audio file</div>
+                    {activeAudioTrack ? (
+                      <>
+                        <div className="mt-1 text-xs font-bold text-white truncate flex items-center gap-1.5">
+                          <Icon glyph="✓" /> {audioName}
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          {formatTrackLength(audioSeconds)} · plays once · sets the initial video length
+                        </p>
+                        {audioPreviewUrl && (
+                          <audio
+                            src={audioPreviewUrl}
+                            controls
+                            preload="metadata"
+                            className="w-full h-8 mt-2"
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => audioInputRef.current?.click()}
+                          disabled={audioSourceUploading !== null}
+                          className="mt-2 px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[11px] font-semibold border border-hairline disabled:opacity-50"
+                        >
+                          {audioSourceUploading === "audio" ? "Reading audio…" : "Replace audio"}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => audioInputRef.current?.click()}
+                        disabled={audioSourceUploading !== null}
+                        className="w-full py-4 text-center disabled:opacity-50"
+                      >
+                        <span className="block text-xs font-bold text-white">
+                          <Icon glyph="⬆️" /> {audioSourceUploading === "audio" ? "Reading audio…" : "Choose audio"}
+                        </span>
+                        <span className="block text-[10px] text-gray-400 mt-1">MP3, WAV or M4A · up to 60 MB</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className={`rounded-xl border p-3 ${activeAudioImage ? "border-emerald-700/70 bg-gray-900/80" : "border-dashed border-indigo-700/60 bg-gray-900/50"}`}>
+                    <div className="text-[10px] uppercase tracking-wide font-bold text-gray-400">2 · First image</div>
+                    {activeAudioImage ? (
+                      <div className="mt-1 flex gap-2.5">
+                        {audioImagePreviewUrl ? (
+                          <img
+                            src={audioImagePreviewUrl}
+                            alt="First scene preview"
+                            className="w-20 h-14 object-cover rounded-lg border border-hairline bg-black"
+                          />
+                        ) : (
+                          <div className="w-20 h-14 rounded-lg border border-hairline bg-black/60 flex items-center justify-center text-[9px] text-gray-500">
+                            Stored
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                            <Icon glyph="✓" /> {activeAudioImage.name}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => audioImageInputRef.current?.click()}
+                            disabled={audioSourceUploading !== null}
+                            className="mt-2 px-2.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-[11px] font-semibold border border-hairline disabled:opacity-50"
+                          >
+                            {audioSourceUploading === "image" ? "Reading image…" : "Replace image"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => audioImageInputRef.current?.click()}
+                        disabled={audioSourceUploading !== null}
+                        className="w-full py-4 text-center disabled:opacity-50"
+                      >
+                        <span className="block text-xs font-bold text-white">
+                          <Icon glyph="🖼️" /> {audioSourceUploading === "image" ? "Reading image…" : "Choose an image"}
+                        </span>
+                        <span className="block text-[10px] text-gray-400 mt-1">JPG, PNG or WebP · stored in this browser</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {audioSourceReady && (
+                  <p className="text-[11px] text-emerald-300 bg-emerald-950/50 border border-emerald-800/60 rounded-lg px-3 py-2">
+                    Ready: {audioName} + {activeAudioImage?.name}. Generate timed lyrics from this track in the Captions step.
+                  </p>
+                )}
+                {audioSourceError && (
+                  <p role="alert" className="text-[11px] text-red-300 bg-red-950/50 border border-red-800/60 rounded-lg px-3 py-2">
+                    {audioSourceError}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Narration belongs only to the script source; media keeps its own sound. */}
+            {onUpdateVoiceoverEnabled && singleSource === "script" && (
               <VoiceoverSwitch
                 enabled={voiceoverEnabled}
                 onChange={onUpdateVoiceoverEnabled}
@@ -1420,7 +1804,6 @@ export default function SetupStudio({
               />
             )}
           </div>
-        )}
       </div>
 
       {/* ---------------- 5. Output & destination ----------------
@@ -1861,7 +2244,7 @@ export default function SetupStudio({
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <p className="text-xs text-gray-400">
           <span className="text-white font-semibold text-sm block mb-0.5">
-            {isExistingProject ? "Setup ready" : canStart ? "Ready to build your video" : "Waiting for a script"}
+            {isExistingProject ? "Setup ready" : canStart ? "Ready to build your video" : "Waiting for a source"}
           </span>
           {scenes.length} scene(s) configured
           {project?.title ? ` · ${project.title}` : ""} · {activeDuration}s scenes · {aspectRatio} · {resolution}
@@ -1869,7 +2252,11 @@ export default function SetupStudio({
         {!canStart && (
           <p className="text-[11px] text-amber-300 flex items-center gap-1.5 mt-2">
             <Icon glyph="⚠" />
-            <span>Add a script in section 3 — every scene is generated from it.</span>
+            <span>
+              {singleSource === "audio"
+                ? "Add both your audio file and first image in section 4."
+                : "Add a script in section 3, or choose a complete media source in section 4."}
+            </span>
           </p>
         )}
       </div>

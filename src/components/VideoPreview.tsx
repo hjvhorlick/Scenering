@@ -8,10 +8,18 @@ import {
 } from "../lib/render-effects";
 import { getSceneCameraTransform, renderSceneAnimationEffects } from "../lib/scene-animation";
 import { stopAllSoundPreviews } from "../data/media-library";
-import { drawSceneImage, sceneHasVisual, sceneIsBlankColor, prewarmSceneFrame } from "../lib/scene-framing";
+import {
+  drawSceneImage,
+  sceneHasVisual,
+  sceneIsBlankColor,
+  prewarmSceneFrame,
+  sourceHasPixels,
+  type SceneDrawable,
+} from "../lib/scene-framing";
 import { drawSceneTransition, getTransitionDuration } from "../lib/scene-transition";
 import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
-import { projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";
+import { loadCustomVideos } from "../lib/custom-video";
+import { narratableText, projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { isVisualizerFullWidth } from "../lib/render-visualizers";
@@ -227,8 +235,34 @@ export default function VideoPreview({
   const playEpochRef = useRef(0);
   /** True once playPreview() has begun preparing, before playingRef is set. */
   const startingRef = useRef(false);
-  /** Hidden <video> elements for scenes that use a short clip instead of a still. */
-  const clipPoolRef = useRef<ClipPool>(new ClipPool());
+  /** Hidden media decode events must repaint a paused canvas when a frame arrives. */
+  const clipSourceKey = scenes.map((scene) => scene.video_url || "").join("|");
+  const [clipFrameRevision, setClipFrameRevision] = useState(0);
+  const [clipPreviewError, setClipPreviewError] = useState<string | null>(null);
+  const [videoStoreReady, setVideoStoreReady] = useState(false);
+  const [clipPreviewLoading, setClipPreviewLoading] = useState(
+    () => scenes.some((scene) => sceneHasClip(scene))
+  );
+  const clipDrawErrorRef = useRef(false);
+  /** Hidden media elements for scenes that use a clip instead of a still. */
+  const [clipPool] = useState(
+    () => new ClipPool((_sceneId, status, message) => {
+      if (status === "error") {
+        setClipPreviewLoading(false);
+        setClipPreviewError(message || "This browser could not decode the uploaded video for preview.");
+        return;
+      }
+      setClipPreviewLoading(false);
+      if (!clipDrawErrorRef.current) setClipPreviewError(null);
+      if (!playingRef.current) setClipFrameRevision((revision) => revision + 1);
+    })
+  );
+  const clipPoolRef = useRef<ClipPool>(clipPool);
+  useEffect(() => {
+    clipDrawErrorRef.current = false;
+    setClipPreviewError(null);
+    setClipPreviewLoading(clipSourceKey.split("|").some(Boolean));
+  }, [clipSourceKey]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   // Voice and background-music are analysed on separate buses so a visualiser
   // set to "moves with the music" reacts to the music, not to the narration.
@@ -333,11 +367,19 @@ export default function VideoPreview({
   useEffect(() => {
     const activeVoice = propSelectedVoice || selectedVoice;
     scenes.forEach((scene) => {
+      const spokenText = narratableText(scene);
+      // A transcript can inherit audio_url/a memory buffer from an earlier
+      // script. Drop it as soon as the scene becomes caption-only so hydration
+      // and playback cannot resurrect narration over the source soundtrack.
+      if (scene.caption_source === "transcript") {
+        audioBuffersRef.current.delete(scene.id);
+        return;
+      }
       const existing = audioBuffersRef.current.get(scene.id);
       if (existing && existing.voiceKey) {
         const expectedKey = scene.audio_url
           ? `imported_${scene.audio_url}`
-          : `${scene.voice_id || activeVoice}_${(scene.text || "").trim()}`;
+          : `${scene.voice_id || activeVoice}_${spokenText}`;
         if (existing.voiceKey !== expectedKey) {
           audioBuffersRef.current.delete(scene.id);
         }
@@ -363,6 +405,13 @@ export default function VideoPreview({
       const activeVoice = propSelectedVoice || selectedVoice;
       for (const scene of scenes) {
         if (cancelled) break;
+        const spokenText = narratableText(scene);
+        // Do not even resolve a stale saved voiceover for words that came from
+        // the picture. They remain in scene.text only because captions draw it.
+        if (scene.caption_source === "transcript") {
+          audioBuffersRef.current.delete(scene.id);
+          continue;
+        }
         if (!audioBuffersRef.current.has(scene.id)) {
           const resolved = await resolveSceneAudioBuffer(scene, audioCtx);
           if (resolved && !cancelled) {
@@ -371,7 +420,7 @@ export default function VideoPreview({
               url: resolved.url,
               voiceKey: scene.audio_url
                 ? `imported_${scene.audio_url}`
-                : `${scene.voice_id || activeVoice}_${(scene.text || "").trim()}`,
+                : `${scene.voice_id || activeVoice}_${spokenText}`,
             });
           }
         }
@@ -388,8 +437,14 @@ export default function VideoPreview({
     async (scene: Scene, audioCtx: AudioContext): Promise<SceneAudio | null> => {
       const activeVoice = propSelectedVoice || selectedVoice;
       const voiceToUse = scene.voice_id || activeVoice;
-      const text = (scene.text || "").trim();
+      const text = narratableText(scene);
       const voiceKey = scene.audio_url ? `imported_${scene.audio_url}` : `${voiceToUse}_${text}`;
+
+      /* A transcript lives in scene.text because captions render that field, but
+         it is audio that came OUT of the picture, never a script to read back.
+         This guard must precede saved-audio resolution: captioning can leave an
+         old audio_url behind, and resolving it would revive that earlier voice. */
+      if (scene.caption_source === "transcript") return null;
       if (!text && !scene.audio_url) return null;
 
       // 0. Check pre-generated/saved audio from Voiceover Studio cache, memory or IndexedDB.
@@ -461,29 +516,52 @@ export default function VideoPreview({
     let completedCount = 0;
     setAudioStatus(`Preparing narration: 0/${scenesWithImages.length} ready...`);
 
-    // Concurrent synthesis across all scenes for instant readiness
-    await Promise.all(
+    /* Concurrent synthesis across all scenes for instant readiness. A provider
+       failure belongs to that scene only: Promise.all used to reject the whole
+       batch, discard every successful buffer and make preview look completely
+       broken. allSettled keeps the usable voices and reports the missing ones. */
+    const outcomes = await Promise.allSettled(
       scenesWithImages.map(async (scene) => {
-        const activeVoice = propSelectedVoice || selectedVoice;
-        const expectedKey = scene.audio_url
-          ? `imported_${scene.audio_url}`
-          : `${scene.voice_id || activeVoice}_${(scene.text || "").trim()}`;
-        const existing = audioBuffersRef.current.get(scene.id);
-        if (existing && existing.voiceKey === expectedKey) {
-          newBuffers.set(scene.id, existing);
-          completedCount++;
-          return;
-        }
+        try {
+          const activeVoice = propSelectedVoice || selectedVoice;
+          const spokenText = narratableText(scene);
+          const expectedKey = scene.audio_url
+            ? `imported_${scene.audio_url}`
+            : `${scene.voice_id || activeVoice}_${spokenText}`;
+          const existing = audioBuffersRef.current.get(scene.id);
+          if (existing && existing.voiceKey === expectedKey) {
+            newBuffers.set(scene.id, existing);
+            return;
+          }
 
-        const audio = await synthesizeScene(scene, audioCtx);
-        if (audio) newBuffers.set(scene.id, audio);
-        completedCount++;
-        setAudioStatus(`Generating voice: ${completedCount}/${scenesWithImages.length} ready...`);
+          const audio = await synthesizeScene(scene, audioCtx);
+          if (audio) newBuffers.set(scene.id, audio);
+        } finally {
+          completedCount++;
+          setAudioStatus(`Generating voice: ${completedCount}/${scenesWithImages.length} checked...`);
+        }
       })
     );
 
     audioBuffersRef.current = newBuffers;
-    setAudioStatus(`${newBuffers.size} scene(s) ready`);
+    const failedScenes = outcomes.flatMap((outcome, index) =>
+      outcome.status === "rejected"
+        ? [{ sceneNumber: (scenesWithImages[index].order_index ?? index) + 1, reason: outcome.reason }]
+        : []
+    );
+    if (failedScenes.length > 0) {
+      const sceneList = failedScenes.map((failure) => failure.sceneNumber).join(", ");
+      const firstReason = failedScenes[0].reason;
+      const detail = firstReason instanceof Error && firstReason.message
+        ? ` ${firstReason.message}`
+        : "";
+      setAudioStatus(
+        `Narration failed for scene${failedScenes.length === 1 ? "" : "s"} ${sceneList}. ` +
+          `Preview continues without ${failedScenes.length === 1 ? "that voice" : "those voices"}.${detail}`
+      );
+    } else {
+      setAudioStatus(`${newBuffers.size} scene(s) ready`);
+    }
     setLoadingAudio(false);
     return { audioCtx, buffers: newBuffers };
   }, [scenesWithImages, synthesizeScene, propSelectedVoice, selectedVoice, voiceoverEnabled]);
@@ -504,6 +582,21 @@ export default function VideoPreview({
       cancelled = true;
     };
   }, [captionsConfig?.fontId, captionsConfig?.preset]);
+
+  // Resolve saved `custom-video:<id>` addresses before asking the pool to
+  // decode them. App also starts this at boot, but the preview must subscribe
+  // to completion itself or an already-mounted black canvas never repaints.
+  useEffect(() => {
+    let active = true;
+    void loadCustomVideos().then(() => {
+      if (!active) return;
+      setVideoStoreReady(true);
+      if (!playingRef.current) {
+        setClipFrameRevision((revision) => revision + 1);
+      }
+    });
+    return () => { active = false; };
+  }, []);
 
   // Release clip decoders when the preview goes away.
   useEffect(() => {
@@ -539,8 +632,7 @@ export default function VideoPreview({
       // A scene with a short clip draws the clip's current frame instead of the
       // still. It goes through the same framing engine, so crop, blur-fill and
       // aspect handling are identical and the clip is never squashed.
-      let source: (CanvasImageSource & { naturalWidth: number; naturalHeight: number; complete?: boolean }) | null =
-        img as any;
+      let source: SceneDrawable | null = img as any;
       if (sceneHasClip(scene)) {
         const pool = clipPoolRef.current;
         const el = pool.get(scene);
@@ -549,7 +641,7 @@ export default function VideoPreview({
             pool.seekToProgress(scene, sceneProgress, Math.max(0.1, scene.duration || 1));
           }
           if (el.readyState >= 2 && el.videoWidth > 0) {
-            source = asDrawableClip(el) as any;
+            source = asDrawableClip(el);
           }
         }
       }
@@ -566,6 +658,15 @@ export default function VideoPreview({
         ctx.restore();
       }
 
+      const reportClipDrawError = (error: unknown) => {
+        if (!clipDrawErrorRef.current) {
+          clipDrawErrorRef.current = true;
+          setClipPreviewLoading(false);
+          setClipPreviewError(
+            `The video decoded, but the canvas could not draw its frame. (${(error as Error)?.message || "canvas draw failed"})`
+          );
+        }
+      };
       let handledTransition = false;
       const sceneIdx = Math.max(0, scenesWithImages.findIndex((s) => s.id === scene.id));
       if (
@@ -583,12 +684,11 @@ export default function VideoPreview({
             h,
             sceneIdx
           );
-          let prevSource: (CanvasImageSource & { naturalWidth: number; naturalHeight: number }) | null =
-            prevImg as any;
+          let prevSource: SceneDrawable | null = prevImg as any;
           if (prevScene && sceneHasClip(prevScene)) {
             const el = clipPoolRef.current.get(prevScene);
             if (el && el.readyState >= 2 && el.videoWidth > 0) {
-              prevSource = asDrawableClip(el) as any;
+              prevSource = asDrawableClip(el);
             }
           }
           const { scale: prevScale, dx: prevDx, dy: prevDy } = prevScene
@@ -608,33 +708,37 @@ export default function VideoPreview({
           const safePrevDx = isNaN(prevDx) ? 0 : prevDx;
           const safePrevDy = isNaN(prevDy) ? 0 : prevDy;
 
-          handledTransition = drawSceneTransition(
-            ctx,
-            scene,
-            source && (!("complete" in source) || (source as any).complete) && source.naturalWidth > 0 ? source : null,
-            prevScene || null,
-            prevSource && (!("complete" in prevSource) || (prevSource as any).complete) && prevSource.naturalWidth > 0 ? prevSource : null,
-            elapsedInScene,
-            scene.duration || 20,
-            w,
-            h,
-            {
-              motionScale: safeScale,
-              motionDx: safeDx + (w * safeScale - w) / 2,
-              motionDy: safeDy + (h * safeScale - h) / 2,
-              filter: getFilterCanvas(videoFilterRef.current, w),
-            },
-            prevScene ? {
-              motionScale: safePrevScale,
-              motionDx: safePrevDx + (w * safePrevScale - w) / 2,
-              motionDy: safePrevDy + (h * safePrevScale - h) / 2,
-              filter: getFilterCanvas(videoFilterRef.current, w),
-            } : undefined
-          );
+          try {
+            handledTransition = drawSceneTransition(
+              ctx,
+              scene,
+              sourceHasPixels(source) ? source : null,
+              prevScene || null,
+              sourceHasPixels(prevSource) ? prevSource : null,
+              elapsedInScene,
+              scene.duration || 20,
+              w,
+              h,
+              {
+                motionScale: safeScale,
+                motionDx: safeDx + (w * safeScale - w) / 2,
+                motionDy: safeDy + (h * safeScale - h) / 2,
+                filter: getFilterCanvas(videoFilterRef.current, w),
+              },
+              prevScene ? {
+                motionScale: safePrevScale,
+                motionDx: safePrevDx + (w * safePrevScale - w) / 2,
+                motionDy: safePrevDy + (h * safePrevScale - h) / 2,
+                filter: getFilterCanvas(videoFilterRef.current, w),
+              } : undefined
+            );
+          } catch (error) {
+            if (sceneHasClip(scene) || sceneHasClip(prevScene)) reportClipDrawError(error);
+          }
         }
       }
 
-      if (!handledTransition && source && (source.complete ?? true) && source.naturalWidth > 0) {
+      if (!handledTransition && sourceHasPixels(source)) {
         const img = source;
         const { scale: motionScale, dx: motionDx, dy: motionDy } = getSceneCameraTransform(
           scene,
@@ -647,12 +751,16 @@ export default function VideoPreview({
         // getMotionTransform returns an offset that recentres a canvas-sized
         // draw; the framing engine centres the photo itself, so only the
         // leftover wobble is passed through.
-        drawSceneImage(ctx, img, scene, w, h, {
-          motionScale,
-          motionDx: motionDx + (w * motionScale - w) / 2,
-          motionDy: motionDy + (h * motionScale - h) / 2,
-          filter: getFilterCanvas(videoFilterRef.current, w),
-        });
+        try {
+          drawSceneImage(ctx, img, scene, w, h, {
+            motionScale,
+            motionDx: motionDx + (w * motionScale - w) / 2,
+            motionDy: motionDy + (h * motionScale - h) / 2,
+            filter: getFilterCanvas(videoFilterRef.current, w),
+          });
+        } catch (error) {
+          if (sceneHasClip(scene)) reportClipDrawError(error);
+        }
       }
 
       // Per-scene living-scene animation layers (weather, water, particles,
@@ -849,7 +957,7 @@ export default function VideoPreview({
 
   // Redraw when user scrubs playhead while paused OR when logo/captions/scene changes
   useEffect(() => {
-    if (isPlaying || scenesWithImages.length === 0) return;
+    if (!videoStoreReady || isPlaying || scenesWithImages.length === 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -921,6 +1029,8 @@ export default function VideoPreview({
   }, [
     currentPlayheadTime,
     isPlaying,
+    videoStoreReady,
+    clipFrameRevision,
     scenesWithImages,
     drawScene,
     customerLogo,
@@ -1076,6 +1186,8 @@ export default function VideoPreview({
   // ------ PLAY PREVIEW ------
   const playPreview = useCallback(async (seekTime?: number) => {
     if (scenesWithImages.length === 0) return;
+    await loadCustomVideos();
+    setVideoStoreReady(true);
 
     // Starting the video silences any library preview still playing, so the
     // play button always gives one soundtrack.
@@ -1122,11 +1234,15 @@ export default function VideoPreview({
     // pressing play must not start synthesising one.
     const missingScenes = voiceoverEnabled
       ? scenesWithImages.filter((s) => {
-          if (!s.audio_url && !(s.text || "").trim()) return false;
+          const spokenText = narratableText(s);
+          // Caption text transcribed from the soundtrack is deliberately not a
+          // missing voice, even if an obsolete saved narration URL remains.
+          if (s.caption_source === "transcript") return false;
+          if (!s.audio_url && !spokenText) return false;
           const existing = buffers.get(s.id);
           const expectedKey = s.audio_url
             ? `imported_${s.audio_url}`
-            : `${s.voice_id || activeVoice}_${(s.text || "").trim()}`;
+            : `${s.voice_id || activeVoice}_${spokenText}`;
           return !existing || existing.voiceKey !== expectedKey;
         })
       : [];
@@ -1142,7 +1258,7 @@ export default function VideoPreview({
             url: resolved.url,
             voiceKey: s.audio_url
               ? `imported_${s.audio_url}`
-              : `${s.voice_id || activeVoice}_${(s.text || "").trim()}`,
+              : `${s.voice_id || activeVoice}_${narratableText(s)}`,
           });
         } else {
           allResolvedLocally = false;
@@ -1650,6 +1766,15 @@ export default function VideoPreview({
             title="Drag a badge to move it, or drag the corner handle to resize it"
           />
 
+          {clipPreviewLoading && !clipPreviewError && (
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center pointer-events-none z-10">
+              <div className="rounded-lg border border-hairline bg-gray-950/85 px-3 py-2 text-xs text-gray-200 flex items-center gap-2">
+                <span className="inline-block h-2.5 w-2.5 rounded-full bg-indigo-400 animate-pulse" />
+                Loading uploaded video frame…
+              </div>
+            </div>
+          )}
+
           {/* Hint Overlay when hovering canvas */}
           <div className="absolute bottom-2 right-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur px-2.5 py-1 rounded-md text-[11px] text-gray-300 border border-hairline">
             <Icon glyph="🖱" /> Drag elements to reposition
@@ -1677,8 +1802,16 @@ export default function VideoPreview({
           </div>
 
           {/* Status */}
+          {clipPreviewError && (
+            <div
+              className="text-xs text-amber-200 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2 text-center"
+              role="alert"
+            >
+              Video preview failed: {clipPreviewError}
+            </div>
+          )}
           {audioStatus && (
-            <div className="text-xs text-gray-400 text-center">
+            <div className="text-xs text-gray-400 text-center" role="status" aria-live="polite">
               {audioStatus}
             </div>
           )}

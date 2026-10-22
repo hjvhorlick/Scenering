@@ -6,8 +6,9 @@ import { BACKGROUND_MUSIC_TRACKS } from "../src/data/media-library";
 import { CATALOG_ITEMS } from "../src/lib/video-studio-catalog";
 import { createCatalogInsert } from "../src/lib/catalog-insert";
 import { buildInsertAudioPlan, projectMusicBed } from "../src/lib/insert-audio";
+import { stretchFullVideoMedia } from "../src/lib/render-visualizers";
 import { customTrackToItem, trackLoops } from "../src/components/VoiceMediaLibrary";
-import { playOnceConsequence } from "../src/lib/custom-music";
+import { createMusicVideoInsert, isMusicVideoSourceInsert, playOnceConsequence } from "../src/lib/custom-music";
 import type { CustomMusicTrack } from "../src/lib/custom-music";
 import type { TimelineInsert } from "../src/types";
 
@@ -360,6 +361,102 @@ for (const item of CATALOG_ITEMS.background_music) {
   h.ok(
     /const captionsMusicBed = useMemo\(\(\) => projectMusicBed\(inserts\), \[inserts\]\);/.test(app),
     "App derives it from the same insert list the renderer plays"
+  );
+}
+
+// ------------------------------------------------------------------
+// 8. A project can begin with its own audio plus a still image
+// ------------------------------------------------------------------
+{
+  const sourceTrack: CustomMusicTrack = {
+    id: "cm_setup",
+    name: "Finished song",
+    mime: "audio/mpeg",
+    size: 2048,
+    duration: 187.4,
+    addedAt: 1,
+    loop: false,
+  };
+  const insert = createMusicVideoInsert(sourceTrack);
+  h.eq(insert.category, "background_music", "an audio project source uses the existing music-bed path");
+  h.ok(isMusicVideoSourceInsert(insert), "Setup marks source audio separately from an ordinary narrated-project bed");
+  h.ok(
+    !isMusicVideoSourceInsert(customTrackToItem(sourceTrack) as unknown as TimelineInsert),
+    "uploading ordinary background music does not turn a script project into a music-video source"
+  );
+  h.eq(insert.startTime, 0, "its soundtrack begins at frame zero");
+  h.near(insert.duration, 187.4, 0.001, "the insert keeps the audio file's own length");
+  h.eq(insert.audioSettings?.soundUrl, "custom-music:cm_setup", "it stores the reload-safe audio address");
+  h.eq(insert.audioSettings?.loop, false, "the source track is explicitly never looped");
+  const afterPicturesGrow = stretchFullVideoMedia([insert], 240)[0];
+  h.near(afterPicturesGrow.duration, 187.4, 0.001, "adding more pictures does not stretch a play-once source track");
+
+  const longerVideoPlan = buildInsertAudioPlan([afterPicturesGrow], 240);
+  h.eq(longerVideoPlan.length, 1, "the source soundtrack reaches the ordinary render mixer");
+  h.eq(longerVideoPlan[0].loop, false, "a longer video still does not loop the track");
+  h.near(longerVideoPlan[0].endTime, 187.4, 0.001, "when the pictures run longer, the video wins and the track ends");
+
+  const read = (rel: string) => readFileSync(join(repoRoot, rel), "utf8");
+  const setup = read("src/components/SetupStudio.tsx");
+  const app = read("src/App.tsx");
+  h.ok(
+    setup.includes('useState<"script" | "upload" | "audio">("script")') &&
+      setup.includes("Upload music/audio + pictures") &&
+      setup.includes("Project source: always visible"),
+    "Setup always offers music/audio plus pictures as a third source"
+  );
+  h.ok(
+    setup.includes("accept={AUDIO_UPLOAD_ACCEPT}") &&
+      setup.includes("accept={IMAGE_UPLOAD_ACCEPT}") &&
+      setup.includes("await addCustomMusic(file)") &&
+      setup.includes("await addCustomImage(file)"),
+    "the new source validates and stores both files through the existing upload stores"
+  );
+  h.ok(
+    setup.includes("await setCustomMusicLoop(track.id, false)") &&
+      setup.includes("onUpdateVoiceoverEnabled?.(false)"),
+    "choosing this source makes play-once and voiceover-off explicit"
+  );
+  h.ok(
+    setup.includes("inserts.some(isMusicVideoSourceInsert)") &&
+      setup.includes(".find(isMusicVideoSourceInsert)"),
+    "reopening Setup cannot mistake a script project's ordinary music bed for source audio"
+  );
+  h.ok(
+    /if \(!scriptText && !footageSourceReady && !stillsSourceReady\)/.test(setup),
+    "the no-script creation gate admits a complete audio-and-image source"
+  );
+  h.ok(
+    /if \(scriptText && singleSource === "script"\)/.test(setup),
+    "revisiting Setup cannot rewrite source-audio caption text as a narration script"
+  );
+  h.ok(
+    app.includes("const initialInserts = audio ? [createMusicVideoInsert(audio.track)] : [];") &&
+      app.includes("setInserts(initialInserts)"),
+    "project creation attaches the uploaded track immediately rather than only adding it to the library"
+  );
+  h.ok(
+    app.includes("image_query_locked: true") &&
+      app.includes("image_url: audio && i === 0 ? audio.image.url : null"),
+    "the uploaded image is attached and pinned to the first scene"
+  );
+  h.ok(
+    /const narration = audio \|\| clip \? false : options\?\.voiceoverEnabled \?\? true;/.test(app),
+    "either source-media project is born with voiceover off even if stale UI state said otherwise"
+  );
+  h.ok(
+    app.includes('setInserts((prev) => prev.filter((insert) => insert.category !== "background_music"))') &&
+      /handleAttachAudioSource[\s\S]*?video_url: null,[\s\S]*?const sourceInsert = createMusicVideoInsert[\s\S]*?prev\.filter\(\(insert\) => insert\.category !== "background_music"\)/.test(app),
+    "switching sources cannot layer a separate music insert over uploaded-video sound"
+  );
+  h.ok(
+    /if \(changed\.audio\) \{\s*const sourceInsert = createMusicVideoInsert\(source\.track\);/.test(app),
+    "replacing only the still preserves the existing source insert instead of minting a duplicate"
+  );
+  h.ok(
+    /mediaSourceVoiceoverLocked &&\s*insert\.category === "background_music"/.test(app) &&
+      /isMusicVideoSourceInsert\(updated\)[\s\S]*?loop: false/.test(app),
+    "source projects reject a second music bed and keep their own track at frame zero without looping"
   );
 }
 
