@@ -5,12 +5,15 @@ import { env } from "./src/env.ts";
 import { isDevelopmentRuntime, isProductionRuntime } from "./src/runtime-mode.ts";
 import { audioStore } from "./src/audio-store.ts";
 import {
-  assertSecurePlatformConfiguration,
+  PlatformConfigError,
+  inspectPlatformConfiguration,
   platformRateLimit,
+  redactDiagnosticError,
   registerFastSpringWebhook,
   registerPlatformRoutes,
   requirePlatformUser,
 } from "./server/platform.ts";
+import { EmailConfigurationError } from "./server/email.ts";
 import { registerEmailCentreRoutes, registerResendWebhook } from "./server/email-centre.ts";
 import { registerInboxRoutes } from "./server/inbox.ts";
 import { registerMembersRoutes } from "./server/members.ts";
@@ -289,7 +292,12 @@ export function createApp(): express.Express {
     });
   }
 
-  assertSecurePlatformConfiguration();
+  const startupConfig = inspectPlatformConfiguration();
+  if (!startupConfig.ok) {
+    console.error(
+      `[startup:config] Platform configuration issues detected: ${startupConfig.issues.map((issue) => `${issue.subsystem}:${issue.code}`).join(", ")}`,
+    );
+  }
   app.disable("x-powered-by");
   if (env().TRUST_PROXY === "1") app.set("trust proxy", 1);
   app.use((req, res, next) => {
@@ -337,7 +345,14 @@ export function createApp(): express.Express {
     if (!origin) return next();
     let supplied: URL;
     try { supplied = new URL(origin); } catch { return res.status(403).json({ error: "Cross-origin request rejected" }); }
-    const configured = env().PUBLIC_APP_URL ? new URL(env().PUBLIC_APP_URL as string).origin : null;
+    const configured = (() => {
+      try {
+        const configured = env().PUBLIC_APP_URL ? new URL(env().PUBLIC_APP_URL as string).origin : null;
+        return configured;
+      } catch {
+        return null;
+      }
+    })();
     const requestHost = String(req.get("host") || "").toLowerCase();
     const forwardedHost = env().TRUST_PROXY === "1" ? String(req.get("x-forwarded-host") || "").split(",")[0].trim().toLowerCase() : "";
     const sameHost = supplied.host.toLowerCase() === requestHost || Boolean(forwardedHost && supplied.host.toLowerCase() === forwardedHost);
@@ -369,6 +384,7 @@ export function createApp(): express.Express {
   // The workspace repository: a member's projects, scenes and per-project
   // documents, so every device signed in to the membership sees the same work
   // (server/workspace.ts).
+  registerWorkspaceRoutes(app);
   // The Admin Email Centre (marketing templates, campaigns, consented
   // audiences, public unsubscribe/preferences endpoints) — registered after
   // the JSON parser, mounted on the same admin middleware the owner's other
@@ -387,7 +403,17 @@ export function createApp(): express.Express {
 
   // Health check
   app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+    const diagnostics = inspectPlatformConfiguration();
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      subsystems: {
+        database: !diagnostics.issues.some((issue) => issue.subsystem === "database"),
+        auth: !diagnostics.issues.some((issue) => issue.subsystem === "session"),
+        email: !diagnostics.issues.some((issue) => issue.subsystem === "email" || issue.subsystem === "public_url"),
+        owner: !diagnostics.issues.some((issue) => issue.subsystem === "owner"),
+      },
+    });
   });
 
   // Image search handler (supports both /api/image-search and /functions/v1/image-search)
@@ -642,6 +668,32 @@ export function createApp(): express.Express {
     } catch (e: any) {
       return res.status(500).json({ error: "Failed to load audio" });
     }
+  });
+
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) return next(err);
+    if (err?.type === "entity.parse.failed" || (err instanceof SyntaxError && (err as any).status === 400)) {
+      return res.status(400).json({ error: "Invalid JSON request body.", code: "INVALID_JSON" });
+    }
+    if (err?.type === "entity.too.large" || err?.status === 413) {
+      return res.status(413).json({ error: "Request body is too large.", code: "PAYLOAD_TOO_LARGE" });
+    }
+    if (err instanceof PlatformConfigError) {
+      console.error(`[api:config] ${req.method} ${req.path} -> ${err.status} ${err.code}: ${redactDiagnosticError(err)}`);
+      return res.status(err.status).json({ error: err.publicMessage, code: err.code });
+    }
+    if (err instanceof EmailConfigurationError) {
+      console.error(`[api:email-config] ${req.method} ${req.path} -> 503 EMAIL_DELIVERY_UNAVAILABLE: ${redactDiagnosticError(err)}`);
+      return res.status(503).json({
+        error: "Transactional email delivery is temporarily unavailable. Please try again shortly.",
+        code: "EMAIL_DELIVERY_UNAVAILABLE",
+      });
+    }
+    console.error(`[api:error] ${req.method} ${req.path} -> 500: ${redactDiagnosticError(err)}`);
+    return res.status(500).json({
+      error: "Service temporarily unavailable. Please try again shortly.",
+      code: "INTERNAL_ERROR",
+    });
   });
 
   return app;

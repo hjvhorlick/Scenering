@@ -224,7 +224,7 @@ const prose = (text: string): string[] => {
 // Mainline snapshot this guard compares against. Keep it on the current base
 // so the copy check covers changes in this branch rather than re-auditing
 // unrelated product copy merged since the original icon conversion.
-const BEFORE = "77310f79fb122496d9a3676e03621de69229dfdf";
+const BEFORE = "f827c4344c28d767c88d99b41cd25740e4760a9c";
 let compared = 0;
 /**
  * Words the product deliberately stopped saying.
@@ -512,14 +512,14 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
  * already-reviewed wording during an integration merge.
  */
 const BASELINE_IN_FILE = new Map<string, string>([
-  ["src/components/InsertPropertiesModal.tsx", "cdc08eb"],
-  ["src/components/VideoStudio.tsx", "cdc08eb"],
-  ["src/lib/render-visualizers.ts", "cdc08eb"],
-  ["src/lib/video-studio-catalog.ts", "cdc08eb"],
-  ["src/marketing/FAQPage.tsx", "cdc08eb"],
-  ["src/marketing/ManualPage.tsx", "cdc08eb"],
-  ["src/marketing/manual-data.ts", "cdc08eb"],
-  ["src/marketing/sections/CaptionsSection.tsx", "cdc08eb"],
+  ["src/components/InsertPropertiesModal.tsx", BEFORE],
+  ["src/components/VideoStudio.tsx", BEFORE],
+  ["src/lib/render-visualizers.ts", BEFORE],
+  ["src/lib/video-studio-catalog.ts", BEFORE],
+  ["src/marketing/FAQPage.tsx", BEFORE],
+  ["src/marketing/ManualPage.tsx", BEFORE],
+  ["src/marketing/manual-data.ts", BEFORE],
+  ["src/marketing/sections/CaptionsSection.tsx", BEFORE],
 ]);
 
 let hasBeforeCommit = false;

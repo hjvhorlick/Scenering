@@ -5,7 +5,27 @@ import {
   buildVerificationEmail,
   type EmailTemplateKind,
 } from "../src/lib/email-templates.ts";
+import { isProductionRuntime } from "../src/runtime-mode.ts";
 import { automaticReplyTo } from "./inbox-settings.ts";
+
+export class EmailConfigurationError extends Error {
+  readonly code = "EMAIL_DELIVERY_UNAVAILABLE" as const;
+  readonly status = 503 as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "EmailConfigurationError";
+  }
+}
+
+export class EmailDeliveryError extends Error {
+  readonly code = "EMAIL_DELIVERY_FAILED" as const;
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "EmailDeliveryError";
+    this.status = status;
+  }
+}
 
 export interface EmailOutboundAttachment {
   filename: string;
@@ -102,6 +122,7 @@ class ResendEmailProvider implements EmailProvider {
     const tags = resendTags(message.tags);
     const response = await fetch(RESEND_API_URL, {
       method: "POST",
+      signal: AbortSignal.timeout(12_000),
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",
@@ -130,7 +151,7 @@ class ResendEmailProvider implements EmailProvider {
 
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 500);
-      throw new Error(`Resend email request failed (${response.status})${detail ? `: ${detail}` : ""}`);
+      throw new EmailDeliveryError(response.status, `Resend email request failed (${response.status})${detail ? `: ${detail}` : ""}`);
     }
 
     // Resend answers { id: "email_..." } for an accepted message. A missing
@@ -147,15 +168,32 @@ class ResendEmailProvider implements EmailProvider {
   }
 }
 
-function provider(): EmailProvider {
-  const configured = String(env().EMAIL_PROVIDER || "console").trim().toLowerCase();
-  if (configured === "console") return new ConsoleEmailProvider();
+export function emailProviderConfigurationProblem(e: Record<string, unknown> = env()): string | null {
+  const configured = String(e.EMAIL_PROVIDER || (isProductionRuntime(e) ? "" : "console")).trim().toLowerCase();
+  if (isProductionRuntime(e)) {
+    if (configured !== "resend" || !String(e.RESEND_API_KEY || "").trim()) {
+      return "EMAIL_PROVIDER=resend and RESEND_API_KEY are required in production for account verification and recovery";
+    }
+    return null;
+  }
+  if (configured === "console") return null;
   if (configured === "resend") {
-    const apiKey = String(env().RESEND_API_KEY || "").trim();
-    if (!apiKey) throw new Error("RESEND_API_KEY is required when EMAIL_PROVIDER=resend");
+    return String(e.RESEND_API_KEY || "").trim() ? null : "RESEND_API_KEY is required when EMAIL_PROVIDER=resend";
+  }
+  return `Unsupported EMAIL_PROVIDER: ${configured}`;
+}
+
+function provider(): EmailProvider {
+  const e = env();
+  const configured = String(e.EMAIL_PROVIDER || (isProductionRuntime(e) ? "" : "console")).trim().toLowerCase();
+  if (configured === "console" && !isProductionRuntime(e)) return new ConsoleEmailProvider();
+  if (configured === "resend") {
+    const apiKey = String(e.RESEND_API_KEY || "").trim();
+    if (!apiKey) throw new EmailConfigurationError("RESEND_API_KEY is required when EMAIL_PROVIDER=resend");
     return new ResendEmailProvider(apiKey);
   }
-  throw new Error(`Unsupported EMAIL_PROVIDER: ${configured}`);
+  const problem = emailProviderConfigurationProblem(e) || `Unsupported EMAIL_PROVIDER: ${configured}`;
+  throw new EmailConfigurationError(problem);
 }
 
 /**

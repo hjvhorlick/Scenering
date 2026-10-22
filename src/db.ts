@@ -19,6 +19,95 @@ async function ensureBillingCustomersTable(): Promise<void> {
   ).run();
 }
 
+/**
+ * Match migration 0007 when a Worker deployment lands before manual
+ * `wrangler d1 migrations apply --remote`. Without these four columns on
+ * `sessions`, sign-in and active-session queries fail with D1 SQLite errors.
+ */
+const SESSION_DEVICE_COLUMNS = ["device_id", "device_label", "platform", "last_seen_at"] as const;
+const sessionSchemaByDb = new WeakMap<object, Promise<void>>();
+async function ensureSessionDeviceSchema(force = false): Promise<void> {
+  const d1 = env().DB as object & { prepare: (sql: string) => any };
+  if (!d1 || typeof d1 !== "object") return;
+  if (force) sessionSchemaByDb.delete(d1);
+  let ready = sessionSchemaByDb.get(d1);
+  if (!ready) {
+    ready = (async () => {
+      const info = await d1.prepare("PRAGMA table_info(sessions)").all();
+      const present = new Set((info.results || []).map((row: any) => String(row.name)));
+      for (const column of SESSION_DEVICE_COLUMNS) {
+        if (present.has(column)) continue;
+        try {
+          await d1.prepare(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`).run();
+        } catch (err: any) {
+          if (!/duplicate column name/i.test(String(err?.message || err))) throw err;
+        }
+      }
+      await d1.prepare("CREATE INDEX IF NOT EXISTS idx_sessions_user_device ON sessions(user_id, device_id)").run();
+    })().catch((err) => {
+      sessionSchemaByDb.delete(d1);
+      throw err;
+    });
+    sessionSchemaByDb.set(d1, ready);
+  }
+  await ready;
+}
+
+async function withSessionDeviceSchema<T>(operation: () => Promise<T>): Promise<T> {
+  await ensureSessionDeviceSchema();
+  try {
+    return await operation();
+  } catch (err: any) {
+    if (/(?:no such column|has no column named)[^a-z0-9_]*(?:device_id|device_label|platform|last_seen_at)/i.test(String(err?.message || err))) {
+      await ensureSessionDeviceSchema(true);
+      return operation();
+    }
+    throw err;
+  }
+}
+
+const workspaceSchemaByDb = new WeakMap<object, Promise<void>>();
+async function ensureWorkspaceDocumentsTable(force = false): Promise<void> {
+  const d1 = env().DB as object & { prepare: (sql: string) => any };
+  if (!d1 || typeof d1 !== "object") return;
+  if (force) workspaceSchemaByDb.delete(d1);
+  let ready = workspaceSchemaByDb.get(d1);
+  if (!ready) {
+    ready = (async () => {
+      await d1.prepare(`CREATE TABLE IF NOT EXISTS workspace_documents (
+        user_id TEXT NOT NULL,
+        doc_key TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        revision INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        device_id TEXT,
+        PRIMARY KEY (user_id, doc_key),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`).run();
+      await d1.prepare("CREATE INDEX IF NOT EXISTS idx_workspace_documents_user ON workspace_documents(user_id)").run();
+    })().catch((err) => {
+      workspaceSchemaByDb.delete(d1);
+      throw err;
+    });
+    workspaceSchemaByDb.set(d1, ready);
+  }
+  await ready;
+}
+
+async function withWorkspaceDocumentsTable<T>(operation: () => Promise<T>): Promise<T> {
+  await ensureWorkspaceDocumentsTable();
+  try {
+    return await operation();
+  } catch (err: any) {
+    if (/no such table:\s*workspace_documents/i.test(String(err?.message || err))) {
+      await ensureWorkspaceDocumentsTable(true);
+      return operation();
+    }
+    throw err;
+  }
+}
+
 export type UserRole = "user" | "admin";
 
 export interface User {
@@ -515,16 +604,18 @@ export const db = {
     expiresAt: string,
     device: { id?: string | null; label?: string | null; platform?: string | null } = {},
   ): Promise<Session> {
-    const createdAt = nowIso();
-    const row: Session = {
-      id: newId("sess"), userId, token: tokenHash, expiresAt, createdAt,
-      deviceId: device.id ?? null, deviceLabel: device.label ?? null,
-      platform: device.platform ?? null, lastSeenAt: createdAt,
-    };
-    await env().DB.prepare(
-      "INSERT INTO sessions (id, user_id, token, expires_at, created_at, device_id, device_label, platform, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(row.id, row.userId, row.token, row.expiresAt, row.createdAt, row.deviceId, row.deviceLabel, row.platform, row.lastSeenAt).run();
-    return row;
+    return withSessionDeviceSchema(async () => {
+      const createdAt = nowIso();
+      const row: Session = {
+        id: newId("sess"), userId, token: tokenHash, expiresAt, createdAt,
+        deviceId: device.id ?? null, deviceLabel: device.label ?? null,
+        platform: device.platform ?? null, lastSeenAt: createdAt,
+      };
+      await env().DB.prepare(
+        "INSERT INTO sessions (id, user_id, token, expires_at, created_at, device_id, device_label, platform, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(row.id, row.userId, row.token, row.expiresAt, row.createdAt, row.deviceId, row.deviceLabel, row.platform, row.lastSeenAt).run();
+      return row;
+    });
   },
   async deleteSessionByToken(tokenHash: string): Promise<void> {
     await env().DB.prepare("DELETE FROM sessions WHERE token = ?").bind(tokenHash).run();
@@ -538,35 +629,45 @@ export const db = {
   /** Live sessions for an account, most recently used first. Drives the
    *  per-plan device cap and the "where am I signed in" panel. */
   async listActiveSessionsForUser(userId: string): Promise<Session[]> {
-    const result = await env().DB.prepare(
-      "SELECT * FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY COALESCE(last_seen_at, created_at) DESC"
-    ).bind(userId, nowSql()).all();
-    return (result.results || []).map(rowToSession);
+    return withSessionDeviceSchema(async () => {
+      const result = await env().DB.prepare(
+        "SELECT * FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY COALESCE(last_seen_at, created_at) DESC"
+      ).bind(userId, nowSql()).all();
+      return (result.results || []).map(rowToSession);
+    });
   },
   /** Record that a session was used. Only called when the stored value is
    *  stale, so a busy studio does not write a row per request. */
   async touchSession(sessionId: string): Promise<void> {
-    await env().DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
+    await withSessionDeviceSchema(async () => {
+      await env().DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
+    });
   },
   async deleteSessionById(sessionId: string): Promise<void> {
     await env().DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sessionId).run();
   },
   async deleteSessionsForDevice(userId: string, deviceId: string): Promise<void> {
-    await env().DB.prepare("DELETE FROM sessions WHERE user_id = ? AND device_id = ?").bind(userId, deviceId).run();
+    await withSessionDeviceSchema(async () => {
+      await env().DB.prepare("DELETE FROM sessions WHERE user_id = ? AND device_id = ?").bind(userId, deviceId).run();
+    });
   },
 
   // --- workspace (projects, scenes and their browser-side documents) ---
   async listWorkspaceDocuments(userId: string): Promise<WorkspaceDocument[]> {
-    const result = await env().DB.prepare(
-      "SELECT * FROM workspace_documents WHERE user_id = ? ORDER BY updated_at ASC"
-    ).bind(userId).all();
-    return (result.results || []).map(rowToWorkspaceDocument);
+    return withWorkspaceDocumentsTable(async () => {
+      const result = await env().DB.prepare(
+        "SELECT * FROM workspace_documents WHERE user_id = ? ORDER BY updated_at ASC"
+      ).bind(userId).all();
+      return (result.results || []).map(rowToWorkspaceDocument);
+    });
   },
   async getWorkspaceDocument(userId: string, key: string): Promise<WorkspaceDocument | null> {
-    const row = await env().DB.prepare(
-      "SELECT * FROM workspace_documents WHERE user_id = ? AND doc_key = ?"
-    ).bind(userId, key).first();
-    return row ? rowToWorkspaceDocument(row) : null;
+    return withWorkspaceDocumentsTable(async () => {
+      const row = await env().DB.prepare(
+        "SELECT * FROM workspace_documents WHERE user_id = ? AND doc_key = ?"
+      ).bind(userId, key).first();
+      return row ? rowToWorkspaceDocument(row) : null;
+    });
   },
   /** Unconditional write (used by the merge path once the client has already
    *  reconciled with the current revision). */
@@ -576,15 +677,17 @@ export const db = {
     body: string,
     options: { deleted?: boolean; deviceId?: string | null } = {},
   ): Promise<WorkspaceDocument> {
-    const updatedAt = nowIso();
-    await env().DB.prepare(
-      `INSERT INTO workspace_documents (user_id, doc_key, body, revision, updated_at, deleted, device_id)
-       VALUES (?, ?, ?, 1, ?, ?, ?)
-       ON CONFLICT(user_id, doc_key) DO UPDATE SET body = excluded.body, revision = workspace_documents.revision + 1,
-         updated_at = excluded.updated_at, deleted = excluded.deleted, device_id = excluded.device_id`
-    ).bind(userId, key, body, updatedAt, options.deleted ? 1 : 0, options.deviceId ?? null).run();
-    return (await this.getWorkspaceDocument(userId, key))
-      ?? { key, body, revision: 1, updatedAt, deleted: Boolean(options.deleted) };
+    return withWorkspaceDocumentsTable(async () => {
+      const updatedAt = nowIso();
+      await env().DB.prepare(
+        `INSERT INTO workspace_documents (user_id, doc_key, body, revision, updated_at, deleted, device_id)
+         VALUES (?, ?, ?, 1, ?, ?, ?)
+         ON CONFLICT(user_id, doc_key) DO UPDATE SET body = excluded.body, revision = workspace_documents.revision + 1,
+           updated_at = excluded.updated_at, deleted = excluded.deleted, device_id = excluded.device_id`
+      ).bind(userId, key, body, updatedAt, options.deleted ? 1 : 0, options.deviceId ?? null).run();
+      return (await this.getWorkspaceDocument(userId, key))
+        ?? { key, body, revision: 1, updatedAt, deleted: Boolean(options.deleted) };
+    });
   },
   /** Compare-and-set: refuses the write unless the caller last saw `baseRevision`. */
   async putWorkspaceDocumentIfRevision(
@@ -603,7 +706,9 @@ export const db = {
     return { ok: true, document: await this.putWorkspaceDocument(userId, key, body, options) };
   },
   async deleteWorkspaceForUser(userId: string): Promise<void> {
-    await env().DB.prepare("DELETE FROM workspace_documents WHERE user_id = ?").bind(userId).run();
+    await withWorkspaceDocumentsTable(async () => {
+      await env().DB.prepare("DELETE FROM workspace_documents WHERE user_id = ?").bind(userId).run();
+    });
   },
 
   // --- verification / reset tokens ---

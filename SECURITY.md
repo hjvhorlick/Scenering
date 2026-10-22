@@ -11,7 +11,7 @@ The browser is **not a trusted security boundary**. Interface locks improve usab
 ## Controls implemented
 
 - Production is the default. `NODE_ENV` unset, empty or unexpected means a production server (`src/runtime-mode.ts`); only an explicit `development`/`test` unlocks a development shortcut. Deployments set `NODE_ENV=production` in `wrangler.jsonc`, and previews set `development`.
-- Production startup fails without a unique `SESSION_SECRET` of at least 32 characters and an explicit `PUBLIC_APP_URL`.
+- Production authentication fails closed (`503 AUTH_CONFIG_UNAVAILABLE`) without a unique `SESSION_SECRET` of at least 32 characters, and outbound verification/password-reset mail fails closed (`503 EMAIL_DELIVERY_UNAVAILABLE`) without an explicit HTTPS `PUBLIC_APP_URL`, `EMAIL_PROVIDER=resend`, and `RESEND_API_KEY`, while keeping `/api/health` and public pages reachable.
 - Session cookies are HttpOnly, SameSite=Lax, Secure in production, path-scoped to the host, and marked high priority.
 - Password reset invalidates all existing account tokens and reset/verification tokens expire.
 - Owner administration is granted only after the mailbox configured in `SCENERING_OWNER_EMAIL` completes email verification; a matching address alone cannot claim the role. A later owner-email change revokes the former owner's administrator role on their next authenticated request.

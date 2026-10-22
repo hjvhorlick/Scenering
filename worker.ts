@@ -1,5 +1,6 @@
 import { httpServerHandler } from "cloudflare:node";
 import { createApp } from "./server";
+import { redactDiagnosticError } from "./server/platform.ts";
 import { setEnv } from "./src/env";
 import type { Env } from "./src/env";
 import { audioStore } from "./src/audio-store";
@@ -31,13 +32,31 @@ export default {
     // `env()` instead of threading `env` through every function call.
     setEnv(env);
 
-    if (!nodeHandler) {
-      const app = createApp();
-      app.listen(PORT);
-      nodeHandler = httpServerHandler({ port: PORT });
-    }
+    try {
+      if (!nodeHandler) {
+        const app = createApp();
+        app.listen(PORT);
+        nodeHandler = httpServerHandler({ port: PORT });
+      }
 
-    return nodeHandler.fetch!(request as any, env, ctx);
+      return await nodeHandler.fetch!(request as any, env, ctx);
+    } catch (err) {
+      nodeHandler = null;
+      console.error(`[worker:error] ${redactDiagnosticError(err)}`);
+      return new Response(
+        JSON.stringify({
+          error: "Service temporarily unavailable. Please try again shortly.",
+          code: "WORKER_UNAVAILABLE",
+        }),
+        {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
   },
 
   // Cron Triggers (see wrangler.jsonc's `triggers.crons`):
