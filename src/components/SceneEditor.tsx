@@ -546,15 +546,14 @@ export default function SceneEditor({
   };
 
   /**
-   * A freshly chosen photo is framed automatically.
+   * A freshly chosen photo is shown whole — the original, uncut image.
    *
-   * The photo is measured first, then `autoFrame` decides: a mild shape
-   * mismatch is cropped to the frame and fills it edge to edge, while a
-   * severe one (a portrait photo in a landscape video) is shown whole over a
-   * blurred copy of itself rather than losing its subject to the crop.
-   *
-   * The reset lands first so the scene never shows the new photo through the
-   * previous one's crop while the measurement is in flight.
+   * The reset lands first (full crop, default fit, cleared pan/zoom) so the
+   * scene never shows the new photo through the previous one's crop while
+   * the measurement is in flight. Then `autoFrame` confirms the default:
+   * "Show Full" at the photo's own shape — in a 9:16 project it fits
+   * between the top and bottom edges, in 16:9 it always fits. Cropping only
+   * ever happens if the user asks for it in Crop & Fit.
    */
   const adoptImage = (url: string) => {
     const frame = frameSizeFor(aspectRatio);
@@ -566,6 +565,7 @@ export default function SceneEditor({
       image_offset_x: 0,
       image_offset_y: 0,
       image_zoom: 1.0,
+      image_fit: DEFAULT_FRAMING.fit,
       image_crop: { x: 0, y: 0, w: 1, h: 1 },
       image_rotate: 0,
       image_flip_h: false,
@@ -580,10 +580,10 @@ export default function SceneEditor({
     // proxy is unreachable, or through the proxy when the host refuses a
     // cross-origin read — measured as nothing, and `autoFrame` was skipped
     // without a word. The photo then sat in the scene at default framing:
-    // visible in the preview, but never cropped to the frame. Going through
-    // the loader means the measurement succeeds in exactly the cases the
-    // preview itself succeeds, so a photo that can be shown is always
-    // cropped to fit.
+    // visible in the preview, but its framing was never confirmed. Going
+    // through the loader means the measurement succeeds in exactly the cases
+    // the preview itself succeeds, so a photo that can be shown is always
+    // shown whole, at its original shape.
     void loadSceneImage(url, 0, { fallback: "none" }).then((res) => {
       const measured = res?.img;
       if (!measured || !measured.naturalWidth) return;
@@ -619,7 +619,8 @@ export default function SceneEditor({
    * given the stable `custom-image:<id>` address rather than a `blob:` URL,
    * which would stop resolving on the next reload. From there it goes
    * through the very same `adoptImage` as a searched photo, so an uploaded
-   * picture is cropped to fill the frame exactly like every other one.
+   * picture is shown exactly like every other one: whole, uncut, at its own
+   * shape.
    */
   const handleUploadImage = (file: File | undefined) => {
     if (!file) return;
@@ -725,7 +726,8 @@ export default function SceneEditor({
       image_offset_x: 0,
       image_offset_y: 0,
       image_zoom: 1.0,
-      image_fit: "cover",
+      // Back to the import default: the original, uncut photo shown whole.
+      image_fit: DEFAULT_FRAMING.fit,
       image_crop: { x: 0, y: 0, w: 1, h: 1 },
       image_rotate: 0,
       image_flip_h: false,
@@ -1159,7 +1161,7 @@ export default function SceneEditor({
             {/* The creator's own files, at the end of the row: everything to
                 the left finds a picture for you, these two let you bring
                 your own. An uploaded photo goes through the same adoptImage
-                as a searched one, so it is cropped to fill the frame too. */}
+                as a searched one, so it is shown whole, uncut, too. */}
             <input
               ref={imageUploadRef}
               type="file"
@@ -1493,7 +1495,7 @@ export default function SceneEditor({
               <div className="flex-1 space-y-3">
                 {/* ---- Fit mode: the fix for squashed / cut-off images ---- */}
                 <div className="space-y-1.5">
-                  <span className="text-gray-400 text-[11px]">How the image fills the frame:</span>
+                  <span className="text-gray-400 text-[11px]">How the image fits the frame:</span>
                   <div className="grid grid-cols-3 gap-1.5">
                     {FIT_MODES.map((m) => (
                       <button

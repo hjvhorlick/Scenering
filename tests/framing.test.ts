@@ -158,12 +158,12 @@ for (const ratio of RATIOS) {
   }
 }
 
-// A chosen photo always fills the frame now — see autoFrame below.
-h.eq(suggestFit(stubImage(1600, 900), 1920, 1080), "cover", "matching shapes use cover");
+// A chosen photo is always shown WHOLE now — see autoFrame below.
+h.eq(suggestFit(stubImage(1600, 900), 1920, 1080), "contain", "a matching photo is shown whole");
 h.eq(
   suggestFit(stubImage(600, 1600), 1920, 1080),
-  "cover",
-  "a severe mismatch still fills the frame — bars are the user's choice, not ours"
+  "contain",
+  "a severe mismatch is shown whole too — cropping is the user's choice, never ours"
 );
 h.ok(
   cropLosesALot(stubImage(600, 1600) as never, 1920, 1080),
@@ -182,14 +182,17 @@ h.ok(
 
 h.eq(resolveFraming({}).backdrop, "transparent", "a new scene defaults to clear bars");
 h.eq(resolveFraming(null).backdrop, "transparent", "an empty scene defaults to clear bars");
+// THE DEFAULT: no stored choice means the whole, uncut photo — "Show Full".
+h.eq(resolveFraming({}).fit, "contain", "a new scene shows the whole photo by default");
+h.eq(resolveFraming(null).fit, "contain", "an empty scene shows the whole photo by default");
 h.eq(
   resolveFraming({ image_backdrop: "blur" }).backdrop,
   "blur",
   "an explicitly stored style still wins"
 );
-// Regression: a landscape photo dropped into a 9:16 project auto-suggests
-// blur_fill but stored NO backdrop — the default must then be the blurred
-// fill, not transparent, or the video renders black bars top and bottom.
+// Regression: a scene stored as blur_fill (which PROMISES blurred bars) but
+// with NO backdrop — the default must then be the blurred fill, not
+// transparent, or the video renders black bars top and bottom.
 h.eq(
   resolveFraming({ image_fit: "blur_fill" }).backdrop,
   "blur",
@@ -300,49 +303,69 @@ for (const [iw, ih] of [[1920, 1080], [1080, 1920], [1000, 1000], [4000, 900], [
 
 // ------------------------------------------------------------------ autoFrame
 {
+  // THE RULE: a chosen photo lands exactly as imported — original shape,
+  // full resolution, every pixel — shown whole inside the frame.
   const mild = autoFrame(stubImage(1440, 1080) as never, 1920, 1080);
-  h.eq(mild.image_fit, "cover", "a mild mismatch is cropped to fill the frame");
-  h.ok(mild.image_crop.w < 1 || mild.image_crop.h < 1, "a mild mismatch gets a real crop");
-  h.eq(mild.image_backdrop, undefined, "a cropped photo needs no backdrop");
+  h.eq(mild.image_fit, "contain", "a mild mismatch is shown whole");
+  h.eq(mild.image_crop.w, 1, "a mild mismatch is not pre-cut (w)");
+  h.eq(mild.image_crop.h, 1, "a mild mismatch is not pre-cut (h)");
+  h.eq(mild.image_backdrop, undefined, "auto framing chooses no backdrop");
 
-  // The rule: a chosen photo ALWAYS fills the frame, top to bottom and edge
-  // to edge. A portrait photo in a landscape frame used to come back as
-  // blur_fill, which in a vertical project meant nothing ever filled a scene.
+  // Whatever the shapes, NOTHING is trimmed on import: the source rectangle
+  // covers the photo edge to edge and top to bottom.
   const severe = autoFrame(stubImage(1080, 1920) as never, 1920, 1080);
-  h.eq(severe.image_fit, "cover", "a portrait photo in a landscape frame is cropped to fill");
-  h.eq(severe.image_backdrop, undefined, "a filled frame has no bars to colour in");
-  h.ok(severe.image_crop.h < 1, "the crop trims the photo's height to the frame");
-  h.eq(severe.image_crop.w, 1, "and keeps its full width");
-  h.near(severe.image_crop.y, (1 - severe.image_crop.h) / 2, 0.001, "the crop is centred, not stuck to the top");
-  h.ok(cropLosesALot(stubImage(1080, 1920) as never, 1920, 1080), "the editor can still tell this crop is expensive");
+  h.eq(severe.image_fit, "contain", "a portrait photo in a landscape frame is shown whole");
+  h.eq(severe.image_crop.w, 1, "the photo keeps its full width");
+  h.eq(severe.image_crop.h, 1, "the photo keeps its full height");
+  h.eq(severe.image_crop.x, 0, "nothing is trimmed from the left");
+  h.eq(severe.image_crop.y, 0, "nothing is trimmed from the top");
+  h.ok(cropLosesALot(stubImage(1080, 1920) as never, 1920, 1080), "the editor can still flag this pairing as expensive to crop");
 
   const exact = autoFrame(stubImage(1920, 1080) as never, 1920, 1080);
-  h.eq(exact.image_fit, "cover", "a perfectly matching photo just fills the frame");
+  h.eq(exact.image_fit, "contain", "a perfectly matching photo is shown whole too");
 
-  // The old threshold no longer changes the framing — only the warning.
+  // The threshold never changes the framing — only the warning.
   const frameRatio = 16 / 9;
   const justUnder = AUTO_CROP_MAX_MISMATCH - 0.05;
   const justOver = AUTO_CROP_MAX_MISMATCH + 0.05;
   const under = stubImage(1000, Math.round((1000 / frameRatio) * justUnder));
   const over = stubImage(1000, Math.round((1000 / frameRatio) * justOver));
-  h.eq(autoFrame(under as never, 1920, 1080).image_fit, "cover", "just inside the limit is cropped");
-  h.eq(autoFrame(over as never, 1920, 1080).image_fit, "cover", "just past the limit is cropped too");
+  h.eq(autoFrame(under as never, 1920, 1080).image_fit, "contain", "just inside the limit is shown whole");
+  h.eq(autoFrame(over as never, 1920, 1080).image_fit, "contain", "just past the limit is shown whole too");
   h.ok(!cropLosesALot(under as never, 1920, 1080), "just inside the limit is not flagged");
   h.ok(cropLosesALot(over as never, 1920, 1080), "just past the limit is flagged as expensive");
 
-  // The common pairings a crop must survive, and the one it must not.
-  // 4:3 in 9:16 is a mismatch of ~2.37 — the worst pairing a centred crop
-  // still survives, and deliberately just inside the limit.
-  h.eq(autoFrame(stubImage(1440, 1080) as never, 1080, 1920).image_fit, "cover", "4:3 photo in a vertical frame is still cropped");
-  h.ok(aspectMismatch(stubImage(1440, 1080) as never, 1080, 1920) < AUTO_CROP_MAX_MISMATCH, "4:3 in 9:16 sits just inside the crop limit");
-  // The pairing this whole change is about: a 16:9 photo in a vertical frame.
+  // The pairing this rule is about: a 16:9 photo in a 9:16 frame. It must
+  // arrive UNCUT — full width and full height — and fit between the top and
+  // bottom edges of the vertical frame.
   const wideInTall = autoFrame(stubImage(1920, 1080) as never, 1080, 1920);
-  h.eq(wideInTall.image_fit, "cover", "a 16:9 photo in a 9:16 frame fills it instead of floating in bars");
-  h.ok(wideInTall.image_crop.w < 1, "the sides are trimmed to reach the top and bottom");
-  h.eq(wideInTall.image_crop.h, 1, "the full height of the photo is used");
-  h.eq(autoFrame(stubImage(1080, 1080) as never, 1920, 1080).image_fit, "cover", "a square photo in a wide frame is cropped");
-  h.eq(autoFrame(stubImage(1920, 1080) as never, 1080, 1080).image_fit, "cover", "a wide photo in a square frame is cropped");
-  h.eq(autoFrame(stubImage(0, 0) as never, 1920, 1080).image_fit, "cover", "an unmeasured photo keeps the default fit");
+  h.eq(wideInTall.image_fit, "contain", "a 16:9 photo in a 9:16 frame is shown whole");
+  h.eq(wideInTall.image_crop.w, 1, "the sides are kept — nothing is trimmed");
+  h.eq(wideInTall.image_crop.h, 1, "the full height of the photo is kept");
+  h.eq(autoFrame(stubImage(1440, 1080) as never, 1080, 1920).image_fit, "contain", "4:3 photo in a vertical frame is shown whole");
+  h.eq(autoFrame(stubImage(1080, 1080) as never, 1920, 1080).image_fit, "contain", "a square photo in a wide frame is shown whole");
+  h.eq(autoFrame(stubImage(1920, 1080) as never, 1080, 1080).image_fit, "contain", "a wide photo in a square frame is shown whole");
+  h.eq(autoFrame(stubImage(0, 0) as never, 1920, 1080).image_fit, "contain", "an unmeasured photo gets the default fit");
+}
+
+// Drawing with the DEFAULT framing (nothing stored) must sample the photo's
+// whole source rectangle and fit it inside the frame — in 9:16 between the
+// top and bottom edges, in 16:9 it always fits. This is the import default:
+// the scene section shows the original, uncut image.
+for (const [iw, ih] of [[1920, 1080], [1600, 900], [1080, 1080]]) {
+  for (const ratio of RATIOS) {
+    const frame = frameSizeFor(ratio);
+    const f = resolveFraming({});
+    const placed = placeImage(stubImage(iw, ih), frame.w, frame.h, f, { mode: "contain" });
+    const label = `${iw}x${ih} in ${ratio} by default`;
+    h.eq(placed.sw, iw, `${label}: the full source width is sampled — nothing pre-cut`);
+    h.eq(placed.sh, ih, `${label}: the full source height is sampled — nothing pre-cut`);
+    h.ok(
+      placed.dw <= frame.w + 0.5 && placed.dh <= frame.h + 0.5,
+      `${label}: the photo fits inside the frame, never past its edges`
+    );
+    h.near(placed.dw / placed.dh, iw / ih, 0.01, `${label}: the original shape is kept`);
+  }
 }
 
 // Whatever autoFrame decides, drawing with it must still preserve the photo's
@@ -369,17 +392,19 @@ for (const [iw, ih] of [[1920, 1080], [1080, 1920], [1000, 1000], [4000, 900], [
 
 // autoFrame and suggestFit must never disagree: both are consulted by
 // different screens and a split decision would look random. Every shape,
-// however extreme, now fills the frame.
+// however extreme, arrives whole and uncropped.
 for (const [iw, ih] of [[1080, 1920], [900, 4000], [4000, 900], [1920, 1080], [1080, 1080]]) {
   for (const ratio of RATIOS) {
     const frame = frameSizeFor(ratio);
     const framing = autoFrame(stubImage(iw, ih) as never, frame.w, frame.h);
     const suggested = suggestFit(stubImage(iw, ih) as never, frame.w, frame.h);
     h.eq(framing.image_fit, suggested, `${iw}x${ih} in ${ratio}: auto framing agrees with the fit suggestion`);
-    h.eq(framing.image_fit, "cover", `${iw}x${ih} in ${ratio}: the photo fills the frame`);
+    h.eq(framing.image_fit, "contain", `${iw}x${ih} in ${ratio}: the photo is shown whole`);
     const crop = framing.image_crop;
-    const cropped = (iw * crop.w) / (ih * crop.h);
-    h.near(cropped, frame.w / frame.h, 0.01, `${iw}x${ih} in ${ratio}: the crop is exactly the frame shape`);
+    h.eq(crop.x, 0, `${iw}x${ih} in ${ratio}: nothing trimmed from the left`);
+    h.eq(crop.y, 0, `${iw}x${ih} in ${ratio}: nothing trimmed from the top`);
+    h.eq(crop.w, 1, `${iw}x${ih} in ${ratio}: full width kept`);
+    h.eq(crop.h, 1, `${iw}x${ih} in ${ratio}: full height kept`);
   }
 }
 

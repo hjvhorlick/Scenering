@@ -2,6 +2,14 @@
 
 ## Unreleased — true-resolution rendering, source photo selection, voice clarity & verified exports
 
+- **Imported photos are never pre-cut.** A chosen photo now lands in the
+  scene exactly as imported — original resolution, original shape, every
+  pixel — and is shown whole by default (`contain`, "Show Full"): in a
+  `9:16` project it fits between the top and bottom edges, in `16:9` it
+  always fits. Auto-framing no longer bakes a frame-shaped crop into the
+  scene, the scene section previews show the whole image, and Reset framing
+  returns a scene to that uncut default. Cropping to fill the frame now
+  happens only when picked by hand in Crop & Fit.
 - **Improved: source-image selection, rendering fidelity, encoder bitrate,
   caption sharpness, motion cadence, vocal clarity, and post-render validation.**
   - **Source-image selection (`image-candidates.ts`, `image-picker.ts`,
