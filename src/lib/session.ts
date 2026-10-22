@@ -13,7 +13,13 @@ export interface AccountSession {
 }
 
 const CHANGE_EVENT = "scenering-session-changed";
-const SESSION_TOKEN_KEY = "scenering_session_token";
+/**
+ * This exists only for an explicitly enabled embedded development preview.
+ * Customer-facing sessions are HttpOnly cookies; never retain their bearer
+ * value in browser-readable persistent storage.
+ */
+const PREVIEW_SESSION_TOKEN_KEY = "scenering_embedded_preview_session_token";
+const LEGACY_SESSION_TOKEN_KEY = "scenering_session_token";
 let current: AccountSession | null = null;
 let checked = false;
 let pending: Promise<AccountSession | null> | null = null;
@@ -21,7 +27,7 @@ let pending: Promise<AccountSession | null> | null = null;
 function readStoredSessionToken(): string {
   if (typeof window === "undefined") return "";
   try {
-    return window.localStorage.getItem(SESSION_TOKEN_KEY) || "";
+    return window.sessionStorage.getItem(PREVIEW_SESSION_TOKEN_KEY) || "";
   } catch {
     return "";
   }
@@ -30,18 +36,24 @@ function readStoredSessionToken(): string {
 function writeStoredSessionToken(token: string | null) {
   if (typeof window === "undefined") return;
   try {
-    if (token) window.localStorage.setItem(SESSION_TOKEN_KEY, token);
-    else window.localStorage.removeItem(SESSION_TOKEN_KEY);
+    if (token) window.sessionStorage.setItem(PREVIEW_SESSION_TOKEN_KEY, token);
+    else window.sessionStorage.removeItem(PREVIEW_SESSION_TOKEN_KEY);
   } catch {
     // Storage unavailable in private/restricted contexts.
   }
 }
 
-/* Embedded/sandbox previews (such as cross-origin HTTPS iframes) often block
-   Set-Cookie even with SameSite adjustments. Mirroring the active session
-   token into X-Scenering-Session on same-origin /api/* and /functions/v1/*
-   requests ensures sign-in, account switching, and /admin navigation work
-   reliably in every browser and preview environment. */
+// Remove bearer tokens written by versions that mirrored every production
+// session into localStorage. The server no longer accepts that header there.
+if (typeof window !== "undefined") {
+  try { window.localStorage.removeItem(LEGACY_SESSION_TOKEN_KEY); } catch { /* Storage can be disabled. */ }
+}
+
+/* Embedded/sandbox previews (such as cross-origin HTTPS iframes) can block
+   Set-Cookie even with SameSite adjustments. The server only returns a bridge
+   token when DEV_EMBEDDED_PREVIEW=1 on a non-production environment; then and
+   only then this module mirrors it into X-Scenering-Session for same-origin
+   API calls. */
 if (typeof window !== "undefined" && typeof window.fetch === "function" && !(window as any).__sceneringFetchPatched) {
   (window as any).__sceneringFetchPatched = true;
   const nativeFetch = window.fetch.bind(window);

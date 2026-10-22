@@ -11,7 +11,7 @@
  *   • A secret key pulled into the synced set would be copied to the server
  *     and back down to every device. API keys belong to the person's browser
  *     (they are theirs, and Speechify/stock accounts are theirs too); the
- *     session token identifies the browser and must never be mirrored.
+ *     session cookie identifies the browser and must never be mirrored.
  *
  * `tests/workspace-sync.test.ts` reads every `scenering_*` literal in `src/`
  * and fails if a key is neither synced nor explicitly local-only, so a key
@@ -36,7 +36,8 @@ export const SYNCED_KEY_PREFIXES = [
 
 /** Deliberately per-device, or a credential. Never leaves this browser. */
 export const LOCAL_ONLY_KEY_PREFIXES = [
-  "scenering_session",            // the session token, mirrored in session.ts
+  "scenering_session",            // legacy session-token key; never synced
+  "scenering_embedded_preview_session_token", // dev iframe bridge only
   "scenering_device_id",          // this browser's identity
   "scenering_device_label",       // …and its name
   "scenering_customer_api_keys",  // the member's own Speechify/stock keys

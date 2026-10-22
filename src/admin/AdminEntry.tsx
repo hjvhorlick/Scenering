@@ -57,7 +57,7 @@ export default function AdminEntry() {
           <span className="text-[11px] uppercase tracking-[.18em] text-amber-300 font-bold">Access restricted</span>
           <h1 className="text-2xl font-bold mt-2">Owner administrator access required</h1>
           <p className="text-sm text-gray-400 mt-3">
-            This area of Scenering is limited to the owner administrator. Your current session ({account?.user.email}) does not carry that role.
+            This area is limited to the verified owner-administrator address configured for this deployment. Your current session ({account?.user.email}) does not carry that role. If this should be your account, update <code>SCENERING_OWNER_EMAIL</code> in the Worker settings, then verify that mailbox and sign in again.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <button

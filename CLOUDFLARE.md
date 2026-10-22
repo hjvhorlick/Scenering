@@ -299,8 +299,11 @@ Then:
    origin checks.
 3. **`SESSION_SECRET`** — ≥ 32 chars; production refuses to boot without it
    (the setup script generates one).
-4. **`SCENERING_OWNER_EMAIL`** — the one address that receives the
-   owner-admin role and SceneForge access at sign-in.
+4. **`SCENERING_OWNER_EMAIL`** — the one mailbox that may receive the
+   owner-admin role and SceneForge access. Register or reset the account with
+   this exact address, complete the email-verification link, then sign in at
+   `/admin`. Matching the configured email alone never grants access. If this
+   setting changes, the previous owner loses admin access on their next request.
 5. **FastSpring** — the full connection runbook is **[FASTSPRING.md](FASTSPRING.md)**;
    the shape of it:
    1. In FastSpring: create a popup storefront (`popup-scenering`) and set
