@@ -108,7 +108,8 @@ if [ -n "$OWNER_EMAIL" ]; then
   echo "$OWNER_EMAIL" | npx wrangler secret put SCENERING_OWNER_EMAIL
   ok "SCENERING_OWNER_EMAIL set"
 else
-  echo "⚠️  Skipped — the owner-admin role cannot be granted until this is set."
+  echo "SCENERING_OWNER_EMAIL is required: production will not start without a verified owner-administrator mailbox."
+  exit 1
 fi
 # wrangler.jsonc selects the Resend adapter, so production email cannot be sent
 # until this server-side key exists. Accept an exported value for automation;
@@ -121,7 +122,8 @@ if [ -n "$RESEND_API_KEY" ]; then
   printf '%s' "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY
   ok "RESEND_API_KEY set"
 else
-  echo "⚠️  Skipped — EMAIL_PROVIDER=resend cannot send email until this is set."
+  echo "RESEND_API_KEY is required: production uses verified-email sign-in and password recovery."
+  exit 1
 fi
 
 say "🔐 Step 6/6: optional secrets (Enter to skip each)"

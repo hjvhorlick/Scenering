@@ -24,7 +24,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || { echo "repo not found at $ROOT"; exit 1; }
 FAILED=0
 BASE="http://127.0.0.1:8787"
-OWNER_EMAIL="hjvhorlick@gmail.com"
+OWNER_EMAIL="${SCENERING_LOCAL_OWNER_EMAIL:-owner@example.test}"
+# A local sandbox credential only. Never place a real owner password in this
+# repository; callers who need a stable local account may supply it through an
+# environment variable.
+OWNER_PASSWORD="${SCENERING_LOCAL_OWNER_PASSWORD:-$(openssl rand -base64 24 | tr -d '\n')}"
 
 bold() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
 note() { printf '   %s\n' "$1"; }
@@ -65,7 +69,7 @@ DEV_AUTO_OWNER=1
 DEV_EMBEDDED_PREVIEW=1
 DEV_SANDBOX_AUTO_PROVISION=1
 TRUST_PROXY=1
-SCENERING_OWNER_EMAIL=hjvhorlick@gmail.com
+SCENERING_OWNER_EMAIL=owner@example.test
 EMAIL_PROVIDER=console
 EOF
 fi
@@ -77,7 +81,7 @@ if server_up; then
   if [ "$(code "$BASE/api/auth/session")" = "401" ]; then
     note "owner account missing in this database — registering it"
     curl -s -X POST -H "Content-Type: application/json" \
-      --data "{\"email\":\"$OWNER_EMAIL\",\"displayName\":\"Henry Horlick\",\"password\":\"Martha7304\"}" \
+      --data "{\"email\":\"$OWNER_EMAIL\",\"displayName\":\"Local Owner\",\"password\":\"$OWNER_PASSWORD\"}" \
       "$BASE/api/auth/register" > /tmp/sc-register.json
     TOKEN="$(grep -o 'token=[A-Za-z0-9_-]*' /tmp/sc-register.json | head -1 | cut -d= -f2)"
     if [ -n "$TOKEN" ]; then
@@ -155,7 +159,7 @@ note "   • Voice crackle — confirm by playing a preview; the fix is the 12/1
 note "   • Render speed — the stopwatch table now prints the audio-pass share; compare on a long render."
 note "   • Preview visual pass: section-Next gating, API-keys dialog from the corner menu."
 note "RULES: nothing is committed or pushed until the owner says so. Voice TTS is Speechify."
-note "   Never substitute another vendor. Production owner is hjvhorlick@gmail.com (sceneforge)."
+note "   Never substitute another vendor. Configure the production owner through SCENERING_OWNER_EMAIL; never place credentials in this script."
 note "   X/TikTok marks must stay black/adaptive. Social strips sit right of the logo at wordmark height."
 
 bold "Summary"

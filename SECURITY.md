@@ -14,6 +14,8 @@ The browser is **not a trusted security boundary**. Interface locks improve usab
 - Production startup fails without a unique `SESSION_SECRET` of at least 32 characters and an explicit `PUBLIC_APP_URL`.
 - Session cookies are HttpOnly, SameSite=Lax, Secure in production, path-scoped to the host, and marked high priority.
 - Password reset invalidates all existing account tokens and reset/verification tokens expire.
+- Owner administration is granted only after the mailbox configured in `SCENERING_OWNER_EMAIL` completes email verification; a matching address alone cannot claim the role. A later owner-email change revokes the former owner's administrator role on their next authenticated request.
+- Production sessions are HttpOnly cookies. The optional bearer-token bridge exists only for an explicitly enabled, non-production embedded preview and is held in session storage rather than persistent local storage.
 - Authentication, contact, checkout, media proxy, provider verification, uploads, and TTS endpoints are rate limited.
 - Browser state-changing requests are rejected when their Origin is not the configured application origin.
 - FastSpring `X-FS-Signature` headers are compared in constant time against the untouched request body (base64 HMAC-SHA256 of `rawBody`); event IDs are idempotent and unknown product paths grant no access.
@@ -64,7 +66,7 @@ Both are resolved only by the server-side export-job design above.
 - Use a transactional email provider with SPF, DKIM, and DMARC. Do not use the console adapter in production.
 - Put the application behind a managed WAF/CDN with request-size limits, bot controls, TLS, DDoS protection, and alerting.
 - Encrypt databases and backups, restrict administrator access with MFA, and retain auditable billing/security events without retaining unnecessary webhook payload data.
-- Run dependency review, secret scanning, SAST, dynamic testing, backup-restore tests, and an independent penetration test before launch and after major architecture changes. The current production dependency audit reports zero vulnerabilities. npm still reports a high-severity glob-pattern denial-of-service advisory in the Tailwind 3 development-only build chain; do not expose build tooling in production, and migrate to Tailwind 4 after visual-regression testing rather than applying an unreviewed breaking upgrade.
+- Run dependency review, secret scanning, SAST, dynamic testing, backup-restore tests, and an independent penetration test before launch and after major architecture changes. The current production dependency audit reports zero vulnerabilities. npm still reports seven advisories (five high, two moderate) in Tailwind 3's development-only build chain, including pattern/selector parsing denial-of-service paths; do not expose build tooling in production, and migrate to Tailwind 4 after visual-regression testing rather than applying an unreviewed breaking upgrade.
 - Maintain an incident-response contact, revocation process, recovery runbook, and security-update policy.
 
 ## Reporting a vulnerability

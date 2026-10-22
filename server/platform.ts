@@ -113,6 +113,16 @@ export function assertSecurePlatformConfiguration() {
   const publicAppUrl = env().PUBLIC_APP_URL;
   if (isProduction() && !publicAppUrl) throw new Error("PUBLIC_APP_URL is required in production");
   if (publicAppUrl) { const url = new URL(publicAppUrl); if (isProduction() && url.protocol !== "https:") throw new Error("PUBLIC_APP_URL must use HTTPS in production"); }
+  if (isProduction()) {
+    const ownerEmail = configuredOwnerEmail();
+    if (!/^\S+@\S+\.\S+$/.test(ownerEmail) || ownerEmail.length > 254) {
+      throw new Error("SCENERING_OWNER_EMAIL must be a valid owner-administrator email in production");
+    }
+    const emailProvider = String(env().EMAIL_PROVIDER || "").trim().toLowerCase();
+    if (emailProvider !== "resend" || !String(env().RESEND_API_KEY || "").trim()) {
+      throw new Error("EMAIL_PROVIDER=resend and RESEND_API_KEY are required in production for account verification and recovery");
+    }
+  }
 }
 
 function passwordHash(password: string): string { const salt = randomBytes(16); const derived = scryptSync(password, salt, 64); return `scrypt:${salt.toString("hex")}:${derived.toString("hex")}`; }
@@ -141,27 +151,36 @@ function clientIp(req: Request): string { return String(req.headers["cf-connecti
 
 function safeUser(user: User) { return { id: user.id, email: user.email, displayName: user.displayName, emailVerified: user.isVerified, role: user.role, createdAt: user.createdAt }; }
 
-function configuredOwnerEmail() { return String(env().SCENERING_OWNER_EMAIL || "hjvhorlick@gmail.com").trim().toLowerCase(); }
-
-/** Keeps the owner's admin role and SceneForge membership in sync with
- *  SCENERING_OWNER_EMAIL every time that account signs in, registers, or is
- *  looked up by its session — rather than once at process startup (there is
- *  no such moment on Workers; a Worker is re-evaluated per isolate, not
- *  "booted" the way a long-lived Node process is). */
-async function ensureOwnerPrivileges(user: User): Promise<User> {
+/**
+ * Owner administration is deliberately configured rather than inferred from
+ * a source-code default. A public default email would let somebody register
+ * that address first on a fresh database and claim the owner role.
+ */
+function configuredOwnerEmail() { return String(env().SCENERING_OWNER_EMAIL || "").trim().toLowerCase(); }
+function isConfiguredOwner(user: Pick<User, "email">) {
   const ownerEmail = configuredOwnerEmail();
-  if (!ownerEmail || user.email !== ownerEmail) return user;
-  if (user.role !== "admin" || !user.isVerified) {
-    await db.updateUser(user.id, { role: "admin", isVerified: true });
-    user = { ...user, role: "admin", isVerified: true };
-  }
-  const membership = await db.findMembershipByUserId(user.id);
-  if (membership) {
-    if (membership.plan !== "sceneforge" || membership.status !== "active") {
-      await db.updateMembership(membership.id, { plan: "sceneforge", status: "active" });
+  return Boolean(ownerEmail && user.email === ownerEmail);
+}
+
+/**
+ * Keep the single configured owner's role in sync with the deployment.
+ * Crucially, an email address in configuration is not proof that the browser
+ * owns that mailbox: only a verified account can receive administrator access.
+ * If the configured owner changes, a previous owner loses the administrator
+ * role on their next authenticated request.
+ */
+async function ensureOwnerPrivileges(user: User): Promise<User> {
+  if (!isConfiguredOwner(user)) {
+    if (user.role === "admin") {
+      await db.updateUser(user.id, { role: "user" });
+      user = { ...user, role: "user" };
     }
-  } else {
-    await db.createMembership(user.id, "sceneforge");
+    return user;
+  }
+  if (!user.isVerified) return user;
+  if (user.role !== "admin") {
+    await db.updateUser(user.id, { role: "admin" });
+    user = { ...user, role: "admin" };
   }
   return user;
 }
@@ -191,7 +210,7 @@ async function activeComplimentaryGrant(userId: string) {
 }
 
 async function getUserPlan(user: User): Promise<PlanSlug> {
-  if (user.role === "admin") return "sceneforge";
+  if (user.role === "admin" && isConfiguredOwner(user)) return "sceneforge";
   await sweepUserSubscriptionExpiry(user.id);
   const membership = await db.findMembershipByUserId(user.id);
   const grant = await activeComplimentaryGrant(user.id);
@@ -207,7 +226,7 @@ async function effectiveMembership(user: User, plan: PlanSlug) {
   return {
     ...(stored ? { id: stored.id, user_id: stored.userId, status: stored.status } : { id: "", user_id: user.id, status: "active" }),
     plan_id: plan,
-    source: user.role === "admin" ? "owner_admin" : grant && grant.planId === plan ? "complimentary" : plan === "free" ? "free" : "verified_subscription",
+    source: user.role === "admin" && isConfiguredOwner(user) ? "owner_admin" : grant && grant.planId === plan ? "complimentary" : plan === "free" ? "free" : "verified_subscription",
     complimentary_ends_at: grant && grant.planId === plan ? grant.endsAt : null,
     complimentary_period: grant && grant.planId === plan ? grant.period : null,
   };
@@ -389,9 +408,16 @@ function sessionCookieAttributes() {
 function setSessionCookie(res: Response, token: string) { res.setHeader("Set-Cookie", `scenering_session=${encodeURIComponent(token)}; ${sessionCookieAttributes()}; Max-Age=2592000; Priority=High`); }
 function clearSessionCookie(res: Response) { res.setHeader("Set-Cookie", `scenering_session=; ${sessionCookieAttributes()}; Max-Age=0; Priority=High`); }
 
+function embeddedPreviewSessionBridgeEnabled() {
+  // A bearer token in browser-readable storage is never acceptable on the
+  // customer-facing service. This narrow development-only escape hatch keeps
+  // sandbox iframes usable when their browser blocks cookies altogether.
+  return !isProduction() && env().DEV_EMBEDDED_PREVIEW === "1";
+}
 function sessionTokenFromRequest(req: Request): string {
   const cookieToken = cookies(req).scenering_session;
   if (cookieToken) return cookieToken;
+  if (!embeddedPreviewSessionBridgeEnabled()) return "";
   const headerToken = String(req.headers["x-scenering-session"] || "").trim();
   if (headerToken && headerToken !== "signed-out") return headerToken;
   return "";
@@ -457,7 +483,10 @@ function requireUserMiddleware(req: Request, res: Response, next: NextFunction) 
 function requireAdminMiddleware(req: Request, res: Response, next: NextFunction) {
   findSession(req).then((auth) => {
     if (!auth) return res.status(401).json({ error: "Sign in required" });
-    if (auth.user.role !== "admin") return res.status(403).json({ error: "Owner administrator access required" });
+    // Role is retained as a database record for auditing, but the configured
+    // owner address is the authority. This denies a role left behind after an
+    // owner-email change even before that stale session is normalized.
+    if (auth.user.role !== "admin" || !isConfiguredOwner(auth.user)) return res.status(403).json({ error: "Owner administrator access required" });
     (req as any).auth = auth;
     next();
   }, next);
@@ -1218,15 +1247,20 @@ export function registerPlatformRoutes(app: Express) {
     const sandboxAutoProvision = !isProduction() && env().DEV_SANDBOX_AUTO_PROVISION === "1";
     const existing = await db.findUserByEmail(email);
     if (existing && !sandboxAutoProvision) return res.status(409).json({ error: "An account with that email already exists." });
-    const isOwner = Boolean(configuredOwnerEmail() && email === configuredOwnerEmail());
     let user: User;
     if (existing) {
-      await db.updateUser(existing.id, { passwordHash: passwordHash(password), displayName, role: isOwner ? "admin" : existing.role, isVerified: true });
+      // This branch exists only for an explicitly enabled development sandbox.
+      // It must not make a configured email an administrator before ownership
+      // of the mailbox has been verified.
+      await db.updateUser(existing.id, { passwordHash: passwordHash(password), displayName, isVerified: true });
       user = (await db.findUserById(existing.id)) || existing;
-      if (isOwner) await ensureOwnerPrivileges(user);
+      user = await ensureOwnerPrivileges(user);
     } else {
-      user = await db.createUser({ id: db.newId("usr"), email, passwordHash: passwordHash(password), displayName, role: isOwner ? "admin" : "user", isVerified: false });
-      await db.createMembership(user.id, isOwner ? "sceneforge" : "free");
+      // A configured owner email is an identifier, not an authentication
+      // factor. Start every new account as a normal, unverified member and
+      // promote the configured account only after its email token is redeemed.
+      user = await db.createUser({ id: db.newId("usr"), email, passwordHash: passwordHash(password), displayName, role: "user", isVerified: false });
+      await db.createMembership(user.id, "free");
       await db.upsertEmailPreference({ userId: user.id, marketingConsent: Boolean(req.body?.marketingConsent), consentTimestamp: now(), consentSource: "registration", consentVersion: "2026-10", trainingStep: 0, updatedAt: now() });
     }
     const raw = randomBytes(32).toString("base64url");
@@ -1253,17 +1287,17 @@ export function registerPlatformRoutes(app: Express) {
     let user = await db.findUserByEmail(email);
     const sandboxAutoProvision = !isProduction() && env().DEV_SANDBOX_AUTO_PROVISION === "1";
     if (!user && sandboxAutoProvision && email && /^\S+@\S+\.\S+$/.test(email) && password.length >= 1) {
-      const isOwner = Boolean(configuredOwnerEmail() && email === configuredOwnerEmail());
+      const isOwner = isConfiguredOwner({ email });
       const rawName = isOwner ? "Site Owner" : email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 80) || "Test Account";
       user = await db.createUser({
         id: db.newId("usr"),
         email,
         passwordHash: passwordHash(password),
         displayName: rawName.length >= 2 ? rawName : "Test User",
-        role: isOwner ? "admin" : "user",
+        role: "user",
         isVerified: true,
       });
-      await db.createMembership(user.id, isOwner ? "sceneforge" : "free");
+      await db.createMembership(user.id, "free");
       await db.upsertEmailPreference({ userId: user.id, marketingConsent: false, consentTimestamp: now(), consentSource: "registration", consentVersion: "2026-10", trainingStep: 0, updatedAt: now() });
     } else if (user && sandboxAutoProvision && password.length >= 1 && !passwordMatches(password, user.passwordHash)) {
       await db.updateUser(user.id, { passwordHash: passwordHash(password), isVerified: true });
@@ -1300,7 +1334,11 @@ export function registerPlatformRoutes(app: Express) {
     // own session, so one person on one device never loses their seat.
     const { evicted, limit } = await claimDeviceSeat(user.id, await getUserPlan(user), session.id);
     const payload = await accountPayload(user, { sessionId: session.id, deviceId: device.id });
-    return res.json({ ...payload, sessionToken: raw, deviceLimit: limit, devicesSignedOut: evicted });
+    // Production authentication is cookie-only. Only an explicitly configured
+    // embedded development preview receives a short-lived bridge token for
+    // browsers that categorically block iframe cookies.
+    const previewSession = embeddedPreviewSessionBridgeEnabled() ? { sessionToken: raw } : {};
+    return res.json({ ...payload, ...previewSession, deviceLimit: limit, devicesSignedOut: evicted });
   }));
 
   app.post("/api/auth/logout", asyncHandlerVoid(async (req, res) => {
@@ -1326,6 +1364,7 @@ export function registerPlatformRoutes(app: Express) {
     const user = token && (await db.findUserById(token.userId));
     if (!token || !user) return res.status(400).json({ error: "This verification link is invalid or expired." });
     await db.updateUser(user.id, { isVerified: true });
+    await ensureOwnerPrivileges({ ...user, isVerified: true });
     await db.deleteVerificationToken(token.id);
     return res.json({ message: "Email verified. You can now sign in." });
   }));
@@ -1695,7 +1734,7 @@ export function registerPlatformRoutes(app: Express) {
       const membership = membershipByUser.get(user.id) || null;
       const grant = grantByUser.get(user.id) || null;
       let plan: PlanSlug;
-      if (user.role === "admin") plan = "sceneforge";
+      if (user.role === "admin" && isConfiguredOwner(user)) plan = "sceneforge";
       else {
         // Same expiry backstop as sweepUserSubscriptionExpiry(), applied
         // from the already-fetched subscription row; the (rare) expired
@@ -1720,7 +1759,7 @@ export function registerPlatformRoutes(app: Express) {
       const effective = {
         ...(membership ? { id: membership.id, user_id: membership.userId, status: membership.status } : { id: "", user_id: user.id, status: "active" }),
         plan_id: plan,
-        source: user.role === "admin" ? "owner_admin" : grant && grant.planId === plan ? "complimentary" : plan === "free" ? "free" : "verified_subscription",
+        source: user.role === "admin" && isConfiguredOwner(user) ? "owner_admin" : grant && grant.planId === plan ? "complimentary" : plan === "free" ? "free" : "verified_subscription",
         complimentary_ends_at: grant && grant.planId === plan ? grant.endsAt : null,
         complimentary_period: grant && grant.planId === plan ? grant.period : null,
       };

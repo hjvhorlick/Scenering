@@ -13,12 +13,15 @@ h.ok(platform.includes("SESSION_SECRET must be a unique production secret"), "pr
 h.ok(platform.includes("timingSafeEqual"), "secret comparisons use timing-safe equality");
 h.ok(platform.includes("HttpOnly; SameSite=Lax"), "session cookie is HttpOnly and SameSite protected");
 h.ok(platform.includes("fastspringCheckoutTags(user.id, user.email)"), "checkout binds provider custom data to the authenticated user, server side");
-h.ok(platform.includes("SCENERING_OWNER_EMAIL") && platform.includes("requireAdmin"), "owner administration is bound to a server-configured email and protected role");
+h.ok(platform.includes("SCENERING_OWNER_EMAIL") && platform.includes("requireAdmin") && platform.includes("isConfiguredOwner(auth.user)"), "owner administration is bound to a server-configured email and protected role");
+h.ok(platform.includes("if (!user.isVerified) return user") && platform.includes("await ensureOwnerPrivileges({ ...user, isVerified: true })"), "owner elevation requires verified mailbox control");
 h.ok(platform.includes('"/api/admin/overview"'), "owner has a protected operational overview endpoint");
 const accountUi = readFileSync("src/components/AccountMembershipModal.tsx", "utf8");
 const sessionUi = readFileSync("src/lib/session.ts", "utf8");
 h.ok(accountUi.includes("Preview the Studio as a customer plan") && accountUi.includes("setAdminPlanPreview"), "owner administration can preview Free, SceneFlow and SceneForge interfaces");
 h.ok(sessionUi.includes("scenering_admin_plan_preview") && sessionUi.includes('account?.user.role !== "admin"'), "plan preview is session-scoped and restricted to the owner administrator interface");
+h.ok(sessionUi.includes("sessionStorage") && !sessionUi.includes("localStorage.setItem(LEGACY_SESSION_TOKEN_KEY"), "the development preview bridge never persists a bearer token in localStorage");
+h.ok(platform.includes("embeddedPreviewSessionBridgeEnabled") && platform.includes("if (!embeddedPreviewSessionBridgeEnabled()) return \"\""), "header-token sessions are disabled outside explicit embedded development previews");
 h.ok(platform.includes('"/api/admin/complimentary-memberships"') && platform.includes("ComplimentaryGrant"), "owner can issue audited expiring complimentary memberships");
 h.ok(platform.includes("setUTCMonth") && platform.includes("setUTCFullYear"), "complimentary periods are exactly one calendar month or year");
 h.ok(platform.includes('"/api/admin/complimentary-codes"') && platform.includes('"/api/complimentary-codes/redeem"'), "owner can create and customers can redeem access codes");

@@ -174,7 +174,9 @@ const customerCookie = await createSignedInUser("customer@example.com", "Ordinar
 /* 5. Login & session resilience for admin and test accounts          */
 /* ------------------------------------------------------------------ */
 {
-  // (a) Header-based session token works without cookies (sandbox iframe support)
+  // (a) Header-based sessions are available only to an explicitly configured
+  // development iframe preview, never to normal browser or production traffic.
+  process.env.DEV_EMBEDDED_PREVIEW = "1";
   const loginRes = await fetch(`${base}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -190,15 +192,31 @@ const customerCookie = await createSignedInUser("customer@example.com", "Ordinar
   h.eq(sessionViaHeader.status, 200, "/api/auth/session authenticates via X-Scenering-Session header without Cookie");
   const sessionBody = await sessionViaHeader.json();
   h.eq(sessionBody.user.role, "admin", "header-authenticated owner session carries admin role");
+  delete process.env.DEV_EMBEDDED_PREVIEW;
+  const rejectedOutsidePreview = await fetch(`${base}/api/auth/session`, {
+    headers: { "X-Scenering-Session": loginBody.sessionToken },
+  });
+  h.eq(rejectedOutsidePreview.status, 401, "header tokens are rejected unless the embedded development bridge is enabled");
 
-  // (b) If the owner account was left unverified in D1, signing in with valid password verifies & unlocks it
-  testD1().sqlite.prepare("UPDATE users SET is_verified = 0 WHERE email = 'owner@example.com'").run();
+  // (b) An unverified owner must prove mailbox control again; a matching email
+  // and correct password do not bypass the verification gate.
+  testD1().sqlite.prepare("UPDATE users SET is_verified = 0, role = 'user' WHERE email = 'owner@example.com'").run();
   const ownerRecoveryLogin = await fetch(`${base}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: "owner@example.com", password: "a-long-enough-password" }),
   });
-  h.eq(ownerRecoveryLogin.status, 200, "owner account is never locked out by an unverified flag when signing in with valid password");
+  h.eq(ownerRecoveryLogin.status, 403, "an unverified owner remains locked until mailbox verification");
+  const ownerRecoveryBody = await ownerRecoveryLogin.json();
+  const recoveryToken = String(ownerRecoveryBody.developmentVerificationUrl || "").split("token=")[1] || "";
+  const recoveryVerify = await fetch(`${base}/api/auth/verify-email`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: decodeURIComponent(recoveryToken) }),
+  });
+  h.eq(recoveryVerify.status, 200, "the owner can regain access by completing a fresh verification link");
+  const verifiedOwnerLogin = await fetch(`${base}/api/auth/login`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "owner@example.com", password: "a-long-enough-password" }),
+  });
+  h.eq(verifiedOwnerLogin.status, 200, "the verified owner can sign in again");
 
   // (c) DEV_SANDBOX_AUTO_PROVISION=1 allows instant sign-in for test accounts in the sandbox
   process.env.DEV_SANDBOX_AUTO_PROVISION = "1";
