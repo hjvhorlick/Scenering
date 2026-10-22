@@ -1094,7 +1094,7 @@ const footageScene = {
     "a caption-only scene is skipped before its saved narration is resolved"
   );
   const gateAt = render.indexOf('if (s.caption_source === "transcript") continue;');
-  const resolveAt = render.indexOf("let resolved = await resolveSceneAudioBuffer(s, audioCtx);");
+  const resolveAt = render.indexOf("await resolveSceneAudioBuffer(s, audioCtx)");
   h.ok(
     gateAt > 0 && resolveAt > gateAt,
     "and the skip really does come before the resolve it is guarding"

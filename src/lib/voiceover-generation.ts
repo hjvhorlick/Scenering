@@ -193,3 +193,113 @@ export function recordGeneratedVoiceover(
     },
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * Replacing a narrator, rather than layering a second one
+ *
+ * Changing the voice used to leave the previous file attached to every scene
+ * and rely on the next visit to the Voiceover step to overwrite it. Anything
+ * that reached the picture before that overwrite — the render page opened
+ * directly, a scene whose synthesis failed, a project whose saved settings
+ * arrived from another device — still found the old file attached and played
+ * it. The result was a video narrated mostly in the new voice with a piece of
+ * the old one left at the end.
+ *
+ * The two rules below make that impossible:
+ *
+ *  • A file belongs to the scene only while it was made for the scene's
+ *    CURRENT narrator and CURRENT words (`cachedNarrationBelongsToScene`).
+ *    Anything else is stale, whatever its pointer says.
+ *  • Choosing a different narrator retires the files made with the old one
+ *    (`planNarrationRetirement`), so nothing can replay them while the new
+ *    narration is being made.
+ *
+ * A prepared file (the creator's own recording, `custom:`/`import:`) is not
+ * Speechify narration: it is an explicit per-scene choice, so neither rule
+ * touches it.
+ * ------------------------------------------------------------------ */
+
+/** A cached narration file, reduced to the facts that identify it. */
+export interface CachedNarrationIdentity {
+  voiceId?: string | null;
+  text?: string | null;
+}
+
+/**
+ * Was this cached file made for this scene as it is NOW?
+ *
+ * The cache key already includes the scene, the voice and the script, so a
+ * lookup by key is correct by construction. The pointer on the scene — its
+ * `audio_url` — is not: a scene can be re-cast, re-scripted or restored from
+ * another device while an older file is still attached to it. Before playing
+ * or rendering anything that came through a pointer, this check decides.
+ */
+export function cachedNarrationBelongsToScene(
+  item: CachedNarrationIdentity | null | undefined,
+  scene: Pick<Scene, "voice_id" | "text">
+): boolean {
+  if (!item) return false;
+  // A prepared track is addressed by its own URL and is never re-synthesised
+  // (the script may well have been edited after the recording was imported).
+  if (isPreparedVoiceoverId(scene.voice_id)) return true;
+  const itemVoice = typeof item.voiceId === "string" ? item.voiceId : "";
+  const sceneVoice = typeof scene.voice_id === "string" ? scene.voice_id : "";
+  // `imported` is what the shared cache records for a file it did not make
+  // itself; it says nothing about the narrator, so only the words can be checked.
+  if (itemVoice && sceneVoice && itemVoice !== "imported" && itemVoice !== sceneVoice) return false;
+  if (typeof item.text === "string" && item.text.trim() !== (scene.text || "").trim()) return false;
+  return true;
+}
+
+/** One scene whose attached narration belongs to a narrator no longer selected. */
+export interface NarrationRetirement {
+  scene: Scene;
+  /** The narrator the attached file was made with (being retired). */
+  fromVoiceId: string;
+  /** The narrator this scene should now be spoken in. */
+  voiceId: string;
+}
+
+/**
+ * The scenes whose attached narration was made with a narrator the project no
+ * longer uses.
+ *
+ * Applying one detaches the file from the scene (`audio_url` cleared) and
+ * stamps the scene with the narrator it should now use, so every later step —
+ * the per-scene player, the preview, the renderer — either regenerates that
+ * line or leaves it silent until it is regenerated. It can never reach back to
+ * the old voice and play it.
+ *
+ * The file itself is not deleted here: it stays in the voiceover cache under
+ * the old narrator until new narration is generated for that scene. Switching
+ * back before then re-attaches it for free rather than synthesising it again.
+ */
+export function planNarrationRetirement(
+  scenes: readonly Scene[],
+  options: {
+    primaryVoice: string;
+    rotateVoices: boolean;
+    secondVoice: string;
+  }
+): NarrationRetirement[] {
+  const plan: NarrationRetirement[] = [];
+  scenes.forEach((scene, index) => {
+    if (!scene.audio_url) return;
+    if (isPreparedVoiceoverId(scene.voice_id)) return;
+    // A project saved before scenes recorded their narrator has audio whose
+    // voice cannot be identified. It is left alone: there is no evidence that
+    // it belongs to a different narrator, and detaching it would force a
+    // regeneration the creator never asked for.
+    if (!scene.voice_id) return;
+    const voiceId = expectedVoiceForSceneIndex(
+      index,
+      options.primaryVoice,
+      options.rotateVoices,
+      options.secondVoice
+    );
+    const fromVoiceId: string = scene.voice_id;
+    if (fromVoiceId === voiceId) return;
+    plan.push({ scene, fromVoiceId, voiceId });
+  });
+  return plan;
+}

@@ -88,6 +88,16 @@ export interface StartVoiceOptions {
    * passes the scene's timeline position instead.
    */
   whenSeconds?: number;
+  /**
+   * How much of the line may sound, in seconds. The scene's own window.
+   *
+   * A line that is longer than the picture it narrates used to be scheduled
+   * whole, so its tail ran on into the next scene — and, on the last scene,
+   * past the end of the video. Whatever is left of a longer buffer is heard
+   * now exactly as far as the scene lasts, and then closes on the same short
+   * fade as a stop.
+   */
+  durationSeconds?: number;
   fadeInSeconds?: number;
   fadeOutSeconds?: number;
 }
@@ -117,8 +127,24 @@ export function startVoiceSource(
   const duration = Math.max(0, buffer.duration || 0);
   // Never start so late that the offset is past the end of the audio.
   const offset = Math.min(Math.max(0, options.offsetSeconds || 0), Math.max(0, duration - 0.02));
+  const remaining = Math.max(0, duration - offset);
+  const allowed = typeof options.durationSeconds === "number" && Number.isFinite(options.durationSeconds)
+    ? Math.max(0, options.durationSeconds)
+    : remaining;
+  /** The scene window ends before the buffer does — close the line there. */
+  const clipped = allowed < remaining - 0.001;
+  let clippedUntil = 0;
+  if (clipped && allowed > 0.02 && typeof param.linearRampToValueAtTime === "function") {
+    const fadeOut = Math.max(0.006, options.fadeOutSeconds ?? VOICE_FADE_OUT_SECONDS);
+    const endAt = startAt + Math.max(0.02, allowed);
+    const fadeFrom = Math.max(startAt, endAt - fadeOut);
+    scheduleVoiceFadeOut(param, fadeFrom, fadeOut);
+    clippedUntil = endAt;
+  }
+
   try {
-    source.start(startAt, offset);
+    if (clipped && clippedUntil > 0) source.start(startAt, offset, Math.max(0.02, allowed));
+    else source.start(startAt, offset);
   } catch {
     try { source.start(0, offset); } catch { /* a buffer with no audio */ }
   }

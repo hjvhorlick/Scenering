@@ -30,6 +30,8 @@ import { ClipPool, asDrawableClip, sceneHasClip } from "../lib/scene-clip";
 import { loadCustomVideos } from "../lib/custom-video";
 import { clipAudioPlanFor, loadClipAudio, scheduleClipAudio } from "../lib/clip-audio";
 import { narratableText, projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";
+import { isPreparedVoiceoverId } from "../lib/voiceover-generation";
+import { resolveVoicePreset } from "../data/voice-presets";
 import {
   renderTimelineInsert,
 } from "../lib/render-effects";
@@ -38,7 +40,7 @@ import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-cap
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { PackedAudioTelemetry, TELEMETRY_SAMPLE_STRIDE } from "../lib/audio-telemetry";
 import { requiredVisualizerFftSize } from "../lib/advanced-audio-visualizer";
-import { resolveSceneAudioBuffer, setCachedSceneAudio, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
+import { resolveSceneAudioBuffer, replaceSceneNarration, fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import type { WordTiming } from "../lib/word-sync";
 import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
 import { loadSceneImage } from "../lib/scene-image-loader";
@@ -217,6 +219,16 @@ interface RenderViewProps {
   renderProfile?: RenderProfileSettings;
   onOpenSetup?: () => void;
   onNavigatePhase?: (phase: ProjectPhase) => void;
+  /**
+   * Let a render repair a scene's narration.
+   *
+   * When the saved file no longer belongs to the scene (it was re-scripted, or
+   * it still holds an earlier narrator), the renderer synthesises the line it
+   * needs. Writing that line back means the scene now describes what was
+   * actually exported — so the next render, the preview and the per-scene
+   * download all use it instead of generating the same line again.
+   */
+  onUpdateScene?: (sceneId: number, updates: Partial<Scene>) => void;
 }
 
 /** Small read-only row used by the "Your choices" panel */
@@ -299,6 +311,7 @@ export default function RenderView({
   renderProfile = DEFAULT_RENDER_PROFILE_SETTINGS,
   onOpenSetup,
   onNavigatePhase,
+  onUpdateScene,
 }: RenderViewProps) {
   // Scenes with a short video clip are renderable even without a still image.
   const scenesWithImages = scenes.filter(sceneHasVisual);
@@ -1068,9 +1081,20 @@ export default function RenderView({
            old voice over the song the captions came from. */
         const spokenText = narratableText(s);
         if (s.caption_source === "transcript") continue;
-        let resolved = await resolveSceneAudioBuffer(s, audioCtx);
+        /* A scene with nothing to say has no narration of its own. Any file
+           still attached to it is what an earlier script left behind, and
+           playing it would put a voice back under a scene the creator has
+           since emptied. The one exception is a prepared track — the
+           creator's own recording, which is never re-synthesised. */
+        const speaksHere = Boolean(spokenText) || isPreparedVoiceoverId(s.voice_id);
+        let resolved = speaksHere ? await resolveSceneAudioBuffer(s, audioCtx) : null;
         if (!resolved && voiceoverEnabled) {
-          if (s.audio_url) {
+          /* A prepared file cannot be re-made, so an unreadable one is an
+             error the creator has to answer. A generated line can be: the
+             script and the narrator this scene has now are all the renderer
+             needs, and synthesising it is better than exporting whatever
+             older file happened to still be attached. */
+          if (s.audio_url && speaksHere && isPreparedVoiceoverId(s.voice_id)) {
             throw new Error(`The saved audio for scene ${i + 1} could not be loaded. Re-import or regenerate that track.`);
           }
           if (spokenText) {
@@ -1079,7 +1103,7 @@ export default function RenderView({
             const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
             const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
             const blobUrl = URL.createObjectURL(blob);
-            setCachedSceneAudio(s.id, sceneVoice, spokenText, {
+            await replaceSceneNarration(s.id, sceneVoice, spokenText, {
               audioBuffer,
               blobUrl,
               duration: audioBuffer.duration,
@@ -1088,6 +1112,17 @@ export default function RenderView({
               rawBuffer: withTimeline.rawBuffer,
               blob,
               words: withTimeline.words,
+            });
+            // The scene now describes the line that was actually exported —
+            // its narrator, its file and the length it needs — instead of
+            // keeping a pointer to the file this render just replaced.
+            const fitted = Math.max(1, Math.round((audioBuffer.duration + 0.35) * 10) / 10);
+            onUpdateScene?.(s.id, {
+              audio_url: blobUrl,
+              audio_name: `${resolveVoicePreset(sceneVoice)?.name || sceneVoice} Narration`,
+              voice_id: sceneVoice,
+              duration: fitted,
+              audio_duration: audioBuffer.duration,
             });
             resolved = {
               buffer: audioBuffer,
@@ -1807,8 +1842,13 @@ export default function RenderView({
                gain, exactly as the preview does — so the exported soundtrack
                cannot carry the step-in of a buffer starting at full gain, and
                the preview and the file sound like the same performance. */
+            /* Never longer than the scene it narrates. A line is scheduled
+               whole, so a file left over from a longer voice (or a scene
+               re-timed shorter) used to run on over the next scene — and, at
+               the end of the video, past the last frame. */
             startVoiceSource(offlineCtx, item.buffer, offlineEcho ? offlineEcho.input : voiceAnalyser, {
               whenSeconds: entry.startTime + entry.speechOffset,
+              durationSeconds: Math.max(0.05, entry.duration - entry.speechOffset),
             });
           }
 
@@ -2366,7 +2406,13 @@ export default function RenderView({
             const source = audioCtx.createBufferSource();
             source.buffer = item.buffer;
             source.connect(voiceEchoGraph ? voiceEchoGraph.input : analyser);
-            source.start(renderAudioT0 + entry.startTime + entry.speechOffset);
+            // The scene's own window is the limit, exactly as on the offline
+            // path: nothing from this line is heard after its picture ends.
+            source.start(
+              renderAudioT0 + entry.startTime + entry.speechOffset,
+              0,
+              Math.max(0.05, entry.duration - entry.speechOffset)
+            );
             scheduledSources.push(source);
           } catch (audioErr) {
             console.warn("Error scheduling scene audio:", audioErr);

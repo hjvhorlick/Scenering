@@ -2,7 +2,15 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import StepNav from "./StepNav";
 import type { CaptionsConfig, CustomerLogoConfig, Scene, TimelineInsert } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
-import { setCachedSceneAudio, getSharedAudioContext, fetchSceneAudioWithTimeline, resolveSceneAudioBuffer } from "../lib/tts-cache";
+import {
+  getSharedAudioContext,
+  fetchSceneAudioWithTimeline,
+  resolveSceneAudioBuffer,
+  findCachedNarration,
+  replaceSceneNarration,
+  clearSceneNarration,
+  type CachedAudioItem,
+} from "../lib/tts-cache";
 import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
 import PhoneticDictionaryTab from "./PhoneticDictionaryTab";
 import { STUDIO_VOICE_PRESETS, type VoicePreset, resolveVoicePreset, sameSpeechifySpeaker } from "../data/voice-presets";
@@ -24,6 +32,7 @@ import {
   expectedVoiceForSceneIndex,
   isPreparedVoiceoverId,
   isVoiceoverAudioSnapshot,
+  planNarrationRetirement,
   planVoiceoverGeneration,
   recordCurrentVoiceoverAudio,
   recordGeneratedVoiceover,
@@ -347,6 +356,39 @@ export default function VoiceoverStudio({
     if (JSON.stringify(saved) !== JSON.stringify(seeded)) saveAudioSnapshot(seeded);
   }, [projectId, scenes, selectedVoice, rotateVoices, secondVoice, musicFingerprint, isGeneratingAll]);
 
+  /**
+   * A different narrator retires the narration made with the old one.
+   *
+   * Choosing a voice must replace the old files, not just queue them for
+   * replacement: anything that reached the picture before the next visit to
+   * this step — a render started from another phase, a scene whose synthesis
+   * failed, a project whose saved voice arrived from another device — used to
+   * find the old narration still attached and play it. The result was the new
+   * voice everywhere except a leftover piece of the old one at the end.
+   *
+   * So the file is detached the moment the narrator changes, and the scene is
+   * stamped with the narrator it should now use. It is not deleted: switching
+   * back to the previous voice re-attaches it from the cache for free.
+   * Prepared files (the creator's own recordings) are never touched — they are
+   * an explicit per-scene choice, not narration this step can re-make.
+   */
+  useEffect(() => {
+    if (!voiceoverEnabled || isGeneratingAll) return;
+    const retirements = planNarrationRetirement(scenes, {
+      primaryVoice: selectedVoice,
+      rotateVoices,
+      secondVoice,
+    });
+    for (const { scene, voiceId } of retirements) {
+      onUpdateScene(scene.id, {
+        audio_url: null,
+        audio_name: null,
+        voice_id: voiceId,
+        audio_duration: undefined,
+      });
+    }
+  }, [scenes, selectedVoice, rotateVoices, secondVoice, voiceoverEnabled, isGeneratingAll]);
+
   const generateVoiceoverForScene = async (scene: Scene, voiceToUse: string): Promise<string | null> => {
     const text = (scene.text || "").trim();
     if (!text) return null;
@@ -357,25 +399,39 @@ export default function VoiceoverStudio({
       if (isPreparedVoiceoverId(voiceToUse)) {
         throw new Error("Apply a prepared audio file for this custom voice before continuing.");
       }
-      const withTimeline = await fetchSceneAudioWithTimeline(text, voiceToUse, { timeoutMs: 20000 });
-      if (!withTimeline) throw new Error("Speechify returned no audio for this scene.");
 
-      const arrayBuf = withTimeline.rawBuffer;
-      const blob = new Blob([arrayBuf], { type: withTimeline.mimeType });
-      const blobUrl = URL.createObjectURL(blob);
       const audioCtx = getSharedAudioContext();
-      const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-      const spokenDuration = decoded.duration;
-      await setCachedSceneAudio(scene.id, voiceToUse, text, {
-        audioBuffer: decoded,
-        blobUrl,
-        duration: spokenDuration,
-        voiceId: voiceToUse,
-        text,
-        rawBuffer: arrayBuf.slice(0),
-        blob,
-        words: withTimeline.words,
-      });
+      let item: CachedAudioItem | null = null;
+
+      // The exact line may already exist for this narrator — a voice switched
+      // away from and back, or a generation that was interrupted after the
+      // file was stored. Re-attaching it costs nothing and calls no provider.
+      const cached = await findCachedNarration(scene.id, voiceToUse, text, audioCtx);
+      if (cached) {
+        item = cached;
+      } else {
+        const withTimeline = await fetchSceneAudioWithTimeline(text, voiceToUse, { timeoutMs: 20000 });
+        if (!withTimeline) throw new Error("Speechify returned no audio for this scene.");
+        const arrayBuf = withTimeline.rawBuffer;
+        const blob = new Blob([arrayBuf], { type: withTimeline.mimeType });
+        const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+        item = {
+          audioBuffer: decoded,
+          blobUrl: URL.createObjectURL(blob),
+          duration: decoded.duration,
+          voiceId: voiceToUse,
+          text,
+          rawBuffer: arrayBuf.slice(0),
+          blob,
+          words: withTimeline.words,
+        };
+      }
+
+      // A replacement, not an addition: the scene's previous narration — the
+      // old narrator's file, any earlier rendition of this one, and the
+      // durable copy — is removed before the new file is filed.
+      await replaceSceneNarration(scene.id, voiceToUse, text, item);
+      const spokenDuration = item.duration;
 
       // The scene lasts exactly as long as the voice does (plus a short breath
       // so the cut does not clip the final word). It used to take
@@ -385,14 +441,14 @@ export default function VoiceoverStudio({
       const fitted = Math.max(1, Math.round((spokenDuration + BREATH) * 10) / 10);
 
       onUpdateScene(scene.id, {
-        audio_url: blobUrl,
+        audio_url: item.blobUrl,
         audio_name: `${voiceName} Narration`,
         voice_id: voiceToUse,
         duration: fitted,
         audio_duration: spokenDuration,
       });
 
-      return blobUrl;
+      return item.blobUrl;
     } catch (err) {
       console.error(`Failed to generate TTS for scene ${scene.id}:`, err);
       return null;
@@ -534,6 +590,10 @@ export default function VoiceoverStudio({
 
     if (importTargetScene === "all") {
       scenes.forEach((s) => {
+        // The imported file replaces this scene's narration outright: the
+        // generated voice it had is forgotten, not left in the cache to be
+        // found again by a later generation or render.
+        void clearSceneNarration(s.id);
         onUpdateScene(s.id, {
           audio_url: importedAudioUrl,
           audio_name: customVoiceLabel || importedFileName,
@@ -547,6 +607,7 @@ export default function VoiceoverStudio({
       );
     } else {
       const sceneId = parseInt(importTargetScene, 10);
+      void clearSceneNarration(sceneId);
       onUpdateScene(sceneId, {
         audio_url: importedAudioUrl,
         audio_name: customVoiceLabel || importedFileName,
@@ -1334,7 +1395,14 @@ export default function VoiceoverStudio({
                           <button
                             type="button"
                             title="Clear attached audio"
-                            onClick={() => onUpdateScene(scene.id, { audio_url: null, audio_name: undefined })}
+                            onClick={() => {
+                              // Clearing the pointer is not enough: the cached
+                              // copy would be resolved straight back into the
+                              // preview and the render. The scene's narration
+                              // is forgotten, not just unhooked.
+                              void clearSceneNarration(scene.id);
+                              onUpdateScene(scene.id, { audio_url: null, audio_name: undefined });
+                            }}
                             className="px-2 py-1 text-xs text-gray-500 hover:text-red-400 hover:bg-gray-800 rounded transition-colors"
                           >
                             ✕

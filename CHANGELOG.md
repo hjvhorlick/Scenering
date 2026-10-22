@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased — the new voice replaces the old one
+
+- **Fixed: a piece of the previous voice could still be heard at the end of a
+  re-narrated video.** Changing the narrator and generating the new voiceover
+  left the old file attached to the scenes until each one was overwritten, and
+  nothing removed it from the caches behind the scenes. Any path that reached
+  the picture before that overwrite — a render opened from another phase, a
+  scene whose synthesis failed or timed out, a project whose saved voice
+  arrived from another device, a scene that had since been emptied — found the
+  old narration still attached and played it. With a shorter new voice the
+  leftover fitted into the last scene, so the video ended on a fragment of the
+  voice it was supposed to have replaced. Three rules now make that
+  impossible:
+  - **A cached file only counts as a scene's narration while it was made for
+    that scene's current narrator and current words.** Anything else is
+    ignored — whatever pointer on the scene still refers to it — instead of
+    being replayed under the new voice.
+  - **Choosing a different narrator retires the files made with the old one
+    immediately.** The scene is detached from the old audio and stamped with
+    the narrator it should now use, so the preview, the per-scene player and
+    the renderer either generate the new line or leave the scene silent until
+    it is generated. The old recording is not destroyed on the spot: it stays
+    in the voiceover cache, so choosing the previous narrator again before
+    anything was generated re-attaches it for free. Prepared files — your own
+    imported recordings — are an explicit per-scene choice and are never
+    retired.
+  - **Generating a scene files the new narration as a replacement.** Every
+    copy of that scene's previous narration is removed first — memory, the
+    object-URL index and the durable IndexedDB copy — and the old object URL
+    is released. Nothing of the previous voice is left for a later step to
+    find.
+  - **A line can never sound longer than its own scene.** Narration used to be
+    scheduled whole, so a file left over from a longer voice ran on over the
+    next scene, and at the end of the video past the last frame. Each line is
+    now limited to its scene's window in the export (both the frame-exact and
+    compatibility renderers) and in the live preview, closing on the same
+    short fade as a stop rather than a cut.
+
 ## Unreleased — one membership, every device
 
 - **Projects follow the member to every device.** A project used to live only

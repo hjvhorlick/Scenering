@@ -38,6 +38,7 @@ import { addCustomImage, CustomImageError } from "../lib/custom-image";
 import { IMAGE_UPLOAD_ACCEPT, VIDEO_UPLOAD_ACCEPT } from "../lib/media-file";
 import { sceneUpdatesForVideoFile, videoUploadMessage } from "../lib/scene-clip-attach";
 import { getApiKeysHeaders, getApiKeysQueryParams } from "../lib/api-keys";
+import { clearSceneNarration } from "../lib/tts-cache";
 import { buildSceneImageQuery, describeSceneTopic } from "../lib/topic-extract";
 import { useViewport } from "../lib/use-breakpoint";
 import { sceneDurationForText, formatDuration } from "../lib/duration-utils";
@@ -938,7 +939,13 @@ export default function SceneEditor({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onUpdate(scene.id, { audio_url: null, audio_name: null })}
+                    onClick={() => {
+                      // A cleared track must be gone, not merely unhooked: the
+                      // cached copy would otherwise be resolved back into the
+                      // preview and the export.
+                      void clearSceneNarration(scene.id);
+                      onUpdate(scene.id, { audio_url: null, audio_name: null });
+                    }}
                     className="text-gray-400 hover:text-red-400 px-0.5 text-xs font-bold"
                     title="Clear saved audio track"
                   >
