@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased — one membership, every device
+
+- **Projects follow the member to every device.** A project used to live only
+  in the browser that made it: a second computer opened an empty studio, and
+  each machine could render and download on its own. The studio still writes
+  to `localStorage` synchronously (so editing stays instant and works offline),
+  but a background sync now mirrors the project list, the scenes and every
+  per-project document — settings, inserts, scene metadata, commit history,
+  section memory and setup drafts — to a server-side workspace per account, and
+  back down to the other devices. Collections merge item by item, so a project
+  created on a laptop and one created on a phone both survive; edits are
+  revision-checked; deletes are tombstones; nothing over 900 KB (an embedded
+  image) is carried. Provider API keys, the session token and this browser's
+  identity never leave the browser.
+- **A plan's device count is a benefit, and it is enforced.** Free allows one
+  signed-in device, SceneFlow two, SceneForge five — a phone counts like any
+  other device. Opening one more signs out the device that has been idle
+  longest, and the account panel lists every device with "This device" marked.
+  Signing in again on the same browser is still one device.
+- **Production is the default.** A server with no `NODE_ENV` — or an
+  unexpected value — is now treated as production. Before, one missing
+  variable turned every development shortcut on for the live site.
+- **Verification and reset links are no longer returned by a production
+  server.** The registration response carried a working verification link, so
+  an account could be verified without reading the mailbox; the reset link was
+  returned on a test storefront and when mail delivery failed. In production
+  the emailed link is the only route.
+- **The legacy export endpoint is retired.** `POST /api/usage/final-export`
+  recorded an export from a client-supplied duration and format without the
+  creative-manifest policy, the length ceilings or a reservation. It now
+  answers 410.
+- **Export completion is atomic and time-bound.** A reservation completes
+  once, only inside its two-hour window, and the remaining allowance is
+  re-checked against the week the usage row lands in — so a batch of
+  reservations opened while one export was left can no longer all be spent.
+- **`SESSION_SECRET` is the name that works.** `SCENERING_AUTH_SECRET` is kept
+  only as a legacy alias; the local dev script and `.dev.vars.example` now set
+  the real one, plus `NODE_ENV=development`.
+
 ## Unreleased — your own video, start to finish, with its sound and its captions
 
 - **The visualisers now look like the things they are named after, and the

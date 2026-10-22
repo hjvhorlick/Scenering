@@ -38,6 +38,23 @@ export interface Session {
   token: string;
   expiresAt: string;
   createdAt: string;
+  /** Random id the browser keeps for itself (see src/lib/device.ts). Null on
+   *  sessions issued before devices were recorded. */
+  deviceId: string | null;
+  /** Friendly name shown in the account panel, e.g. "iPhone · Safari". */
+  deviceLabel: string | null;
+  /** "mobile" | "tablet" | "desktop" — a phone counts as a device. */
+  platform: string | null;
+  lastSeenAt: string | null;
+}
+
+/** One browser key mirrored in the workspace repository. */
+export interface WorkspaceDocument {
+  key: string;
+  body: string;
+  revision: number;
+  updatedAt: string;
+  deleted: boolean;
 }
 
 export type VerificationTokenType = "verify" | "reset";
@@ -344,7 +361,17 @@ function rowToUser(row: any): User {
   };
 }
 function rowToSession(row: any): Session {
-  return { id: row.id, userId: row.user_id, token: row.token, expiresAt: row.expires_at, createdAt: row.created_at };
+  return {
+    id: row.id, userId: row.user_id, token: row.token, expiresAt: row.expires_at, createdAt: row.created_at,
+    deviceId: row.device_id ?? null, deviceLabel: row.device_label ?? null,
+    platform: row.platform ?? null, lastSeenAt: row.last_seen_at ?? null,
+  };
+}
+function rowToWorkspaceDocument(row: any): WorkspaceDocument {
+  return {
+    key: String(row.doc_key), body: String(row.body ?? ""), revision: Number(row.revision ?? 1),
+    updatedAt: String(row.updated_at), deleted: Number(row.deleted ?? 0) === 1,
+  };
 }
 function rowToVerificationToken(row: any): VerificationToken {
   return { id: row.id, userId: row.user_id, token: row.token, type: row.type, expiresAt: row.expires_at, createdAt: row.created_at };
@@ -482,10 +509,21 @@ export const db = {
     const row = await env().DB.prepare("SELECT * FROM sessions WHERE token = ? AND expires_at > ?").bind(tokenHash, nowSql()).first();
     return row ? rowToSession(row) : null;
   },
-  async createSession(userId: string, tokenHash: string, expiresAt: string): Promise<Session> {
-    const row: Session = { id: newId("sess"), userId, token: tokenHash, expiresAt, createdAt: nowIso() };
-    await env().DB.prepare("INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
-      .bind(row.id, row.userId, row.token, row.expiresAt, row.createdAt).run();
+  async createSession(
+    userId: string,
+    tokenHash: string,
+    expiresAt: string,
+    device: { id?: string | null; label?: string | null; platform?: string | null } = {},
+  ): Promise<Session> {
+    const createdAt = nowIso();
+    const row: Session = {
+      id: newId("sess"), userId, token: tokenHash, expiresAt, createdAt,
+      deviceId: device.id ?? null, deviceLabel: device.label ?? null,
+      platform: device.platform ?? null, lastSeenAt: createdAt,
+    };
+    await env().DB.prepare(
+      "INSERT INTO sessions (id, user_id, token, expires_at, created_at, device_id, device_label, platform, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(row.id, row.userId, row.token, row.expiresAt, row.createdAt, row.deviceId, row.deviceLabel, row.platform, row.lastSeenAt).run();
     return row;
   },
   async deleteSessionByToken(tokenHash: string): Promise<void> {
@@ -496,6 +534,76 @@ export const db = {
   },
   async deleteExpiredSessions(): Promise<void> {
     await env().DB.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(nowSql()).run();
+  },
+  /** Live sessions for an account, most recently used first. Drives the
+   *  per-plan device cap and the "where am I signed in" panel. */
+  async listActiveSessionsForUser(userId: string): Promise<Session[]> {
+    const result = await env().DB.prepare(
+      "SELECT * FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY COALESCE(last_seen_at, created_at) DESC"
+    ).bind(userId, nowSql()).all();
+    return (result.results || []).map(rowToSession);
+  },
+  /** Record that a session was used. Only called when the stored value is
+   *  stale, so a busy studio does not write a row per request. */
+  async touchSession(sessionId: string): Promise<void> {
+    await env().DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
+  },
+  async deleteSessionById(sessionId: string): Promise<void> {
+    await env().DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sessionId).run();
+  },
+  async deleteSessionsForDevice(userId: string, deviceId: string): Promise<void> {
+    await env().DB.prepare("DELETE FROM sessions WHERE user_id = ? AND device_id = ?").bind(userId, deviceId).run();
+  },
+
+  // --- workspace (projects, scenes and their browser-side documents) ---
+  async listWorkspaceDocuments(userId: string): Promise<WorkspaceDocument[]> {
+    const result = await env().DB.prepare(
+      "SELECT * FROM workspace_documents WHERE user_id = ? ORDER BY updated_at ASC"
+    ).bind(userId).all();
+    return (result.results || []).map(rowToWorkspaceDocument);
+  },
+  async getWorkspaceDocument(userId: string, key: string): Promise<WorkspaceDocument | null> {
+    const row = await env().DB.prepare(
+      "SELECT * FROM workspace_documents WHERE user_id = ? AND doc_key = ?"
+    ).bind(userId, key).first();
+    return row ? rowToWorkspaceDocument(row) : null;
+  },
+  /** Unconditional write (used by the merge path once the client has already
+   *  reconciled with the current revision). */
+  async putWorkspaceDocument(
+    userId: string,
+    key: string,
+    body: string,
+    options: { deleted?: boolean; deviceId?: string | null } = {},
+  ): Promise<WorkspaceDocument> {
+    const updatedAt = nowIso();
+    await env().DB.prepare(
+      `INSERT INTO workspace_documents (user_id, doc_key, body, revision, updated_at, deleted, device_id)
+       VALUES (?, ?, ?, 1, ?, ?, ?)
+       ON CONFLICT(user_id, doc_key) DO UPDATE SET body = excluded.body, revision = workspace_documents.revision + 1,
+         updated_at = excluded.updated_at, deleted = excluded.deleted, device_id = excluded.device_id`
+    ).bind(userId, key, body, updatedAt, options.deleted ? 1 : 0, options.deviceId ?? null).run();
+    return (await this.getWorkspaceDocument(userId, key))
+      ?? { key, body, revision: 1, updatedAt, deleted: Boolean(options.deleted) };
+  },
+  /** Compare-and-set: refuses the write unless the caller last saw `baseRevision`. */
+  async putWorkspaceDocumentIfRevision(
+    userId: string,
+    key: string,
+    body: string,
+    baseRevision: number,
+    options: { deleted?: boolean; deviceId?: string | null } = {},
+  ): Promise<{ ok: true; document: WorkspaceDocument } | { ok: false; document: WorkspaceDocument | null }> {
+    const current = await this.getWorkspaceDocument(userId, key);
+    if (!current) {
+      if (baseRevision !== 0) return { ok: false, document: null };
+      return { ok: true, document: await this.putWorkspaceDocument(userId, key, body, options) };
+    }
+    if (current.revision !== baseRevision) return { ok: false, document: current };
+    return { ok: true, document: await this.putWorkspaceDocument(userId, key, body, options) };
+  },
+  async deleteWorkspaceForUser(userId: string): Promise<void> {
+    await env().DB.prepare("DELETE FROM workspace_documents WHERE user_id = ?").bind(userId).run();
   },
 
   // --- verification / reset tokens ---
@@ -682,8 +790,16 @@ export const db = {
     const row = await env().DB.prepare("SELECT * FROM export_reservations WHERE id = ? AND user_id = ?").bind(id, userId).first();
     return row ? rowToExportReservation(row) : null;
   },
-  async completeExportReservation(id: string): Promise<void> {
-    await env().DB.prepare("UPDATE export_reservations SET status = 'completed', completed_at = ? WHERE id = ?").bind(nowIso(), id).run();
+  /** Complete a reservation exactly once, and only while it is still valid.
+   *  The WHERE clause is the concurrency control: two tabs finishing the same
+   *  export cannot both record a usage row, and a reservation that has passed
+   *  its two-hour window cannot be completed at all — otherwise a week's
+   *  allowance could be reserved on Sunday night and spent on Monday. */
+  async completeExportReservation(id: string): Promise<boolean> {
+    const result = await env().DB.prepare(
+      "UPDATE export_reservations SET status = 'completed', completed_at = ? WHERE id = ? AND status = 'reserved' AND expires_at > ?"
+    ).bind(nowIso(), id, nowSql()).run();
+    return Number((result as any)?.meta?.changes ?? 0) === 1;
   },
   async cancelExportReservation(id: string): Promise<void> {
     await env().DB.prepare("UPDATE export_reservations SET status = 'cancelled' WHERE id = ? AND status = 'reserved'").bind(id).run();

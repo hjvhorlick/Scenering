@@ -16,6 +16,9 @@ type AccountPayload = {
   subscription?: { subscription_id?: string | null; customer_id?: string | null; subscription_status?: string; price_id?: string | null; product_id?: string | null; status: string; billing_interval: BillingInterval; current_period_end?: string; expires_at?: string; cancel_at_period_end?: boolean; customer_portal_url?: string; update_payment_url?: string; card_brand?: string; card_last_four?: string } | null;
   has_billing_customer?: boolean;
   usage?: { finalExports: number; finalExportMinutes: number };
+  /** Where this membership is signed in. The plan sets the limit; a phone
+   *  counts like any other device. */
+  devices?: { limit: number; active: number; list: Array<{ label: string; platform: string; lastSeenAt: string; current: boolean }> };
   remaining?: { finalExports: number | null; shortExports: number | null; longExports: number | null };
 };
 
@@ -266,6 +269,30 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
             </div> : <div className="text-xs text-gray-400 mt-1">Verified billing webhooks control paid access</div>}
           </div>
         </section>
+
+        {/* Where the membership is signed in. A plan's device count is a
+            benefit, not a hidden ceiling: the member can see every device, see
+            which one this is, and understand which machine will be signed out
+            when the next one opens. Projects are shared between all of them. */}
+        {account?.devices && (
+          <section className="rounded-xl border border-hairline bg-gray-900/60 p-4" aria-label="Devices">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs text-gray-400">Devices signed in</div>
+                <div className="text-sm font-bold mt-1">{account.devices.active} of {account.devices.limit} used</div>
+              </div>
+              <div className="text-[11px] text-gray-500 text-right max-w-[16rem]">Your projects are shared between these devices. Opening Scenering on one more than your plan allows signs out the device that has been idle longest.</div>
+            </div>
+            <ul className="mt-3 space-y-1.5">
+              {account.devices.list.map((device, index) => (
+                <li key={`${device.label}-${index}`} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="truncate text-gray-200">{device.label}{device.current ? <span className="ml-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-300">This device</span> : null}</span>
+                  <span className="shrink-0 text-gray-500">{device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString() : "recently"}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {/* Provider keys. Optional, browser-held (never sent anywhere but the
             provider's own verification call), and useful to exactly the people

@@ -32,6 +32,11 @@ export interface PlanConfig {
     longExportsPerWeek: number | null;
     maxShortMinutes: number | null;
     maxLongMinutes: number | null;
+    /** How many devices may be signed in to one membership at the same
+     *  time. A phone, a tablet and a computer each count as one device; the
+     *  oldest session is signed out when a new device opens the studio.
+     *  Enforced server-side (server/platform.ts) — never by the browser. */
+    maxConcurrentDevices: number;
     projectCapacity: number | null;
     visualResearchCapacity: "standard" | "expanded" | "high";
     voicePresets: number | null;
@@ -65,7 +70,7 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
     prices: { monthly: 0, yearly: 0 }, annualMonthlyEquivalent: 0, annualSaving: 0,
     checkoutEnv: { monthly: "", yearly: "" }, priceEnv: { monthly: "", yearly: "" },
     limits: { finalExportsPerWeek: 3, shortExportsPerWeek: 2, longExportsPerWeek: 1,
-      maxShortMinutes: 1, maxLongMinutes: 5, projectCapacity: null, visualResearchCapacity: "standard",
+      maxShortMinutes: 1, maxLongMinutes: 5, maxConcurrentDevices: 1, projectCapacity: null, visualResearchCapacity: "standard",
       voicePresets: 2, captionStyles: 2, backgroundMusicTracks: 2, audioVisualiserStyles: 2 },
     features: FREE_FEATURES,
   },
@@ -75,7 +80,7 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
     checkoutEnv: { monthly: "sceneflow-monthly", yearly: "sceneflow-yearly" },
     priceEnv: { monthly: "FASTSPRING_SCENEFLOW_MONTHLY_PATH", yearly: "FASTSPRING_SCENEFLOW_YEARLY_PATH" },
     limits: { finalExportsPerWeek: 15, shortExportsPerWeek: null, longExportsPerWeek: null,
-      maxShortMinutes: null, maxLongMinutes: null, projectCapacity: null, visualResearchCapacity: "expanded",
+      maxShortMinutes: null, maxLongMinutes: null, maxConcurrentDevices: 2, projectCapacity: null, visualResearchCapacity: "expanded",
       voicePresets: null, captionStyles: null, backgroundMusicTracks: null, audioVisualiserStyles: null },
     features: PAID_FEATURES,
   },
@@ -85,7 +90,7 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
     checkoutEnv: { monthly: "sceneforge-monthly", yearly: "sceneforge-yearly" },
     priceEnv: { monthly: "FASTSPRING_SCENEFORGE_MONTHLY_PATH", yearly: "FASTSPRING_SCENEFORGE_YEARLY_PATH" },
     limits: { finalExportsPerWeek: null, shortExportsPerWeek: null, longExportsPerWeek: null,
-      maxShortMinutes: null, maxLongMinutes: null, projectCapacity: null, visualResearchCapacity: "high",
+      maxShortMinutes: null, maxLongMinutes: null, maxConcurrentDevices: 5, projectCapacity: null, visualResearchCapacity: "high",
       voicePresets: null, captionStyles: null, backgroundMusicTracks: null, audioVisualiserStyles: null },
     features: PAID_FEATURES,
   },

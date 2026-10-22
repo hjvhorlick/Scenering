@@ -47,6 +47,7 @@ import { stretchFullVideoMedia } from "./lib/render-visualizers";
 import InsertPropertiesModal from "./components/InsertPropertiesModal";
 import sceneringLogo from "./assets/scenering-logo.png";
 import { supabase, EDGE_FUNCTION_BASE } from "./lib/supabase";
+import { WORKSPACE_UPDATED_EVENT } from "./lib/workspace-sync";
 
 import { loadCustomVideos } from "./lib/custom-video";
 import { TRANSCRIPT_KEYS, projectHasNarration } from "./lib/clip-transcript";
@@ -924,6 +925,21 @@ export default function App() {
 
   useEffect(() => {
     fetchProjects();
+  }, [fetchProjects]);
+
+  /* Another device (or another tab) changed the shared workspace: the server
+     sync in src/lib/workspace-sync.ts has written it into localStorage, so the
+     list on screen is reloaded rather than left showing yesterday's projects.
+     The scene list is reloaded the same way when the open project's scenes
+     arrive from elsewhere. */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const refresh = (event: Event) => {
+      const key = String((event as CustomEvent).detail?.key || "");
+      if (key === "scenering_projects_v1") void fetchProjects();
+    };
+    window.addEventListener(WORKSPACE_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(WORKSPACE_UPDATED_EVENT, refresh);
   }, [fetchProjects]);
 
   /**

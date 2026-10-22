@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { deviceHeaders } from "./device";
+import { adoptWorkspace, startWorkspaceSync, stopWorkspaceSync } from "./workspace-sync";
 import type { PlanSlug } from "../config/plans";
 
 export interface AccountSession {
@@ -45,20 +47,24 @@ if (typeof window !== "undefined" && typeof window.fetch === "function" && !(win
   const nativeFetch = window.fetch.bind(window);
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     const token = readStoredSessionToken();
-    if (token) {
-      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      const isSameOriginApi =
-        urlStr.startsWith("/api/") ||
-        urlStr.startsWith("/functions/v1/") ||
-        urlStr.startsWith(`${window.location.origin}/api/`) ||
-        urlStr.startsWith(`${window.location.origin}/functions/v1/`);
-      if (isSameOriginApi) {
-        const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
-        if (!headers.has("X-Scenering-Session")) {
-          headers.set("X-Scenering-Session", token);
-        }
-        return nativeFetch(input, { ...init, headers });
+    const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const isSameOriginApi =
+      urlStr.startsWith("/api/") ||
+      urlStr.startsWith("/functions/v1/") ||
+      urlStr.startsWith(`${window.location.origin}/api/`) ||
+      urlStr.startsWith(`${window.location.origin}/functions/v1/`);
+    if (isSameOriginApi) {
+      // The device headers go on every same-origin API call, signed in or
+      // not: the sign-in request itself is what binds a session to a machine,
+      // so that a plan's device limit can be counted server-side.
+      const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+      for (const [name, value] of Object.entries(deviceHeaders())) {
+        if (value && !headers.has(name)) headers.set(name, value);
       }
+      if (token && !headers.has("X-Scenering-Session")) {
+        headers.set("X-Scenering-Session", token);
+      }
+      return nativeFetch(input, { ...init, headers });
     }
     return nativeFetch(input, init);
   };
@@ -88,9 +94,25 @@ async function jsonRequest(url: string, options?: RequestInit) {
   return data;
 }
 
+/**
+ * A signed-in studio keeps its workspace in step with the member's other
+ * devices. Signing out stops the conversation — and switching to a different
+ * account on the same computer starts a fresh one for that account rather
+ * than carrying the previous member's projects across.
+ */
+function beginWorkspaceSync(account: AccountSession | null) {
+  const userId = account?.user?.id;
+  if (!userId) { stopWorkspaceSync(); return; }
+  void adoptWorkspace(userId).then(() => startWorkspaceSync());
+}
+
 export async function refreshSession(): Promise<AccountSession | null> {
   if (pending) return pending;
-  pending = jsonRequest("/api/auth/session").then((data) => { current = data; return current; }).catch(() => { current = null; return null; }).finally(() => { checked = true; pending = null; announce(); });
+  pending = jsonRequest("/api/auth/session").then((data) => {
+    current = data;
+    beginWorkspaceSync(current);
+    return current;
+  }).catch(() => { current = null; beginWorkspaceSync(null); return null; }).finally(() => { checked = true; pending = null; announce(); });
   return pending;
 }
 export function isSignedIn() { return Boolean(current); }
@@ -117,6 +139,7 @@ export async function signIn(email: string, password: string) {
   }
   current = data;
   checked = true;
+  beginWorkspaceSync(current);
   announce();
   return current;
 }
@@ -127,6 +150,7 @@ export async function signOut() {
   writeStoredSessionToken("signed-out");
   current = null;
   checked = true;
+  stopWorkspaceSync();
   announce();
 }
 

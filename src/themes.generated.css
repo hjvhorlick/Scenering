@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 608 utility
+   Colour matrix for every non-classic theme. 609 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -173,6 +173,9 @@ html[data-theme="apple"] .bg-emerald-400 {
 }
 html[data-theme="apple"] .bg-emerald-500 {
   background-color: rgb(147 224 198 / 1);
+}
+html[data-theme="apple"] .bg-emerald-500\/15 {
+  background-color: rgb(147 224 198 / 0.15);
 }
 html[data-theme="apple"] .bg-emerald-600 {
   background-color: rgb(143 208 188 / 1);
@@ -2049,6 +2052,9 @@ html[data-theme="windows"] .bg-emerald-400 {
 html[data-theme="windows"] .bg-emerald-500 {
   background-color: rgb(26 175 126 / 1);
 }
+html[data-theme="windows"] .bg-emerald-500\/15 {
+  background-color: rgb(26 175 126 / 0.15);
+}
 html[data-theme="windows"] .bg-emerald-600 {
   background-color: rgb(14 141 102 / 1);
 }
@@ -3923,6 +3929,9 @@ html[data-theme="playful"] .bg-emerald-400 {
 }
 html[data-theme="playful"] .bg-emerald-500 {
   background-color: rgb(0 205 137 / 1);
+}
+html[data-theme="playful"] .bg-emerald-500\/15 {
+  background-color: rgb(0 205 137 / 0.15);
 }
 html[data-theme="playful"] .bg-emerald-600 {
   background-color: rgb(0 158 109 / 1);
@@ -5799,6 +5808,9 @@ html[data-theme="glass"] .bg-emerald-400 {
 html[data-theme="glass"] .bg-emerald-500 {
   background-color: rgb(177 232 214 / 1);
 }
+html[data-theme="glass"] .bg-emerald-500\/15 {
+  background-color: rgb(177 232 214 / 0.15);
+}
 html[data-theme="glass"] .bg-emerald-600 {
   background-color: rgb(173 221 206 / 1);
 }
@@ -7673,6 +7685,9 @@ html[data-theme="porcelain"] .bg-emerald-400 {
 }
 html[data-theme="porcelain"] .bg-emerald-500 {
   background-color: rgb(136 220 192 / 1);
+}
+html[data-theme="porcelain"] .bg-emerald-500\/15 {
+  background-color: rgb(136 220 192 / 0.15);
 }
 html[data-theme="porcelain"] .bg-emerald-600 {
   background-color: rgb(130 203 180 / 1);

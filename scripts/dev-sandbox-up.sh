@@ -10,7 +10,11 @@ npx wrangler d1 migrations apply scenering-db --local >/dev/null 2>&1 || true
 # Ensure .dev.vars exists for local workerd dev
 if [ ! -f .dev.vars ]; then
   cat > .dev.vars <<'EOF'
-SCENERING_AUTH_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+# The server reads SESSION_SECRET. SCENERING_AUTH_SECRET is accepted as a
+# legacy alias, but setting the wrong name used to leave a deployed server on
+# the built-in development secret.
+NODE_ENV=development
+SESSION_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 EMAIL_PROVIDER=console
 FASTSPRING_STOREFRONT=
 EOF

@@ -333,8 +333,15 @@ Then:
    copy its signing secret into `RESEND_WEBHOOK_SECRET`. The scheduled-send
    queue drains on the five-minute Cron Trigger — no further wiring needed.
 7. **Migrations** — `wrangler d1 migrations apply scenering-db --remote`
+   (`0007_devices_workspace.sql` adds the per-device session columns and the
+   `workspace_documents` table that keeps a member's projects in step across
+   devices; without it the device limits cannot be enforced and nothing syncs)
    (the setup script does this; re-run after adding a migration).
-8. **Inbox email (vincent@scenering.com)** — one-time setup in the dashboard:
+8. **`NODE_ENV`** — already `production` in `wrangler.jsonc`. Leave it. Every
+   development affordance (inline verification/reset links, auto-owner
+   sessions, sandbox provisioning) is gated on an explicit `development`/`test`,
+   and the runtime treats an unset value as production.
+9. **Inbox email (vincent@scenering.com)** — one-time setup in the dashboard:
    **Compute → Email Service → Email Routing → Onboard Domain**, choose
    `scenering.com` (Cloudflare adds the MX, SPF and DKIM records; they do not
    clash with Resend's records, which live on the `send` subdomain).

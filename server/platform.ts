@@ -16,6 +16,7 @@ import { inboxSummarySafe, recordContactFormMessage } from "./inbox-core.ts";
 import { claimGiftCode } from "./gift-codes.ts";
 import { giftEndsAt, isGiftLength } from "../src/lib/gift-lengths.ts";
 import { rateLimit as kvRateLimit } from "../src/rate-limiter.ts";
+import { isDevelopmentRuntime, isProductionRuntime, runtimeMode } from "../src/runtime-mode.ts";
 
 /**
  * The social profiles the owner can publish on the site and in the app.
@@ -88,9 +89,20 @@ const now = () => new Date().toISOString();
 export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const DEVELOPMENT_SESSION_SECRET = "scenering-local-development-secret";
-function isProduction() { return env().NODE_ENV === "production"; }
+/**
+ * Production is the default; `NODE_ENV=development`/`test` must be explicit.
+ * See src/runtime-mode.ts — a missing variable used to make a deployed server
+ * behave like a development box, which is how password-reset links could be
+ * handed back in an API response.
+ */
+function isProduction() { return isProductionRuntime(env()); }
 function sessionSecret() {
-  const secret = env().SESSION_SECRET || (!isProduction() ? DEVELOPMENT_SESSION_SECRET : "");
+  /* SESSION_SECRET is the name the deployment scripts set. The legacy
+     SCENERING_AUTH_SECRET alias is still honoured so an older local
+     .dev.vars keeps working, but it is never a substitute for the real
+     secret in production. */
+  const configured = env().SESSION_SECRET || env().SCENERING_AUTH_SECRET;
+  const secret = configured || (!isProduction() ? DEVELOPMENT_SESSION_SECRET : "");
   if (!secret || (isProduction() && secret.length < 32)) throw new Error("SESSION_SECRET must be a unique production secret of at least 32 characters");
   return secret;
 }
@@ -298,6 +310,78 @@ function apiGrant(grant: import("../src/db.ts").ComplimentaryGrant | null) {
  *  next request. DEV_EMBEDDED_PREVIEW=1 (never set in production; ignored
  *  there) switches to SameSite=None; Secure so the preview behaves like the
  *  deployed site. */
+/**
+ * Which device is asking, and how many devices this membership may have open.
+ *
+ * A plan's device benefit is a real limit, so it is enforced here rather than
+ * in the browser: the studio sends a random id it keeps for itself (see
+ * src/lib/device.ts), and a session that arrives without one is pinned to a
+ * fingerprint of its user agent and language so two copies of the same
+ * browser on different machines still count as two devices rather than one.
+ * A phone is not exempt — it is a device.
+ */
+type DeviceIdentity = { id: string; label: string; platform: "mobile" | "tablet" | "desktop" };
+
+function devicePlatformFromAgent(userAgent: string): DeviceIdentity["platform"] {
+  const ua = userAgent.toLowerCase();
+  if (/ipad|tablet|playbook|silk|(android(?!.*mobile))/.test(ua)) return "tablet";
+  if (/iphone|ipod|android|blackberry|iemobile|opera mini|mobile/.test(ua)) return "mobile";
+  return "desktop";
+}
+
+function requestDevice(req: Request): DeviceIdentity {
+  const body: any = (req as any).body || {};
+  const header = (name: string) => String(req.headers[name] || "").trim().slice(0, 120);
+  const agent = String(req.headers["user-agent"] || "");
+  const supplied = String(body.deviceId || header("x-scenering-device") || "").trim();
+  const id = /^[A-Za-z0-9_-]{8,80}$/.test(supplied)
+    ? supplied
+    : `ua-${hashToken(`${agent}|${String(req.headers["accept-language"] || "")}`).slice(0, 40)}`;
+  const label = String(body.deviceLabel || header("x-scenering-device-label") || "").trim().slice(0, 80);
+  const requestedPlatform = String(body.platform || header("x-scenering-platform") || "").trim();
+  const platform = requestedPlatform === "mobile" || requestedPlatform === "tablet" || requestedPlatform === "desktop"
+    ? requestedPlatform as DeviceIdentity["platform"]
+    : devicePlatformFromAgent(agent);
+  return { id, label: label || `A ${platform} browser`, platform };
+}
+
+/**
+ * Hold this membership to its plan's device count: keep the sessions used most
+ * recently (always including the caller's own) and sign the rest out.
+ * Returns how many other devices were signed out, so the sign-in screen can
+ * say so instead of a machine simply stopping mid-session with no explanation.
+ */
+async function claimDeviceSeat(userId: string, plan: PlanSlug, sessionId?: string): Promise<{ evicted: number; limit: number }> {
+  const limit = getPlanConfig(plan).limits.maxConcurrentDevices;
+  if (!Number.isFinite(limit) || limit <= 0) return { evicted: 0, limit };
+  const sessions = await db.listActiveSessionsForUser(userId);
+  /* A device may hold more than one session — signing in again on the same
+     browser, or a second tab — and that is still one device. Sessions are
+     ordered most recently used first, so the first one seen for a device is
+     the one that counts and the rest of that device's sessions are kept. */
+  const devices: Array<{ deviceId: string; sessions: typeof sessions }> = [];
+  for (const session of sessions) {
+    const key = session.deviceId || session.id;
+    const existing = devices.find((entry) => entry.deviceId === key);
+    if (existing) existing.sessions.push(session);
+    else devices.push({ deviceId: key, sessions: [session] });
+  }
+  if (devices.length <= limit) return { evicted: 0, limit };
+  const keep = devices.slice(0, limit);
+  if (sessionId && !keep.some((entry) => entry.sessions.some((session) => session.id === sessionId))) {
+    const current = devices.find((entry) => entry.sessions.some((session) => session.id === sessionId));
+    if (current) keep[keep.length - 1] = current;
+  }
+  const keepIds = new Set(keep.flatMap((entry) => entry.sessions.map((session) => session.id)));
+  let evicted = 0;
+  for (const session of sessions) {
+    if (keepIds.has(session.id)) continue;
+    await db.deleteSessionById(session.id);
+    evicted += 1;
+  }
+  return { evicted, limit };
+}
+
 function sessionCookieAttributes() {
   if (!isProduction() && env().DEV_EMBEDDED_PREVIEW === "1") return "Path=/; HttpOnly; SameSite=None; Secure";
   return `Path=/; HttpOnly; SameSite=Lax${isProduction() ? "; Secure" : ""}`;
@@ -313,7 +397,7 @@ function sessionTokenFromRequest(req: Request): string {
   return "";
 }
 
-type Auth = { user: User; plan: PlanSlug };
+type Auth = { user: User; plan: PlanSlug; sessionId?: string; deviceId?: string | null };
 
 /** Resolves the signed-in user (and plan) for a request, or null. Exported
  *  for the Email Centre's preference endpoints, which accept EITHER a
@@ -330,7 +414,15 @@ export async function findSession(req: Request): Promise<Auth | null> {
     if (user) {
       const resolved = await ensureOwnerPrivileges(user);
       if (resolved.isVerified) {
-        return { user: resolved, plan: await getUserPlan(resolved) };
+        // Remember when this device was last used, so a plan's device limit
+        // signs out the machine that has been idle longest rather than the
+        // one the person happened to open a week ago. Written at most every
+        // ten minutes: a busy studio must not cost a row per request.
+        if (session) {
+          const lastSeen = session.lastSeenAt ? Date.parse(session.lastSeenAt) : 0;
+          if (!lastSeen || Date.now() - lastSeen > 10 * 60_000) void db.touchSession(session.id).catch(() => {});
+        }
+        return { user: resolved, plan: await getUserPlan(resolved), sessionId: session?.id, deviceId: session?.deviceId ?? null };
       }
       // Revoke any legacy session that belongs to an unverified account. This
       // prevents it becoming usable if verification state changes later.
@@ -413,11 +505,20 @@ async function remainingUsage(userId: string, plan: PlanSlug) {
     longExports: config.limits.longExportsPerWeek == null ? null : Math.max(0, config.limits.longExportsPerWeek - longCount),
   };
 }
-async function canExport(userId: string, plan: PlanSlug, duration: number, format: "short" | "long") {
+async function canExport(
+  userId: string,
+  plan: PlanSlug,
+  duration: number,
+  format: "short" | "long",
+  options: { excludeReservationId?: string } = {},
+) {
   await db.expireStaleReservations();
   const config = getPlanConfig(plan);
   const rows = await db.listUsageSince(userId, weekStart().toISOString());
-  const reserved = await db.listReservedSince(userId, weekStart().toISOString());
+  // The reservation being completed is itself "reserved" until the moment it
+  // completes, so it must not be counted against its own allowance.
+  const reserved = (await db.listReservedSince(userId, weekStart().toISOString()))
+    .filter((reservation) => reservation.id !== options.excludeReservationId);
   if (config.id === "free") {
     const shortUsed = rows.filter((r) => r.format === "short" || (!r.format && r.durationMinutes <= 1)).length + reserved.filter((r) => r.format === "short").length;
     const longUsed = (rows.length - rows.filter((r) => r.format === "short" || (!r.format && r.durationMinutes <= 1)).length) + reserved.filter((r) => r.format === "long").length;
@@ -435,15 +536,29 @@ function parseCreativeManifest(value: unknown): ExportCreativeManifest | null {
   return { features: features as FeatureKey[], voice: input.voice.slice(0, 100), captionStyle: input.captionStyle.slice(0, 100), backgroundMusic, audioVisualisers, callsToAction };
 }
 
-async function accountPayload(user: User) {
+async function accountPayload(user: User, current: { sessionId?: string; deviceId?: string } = {}) {
   const plan = await getUserPlan(user);
-  const [usage, remaining, subscription, membership, resolvedFastSpringCustomer] = await Promise.all([
+  const [usage, remaining, subscription, membership, resolvedFastSpringCustomer, sessions] = await Promise.all([
     weeklyUsage(user.id), remainingUsage(user.id, plan), subscriptionForUser(user.id), effectiveMembership(user, plan), resolveFastSpringCustomerForUser(user),
+    db.listActiveSessionsForUser(user.id).catch(() => []),
   ]);
+  const deviceLimit = getPlanConfig(plan).limits.maxConcurrentDevices;
+  // Where this membership is signed in — the panel a member checks when they
+  // are about to be signed out on an old laptop they no longer use.
+  const devices = sessions.map((session) => ({
+    label: session.deviceLabel || "Browser",
+    platform: session.platform || "desktop",
+    lastSeenAt: session.lastSeenAt || session.createdAt,
+    current: Boolean(current.sessionId && session.id === current.sessionId) || (!current.sessionId && Boolean(current.deviceId && session.deviceId === current.deviceId)),
+  }));
   // `subscription` goes out in the API's snake_case wire format
   // (apiSubscription) — the same shape the membership object uses and the
   // account modal's TypeScript interface declares.
-  return { user: safeUser(user), membership, subscription: apiSubscription(subscription), has_billing_customer: Boolean(resolvedFastSpringCustomer), plan: getPlanConfig(plan), usage, remaining };
+  return {
+    user: safeUser(user), membership, subscription: apiSubscription(subscription),
+    has_billing_customer: Boolean(resolvedFastSpringCustomer), plan: getPlanConfig(plan), usage, remaining,
+    devices: { limit: deviceLimit, active: devices.length, list: devices },
+  };
 }
 
 /**
@@ -1122,8 +1237,15 @@ export function registerPlatformRoutes(app: Express) {
     } catch (err: any) {
       console.warn("[auth] verification email could not be sent:", err?.message || err);
     }
-    // Keep the existing client-side inline verification flow available in production.
-    return res.status(201).json({ message: "Account created. Check your email to verify it.", requiresVerification: true, developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(raw)}` });
+    /* The link belongs in the email and nowhere else. It used to be returned
+       to the caller unconditionally, which let anyone create an account and
+       verify it without ever reading the mailbox — one throwaway address per
+       Free allowance. Development keeps the shortcut; production does not. */
+    return res.status(201).json({
+      message: "Account created. Check your email to verify it.",
+      requiresVerification: true,
+      ...(isDevelopmentRuntime(env()) ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(raw)}` } : {}),
+    });
   }));
 
   app.post("/api/auth/login", rateLimit("login", 12, 900000), asyncHandlerVoid(async (req, res) => {
@@ -1165,14 +1287,20 @@ export function registerPlatformRoutes(app: Express) {
       return res.status(403).json({
         error: "Verify your email before signing in.",
         code: "EMAIL_UNVERIFIED",
-        developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(rawVerify)}`,
+        ...(isDevelopmentRuntime(env()) ? { developmentVerificationUrl: `/verify-email?token=${encodeURIComponent(rawVerify)}` } : {}),
       });
     }
+    const device = requestDevice(req);
     const raw = randomBytes(32).toString("base64url");
-    await db.createSession(user.id, hashToken(raw), new Date(Date.now() + 24 * 30 * 3600000).toISOString());
+    const session = await db.createSession(user.id, hashToken(raw), new Date(Date.now() + 24 * 30 * 3600000).toISOString(), device);
     setSessionCookie(res, raw);
-    const payload = await accountPayload(user);
-    return res.json({ ...payload, sessionToken: raw });
+    // One membership, but not unlimited machines: the plan decides how many
+    // devices may be open at once, and the device that has been idle longest
+    // gives up its place. Signing in again on the same browser replaces its
+    // own session, so one person on one device never loses their seat.
+    const { evicted, limit } = await claimDeviceSeat(user.id, await getUserPlan(user), session.id);
+    const payload = await accountPayload(user, { sessionId: session.id, deviceId: device.id });
+    return res.json({ ...payload, sessionToken: raw, deviceLimit: limit, devicesSignedOut: evicted });
   }));
 
   app.post("/api/auth/logout", asyncHandlerVoid(async (req, res) => {
@@ -1183,7 +1311,13 @@ export function registerPlatformRoutes(app: Express) {
 
   app.get("/api/auth/session", asyncHandlerVoid(async (req, res) => {
     const auth = await findSession(req);
-    return auth ? res.json(await accountPayload(auth.user)) : res.status(401).json({ error: "No active session" });
+    if (!auth) return res.status(401).json({ error: "No active session" });
+    /* Opening the studio is the moment a device asks for its place. Enforcing
+       the plan's device count here as well as at sign-in means a membership
+       that lapses from SceneFlow to Free cannot keep two machines open just
+       because they were signed in while it was paid. */
+    if (auth.sessionId) await claimDeviceSeat(auth.user.id, auth.plan, auth.sessionId);
+    return res.json(await accountPayload(auth.user, { sessionId: auth.sessionId, deviceId: auth.deviceId ?? undefined }));
   }));
 
   app.post("/api/auth/verify-email", rateLimit("verify", 10, 3600000), asyncHandlerVoid(async (req, res) => {
@@ -1213,7 +1347,10 @@ export function registerPlatformRoutes(app: Express) {
         console.warn("[auth] resend verification email could not be sent:", err?.message || err);
       }
     }
-    const includeDevUrl = (!isProduction() || fastspringEnvironment() === "test" || !emailDelivered) && Boolean(developmentVerificationUrl);
+    /* Never in production — including when the mail provider fails, and
+       including a test storefront. Returning the token when delivery failed
+       would hand a password-reset link to whoever asked for it. */
+    const includeDevUrl = !isProduction() && Boolean(developmentVerificationUrl);
     res.json({ message: "If the account exists, a verification message has been sent.", ...(includeDevUrl ? { developmentVerificationUrl } : {}) });
   }));
 
@@ -1234,7 +1371,7 @@ export function registerPlatformRoutes(app: Express) {
         console.warn("[auth] password reset email could not be sent:", err?.message || err);
       }
     }
-    const includeDevUrl = (!isProduction() || fastspringEnvironment() === "test" || !emailDelivered) && Boolean(developmentResetUrl);
+    const includeDevUrl = !isProduction() && Boolean(developmentResetUrl);
     res.json({ message: "If the account exists, a password-reset message has been sent.", ...(includeDevUrl ? { developmentResetUrl } : {}) });
   }));
 
@@ -1252,7 +1389,10 @@ export function registerPlatformRoutes(app: Express) {
     return res.json({ message: "Password updated. Sign in with your new password." });
   }));
 
-  app.get("/api/account", requireUser, asyncHandlerVoid(async (req, res) => { const { user } = (req as any).auth as Auth; res.json(await accountPayload(user)); }));
+  app.get("/api/account", requireUser, asyncHandlerVoid(async (req, res) => {
+    const { user, sessionId, deviceId } = (req as any).auth as Auth;
+    res.json(await accountPayload(user, { sessionId, deviceId: deviceId ?? undefined }));
+  }));
   app.get("/api/entitlements", requireUser, asyncHandlerVoid(async (req, res) => { const { user, plan } = (req as any).auth as Auth; res.json({ plan, entitlements: getPlanConfig(plan), usage: await weeklyUsage(user.id), remaining: await remainingUsage(user.id, plan) }); }));
   app.get("/api/entitlements/:feature", requireUser, (req, res) => { const { plan } = (req as any).auth as Auth; const feature = req.params.feature as FeatureKey; if (!(feature in PLAN_CONFIG.free.features)) return res.status(404).json({ error: "Unknown feature" }); res.json({ allowed: canPlanUseFeature(plan, feature), plan }); });
 
@@ -1272,12 +1412,26 @@ export function registerPlatformRoutes(app: Express) {
     return res.status(201).json({ reservationId: reservation.id, expiresAt: reservation.expiresAt });
   }));
   app.post("/api/usage/final-export/complete", requireUser, rateLimit("export-complete", 60, 3600000), asyncHandlerVoid(async (req, res) => {
-    const { user } = (req as any).auth as Auth; const reservationId = String(req.body?.reservationId || "");
+    const { user, plan } = (req as any).auth as Auth; const reservationId = String(req.body?.reservationId || "");
     const row = await db.findExportReservation(reservationId, user.id);
     if (!row) return res.status(404).json({ error: "Export reservation not found" });
     if (row.status === "completed") return res.json({ recorded: true });
     if (row.status !== "reserved") return res.status(409).json({ error: "Export reservation is no longer valid" });
-    await db.completeExportReservation(row.id);
+    if (Date.parse(row.expiresAt) <= Date.now()) {
+      await db.cancelExportReservation(row.id);
+      return res.status(409).json({ error: "This export reservation has expired. Start the export again.", code: "RESERVATION_EXPIRED" });
+    }
+    /* Reserve, then complete, is two steps with a render in between, so the
+       plan's remaining allowance is checked again here against the week the
+       usage row will actually land in. Without this, several reservations
+       could be opened while one export was left, and all of them completed. */
+    if (!(await canExport(user.id, plan, row.durationMinutes, row.format, { excludeReservationId: row.id }))) {
+      await db.cancelExportReservation(row.id);
+      return res.status(403).json({ error: "Your final-export allowance has been reached. Previews remain unlimited." });
+    }
+    if (!(await db.completeExportReservation(row.id))) {
+      return res.status(409).json({ error: "This export reservation was already used or has expired.", code: "RESERVATION_NOT_COMPLETABLE" });
+    }
     await db.createUsageRecord({ userId: user.id, kind: "final_export", durationMinutes: row.durationMinutes, format: row.format, projectId: row.projectId, reservationId: row.id });
     return res.json({ recorded: true });
   }));
@@ -1287,13 +1441,18 @@ export function registerPlatformRoutes(app: Express) {
     if (row && row.status === "reserved") await db.cancelExportReservation(row.id);
     res.json({ cancelled: true });
   }));
-  app.post("/api/usage/final-export", requireUser, asyncHandlerVoid(async (req, res) => {
-    const { user, plan } = (req as any).auth as Auth; const duration = Number(req.body?.durationMinutes); const format = req.body?.format === "short" ? "short" : "long";
-    if (!(duration > 0)) return res.status(400).json({ error: "Valid duration required" });
-    if (!(await canExport(user.id, plan, duration, format))) return res.status(403).json({ error: "Your final-export allowance has been reached. Previews remain unlimited." });
-    await db.createUsageRecord({ userId: user.id, kind: "final_export", durationMinutes: duration, format, projectId: String(req.body?.projectId || "") || null, reservationId: null });
-    return res.status(201).json({ recorded: true });
-  }));
+  /* REMOVED deliberately (2026-10): this legacy endpoint recorded an export
+     from nothing but a client-supplied duration and format. It never called
+     validateExportCreativeManifest, never reserved anything, and never
+     checked the plan's length ceilings or the Free Shorts/long split — so an
+     older client, or a script, could record exports without the plan's
+     creative policy being applied at all. Nothing in this repository calls
+     it: the studio reserves (which validates), renders, then completes, and
+     every download goes through /api/usage/download. A 410 makes the reason
+     explicit instead of pretending the route exists. */
+  app.post("/api/usage/final-export", (_req, res) => {
+    res.status(410).json({ error: "This endpoint has been retired. Use /api/usage/final-export/reserve, then /api/usage/final-export/complete.", code: "ENDPOINT_RETIRED" });
+  });
 
   /* ONE DOWNLOAD = ONE USE OF THE PLAN'S WEEKLY ALLOWANCE.
      Rendering is free: a finished render waits in the Vault, and the Vault's
@@ -1306,10 +1465,24 @@ export function registerPlatformRoutes(app: Express) {
      00:00 UTC, the same week remainingUsage() reports. */
   app.post("/api/usage/download", requireUser, rateLimit("download", 60, 3600000), asyncHandlerVoid(async (req, res) => {
     const { user, plan } = (req as any).auth as Auth;
-    const duration = Number(req.body?.durationMinutes);
+    /* A download that can name the export reservation it came from is counted
+       from the server's own record of that render — the duration and format
+       it authorised — instead of a number retyped later. The studio sends the
+       reservation id with every Vault download; a render made before this
+       existed still falls back to the reported duration. */
+    const reservationId = String(req.body?.reservationId || "").slice(0, 80);
+    let duration = Number(req.body?.durationMinutes);
+    let reservationFormat: "short" | "long" | null = null;
+    if (reservationId) {
+      const reservation = await db.findExportReservation(reservationId, user.id);
+      if (reservation && reservation.status === "completed") {
+        duration = reservation.durationMinutes;
+        reservationFormat = reservation.format;
+      }
+    }
     if (!Number.isFinite(duration) || duration <= 0 || duration > 1440) return res.status(400).json({ error: "Valid duration required" });
     // Derived here, never taken from the browser: one minute or less is a Short.
-    const format: "short" | "long" = duration <= 1 ? "short" : "long";
+    const format: "short" | "long" = reservationFormat ?? (duration <= 1 ? "short" : "long");
     const projectId = String(req.body?.projectId || "").slice(0, 200) || null;
     const config = getPlanConfig(plan);
     const refuse = async (error: string) =>

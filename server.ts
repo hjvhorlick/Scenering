@@ -2,6 +2,7 @@ import express from "express";
 import { NATURE_FALLBACKS } from "./src/data/nature-fallbacks.ts";
 import { randomBytes } from "node:crypto";
 import { env } from "./src/env.ts";
+import { isDevelopmentRuntime, isProductionRuntime } from "./src/runtime-mode.ts";
 import { audioStore } from "./src/audio-store.ts";
 import {
   assertSecurePlatformConfiguration,
@@ -13,6 +14,7 @@ import {
 import { registerEmailCentreRoutes, registerResendWebhook } from "./server/email-centre.ts";
 import { registerInboxRoutes } from "./server/inbox.ts";
 import { registerMembersRoutes } from "./server/members.ts";
+import { registerWorkspaceRoutes } from "./server/workspace.ts";
 import { registerProgramRoutes } from "./server/programs.ts";
 import {
   pexelsPhotoToCandidate,
@@ -278,7 +280,7 @@ export function createApp(): express.Express {
   // call with method, path, status and whether a session cookie arrived —
   // for diagnosing embedded-preview cookie behaviour. Never runs in
   // production.
-  if (env().NODE_ENV !== "production" && env().DEV_REQUEST_LOG === "1") {
+  if (isDevelopmentRuntime(env()) && env().DEV_REQUEST_LOG === "1") {
     app.use((req, res, next) => {
       if (!req.path.startsWith("/api/")) return next();
       const hasCookie = /scenering_session=/.test(String(req.headers.cookie || ""));
@@ -294,14 +296,14 @@ export function createApp(): express.Express {
     res.setHeader("X-Content-Type-Options", "nosniff");
     // Framing stays forbidden everywhere except an explicitly opted-in local
     // preview (sandbox/container iframes), which must never be production.
-    if (env().NODE_ENV === "production" || env().ALLOW_FRAMING !== "1") {
+    if (isProductionRuntime(env()) || env().ALLOW_FRAMING !== "1") {
       res.setHeader("X-Frame-Options", "DENY");
     }
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-    if (env().NODE_ENV === "production") {
+    if (isProductionRuntime(env())) {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
       /* Three hosts and one keyword exist for on-device captions
          (src/lib/speech-to-text.ts), and each is narrower than it looks:
@@ -343,7 +345,7 @@ export function createApp(): express.Express {
       // Development servers are reached through preview proxies, so a rejection
       // here is usually a misconfigured tunnel rather than an attack. Record
       // what actually arrived; production stays silent.
-      if (env().NODE_ENV !== "production") console.warn(`[origin-guard] rejected ${req.method} ${req.originalUrl} origin=${origin} host=${requestHost} x-forwarded-host=${forwardedHost || "-"}`);
+      if (isDevelopmentRuntime(env())) console.warn(`[origin-guard] rejected ${req.method} ${req.originalUrl} origin=${origin} host=${requestHost} x-forwarded-host=${forwardedHost || "-"}`);
       return res.status(403).json({ error: "Cross-origin request rejected" });
     }
     next();
@@ -364,6 +366,9 @@ export function createApp(): express.Express {
     return standardJson(req, res, next);
   });
   registerPlatformRoutes(app);
+  // The workspace repository: a member's projects, scenes and per-project
+  // documents, so every device signed in to the membership sees the same work
+  // (server/workspace.ts).
   // The Admin Email Centre (marketing templates, campaigns, consented
   // audiences, public unsubscribe/preferences endpoints) — registered after
   // the JSON parser, mounted on the same admin middleware the owner's other
