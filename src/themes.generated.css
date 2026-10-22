@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 603 utility
+   Colour matrix for every non-classic theme. 607 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -1163,6 +1163,9 @@ html[data-theme="apple"] .hover\:bg-amber-800\/50:hover {
 html[data-theme="apple"] .hover\:bg-amber-900:hover {
   background-color: rgb(254 241 189 / 1);
 }
+html[data-theme="apple"] .hover\:bg-amber-900\/40:hover {
+  background-color: rgb(254 241 189 / 0.4);
+}
 html[data-theme="apple"] .hover\:bg-amber-900\/70:hover {
   background-color: rgb(254 241 189 / 0.7);
 }
@@ -1545,11 +1548,20 @@ html[data-theme="apple"] .text-amber-100\/80 {
 html[data-theme="apple"] .text-amber-100\/85 {
   color: rgb(180 83 9 / 0.85);
 }
+html[data-theme="apple"] .text-amber-100\/90 {
+  color: rgb(180 83 9 / 0.9);
+}
 html[data-theme="apple"] .text-amber-200 {
   color: rgb(180 83 9 / 1);
 }
+html[data-theme="apple"] .text-amber-200\/70 {
+  color: rgb(180 83 9 / 0.7);
+}
 html[data-theme="apple"] .text-amber-200\/80 {
   color: rgb(180 83 9 / 0.8);
+}
+html[data-theme="apple"] .text-amber-200\/90 {
+  color: rgb(180 83 9 / 0.9);
 }
 html[data-theme="apple"] .text-amber-300 {
   color: rgb(217 119 6 / 1);
@@ -3023,6 +3035,9 @@ html[data-theme="windows"] .hover\:bg-amber-800\/50:hover {
 html[data-theme="windows"] .hover\:bg-amber-900:hover {
   background-color: rgb(114 55 21 / 1);
 }
+html[data-theme="windows"] .hover\:bg-amber-900\/40:hover {
+  background-color: rgb(114 55 21 / 0.4);
+}
 html[data-theme="windows"] .hover\:bg-amber-900\/70:hover {
   background-color: rgb(114 55 21 / 0.7);
 }
@@ -3405,11 +3420,20 @@ html[data-theme="windows"] .text-amber-100\/80 {
 html[data-theme="windows"] .text-amber-100\/85 {
   color: rgb(251 241 202 / 0.85);
 }
+html[data-theme="windows"] .text-amber-100\/90 {
+  color: rgb(251 241 202 / 0.9);
+}
 html[data-theme="windows"] .text-amber-200 {
   color: rgb(246 226 145 / 1);
 }
+html[data-theme="windows"] .text-amber-200\/70 {
+  color: rgb(246 226 145 / 0.7);
+}
 html[data-theme="windows"] .text-amber-200\/80 {
   color: rgb(246 226 145 / 0.8);
+}
+html[data-theme="windows"] .text-amber-200\/90 {
+  color: rgb(246 226 145 / 0.9);
 }
 html[data-theme="windows"] .text-amber-300 {
   color: rgb(242 205 88 / 1);
@@ -4883,6 +4907,9 @@ html[data-theme="playful"] .hover\:bg-amber-800\/50:hover {
 html[data-theme="playful"] .hover\:bg-amber-900:hover {
   background-color: rgb(138 50 0 / 1);
 }
+html[data-theme="playful"] .hover\:bg-amber-900\/40:hover {
+  background-color: rgb(138 50 0 / 0.4);
+}
 html[data-theme="playful"] .hover\:bg-amber-900\/70:hover {
   background-color: rgb(138 50 0 / 0.7);
 }
@@ -5265,11 +5292,20 @@ html[data-theme="playful"] .text-amber-100\/80 {
 html[data-theme="playful"] .text-amber-100\/85 {
   color: rgb(255 245 207 / 0.85);
 }
+html[data-theme="playful"] .text-amber-100\/90 {
+  color: rgb(255 245 207 / 0.9);
+}
 html[data-theme="playful"] .text-amber-200 {
   color: rgb(255 233 144 / 1);
 }
+html[data-theme="playful"] .text-amber-200\/70 {
+  color: rgb(255 233 144 / 0.7);
+}
 html[data-theme="playful"] .text-amber-200\/80 {
   color: rgb(255 233 144 / 0.8);
+}
+html[data-theme="playful"] .text-amber-200\/90 {
+  color: rgb(255 233 144 / 0.9);
 }
 html[data-theme="playful"] .text-amber-300 {
   color: rgb(255 214 81 / 1);
@@ -6743,6 +6779,9 @@ html[data-theme="glass"] .hover\:bg-amber-800\/50:hover {
 html[data-theme="glass"] .hover\:bg-amber-900:hover {
   background-color: rgb(254 245 207 / 1);
 }
+html[data-theme="glass"] .hover\:bg-amber-900\/40:hover {
+  background-color: rgb(254 245 207 / 0.4);
+}
 html[data-theme="glass"] .hover\:bg-amber-900\/70:hover {
   background-color: rgb(254 245 207 / 0.7);
 }
@@ -7125,11 +7164,20 @@ html[data-theme="glass"] .text-amber-100\/80 {
 html[data-theme="glass"] .text-amber-100\/85 {
   color: rgb(168 84 30 / 0.85);
 }
+html[data-theme="glass"] .text-amber-100\/90 {
+  color: rgb(168 84 30 / 0.9);
+}
 html[data-theme="glass"] .text-amber-200 {
   color: rgb(168 84 30 / 1);
 }
+html[data-theme="glass"] .text-amber-200\/70 {
+  color: rgb(168 84 30 / 0.7);
+}
 html[data-theme="glass"] .text-amber-200\/80 {
   color: rgb(168 84 30 / 0.8);
+}
+html[data-theme="glass"] .text-amber-200\/90 {
+  color: rgb(168 84 30 / 0.9);
 }
 html[data-theme="glass"] .text-amber-300 {
   color: rgb(199 114 28 / 1);
@@ -8603,6 +8651,9 @@ html[data-theme="porcelain"] .hover\:bg-amber-800\/50:hover {
 html[data-theme="porcelain"] .hover\:bg-amber-900:hover {
   background-color: rgb(254 240 185 / 1);
 }
+html[data-theme="porcelain"] .hover\:bg-amber-900\/40:hover {
+  background-color: rgb(254 240 185 / 0.4);
+}
 html[data-theme="porcelain"] .hover\:bg-amber-900\/70:hover {
   background-color: rgb(254 240 185 / 0.7);
 }
@@ -8985,11 +9036,20 @@ html[data-theme="porcelain"] .text-amber-100\/80 {
 html[data-theme="porcelain"] .text-amber-100\/85 {
   color: rgb(180 83 9 / 0.85);
 }
+html[data-theme="porcelain"] .text-amber-100\/90 {
+  color: rgb(180 83 9 / 0.9);
+}
 html[data-theme="porcelain"] .text-amber-200 {
   color: rgb(180 83 9 / 1);
 }
+html[data-theme="porcelain"] .text-amber-200\/70 {
+  color: rgb(180 83 9 / 0.7);
+}
 html[data-theme="porcelain"] .text-amber-200\/80 {
   color: rgb(180 83 9 / 0.8);
+}
+html[data-theme="porcelain"] .text-amber-200\/90 {
+  color: rgb(180 83 9 / 0.9);
 }
 html[data-theme="porcelain"] .text-amber-300 {
   color: rgb(217 119 6 / 1);

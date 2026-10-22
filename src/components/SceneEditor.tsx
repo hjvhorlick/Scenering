@@ -50,6 +50,7 @@ import {
   getTargetWordCount,
 } from "../lib/duration-utils";
 import Icon, { iconify } from "./icons/Icon";
+import StorageWarningNote from "./StorageWarningNote";
 
 /**
  * Swatches offered for a plain-colour scene.
@@ -1203,17 +1204,7 @@ export default function SceneEditor({
 
         {/* The clip works now, but could not be kept for the next visit. */}
         {storageWarning && (
-          <div className="text-[11px] text-amber-300 flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-amber-950/40 border border-amber-800/60">
-            <span>{storageWarning}</span>
-            <button
-              type="button"
-              onClick={() => setStorageWarning(null)}
-              className="text-amber-400/70 hover:text-white shrink-0"
-              title="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
+          <StorageWarningNote message={storageWarning} onDismiss={() => setStorageWarning(null)} />
         )}
 
         {/* Why an upload was refused — size, format or blocked storage. */}

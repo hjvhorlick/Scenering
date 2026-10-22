@@ -21,6 +21,7 @@ import SectionPreviewCanvas from "./SectionPreviewCanvas";
 import type { AspectRatioType } from "../types";
 import { sectionPreviewShape } from "../lib/section-preview-size";
 import Icon, { iconify } from "./icons/Icon";
+import StorageWarningNote from "./StorageWarningNote";
 import { addCustomImage } from "../lib/custom-image";
 import { addCustomMusic, CUSTOM_MUSIC_PREFIX } from "../lib/custom-music";
 import { addCustomVideo, CUSTOM_VIDEO_PREFIX, removeCustomVideo } from "../lib/custom-video";
@@ -406,17 +407,9 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
               )}
 
               {storageWarning && (
-                <p role="status" className="px-3 py-2 rounded-lg bg-amber-950/50 border border-amber-800/70 text-amber-200 text-[11px] flex items-start gap-2">
-                  <span className="flex-1">{storageWarning}</span>
-                  <button
-                    type="button"
-                    onClick={() => setStorageWarning(null)}
-                    className="text-amber-300/70 hover:text-white shrink-0"
-                    title="Dismiss"
-                  >
-                    ✕
-                  </button>
-                </p>
+                <div role="status">
+                  <StorageWarningNote message={storageWarning} onDismiss={() => setStorageWarning(null)} />
+                </div>
               )}
 
               {/* ------------------------ BACKGROUND ------------------------ */}

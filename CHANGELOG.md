@@ -2,6 +2,20 @@
 
 ## Unreleased — your own video, start to finish, with its sound and its captions
 
+- **A full device now says so, and offers the space back.** Chromium's
+  `Failed to write blobs (IOError)` is what a full disk looks like from inside
+  the browser, and it was being reported as a problem with the video. When the
+  allowance shows the file will not fit — or a 90% full origin — the message
+  now states plainly that the device is out of storage and that the video and
+  its format are fine. It also carries a **Free up space** button that clears
+  only what can be proven unused: uploaded clips no saved project references
+  and `.part` render files left behind by renders that were cancelled or lost
+  with their tab (the invisible ones — they can be gigabytes). Finished
+  renders, voiceovers and anything a project uses are never touched; the note
+  shows what the site is using, how much of it is Vault renders, and says that
+  deleting ones already downloaded frees the most. The brief "using 1.4 GB of
+  2.0 GB" line appears beside the warning, and the cleanup reports exactly
+  what it freed before inviting a retry.
 - **Fixed: a good clip was refused because the browser's storage said no.**
   Chromium reports a refused IndexedDB blob write as
   `Failed to write blobs (IOError)` — a message containing neither "quota" nor

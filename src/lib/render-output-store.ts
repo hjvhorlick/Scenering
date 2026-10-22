@@ -139,6 +139,9 @@ export class RenderStorageCapacityError extends Error {
   }
 }
 
+/** The scratch directory every render target lives in. */
+export const RENDER_SCRATCH_DIRECTORY = "scenering-render-output";
+
 /**
  * Opens a temporary Origin Private File System target. OPFS is private to the
  * site and does not show a save prompt; the finished File is still downloaded
@@ -182,7 +185,7 @@ export async function createOpfsOutputStore(expectedBytes: number): Promise<Opfs
   } catch {}
 
   const root = await storage.getDirectory();
-  const directory = await root.getDirectoryHandle("scenering-render-output", { create: true });
+  const directory = await root.getDirectoryHandle(RENDER_SCRATCH_DIRECTORY, { create: true });
   const random =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -204,6 +207,65 @@ export async function createOpfsOutputStore(expectedBytes: number): Promise<Opfs
   );
 
   return { store, availableBytes, persistent };
+}
+
+export interface ScratchCleanup {
+  files: number;
+  bytes: number;
+}
+
+/**
+ * Deletes `.part` files a render left behind.
+ *
+ * A finished render removes its own staging file, but a closed tab, a crash
+ * or a cancelled encode does not. Those files live on the same disk the
+ * browser needs for every upload, so an abandoned 900 MB render can make the
+ * next video upload fail with "Failed to write blobs (IOError)" — and the
+ * customer has no way to see, let alone clear, the space.
+ *
+ * `minAgeMs` keeps a render that is still running (in another tab, or in this
+ * one) out of harm's way; the default only touches files older than an hour.
+ */
+export async function clearStaleRenderScratch(minAgeMs = 60 * 60 * 1000): Promise<ScratchCleanup> {
+  const empty: ScratchCleanup = { files: 0, bytes: 0 };
+  const storage = typeof navigator === "object" ? (navigator.storage as StorageManager & {
+    getDirectory?: () => Promise<FileSystemDirectoryHandle>;
+  }) : undefined;
+  if (!storage || typeof storage.getDirectory !== "function") return empty;
+
+  try {
+    const root = await storage.getDirectory();
+    let directory: FileSystemDirectoryHandle;
+    try {
+      directory = await root.getDirectoryHandle(RENDER_SCRATCH_DIRECTORY);
+    } catch {
+      return empty; // no render has ever run here
+    }
+    const cutoff = Date.now() - Math.max(0, minAgeMs);
+    const removed: string[] = [];
+    let bytes = 0;
+    for await (const [name, handle] of directory.entries()) {
+      if (handle.kind !== "file" || !name.endsWith(".part")) continue;
+      try {
+        const file = await (handle as FileSystemFileHandle).getFile();
+        if (file.lastModified > cutoff) continue;
+        bytes += file.size;
+        removed.push(name);
+      } catch {
+        /* an unreadable entry is left alone */
+      }
+    }
+    for (const name of removed) {
+      try {
+        await directory.removeEntry(name);
+      } catch {
+        /* a locked file stays; the rest were still cleared */
+      }
+    }
+    return { files: removed.length, bytes };
+  } catch {
+    return empty;
+  }
 }
 
 export function estimateMuxedOutputBytes(config: {

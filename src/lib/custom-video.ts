@@ -225,6 +225,30 @@ function storeVideoRecord(
   });
 }
 
+/** Total bytes of every stored upload — for the "what is using space" line. */
+export async function storedVideoBytes(): Promise<number> {
+  try {
+    const all = await loadCustomVideos();
+    return all.reduce((sum, clip) => sum + (clip.size || 0), 0);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Reclaim old uploads that no saved project references, on request.
+ *
+ * The automatic path above runs after a failed write; this is the explicit
+ * "free up space" action, for a device where the browser has no room left at
+ * all. It deletes nothing a saved project points at, and nothing uploaded in
+ * this session.
+ */
+export async function pruneUnusedVideos(): Promise<number> {
+  const db = await openDb();
+  if (!db) return 0;
+  return pruneOrphanedVideos(db, new Set());
+}
+
 /**
  * Reclaim old uploads that no saved project references. This runs only after a
  * quota failure; normal uploads never scan or delete the customer's library.
@@ -296,6 +320,7 @@ interface StorageRoom {
   usage: number;
   quota: number;
   free: number;
+  usedRatio: number;
 }
 
 /** The origin's allowance, when the browser will say. */
@@ -305,7 +330,7 @@ async function storageRoom(): Promise<StorageRoom | null> {
     const quota = Number(estimate?.quota) || 0;
     const usage = Number(estimate?.usage) || 0;
     if (quota <= 0) return null;
-    return { usage, quota, free: Math.max(0, quota - usage) };
+    return { usage, quota, free: Math.max(0, quota - usage), usedRatio: Math.min(1, usage / quota) };
   } catch {
     return null;
   }
@@ -332,14 +357,21 @@ async function storageFailureMessage(
   const attempts = inlineTried
     ? " The browser refused the file both as a blob and as in-line data, so this is space rather than a browser quirk."
     : "";
+  // When the allowance looks healthy but the write still failed, the disk
+  // itself is the problem — the customer's phone or laptop is out of storage.
+  // Say that plainly: it is not the video, and no amount of converting helps.
+  const deviceFull = Boolean(room && room.quota > 0 && (room.free < fileSize || room.usedRatio > 0.9));
+  const cause = deviceFull
+    ? " This device is out of storage — the file could not be written to its disk. It is not a problem with the video or its format."
+    : "";
   const advice = sessionOnly
-    ? " The video is loaded for this tab, so you can continue now, but keep this tab open and download your finished work before closing it. To keep the upload after a refresh, free some space or choose a smaller file and upload it again."
-    : " Free some space, or choose a smaller file and upload it again.";
+    ? " The video is loaded for this tab, so you can continue now, but keep this tab open and download your finished work before closing it. To keep the upload after a refresh, free some space and upload it again."
+    : " Free some space and upload it again.";
   const remedies =
-    " Space is shared by finished renders in the Vault, earlier uploads and the site's other data;" +
-    " if the allowance above still looks generous, the device itself may be low on disk space." +
+    " Space is shared by finished renders in the Vault, earlier uploads and the site's other data." +
+    " Use Free up space to clear the unused ones; if the device itself is full, empty its storage or trash." +
     " A private window has a much smaller allowance, so a normal window may also help.";
-  return `Browser storage could not keep a reload-safe copy of this video.${reclaimedText}${capacity}${attempts}${advice}${remedies}`;
+  return `Browser storage could not keep a reload-safe copy of this video.${cause}${reclaimedText}${capacity}${attempts}${advice}${remedies}`;
 }
 
 let sessionWarningInstalled = false;
