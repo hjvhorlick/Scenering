@@ -144,6 +144,39 @@ h.ok(
 );
 h.ok(attach.includes('"loop"'), "a clip shorter than the narration still loops");
 
+/* ------------------------------ the clip preview is usable ---------------- */
+
+/*
+ * The trim panel used to hold its preview as a 192px thumbnail in the corner
+ * of a flex row shared with the stats. Trimming on a thumbnail is guesswork:
+ * the detail being cut around was not visible at all. The preview now sits
+ * ABOVE the trim sliders at full panel width, capped only by the viewport so
+ * the sliders stay reachable.
+ */
+h.ok(
+  !clipPanel.includes("sm:w-48"),
+  "the clip preview is no longer a 192px thumbnail"
+);
+h.ok(
+  /max-w-full[^"]*max-h-\[/.test(clipPanel),
+  "the preview fills the panel, bounded by its own shape and a height cap"
+);
+h.ok(
+  clipPanel.includes("max-h-[min(52vh,420px)]") && clipPanel.includes("xl:max-h-[min(60vh,520px)]"),
+  "the cap is viewport-relative, and wider screens get a larger preview"
+);
+const previewAt = clipPanel.indexOf("resolveVideoUrl(scene.video_url)");
+const trimStartAt = clipPanel.indexOf("Trim start");
+h.ok(previewAt > 0 && trimStartAt > 0, "the panel renders both a preview and the trim sliders");
+h.ok(
+  previewAt < trimStartAt,
+  "the preview comes before the trim settings, which is the order trimming is done in"
+);
+h.ok(
+  clipPanel.includes("onSeeked=") && clipPanel.includes("previewTime"),
+  "the preview reports where the playhead is, so a trim point can be read back"
+);
+
 /* ------------------------------------- every drawing path resolves uploads */
 
 h.ok(loader.includes("isCustomImageUrl"), "the shared image loader resolves upload addresses");

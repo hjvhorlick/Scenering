@@ -231,46 +231,60 @@ export default function SceneClipPanel({
 
       {hasClip && (
         <>
-          <div className="flex gap-3 flex-col sm:flex-row">
+          {/*
+            THE PREVIEW COMES FIRST, AND IT IS BIG.
+            It used to be a 192px thumbnail in the corner of a flex row that
+            also held the stats, and trimming a clip on a thumbnail is guesswork:
+            the detail you are cutting around — a face, a sign, a frame you want
+            to land on — was not visible. It now spans the panel above the trim
+            sliders, sized to the clip's own shape up to the panel width and a
+            viewport-relative height, so a large preview can never push the
+            sliders off the screen on a laptop or a phone.
+          */}
+          <div className="rounded-lg border border-hairline bg-black p-1">
             <video
               ref={videoRef}
               src={resolveVideoUrl(scene.video_url) || undefined}
-              className="w-full sm:w-48 rounded-lg border border-hairline bg-black"
+              className="block mx-auto w-auto max-w-full max-h-[min(52vh,420px)] xl:max-h-[min(60vh,520px)] rounded"
               muted={muted}
               controls
+              playsInline
               onTimeUpdate={(e) => setPreviewTime((e.target as HTMLVideoElement).currentTime)}
+              onSeeked={(e) => setPreviewTime((e.target as HTMLVideoElement).currentTime)}
               onError={() => setLoadError("The clip could not be played.")}
             />
-            <div className="flex-1 space-y-2 text-[11px] text-gray-400">
-              <div className="flex justify-between gap-2">
-                <span className="truncate" title={scene.video_name || ""}>
-                  {scene.video_name || "clip"}
-                </span>
-                <span className="font-mono text-gray-500">{fmt(sourceLength)} source</span>
-              </div>
-
-              <div
-                className={`flex justify-between gap-2 px-2 py-1 rounded-lg border ${
-                  lengthMatches
-                    ? "bg-emerald-950/50 border-emerald-800/60 text-emerald-300"
-                    : "bg-amber-950/40 border-amber-800/60 text-amber-300"
-                }`}
-              >
-                <span>Trimmed: {fmt(trimmedLength)}</span>
-                <span>Narration: {fmt(narrationDuration)}</span>
-              </div>
-
-              {!lengthMatches && (
-                <button
-                  type="button"
-                  onClick={fitToNarration}
-                  className="w-full px-2 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg font-semibold transition-colors"
-                >
-                  <Icon glyph="✂" /> Cut clip to fit the narration ({fmt(narrationDuration)})
-                </button>
-              )}
-            </div>
           </div>
+
+          {/* What the preview is showing, and what the trim window covers. */}
+          <div className="flex items-center justify-between gap-2 text-[11px] text-gray-400 flex-wrap">
+            <span className="truncate" title={scene.video_name || ""}>
+              {scene.video_name || "clip"}
+            </span>
+            <span className="font-mono text-gray-500">
+              playhead {fmt(previewTime)} · window {fmt(trimStart)}–{fmt(trimEnd)} · {fmt(sourceLength)} source
+            </span>
+          </div>
+
+          <div
+            className={`flex justify-between gap-2 px-2 py-1 rounded-lg border text-[11px] ${
+              lengthMatches
+                ? "bg-emerald-950/50 border-emerald-800/60 text-emerald-300"
+                : "bg-amber-950/40 border-amber-800/60 text-amber-300"
+            }`}
+          >
+            <span>Trimmed: {fmt(trimmedLength)}</span>
+            <span>Narration: {fmt(narrationDuration)}</span>
+          </div>
+
+          {!lengthMatches && (
+            <button
+              type="button"
+              onClick={fitToNarration}
+              className="w-full px-2 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-[11px] font-semibold transition-colors"
+            >
+              <Icon glyph="✂" /> Cut clip to fit the narration ({fmt(narrationDuration)})
+            </button>
+          )}
 
           {/* Trim controls */}
           <div className="space-y-2">

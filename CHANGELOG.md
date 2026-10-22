@@ -2,6 +2,14 @@
 
 ## Unreleased — your own video, start to finish, with its sound and its captions
 
+- **The clip trim panel has a preview you can actually see.** Its video was a
+  192px thumbnail in the corner of a row shared with the stats, which made
+  trimming guesswork — the detail you are cutting around was not visible. The
+  preview now sits **above** the trim sliders at the panel's full width (up to
+  ~750px wide on a laptop, ~920px on a wide screen), capped only by a
+  viewport-relative height so the sliders stay on screen. It also reports the
+  playhead and the trim window underneath (`playhead 0:04.1 · window
+  0:02.0–0:12.0 · 0:20.0 source`) and updates as a slider is dragged.
 - **A full device now says so, and offers the space back.** Chromium's
   `Failed to write blobs (IOError)` is what a full disk looks like from inside
   the browser, and it was being reported as a problem with the video. When the

@@ -103,7 +103,7 @@ export default function StorageWarningNote({
           disabled={busy}
           className="px-2 py-1 rounded-lg bg-amber-600/90 hover:bg-amber-500 text-gray-950 font-semibold disabled:opacity-60 flex items-center gap-1"
         >
-          <Icon glyph="🧹" /> {busy ? "Clearing unused files…" : "Free up space"}
+          <Icon glyph="🗑" /> {busy ? "Clearing unused files…" : "Free up space"}
         </button>
         <span className="text-amber-200/70">
           Clears unused uploads and abandoned render files — never anything a project uses.
