@@ -174,6 +174,63 @@ try {
   const ownerPayload = await ownerLogin.json();
   assert.equal(ownerPayload.membership.plan_id, "sceneforge", "verified owner receives SceneForge entitlement");
   assert.equal(ownerPayload.sessionToken, undefined, "production never returns browser-readable bearer session tokens");
+  const ownerCookie = String(ownerLogin.headers.get("set-cookie") || "").split(";")[0];
+
+  /* Secondary entitlement tables are fault-isolated in production. Sign-in
+   * resolves the plan, the subscription, the gift grant, the billing customer
+   * and this week's usage — and a missing migration or a D1 error in ANY of
+   * them used to reject the whole Promise.all and answer 500. They must now
+   * degrade quietly: the owner keeps SceneForge, everybody else keeps their
+   * stored membership. */
+  for (const table of ["subscriptions", "billing_customers", "complimentary_grants", "usage_records"]) {
+    testD1().sqlite.exec(`DROP TABLE ${table}`);
+  }
+  const ownerAfterDrops = await post("login", { email: "hjvhorlick@gmail.com", password: credentials.password });
+  assert.equal(ownerAfterDrops.status, 200, "dropped entitlement/usage tables never fail the owner's sign-in");
+  const ownerAfterDropsPayload = await ownerAfterDrops.json();
+  assert.equal(ownerAfterDropsPayload.user.role, "admin");
+  assert.equal(ownerAfterDropsPayload.membership.plan_id, "sceneforge", "the verified owner keeps SceneForge without the subscription tables");
+  assert.equal(
+    (await fetch(`${base}/api/auth/session`, { headers: { Cookie: ownerCookie } })).status,
+    200,
+    "session restore survives dropped entitlement/usage tables",
+  );
+
+  // The member was deliberately left unverified by the e-mail failure tests
+  // above; restore that state before re-using the account here.
+  await db.updateUser(user.id, { isVerified: true });
+  const memberAfterDrops = await post("login", credentials);
+  assert.equal(memberAfterDrops.status, 200, "an ordinary member signs in without the entitlement/usage tables");
+  assert.equal((await memberAfterDrops.json()).membership.plan_id, "free", "a member with no readable subscription falls back to Free");
+  const memberCookie = String(memberAfterDrops.headers.get("set-cookie") || "").split(";")[0];
+
+  /* The reads themselves throwing (not just their tables being absent) is
+   * isolated the same way. */
+  for (const [method, message] of [
+    ["findActiveSubscriptionByUserId", "no such table: subscriptions"],
+    ["findMembershipByUserId", "no such table: memberships"],
+    ["findAndSweepActiveComplimentaryGrant", "no such table: complimentary_grants"],
+    ["listUsageSince", "no such table: usage_records"],
+  ] as const) {
+    const original = (db as any)[method];
+    (db as any)[method] = async () => {
+      throw new Error(message);
+    };
+    try {
+      assert.equal(
+        (await fetch(`${base}/api/auth/session`, { headers: { Cookie: ownerCookie } })).status,
+        200,
+        `a ${method} failure must not break GET /api/auth/session`,
+      );
+      assert.equal(
+        (await fetch(`${base}/api/auth/session`, { headers: { Cookie: memberCookie } })).status,
+        200,
+        `a ${method} failure must not break a member's session restore`,
+      );
+    } finally {
+      (db as any)[method] = original;
+    }
+  }
 
   // Changing the configured owner address invalidates the previous owner's
   // admin session; the replacement follows the same verified-email route.

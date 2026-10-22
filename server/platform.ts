@@ -118,137 +118,205 @@ const REQUIRED_WORKSPACE_COLUMNS: ReadonlyArray<{ name: string; definition: stri
   { name: "deleted", definition: "INTEGER NOT NULL DEFAULT 0" },
   { name: "device_id", definition: "TEXT" },
 ];
-const WORKSPACE_TABLE_SQL =
-  "CREATE TABLE IF NOT EXISTS workspace_documents (user_id TEXT NOT NULL, doc_key TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, device_id TEXT, PRIMARY KEY (user_id, doc_key), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE); " +
-  "CREATE INDEX IF NOT EXISTS idx_workspace_documents_user ON workspace_documents(user_id);";
+/* The exact DDL from migrations/0007_devices_workspace.sql, statement for
+   statement: D1's prepared statements take one statement at a time, so the
+   table and its index are kept apart here. */
+const WORKSPACE_TABLE_DDL =
+  "CREATE TABLE IF NOT EXISTS workspace_documents (user_id TEXT NOT NULL, doc_key TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, device_id TEXT, PRIMARY KEY (user_id, doc_key), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)";
+const WORKSPACE_INDEX_DDL = "CREATE INDEX IF NOT EXISTS idx_workspace_documents_user ON workspace_documents(user_id)";
+const SESSION_DEVICE_INDEX_DDL = "CREATE INDEX IF NOT EXISTS idx_sessions_user_device ON sessions(user_id, device_id)";
+const MIGRATION_0007_NAME = "0007_devices_workspace.sql";
 
-export interface SchemaOutOfDatePayload {
-  error: string;
-  code: "SCHEMA_OUT_OF_DATE";
-  missing: string[];
-  command: string;
-  sql: string;
-}
+// Healing is attempted once per isolate per database binding, and only after
+// it has fully succeeded — a failure must never be cached, so a transient D1
+// error (or an operator applying the migration) recovers on the next request
+// without waiting for a Worker redeploy.
+let schemaHealed = false;
+let healedForDb: object | null = null;
+let healInFlight: Promise<void> | null = null;
 
-// Verified once per isolate once the database passes, because applied D1
-// migrations never un-apply themselves mid-isolate. Failures are deliberately
-// NOT cached: the moment an operator runs the migration, the next request on
-// a warm isolate should recover without waiting for a Worker redeploy.
-let schemaVerified = false;
-let verifiedTestDb: object | null = null;
-let schemaCheckInFlight: Promise<SchemaOutOfDatePayload | null> | null = null;
-
-/** Clears the per-isolate schema cache when a test mutates SQLite tables mid-run. */
+/** Clears the per-isolate schema cache when a test swaps or mutates the database. */
 export function resetDatabaseSchemaCheck(): void {
-  schemaVerified = false;
-  verifiedTestDb = null;
-  schemaCheckInFlight = null;
+  schemaHealed = false;
+  healedForDb = null;
+  healInFlight = null;
 }
 
-function buildSchemaOutOfDatePayload(
-  sessionsTablePresent: boolean,
-  missingSessionColumns: string[],
-  workspaceTablePresent: boolean,
-  missingWorkspaceColumns: Array<{ name: string; definition: string }>,
-): SchemaOutOfDatePayload {
-  const missing: string[] = [];
-  const statements: string[] = [];
-
-  if (!sessionsTablePresent) {
-    missing.push("sessions", ...missingSessionColumns.map((col) => `sessions.${col}`));
-  } else if (missingSessionColumns.length > 0) {
-    for (const col of missingSessionColumns) {
-      missing.push(`sessions.${col}`);
-      statements.push(`ALTER TABLE sessions ADD COLUMN ${col} TEXT;`);
+/** Splits a comma-separated SQL list at top-level commas (ignoring parens and quotes). */
+function splitTopLevelSql(body: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let start = 0;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
     }
-    statements.push("CREATE INDEX IF NOT EXISTS idx_sessions_user_device ON sessions(user_id, device_id);");
+    if (ch === "'" || ch === '"' || ch === "`") { quote = ch; continue; }
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (ch === "," && depth === 0) { parts.push(body.slice(start, i)); start = i + 1; }
   }
-
-  if (!workspaceTablePresent) {
-    missing.push("workspace_documents");
-    statements.push(WORKSPACE_TABLE_SQL);
-  } else if (missingWorkspaceColumns.length > 0) {
-    for (const col of missingWorkspaceColumns) {
-      missing.push(`workspace_documents.${col.name}`);
-      statements.push(`ALTER TABLE workspace_documents ADD COLUMN ${col.name} ${col.definition};`);
-    }
-  }
-
-  if (sessionsTablePresent) {
-    statements.push("INSERT OR IGNORE INTO d1_migrations (name) VALUES ('0007_devices_workspace.sql');");
-  }
-
-  const command = "npx wrangler d1 migrations apply scenering-db --remote";
-  const sql = statements.join(" ");
-  const remediation = sql
-    ? `Run \`${command}\`, or in the D1 console run: ${sql}`
-    : `Run \`${command}\`.`;
-
-  return {
-    error: `Database schema is out of date (missing: ${missing.join(", ")}). ${remediation}`,
-    code: "SCHEMA_OUT_OF_DATE",
-    missing,
-    command,
-    sql,
-  };
+  parts.push(body.slice(start));
+  return parts.map((part) => part.trim()).filter(Boolean);
 }
 
 /**
- * Verifies once per isolate that the D1 tables and columns the session and
- * workspace paths depend on actually exist — without mutating the schema
- * behind `d1_migrations`'s back (which is how manual/runtime DDL drifted the
- * ledger from the live schema). Unbound preview Workers (`env().DB` absent)
- * return `null`, and genuine D1 transport errors propagate untouched rather
- * than being misreported as schema drift.
+ * The column names in a CREATE TABLE statement as SQLite stores it in
+ * `sqlite_master.sql`. SQLite rewrites that text when a column is added with
+ * ALTER TABLE, so it is the honest record of the live table — and unlike
+ * `PRAGMA table_info`, reading it through a D1 Worker binding is always
+ * permitted.
  */
-export async function checkDatabaseSchema(): Promise<SchemaOutOfDatePayload | null> {
+function tableColumnsFromDdl(ddl: string): Set<string> {
+  const columns = new Set<string>();
+  const open = ddl.indexOf("(");
+  const close = ddl.lastIndexOf(")");
+  if (open < 0 || close <= open) return columns;
+  for (const item of splitTopLevelSql(ddl.slice(open + 1, close))) {
+    const token = item.match(/^["`\[]?([A-Za-z_][A-Za-z0-9_]*)["`\]]?/);
+    if (!token) continue;
+    const name = token[1].toLowerCase();
+    if (["primary", "foreign", "unique", "check", "constraint"].includes(name)) continue;
+    columns.add(name);
+  }
+  return columns;
+}
+
+/** Reads the stored DDL of the tables this module cares about, in one query. */
+async function readTableDefinitions(
+  d1: D1Database,
+  tables: readonly string[],
+): Promise<Map<string, string>> {
+  const definitions = new Map<string, string>();
+  const placeholders = tables.map(() => "?").join(", ");
+  const result = await d1
+    .prepare(`SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name IN (${placeholders})`)
+    .bind(...tables)
+    .all();
+  for (const row of (result?.results || []) as Array<Record<string, unknown>>) {
+    const name = String(row.name || "").toLowerCase();
+    if (!name) continue;
+    definitions.set(name, String(row.sql || ""));
+  }
+  return definitions;
+}
+
+function isDuplicateColumnError(err: unknown): boolean {
+  return /duplicate column name/i.test(String((err as any)?.message || err));
+}
+
+/**
+ * Makes `0007_devices_workspace.sql` self-healing at runtime.
+ *
+ * Workers Builds deploys with `wrangler deploy` and never runs
+ * `wrangler d1 migrations apply --remote`, so production can legitimately be
+ * serving code that expects 0007 while D1 has not applied it. Refusing to sign
+ * anyone in until an operator intervenes — which is what the old PRAGMA-based
+ * 503 gate did — locks the owner out of their own product. Instead the four
+ * `sessions` device columns, the `workspace_documents` table and its index are
+ * brought into existence here, idempotently, and the `d1_migrations` ledger is
+ * aligned at the end so it never drifts behind the live schema.
+ *
+ * Never throws: a database that cannot be healed must still let
+ * `/api/auth/*` answer (the session fallbacks in src/db.ts take over).
+ */
+export async function ensureDevicesAndWorkspaceSchema(): Promise<void> {
   let d1: (D1Database & { sqlite?: unknown }) | undefined;
   try {
     d1 = env().DB as (D1Database & { sqlite?: unknown }) | undefined;
   } catch {
-    return null;
+    return;
   }
-  if (!d1 || typeof d1.prepare !== "function") return null;
+  if (!d1 || typeof d1.prepare !== "function") return;
 
   const isTestShim = "sqlite" in (d1 as object);
-  if (schemaVerified && (!isTestShim || verifiedTestDb === d1)) return null;
-  if (schemaCheckInFlight) return schemaCheckInFlight;
+  if (schemaHealed && (!isTestShim || healedForDb === d1)) return;
+  if (healInFlight) return healInFlight;
 
-  schemaCheckInFlight = (async () => {
-    const [sessionsInfo, workspaceInfo] = await Promise.all([
-      d1!.prepare("PRAGMA table_info(sessions)").all(),
-      d1!.prepare("PRAGMA table_info(workspace_documents)").all(),
-    ]);
-    const sessionRows = sessionsInfo.results || [];
-    const workspaceRows = workspaceInfo.results || [];
-    const sessionColumns = new Set(sessionRows.map((row: any) => String(row.name)));
-    const workspaceColumns = new Set(workspaceRows.map((row: any) => String(row.name)));
+  healInFlight = (async () => {
+    try {
+      const definitions = await readTableDefinitions(d1!, ["sessions", "workspace_documents"]);
 
-    const missingSessionColumns = REQUIRED_SESSION_COLUMNS.filter((col) => !sessionColumns.has(col));
-    const workspaceTablePresent = workspaceRows.length > 0;
-    const missingWorkspaceColumns = workspaceTablePresent
-      ? REQUIRED_WORKSPACE_COLUMNS.filter((col) => !workspaceColumns.has(col.name))
-      : [];
+      const sessionsDdl = definitions.get("sessions");
+      const workspaceDdl = definitions.get("workspace_documents");
 
-    if (sessionRows.length === 0 || missingSessionColumns.length > 0 || !workspaceTablePresent || missingWorkspaceColumns.length > 0) {
-      const payload = buildSchemaOutOfDatePayload(
-        sessionRows.length > 0,
-        missingSessionColumns,
-        workspaceTablePresent,
-        missingWorkspaceColumns,
-      );
-      console.error(`[schema] ${payload.error}`);
-      return payload;
+      let sessionsComplete = false;
+      if (sessionsDdl !== undefined) {
+        const columns = tableColumnsFromDdl(sessionsDdl);
+        const missing = REQUIRED_SESSION_COLUMNS.filter((column) => !columns.has(column));
+        let complete = true;
+        for (const column of missing) {
+          try {
+            await d1!.prepare(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`).run();
+          } catch (err: any) {
+            // A duplicate-column race means another isolate got there first,
+            // which is exactly the state we wanted.
+            if (!isDuplicateColumnError(err)) {
+              complete = false;
+              console.error(`[schema] sessions.${column} could not be added:`, err?.message || err);
+            }
+          }
+        }
+        try {
+          await d1!.prepare(SESSION_DEVICE_INDEX_DDL).run();
+        } catch (err: any) {
+          console.error("[schema] idx_sessions_user_device could not be created:", err?.message || err);
+        }
+        sessionsComplete = complete;
+      }
+
+      let workspaceComplete = false;
+      if (workspaceDdl === undefined) {
+        try {
+          await d1!.prepare(WORKSPACE_TABLE_DDL).run();
+          await d1!.prepare(WORKSPACE_INDEX_DDL).run();
+          workspaceComplete = true;
+        } catch (err: any) {
+          console.error("[schema] workspace_documents could not be created:", err?.message || err);
+        }
+      } else {
+        const columns = tableColumnsFromDdl(workspaceDdl);
+        let complete = true;
+        for (const column of REQUIRED_WORKSPACE_COLUMNS) {
+          if (columns.has(column.name)) continue;
+          try {
+            await d1!.prepare(`ALTER TABLE workspace_documents ADD COLUMN ${column.name} ${column.definition}`).run();
+          } catch (err: any) {
+            if (!isDuplicateColumnError(err)) {
+              complete = false;
+              console.error(`[schema] workspace_documents.${column.name} could not be added:`, err?.message || err);
+            }
+          }
+        }
+        workspaceComplete = complete;
+      }
+
+      if (sessionsComplete && workspaceComplete) {
+        // The live schema now equals what 0007 describes, so the ledger says so
+        // too. Absent in unit-test shims (and in a database that has never run
+        // a migration) — that is not a reason to fail an authentication.
+        try {
+          await d1!.prepare("INSERT OR IGNORE INTO d1_migrations (name) VALUES (?)")
+            .bind(MIGRATION_0007_NAME)
+            .run();
+        } catch {
+          /* d1_migrations absent — nothing to align. */
+        }
+        schemaHealed = true;
+        healedForDb = isTestShim ? (d1 as object) : null;
+      }
+    } catch (err: any) {
+      // Never fatal: the caller is an authentication or workspace request.
+      console.error("[schema] 0007 schema check failed:", err?.message || err);
+    } finally {
+      healInFlight = null;
     }
+  })();
 
-    schemaVerified = true;
-    verifiedTestDb = isTestShim ? (d1 as object) : null;
-    return null;
-  })().finally(() => {
-    schemaCheckInFlight = null;
-  });
-
-  return schemaCheckInFlight;
+  return healInFlight;
 }
 
 export function assertSecurePlatformConfiguration() {
@@ -378,16 +446,34 @@ function buildEffectiveMembership(user: User, plan: PlanSlug, stored: Membership
   };
 }
 
+/** Logs a secondary-table failure without letting it reach the caller: a
+ *  missing migration on `subscriptions`, `complimentary_grants` or
+ *  `usage_records` must degrade the plan answer, never break sign-in. */
+function isolatedRead<T>(label: string, fallback: T, promise: Promise<T>): Promise<T> {
+  return promise.catch((err: any) => {
+    console.error(`[auth] ${label} failed:`, err?.message || err);
+    return fallback;
+  });
+}
+
 /** Resolves subscription expiry, stored membership and complimentary grant in
- *  parallel so session checks and account payloads avoid serial D1 waterfalls. */
+ *  parallel so session checks and account payloads avoid serial D1 waterfalls.
+ *
+ *  Each read is isolated: these are auxiliary entitlement tables, and a schema
+ *  or transport error in one of them used to reject the whole Promise.all and
+ *  take POST /api/auth/login and GET /api/auth/session down with a 500. The
+ *  owner administrator still resolves to SceneForge; everyone else falls back
+ *  to their stored membership, which defaults to Free. */
 async function resolveUserEntitlements(user: User): Promise<ResolvedEntitlements> {
   const isOwnerAdmin = user.role === "admin" && isConfiguredOwner(user);
   const [rawSub, initialMembership, grant] = await Promise.all([
-    db.findActiveSubscriptionByUserId(user.id),
-    db.findMembershipByUserId(user.id),
-    activeComplimentaryGrant(user.id),
+    isolatedRead<Subscription | null>("findActiveSubscriptionByUserId", null, db.findActiveSubscriptionByUserId(user.id)),
+    isolatedRead<Membership | null>("findMembershipByUserId", null, db.findMembershipByUserId(user.id)),
+    isolatedRead<ComplimentaryGrant | null>("findAndSweepActiveComplimentaryGrant", null, activeComplimentaryGrant(user.id)),
   ]);
-  const swept = isOwnerAdmin ? { activeSub: rawSub, downgraded: false } : await sweepUserSubscriptionExpiry(user.id, rawSub);
+  const swept = isOwnerAdmin
+    ? { activeSub: rawSub, downgraded: false }
+    : await isolatedRead("sweepUserSubscriptionExpiry", { activeSub: rawSub, downgraded: false }, sweepUserSubscriptionExpiry(user.id, rawSub));
   const storedMembership = swept.downgraded && initialMembership ? { ...initialMembership, plan: "free" as PlanSlug } : initialMembership;
   if (isOwnerAdmin) {
     return { plan: "sceneforge", storedMembership, grant, subscription: visibleSubscription(swept.activeSub) };
@@ -574,8 +660,14 @@ async function claimDeviceSeat(userId: string, plan: PlanSlug, sessionId?: strin
   let evicted = 0;
   for (const session of sessions) {
     if (keepIds.has(session.id)) continue;
-    await db.deleteSessionById(session.id);
-    evicted += 1;
+    // Eviction is housekeeping: failing to sign an idle machine out must not
+    // fail the sign-in that triggered it.
+    try {
+      await db.deleteSessionById(session.id);
+      evicted += 1;
+    } catch (err: any) {
+      console.error("[auth] deleteSessionById failed:", err?.message || err);
+    }
   }
   return { evicted, limit };
 }
@@ -609,6 +701,10 @@ type Auth = { user: User; plan: PlanSlug; sessionId?: string; deviceId?: string 
  *  session OR the signed token a marketing email carries — so they cannot
  *  simply mount requireUser. */
 export async function findSession(req: Request): Promise<Auth | null> {
+  // Every authenticated request may read the device columns (this session's
+  // last-seen stamp, the device list in the account panel), so the 0007 repair
+  // runs here too — cached per isolate once it has succeeded.
+  await ensureDevicesAndWorkspaceSchema();
   const raw = sessionTokenFromRequest(req);
   if (raw) {
     const session = await db.findSessionByToken(hashToken(raw));
@@ -762,12 +858,9 @@ async function accountPayload(
 ) {
   const [entitlements, usageRows, resolvedFastSpringCustomer, sessions] = await Promise.all([
     current.entitlements ? Promise.resolve(current.entitlements) : resolveUserEntitlements(user),
-    db.listUsageSince(user.id, weekStart().toISOString()),
+    isolatedRead<UsageRecord[]>("listUsageSince", [], db.listUsageSince(user.id, weekStart().toISOString())),
     resolveFastSpringCustomerForUser(user),
-    db.listActiveSessionsForUser(user.id).catch((err): Awaited<ReturnType<typeof db.listActiveSessionsForUser>> => {
-      console.error("[auth] listActiveSessionsForUser failed:", err?.message || err);
-      return [];
-    }),
+    isolatedRead("listActiveSessionsForUser", [], db.listActiveSessionsForUser(user.id)),
   ]);
   const { plan, subscription } = entitlements;
   const membership = buildEffectiveMembership(user, plan, entitlements.storedMembership, entitlements.grant);
@@ -1432,15 +1525,12 @@ async function handleFastSpringEvent(event: any): Promise<string> {
 }
 
 export function registerPlatformRoutes(app: Express) {
-  app.use(["/api", "/functions/v1"], (_req, res, next) => {
-    checkDatabaseSchema().then((problem) => {
-      if (problem) {
-        res.setHeader("Cache-Control", "no-store");
-        return res.status(503).json(problem);
-      }
-      next();
-    }, next);
-  });
+  /* No global schema gate. A missing D1 migration used to be answered with a
+     503 for EVERY /api/* call — including sign-in — which turned a deploy
+     ordering mistake into a total lockout. Schema repair is now idempotent and
+     lives on the paths that need it (ensureDevicesAndWorkspaceSchema, called
+     from the auth and workspace entry points), and a database that cannot be
+     repaired still answers /api/auth/* from the session fallbacks in db.ts. */
 
   /* Allow: /api/social-links — the one API address the public pages read.
      Google renders pages the way a browser does but obeys robots.txt for
@@ -1495,6 +1585,10 @@ export function registerPlatformRoutes(app: Express) {
   }));
 
   app.post("/api/auth/login", rateLimit("login", 12, 900000), asyncHandlerVoid(async (req, res) => {
+    // Sign-in writes a session row that carries the device columns from 0007.
+    // Repair them first (idempotent, cached per isolate) so a deploy that
+    // outran its migration still issues a session instead of failing.
+    await ensureDevicesAndWorkspaceSchema();
     const email = String(req.body?.email || "").trim().toLowerCase(); const password = String(req.body?.password || "");
     let user = await db.findUserByEmail(email);
     const sandboxAutoProvision = !isProduction() && env().DEV_SANDBOX_AUTO_PROVISION === "1";
@@ -1555,6 +1649,7 @@ export function registerPlatformRoutes(app: Express) {
   }));
 
   app.post("/api/auth/logout", asyncHandlerVoid(async (req, res) => {
+    await ensureDevicesAndWorkspaceSchema();
     const raw = sessionTokenFromRequest(req);
     if (raw) await db.deleteSessionByToken(hashToken(raw));
     clearSessionCookie(res); res.json({ ok: true });

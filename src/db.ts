@@ -33,6 +33,115 @@ async function withBillingCustomersTable<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * 0007 runtime repair — the belt to server/platform.ts's braces.
+ *
+ * `migrations/0007_devices_workspace.sql` adds four device columns to
+ * `sessions` and the `workspace_documents` table. Workers Builds deploys with
+ * `wrangler deploy` and does not apply migrations, so a production database
+ * can be a release behind. Sign-in must still work there: these helpers make
+ * each write/read path repair the schema (idempotently) or fall back to the
+ * pre-0007 column set, instead of throwing.
+ *
+ * Schema inspection goes through `sqlite_master`, never `PRAGMA`: D1 rejects
+ * or empties PRAGMA through a Worker binding on hosted databases.
+ * ------------------------------------------------------------------ */
+
+const SESSION_DEVICE_COLUMNS = ["device_id", "device_label", "platform", "last_seen_at"] as const;
+const WORKSPACE_TABLE_DDL =
+  "CREATE TABLE IF NOT EXISTS workspace_documents (user_id TEXT NOT NULL, doc_key TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, device_id TEXT, PRIMARY KEY (user_id, doc_key), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)";
+const WORKSPACE_INDEX_DDL = "CREATE INDEX IF NOT EXISTS idx_workspace_documents_user ON workspace_documents(user_id)";
+const SESSION_DEVICE_INDEX_DDL = "CREATE INDEX IF NOT EXISTS idx_sessions_user_device ON sessions(user_id, device_id)";
+
+/** Column names in a CREATE TABLE statement as SQLite keeps it in sqlite_master. */
+function tableColumnsFromDdl(ddl: string): Set<string> {
+  const columns = new Set<string>();
+  const open = ddl.indexOf("(");
+  const close = ddl.lastIndexOf(")");
+  if (open < 0 || close <= open) return columns;
+  let depth = 0;
+  let quote: string | null = null;
+  let start = open + 1;
+  const parts: string[] = [];
+  for (let i = open + 1; i < close; i++) {
+    const ch = ddl[i];
+    if (quote) { if (ch === quote) quote = null; continue; }
+    if (ch === "'" || ch === '"' || ch === "`") { quote = ch; continue; }
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (ch === "," && depth === 0) { parts.push(ddl.slice(start, i)); start = i + 1; }
+  }
+  parts.push(ddl.slice(start, close));
+  for (const part of parts) {
+    const token = part.trim().match(/^["`\[]?([A-Za-z_][A-Za-z0-9_]*)["`\]]?/);
+    if (!token) continue;
+    const name = token[1].toLowerCase();
+    if (["primary", "foreign", "unique", "check", "constraint"].includes(name)) continue;
+    columns.add(name);
+  }
+  return columns;
+}
+
+function isMissingSchemaError(err: unknown): boolean {
+  return /no such column|has no column named|no such table/i.test(String((err as any)?.message || err));
+}
+
+/** The column names of `table`, read from sqlite_master (never PRAGMA). */
+async function tableColumns(table: string): Promise<Set<string>> {
+  const row = await env().DB.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .bind(table)
+    .first();
+  return row ? tableColumnsFromDdl(String((row as any).sql || "")) : new Set<string>();
+}
+
+/** Adds any of the 0007 `sessions` device columns that are missing. */
+async function ensureSessionDeviceColumns(): Promise<boolean> {
+  try {
+    const columns = await tableColumns("sessions");
+    if (columns.size === 0) return false;
+    let complete = true;
+    for (const column of SESSION_DEVICE_COLUMNS) {
+      if (columns.has(column)) continue;
+      try {
+        await env().DB.prepare(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`).run();
+      } catch (err: any) {
+        if (!/duplicate column name/i.test(String(err?.message || err))) {
+          complete = false;
+          console.error(`[db] sessions.${column} could not be added:`, err?.message || err);
+        }
+      }
+    }
+    try {
+      await env().DB.prepare(SESSION_DEVICE_INDEX_DDL).run();
+    } catch {
+      /* The index is an optimisation; its absence must not fail a query. */
+    }
+    return complete;
+  } catch (err: any) {
+    console.error("[db] could not inspect the sessions table:", err?.message || err);
+    return false;
+  }
+}
+
+/** Creates `workspace_documents` (and its index) when 0007 has not been applied. */
+async function ensureWorkspaceDocumentsTable(): Promise<void> {
+  await env().DB.prepare(WORKSPACE_TABLE_DDL).run();
+  await env().DB.prepare(WORKSPACE_INDEX_DDL).run();
+}
+
+/** Runs a workspace query, creating the table first if it does not exist. */
+async function withWorkspaceDocumentsTable<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    if (/no such table:\s*workspace_documents/i.test(String(err?.message || err))) {
+      await ensureWorkspaceDocumentsTable();
+      return fn();
+    }
+    throw err;
+  }
+}
+
 export type UserRole = "user" | "admin";
 
 export interface User {
@@ -535,10 +644,34 @@ export const db = {
       deviceId: device.id ?? null, deviceLabel: device.label ?? null,
       platform: device.platform ?? null, lastSeenAt: createdAt,
     };
+    const insertWithDevice =
+      "INSERT INTO sessions (id, user_id, token, expires_at, created_at, device_id, device_label, platform, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    const bindDevice = () => env().DB.prepare(insertWithDevice)
+      .bind(row.id, row.userId, row.token, row.expiresAt, row.createdAt, row.deviceId, row.deviceLabel, row.platform, row.lastSeenAt)
+      .run();
+    try {
+      await bindDevice();
+      return row;
+    } catch (err: any) {
+      if (!isMissingSchemaError(err)) throw err;
+      console.error("[db] sessions device columns missing during sign-in; repairing:", err?.message || err);
+    }
+    // Heal, then retry the full insert. A duplicate-column race (another
+    // isolate won) is success, so healing "failing" is not automatically fatal.
+    await ensureSessionDeviceColumns();
+    try {
+      await bindDevice();
+      return row;
+    } catch (err: any) {
+      if (!isMissingSchemaError(err)) throw err;
+      console.error("[db] sessions device columns still unavailable; signing in with the core columns only:", err?.message || err);
+    }
+    // Last resort: the pre-0007 column set. Sign-in succeeds with HTTP 200 and
+    // the session simply carries no device metadata.
     await env().DB.prepare(
-      "INSERT INTO sessions (id, user_id, token, expires_at, created_at, device_id, device_label, platform, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(row.id, row.userId, row.token, row.expiresAt, row.createdAt, row.deviceId, row.deviceLabel, row.platform, row.lastSeenAt).run();
-    return row;
+      "INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).bind(row.id, row.userId, row.token, row.expiresAt, row.createdAt).run();
+    return { ...row, deviceId: null, deviceLabel: null, platform: null, lastSeenAt: null };
   },
   async deleteSessionByToken(tokenHash: string): Promise<void> {
     await env().DB.prepare("DELETE FROM sessions WHERE token = ?").bind(tokenHash).run();
@@ -552,15 +685,41 @@ export const db = {
   /** Live sessions for an account, most recently used first. Drives the
    *  per-plan device cap and the "where am I signed in" panel. */
   async listActiveSessionsForUser(userId: string): Promise<Session[]> {
-    const result = await env().DB.prepare(
+    const mostRecentlyUsed = () => env().DB.prepare(
       "SELECT * FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY COALESCE(last_seen_at, created_at) DESC"
     ).bind(userId, nowSql()).all();
-    return (result.results || []).map(rowToSession);
+    try {
+      const result = await mostRecentlyUsed();
+      return (result.results || []).map(rowToSession);
+    } catch (err: any) {
+      if (!isMissingSchemaError(err)) throw err;
+      console.error("[db] last_seen_at missing on sessions; falling back to created_at ordering:", err?.message || err);
+    }
+    // Heal, then try the full ordering again; if the column still cannot be
+    // added, the pre-0007 ordering answers instead of throwing. The device cap
+    // and the "where am I signed in" panel both read this on sign-in.
+    await ensureSessionDeviceColumns();
+    try {
+      const result = await mostRecentlyUsed();
+      return (result.results || []).map(rowToSession);
+    } catch (err: any) {
+      if (!isMissingSchemaError(err)) throw err;
+      const result = await env().DB.prepare(
+        "SELECT * FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC"
+      ).bind(userId, nowSql()).all();
+      return (result.results || []).map(rowToSession);
+    }
   },
   /** Record that a session was used. Only called when the stored value is
    *  stale, so a busy studio does not write a row per request. */
   async touchSession(sessionId: string): Promise<void> {
-    await env().DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
+    try {
+      await env().DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
+    } catch (err: any) {
+      // Bookkeeping only. A database without the 0007 column must not turn a
+      // perfectly valid session into a failed request.
+      console.error("[db] touchSession failed:", err?.message || err);
+    }
   },
   async deleteSessionById(sessionId: string): Promise<void> {
     await env().DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sessionId).run();
@@ -571,15 +730,15 @@ export const db = {
 
   // --- workspace (projects, scenes and their browser-side documents) ---
   async listWorkspaceDocuments(userId: string): Promise<WorkspaceDocument[]> {
-    const result = await env().DB.prepare(
+    const result = await withWorkspaceDocumentsTable<{ results?: any[] }>(() => env().DB.prepare(
       "SELECT * FROM workspace_documents WHERE user_id = ? ORDER BY updated_at ASC"
-    ).bind(userId).all();
+    ).bind(userId).all());
     return (result.results || []).map(rowToWorkspaceDocument);
   },
   async getWorkspaceDocument(userId: string, key: string): Promise<WorkspaceDocument | null> {
-    const row = await env().DB.prepare(
+    const row = await withWorkspaceDocumentsTable<any>(() => env().DB.prepare(
       "SELECT * FROM workspace_documents WHERE user_id = ? AND doc_key = ?"
-    ).bind(userId, key).first();
+    ).bind(userId, key).first());
     return row ? rowToWorkspaceDocument(row) : null;
   },
   /** Unconditional write (used by the merge path once the client has already
@@ -591,12 +750,12 @@ export const db = {
     options: { deleted?: boolean; deviceId?: string | null } = {},
   ): Promise<WorkspaceDocument> {
     const updatedAt = nowIso();
-    await env().DB.prepare(
+    await withWorkspaceDocumentsTable(() => env().DB.prepare(
       `INSERT INTO workspace_documents (user_id, doc_key, body, revision, updated_at, deleted, device_id)
        VALUES (?, ?, ?, 1, ?, ?, ?)
        ON CONFLICT(user_id, doc_key) DO UPDATE SET body = excluded.body, revision = workspace_documents.revision + 1,
          updated_at = excluded.updated_at, deleted = excluded.deleted, device_id = excluded.device_id`
-    ).bind(userId, key, body, updatedAt, options.deleted ? 1 : 0, options.deviceId ?? null).run();
+    ).bind(userId, key, body, updatedAt, options.deleted ? 1 : 0, options.deviceId ?? null).run());
     return (await this.getWorkspaceDocument(userId, key))
       ?? { key, body, revision: 1, updatedAt, deleted: Boolean(options.deleted) };
   },

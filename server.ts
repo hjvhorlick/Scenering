@@ -731,5 +731,17 @@ export function createApp(): express.Express {
     }
   });
 
+  /* The final error boundary. Anything a route throws — or hands to
+     next(err) — becomes this one small JSON body. Express's default handler
+     answers with an HTML page (and, in some deployments, a stack trace), which
+     is both unreadable to the API client that asked and needs to test true. */
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error(`[api:error] ${req.method} ${req.originalUrl}:`, err);
+    // Headers already sent: the response is mid-stream, so only the default
+    // handler can close the connection correctly.
+    if (res.headersSent) return next(err);
+    res.status(500).json({ error: "Server error while processing your request.", code: "INTERNAL_ERROR" });
+  });
+
   return app;
 }
