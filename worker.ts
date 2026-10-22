@@ -1,6 +1,5 @@
 import { httpServerHandler } from "cloudflare:node";
 import { createApp } from "./server";
-import { checkDatabaseSchema } from "./server/platform.ts";
 import { setEnv } from "./src/env";
 import type { Env } from "./src/env";
 import { audioStore } from "./src/audio-store";
@@ -32,22 +31,17 @@ export default {
     // `env()` instead of threading `env` through every function call.
     setEnv(env);
 
-    // Refuse API traffic at the edge with an actionable 503 instead of a bare
-    // 500 when code reaches production ahead of its D1 migrations. Cheap
-    // (PRAGMA table_info) and cached once per isolate once the schema passes.
-    const { pathname } = new URL(request.url);
-    if (pathname === "/api" || pathname.startsWith("/api/") || pathname.startsWith("/functions/v1/")) {
-      const schemaProblem = await checkDatabaseSchema();
-      if (schemaProblem) {
-        return new Response(JSON.stringify(schemaProblem), {
-          status: 503,
-          headers: {
-            "Content-Type": "application/json; charset=utf-8",
-            "Cache-Control": "no-store",
-          },
-        });
-      }
-    }
+    /* No schema gate in front of the API.
+     *
+     * A previous revision inspected the D1 schema here (PRAGMA table_info) and
+     * answered 503 for EVERY /api/* call when 0007 looked unapplied. On hosted
+     * D1 a PRAGMA through a Worker binding either throws an authorisation
+     * error — an unhandled 500 before Express even ran — or returns no rows,
+     * which made a working database look broken. Either way it locked the
+     * owner out of POST /api/auth/login. The 0007 repair now lives where the
+     * affected columns are actually used (server/platform.ts'
+     * ensureDevicesAndWorkspaceSchema, plus the fallbacks in src/db.ts), so a
+     * pending migration degrades a feature instead of stopping the service. */
 
     if (!nodeHandler) {
       const app = createApp();

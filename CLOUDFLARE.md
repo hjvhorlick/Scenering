@@ -347,12 +347,19 @@ Then:
    changes through `wrangler d1 migrations apply` rather than hand-running DDL
    in the D1 console without recording the file in `d1_migrations` — otherwise
    the ledger drifts behind the live schema and a later `migrations apply` can
-   trip over non-idempotent column rewrites (`0006_billing.sql`). At the edge,
-   the Worker verifies once per isolate (`PRAGMA table_info`) that
-   `sessions(device_id, device_label, platform, last_seen_at)` and
-   `workspace_documents` (`0007_devices_workspace.sql`) exist, returning
-   `503 SCHEMA_OUT_OF_DATE` with the exact Wrangler command and SQL instead of
-   a bare `500` if code ever outruns a migration.
+   trip over non-idempotent column rewrites (`0006_billing.sql`). Nothing at
+   the edge refuses API traffic over a pending migration: the Worker never
+   inspects the schema in front of a request (a `PRAGMA` through a D1 Worker
+   binding is either unauthorised or empty, which made a healthy database look
+   broken and locked sign-in out with `503`). Instead `server/platform.ts`'s
+   `ensureDevicesAndWorkspaceSchema()` repairs `0007_devices_workspace.sql` on
+   the paths that use it — reading `sqlite_master` (never `PRAGMA`),
+   `ALTER TABLE sessions ADD COLUMN` for the four device columns, creating
+   `workspace_documents` and its index, and finally `INSERT OR IGNORE`-ing
+   `0007_devices_workspace.sql` into `d1_migrations` so the ledger stays
+   aligned. `src/db.ts` adds a belt-and-braces fallback so
+   `POST /api/auth/login` and `GET /api/auth/session` answer `200` even when
+   those columns cannot be added at all.
 8. **`NODE_ENV`** — already `production` in `wrangler.jsonc`. Leave it. Every
    development affordance (inline verification/reset links, auto-owner
    sessions, sandbox provisioning) is gated on an explicit `development`/`test`,

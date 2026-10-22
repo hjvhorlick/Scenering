@@ -324,9 +324,14 @@ function extractPreparedSqlStrings(dbSource: string): string[] {
   return out;
 }
 
+/** SQLite's own catalogue tables — present in every database, never created
+ *  by a migration. Runtime schema inspection reads them deliberately. */
+const SQLITE_INTERNAL_TABLES = new Set(["sqlite_master", "sqlite_schema", "sqlite_sequence"]);
+
 function findSchemaDrift(dbSource: string, schema: Map<string, Set<string>>): string[] {
   const missing = new Set<string>();
   for (const ref of extractDbColumnReferences(dbSource)) {
+    if (SQLITE_INTERNAL_TABLES.has(ref.table)) continue;
     const cols = schema.get(ref.table);
     if (!cols) {
       missing.add(`${ref.table} (missing table, referenced in ${ref.origin} as ${ref.table}.${ref.column})`);
@@ -387,7 +392,10 @@ h.eq(
 // subquery, JOIN, COALESCE and column name.
 let compiledStatements = 0;
 for (const rawSql of extractPreparedSqlStrings(dbSource)) {
-  if (/^\s*CREATE\s+(?:TABLE|INDEX)\b/i.test(rawSql)) continue;
+  // DDL is not compiled here: SQLite applies ALTER at prepare time, which
+  // would mutate the reference database mid-run (the repaired columns are
+  // already part of migrations/*.sql, and checked by the drift pass above).
+  if (/^\s*(?:CREATE|ALTER|DROP)\b/i.test(rawSql)) continue;
   const runnableSql = rawSql
     .replace(/\$\{setClauses\.join\(", "\)\}/g, "updated_at = ?")
     .replace(/\$\{ids\.map\(\(\) => "\?"\)\.join\(", "\)\}/g, "?")
@@ -395,7 +403,8 @@ for (const rawSql of extractPreparedSqlStrings(dbSource)) {
     .replace(/\$\{chunk\.map\(\(\) => "\(\?, \?, \?, \?, \?, \?, \?\)"\)\.join\(", "\)\}/g, "(?, ?, ?, ?, ?, ?, ?)")
     .replace(/\$\{fragments\.join\(" AND "\)\}/g, "u.email LIKE '%@%.%' AND p.marketing_consent = 1")
     .replace(/\$\{scopeSql\}/g, "")
-    .replace(/\$\{effectiveFormat\}/g, "format");
+    .replace(/\$\{effectiveFormat\}/g, "format")
+    .replace(/\$\{column\}/g, "device_id");
   let compileError: string | null = null;
   try {
     referenceSqlite.prepare(runnableSql);
@@ -435,44 +444,86 @@ h.ok(syntheticDrift.some((d) => d.startsWith("sessions.unmigrated_session_col"))
 h.ok(syntheticDrift.some((d) => d.startsWith("workspace_documents.unmigrated_workspace_col")), "drift check catches unmigrated workspace_documents column");
 
 /* =========================================================================
- * 2. Edge schema assertion (503 SCHEMA_OUT_OF_DATE, PRAGMA caching, recovery,
- *    and non-masking of unrelated errors)
+ * 2. Runtime self-healing: no PRAGMA, no global 503, sign-in always answers
  * ========================================================================= */
 
-// Verify worker.ts enforces checkDatabaseSchema() at the Worker edge before
-// handing /api/* or /functions/v1/* requests to Express.
-const workerSource = read("worker.ts");
-h.ok(
-  workerSource.includes("checkDatabaseSchema") && workerSource.includes("status: 503"),
-  "worker.ts runs checkDatabaseSchema() at the edge and answers 503 on failure",
-);
+// Executable code (comments stripped) must not contain a single PRAGMA. On
+// hosted D1 a PRAGMA through a Worker binding either throws an authorisation
+// error or returns no rows, so a schema check built on one is both a 500 and a
+// false negative waiting to happen.
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:"'\\w])\/\/[^\n]*/g, "$1");
+}
+for (const file of ["worker.ts", "server/platform.ts", "src/db.ts"]) {
+  h.ok(!/\bPRAGMA\b/i.test(stripComments(read(file))), `${file} executes no PRAGMA statement`);
+}
+const workerSource = stripComments(read("worker.ts"));
+h.ok(!/checkDatabaseSchema\s*\(/.test(workerSource), "worker.ts no longer runs a schema check in front of /api/*");
+h.ok(!/status:\s*503/.test(workerSource), "worker.ts never refuses API traffic with 503 after the request reaches it");
 
 process.env.NODE_ENV = "test";
 process.env.SESSION_SECRET = "schema-drift-test-secret-of-at-least-thirty-two-chars";
 process.env.PUBLIC_APP_URL = "https://scenering.test";
 process.env.SCENERING_OWNER_EMAIL = "owner@scenering.test";
 
-const { setEnv, env } = await import("../src/env.ts");
-const { createTestKV, createTestR2, installTestPlatformEnv } = await import("./platform-env.ts");
-installTestPlatformEnv();
+const { setEnv } = await import("../src/env.ts");
+const { createTestKV, createTestR2 } = await import("./platform-env.ts");
 
 const { createApp } = await import("../server.ts");
-const { checkDatabaseSchema, findSession, resetDatabaseSchemaCheck } = await import("../server/platform.ts");
+const { ensureDevicesAndWorkspaceSchema, findSession, resetDatabaseSchemaCheck } = await import("../server/platform.ts");
 const { db } = await import("../src/db.ts");
 
-function makeCustomD1(files: Array<{ name: string; sql: string }>) {
+const PASSWORD = "correct-horse-battery";
+const PRAGMA_ERROR = "D1_ERROR: SQLITE_AUTH: not authorized to use pragma";
+// Wrangler creates this ledger before a worker ever runs. The self-healing
+// path keeps it aligned; without it here the alignment would silently skip.
+const D1_MIGRATIONS_DDL =
+  "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))";
+
+interface CustomD1Options {
+  /** Simulate a database that refuses DDL on `sessions` (a locked/limited D1). */
+  blockSessionAlter?: boolean;
+}
+
+/**
+ * A D1 shim with hosted D1's two hostile behaviours modelled:
+ *   • any PRAGMA is refused with SQLITE_AUTH (never returns rows), and
+ *   • `ALTER TABLE sessions` can be refused outright.
+ * Everything else runs against real SQLite.
+ */
+function makeCustomD1(files: Array<{ name: string; sql: string }>, options: CustomD1Options = {}) {
   const sqlite = new DatabaseSync(":memory:");
-  for (const f of files) sqlite.exec(f.sql);
+  sqlite.exec(D1_MIGRATIONS_DDL);
+  for (const file of files) {
+    sqlite.exec(file.sql);
+    sqlite.prepare("INSERT OR IGNORE INTO d1_migrations (name) VALUES (?)").run(file.name);
+  }
+
   let pragmaCalls = 0;
+  const guard = (sql: string) => {
+    if (/^\s*PRAGMA\b/i.test(sql)) {
+      pragmaCalls++;
+      throw new Error(PRAGMA_ERROR);
+    }
+    if (options.blockSessionAlter && /^\s*ALTER\s+TABLE\s+sessions\b/i.test(sql)) {
+      throw new Error("D1_ERROR: SQLITE_AUTH: not authorized to alter table sessions");
+    }
+  };
 
   const statementFor = (sql: string, params: unknown[]) => ({
-    first: async () => (sqlite.prepare(sql).get(...(params as never[])) as Record<string, unknown> | undefined) ?? null,
+    first: async () => {
+      guard(sql);
+      return (sqlite.prepare(sql).get(...(params as never[])) as Record<string, unknown> | undefined) ?? null;
+    },
     all: async () => {
-      if (/^\s*PRAGMA\s+table_info/i.test(sql)) pragmaCalls++;
+      guard(sql);
       const results = sqlite.prepare(sql).all(...(params as never[])) as Record<string, unknown>[];
       return { results, success: true, meta: { changes: results.length } };
     },
     run: async () => {
+      guard(sql);
       const info = sqlite.prepare(sql).run(...(params as never[]));
       return { success: true, meta: { changes: Number(info.changes) } };
     },
@@ -518,113 +569,159 @@ const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 
+const jsonHeaders = { "Content-Type": "application/json", Origin: "https://scenering.test" };
+const cookieHeader = (token: string) => ({ Cookie: `scenering_session=${encodeURIComponent(token)}` });
+
+async function registerAndVerify(email: string) {
+  const response = await fetch(`${base}/api/auth/register`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ displayName: "Schema Tester", email, password: PASSWORD }),
+  });
+  h.eq(response.status, 201, `registration succeeds for ${email}`);
+  const body = (await response.json()) as any;
+  const token = new URL(body.developmentVerificationUrl, base).searchParams.get("token");
+  const verified = await fetch(`${base}/api/auth/verify-email`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ token }),
+  });
+  h.eq(verified.status, 200, `the verification link works for ${email}`);
+}
+
+async function signIn(email: string, device = "device-schema-test-1") {
+  const response = await fetch(`${base}/api/auth/login`, {
+    method: "POST",
+    headers: { ...jsonHeaders, "X-Scenering-Device": device },
+    body: JSON.stringify({ email, password: PASSWORD }),
+  });
+  const body = (await response.json().catch(() => null)) as any;
+  const raw = String(response.headers.get("set-cookie") || "").match(/scenering_session=([^;]+)/)?.[1] || "";
+  return { status: response.status, body, cookie: raw ? decodeURIComponent(raw) : "" };
+}
+
+const pre0007Files = migrationFiles.filter((file) => !file.name.startsWith("0007_"));
+
 try {
-  // 2a. Database missing 0007 -> 503 SCHEMA_OUT_OF_DATE (never 500), with exact command & SQL.
-  const pre0007Db = makeCustomD1(migrationFiles.filter((f) => !f.name.startsWith("0007_")));
+  /* 2a. Hosted D1 refuses PRAGMA. Sign-in, session restore and the workspace
+   *     must not depend on one — this shim throws on every PRAGMA. */
+  const pragmaHostileDb = makeCustomD1(migrationFiles);
+  installCustomDb(pragmaHostileDb);
+  resetDatabaseSchemaCheck();
+
+  const pragmaEmail = "pragma-guard@scenering.test";
+  await registerAndVerify(pragmaEmail);
+
+  const guardedLogin = await signIn(pragmaEmail);
+  h.eq(guardedLogin.status, 200, "POST /api/auth/login succeeds when D1 refuses every PRAGMA");
+  h.ok(Boolean(guardedLogin.cookie), "the guarded sign-in still sets a session cookie");
+
+  const guardedSession = await fetch(`${base}/api/auth/session`, { headers: cookieHeader(guardedLogin.cookie) });
+  h.eq(guardedSession.status, 200, "GET /api/auth/session succeeds when D1 refuses every PRAGMA");
+
+  const guardedWorkspace = await fetch(`${base}/api/workspace`, { headers: cookieHeader(guardedLogin.cookie) });
+  h.eq(guardedWorkspace.status, 200, "GET /api/workspace succeeds when D1 refuses every PRAGMA");
+
+  h.eq(pragmaHostileDb.getPragmaCalls(), 0, "not one PRAGMA statement reached D1 during login, session restore or a workspace read");
+
+  /* 2b. Pre-0007 database: sign-in, session restore and workspace sync all
+   *     self-heal, and the d1_migrations ledger is aligned afterwards. */
+  const pre0007Db = makeCustomD1(pre0007Files);
   installCustomDb(pre0007Db);
   resetDatabaseSchemaCheck();
 
-  const brokenLogin = await fetch(`${base}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: "https://scenering.test" },
-    body: JSON.stringify({ email: "owner@scenering.test", password: "correct-horse-battery" }),
-  });
-  h.eq(brokenLogin.status, 503, "POST /api/auth/login returns 503 (never 500) when 0007 schema is missing");
-  const brokenBody = (await brokenLogin.json()) as any;
-  h.eq(brokenBody.code, "SCHEMA_OUT_OF_DATE", "503 response carries code SCHEMA_OUT_OF_DATE");
-  h.ok(
-    typeof brokenBody.error === "string" &&
-      brokenBody.error.includes("npx wrangler d1 migrations apply scenering-db --remote") &&
-      brokenBody.error.includes("ALTER TABLE sessions ADD COLUMN device_id TEXT;") &&
-      brokenBody.error.includes("ALTER TABLE sessions ADD COLUMN device_label TEXT;") &&
-      brokenBody.error.includes("ALTER TABLE sessions ADD COLUMN platform TEXT;") &&
-      brokenBody.error.includes("ALTER TABLE sessions ADD COLUMN last_seen_at TEXT;") &&
-      brokenBody.error.includes("CREATE TABLE IF NOT EXISTS workspace_documents"),
-    "503 error message includes the exact Wrangler command and SQL statements to repair 0007",
+  const pre0007SessionsDdl = String((pre0007Db.sqlite.prepare("SELECT sql FROM sqlite_master WHERE name = 'sessions'").get() as any)?.sql || "");
+  h.ok(!/device_id/i.test(pre0007SessionsDdl), "the fixture really is a pre-0007 database (no sessions.device_id)");
+  h.eq(
+    pre0007Db.sqlite.prepare("SELECT name FROM sqlite_master WHERE name = 'workspace_documents'").get(),
+    undefined,
+    "the fixture really is a pre-0007 database (no workspace_documents table)",
   );
 
-  // Non-API routes (robots.txt) do not touch D1 and still answer 200.
-  const robotsRes = await fetch(`${base}/robots.txt`);
-  h.eq(robotsRes.status, 200, "/robots.txt stays reachable even while D1 migrations are pending");
+  const pre0007Email = "pre-0007@scenering.test";
+  await registerAndVerify(pre0007Email);
 
-  // 2b. Failures are NOT cached permanently: applying 0007 on the same DB
-  //     immediately unblocks login on the next request without redeploying,
-  //     and subsequent requests use the isolate cache (no repeated PRAGMAs).
-  const migration0007 = migrationFiles.find((f) => f.name.startsWith("0007_"))!;
-  pre0007Db.sqlite.exec(migration0007.sql);
-  const pragmasBeforeRecovery = pre0007Db.getPragmaCalls();
+  const healedLogin = await signIn(pre0007Email);
+  h.eq(healedLogin.status, 200, "POST /api/auth/login returns 200 on an unmigrated (pre-0007) database");
+  h.eq(healedLogin.body?.membership?.plan_id, "free", "the healed sign-in still resolves the member's plan");
+  h.eq(healedLogin.body?.devices?.active, 1, "the healed session records the device that opened it");
 
-  const recoveredLogin = await fetch(`${base}/api/auth/login`, {
+  const healedSession = await fetch(`${base}/api/auth/session`, { headers: cookieHeader(healedLogin.cookie) });
+  h.eq(healedSession.status, 200, "GET /api/auth/session returns 200 on an unmigrated (pre-0007) database");
+
+  const healedSync = await fetch(`${base}/api/workspace/sync`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Origin: "https://scenering.test" },
-    body: JSON.stringify({ email: "nobody@scenering.test", password: "wrong-password-123" }),
+    headers: { ...jsonHeaders, ...cookieHeader(healedLogin.cookie), "X-Scenering-Device": "device-schema-test-1" },
+    body: JSON.stringify({ documents: [{ key: "scenering_projects_v1", body: "[]", baseRevision: 0 }] }),
   });
-  h.eq(recoveredLogin.status, 401, "applying 0007 recovers login immediately on the warm isolate (401 invalid credentials)");
-  const pragmasAfterFirstHealthy = pre0007Db.getPragmaCalls();
-  h.eq(pragmasAfterFirstHealthy - pragmasBeforeRecovery, 2, "first healthy request runs the 2 PRAGMA table_info checks");
+  h.eq(healedSync.status, 200, "POST /api/workspace/sync returns 200 on an unmigrated (pre-0007) database");
 
-  for (let i = 0; i < 4; i++) {
-    const res = await fetch(`${base}/api/plans`);
-    h.eq(res.status, 200, `subsequent request #${i + 1} succeeds`);
-  }
-  h.eq(pre0007Db.getPragmaCalls(), pragmasAfterFirstHealthy, "PRAGMA table_info is cached once per isolate after passing");
-
-  // 2c. Workspace routes are mounted in server.ts createApp().
-  const regRes = await fetch(`${base}/api/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: "https://scenering.test" },
-    body: JSON.stringify({ displayName: "Schema Tester", email: "tester@scenering.test", password: "correct-horse-battery" }),
-  });
-  h.eq(regRes.status, 201, "account registration succeeds on migrated DB");
-  const regJson = (await regRes.json()) as any;
-  const verifyToken = new URL(regJson.developmentVerificationUrl, base).searchParams.get("token");
-  await fetch(`${base}/api/auth/verify-email`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: "https://scenering.test" },
-    body: JSON.stringify({ token: verifyToken }),
-  });
-  const signInRes = await fetch(`${base}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: "https://scenering.test", "X-Scenering-Device": "device-schema-test-1" },
-    body: JSON.stringify({ email: "tester@scenering.test", password: "correct-horse-battery" }),
-  });
-  h.eq(signInRes.status, 200, "verified sign-in returns 200");
-  const sessionCookie = String(signInRes.headers.get("set-cookie") || "").split(";")[0];
-
-  const workspaceRes = await fetch(`${base}/api/workspace`, { headers: { Cookie: sessionCookie } });
-  h.eq(workspaceRes.status, 200, "GET /api/workspace is mounted on createApp() and answers 200");
-
-  // 2d. Must not mask unrelated errors:
-  //     - A D1 transport failure inside PRAGMA propagates as its real error, not SCHEMA_OUT_OF_DATE.
-  //     - An unbound preview Worker (DB undefined) returns null from checkDatabaseSchema().
-  installCustomDb({
-    prepare: () => ({
-      all: async () => {
-        throw new Error("D1 network timeout");
-      },
-    }),
-  });
-  resetDatabaseSchemaCheck();
-  let unrelatedErr: Error | null = null;
-  try {
-    await checkDatabaseSchema();
-  } catch (err: any) {
-    unrelatedErr = err;
+  const healedColumns = String((pre0007Db.sqlite.prepare("SELECT sql FROM sqlite_master WHERE name = 'sessions'").get() as any)?.sql || "");
+  for (const column of ["device_id", "device_label", "platform", "last_seen_at"]) {
+    h.ok(new RegExp(`\\b${column}\\b`).test(healedColumns), `self-healing added sessions.${column}`);
   }
   h.ok(
-    unrelatedErr !== null && unrelatedErr.message === "D1 network timeout",
-    "D1 transport errors during PRAGMA propagate untouched rather than being masked as SCHEMA_OUT_OF_DATE",
+    Boolean(pre0007Db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sessions_user_device'").get()),
+    "self-healing created idx_sessions_user_device",
+  );
+  h.ok(
+    Boolean(pre0007Db.sqlite.prepare("SELECT name FROM sqlite_master WHERE name = 'workspace_documents'").get()),
+    "self-healing created workspace_documents",
+  );
+  h.ok(
+    Boolean(pre0007Db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_workspace_documents_user'").get()),
+    "self-healing created idx_workspace_documents_user",
+  );
+  h.ok(
+    Boolean(pre0007Db.sqlite.prepare("SELECT name FROM d1_migrations WHERE name = '0007_devices_workspace.sql'").get()),
+    "d1_migrations now records 0007_devices_workspace.sql (the ledger never drifts behind the live schema)",
   );
 
-  installCustomDb(undefined);
+  /* 2c. Even when ALTER TABLE sessions is refused outright — so the four
+   *     device columns can never exist — sign-in and session restore answer
+   *     200 through the core-column fallback. */
+  const blockedDb = makeCustomD1(pre0007Files, { blockSessionAlter: true });
+  installCustomDb(blockedDb);
   resetDatabaseSchemaCheck();
-  h.eq(await checkDatabaseSchema(), null, "unbound preview environment (no DB binding) is not misreported as SCHEMA_OUT_OF_DATE");
 
-  /* =========================================================================
-   * 3. Database errors are logged instead of silently swallowed
-   * ========================================================================= */
-  installCustomDb(pre0007Db);
+  const blockedEmail = "blocked-alter@scenering.test";
+  await registerAndVerify(blockedEmail);
+
+  const blockedLogin = await signIn(blockedEmail);
+  h.eq(blockedLogin.status, 200, "POST /api/auth/login returns 200 when ALTER TABLE sessions is refused");
+  h.ok(Boolean(blockedLogin.cookie), "the fallback sign-in still sets a session cookie");
+  h.eq(blockedDb.sqlite.prepare("SELECT id FROM sessions").all().length, 1, "the fallback writes the session row with the core columns");
+
+  const blockedSession = await fetch(`${base}/api/auth/session`, { headers: cookieHeader(blockedLogin.cookie) });
+  h.eq(blockedSession.status, 200, "GET /api/auth/session returns 200 when ALTER TABLE sessions is refused");
+  const blockedBody = (await blockedSession.json()) as any;
+  h.eq(blockedBody?.user?.email, blockedEmail, "the fallback session resolves the same member");
+
+  const blockedColumns = String((blockedDb.sqlite.prepare("SELECT sql FROM sqlite_master WHERE name = 'sessions'").get() as any)?.sql || "");
+  h.ok(!/last_seen_at/i.test(blockedColumns), "the fixture really could not add sessions.last_seen_at");
+  h.eq(
+    blockedDb.sqlite.prepare("SELECT name FROM d1_migrations WHERE name = '0007_devices_workspace.sql'").get(),
+    undefined,
+    "the ledger is not advanced when the schema could not actually be repaired",
+  );
+
+  /* 2d. Production, with the auxiliary entitlement tables gone: sign-in and
+   *     session restore still answer 200, and the verified configured owner
+   *     still receives admin + SceneForge. */
+  const productionDb = makeCustomD1(migrationFiles);
+  installCustomDb(productionDb);
   resetDatabaseSchemaCheck();
+
+  const ownerEmail = "owner@scenering.test";
+  await registerAndVerify(ownerEmail);
+
+  process.env.NODE_ENV = "production";
+  process.env.EMAIL_PROVIDER = "resend";
+  process.env.RESEND_API_KEY = "test-only-key";
+
+  for (const table of ["subscriptions", "billing_customers", "complimentary_grants", "usage_records"]) {
+    productionDb.sqlite.exec(`DROP TABLE ${table}`);
+  }
 
   const capturedErrors: string[] = [];
   const origConsoleError = console.error;
@@ -633,44 +730,68 @@ try {
   };
 
   try {
-    // 3a. db.listActiveSessionsForUser failure in accountPayload logs the error and falls back to [].
-    const origListSessions = db.listActiveSessionsForUser;
-    db.listActiveSessionsForUser = async () => {
-      throw new Error("simulated listActiveSessionsForUser failure");
-    };
-    try {
-      const sessionRes = await fetch(`${base}/api/auth/session`, { headers: { Cookie: sessionCookie } });
-      h.eq(sessionRes.status, 200, "GET /api/auth/session keeps graceful fallback when listActiveSessionsForUser fails");
-      const sessionBody = (await sessionRes.json()) as any;
-      h.eq(sessionBody.devices?.active, 0, "devices.list falls back to empty list");
-      h.ok(
-        capturedErrors.some((line) => line.includes("listActiveSessionsForUser") && line.includes("simulated listActiveSessionsForUser failure")),
-        "listActiveSessionsForUser failure is logged rather than swallowed",
-      );
-    } finally {
-      db.listActiveSessionsForUser = origListSessions;
-    }
+    const ownerLogin = await signIn(ownerEmail);
+    h.eq(ownerLogin.status, 200, "POST /api/auth/login returns 200 when subscriptions/billing_customers/complimentary_grants/usage_records are gone");
+    h.eq(ownerLogin.body?.user?.role, "admin", "the verified configured owner still signs in as admin");
+    h.eq(ownerLogin.body?.membership?.plan_id, "sceneforge", "the verified configured owner still receives SceneForge");
+    h.eq(ownerLogin.body?.sessionToken, undefined, "production still never returns a bearer session token");
 
-    // 3b. db.touchSession failure in findSession logs the error and still resolves auth.
+    const ownerSession = await fetch(`${base}/api/auth/session`, { headers: cookieHeader(ownerLogin.cookie) });
+    h.eq(ownerSession.status, 200, "GET /api/auth/session returns 200 when the auxiliary tables are gone");
+    const ownerSessionBody = (await ownerSession.json()) as any;
+    h.eq(ownerSessionBody?.membership?.plan_id, "sceneforge", "session restore keeps SceneForge for the owner");
+    h.ok(
+      capturedErrors.some((line) => /\[auth\] findActiveSubscriptionByUserId failed/.test(line)),
+      "the missing subscriptions table is logged instead of thrown",
+    );
+    h.ok(
+      capturedErrors.some((line) => /\[auth\] listUsageSince failed/.test(line)),
+      "the missing usage_records table is logged instead of thrown",
+    );
+
+    /* 2e. D1 transport errors during schema repair are contained too. */
     capturedErrors.length = 0;
-    pre0007Db.sqlite.prepare("UPDATE sessions SET last_seen_at = ?").run("2020-01-01T00:00:00.000Z");
-    const origTouchSession = db.touchSession;
-    db.touchSession = async () => {
-      throw new Error("simulated touchSession failure");
-    };
+    installCustomDb({
+      prepare: () => ({
+        bind: () => ({
+          all: async () => {
+            throw new Error("D1 network timeout");
+          },
+          first: async () => {
+            throw new Error("D1 network timeout");
+          },
+          run: async () => {
+            throw new Error("D1 network timeout");
+          },
+        }),
+      }),
+    });
+    resetDatabaseSchemaCheck();
+    let repairError: unknown = null;
     try {
-      const auth = await findSession({ headers: { cookie: sessionCookie } } as any);
-      await new Promise((r) => setTimeout(r, 20));
-      h.eq(auth?.user.email, "tester@scenering.test", "findSession keeps graceful fallback when touchSession fails");
-      h.ok(
-        capturedErrors.some((line) => line.includes("touchSession") && line.includes("simulated touchSession failure")),
-        "touchSession failure is logged rather than swallowed",
-      );
-    } finally {
-      db.touchSession = origTouchSession;
+      await ensureDevicesAndWorkspaceSchema();
+    } catch (err) {
+      repairError = err;
     }
+    h.eq(repairError, null, "a D1 transport error during schema repair is logged, never thrown at the caller");
+    h.ok(
+      capturedErrors.some((line) => line.includes("D1 network timeout")),
+      "the transport error is reported to Workers Logs",
+    );
 
-    // 3c. src/lib/session.ts refreshSession() logs 503/500/network failures (while keeping 401 quiet).
+    installCustomDb(undefined);
+    resetDatabaseSchemaCheck();
+    let unboundError: unknown = null;
+    try {
+      await ensureDevicesAndWorkspaceSchema();
+    } catch (err) {
+      unboundError = err;
+    }
+    h.eq(unboundError, null, "an unbound preview environment (no DB binding) is not an error");
+    h.eq((await fetch(`${base}/api/health`)).status, 200, "/api/health stays reachable without a database binding");
+
+    /* 2f. Client-side: refreshSession() logs a broken database rather than
+     *     making it look like a signed-out visitor. */
     const { refreshSession } = await import("../src/lib/session.ts");
     const origFetch = globalThis.fetch;
     try {
@@ -680,21 +801,19 @@ try {
           status: 401,
           headers: { "Content-Type": "application/json" },
         })) as typeof fetch;
-      const anonResult = await refreshSession();
-      h.eq(anonResult, null, "refreshSession returns null on 401");
+      h.eq(await refreshSession(), null, "refreshSession returns null on 401");
       h.eq(capturedErrors.length, 0, "ordinary 401 signed-out response does not log an error");
 
       capturedErrors.length = 0;
       globalThis.fetch = (async () =>
-        new Response(
-          JSON.stringify({ error: "Database schema is out of date", code: "SCHEMA_OUT_OF_DATE" }),
-          { status: 503, headers: { "Content-Type": "application/json" } },
-        )) as typeof fetch;
-      const schemaFailResult = await refreshSession();
-      h.eq(schemaFailResult, null, "refreshSession keeps graceful null fallback on 503");
+        new Response(JSON.stringify({ error: "Server error", code: "INTERNAL_ERROR" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        })) as typeof fetch;
+      h.eq(await refreshSession(), null, "refreshSession keeps graceful null fallback on 500");
       h.ok(
-        capturedErrors.some((line) => line.includes("refreshSession") && line.includes("SCHEMA_OUT_OF_DATE")),
-        "refreshSession logs 503 SCHEMA_OUT_OF_DATE instead of making a broken schema look like signed-out",
+        capturedErrors.some((line) => line.includes("refreshSession") && line.includes("INTERNAL_ERROR")),
+        "refreshSession logs a 500 INTERNAL_ERROR instead of making a broken server look like signed-out",
       );
     } finally {
       globalThis.fetch = origFetch;
@@ -702,10 +821,25 @@ try {
   } finally {
     console.error = origConsoleError;
   }
+
+  /* 2g. touchSession stays non-fatal: a database without last_seen_at must not
+   *     turn a valid session into a failed request. */
+  process.env.NODE_ENV = "test";
+  installCustomDb(makeCustomD1(pre0007Files, { blockSessionAlter: true }));
+  resetDatabaseSchemaCheck();
+  await registerAndVerify("touch-fallback@scenering.test");
+  const finalLogin = await signIn("touch-fallback@scenering.test");
+  h.eq(finalLogin.status, 200, "sign-in still succeeds on the newest unhealable database");
+  let touched: unknown = null;
+  try {
+    await db.touchSession("sess_missing_column");
+  } catch (err) {
+    touched = err;
+  }
+  h.eq(touched, null, "db.touchSession() never throws when last_seen_at cannot be written");
+  h.ok(Boolean(await findSession({ headers: { cookie: `scenering_session=${encodeURIComponent(finalLogin.cookie)}` } } as any)), "findSession resolves on a database that cannot be healed");
 } finally {
-  // Restore env for clean shutdown.
-  void env;
   await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
 }
 
-h.done("schema drift & edge schema assertion");
+h.done("schema drift, 0007 self-healing and auth fault isolation");

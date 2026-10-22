@@ -158,6 +158,12 @@ export async function signIn(email: string, password: string) {
   const data = await jsonRequest("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
   if (typeof data?.sessionToken === "string" && data.sessionToken) {
     writeStoredSessionToken(data.sessionToken);
+  } else {
+    // Production is cookie-only, so no bridge token comes back. Clear whatever
+    // the last sign-out left behind ("signed-out") — otherwise the fetch patch
+    // above keeps sending it, and the server reads that as an explicit request
+    // never to authenticate this browser.
+    writeStoredSessionToken(null);
   }
   current = data;
   checked = true;

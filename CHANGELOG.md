@@ -47,6 +47,40 @@
     synchronisation (`<= 140 ms`) before saving to the Vault or presenting the
     download.
 
+## Unreleased — production sign-in never waits for a migration
+
+- **Fixed: the `PRAGMA`-based schema gate and unisolated entitlement reads that
+  took `POST /api/auth/login` down on `scenering.com`.** PR #74 put
+  `checkDatabaseSchema()` in front of every `/api/*` request and inspected D1
+  with `PRAGMA table_info(sessions)` / `PRAGMA table_info(workspace_documents)`
+  with no `try/catch` in `worker.ts`. On hosted D1 those statements either
+  throw (`SQLITE_AUTH`) or return empty `results`, so sign-in answered an
+  opaque `500`/`1101` — or a false `503 SCHEMA_OUT_OF_DATE` — before Express
+  ever ran. Fixes:
+  - No `PRAGMA` executes in Worker runtime code, and the global `/api/*` 503
+    blocker is removed from `worker.ts` and `server/platform.ts`.
+    `ensureDevicesAndWorkspaceSchema()` inspects
+    `SELECT name, sql FROM sqlite_master` instead, heals `0007` on the auth and
+    workspace paths, and aligns `d1_migrations` once the columns exist.
+  - `db.createSession()` retries after healing and finally falls back to the
+    five pre-0007 columns; `db.listActiveSessionsForUser()` falls back to
+    `ORDER BY created_at`; `db.touchSession()` is non-fatal.
+  - Entitlement and usage reads (`findActiveSubscriptionByUserId`,
+    `findMembershipByUserId`, `findAndSweepActiveComplimentaryGrant`,
+    `sweepUserSubscriptionExpiry`, `listUsageSince`, device eviction) are
+    individually `.catch()`-isolated and logged, so a drifted `subscriptions`,
+    `billing_customers`, `complimentary_grants` or `usage_records` table
+    degrades the plan answer instead of failing sign-in. The verified
+    `SCENERING_OWNER_EMAIL` administrator still resolves to `admin` +
+    `sceneforge`.
+  - `signIn()` clears a stale `"signed-out"` preview token when production
+    sends no bridge token, and `server.ts` ends with a 4-argument Express error
+    middleware that answers JSON `{ error, code: "INTERNAL_ERROR" }` instead of
+    an HTML error page.
+  - `tests/schema-drift.test.ts` and `tests/production-auth.test.ts` cover a
+    PRAGMA-refusing D1, a pre-0007 database, a refused `ALTER TABLE sessions`,
+    and dropped or throwing entitlement tables.
+
 ## Unreleased — a deployment can no longer outrun its database
 
 - **Fixed: sign-in answered 500 when the Worker moved ahead of its D1 schema,
@@ -65,15 +99,21 @@
   `subscriptions` table. Production `scenering-db` and `d1_migrations` are now
   aligned through `0007`, `/api/workspace` is mounted in `server.ts`, and four
   code-side guards stop this happening again:
-  - **The Worker checks its required schema at the edge and answers `503`
-    instead of `500`.** Once per isolate (`PRAGMA table_info`, cached only after
-    passing so a repair takes effect on the next request without a redeploy),
-    `worker.ts` and `server/platform.ts` verify that `sessions.device_id`,
-    `device_label`, `platform`, `last_seen_at` and `workspace_documents` exist
-    without running silent DDL behind `d1_migrations`'s back. When a migration
-    is missing, the Worker returns `503` (`code: "SCHEMA_OUT_OF_DATE"`) carrying
-    the exact `wrangler d1 migrations apply` command and SQL to fix it, while
-    leaving unrelated database and application errors untouched.
+  - **Sign-in no longer depends on a schema gate — the schema repairs
+    itself.** An earlier revision of this entry answered `503`
+    (`SCHEMA_OUT_OF_DATE`) for every `/api/*` request when `0007` looked
+    unapplied, using `PRAGMA table_info`. On hosted D1 a `PRAGMA` through a
+    Worker binding either throws an authorisation error (an unhandled `500`
+    before Express ran) or returns no rows — so a healthy database was
+    reported as broken, and even genuine drift locked the owner out of signing
+    in. The gate is gone from `worker.ts` and `server/platform.ts`. In its
+    place `ensureDevicesAndWorkspaceSchema()` (once per isolate, cached only
+    after it succeeds) reads `sqlite_master` — never `PRAGMA` — adds the
+    missing `sessions` device columns and `workspace_documents` table, and
+    records `0007_devices_workspace.sql` in `d1_migrations` so the ledger stops
+    drifting. `src/db.ts` adds core-column fallbacks (`createSession`,
+    `listActiveSessionsForUser`, non-fatal `touchSession`) so sign-in and
+    session restore answer `200` even when those columns cannot be added.
   - **Session database failures are logged instead of looking like "signed
     out".** `db.touchSession()`, `db.listActiveSessionsForUser()` and the
     browser's `refreshSession()` keep their graceful fallbacks, so an auxiliary
