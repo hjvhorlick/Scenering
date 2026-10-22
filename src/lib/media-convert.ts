@@ -52,8 +52,11 @@ let toolkitPromise: Promise<MediaToolkit> | null = null;
  * The containers an upload can plausibly be in. Listing them keeps the HLS
  * demuxer (and its playlist machinery) out of the on-demand chunk; no
  * customer uploads a `.m3u8` as a video file.
+ *
+ * Exported so the audio-stripping re-wrap (`clip-audio-strip.ts`) reads a file
+ * with exactly the same set of containers the uploader accepted it from.
  */
-function formatsFor(mb: MediaToolkit) {
+export function uploadInputFormats(mb: MediaToolkit) {
   return [mb.MP4, mb.QTFF, mb.MATROSKA, mb.WEBM, mb.MPEG_TS, mb.MP3, mb.WAVE, mb.OGG, mb.FLAC, mb.ADTS];
 }
 
@@ -140,7 +143,7 @@ export async function inspectMediaBlob(blob: Blob): Promise<MediaInspection | nu
   if (!blob || blob.size === 0) return null;
   try {
     const mb = await loadMediaToolkit();
-    const input = new mb.Input({ source: new mb.BlobSource(blob), formats: formatsFor(mb) });
+    const input = new mb.Input({ source: new mb.BlobSource(blob), formats: uploadInputFormats(mb) });
     try {
       if (!(await input.canRead())) return null;
       const format = await input.getFormat().catch(() => null);
@@ -250,7 +253,7 @@ export async function convertVideoForBrowser(
     let input: MediaInput | null = null;
     let timedOut = false;
     try {
-      input = new mb.Input({ source: new mb.BlobSource(file), formats: formatsFor(mb) });
+      input = new mb.Input({ source: new mb.BlobSource(file), formats: uploadInputFormats(mb) });
       if (!(await input.canRead())) return null;
 
       const video = await input.getPrimaryVideoTrack().catch(() => null);

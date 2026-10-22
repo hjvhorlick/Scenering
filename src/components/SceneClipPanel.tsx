@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Scene } from "../types";
-import { resolveVideoUrl } from "../lib/custom-video";
+import { addCustomVideo, CUSTOM_VIDEO_PREFIX, isCustomVideoUrl, resolveVideoUrl } from "../lib/custom-video";
+import { stripClipAudio } from "../lib/clip-audio-strip";
+import { formatStorageBytes } from "../lib/storage-health";
 import { VIDEO_UPLOAD_ACCEPT } from "../lib/media-file";
 import { sceneUpdatesForVideoFile, videoUploadMessage } from "../lib/scene-clip-attach";
 import { sceneDurationForText } from "../lib/duration-utils";
@@ -52,6 +54,11 @@ export default function SceneClipPanel({
   const [conversionProgress, setConversionProgress] = useState<number | null>(null);
   /** The clip is usable in this tab, but the browser could not store it. */
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  /** Remove-audio is a two-step, irreversible action, so it has its own state. */
+  const [audioRemoval, setAudioRemoval] = useState<"idle" | "confirm" | "working">("idle");
+  const [audioProgress, setAudioProgress] = useState<number | null>(null);
+  const [audioNote, setAudioNote] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
 
   const isInserted = Boolean(scene.is_inserted);
   const hasClip = Boolean(scene.video_url);
@@ -88,6 +95,55 @@ export default function SceneClipPanel({
       .then((updates) => onUpdate(scene.id, updates))
       .catch((err) => setLoadError(videoUploadMessage(err)))
       .finally(() => setConversionProgress(null));
+  };
+
+  /**
+   * Take the soundtrack out of the stored file.
+   *
+   * Muting (above) stops the track being played and changes nothing on disk.
+   * This rewrites the clip without an audio track, so the stored upload is
+   * genuinely smaller and no player can find the sound again. The picture is
+   * copied, not re-encoded, and the new file replaces the old one through the
+   * same store as any upload — so the scene keeps a reload-safe address.
+   */
+  const removeAudioFromFile = async () => {
+    if (!scene.video_url || audioRemoval === "working") return;
+    setAudioRemoval("working");
+    setAudioProgress(null);
+    setAudioError(null);
+    setAudioNote(null);
+    try {
+      const stripped = await stripClipAudio(scene.video_url, { onProgress: setAudioProgress });
+      if (!stripped.ok) {
+        setAudioError(stripped.message);
+        setAudioRemoval("idle");
+        return;
+      }
+      const replacedId = scene.video_url.slice(CUSTOM_VIDEO_PREFIX.length);
+      const stored = await addCustomVideo(stripped.file, {
+        replaceIds: [replacedId],
+        allowSessionFallback: true,
+      });
+      onUpdate(scene.id, {
+        video_url: `${CUSTOM_VIDEO_PREFIX}${stored.id}`,
+        video_name: stored.name,
+        video_duration: stored.duration || scene.video_duration,
+        // There is no track left to play; say so in the field every renderer reads.
+        video_mute: true,
+      });
+      if (stored.storageWarning) setStorageWarning(stored.storageWarning);
+      setAudioNote(
+        stripped.savedBytes > 0
+          ? `Audio removed — the stored clip is ${formatStorageBytes(stripped.savedBytes)} smaller.`
+          : "Audio removed. The clip now has no soundtrack.",
+      );
+      setAudioRemoval("idle");
+    } catch (err: any) {
+      setAudioError(err?.message || "The audio could not be removed from that clip.");
+      setAudioRemoval("idle");
+    } finally {
+      setAudioProgress(null);
+    }
   };
 
   const setTrim = (start: number, end: number) => {
@@ -361,6 +417,62 @@ export default function SceneClipPanel({
                   className="w-full accent-indigo-500 cursor-pointer"
                 />
               </label>
+            )}
+
+            {/* Removing the track is a different act from muting it: one is a
+                switch, the other rewrites the stored file and cannot be undone. */}
+            {isCustomVideoUrl(scene.video_url) && (
+              <div className="pt-2 border-t border-hairline space-y-1.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-[11px] text-gray-200 font-medium">
+                    Remove the audio from the video file
+                  </span>
+                  {audioRemoval === "idle" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAudioRemoval("confirm");
+                        setAudioNote(null);
+                        setAudioError(null);
+                      }}
+                      className="px-2 py-1 rounded-lg border border-rose-800/70 bg-rose-950/40 text-rose-200 hover:bg-rose-900/50 text-[11px] transition-colors flex items-center gap-1"
+                    >
+                      <Icon glyph="🗑" /> Remove audio
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-gray-500 leading-relaxed">
+                  Muting keeps the track in the file. Removing takes it out, so the stored clip is
+                  smaller and no player can find the sound again — including the caption pass that
+                  listens to a clip. That cannot be undone; undoing it means uploading the file again.
+                </p>
+                {audioRemoval === "confirm" && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] text-amber-300">Remove it permanently?</span>
+                    <button
+                      type="button"
+                      onClick={() => void removeAudioFromFile()}
+                      className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold"
+                    >
+                      Yes, remove the audio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAudioRemoval("idle")}
+                      className="px-2 py-1 rounded-lg border border-hairline bg-gray-900 text-gray-300 hover:text-white text-[11px]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                {audioRemoval === "working" && (
+                  <p className="text-[11px] text-indigo-300">
+                    Removing the audio…{audioProgress !== null ? ` ${audioProgress}%` : ""}
+                  </p>
+                )}
+                {audioNote && <p className="text-[11px] text-emerald-300">{audioNote}</p>}
+                {audioError && <p className="text-[11px] text-rose-400">{audioError}</p>}
+              </div>
             )}
           </div>
 

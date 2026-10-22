@@ -144,6 +144,58 @@ h.ok(
 );
 h.ok(attach.includes('"loop"'), "a clip shorter than the narration still loops");
 
+/* -------------------- removing the audio, not just muting ---------------- */
+
+/*
+ * Mute and remove are different promises. Mute stops the track being played and
+ * changes nothing on disk — reversible, free, no loss. Remove rewrites the
+ * stored upload without a soundtrack: smaller file, no sound for any player or
+ * caption pass, and undoable only by uploading again. Both have to exist, and
+ * the panel has to say which is which.
+ */
+const strip = read("src/lib/clip-audio-strip.ts");
+h.ok(strip.includes("audio: { discard: true }"), "removal discards the audio track from the file");
+h.ok(
+  /video: \{\}[\s\S]{0,200}copy: \{\}/.test(strip),
+  "the picture is copied rather than re-encoded, so removal does not lose quality"
+);
+h.ok(
+  strip.includes("getSupportedCodecs") && strip.includes("WebMOutputFormat"),
+  "the output container is chosen so the existing video codec can be carried as-is"
+);
+h.ok(
+  strip.includes("getPrimaryAudioTrack") && strip.includes('"no-audio"'),
+  "a silent clip is answered with 'there is nothing to remove' instead of a broken file"
+);
+h.ok(
+  strip.includes('"remote"') && strip.includes("mute switch"),
+  "a streamed clip cannot be rewritten, and the panel says to mute it instead"
+);
+h.ok(strip.includes("MAX_STRIP_BYTES"), "a huge clip is not buffered into memory just to drop its sound");
+h.ok(strip.includes("conversion.cancel()"), "a stuck rewrite is cancelled rather than left hanging");
+
+h.ok(clipPanel.includes("stripClipAudio"), "the clip panel offers the removal");
+h.ok(
+  clipPanel.includes("isCustomVideoUrl(scene.video_url)"),
+  "removal is offered only for an uploaded clip, the only kind this app can rewrite"
+);
+h.ok(
+  /audioRemoval === "confirm"/.test(clipPanel) && /Yes, remove the audio/.test(clipPanel),
+  "an irreversible action asks before it runs"
+);
+h.ok(
+  /replaceIds: \[replacedId\]/.test(clipPanel) && clipPanel.includes("video_mute: true"),
+  "the stripped file replaces the stored clip and the scene records that it has no sound"
+);
+h.ok(
+  clipPanel.includes("video_mute") && clipPanel.includes("Mute the clip"),
+  "muting is still there, as the reversible choice, beside the permanent one"
+);
+h.ok(
+  /cannot be undone/.test(clipPanel),
+  "the panel states plainly that removal cannot be undone"
+);
+
 /* ------------------------------ the clip preview is usable ---------------- */
 
 /*

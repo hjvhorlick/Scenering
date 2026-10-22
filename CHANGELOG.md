@@ -2,6 +2,18 @@
 
 ## Unreleased — your own video, start to finish, with its sound and its captions
 
+- **The clip settings can now remove the audio from the video, not just mute
+  it.** Mute is a playback switch: the track stays inside the stored file,
+  still taking space and still there for any player or caption pass. The new
+  **Remove audio** action in the same panel (scene editor → Short video clip →
+  Clip sound) rewrites the stored upload without a soundtrack. The picture is
+  packet-copied rather than re-encoded, so the clip is unchanged visually and
+  the rewrite takes a fraction of its duration; the smaller file replaces the
+  old upload through the normal store, so the reload-safe address and the
+  storage-quota handling are the same as any upload. The panel reports how much
+  smaller the clip became, asks once before doing it (it cannot be undone), and
+  offers mute instead where rewriting is impossible — a clip streamed from a
+  web address, or a file whose codec cannot be re-wrapped without re-encoding.
 - **The clip trim panel has a preview you can actually see.** Its video was a
   192px thumbnail in the corner of a row shared with the stats, which made
   trimming guesswork — the detail you are cutting around was not visible. The

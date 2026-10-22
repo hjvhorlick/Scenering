@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 607 utility
+   Colour matrix for every non-classic theme. 609 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -942,6 +942,9 @@ html[data-theme="apple"] .border-rose-700\/70 {
 html[data-theme="apple"] .border-rose-800 {
   border-color: rgb(159 18 57 / 1);
 }
+html[data-theme="apple"] .border-rose-800\/70 {
+  border-color: rgb(159 18 57 / 0.7);
+}
 html[data-theme="apple"] .border-rose-900\/70 {
   border-color: rgb(136 19 55 / 0.7);
 }
@@ -1321,6 +1324,9 @@ html[data-theme="apple"] .hover\:bg-rose-600:hover {
 }
 html[data-theme="apple"] .hover\:bg-rose-900:hover {
   background-color: rgb(254 227 230 / 1);
+}
+html[data-theme="apple"] .hover\:bg-rose-900\/50:hover {
+  background-color: rgb(254 227 230 / 0.5);
 }
 html[data-theme="apple"] .hover\:bg-rose-900\/60:hover {
   background-color: rgb(254 227 230 / 0.6);
@@ -2814,6 +2820,9 @@ html[data-theme="windows"] .border-rose-700\/70 {
 html[data-theme="windows"] .border-rose-800 {
   border-color: rgb(151 26 61 / 1);
 }
+html[data-theme="windows"] .border-rose-800\/70 {
+  border-color: rgb(151 26 61 / 0.7);
+}
 html[data-theme="windows"] .border-rose-900\/70 {
   border-color: rgb(129 26 58 / 0.7);
 }
@@ -3193,6 +3202,9 @@ html[data-theme="windows"] .hover\:bg-rose-600:hover {
 }
 html[data-theme="windows"] .hover\:bg-rose-900:hover {
   background-color: rgb(129 26 58 / 1);
+}
+html[data-theme="windows"] .hover\:bg-rose-900\/50:hover {
+  background-color: rgb(129 26 58 / 0.5);
 }
 html[data-theme="windows"] .hover\:bg-rose-900\/60:hover {
   background-color: rgb(129 26 58 / 0.6);
@@ -4686,6 +4698,9 @@ html[data-theme="playful"] .border-rose-700\/70 {
 html[data-theme="playful"] .border-rose-800 {
   border-color: rgb(181 0 50 / 1);
 }
+html[data-theme="playful"] .border-rose-800\/70 {
+  border-color: rgb(181 0 50 / 0.7);
+}
 html[data-theme="playful"] .border-rose-900\/70 {
   border-color: rgb(158 0 49 / 0.7);
 }
@@ -5065,6 +5080,9 @@ html[data-theme="playful"] .hover\:bg-rose-600:hover {
 }
 html[data-theme="playful"] .hover\:bg-rose-900:hover {
   background-color: rgb(158 0 49 / 1);
+}
+html[data-theme="playful"] .hover\:bg-rose-900\/50:hover {
+  background-color: rgb(158 0 49 / 0.5);
 }
 html[data-theme="playful"] .hover\:bg-rose-900\/60:hover {
   background-color: rgb(158 0 49 / 0.6);
@@ -6558,6 +6576,9 @@ html[data-theme="glass"] .border-rose-700\/70 {
 html[data-theme="glass"] .border-rose-800 {
   border-color: rgb(148 34 76 / 1);
 }
+html[data-theme="glass"] .border-rose-800\/70 {
+  border-color: rgb(148 34 76 / 0.7);
+}
 html[data-theme="glass"] .border-rose-900\/70 {
   border-color: rgb(130 35 74 / 0.7);
 }
@@ -6937,6 +6958,9 @@ html[data-theme="glass"] .hover\:bg-rose-600:hover {
 }
 html[data-theme="glass"] .hover\:bg-rose-900:hover {
   background-color: rgb(254 235 237 / 1);
+}
+html[data-theme="glass"] .hover\:bg-rose-900\/50:hover {
+  background-color: rgb(254 235 237 / 0.5);
 }
 html[data-theme="glass"] .hover\:bg-rose-900\/60:hover {
   background-color: rgb(254 235 237 / 0.6);
@@ -8430,6 +8454,9 @@ html[data-theme="porcelain"] .border-rose-700\/70 {
 html[data-theme="porcelain"] .border-rose-800 {
   border-color: rgb(159 18 57 / 1);
 }
+html[data-theme="porcelain"] .border-rose-800\/70 {
+  border-color: rgb(159 18 57 / 0.7);
+}
 html[data-theme="porcelain"] .border-rose-900\/70 {
   border-color: rgb(136 19 55 / 0.7);
 }
@@ -8809,6 +8836,9 @@ html[data-theme="porcelain"] .hover\:bg-rose-600:hover {
 }
 html[data-theme="porcelain"] .hover\:bg-rose-900:hover {
   background-color: rgb(254 225 229 / 1);
+}
+html[data-theme="porcelain"] .hover\:bg-rose-900\/50:hover {
+  background-color: rgb(254 225 229 / 0.5);
 }
 html[data-theme="porcelain"] .hover\:bg-rose-900\/60:hover {
   background-color: rgb(254 225 229 / 0.6);
