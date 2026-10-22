@@ -13,12 +13,15 @@ import {
 import { rgba, mixColors, softGlow } from "./visualizer-colors";
 import { resolveVisualizerPalette } from "./visualizer-palettes";
 import {
+  drawBloomHalo,
   drawBottomLight,
   drawGlassBar,
   drawGlassOrb,
   drawGlassRadialStroke,
   drawLustrousSparkle,
+  drawSmokePuff,
   resolveSpacedBarLayout,
+  type MaterialFinish,
 } from "./visualizer-materials";
 
 /**
@@ -100,6 +103,18 @@ export interface AdvancedFineRadialSettings {
   particleScale: number;
   /** Multiplies the number of atmospheric particle layers without changing audio mapping. */
   effectDensity: number;
+  /** Glass or polished chrome. Chrome is always glossy — there is no dull metal. */
+  material: "glass" | "chrome";
+  /** 0.15 - 1: how much of the picture shows through glass. */
+  glassTransparency: number;
+  /** 0 = crystal clear glass, 1 = sandblasted. */
+  glassFrost: number;
+  /** 0 - 1: how bright the light shining up from below is. */
+  bottomLight: number;
+  /** Size multiplier for the smoke / gas cloud. */
+  smokeSize: number;
+  /** 0 = tight curl of vapour, 1 = soft diffuse gas. */
+  smokeFuzz: number;
 }
 
 export interface AdvancedBandSnapshot {
@@ -156,6 +171,12 @@ export const FINE_RADIAL_PROFESSIONAL_DEFAULTS: AdvancedFineRadialSettings = {
   barShine: 0.86,
   particleScale: 1,
   effectDensity: 1,
+  material: "glass",
+  glassTransparency: 0.86,
+  glassFrost: 0,
+  bottomLight: 0.72,
+  smokeSize: 1,
+  smokeFuzz: 0.62,
 };
 
 export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOptions>> = {
@@ -362,6 +383,7 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     bloomIntensity: 0.2,
     fullWidth: true,
     has3DLook: true,
+    visualizerMaterial: "chrome",
   },
   advanced_waveform: {
     visualizerStyle: "advanced_waveform",
@@ -437,6 +459,11 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     effectDensity: 1,
     centreLogo: true,
     fullWidth: false,
+    // Clear, sharp glass: you can see the footage through every bubble.
+    visualizerMaterial: "glass",
+    glassTransparency: 0.92,
+    glassFrost: 0,
+    bottomLight: 0.78,
   },
   glass_pulse_marbles: {
     visualizerStyle: "glass_pulse_marbles",
@@ -459,6 +486,10 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     centreLogo: true,
     has3DLook: true,
     fullWidth: false,
+    visualizerMaterial: "glass",
+    glassTransparency: 0.88,
+    glassFrost: 0,
+    bottomLight: 0.8,
   },
   smoke_orbit: {
     visualizerStyle: "smoke_orbit",
@@ -480,6 +511,10 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     effectDensity: 1.1,
     centreLogo: true,
     fullWidth: false,
+    // Gas, not beads: soft clouds with a visible size and fuzz.
+    smokeSize: 1.15,
+    smokeFuzz: 0.7,
+    bottomLight: 0.5,
   },
   smoke_bloom: {
     visualizerStyle: "smoke_bloom",
@@ -501,6 +536,9 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     effectDensity: 1.2,
     centreLogo: true,
     fullWidth: false,
+    smokeSize: 1.3,
+    smokeFuzz: 0.8,
+    bottomLight: 0.55,
   },
   glitter_gold_swirl: {
     visualizerStyle: "glitter_gold_swirl",
@@ -522,6 +560,8 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     effectDensity: 1.18,
     centreLogo: true,
     fullWidth: false,
+    // Gold is a metal: it is drawn as polished chrome, never a dull finish.
+    visualizerMaterial: "chrome",
   },
   glitter_silver_vortex: {
     visualizerStyle: "glitter_silver_vortex",
@@ -543,6 +583,7 @@ export const FINE_RADIAL_PRESET_PATCHES: Record<string, Partial<InsertVisualOpti
     effectDensity: 1.24,
     centreLogo: true,
     fullWidth: false,
+    visualizerMaterial: "chrome",
   },
   glitter_opal_dust: {
     visualizerStyle: "glitter_opal_dust",
@@ -605,7 +646,62 @@ export function advancedVisualizerSettings(vo: InsertVisualOptions | undefined):
     barShine: clamp(Number(vo?.barShine ?? (vo?.has3DLook ? Math.max(d.barShine, 0.72) : d.barShine)), 0, 1),
     particleScale: clamp(Number(vo?.particleScale ?? d.particleScale), 0.35, 3),
     effectDensity: clamp(Number(vo?.effectDensity ?? d.effectDensity), 0.35, 2.4),
+    material: vo?.visualizerMaterial === "chrome" ? "chrome" : "glass",
+    glassTransparency: clamp(Number(vo?.glassTransparency ?? d.glassTransparency), 0.15, 1),
+    glassFrost: clamp(Number(vo?.glassFrost ?? d.glassFrost), 0, 1),
+    bottomLight: clamp(Number(vo?.bottomLight ?? d.bottomLight), 0, 1),
+    smokeSize: clamp(Number(vo?.smokeSize ?? d.smokeSize), 0.35, 3),
+    smokeFuzz: clamp(Number(vo?.smokeFuzz ?? d.smokeFuzz), 0, 1),
   };
+}
+
+/** The shared glass/chrome finish for every primitive in this engine. */
+function finishOf(settings: AdvancedFineRadialSettings): MaterialFinish {
+  return {
+    material: settings.material,
+    transparency: settings.glassTransparency,
+    frost: settings.glassFrost,
+  };
+}
+
+/**
+ * The two lights that sit *behind* an effect: the bloom halo and the light
+ * shining up from below. Drawing them first means the crisp material sits on
+ * top of the glow instead of being blurred into it.
+ */
+function paintAtmosphere(
+  ctx: CanvasRenderingContext2D,
+  settings: AdvancedFineRadialSettings,
+  palette: { primary: string; secondary: string; accent: string },
+  opts: { radius: number; baseY: number; width: number; compact?: boolean; boost?: number; light?: boolean }
+) {
+  const boost = clamp(finiteNumber(opts.boost, 1), 0, 2);
+  if (settings.bloom > 0.01) {
+    drawBloomHalo(ctx, {
+      radius: Math.max(2, opts.radius),
+      primary: palette.primary,
+      secondary: palette.secondary,
+      accent: palette.accent,
+      strength: clamp(settings.bloom * (opts.compact ? 0.55 : 1) * boost, 0, 1),
+    });
+  }
+  const light = opts.light === false ? 0 : settings.bottomLight * (opts.compact ? 0.6 : 1);
+  if (light > 0.02) {
+    drawBottomLight(ctx, {
+      y: opts.baseY,
+      width: Math.max(4, opts.width),
+      height: Math.max(4, opts.width * 0.16),
+      primary: palette.primary,
+      secondary: palette.secondary,
+      accent: palette.accent,
+      intensity: clamp(light, 0, 1),
+    });
+  }
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function rawAdvancedVisualizerFootprint(
@@ -837,7 +933,7 @@ function renderFineRadialBars({ ctx, item, canvasWidth, canvasHeight, elapsed, f
       outerR = radius + length;
     }
 
-    drawRadialLine(ctx, angle, innerR, outerR, radius, barWidth, colour, palette.accent, glow, shaped, bands.beat, settings.beatGlow, settings.barRoundness, settings.barShine);
+    drawRadialLine(ctx, angle, innerR, outerR, radius, barWidth, colour, palette.accent, glow, shaped, bands.beat, settings.beatGlow, settings.barRoundness, settings.barShine, finishOf(settings));
   }
 
   drawFineRadialCentre(ctx, {
@@ -875,6 +971,18 @@ function renderFineRadialBars3D(opts: AdvancedVisualizerRenderOptions) {
 
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
+  paintAtmosphere(ctx, settings, palette, {
+    radius: radius + maxHeight * (1.6 + settings.bloom * 0.9),
+    baseY: radius + maxHeight * 0.5,
+    width: (radius + maxHeight) * 1.9,
+    compact,
+  });
+  paintAtmosphere(ctx, settings, palette, {
+    radius: radius + maxHeight * (1.6 + settings.bloom * 0.9),
+    baseY: radius + maxHeight * 0.5,
+    width: (radius + maxHeight) * 1.9,
+    compact,
+  });
   if (!compact) {
     ctx.save();
     ctx.scale(1, 0.28);
@@ -929,6 +1037,12 @@ function renderFlatCircularSpectrum(opts: AdvancedVisualizerRenderOptions) {
 
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
+  paintAtmosphere(ctx, settings, palette, {
+    radius: radius + maxHeight * (1.6 + settings.bloom * 0.9),
+    baseY: radius + maxHeight * 0.5,
+    width: (radius + maxHeight) * 1.9,
+    compact,
+  });
   softGlow(ctx, 0, 0, radius + maxHeight * 1.8, rgba(palette.primary, 0.08), rgba(palette.secondary, 0.06), glow);
 
   ctx.beginPath();
@@ -992,6 +1106,12 @@ function renderCircularWaveform(opts: AdvancedVisualizerRenderOptions) {
 
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
+  paintAtmosphere(ctx, settings, palette, {
+    radius: radius + maxHeight * (1.6 + settings.bloom * 0.9),
+    baseY: radius + maxHeight * 0.5,
+    width: (radius + maxHeight) * 1.9,
+    compact,
+  });
   softGlow(ctx, 0, 0, radius + maxHeight * 1.6, rgba(palette.secondary, 0.08), rgba(palette.primary, 0.04), glow);
   drawCircularTrace(ctx, wave, radius, maxHeight, rotation, rgba(palette.primary, 0.25), Math.max(4, settings.barThickness * 2.2), 22 * glow);
   drawCircularTrace(ctx, wave, radius, maxHeight, rotation, mixColors(palette.primary, palette.secondary, 0.45), Math.max(1.6, settings.barThickness * 0.75), 10 * glow);
@@ -1015,6 +1135,12 @@ function renderCircularPulse(opts: AdvancedVisualizerRenderOptions) {
   const glow = compact ? settings.glow * 0.45 : settings.glow;
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
+  paintAtmosphere(ctx, settings, palette, {
+    radius: base + maxHeight * (1.8 + settings.bloom * 0.9),
+    baseY: base + maxHeight * 0.6,
+    width: (base + maxHeight) * 2,
+    compact,
+  });
   softGlow(ctx, 0, 0, base + maxHeight * 2.2, rgba(palette.accent, 0.14 + bands.bass * 0.08), rgba(palette.primary, 0.08), glow);
   for (let r = 0; r < 6; r++) {
     const phase = ((elapsed * (0.32 + r * 0.04) + r / 6) % 1);
@@ -1103,9 +1229,10 @@ function renderAdvancedSpectrumBars(opts: AdvancedVisualizerRenderOptions, mirro
     const h = Math.max(3, Math.pow(v, 0.64) * maxH);
     const x = -width / 2 + i * slot + gap / 2;
     const color = colourForBand(palette.primary, palette.secondary, palette.accent, t, v, vo.frequencyColorMode || "gradient");
-    drawVerticalBar(ctx, x, 0, barW, h, color, palette.accent, glow, v, false, settings.barRoundness, settings.barShine);
+    const finish = finishOf(settings);
+    drawVerticalBar(ctx, x, 0, barW, h, color, palette.accent, glow, v, false, settings.barRoundness, settings.barShine, finish);
     if (mirror) {
-      drawVerticalBar(ctx, x, 0, barW, h * 0.88, mixColors(color, palette.secondary, 0.35), palette.accent, glow * 0.75, v, true, settings.barRoundness, settings.barShine);
+      drawVerticalBar(ctx, x, 0, barW, h * 0.88, mixColors(color, palette.secondary, 0.35), palette.accent, glow * 0.75, v, true, settings.barRoundness, settings.barShine, finish);
     }
   }
   ctx.restore();
@@ -1165,6 +1292,13 @@ function renderParticleRing(opts: AdvancedVisualizerRenderOptions, threeD: boole
 
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
+  paintAtmosphere(ctx, settings, palette, {
+    radius: base + spread * 1.9,
+    baseY: base,
+    width: base * 2.2,
+    compact,
+    light: false,
+  });
   drawBottomLight(ctx, {
     y: base * 0.88,
     width: base * 2.35,
@@ -1172,7 +1306,7 @@ function renderParticleRing(opts: AdvancedVisualizerRenderOptions, threeD: boole
     primary: palette.primary,
     secondary: palette.secondary,
     accent: palette.accent,
-    intensity: 0.24 + glow * 0.22 + bands.bass * 0.2,
+    intensity: settings.bottomLight * (0.6 + bands.bass * 0.3 + bands.beat * 0.16),
   });
   softGlow(ctx, 0, 0, base + spread * 1.8, rgba(palette.primary, 0.08 + bands.bass * 0.06), rgba(palette.secondary, 0.05), glow);
   const particles = Array.from({ length: count }, (_, i) => {
@@ -1245,6 +1379,13 @@ function renderGlassBubbles(opts: AdvancedVisualizerRenderOptions, marbles: bool
 
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
+  paintAtmosphere(ctx, settings, palette, {
+    radius: base + spread * 1.9,
+    baseY: base,
+    width: (base + spread) * 2,
+    compact,
+    light: false,
+  });
   drawBottomLight(ctx, {
     y: base + spread * 0.45,
     width: (base + spread) * 2.15,
@@ -1252,7 +1393,7 @@ function renderGlassBubbles(opts: AdvancedVisualizerRenderOptions, marbles: bool
     primary: palette.primary,
     secondary: palette.secondary,
     accent: palette.accent,
-    intensity: 0.38 + bands.bass * 0.22 + bands.beat * 0.2,
+    intensity: settings.bottomLight * (0.62 + bands.bass * 0.26 + bands.beat * 0.2),
   });
   softGlow(ctx, 0, 0, base + spread * 1.95, rgba(palette.accent, 0.1 + bands.bass * 0.09), rgba(palette.primary, 0.05), glow);
   for (let i = 0; i < count; i++) {
@@ -1279,6 +1420,7 @@ function renderGlassBubbles(opts: AdvancedVisualizerRenderOptions, marbles: bool
       glow,
       value: band + bands.beat * 0.3,
       shine: Math.max(settings.barShine, 0.82),
+      ...finishOf(settings),
     });
   }
   if (bands.beat > 0.16) {
@@ -1315,36 +1457,57 @@ function renderCircularSmoke(opts: AdvancedVisualizerRenderOptions, bloomStyle: 
   const size = clamp(Number(item.size || 1), 0.35, 2.4);
   const base = minDim * settings.radiusRatio * size;
   const spread = minDim * settings.maxHeightRatio * size;
-  const puffCount = Math.max(30, Math.min(compact ? 48 : 112, Math.round(settings.barCount * settings.effectDensity)));
+  // Gas is many overlapping puffs, not a ring of beads. Density chooses how
+  // many clouds are in the air; it never changes how hard the sound drives them.
+  const puffs = Math.max(10, Math.min(compact ? 20 : 46, Math.round(settings.barCount * settings.effectDensity * 0.34)));
   const arms = bloomStyle ? 5 : 3;
-  const glow = compact ? settings.glow * 0.42 : settings.glow;
   const expansion = 1 + bands.beat * (bloomStyle ? 0.36 : 0.24);
 
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
-  ctx.globalCompositeOperation = "lighter";
-  softGlow(ctx, 0, 0, (base + spread * 2.2) * expansion, rgba(palette.primary, 0.12 + bands.bass * 0.12), rgba(palette.secondary, 0.06), glow);
-  for (let i = 0; i < puffCount; i++) {
-    const t = i / puffCount;
+  paintAtmosphere(ctx, settings, palette, {
+    radius: (base + spread * 1.9) * expansion,
+    baseY: base + spread * 0.75,
+    width: (base + spread) * 2.1,
+    compact,
+    boost: 0.55,
+  });
+  softGlow(ctx, 0, 0, (base + spread * 2.2) * expansion, rgba(palette.primary, 0.1 + bands.bass * 0.1), rgba(palette.secondary, 0.05), settings.glow * 0.5);
+  for (let i = 0; i < puffs; i++) {
+    const t = i / puffs;
     const arm = i % arms;
-    const local = Math.floor(i / arms) / Math.max(1, Math.ceil(puffCount / arms));
-    const band = sampleBandValue(bands.values, (t + arm / arms * 0.21) % 1);
-    const spin = elapsed * (0.36 + arm * 0.045 + bands.mid * 0.16);
-    const angle = arm * (TAU / arms) + local * TAU * (bloomStyle ? 1.7 : 1.18) + spin;
-    const wave = Math.sin(elapsed * 1.9 + i * 0.77) * spread * (0.08 + band * 0.12);
-    const radius = (base * (0.76 + local * 0.37) + spread * (0.22 + Math.pow(band, 0.78)) + wave) * expansion;
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
-    const puffR = Math.max(2, minDim * (0.011 + hash01(i * 5 + arm) * 0.014) * settings.particleScale * (0.85 + band * 0.95));
+    const local = Math.floor(i / arms) / Math.max(1, Math.ceil(puffs / arms));
+    const band = sampleBandValue(bands.values, (t + (arm / arms) * 0.21) % 1);
+    const spin = elapsed * (0.3 + arm * 0.04 + bands.mid * 0.14);
+    const angle = arm * (TAU / arms) + local * TAU * (bloomStyle ? 1.6 : 1.1) + spin;
+    // Turbulence: each cloud wanders and drifts on its own slow path, so the
+    // silhouette keeps changing instead of forming perfect circles.
+    const wander = Math.sin(elapsed * 1.35 + i * 0.77) * spread * (0.12 + band * 0.24) * (0.55 + settings.smokeFuzz);
+    const drift = Math.cos(elapsed * 0.9 + i * 1.31) * spread * 0.18 * (0.5 + settings.smokeFuzz);
+    const radius = (base * (0.7 + local * 0.34) + spread * (0.2 + Math.pow(band, 0.72)) + wander) * expansion;
+    const tangentX = Math.cos(angle + Math.PI / 2);
+    const tangentY = Math.sin(angle + Math.PI / 2);
+    const x = Math.cos(angle) * radius + drift * tangentX;
+    const y = Math.sin(angle) * radius + drift * tangentY;
+    const puffR =
+      Math.max(
+        3,
+        minDim * (0.022 + hash01(i * 5 + arm) * 0.02) * settings.smokeSize * settings.particleScale * (0.8 + band * 1.05)
+      ) * expansion;
     const colour = colourForBand(palette.primary, palette.secondary, palette.accent, (t + local * 0.25) % 1, band, vo.frequencyColorMode || "gradient");
-    const puff = ctx.createRadialGradient(x - puffR * 0.18, y - puffR * 0.22, puffR * 0.04, x, y, puffR);
-    puff.addColorStop(0, rgba(mixColors(colour, palette.accent, 0.34), 0.22 + band * 0.18));
-    puff.addColorStop(0.42, rgba(colour, 0.13 + band * 0.13));
-    puff.addColorStop(1, "rgba(0, 0, 0, 0)");
-    ctx.fillStyle = puff;
-    ctx.beginPath();
-    ctx.arc(x, y, puffR, 0, TAU);
-    ctx.fill();
+    drawSmokePuff(ctx, {
+      x,
+      y,
+      radius: puffR,
+      angle: angle + Math.PI / 2,
+      stretch: 1.45 + band * 0.85,
+      primary: colour,
+      secondary: palette.secondary,
+      accent: palette.accent,
+      alpha: 0.1 + band * 0.13,
+      fuzz: settings.smokeFuzz,
+      seed: i * 13 + arm * 7,
+    });
   }
   ctx.globalCompositeOperation = "source-over";
   if (bands.beat > 0.1) {
@@ -1388,6 +1551,13 @@ function renderGlitterSwirl(opts: AdvancedVisualizerRenderOptions, finish: "gold
 
   ctx.save();
   ctx.globalAlpha *= settings.opacity;
+  paintAtmosphere(ctx, settings, palette, {
+    radius: base + spread * 2.1,
+    baseY: base,
+    width: (base + spread) * 2,
+    compact,
+    light: false,
+  });
   drawBottomLight(ctx, {
     y: base + spread * 0.54,
     width: (base + spread) * 2.05,
@@ -1395,7 +1565,7 @@ function renderGlitterSwirl(opts: AdvancedVisualizerRenderOptions, finish: "gold
     primary: palette.primary,
     secondary: palette.secondary,
     accent: palette.accent,
-    intensity: 0.24 + bands.bass * 0.19 + bands.beat * 0.24,
+    intensity: settings.bottomLight * (0.58 + bands.bass * 0.26 + bands.beat * 0.24),
   });
   softGlow(ctx, 0, 0, base + spread * 2.35, rgba(palette.accent, 0.1 + bands.energy * 0.09), rgba(palette.primary, 0.05), glow);
   for (let i = 0; i < count; i++) {
@@ -1422,6 +1592,7 @@ function renderGlitterSwirl(opts: AdvancedVisualizerRenderOptions, finish: "gold
         glow: glow * 0.72,
         value: band,
         shine: settings.barShine,
+        ...finishOf(settings),
       });
     } else {
       drawLustrousSparkle(ctx, {
@@ -1710,7 +1881,8 @@ function drawVerticalBar(
   value: number,
   mirror: boolean,
   roundness: number,
-  shine: number
+  shine: number,
+  finish?: MaterialFinish
 ) {
   const rawTop = mirror ? y : y - height;
   const rawBottom = mirror ? y + height : y;
@@ -1727,6 +1899,9 @@ function drawVerticalBar(
     value,
     roundness,
     shine,
+    material: finish?.material,
+    transparency: finish?.transparency,
+    frost: finish?.frost,
   });
 }
 function drawLinearWaveTrace(
@@ -1777,7 +1952,8 @@ function drawRadialLine(
   beat: number,
   beatGlow: number,
   roundness: number,
-  shine: number
+  shine: number,
+  finish?: MaterialFinish
 ) {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
@@ -1795,6 +1971,9 @@ function drawRadialLine(
     value,
     shine,
     round: roundness >= 0.5,
+    material: finish?.material,
+    transparency: finish?.transparency,
+    frost: finish?.frost,
   });
 }
 function drawFineRadialCentre(
@@ -1862,7 +2041,11 @@ function sampleBandValue(values: Float32Array, position: number): number {
 function colourForBand(primary: string, secondary: string, accent: string, t: number, value: number, mode: unknown): string {
   if (mode === "amplitude") return mixColors(primary, accent, clamp(value, 0, 1));
   if (mode === "frequency") return mixColors(primary, secondary, t);
-  return mixColors(mixColors(primary, secondary, t), accent, clamp(value * 0.22, 0, 0.45));
+  // The ladder runs main → second colour across the rack, and the accent is
+  // laid over the loudest elements. All three chosen colours are therefore
+  // visible at once, on different parts of the same shape.
+  const base = mixColors(primary, secondary, t);
+  return mixColors(base, accent, clamp(0.16 + value * 0.4, 0, 0.62));
 }
 
 function stateFor(key: string, count: number, elapsed: number): AdvancedState {

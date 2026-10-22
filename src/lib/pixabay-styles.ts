@@ -31,7 +31,7 @@
 import type { InsertVisualOptions } from "../types";
 import type { BarsResult } from "./audio-reactive";
 import { hash01, mixColors, rgba, roundRectPath, softGlow } from "./visualizer-colors";
-import { drawBottomLight, drawGlassBar, drawGlassRadialStroke, resolveSpacedBarLayout, sampleMaterialBand } from "./visualizer-materials";
+import { drawBottomLight, drawGlassBar, drawGlassRadialStroke, resolveSpacedBarLayout, sampleMaterialBand, type MaterialFinish } from "./visualizer-materials";
 
 /* ------------------------------------------------------------------ *
  * Family table
@@ -675,6 +675,10 @@ export interface PixabayScene {
   /** Shared material controls supplied by the studio insert. */
   barGap?: number;
   barShine?: number;
+  /** Glass finish (sandblast / transparency) or polished chrome. */
+  finish?: MaterialFinish;
+  /** 0 - 1: brightness of the light shining up from below. */
+  bottomLight?: number;
 }
 
 /** Level of band `i` of `count`, comfortably in 0..1.3 */
@@ -719,7 +723,7 @@ function barRow(
     primary: s.primary,
     secondary: s.secondary,
     accent: s.accent,
-    intensity: 0.2 + glow * 0.34,
+    intensity: (s.bottomLight ?? 0.72) * (0.2 + glow * 0.4),
   });
   for (let i = 0; i < count; i++) {
     const v = Math.max(0, Math.min(1.3, sampleMaterialBand(s.bars.values, i, count)));
@@ -743,6 +747,7 @@ function barRow(
       value: v,
       roundness: 1,
       shine: Math.max(0.72, Math.min(1, s.barShine ?? 0.9)),
+      ...s.finish,
     });
     if (cap) {
       const peak = Math.max(0, Math.min(1.3, sampleMaterialBand(s.bars.peaks, i, count)));
@@ -759,7 +764,9 @@ function barRow(
         value: peak,
         roundness: 1,
         shine: 1,
-      });
+      
+      ...s.finish,
+    });
     }
   }
 }
@@ -1130,7 +1137,9 @@ function drawSpectrumFamily(s: PixabayScene, variant: string) {
           value: pk,
           roundness: 1,
           shine: 1,
-        });
+        
+      ...s.finish,
+    });
       }
       break;
     }
@@ -1152,7 +1161,7 @@ function drawSpectrumFamily(s: PixabayScene, variant: string) {
         primary: s.primary,
         secondary: s.secondary,
         accent: s.accent,
-        intensity: 0.24 + s.glow * 0.34,
+        intensity: (s.bottomLight ?? 0.72) * (0.24 + s.glow * 0.4),
       });
       for (let i = 0; i < layout.count; i++) {
         const v = Math.max(0, Math.min(1.3, sampleMaterialBand(s.bars.values, i, layout.count)));
@@ -1171,7 +1180,9 @@ function drawSpectrumFamily(s: PixabayScene, variant: string) {
           value: v,
           roundness: 1,
           shine: Math.max(0.78, Math.min(1, s.barShine ?? 0.9)),
-        });
+        
+      ...s.finish,
+    });
       }
       break;
     }
@@ -1222,7 +1233,7 @@ function drawSpectrumFamily(s: PixabayScene, variant: string) {
         primary: s.primary,
         secondary: s.secondary,
         accent: s.accent,
-        intensity: 0.26 + s.glow * 0.32,
+        intensity: (s.bottomLight ?? 0.72) * (0.26 + s.glow * 0.4),
       });
       for (let i = 0; i < layout.count; i++) {
         const v = Math.max(0, Math.min(1.3, sampleMaterialBand(s.bars.values, i, layout.count)));
@@ -1240,7 +1251,9 @@ function drawSpectrumFamily(s: PixabayScene, variant: string) {
           value: v,
           roundness: 1,
           shine: Math.max(0.78, Math.min(1, s.barShine ?? 0.92)),
-        });
+        
+      ...s.finish,
+    });
         const lit = Math.max(1, Math.round(Math.min(seg, v * seg)));
         ctx.save();
         ctx.strokeStyle = "rgba(6, 10, 18, 0.34)";
@@ -1777,7 +1790,7 @@ function drawGridFamily(s: PixabayScene, variant: string) {
         primary: s.primary,
         secondary: s.secondary,
         accent: s.accent,
-        intensity: 0.28 + s.glow * 0.32,
+        intensity: (s.bottomLight ?? 0.72) * (0.28 + s.glow * 0.4),
       });
       const depth = slot * 0.32;
       for (let i = 0; i < count; i++) {
@@ -1815,7 +1828,9 @@ function drawGridFamily(s: PixabayScene, variant: string) {
           value: v,
           roundness: 1,
           shine: Math.max(0.78, Math.min(1, s.barShine ?? 0.92)),
-        });
+        
+      ...s.finish,
+    });
         // lit top diamond
         ctx.beginPath();
         ctx.moveTo(cx - hw, topY);
@@ -1905,6 +1920,7 @@ function drawCircularFamily(s: PixabayScene, variant: string) {
           glow: s.glow,
           value: v,
           shine: Math.max(0.72, Math.min(1, s.barShine ?? 0.9)),
+      ...s.finish,
           round: true,
         });
       }
@@ -1940,6 +1956,7 @@ function drawCircularFamily(s: PixabayScene, variant: string) {
           glow: s.glow,
           value: v,
           shine: Math.max(0.72, Math.min(1, s.barShine ?? 0.86)),
+      ...s.finish,
           round: true,
         });
       }
@@ -1993,6 +2010,7 @@ function drawCircularFamily(s: PixabayScene, variant: string) {
           glow: s.glow,
           value: v,
           shine: Math.max(0.72, Math.min(1, s.barShine ?? 0.92)),
+      ...s.finish,
           round: true,
         });
       }

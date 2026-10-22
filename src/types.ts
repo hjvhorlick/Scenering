@@ -371,6 +371,22 @@ export interface InsertVisualOptions {
   barRoundness?: number;
   /** 0 = flat colour, 1 = polished metallic/3D bevel highlights. */
   barShine?: number;
+  /**
+   * Glass or chrome. Chrome is always polished — there is no dull-metal
+   * setting — and the glass chrome replaces is the same shape, so switching
+   * material never moves anything on screen.
+   */
+  visualizerMaterial?: "glass" | "chrome";
+  /** 0.15–1: how much of the footage stays visible through glass (1 = clear pane). */
+  glassTransparency?: number;
+  /** 0 = crystal clear, 1 = sandblasted glass. */
+  glassFrost?: number;
+  /** 0–1: brightness of the light shining up from below the effect. */
+  bottomLight?: number;
+  /** Size multiplier for the smoke / gas cloud (independent of particle size). */
+  smokeSize?: number;
+  /** 0 = tight curl of vapour, 1 = soft, diffuse gas. */
+  smokeFuzz?: number;
   /** Relative scale for glass bubbles, smoke puffs and glitter particles. */
   particleScale?: number;
   /** Atmospheric effect density without changing the analyser's band mapping. */

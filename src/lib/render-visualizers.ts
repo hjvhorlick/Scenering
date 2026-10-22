@@ -20,7 +20,7 @@ import {
   pickBus,
 } from "./audio-reactive";
 import { resolveVisualizerPalette } from "./visualizer-palettes";
-import { drawBottomLight, drawGlassBar, drawGlassRadialStroke, resolveSpacedBarLayout, sampleMaterialBand } from "./visualizer-materials";
+import { drawBloomHalo, drawBottomLight, drawGlassBar, drawGlassRadialStroke, resolveSpacedBarLayout, sampleMaterialBand, type MaterialFinish } from "./visualizer-materials";
 import {
   advancedVisualizerFitScale,
   advancedVisualizerFootprint,
@@ -553,12 +553,16 @@ interface RackOptions {
   rainbow?: boolean;
   dots?: boolean;
   rows?: number;
+  /** Glass finish (sandblast / transparency) or polished chrome. */
+  finish?: MaterialFinish;
+  /** 0 - 1: brightness of the light shining up from below. */
+  bottomLight?: number;
 }
 
 function drawBarRack(ctx: CanvasRenderingContext2D, o: RackOptions) {
   const {
     width, count: requestedCount, barWidth, gap: requestedGap, maxHeight, values, peaks,
-    primary, secondary, has3D, glow, shine, mirror, segments, rainbow, dots, rows,
+    primary, secondary, has3D, glow, shine, mirror, segments, rainbow, dots, rows, finish,
   } = o;
   const glassShine = Math.max(0.7, Math.min(1, Number(shine ?? (has3D ? 0.94 : 0.84))));
   // The shared material layout makes space for a bar's clear-glass rim and its
@@ -581,7 +585,7 @@ function drawBarRack(ctx: CanvasRenderingContext2D, o: RackOptions) {
     height: Math.max(4, maxHeight * 0.13),
     primary,
     secondary,
-    intensity: 0.24 + glow * 0.34,
+    intensity: (o.bottomLight ?? 0.72) * (0.55 + glow * 0.45),
   });
 
   for (let i = 0; i < count; i++) {
@@ -635,6 +639,7 @@ function drawBarRack(ctx: CanvasRenderingContext2D, o: RackOptions) {
         value: v,
         roundness: 1,
         shine: glassShine,
+        ...finish,
       });
       const lit = Math.max(1, Math.round((hUp / maxHeight) * segCount));
       const dividerH = hUp / lit;
@@ -665,6 +670,7 @@ function drawBarRack(ctx: CanvasRenderingContext2D, o: RackOptions) {
       value: v,
       roundness: 1,
       shine: glassShine,
+      ...finish,
     });
 
     // Peak caps remain small bright glass slivers rather than opaque white bars.
@@ -680,6 +686,7 @@ function drawBarRack(ctx: CanvasRenderingContext2D, o: RackOptions) {
       value: sampledPeak,
       roundness: 1,
       shine: 1,
+      ...finish,
     });
   }
 }
@@ -801,7 +808,7 @@ function drawRadialBarSpectrum(
   ringRadius: number,
   maxLength: number,
   colours: { primary: string; secondary: string; accent: string },
-  options: { glow: number; rotation?: number; beat?: number; minLength?: number }
+  options: { glow: number; rotation?: number; beat?: number; minLength?: number; finish?: MaterialFinish }
 ) {
   const sourceCount = Math.max(12, values.length);
   // Fewer displayed spokes gives the shared clear-glass material enough width
@@ -852,6 +859,7 @@ function drawRadialBarSpectrum(
       value: v,
       shine: 0.9,
       round: true,
+      ...options.finish,
     });
     ctx.restore();
   }
@@ -1537,6 +1545,17 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
   // The material helper still protects a useful visual gap when an old project
   // has no saved barGap value.
   const glassGap = Math.max(2, thickness * (0.38 + Math.max(0, Math.min(0.86, Number(opts3d.barGap ?? 0.34))) * 0.56));
+  /* One material choice for every rack, ring and capsule: clear glass with its
+     own sandblast dial, or polished chrome (which is never dull). */
+  const finish: MaterialFinish = {
+    material: opts3d.visualizerMaterial === "chrome" ? "chrome" : "glass",
+    transparency: Math.max(0.15, Math.min(1, Number(opts3d.glassTransparency ?? 0.86))),
+    frost: Math.max(0, Math.min(1, Number(opts3d.glassFrost ?? 0))),
+  };
+  const bottomLight = Math.max(0, Math.min(1, Number(opts3d.bottomLight ?? 0.72)));
+  /* The bloom is light *around* the rack. It is drawn behind the bars so a
+     bright setting is unmistakable while every edge stays sharp. */
+  const bloomStrength = Math.max(0, Math.min(1, Number(opts3d.bloomIntensity ?? 0.35)));
   const fullWidth = isVisualizerFullWidth(item);
   const body = visualizerBodyHeight(item, canvasHeight);
   const beat = reactiveBeat(elapsed, bus, source);
@@ -1602,6 +1621,8 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       compact,
       barGap: Number(opts3d.barGap ?? 0.44),
       barShine: Number(opts3d.barShine ?? (has3D ? 0.94 : 0.84)),
+      finish,
+      bottomLight,
     };
     ctx.save();
     ctx.lineJoin = "round";
@@ -1683,6 +1704,16 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
   ctx.translate(fullWidth ? canvasWidth / 2 : x, anchorY);
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
+
+  if (!compact && bloomStrength > 0.02) {
+    drawBloomHalo(ctx, {
+      radius: Math.max(body * 1.9, Math.min(canvasWidth, canvasHeight) * 0.16),
+      primary,
+      secondary,
+      accent,
+      strength: bloomStrength * 0.85,
+    });
+  }
 
   switch (item.type) {
     /* ---------------- WAVE TRACES: waveform, voice_wave, neon_ribbon ---------------- */
@@ -1855,6 +1886,8 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         glow,
         shine: glassShine,
         mirror: true,
+        finish,
+        bottomLight,
       });
       ctx.beginPath();
       ctx.moveTo(-width / 2, 0);
@@ -1899,6 +1932,8 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         glow,
         shine: glassShine,
         rainbow,
+        finish,
+        bottomLight,
       });
       drawReflection(ctx, width, body * 0.3, primary, secondary, fullWidth);
       break;
@@ -1931,6 +1966,8 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         glow,
         shine: glassShine,
         segments,
+        finish,
+        bottomLight,
       });
       drawReflection(ctx, width, body * 0.28, primary, secondary, fullWidth);
       break;
@@ -1964,6 +2001,8 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         shine: glassShine,
         dots: true,
         rows,
+        finish,
+        bottomLight,
       });
       break;
     }
@@ -2057,7 +2096,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
         ringR,
         maxLen,
         { primary, secondary, accent },
-        { glow, beat, rotation: -Math.PI / 2 + spin, minLength: ringR * 0.04 }
+        { glow, beat, rotation: -Math.PI / 2 + spin, minLength: ringR * 0.04, finish }
       );
 
       // beat shockwave

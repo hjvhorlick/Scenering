@@ -2,6 +2,44 @@
 
 ## Unreleased — your own video, start to finish, with its sound and its captions
 
+- **The visualisers now look like the things they are named after, and the
+  panel stopped asking twenty questions.** The Audio Visualiser settings were a
+  wall of engineering dials, and several of them changed nothing on screen.
+  - **Glass is glass now: clear, crisp, and adjustable.** The panes were milky
+    and soft because the shape itself carried a heavy blur. The body is now
+    genuinely transparent (the footage shows through it), the rim is a sharp
+    hairline, and the reflection is a thin, bright band — no blur on the shape.
+    **Glass transparency** controls how much of the video survives under it and
+    **Sandblast** moves the same pane from crystal clear to frosted glass.
+  - **Chrome is the only metal.** A new polished-chrome material paints bright
+    specular bands over a dark reflection, and the metal looks (silver and gold
+    glitter, the silver mirror spectrum) now ship with it. There is no matte or
+    "dull metal" option to stumble into.
+  - **The light from below is visible.** It used to be a faint ellipse that
+    disappeared under the footage. It is now an additive pool with a white-hot
+    core and a short shaft of light climbing out of it, with one
+    **Light from below** slider behind it.
+  - **Bloom is a bloom.** Instead of a dim shadow, three layered haloes are
+    painted *around* the shape with additive light, so the edges stay sharp
+    while the glow is unmistakable — and the slider is perceptual, so a third of
+    the way up is already clearly visible.
+  - **Smoke behaves like gas.** A puff used to be a single radial ball. It is
+    now four overlapping, elongated lobes that wander, drift and stretch on
+    their own slow paths, with **Cloud size** and **Cloud softness** controls.
+  - **Three colours that all show up.** Changing a picker now switches the
+    insert to custom colours (the second colour block wrote the colour but left
+    the old theme in charge, so it did nothing). The highlight colour is mixed
+    into the loudest bars instead of being blended away, so main, second and
+    highlight colours are each visible on different parts of the same shape.
+  - **Fewer, clearer settings.** The colour section appears once, with eight
+    understandable themes instead of nineteen chips, a dead "Reactivity
+    Sensitivity" slider and a second set of swatches are gone, and the technical
+    knobs (frequency mapping, FFT size, min/max frequency, attack, release,
+    smoothing, gap, radius, height) are folded into an optional **Advanced wave
+    settings** disclosure. Everything a first-time creator needs — detail,
+    thickness, reaction, material, glass finish, light, bloom, effect size and
+    density — stays on the main panel.
+
 - **Fixed: narration went silent on a video made from your own footage — in
   the preview and in the export.** A project whose picture is an uploaded clip
   (or an uploaded song) was treated as though it could never be narrated: an
