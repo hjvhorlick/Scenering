@@ -193,6 +193,7 @@ h.ok(
   videoStore.includes("pruneOrphanedVideos") &&
     videoStore.includes("referencedVideoIds") &&
     videoStore.includes("videoReferenceCounts") &&
+    videoStore.includes("if (!referenced) return 0") &&
     videoStore.includes("createdThisSession") &&
     videoStore.includes("navigator.storage?.estimate?.()"),
   "a quota failure reclaims only unreferenced uploads, preserves shared footage and reports the real allowance",

@@ -137,11 +137,9 @@ function videoReferenceCounts(): Map<string, number> | null {
   }
 }
 
-function referencedVideoIds(): Set<string> {
+function referencedVideoIds(): Set<string> | null {
   const counts = videoReferenceCounts();
-  return counts
-    ? new Set(counts.keys())
-    : new Set(clips.map((clip) => clip.id));
+  return counts ? new Set(counts.keys()) : null;
 }
 
 interface StoreResult {
@@ -204,6 +202,8 @@ async function pruneOrphanedVideos(
   }
 
   const referenced = referencedVideoIds();
+  // If project storage cannot be read, no upload can be proven orphaned.
+  if (!referenced) return 0;
   const orphanIds = keys
     .map((key) => String(key))
     .filter((id) =>
