@@ -108,7 +108,7 @@ export class ClipPool {
         this.onStatus?.(
           scene.id,
           "error",
-          "The uploaded video is no longer available in this browser's storage. Re-upload it in Setup."
+          "The uploaded video is no longer available in this browser's storage. Re-upload it in this scene."
         );
       }
       return null;

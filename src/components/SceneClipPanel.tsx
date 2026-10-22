@@ -49,6 +49,8 @@ export default function SceneClipPanel({
   const [previewTime, setPreviewTime] = useState(0);
   /** 0–100 while a container this browser cannot open is re-wrapped as MP4. */
   const [conversionProgress, setConversionProgress] = useState<number | null>(null);
+  /** The clip is usable in this tab, but the browser could not store it. */
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
 
   const isInserted = Boolean(scene.is_inserted);
   const hasClip = Boolean(scene.video_url);
@@ -75,10 +77,12 @@ export default function SceneClipPanel({
   const handlePick = (file: File | undefined) => {
     if (!file) return;
     setLoadError(null);
+    setStorageWarning(null);
     setConversionProgress(null);
     void sceneUpdatesForVideoFile(file, scene, narrationDuration, {
       singleScene,
       onProgress: (progress) => setConversionProgress(Math.round(progress * 100)),
+      onWarning: setStorageWarning,
     })
       .then((updates) => onUpdate(scene.id, updates))
       .catch((err) => setLoadError(videoUploadMessage(err)))
@@ -147,6 +151,7 @@ export default function SceneClipPanel({
           {conversionProgress !== null ? `Converting ${conversionProgress}%` : <><Icon glyph="🎬" /> Add video clip</>}
         </button>
         {loadError && <span className="text-[10px] text-rose-400">{loadError}</span>}
+        {storageWarning && <span className="text-[10px] text-amber-300">{storageWarning}</span>}
       </div>
     );
   }
@@ -195,6 +200,20 @@ export default function SceneClipPanel({
 
       {loadError && (
         <p className="text-[11px] text-rose-400">{loadError}</p>
+      )}
+
+      {storageWarning && (
+        <p className="text-[11px] text-amber-300 flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-amber-950/40 border border-amber-800/60">
+          <span>{storageWarning}</span>
+          <button
+            type="button"
+            onClick={() => setStorageWarning(null)}
+            className="text-amber-400/70 hover:text-white shrink-0"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </p>
       )}
 
       {!hasClip && (

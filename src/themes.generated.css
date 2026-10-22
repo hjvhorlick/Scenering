@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 602 utility
+   Colour matrix for every non-classic theme. 603 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -1562,6 +1562,9 @@ html[data-theme="apple"] .text-amber-300\/90 {
 }
 html[data-theme="apple"] .text-amber-400 {
   color: rgb(224 129 7 / 1);
+}
+html[data-theme="apple"] .text-amber-400\/70 {
+  color: rgb(224 129 7 / 0.7);
 }
 html[data-theme="apple"] .text-amber-400\/80 {
   color: rgb(224 129 7 / 0.8);
@@ -3420,6 +3423,9 @@ html[data-theme="windows"] .text-amber-300\/90 {
 html[data-theme="windows"] .text-amber-400 {
   color: rgb(238 185 49 / 1);
 }
+html[data-theme="windows"] .text-amber-400\/70 {
+  color: rgb(238 185 49 / 0.7);
+}
 html[data-theme="windows"] .text-amber-400\/80 {
   color: rgb(238 185 49 / 0.8);
 }
@@ -5276,6 +5282,9 @@ html[data-theme="playful"] .text-amber-300\/90 {
 }
 html[data-theme="playful"] .text-amber-400 {
   color: rgb(255 194 38 / 1);
+}
+html[data-theme="playful"] .text-amber-400\/70 {
+  color: rgb(255 194 38 / 0.7);
 }
 html[data-theme="playful"] .text-amber-400\/80 {
   color: rgb(255 194 38 / 0.8);
@@ -7134,6 +7143,9 @@ html[data-theme="glass"] .text-amber-300\/90 {
 html[data-theme="glass"] .text-amber-400 {
   color: rgb(205 123 29 / 1);
 }
+html[data-theme="glass"] .text-amber-400\/70 {
+  color: rgb(205 123 29 / 0.7);
+}
 html[data-theme="glass"] .text-amber-400\/80 {
   color: rgb(205 123 29 / 0.8);
 }
@@ -8990,6 +9002,9 @@ html[data-theme="porcelain"] .text-amber-300\/90 {
 }
 html[data-theme="porcelain"] .text-amber-400 {
   color: rgb(224 129 7 / 1);
+}
+html[data-theme="porcelain"] .text-amber-400\/70 {
+  color: rgb(224 129 7 / 0.7);
 }
 html[data-theme="porcelain"] .text-amber-400\/80 {
   color: rgb(224 129 7 / 0.8);

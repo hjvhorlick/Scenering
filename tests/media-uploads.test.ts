@@ -19,6 +19,7 @@ import {
   describeCodec,
   unplayableVideoMessage,
 } from "../src/lib/media-convert";
+import { isStorageCapacityError } from "../src/lib/custom-video";
 import { parsePhoneticDictionaryImport } from "../src/lib/phonetic-dictionary";
 
 /**
@@ -231,6 +232,67 @@ h.ok(
   read("src/components/SceneEditor.tsx").includes("Converting ${videoConversion}%") &&
     read("src/components/SceneClipPanel.tsx").includes("Converting ${conversionProgress}%"),
   "the scene upload buttons show conversion progress instead of appearing frozen",
+);
+
+/* ------------- the storage failure customers actually meet --------------- */
+
+/*
+ * Chrome refuses a large IndexedDB blob write with
+ * `DOMException: Failed to write blobs (IOError)` — no "quota", no "space".
+ * The upload used to treat that as an exotic write failure: it never cleared
+ * unreferenced uploads, never retried, and refused the clip while claiming it
+ * had been loaded for this tab.
+ */
+h.ok(
+  isStorageCapacityError(new DOMException("Failed to write blobs (IOError)", "IOError")),
+  "Chromium's blob-write IOError is recognised as a storage-capacity failure",
+);
+h.ok(
+  isStorageCapacityError(new DOMException("The quota has been exceeded.", "QuotaExceededError")),
+  "a QuotaExceededError is recognised",
+);
+h.ok(
+  isStorageCapacityError(new DOMException("No space left on device", "UnknownError")),
+  "a disk-full message is recognised whatever its DOMException name",
+);
+h.ok(
+  !isStorageCapacityError(new DOMException("The database is closing.", "InvalidStateError")),
+  "an unrelated database error is not mistaken for a full disk",
+);
+h.ok(!isStorageCapacityError(null), "no error is not a capacity failure");
+
+const storeSource = read("src/lib/custom-video.ts");
+h.ok(/failed to write blob/i.test(storeSource), "the capacity check names Chromium's 'Failed to write blobs' message");
+h.ok(
+  /const room = await storageRoom\(\)[\s\S]{0,200}pruneOrphanedVideos/.test(storeSource),
+  "unreferenced uploads are cleared before the write when the allowance is already tight",
+);
+h.ok(
+  /isStorageCapacityError\(result\.error\)[\s\S]{0,240}storeVideoRecord/.test(storeSource),
+  "a capacity failure reclaims orphans and retries the write once",
+);
+h.ok(
+  /arrayBuffer\(\)[\s\S]{0,200}blob: undefined, bytes/.test(storeSource) ||
+    /blob: undefined, bytes[\s\S]{0,200}arrayBuffer/.test(storeSource),
+  "a refused blob write is retried once with the bytes held inline, skipping Chromium's blob journal",
+);
+h.ok(
+  storeSource.includes("MAX_INLINE_RETRY_BYTES") && storeSource.includes("recordBlob"),
+  "the inline copy is size-limited and readable after a reload whichever shape was stored",
+);
+h.ok(
+  read("src/lib/scene-clip-attach.ts").includes("allowSessionFallback: true"),
+  "a scene keeps the clip for this tab when the browser cannot store it",
+);
+h.ok(
+  read("src/components/SceneEditor.tsx").includes("onWarning: setStorageWarning") &&
+    read("src/components/SceneClipPanel.tsx").includes("onWarning: setStorageWarning"),
+  "the scene upload surfaces say when the clip is only available in this tab",
+);
+h.ok(
+  read("src/components/SceneEditor.tsx").includes("storageWarning") &&
+    read("src/components/SectionStudio.tsx").includes("storageWarning"),
+  "the warning is shown on the surface that uploaded the file, not silently swallowed",
 );
 
 /* ------------- every upload surface routes through the module ------------- */

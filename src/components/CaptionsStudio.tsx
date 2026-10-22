@@ -82,7 +82,7 @@ function SceneTranscriptControls({
   const generate = async () => {
     if (!source) {
       setFileError(
-        "That video is not in this browser's storage any more, so its audio cannot be read. Re-upload it in Setup or in its scene."
+        "That video is not in this browser's storage any more, so its audio cannot be read. Re-upload it in its scene."
       );
       return;
     }

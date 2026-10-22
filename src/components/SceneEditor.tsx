@@ -168,6 +168,8 @@ export default function SceneEditor({
   const [uploadError, setUploadError] = useState<string | null>(null);
   /** 0–100 while an MKV/MTS clip is being re-wrapped as MP4 for this browser. */
   const [videoConversion, setVideoConversion] = useState<number | null>(null);
+  /** The clip is usable in this tab, but the browser could not store it. */
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
 
   /** True when this scene shows a flat colour and no photo or clip. */
   const isBlank = sceneIsBlankColor(scene);
@@ -641,11 +643,13 @@ export default function SceneEditor({
   const handleUploadVideo = (file: File | undefined) => {
     if (!file) return;
     setUploadError(null);
+    setStorageWarning(null);
     setVideoConversion(null);
     setUploading("video");
     void sceneUpdatesForVideoFile(file, scene, sceneDurationForText(textValue, targetDuration), {
       singleScene,
       onProgress: (progress) => setVideoConversion(Math.round(progress * 100)),
+      onWarning: setStorageWarning,
     })
       .then((updates) => onUpdate(scene.id, updates))
       .catch((err) => setUploadError(videoUploadMessage(err)))
@@ -1196,6 +1200,21 @@ export default function SceneEditor({
             </button>
           </div>
         </div>
+
+        {/* The clip works now, but could not be kept for the next visit. */}
+        {storageWarning && (
+          <div className="text-[11px] text-amber-300 flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-amber-950/40 border border-amber-800/60">
+            <span>{storageWarning}</span>
+            <button
+              type="button"
+              onClick={() => setStorageWarning(null)}
+              className="text-amber-400/70 hover:text-white shrink-0"
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Why an upload was refused — size, format or blocked storage. */}
         {uploadError && (

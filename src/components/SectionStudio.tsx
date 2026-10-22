@@ -111,6 +111,8 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
   const [uploading, setUploading] = useState<"media" | "logo" | "sound" | null>(null);
   /** 0–100 while a container this browser cannot open is re-wrapped as MP4. */
   const [mediaConversion, setMediaConversion] = useState<number | null>(null);
+  /** The background works now, but the browser could not store it. */
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
 
   /* Sound previews go through the ONE shared preview manager (the same one
      the music library and insert modal use). This studio used to run its own
@@ -163,6 +165,7 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
   // and even a good one died with the page.
   const runUpload = async (slot: "media" | "logo" | "sound", work: () => Promise<void>) => {
     setUploadError(null);
+    setStorageWarning(null);
     setUploading(slot);
     try {
       await work();
@@ -187,8 +190,10 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
           const clip = await addCustomVideo(classified.file, {
             replaceIds: previousId ? [previousId] : [],
             onProgress: (progress) => setMediaConversion(Math.round(progress * 100)),
+            allowSessionFallback: true,
           });
           update({ backgroundKind: "video", mediaUrl: `${CUSTOM_VIDEO_PREFIX}${clip.id}`, mediaName: clip.name });
+          if (clip.storageWarning) setStorageWarning(clip.storageWarning);
         } finally {
           setMediaConversion(null);
         }
@@ -397,6 +402,20 @@ export default function SectionStudio({ kind, config, onChange, aspectRatio = "1
               {uploadError && (
                 <p role="alert" className="px-3 py-2 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-200 text-[11px]">
                   {uploadError}
+                </p>
+              )}
+
+              {storageWarning && (
+                <p role="status" className="px-3 py-2 rounded-lg bg-amber-950/50 border border-amber-800/70 text-amber-200 text-[11px] flex items-start gap-2">
+                  <span className="flex-1">{storageWarning}</span>
+                  <button
+                    type="button"
+                    onClick={() => setStorageWarning(null)}
+                    className="text-amber-300/70 hover:text-white shrink-0"
+                    title="Dismiss"
+                  >
+                    ✕
+                  </button>
                 </p>
               )}
 

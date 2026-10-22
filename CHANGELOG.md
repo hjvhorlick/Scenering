@@ -2,6 +2,19 @@
 
 ## Unreleased — your own video, start to finish, with its sound and its captions
 
+- **Fixed: a good clip was refused because the browser's storage said no.**
+  Chromium reports a refused IndexedDB blob write as
+  `Failed to write blobs (IOError)` — a message containing neither "quota" nor
+  "space" — so the upload skipped the reclaim-and-retry path entirely and told
+  the customer the video could not be kept. Three changes: that message is now
+  recognised as a capacity failure; unreferenced uploads are cleared *before*
+  the write when `navigator.storage.estimate()` already shows the file will not
+  fit; and if the blob journal still refuses, the same bytes are stored inline
+  instead (under 200 MB), which bypasses it. A scene upload now also keeps the
+  clip for the current tab, with an on-screen warning, when nothing else works
+  — that fallback was always described in the message but was never actually
+  granted to the Scenes screen, so the sentence promised something the code
+  then threw away.
 - **Fixed: good videos were refused as the wrong format.** The Scenes screen's
   Upload Video button — and the clip panel, and the intro/outro background —
   ran a decode probe that could fail on perfectly ordinary files. It read a
