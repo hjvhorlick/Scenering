@@ -260,6 +260,7 @@ async function transcribeInWindows(
   }
 
   const duration = audio.length / SAMPLE_RATE;
+  const useWordTimestamps = duration < STT_LOW_MEMORY_CLIP_SECONDS;
   const merged: TranscriptionWorkerChunk[] = [];
   const untimedText: string[] = [];
 
@@ -274,7 +275,11 @@ async function transcribeInWindows(
     const trustedEnd = Math.max(trustedStart, endSeconds - (isLast ? 0 : STRIDE_SECONDS));
 
     const raw = await transcriber(audio.subarray(start, end), {
-      return_timestamps: "word",
+      // Word-level DTW retains decoder attention matrices and is the expensive
+      // path that exhausted Chromium on long recordings. Segment timestamps
+      // use substantially less memory; the main thread still turns each timed
+      // segment into per-word caption timings for the renderer.
+      return_timestamps: useWordTimestamps ? "word" : true,
     });
     const output = Array.isArray(raw) ? raw[0] : raw;
     const chunks: TranscriptionWorkerChunk[] = Array.isArray(output?.chunks)
@@ -399,7 +404,12 @@ async function run(request: TranscriptionWorkerRequest): Promise<void> {
       let acceptingProgress = true;
       try {
         transcriber = await engine.pipeline("automatic-speech-recognition", modelId, {
-          dtype: { encoder_model: "q8", decoder_model_merged: "q4" },
+          // The q4 encoder cuts model memory for long recordings. Short clips
+          // retain q8 accuracy; both paths keep the decoder at q4.
+          dtype: {
+            encoder_model: decoded.duration >= STT_LOW_MEMORY_CLIP_SECONDS ? "q4" : "q8",
+            decoder_model_merged: "q4",
+          },
           progress_callback: (item: any) => {
             if (!acceptingProgress) return;
             const status = String(item?.status || "unknown");

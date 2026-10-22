@@ -169,7 +169,11 @@ function SceneTranscriptControls({
         )}
       </div>
       {transcription.progress && transcription.busy && (
-        <TranscriptionProgressStatus progress={transcription.progress} />
+        <TranscriptionProgressStatus
+          progress={transcription.progress}
+          sourceSeconds={source?.seconds || 0}
+          onCancel={transcription.cancel}
+        />
       )}
       {(transcription.error || fileError) && (
         <p className="text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2">

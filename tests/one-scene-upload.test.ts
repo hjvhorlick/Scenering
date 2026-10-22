@@ -864,22 +864,34 @@ const footageScene = {
     "transcription percentage comes from completed audio windows rather than an invented timer"
   );
   h.ok(
+    sttWorker.includes('return_timestamps: useWordTimestamps ? "word" : true') &&
+      sttWorker.includes('encoder_model: decoded.duration >= STT_LOW_MEMORY_CLIP_SECONDS ? "q4" : "q8"'),
+    "long recordings use lower-memory segment timing and q4 encoding while still yielding timed caption words"
+  );
+  h.ok(
     sttWorker.includes("midpoint < trustedStart || midpoint >= trustedEnd") &&
       sttWorker.includes("Math.min(duration, absoluteEnd)") &&
       sttWorker.includes('"no-speech"'),
     "overlap merging keeps one bounded timestamp per word and preserves the distinct no-speech result"
   );
   h.ok(
-    progressUi.includes('role="progressbar"') &&
+    progressUi.includes('role="dialog"') &&
+      progressUi.includes('role="progressbar"') &&
       progressUi.includes('aria-live="polite"') &&
-      progressUi.includes("progress.fraction") &&
-      read("src/components/SetupStudio.tsx").includes("<TranscriptionProgressStatus progress={transcription.progress}") &&
+      progressUi.includes("Large on-device process") &&
+      progressUi.includes("Audio completed") &&
+      progressUi.includes("waitingForFirstWindow") &&
+      progressUi.includes("Cancel transcription") &&
+      read("src/components/SetupStudio.tsx").includes("<TranscriptionProgressStatus") &&
+      read("src/components/SetupStudio.tsx").includes("sourceSeconds={footageSeconds}") &&
+      read("src/components/SetupStudio.tsx").includes("onCancel={transcription.cancel}") &&
       read("src/components/SetupStudio.tsx").includes("transcriptionButtonLabel(transcription.progress)") &&
-      read("src/components/CaptionsStudio.tsx").includes("<TranscriptionProgressStatus progress={transcription.progress}") &&
+      read("src/components/CaptionsStudio.tsx").includes("<TranscriptionProgressStatus") &&
+      read("src/components/CaptionsStudio.tsx").includes("sourceSeconds={source?.seconds || 0}") &&
       read("src/components/CaptionsStudio.tsx").includes("transcriptionButtonLabel(transcription.progress)") &&
       !read("src/components/SetupStudio.tsx").includes('"Listening…"') &&
       !read("src/components/CaptionsStudio.tsx").includes('"Listening…"'),
-    "Setup and Captions have an accessible live progress bar rather than a frozen-looking label"
+    "Setup and Captions open an accessible process window with elapsed time, real audio progress and cancellation"
   );
   const transcriptionHook = read("src/lib/use-clip-transcription.ts");
   h.ok(

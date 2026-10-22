@@ -1611,7 +1611,11 @@ export default function SetupStudio({
                         )}
                       </div>
                       {transcription.progress && transcription.busy && (
-                        <TranscriptionProgressStatus progress={transcription.progress} />
+                        <TranscriptionProgressStatus
+                          progress={transcription.progress}
+                          sourceSeconds={footageSeconds}
+                          onCancel={transcription.cancel}
+                        />
                       )}
                       {transcription.error && (
                         <p className="text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2 mt-2">
