@@ -1598,7 +1598,7 @@ export function enabledSceneAnimationEffects(animation?: SceneAnimationConfig | 
 }
 
 export function resolveSceneCameraMotion(scene: Pick<Scene, "motion_effect" | "animation">, sceneAnimationEnabled: boolean): SceneMotionType | undefined {
-  if (!sceneAnimationEnabled) return scene.motion_effect;
+  if (!sceneAnimationEnabled) return (scene.motion_effect as SceneMotionType) || "none";
   const cfg = resolveSceneAnimation(scene.animation);
   if (cfg.enabled === false) return "none";
   return cfg.camera?.motion || "none";
