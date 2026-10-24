@@ -133,7 +133,9 @@ export class RenderStorageCapacityError extends Error {
     super(
       `Not enough protected browser storage for this render. ` +
         `It needs about ${formatStorageBytes(requiredBytes)} of temporary working storage, but only ${formatStorageBytes(availableBytes)} is available. ` +
-        `Free browser storage or lower the output quality, then retry.`,
+        // The Vault is the largest thing the customer can act on: it holds up
+        // to five finished videos, and any already downloaded can be deleted.
+        `Delete finished videos you have already downloaded from the Vault, free space in the device's own settings, or lower the output quality — then retry.`,
     );
     this.name = "RenderStorageCapacityError";
   }
@@ -266,6 +268,31 @@ export async function clearStaleRenderScratch(minAgeMs = 60 * 60 * 1000): Promis
   } catch {
     return empty;
   }
+}
+
+/**
+ * How many chunks each track must be able to reserve space for.
+ *
+ * MP4 fast-start needs an upper bound on the sample counts before the encode
+ * begins. Too low and the muxer refuses the chunk at the very end of a long
+ * render ("Cannot add more video chunks than specified") — a packaging
+ * failure after every frame is done; too high and the index simply carries a
+ * few unused bytes. One chunk per frame for video, one per 1024-sample AAC
+ * packet for audio, each with headroom for the encoder's framing differences.
+ *
+ * Fifteen minutes at 30 fps is 27,000 frames and 42,188 audio packets. Both
+ * are covered by this formula, which is the one the render screen uses.
+ */
+export function muxChunkReservation(
+  durationSec: number,
+  fps: number,
+): { expectedVideoChunks: number; expectedAudioChunks: number } {
+  const seconds = Math.max(1, Number(durationSec) || 1);
+  const rate = Math.max(1, Number(fps) || 1);
+  return {
+    expectedVideoChunks: Math.ceil(seconds * rate) + 8,
+    expectedAudioChunks: Math.ceil((seconds * 48_000) / 1024) + 64,
+  };
 }
 
 export function estimateMuxedOutputBytes(config: {

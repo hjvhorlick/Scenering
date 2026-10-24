@@ -3,10 +3,20 @@
  *
  * When a render finishes, the video is put in the vault so it is never lost
  * when the user walks away from the render screen, switches phase, or reloads
- * the page. The vault holds only a few videos at a time (slots, see
- * MAX_VAULT_RENDERS); the oldest render is dropped automatically when a new
- * one arrives, and a render leaves the vault as soon as it has been
- * downloaded (or deleted by hand).
+ * the page. The vault holds FIVE videos at a time (see MAX_VAULT_RENDERS);
+ * the oldest render is dropped automatically when a sixth one arrives, and a
+ * render leaves the vault as soon as it has been downloaded (or deleted by
+ * hand).
+ *
+ * Five is the product standard, and it has to work for the longest video the
+ * engine was built for — fifteen minutes. Two consequences are handled here:
+ *
+ *  - The oldest slot is freed BEFORE the new file is written, not after. At
+ *    five long renders the difference is the whole size of the new video: the
+ *    disk no longer has to hold six.
+ *  - Every deadline scales with the file. Copying a 1–4 GB Blob into
+ *    IndexedDB is a disk write, not an instant commit; a fixed timeout would
+ *    abandon exactly the long renders this product promises to keep.
  *
  * Storage: IndexedDB (blobs are far too large for localStorage). If the
  * browser has no IndexedDB — or the page is running somewhere that blocks it —
@@ -14,7 +24,7 @@
  * the feature still behaves the same way, minus the reload survival.
  */
 
-export const MAX_VAULT_RENDERS = 3;
+export const MAX_VAULT_RENDERS = 5;
 
 const DB_NAME = "scenering_vault";
 const DB_VERSION = 1;
@@ -91,6 +101,29 @@ function hasIndexedDb(): boolean {
  */
 const DB_OPEN_TIMEOUT_MS = 15_000;
 const DB_REQUEST_TIMEOUT_MS = 90_000;
+/** Floor for a request whose cost does not depend on the size of a video. */
+export const VAULT_BASE_REQUEST_TIMEOUT_MS = 60_000;
+/**
+ * Slowest write speed a Vault commit is expected to survive, in bytes/second
+ * (8 MB/s). A fifteen-minute 4K render is roughly 3.8 GB, so the commit gets
+ * about eight minutes — generous on purpose: the deadline exists to catch a
+ * storage service that has stopped answering, never to abandon a slow disk
+ * that is still working.
+ */
+export const VAULT_MIN_WRITE_BYTES_PER_SECOND = 8 * 1024 * 1024;
+/** No single Vault request may wait longer than this, however large the file. */
+export const VAULT_MAX_REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
+
+/**
+ * How long a Vault request for a file of `bytes` may take before it is called
+ * wedged. Scales with the file, because committing it is a disk write.
+ */
+export function vaultRequestTimeoutMs(bytes: number): number {
+  const size = Math.max(0, Number(bytes) || 0);
+  const writeMs = (size / VAULT_MIN_WRITE_BYTES_PER_SECOND) * 1000;
+  const timeout = VAULT_BASE_REQUEST_TIMEOUT_MS + writeMs;
+  return Math.round(Math.min(VAULT_MAX_REQUEST_TIMEOUT_MS, Math.max(DB_REQUEST_TIMEOUT_MS, timeout)));
+}
 
 function openDb(): Promise<IDBDatabase | null> {
   if (!hasIndexedDb()) return Promise.resolve(null);
@@ -244,15 +277,22 @@ export async function saveRenderToVault(input: SaveRenderInput): Promise<VaultRe
   const db = await openDb();
   let saved = entry;
   if (db) {
+    const commitTimeout = vaultRequestTimeoutMs(input.blob.size);
     entry.storageKind = "indexeddb";
-    const key = await tx<IDBValidKey>("readwrite", (store) => store.put(entry));
+    // Free the oldest slot FIRST. The finished file is still in the encoder's
+    // staging file at this moment, so writing it into a vault that is already
+    // full means the disk holds one video more than it has to — on five
+    // fifteen-minute renders that is the difference between fitting and
+    // failing with a quota error at 99%.
+    await pruneVault({ reserve: 1 });
+    const key = await tx<IDBValidKey>("readwrite", (store) => store.put(entry), commitTimeout);
     if (key === null) {
       throw new Error("The finished video could not be committed to the Vault (browser storage may be full).");
     }
     // Read it back after transaction completion. This returns the browser's
     // durable Blob clone rather than the OPFS staging File passed in by the
     // encoder, allowing that temporary file to be removed safely.
-    const durable = await getVaultRender(entry.id);
+    const durable = await getVaultRender(entry.id, commitTimeout);
     if (!durable) throw new Error("The finished video could not be verified in the Vault.");
     saved = durable;
   } else {
@@ -272,8 +312,12 @@ export async function listVaultRenders(): Promise<VaultRender[]> {
   return all.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function getVaultRender(id: string): Promise<VaultRender | null> {
-  const row = await tx<VaultRender | undefined>("readonly", (store) => store.get(id) as IDBRequest<VaultRender | undefined>);
+export async function getVaultRender(id: string, timeoutMs = DB_REQUEST_TIMEOUT_MS): Promise<VaultRender | null> {
+  const row = await tx<VaultRender | undefined>(
+    "readonly",
+    (store) => store.get(id) as IDBRequest<VaultRender | undefined>,
+    timeoutMs,
+  );
   if (row) return row;
   return memoryVault.get(id) || null;
 }
@@ -302,11 +346,18 @@ export async function vaultBytes(): Promise<number> {
   return rows.reduce((sum, r) => sum + (r.sizeBytes || 0), 0);
 }
 
-/** Drops the oldest renders until only MAX_VAULT_RENDERS remain. */
-async function pruneVault(): Promise<void> {
+/**
+ * Drops the oldest renders until the vault can hold `reserve` more.
+ *
+ * `reserve` is the slot the caller is about to write, so the vault is kept at
+ * five *including* the incoming video rather than five plus it.
+ */
+async function pruneVault(options: { reserve?: number } = {}): Promise<void> {
+  const reserve = Math.max(0, Math.floor(options.reserve ?? 0));
+  const keep = Math.max(0, MAX_VAULT_RENDERS - reserve);
   const rows = await listVaultRenders();
-  if (rows.length <= MAX_VAULT_RENDERS) return;
-  const stale = rows.slice(MAX_VAULT_RENDERS);
+  if (rows.length <= keep) return;
+  const stale = rows.slice(keep);
   const db = await openDb();
   for (const row of stale) {
     if (db) await tx("readwrite", (store) => store.delete(row.id));

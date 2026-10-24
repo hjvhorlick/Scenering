@@ -119,12 +119,17 @@ import { holdRenderWakeLock, type RenderWakeLockState } from "../lib/render-wake
 import {
   clearStaleRenderScratch,
   formatStorageBytes,
+  muxChunkReservation,
   type RenderOutputStorageMode,
 } from "../lib/render-output-store";
 import {
+  EXPORT_VALIDATION_TIMEOUT_MS,
+  RENDER_STALL_LIMIT_MS,
   RenderCancelledError,
   RenderTimeoutError,
+  audioMixTimeoutMs,
   formatGuardTime,
+  vaultCommitTimeoutMs,
   withProgressTicker,
   withTimeout,
 } from "../lib/render-guard";
@@ -179,23 +184,6 @@ const EMPTY_RENDER_HEALTH: RenderHealthState = {
   tabHidden: false,
   wakeLock: "released",
 };
-
-/**
- * How long a render may go without any real progress before the watchdog
- * ends it.
- *
- * Every individual browser wait already has its own, shorter deadline (the
- * encoder flush, the disk drain, the Vault commit). This is the backstop for
- * the work none of those own, and it is deliberately generous: a long
- * OfflineAudioContext mix on a slow machine is minutes, not seconds, and
- * ending a healthy render would be worse than waiting.
- */
-const RENDER_STALL_LIMIT_MS = 6 * 60 * 1000;
-
-/** Reading the finished file back to verify it. */
-const EXPORT_VALIDATION_TIMEOUT_MS = 60_000;
-/** Writing the finished file into the Vault (see render-vault.ts). */
-const VAULT_COMMIT_TIMEOUT_MS = 150_000;
 
 /**
  * Vault rows whose download the server has ALREADY counted, but whose file
@@ -562,7 +550,14 @@ export default function RenderView({
    *                 and not just the frame loop.
    */
   const renderHeartbeatRef = useRef(Date.now());
-  const renderAbandonedRef = useRef(false);
+  /**
+   * The renders the watchdog has given up on.
+   *
+   * A set of TOKENS, not a single flag: a stuck render can settle long after
+   * the creator has started a replacement, and its late failure (or late
+   * success) must be ignored without touching the live render's status.
+   */
+  const abandonedRenderTokensRef = useRef<Set<number>>(new Set());
   const renderTokenRef = useRef(0);
   const activeExporterRef = useRef<OfflineExporter | null>(null);
 
@@ -623,7 +618,8 @@ export default function RenderView({
   useEffect(() => {
     if (!isRendering) return;
     const timer = window.setInterval(() => {
-      if (renderAbandonedRef.current) return;
+      const watched = renderTokenRef.current;
+      if (abandonedRenderTokensRef.current.has(watched)) return;
       const quietMs = Date.now() - renderHeartbeatRef.current;
       if (quietMs < RENDER_STALL_LIMIT_MS) return;
       // Read from the shared job status rather than this render's state so the
@@ -633,7 +629,7 @@ export default function RenderView({
         `The render stopped responding after ${formatGuardTime(quietMs)} without progress ` +
         `(${liveStage}). It was ended rather than left running. ` +
         `Nothing was lost from the project — start the render again.`;
-      renderAbandonedRef.current = true;
+      abandonedRenderTokensRef.current.add(watched);
       renderStartPendingRef.current = false;
       abortControllerRef.current = true;
       activeExporterRef.current?.abort(message);
@@ -826,6 +822,9 @@ export default function RenderView({
   const abortControllerRef = useRef<boolean>(false);
   /** Frame pacing for the export — vsync-locked, worker-driven when hidden. */
   const frameTickerRef = useRef<FrameTicker | null>(null);
+  /** Which render installed the ticker, so an abandoned render's cleanup
+   *  never stops the ticker of the render that replaced it. */
+  const frameTickerOwnerRef = useRef(0);
   /** Image behind the idle render-canvas painter. */
   const idleImgRef = useRef<HTMLImageElement | null>(null);
   /** Why the last render failed — read synchronously by the platform queue
@@ -967,12 +966,11 @@ export default function RenderView({
     // encoders and two OfflineAudioContexts at once is exactly how a browser
     // runs out of memory *between* renders, so a live job is never doubled —
     // however this screen was reached.
-    if (getRenderStatus().active && !renderAbandonedRef.current) return null;
+    if (getRenderStatus().active) return null;
     renderStartPendingRef.current = true;
     setIsPreparingRender(true);
     const renderToken = renderTokenRef.current + 1;
     renderTokenRef.current = renderToken;
-    renderAbandonedRef.current = false;
     renderHeartbeatRef.current = Date.now();
     // A render that was cancelled, crashed or lost with its tab leaves its
     // `.part` staging file behind. Those files compete for the same protected
@@ -1223,6 +1221,9 @@ export default function RenderView({
 
     let releaseWakeLock: () => Promise<void> = async () => {};
     let renderAudioContext: AudioContext | null = null;
+    /** This render's clip decoders, released in the finally even if a newer
+     *  render has already taken over `clipPoolRef`. */
+    let renderClipPool: ClipPool | null = null;
 
     try {
       releaseWakeLock = await holdRenderWakeLock((wakeLock) => {
@@ -1446,7 +1447,16 @@ export default function RenderView({
         reportProgress(0.99);
         reportStage("4/4: Securing the finished video in the Vault…");
         try {
-          const entry = await withTimeout(
+          /**
+           * The commit is a disk write of the whole video. On a fifteen-minute
+           * 4K render that is several gigabytes, so the deadline follows the
+           * file size rather than a fixed few minutes — and because it is
+           * bounded, the ticker may keep the watchdog calm while it runs.
+           */
+          const commitBudget = vaultCommitTimeoutMs(finalBlob.size);
+          const entry = await withProgressTicker(
+            "4/4: Securing the finished video in the Vault",
+            () => withTimeout(
             saveRenderToVault({
               blob: finalBlob,
               title: plan?.label
@@ -1463,8 +1473,14 @@ export default function RenderView({
               projectId: project?.id ?? null,
               reservationId: exportReservationId,
             }),
-            VAULT_COMMIT_TIMEOUT_MS,
+            commitBudget,
             "the finished video was committed to the Vault",
+            ),
+            (text) => {
+              setRenderStage(text);
+              setRenderStatus({ stage: text });
+            },
+            { heartbeat: () => { renderHeartbeatRef.current = Date.now(); } },
           );
           // IndexedDB returns its verified clone. Use that Blob for preview,
           // download and App state, then the OPFS staging file may be removed.
@@ -1497,13 +1513,19 @@ export default function RenderView({
         reportProgress(1);
         reportStage("Render Complete! 🎉");
         onRenderSuccess?.(finishedBlob, url);
-        setRenderStatus({
-          active: false,
-          progress: 1,
-          stage: durableVaultCopy ? "Render finished — verified in the Vault" : "Render finished — download before closing",
-          finishedAt: Date.now(),
-          lastVaultId,
-        });
+        // A render the watchdog already gave up on may still settle here (its
+        // flush came back after all). The finished file is kept — that is
+        // strictly better for the creator — but the job pill belongs to
+        // whichever render is current.
+        if (renderTokenRef.current === renderToken) {
+          setRenderStatus({
+            active: false,
+            progress: 1,
+            stage: durableVaultCopy ? "Render finished — verified in the Vault" : "Render finished — download before closing",
+            finishedAt: Date.now(),
+            lastVaultId,
+          });
+        }
         return { blob: finishedBlob, container: recordedContainer, durableVaultCopy };
       };
 
@@ -1526,6 +1548,7 @@ export default function RenderView({
       const fallbackScenes = new Set<number>();
       const gradeForCache = getFilterCanvas(exportFilter, width);
       const clipPool = new ClipPool();
+      renderClipPool = clipPool;
       clipPoolRef.current = clipPool;
 
       // Request ~1.45× pixel headroom so Ken Burns zoom (up to 1.44×) and 9:16
@@ -2024,8 +2047,7 @@ export default function RenderView({
          * generously — reserving slightly too much space costs a few unused
          * bytes, reserving too little would fail the export.
          */
-        expectedVideoChunks: Math.ceil(estimatedTotalDuration * fpsUsed) + 8,
-        expectedAudioChunks: Math.ceil((estimatedTotalDuration * 48_000) / 1024) + 64,
+        ...muxChunkReservation(estimatedTotalDuration, fpsUsed),
       };
       let offlineProbe = await offlineExportSupported(offlineConfig);
 
@@ -2224,6 +2246,25 @@ export default function RenderView({
             /** The last frame this window suspends at (every STRIDE-th frame). */
             const lastSampleIn = (start: number, end: number) =>
               start + Math.floor((end - 1 - start) / STRIDE) * STRIDE;
+            /**
+             * The mix is the longest silent phase of a long render: fifteen
+             * minutes of soundtrack through the mastering chain, sampled for
+             * visualisers every third frame. It reports where it has reached,
+             * because it really is advancing — and that is what tells the
+             * stall watchdog a slow mix on a slow machine is still work, not a
+             * hang. Nothing else about the mix or its quality changes.
+             */
+            let lastMixReportAt = 0;
+            const reportMixProgress = (frame: number) => {
+              const now = performance.now();
+              if (frame < totalFrames - 1 && now - lastMixReportAt < 250) return;
+              lastMixReportAt = now;
+              const fraction = Math.min(1, (frame + 1) / Math.max(1, totalFrames));
+              reportProgress(0.32 + fraction * 0.03);
+              reportStage(
+                `3/4: Rendering the sample-exact audio mix (${Math.round(fraction * 100)}% of ${formatDuration(estimatedTotalDuration)})…`,
+              );
+            };
             const scheduleWindow = (start: number) => {
               const end = Math.min(totalFrames, start + WINDOW_FRAMES);
               const lastSample = lastSampleIn(start, end);
@@ -2246,6 +2287,7 @@ export default function RenderView({
                     musicWave,
                   );
                   offlineMastering.updateVoiceLevel(voiceLevel, offlineCtx.currentTime);
+                  reportMixProgress(frame);
 
                   // Extend the runway while the context is safely suspended.
                   if (frame === lastSample && end < totalFrames) scheduleWindow(end);
@@ -2269,7 +2311,33 @@ export default function RenderView({
           renderTimer.stage("audio render + telemetry");
           const telemetryCapture = captureTelemetry();
           const rendering = offlineCtx.startRendering();
-          const [mixedAudio] = await Promise.all([rendering, telemetryCapture]);
+          /**
+           * Bounded, because OfflineAudioContext cannot be cancelled once it
+           * has started and a wedged one would otherwise report nothing for
+           * ever. The budget scales with the video (fifteen minutes of
+           * soundtrack is not a ten-second job), and the ticker keeps the
+           * stall watchdog calm for exactly as long as this deadline owns it.
+           */
+          const [mixedAudio] = await withProgressTicker(
+            "3/4: Rendering the sample-exact audio mix",
+            () =>
+              withTimeout(
+                Promise.all([rendering, telemetryCapture]),
+                audioMixTimeoutMs(estimatedTotalDuration),
+                "the sample-exact audio mix finished",
+              ),
+            (text) => {
+              setRenderStage(text);
+              setRenderStatus({ stage: text });
+            },
+            {
+              // The mix publishes its own percentage as it advances; the
+              // ticker only steps in when that goes quiet, so the two texts do
+              // not fight over the stage line.
+              tickMs: 3000,
+              heartbeat: () => { renderHeartbeatRef.current = Date.now(); },
+            },
+          );
           if (abortControllerRef.current) throw new Error("Render cancelled");
 
           renderTimer.stage("video frames");
@@ -2353,11 +2421,13 @@ export default function RenderView({
             "4/4: Finalising the container…",
             () => offlineEncoder!.finalize(),
             (text) => {
-              // Cosmetic only: deliberately not reportStage(), which would
-              // keep the stall watchdog thinking real work was happening.
               setRenderStage(text);
               setRenderStatus({ stage: text });
             },
+            // Every wait inside finalize() has its own deadline (encoder
+            // flush, disk drain, hand-over), so this phase is bounded and may
+            // keep the watchdog calm while it runs.
+            { heartbeat: () => { renderHeartbeatRef.current = Date.now(); } },
           );
           setRenderHealth((health) => ({
             ...health,
@@ -2793,6 +2863,7 @@ export default function RenderView({
       await new Promise<void>((resolveLoop) => {
         let isLoopFinished = false;
         const ticker = createFrameTicker(() => renderFrame());
+        frameTickerOwnerRef.current = renderToken;
         frameTickerRef.current = ticker;
 
         const cleanupAndFinish = () => {
@@ -2930,8 +3001,9 @@ export default function RenderView({
       const message = err?.message || "Failed to render video";
       // The stall watchdog already explained this job and handed the screen
       // back; a late rejection from the render it gave up on must not clear
-      // the message the creator is reading.
-      if (renderAbandonedRef.current) return null;
+      // the message the creator is reading — or the status of the render they
+      // started to replace it.
+      if (abandonedRenderTokensRef.current.has(renderToken)) return null;
       if (abortControllerRef.current || message === "Render cancelled" || err instanceof RenderCancelledError) {
         setRenderError(null);
         setFailureReport(null);
@@ -2966,30 +3038,45 @@ export default function RenderView({
         elapsedMs: health.startedAt ? Date.now() - health.startedAt : health.elapsedMs,
         wakeLock: "released",
       }));
+      /**
+       * Tear down THIS render's resources, never the next render's.
+       *
+       * The watchdog can end a stuck render and the creator can start another
+       * one immediately; the abandoned render's cleanup then finishes minutes
+       * later, while the new one is already running. Every shared ref is
+       * therefore checked before it is cleared, and the heavy objects are the
+       * ones this closure created (`clipPool`, `renderAudioContext`), so
+       * releasing them cannot pull a decoder out from under the live render.
+       */
       // Belt and braces: the loop stops its own ticker on cleanup, but an
       // exception between start and cleanup must not leave it ticking.
       try {
-        frameTickerRef.current?.stop();
-        frameTickerRef.current = null;
+        if (frameTickerRef.current && frameTickerOwnerRef.current === renderToken) {
+          frameTickerRef.current.stop();
+          frameTickerRef.current = null;
+          frameTickerOwnerRef.current = 0;
+        }
       } catch {}
-      // Release every clip decoder used during the export.
+      // Release every clip decoder used by THIS export.
       try {
-        clipPoolRef.current?.dispose();
-        clipPoolRef.current = null;
+        renderClipPool?.dispose();
+        if (clipPoolRef.current === renderClipPool) clipPoolRef.current = null;
+        renderClipPool = null;
       } catch {}
       try {
         if (renderAudioContext && renderAudioContext.state !== "closed") {
           await withTimeout(renderAudioContext.close(), 10_000, "the render audio engine was shut down");
         }
       } catch {}
-      renderAudioContext = null;
-      if (renderTokenRef.current === renderToken) activeExporterRef.current = null;
-      // Keep the cancel state and start lock until *all* asynchronous cleanup
-      // has settled, so a second render cannot inherit old audio or wake-lock work.
-      renderStartPendingRef.current = false;
-      // A render the watchdog already ended must not clear the state of the
-      // render the creator started to replace it.
-      if (renderTokenRef.current === renderToken) {
+      const thisRenderIsCurrent = renderTokenRef.current === renderToken;
+      if (!thisRenderIsCurrent) abandonedRenderTokensRef.current.delete(renderToken);
+      if (thisRenderIsCurrent) {
+        renderAudioContext = null;
+        activeExporterRef.current = null;
+        // Keep the cancel state and start lock until *all* asynchronous
+        // cleanup has settled, so a second render cannot inherit old audio or
+        // wake-lock work.
+        renderStartPendingRef.current = false;
         setIsPreparingRender(false);
         setIsRendering(false);
         setIsCancelling(false);

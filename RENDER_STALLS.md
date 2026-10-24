@@ -96,6 +96,22 @@ released. It is not evidence that the voice was involved.
   image that never answers, or a missing canvas no longer leave the Render
   button dead until a reload.
 
+## The standards this must not erode
+
+The product promises three things at once, and the deadlines above are only
+correct if they respect all of them. `tests/render-longform.test.ts` pins them:
+
+| Standard | Where it lives | What is checked |
+| --- | --- | --- |
+| The Vault holds **five** videos | `MAX_VAULT_RENDERS` in `render-vault.ts` | five are kept, the sixth drops the oldest, and the slot is freed *before* the new file is written |
+| A **fifteen-minute** video finishes | `LONGFORM_SECONDS`, `audioMixTimeoutMs`, `vaultCommitTimeoutMs`, `vaultRequestTimeoutMs`, `muxChunkReservation` | every finishing deadline is larger than the work takes on a slow machine, every deadline still has a cap, 27,000 frames are never read as a stall, and the muxer reserves room for every frame and AAC packet |
+| Image quality is untouched | the Master Render Profile | 1080p stays 1920×1080, 4K stays UHD, High keeps its bitrate ladder, and **duration never changes it** — a fifteen-minute render is encoded exactly like a fifteen-second one |
+
+The rule that makes long renders safe is written on `withProgressTicker`: a
+phase may only keep the stall watchdog quiet when it carries its own deadline.
+Bounded-but-slow (a fifteen-minute audio mix) is never treated as hung;
+unbounded (a photo decode, a clip seek) still is.
+
 ## What to watch for next
 
 The app now records which of the finishing steps ran out of time (the stage
