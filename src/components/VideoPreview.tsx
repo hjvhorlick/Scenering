@@ -6,6 +6,17 @@ import {
   getPresetCoords,
   renderTimelineInsert,
 } from "../lib/render-effects";
+import {
+  getRedactionFrame,
+  getRedactionHandlePoints,
+  hitTestRedactionHandle,
+  moveRedactionRect,
+  pointInRedactionFrame,
+  resizeRedactionRect,
+  resolveRedaction,
+  type RedactionHandle,
+  type RedactionRect,
+} from "../lib/block-out";
 import { getSceneCameraTransform, renderSceneAnimationEffects } from "../lib/scene-animation";
 import { stopAllSoundPreviews } from "../data/media-library";
 import {
@@ -51,6 +62,55 @@ import { buildInsertAudioPlan, buildSectionAudioPlan, InsertAudioMixer } from ".
 import { drawSceneringWatermark, planRequiresSceneringWatermark } from "../lib/scenering-watermark";
 import { getInterfacePlan, useSession } from "../lib/session";
 import Icon from "./icons/Icon";
+
+/** Grips are drawn and grabbed with the same radius, so what you see is what you can pull. */
+function redactionGripRadius(canvasW: number): number {
+  // Sized in canvas pixels, so the grips stay finger-sized whether the frame is
+  // a 1280px preview or a 4K export being inspected.
+  return Math.max(6, Math.min(13, canvasW / 105));
+}
+
+/** How far from a grip a press still counts as that grip, in canvas pixels. */
+function redactionGripTolerance(canvasW: number): number {
+  // A press counts as a grip a little outside the drawn dot, so the edge never
+  // has to be hit exactly.
+  return Math.max(18, canvasW / 45);
+}
+
+/**
+ * Selection chrome for a privacy block: the rectangle's own edges plus eight
+ * grips (four corners, four edge midpoints). Unlike badges and cards there is
+ * no offset frame — the thing you grab *is* the thing that is painted.
+ */
+function drawRedactionSelectionChrome(
+  ctx: CanvasRenderingContext2D,
+  insert: TimelineInsert,
+  w: number,
+  h: number
+) {
+  const frame = getRedactionFrame(insert, w, h);
+  if (frame.w <= 0 || frame.h <= 0) return;
+  ctx.save();
+  ctx.setLineDash([7, 5]);
+  ctx.strokeStyle = "rgba(99, 102, 241, 0.95)";
+  ctx.lineWidth = Math.max(1.5, w / 900);
+  ctx.strokeRect(frame.x, frame.y, frame.w, frame.h);
+  ctx.setLineDash([]);
+
+  const grip = redactionGripRadius(w);
+  const points = getRedactionHandlePoints(frame);
+  for (const key of Object.keys(points) as RedactionHandle[]) {
+    const point = points[key];
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, grip, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.5, w / 900);
+    ctx.strokeStyle = "rgba(199, 210, 254, 0.95)";
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 
 interface VideoPreviewProps {
   scenes: Scene[];
@@ -941,29 +1001,35 @@ export default function VideoPreview({
       if (selectedInsertId && inserts) {
         const sel = inserts.find((i) => i.id === selectedInsertId);
         if (sel && absoluteTime >= sel.startTime - 0.01 && absoluteTime <= sel.startTime + sel.duration + 0.01) {
-          const b = getInsertBounds(sel, w, h, ctx);
-          ctx.save();
-          ctx.setLineDash([7, 5]);
-          ctx.strokeStyle = "rgba(99, 102, 241, 0.95)";
-          ctx.lineWidth = Math.max(1.5, w / 900);
-          ctx.strokeRect(b.x - 6, b.y - 6, b.w + 12, b.h + 12);
-          ctx.setLineDash([]);
+          // A privacy block carries eight grips on its own edges; everything
+          // else keeps the familiar dashed frame and single corner handle.
+          if (sel.category === "block_out") {
+            drawRedactionSelectionChrome(ctx, sel, w, h);
+          } else {
+            const b = getInsertBounds(sel, w, h, ctx);
+            ctx.save();
+            ctx.setLineDash([7, 5]);
+            ctx.strokeStyle = "rgba(99, 102, 241, 0.95)";
+            ctx.lineWidth = Math.max(1.5, w / 900);
+            ctx.strokeRect(b.x - 6, b.y - 6, b.w + 12, b.h + 12);
+            ctx.setLineDash([]);
 
-          const hx = b.x + b.w + 6;
-          const hy = b.y + b.h + 6;
-          const hr = Math.max(7, w / 110);
-          ctx.beginPath();
-          ctx.arc(hx, hy, hr, 0, Math.PI * 2);
-          ctx.fillStyle = "#6366f1";
-          ctx.fill();
-          ctx.strokeStyle = "rgba(255,255,255,0.95)";
-          ctx.lineWidth = Math.max(1.5, w / 800);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(hx - hr * 0.35, hy + hr * 0.35);
-          ctx.lineTo(hx + hr * 0.35, hy - hr * 0.35);
-          ctx.stroke();
-          ctx.restore();
+            const hx = b.x + b.w + 6;
+            const hy = b.y + b.h + 6;
+            const hr = Math.max(7, w / 110);
+            ctx.beginPath();
+            ctx.arc(hx, hy, hr, 0, Math.PI * 2);
+            ctx.fillStyle = "#6366f1";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255,255,255,0.95)";
+            ctx.lineWidth = Math.max(1.5, w / 800);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(hx - hr * 0.35, hy + hr * 0.35);
+            ctx.lineTo(hx + hr * 0.35, hy - hr * 0.35);
+            ctx.stroke();
+            ctx.restore();
+          }
         }
       }
 
@@ -1084,6 +1150,9 @@ export default function VideoPreview({
     startY: number;
     startSize: number;
     insert: TimelineInsert;
+    /** Privacy block taken from its stored rectangle at the start of the drag. */
+    startRect?: RedactionRect;
+    handle?: RedactionHandle;
   } | null>(null);
 
   const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1134,9 +1203,58 @@ export default function VideoPreview({
     const p = getCanvasPoint(e);
     const target = e.target as HTMLElement;
 
-    // 1. corner handle of the already-selected insert => resize
     const selected = selectedInsertId ? inserts.find((i) => i.id === selectedInsertId) : undefined;
-    if (selected) {
+
+    /*
+     * A privacy block is moved and resized by pulling on the preview itself.
+     * The eight grips are tested first (they sit on the rectangle's edges, so
+     * they would otherwise be swallowed by the block's own hit box), then any
+     * press inside the block moves it. The block moves by whole-normalised
+     * deltas, never snapped to the preset safe-area anchors: a redaction has to
+     * land on the words, not on a designer's idea of where a badge looks good.
+     */
+    if (selected && selected.category === "block_out") {
+      const canvas = canvasRef.current;
+      const cw = canvas?.width || 0;
+      const ch = canvas?.height || 0;
+      const frame = getRedactionFrame(selected, cw, ch);
+      const px = p.x * cw;
+      const py = p.y * ch;
+      const handle = hitTestRedactionHandle(frame, px, py, redactionGripTolerance(cw));
+      if (handle) {
+        dragStateRef.current = {
+          id: selected.id,
+          mode: "resize",
+          startX: p.x,
+          startY: p.y,
+          startSize: selected.size || 1,
+          insert: selected,
+          startRect: resolveRedaction(selected).rect,
+          handle,
+        };
+        target.setPointerCapture?.(e.pointerId);
+        return;
+      }
+      if (pointInRedactionFrame(frame, px, py)) {
+        dragStateRef.current = {
+          id: selected.id,
+          mode: "move",
+          startX: p.x,
+          startY: p.y,
+          startSize: selected.size || 1,
+          insert: selected,
+          startRect: resolveRedaction(selected).rect,
+        };
+        target.setPointerCapture?.(e.pointerId);
+        return;
+      }
+      // fall through: a press elsewhere may still pick up another element
+    }
+
+    // 1. corner handle of the already-selected insert => resize
+    //    (a privacy block was fully handled above: its geometry is the rect,
+    //    so the old "scale the whole element" grip must not apply to it)
+    if (selected && selected.category !== "block_out") {
       const handle = getResizeHandlePoint(selected);
       if (handle && Math.hypot(p.x - handle.x, p.y - handle.y) < 0.04) {
         dragStateRef.current = {
@@ -1156,22 +1274,84 @@ export default function VideoPreview({
     const hit = hitTestInsert(p.x, p.y);
     if (hit && onSelectInsert) {
       onSelectInsert(hit);
+      /*
+       * A block picked up for the first time behaves exactly like one that was
+       * already selected: pressing a grip resizes it, pressing its body moves
+       * it. Selecting and dragging are one gesture, never two.
+       */
+      const canvas = canvasRef.current;
+      const isBlock = hit.category === "block_out" && Boolean(canvas);
+      const hitFrame = isBlock ? getRedactionFrame(hit, canvas!.width, canvas!.height) : null;
+      const hitHandle =
+        hitFrame && canvas
+          ? hitTestRedactionHandle(hitFrame, p.x * canvas.width, p.y * canvas.height, redactionGripTolerance(canvas.width))
+          : null;
       dragStateRef.current = {
         id: hit.id,
-        mode: "move",
+        mode: hitHandle ? "resize" : "move",
         startX: p.x,
         startY: p.y,
         startSize: hit.size || 1,
         insert: hit,
+        startRect: isBlock ? resolveRedaction(hit).rect : undefined,
+        handle: hitHandle || undefined,
       };
       target.setPointerCapture?.(e.pointerId);
     }
   };
 
+  /**
+   * The cursor is the affordance: it says "this edge can be pulled" before the
+   * creator presses anything. Hover state is free — it is computed from the
+   * same rectangle that is painted, so it can never drift out of alignment.
+   */
+  const redactionCursorAt = (px: number, py: number): string => {
+    const canvas = canvasRef.current;
+    if (!canvas || !inserts) return "";
+    const selected = selectedInsertId ? inserts.find((i) => i.id === selectedInsertId) : undefined;
+    if (!selected || selected.category !== "block_out") return "";
+    const frame = getRedactionFrame(selected, canvas.width, canvas.height);
+    const x = px * canvas.width;
+    const y = py * canvas.height;
+    const handle = hitTestRedactionHandle(frame, x, y, redactionGripTolerance(canvas.width));
+    if (handle) return getRedactionHandlePoints(frame)[handle].cursor;
+    if (pointInRedactionFrame(frame, x, y)) return "move";
+    return "";
+  };
+
   const handleCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = dragStateRef.current;
-    if (!drag || !onUpdateInsert) return;
     const p = getCanvasPoint(e);
+
+    if (!drag) {
+      const canvas = canvasRef.current;
+      if (canvas) canvas.style.cursor = redactionCursorAt(p.x, p.y);
+      return;
+    }
+    if (!onUpdateInsert) return;
+
+    // ---- privacy block: drag inside to move, pull any grip to resize ----
+    if (drag.insert.category === "block_out" && drag.startRect) {
+      const canvas = canvasRef.current;
+      const dx = p.x - drag.startX;
+      const dy = p.y - drag.startY;
+      const nextRect =
+        drag.mode === "resize" && drag.handle
+          ? resizeRedactionRect(drag.startRect, drag.handle, dx, dy)
+          : moveRedactionRect(drag.startRect, dx, dy);
+      onUpdateInsert({
+        ...drag.insert,
+        visualOptions: { ...drag.insert.visualOptions, redactionRect: nextRect },
+      });
+      if (canvas) {
+        canvas.style.cursor =
+          drag.mode === "resize" && drag.handle
+            ? getRedactionHandlePoints(getRedactionFrame(drag.insert, canvas.width, canvas.height))[drag.handle]
+                .cursor
+            : "move";
+      }
+      return;
+    }
 
     if (drag.mode === "resize") {
       const canvas = canvasRef.current;
@@ -1202,8 +1382,14 @@ export default function VideoPreview({
     });
   };
 
-  const handleCanvasPointerUp = () => {
+  const handleCanvasPointerUp = (e?: React.PointerEvent<HTMLCanvasElement>) => {
     dragStateRef.current = null;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      // fall back to the hover cursor for whichever grip is under the pointer
+      const point = e ? getCanvasPoint(e) : null;
+      canvas.style.cursor = point ? redactionCursorAt(point.x, point.y) : "";
+    }
   };
 
   // ------ PLAY PREVIEW ------
@@ -1801,9 +1987,14 @@ export default function VideoPreview({
             onPointerMove={handleCanvasPointerMove}
             onPointerUp={handleCanvasPointerUp}
             onPointerCancel={handleCanvasPointerUp}
+            onPointerLeave={() => {
+              // the canvas owns its cursor while a block is selected; hand it
+              // back to the crosshair once the pointer leaves the frame
+              if (canvasRef.current) canvasRef.current.style.cursor = "";
+            }}
             className={`${aspectConfig.cssClass} bg-black cursor-crosshair`}
             style={{ touchAction: "none" }}
-            title="Drag a badge to move it, or drag the corner handle to resize it"
+            title="Drag an overlay to move it — a Block Out can also be pulled from any edge or corner to resize it"
           />
 
           {clipPreviewLoading && !clipPreviewError && (

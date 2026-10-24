@@ -156,6 +156,17 @@ export const STUDIO_CATEGORIES: StudioCategoryDef[] = [
     ],
   },
   {
+    id: "block_out",
+    name: "Block Out",
+    icon: "🕶️",
+    description: "Hide words, names, numbers or whole sections for privacy. The block is dragged and resized directly on the video preview, and can blur, pixelate or cover the area in any colour",
+    subcategories: [
+      { id: "blur", name: "Blur", icon: "🌫️" },
+      { id: "pixelate", name: "Pixelate", icon: "🔳" },
+      { id: "solid", name: "Solid Colour", icon: "🎨" },
+    ],
+  },
+  {
     id: "text_templates",
     name: "Text Templates",
     icon: "📜",
@@ -1178,6 +1189,94 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       label: t.genre,
     },
   })),
+
+  /*
+   * PRIVACY BLOCK OUT
+   *
+   * Four starting points, one behaviour: a rectangle painted over the frame
+   * after the scene and its captions. The rectangle itself lives in
+   * visualOptions.redactionRect (frame-normalised 0..1), which is what the
+   * preview's drag and resize handles move and what renderTimelineInsert()
+   * paints — see src/lib/block-out.ts.
+   *
+   * The preset only decides the method and the first rectangle. Everything
+   * stays editable afterwards (colour included), because "hide this" is a
+   * request the creator makes about their own footage, not a template.
+   */
+  block_out: [
+    {
+      type: "block_blur",
+      category: "block_out" as InsertCategory,
+      subCategory: "blur",
+      name: "Blur Block",
+      icon: "🌫️",
+      description: "Softens whatever sits underneath until words cannot be read — the picture stays, the information does not",
+      defaultDuration: 8,
+      defaultPosition: "center" as const,
+      defaultSize: 1,
+      defaultVisualOptions: {
+        redactionMethod: "blur" as const,
+        redactionStrength: 0.6,
+        redactionRadius: 0.08,
+        redactionRect: { x: 0.26, y: 0.44, w: 0.48, h: 0.12 },
+        floatShadow: false,
+      },
+    },
+    {
+      type: "block_pixelate",
+      category: "block_out" as InsertCategory,
+      subCategory: "pixelate",
+      name: "Pixelate Block",
+      icon: "🔳",
+      description: "The censored-news mosaic: hard square blocks with no readable detail left inside them",
+      defaultDuration: 8,
+      defaultPosition: "center" as const,
+      defaultSize: 1,
+      defaultVisualOptions: {
+        redactionMethod: "pixelate" as const,
+        redactionStrength: 0.6,
+        redactionRadius: 0,
+        redactionRect: { x: 0.26, y: 0.44, w: 0.48, h: 0.12 },
+        floatShadow: false,
+      },
+    },
+    {
+      type: "block_solid",
+      category: "block_out" as InsertCategory,
+      subCategory: "solid",
+      name: "Solid Colour Block",
+      icon: "🎨",
+      description: "An opaque patch in any colour you choose — brand colour, background match, or plain black",
+      defaultDuration: 8,
+      defaultPosition: "center" as const,
+      defaultSize: 1,
+      defaultVisualOptions: {
+        redactionMethod: "solid" as const,
+        redactionColor: "#000000",
+        redactionRadius: 0.06,
+        redactionRect: { x: 0.3, y: 0.42, w: 0.4, h: 0.16 },
+        floatShadow: false,
+      },
+    },
+    {
+      type: "block_black_bar",
+      category: "block_out" as InsertCategory,
+      subCategory: "solid",
+      name: "Black Bar",
+      icon: "⬛",
+      description: "The broadcast bar: a full-width black strip over a name, a phone number or a lower third",
+      defaultDuration: 8,
+      defaultPosition: "bottom" as const,
+      defaultSize: 1,
+      defaultVisualOptions: {
+        redactionMethod: "solid" as const,
+        redactionColor: "#000000",
+        redactionRadius: 0,
+        redactionRect: { x: 0.04, y: 0.45, w: 0.92, h: 0.12 },
+        floatShadow: false,
+      },
+    },
+  ],
 
   // Filters are NOT timeline inserts any more — they are a single project-wide
   // look configured in the Video Studio "Filters" tab (see FiltersStudio.tsx).

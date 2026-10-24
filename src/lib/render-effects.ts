@@ -11,6 +11,7 @@ import {
   isRoundVisualizer,
 } from "./render-visualizers";
 import { drawSceneImage, drawMediaCover } from "./scene-framing";
+import { getRedactionFrame, paintRedaction } from "./block-out";
 
 // Convert preset position string into normalized (0..1) coordinates
 export function getPresetCoords(preset?: TimelineInsert["presetPosition"]): { x: number; y: number } {
@@ -324,11 +325,22 @@ export function renderTimelineInsert(
   const dur = insert.duration;
   const progress = elapsed / dur;
 
-  // Smooth fade-in (0.2s) and fade-out (0.3s)
+  /*
+   * A privacy block is not decoration. Fading one in would show the very words
+   * it exists to hide, and a translucent one would leave them readable, so a
+   * block-out is always painted fully opaque for its whole time on screen.
+   * Every other insert keeps the soft 0.25s in / 0.3s out fade.
+   */
+  const isRedaction = insert.category === "block_out";
   let opacity = 1;
-  if (elapsed < 0.25) opacity = elapsed / 0.25;
-  if (end - currentTime < 0.3) opacity = Math.max(0, (end - currentTime) / 0.3);
-  if (insert.opacity !== undefined) opacity *= insert.opacity;
+  if (isRedaction) {
+    opacity = 1;
+  } else {
+    // Smooth fade-in (0.2s) and fade-out (0.3s)
+    if (elapsed < 0.25) opacity = elapsed / 0.25;
+    if (end - currentTime < 0.3) opacity = Math.max(0, (end - currentTime) / 0.3);
+    if (insert.opacity !== undefined) opacity *= insert.opacity;
+  }
 
   ctx.save();
   ctx.globalAlpha = opacity;
@@ -403,6 +415,12 @@ export function renderTimelineInsert(
       break;
     case "special_effects":
       renderSpecialEffect(ctx, insert, w, h, elapsed, progress);
+      break;
+    case "block_out":
+      // Privacy redaction. Painted straight onto the frame (never through the
+      // floating-shadow buffer, which would square off its corners) and after
+      // the scene and captions, so nothing underneath survives in the export.
+      paintRedaction(ctx, insert, w, h);
       break;
     case "branding":
     case "logo":
@@ -590,6 +608,12 @@ export function getInsertBounds(
   const cx = pos.x * w;
   const cy = pos.y * h;
   const size = item.size || 1;
+  if (item.category === "block_out") {
+    // The block's own rectangle is the hit box and the frame the handles sit
+    // on, so what is draggable is exactly what is painted.
+    const frame = getRedactionFrame(item, w, h);
+    return { cx: frame.x + frame.w / 2, cy: frame.y + frame.h / 2, x: frame.x, y: frame.y, w: frame.w, h: frame.h };
+  }
   if (item.category === "call_to_action") {
     const layout = getCtaBadgeLayout(item, ctx);
     const bw = layout.width * size;

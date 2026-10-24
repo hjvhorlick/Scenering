@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — Block Out: privacy redaction you can drag on the preview
+
+- **Video Studio has a Block Out section.** It covers words, names, numbers
+  or whole sections that must not be published, and it is available on every
+  plan — hiding your own private details is not sold as an upgrade.
+- **The block is placed by hand, on the video preview.** Add one and it
+  appears in the frame with eight grips: drag inside it to move it, pull any
+  corner or edge to resize it from that side. The rectangle is stored in
+  frame-normalised units, so the same block covers the same words in the
+  720p preview, a 1080p export and a 4K export.
+- **Three methods, not one.** Blur (the picture continues behind it, the
+  information does not), Pixelate (the censored-news mosaic) and Solid colour
+  with any hex value — black bars, brand colours, background matches.
+  Strength, corner rounding and the exact rectangle can also be typed in
+  afterwards in the properties panel.
+- **The block is never faded, never translucent and never sampled from an
+  empty buffer.** Unlike every other overlay it skips the 0.25 s fade-in, so
+  nothing underneath is visible on the first frame; and if the blur sample
+  cannot be taken for any reason the rectangle is filled solid black instead
+  of being left transparent. A redaction that fails must still redact.
+- **It is painted by the same code in the preview and the export**
+  (`paintRedaction()` in `src/lib/block-out.ts`, called from
+  `renderTimelineInsert()`), after the scene and its captions, so what the
+  creator sees blocked is exactly what is missing from the file.
+
 ## Unreleased — the three-slot Vault, engineered for five, and the fifteen-minute guarantee
 
 - **The Vault keeps THREE finished videos — the designer's rule — and the

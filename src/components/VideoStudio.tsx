@@ -16,6 +16,8 @@ import {
 import CustomerLogoSection from "./CustomerLogoSection";
 import EffectVisualPreview from "./EffectVisualPreview";
 import FiltersStudio from "./FiltersStudio";
+import BlockOutStudio, { type BlockOutChoice } from "./BlockOutStudio";
+import { redactionLabel } from "../lib/block-out";
 import SectionStudio from "./SectionStudio";
 import type { VideoFilterConfig } from "../data/video-filters";
 import type { SectionConfig } from "../data/intro-outro";
@@ -147,8 +149,32 @@ export default function VideoStudio({
     (c) => c.id === selectedCategory
   );
 
+  /**
+   * Block Out is added straight from its own panel: the method, colour and
+   * starting shape are chosen there, and the block's rectangle is then moved
+   * and resized directly on the video preview.
+   */
+  const addBlockOut = (choice: BlockOutChoice) => {
+    const items = CATALOG_ITEMS.block_out || [];
+    const item =
+      items.find((entry) => entry.defaultVisualOptions?.redactionMethod === choice.method) || items[0];
+    if (!item) return;
+    const insert = createTimelineInsert(item);
+    insert.title = redactionLabel(choice.method, choice.color);
+    insert.visualOptions = {
+      ...insert.visualOptions,
+      redactionMethod: choice.method,
+      redactionColor: choice.color,
+      redactionStrength: choice.strength,
+      redactionRadius: choice.radius,
+      redactionRect: { ...choice.rect },
+      floatShadow: false,
+    };
+    onInsertItem(insert);
+  };
+
   /** Tabs with their own bespoke editor instead of the generic catalog grid */
-  const CUSTOM_TABS = ["logo", "filters", "intro", "outro"];
+  const CUSTOM_TABS = ["logo", "filters", "intro", "outro", "block_out"];
   const isCustomTab = CUSTOM_TABS.includes(selectedCategory);
 
   /**
@@ -355,6 +381,17 @@ export default function VideoStudio({
             value={videoFilter}
             onChange={(cfg) => { onUpdateVideoFilter?.(cfg); if (currentPlan === "free") openMembershipPlans(); }}
             sampleImage={sampleBackgroundImage}
+          />
+        )}
+
+        {/* BLOCK OUT: privacy redaction, moved and resized on the preview */}
+        {selectedCategory === "block_out" && (
+          <BlockOutStudio
+            projectId={projectId}
+            playheadLabel={formattedTime}
+            aspectRatio={aspectRatio}
+            sampleBackgroundImage={sampleBackgroundImage}
+            onCreate={addBlockOut}
           />
         )}
 

@@ -289,6 +289,9 @@ export interface CustomerLogoConfig {
 /** What occupies the middle of a round visualiser. */
 export type CentreStyle = "logo" | "orb" | "none";
 
+/** How a privacy block hides what is underneath it. */
+export type RedactionMethod = "blur" | "pixelate" | "solid";
+
 export interface InsertVisualOptions {
   has3DLook?: boolean;
   /* ---- Call-to-action badge styling ---- */
@@ -364,6 +367,17 @@ export interface InsertVisualOptions {
   centreScale?: number;
   /** 0–1: how strongly the centre glows. */
   centreOpacity?: number;
+  /* ---- Privacy Block Out ---- */
+  /** What the block does to the video underneath it. */
+  redactionMethod?: RedactionMethod;
+  /** Fill colour (hex) for the solid method. */
+  redactionColor?: string;
+  /** 0.1–1.6: how much detail survives inside the block. */
+  redactionStrength?: number;
+  /** 0–0.5: corner rounding as a fraction of the block's short side. */
+  redactionRadius?: number;
+  /** The block itself, in frame-normalised units (0..1). */
+  redactionRect?: { x: number; y: number; w: number; h: number };
   centreContentType?: "none" | "image" | "logo" | "text" | "media";
   frequencyColorMode?: "gradient" | "frequency" | "amplitude";
   /** Move linear spectrum activity left/right without changing timing (-1..1). */
@@ -447,6 +461,8 @@ export type InsertCategory =
   | "other_cards"
   | "meditation"
   | "special_effects"
+  /** Privacy redaction: a movable, resizable block that hides part of the frame */
+  | "block_out"
   | "branding";
 
 export type AudioSourceType = "voice" | "music" | "all";
