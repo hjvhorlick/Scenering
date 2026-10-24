@@ -3,17 +3,29 @@
  *
  * When a render finishes, the video is put in the vault so it is never lost
  * when the user walks away from the render screen, switches phase, or reloads
- * the page. The vault holds FIVE videos at a time (see MAX_VAULT_RENDERS);
- * the oldest render is dropped automatically when a sixth one arrives, and a
- * render leaves the vault as soon as it has been downloaded (or deleted by
- * hand).
+ * the page.
  *
- * Five is the product standard, and it has to work for the longest video the
- * engine was built for — fifteen minutes. Two consequences are handled here:
+ * TWO NUMBERS, ON PURPOSE:
  *
- *  - The oldest slot is freed BEFORE the new file is written, not after. At
- *    five long renders the difference is the whole size of the new video: the
- *    disk no longer has to hold six.
+ *  - `MAX_VAULT_RENDERS = 3` is the DESIGNER'S RULE and the only number a
+ *    customer ever sees. Three slots. The oldest render is dropped when a
+ *    fourth arrives, and a render leaves the vault as soon as it has been
+ *    downloaded (or deleted by hand).
+ *  - `VAULT_CAPACITY_RENDERS = 5` is the capacity this module is ENGINEERED
+ *    AND TESTED FOR, not an allowance. The design was proven at five before
+ *    the rule was tightened to three, so every piece of machinery here is
+ *    deliberately sized for five: deadlines that fit a fifteen-minute file,
+ *    freeing a slot before the next write, and pruning that is correct even
+ *    if a vault somehow already holds five (an older build, a restored
+ *    browser profile, a tab from before an update). Nothing in this file may
+ *    assume three; it may assume five.
+ *
+ * Either way the vault has to work for the longest video the engine was built
+ * for — fifteen minutes — and two consequences follow:
+ *
+ *  - The oldest slot is freed BEFORE the new file is written, not after. The
+ *    difference is the whole size of the new video: the disk never has to hold
+ *    one render more than its capacity.
  *  - Every deadline scales with the file. Copying a 1–4 GB Blob into
  *    IndexedDB is a disk write, not an instant commit; a fixed timeout would
  *    abandon exactly the long renders this product promises to keep.
@@ -24,7 +36,28 @@
  * the feature still behaves the same way, minus the reload survival.
  */
 
-export const MAX_VAULT_RENDERS = 5;
+/** The designer's rule: how many finished videos a customer may keep. */
+export const MAX_VAULT_RENDERS = 3;
+
+/**
+ * The capacity this Vault is engineered and tested for — a safety envelope,
+ * NOT a customer allowance. Written deliberately larger than the rule so a
+ * vault holding more than the rule still behaves correctly (pruned, readable,
+ * downloadable) rather than corrupting or losing rows.
+ */
+export const VAULT_CAPACITY_RENDERS = 5;
+
+/**
+ * The storage the Vault must be able to occupy at its engineered capacity,
+ * given the largest video it is asked to hold.
+ *
+ * Used by the storage checks and the tests, never to refuse a render that the
+ * three-slot rule would allow.
+ */
+export function vaultCapacityBytes(largestRenderBytes: number): number {
+  const bytes = Math.max(0, Number(largestRenderBytes) || 0);
+  return Math.round(bytes * VAULT_CAPACITY_RENDERS);
+}
 
 const DB_NAME = "scenering_vault";
 const DB_VERSION = 1;
@@ -347,22 +380,53 @@ export async function vaultBytes(): Promise<number> {
 }
 
 /**
+ * How many of the oldest rows must go for the vault to hold `reserve` more.
+ *
+ * Pure, so the arithmetic is pinned by tests without a browser: a vault that
+ * somehow holds five is reduced by two (or by three when one of those slots is
+ * about to be written), and a vault inside the rule is left alone.
+ */
+export function vaultSlotsToDrop(count: number, reserve = 0): number {
+  const total = Math.max(0, Math.floor(Number(count) || 0));
+  const keep = Math.max(0, MAX_VAULT_RENDERS - Math.max(0, Math.floor(reserve)));
+  return Math.max(0, total - keep);
+}
+
+/**
  * Drops the oldest renders until the vault can hold `reserve` more.
  *
  * `reserve` is the slot the caller is about to write, so the vault is kept at
- * five *including* the incoming video rather than five plus it.
+ * MAX_VAULT_RENDERS *including* the incoming video rather than one over it.
+ *
+ * It always prunes to the rule, never to the capacity envelope: a vault that
+ * arrived holding five (an older build, a restored profile) is brought back to
+ * three on its next save, and the newest rows are the ones kept.
  */
 async function pruneVault(options: { reserve?: number } = {}): Promise<void> {
   const reserve = Math.max(0, Math.floor(options.reserve ?? 0));
-  const keep = Math.max(0, MAX_VAULT_RENDERS - reserve);
   const rows = await listVaultRenders();
-  if (rows.length <= keep) return;
-  const stale = rows.slice(keep);
+  const drop = vaultSlotsToDrop(rows.length, reserve);
+  if (drop === 0) return;
+  const stale = rows.slice(rows.length - drop);
   const db = await openDb();
   for (const row of stale) {
     if (db) await tx("readwrite", (store) => store.delete(row.id));
     memoryVault.delete(row.id);
   }
+}
+
+/**
+ * Brings an over-full vault back to the rule without saving anything.
+ *
+ * Called when the Vault panel opens, so a customer never sees five finished
+ * videos on a screen that promises three — the newest three are kept.
+ */
+export async function enforceVaultRule(): Promise<number> {
+  const before = (await listVaultRenders()).length;
+  await pruneVault();
+  const after = (await listVaultRenders()).length;
+  if (after !== before) emit();
+  return Math.max(0, before - after);
 }
 
 /* ------------------------------------------------------------------ */

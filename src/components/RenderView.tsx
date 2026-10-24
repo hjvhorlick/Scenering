@@ -74,6 +74,7 @@ import {
   saveRenderToVault,
   deleteVaultRender,
   listVaultRenders,
+  enforceVaultRule,
   subscribeVault,
   formatVaultSize,
   formatVaultTime,
@@ -502,6 +503,11 @@ export default function RenderView({
 
   const refreshVault = useCallback(async () => {
     try {
+      // The panel promises MAX_VAULT_RENDERS slots, so an over-full vault —
+      // one left by an older build, or by a restore — is brought back to the
+      // rule the first time the customer opens this screen. The newest rows
+      // are the ones kept.
+      await enforceVaultRule();
       setVaultRenders(await listVaultRenders());
     } catch {
       /* vault is best-effort */

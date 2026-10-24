@@ -4,7 +4,9 @@
  * The three promises this product makes, pinned so a later change cannot
  * quietly erode them:
  *
- *   1. THE VAULT HOLDS FIVE VIDEOS.
+ *   1. THE VAULT HOLDS THREE VIDEOS — the designer's rule — and the machinery
+ *      is engineered and tested to five, so a vault that ever holds five is
+ *      still pruned, readable and safe.
  *   2. THE ENGINE FINISHES A FIFTEEN-MINUTE VIDEO — including the finishing
  *      stages, which is where a deadline that was tuned for a one-minute
  *      Short would abandon a long render.
@@ -16,9 +18,13 @@ import { readFileSync } from "node:fs";
 import { createHarness } from "./harness";
 import {
   MAX_VAULT_RENDERS,
+  VAULT_CAPACITY_RENDERS,
   clearVault,
+  enforceVaultRule,
   listVaultRenders,
   saveRenderToVault,
+  vaultCapacityBytes,
+  vaultSlotsToDrop,
   vaultRequestTimeoutMs,
   VAULT_MAX_REQUEST_TIMEOUT_MS,
   VAULT_BASE_REQUEST_TIMEOUT_MS,
@@ -57,7 +63,14 @@ const t = createHarness();
  * 1. The Vault holds five videos
  * ================================================================== */
 
-t.eq(MAX_VAULT_RENDERS, 5, "the Vault holds five videos");
+t.eq(MAX_VAULT_RENDERS, 3, "the designer's rule: three finished videos are kept");
+t.eq(VAULT_CAPACITY_RENDERS, 5, "the Vault is engineered and tested for five");
+t.ok(
+  VAULT_CAPACITY_RENDERS > MAX_VAULT_RENDERS,
+  "the safety envelope is deliberately larger than the rule",
+);
+t.eq(vaultCapacityBytes(1024 ** 3), 5 * 1024 ** 3, "capacity storage is five of the largest video");
+t.eq(vaultCapacityBytes(0), 0, "capacity of nothing is nothing, not NaN");
 
 const video = (n: number) =>
   new Blob([new Uint8Array(1024 * 64)], { type: "video/mp4" });
@@ -73,33 +86,68 @@ const save = (n: number) =>
     label: "1080p · 30fps · MP4",
   });
 
+/* --- the rule, at the rule --- */
 await clearVault();
 const savedIds: string[] = [];
-for (let n = 1; n <= 5; n += 1) {
+for (let n = 1; n <= 3; n += 1) {
   const row = await save(n);
   savedIds.push(row.id);
   // Give each row a distinct createdAt so "oldest" is unambiguous.
   await new Promise((resolve) => setTimeout(resolve, 2));
 }
-t.eq((await listVaultRenders()).length, 5, "five finished videos are kept");
+t.eq((await listVaultRenders()).length, 3, "three finished videos are kept");
 
-await save(6);
-const afterSix = await listVaultRenders();
-t.eq(afterSix.length, 5, "a sixth render leaves the vault at five, not six");
-t.eq(afterSix.some((row) => row.id === savedIds[0]), false, "the OLDEST render is the one dropped");
-t.eq(afterSix[0].title, "Video 6", "the newest render is first (newest-first order)");
+await save(4);
+const afterFour = await listVaultRenders();
+t.eq(afterFour.length, 3, "a fourth render leaves the vault at three, not four");
+t.eq(afterFour.some((row) => row.id === savedIds[0]), false, "the OLDEST render is the one dropped");
+t.eq(afterFour[0].title, "Video 4", "the newest render is first (newest-first order)");
 
-/* The slot is freed before the write, not after: six long renders must never
-   need disk for six at once. */
+/* --- the envelope: a vault that already holds five is safe --- */
+t.eq(vaultSlotsToDrop(5), 2, "a vault holding five is reduced by two");
+t.eq(vaultSlotsToDrop(5, 1), 3, "…and by three when one slot is being written");
+t.eq(vaultSlotsToDrop(3), 0, "a vault inside the rule is left alone");
+t.eq(vaultSlotsToDrop(2, 1), 0, "two rows plus an incoming render still fit");
+t.eq(vaultSlotsToDrop(4, 1), 2, "four rows plus an incoming render drop two");
+t.eq(vaultSlotsToDrop(0), 0, "an empty vault drops nothing");
+t.eq(vaultSlotsToDrop(Number.NaN), 0, "a corrupt count cannot delete rows");
+
+/* Five saves through the real path never leave more than the rule. */
+await clearVault();
+for (let n = 1; n <= 5; n += 1) {
+  await save(n);
+  await new Promise((resolve) => setTimeout(resolve, 2));
+}
+t.eq(
+  (await listVaultRenders()).length,
+  3,
+  "five saves never leave the vault above the three-slot rule",
+);
+t.eq((await listVaultRenders())[0].title, "Video 5", "the newest render survives");
+
+const enforced = await enforceVaultRule();
+t.eq(enforced, 0, "a vault already inside the rule needs no enforcement");
+t.eq((await listVaultRenders()).length, 3, "the rule holds after enforcement");
+await clearVault();
+
+/* The slot is freed before the write, not after: the disk never has to hold
+   one render more than the Vault's capacity. */
 const vaultSource = readFileSync("src/lib/render-vault.ts", "utf8");
 const pruneCall = vaultSource.indexOf("await pruneVault({ reserve: 1 })");
 const putCall = vaultSource.indexOf('const key = await tx<IDBValidKey>("readwrite"');
 t.ok(pruneCall > 0 && putCall > pruneCall, "the oldest slot is freed BEFORE the new file is written");
 t.ok(
-  /MAX_VAULT_RENDERS = 5/.test(vaultSource),
-  "the five-slot limit is a named constant, not a literal in the UI",
+  /MAX_VAULT_RENDERS = 3/.test(vaultSource),
+  "three is a named rule, not a literal in the UI",
 );
-await clearVault();
+t.ok(
+  /VAULT_CAPACITY_RENDERS = 5/.test(vaultSource),
+  "five remains the named engineering capacity",
+);
+t.ok(
+  !/MAX_VAULT_RENDERS = 5/.test(vaultSource),
+  "the customer-facing cap is not quietly set to the engineering capacity",
+);
 
 /* ================================================================== *
  * 2. Fifteen-minute budgets

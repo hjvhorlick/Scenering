@@ -133,8 +133,8 @@ export class RenderStorageCapacityError extends Error {
     super(
       `Not enough protected browser storage for this render. ` +
         `It needs about ${formatStorageBytes(requiredBytes)} of temporary working storage, but only ${formatStorageBytes(availableBytes)} is available. ` +
-        // The Vault is the largest thing the customer can act on: it holds up
-        // to five finished videos, and any already downloaded can be deleted.
+        // The Vault is the largest thing the customer can act on: deleting a
+        // finished video that has already been downloaded frees the most space.
         `Delete finished videos you have already downloaded from the Vault, free space in the device's own settings, or lower the output quality — then retry.`,
     );
     this.name = "RenderStorageCapacityError";

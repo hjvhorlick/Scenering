@@ -1,42 +1,44 @@
 # Changelog
 
-## Unreleased — the five-video Vault and the fifteen-minute guarantee
+## Unreleased — the three-slot Vault, engineered for five, and the fifteen-minute guarantee
 
-- **The Vault holds five finished videos (was three), and a fifteen-minute
-  render can fill any of them.** The two standards are enforced together,
-  because a five-slot Vault is only useful if the longest supported video can
-  be committed into it, and every deadline added by the stall fix had to be
-  re-checked against the longest video the engine is built for.
-  - **Five slots** (`render-vault.ts` → `MAX_VAULT_RENDERS = 5`, already read
-    by the Vault panel, so the UI says "5 slots" with no copy change). The
-    oldest slot is now freed **before** the new file is written rather than
-    after, so six long renders never need disk for six at once.
-  - **Vault deadlines scale with the file** (`vaultRequestTimeoutMs`): the
-    IndexedDB commit of a 1.1 GB 1080p or 3.8 GB 4K fifteen-minute render gets
-    3–10 minutes instead of a fixed 90 seconds, floored at 90 s and capped at
-    20 minutes so a genuinely wedged storage service is still caught. The
-    render screen's outer deadline is always slightly larger, so the inner
-    transaction aborts cleanly first.
+- **The Vault keeps THREE finished videos — the designer's rule — and the
+  machinery behind it is engineered and tested for FIVE.** The design was
+  proven at five before the rule was tightened, so the capacity stays in the
+  code as a safety envelope rather than an allowance:
+  `MAX_VAULT_RENDERS = 3` is what a customer gets (the Vault panel reads it,
+  so the copy says "3 slots"), and `VAULT_CAPACITY_RENDERS = 5` is what every
+  deadline, prune and storage check is sized for. A vault that ever holds five
+  — an older build, a restored browser profile — is pruned back to three on
+  its next save or the first time the render screen opens, keeping the newest
+  rows (`vaultSlotsToDrop()`, `enforceVaultRule()`), instead of corrupting or
+  losing entries.
+- **A fifteen-minute render can fill any slot.** Every finishing deadline is
+  sized for the longest video the engine is built for, at the capacity
+  envelope — not for a one-minute Short:
+  - **The oldest slot is freed BEFORE the new file is written**, so the disk
+    never has to hold one render more than the Vault's capacity.
+  - **Vault deadlines scale with the file** (`vaultRequestTimeoutMs`): 90 s
+    floor, 8 MB/s, 20 min cap, so committing a 1.1 GB 1080p or 3.8 GB 4K
+    fifteen-minute render gets minutes instead of a fixed 90 seconds. The
+    render screen's outer budget (`vaultCommitTimeoutMs`) is always slightly
+    larger, so the inner transaction aborts cleanly first.
   - **The offline audio mix is bounded by the video's length**
-    (`audioMixTimeoutMs`): a fifteen-minute soundtrack through the mastering
-    chain with per-frame visualiser sampling gets about 8½ minutes (was
-    unbounded), and the mix now reports the percentage it has reached, so a
-    slow machine is visibly working rather than looking hung.
-  - **The stall watchdog can no longer kill a healthy long render.** A phase
-    may keep the watchdog quiet only when it has its own deadline
-    (`withProgressTicker(..., { heartbeat })`) — the rule is written on the
-    function. Everything unbounded (image decode, clip seek, narration) still
-    trips it after six minutes.
+    (`audioMixTimeoutMs`, ≈8½ minutes at fifteen minutes) instead of being
+    unbounded, and it now reports the percentage it has reached.
   - **The MP4 fast-start reservation is a named, tested formula**
     (`muxChunkReservation`): fifteen minutes at 24/25/30/60 fps always
-    reserves room for every frame and every AAC packet, with a handful of
-    chunks of headroom — never enough to matter, never too little.
-  - **Nothing about image quality moved.** The bitrate ladder, resolution and
-    frame rate still come only from the Master Render Profile; a fifteen-minute
-    render is encoded with exactly the same 1080p/4K bitrates as a
-    fifteen-second one, and `tests/render-longform.test.ts` pins that.
-  - **The storage gate names the Vault** when it refuses a render, because
-    five finished videos are usually the largest thing a customer can clear.
+    reserves room for all 27,000 frames and 42,188 AAC packets.
+  - **The stall watchdog cannot kill a healthy long render.** A phase may keep
+    it quiet only when that phase carries its own deadline — the rule is
+    written on `withProgressTicker`, so bounded-but-slow is never treated as
+    hung, while a genuinely stopped step still is.
+- **Image quality is untouched by any of this.** The bitrate ladder,
+  resolution and frame rate still come only from the Master Render Profile: a
+  fifteen-minute render is encoded with exactly the same 1080p/4K bitrates as
+  a fifteen-second one, pinned by `tests/render-longform.test.ts`.
+- **The storage gate names the Vault** when it refuses a render, because
+  finished videos are usually the largest thing a customer can clear.
 
 ## Unreleased — a render can no longer stall at the packaging step
 
