@@ -33,6 +33,7 @@ import {
   REDACTION_SHAPES,
   clampRedactionRect,
   isHexColor,
+  redactionLabel,
   resolveRedaction,
   shapeRect,
   type RedactionRect,
@@ -1156,6 +1157,18 @@ function InsertPropertiesContent({
   /** The Block Out rectangle as it will be painted, with every value in range. */
   const redaction = isBlockOut ? resolveRedaction(data) : null;
 
+  /**
+   * Changing the method also renames the block, so the chip on the timeline
+   * says what the block is actually doing rather than what it started as.
+   */
+  const updateRedactionMethod = (method: "blur" | "pixelate" | "solid") => {
+    setData((prev) => ({
+      ...prev,
+      title: redactionLabel(method, prev.visualOptions?.redactionColor),
+      visualOptions: { ...prev.visualOptions, redactionMethod: method },
+    }));
+  };
+
   /** Move/resize the block from the numeric controls, clamped exactly like a drag. */
   const updateRedactionRect = (patch: Partial<RedactionRect>) => {
     if (!redaction) return;
@@ -1772,7 +1785,7 @@ function InsertPropertiesContent({
                       <button
                         key={method.id}
                         type="button"
-                        onClick={() => updateVisualOptions("redactionMethod", method.id)}
+                        onClick={() => updateRedactionMethod(method.id)}
                         title={method.hint}
                         className={`px-2 py-2 rounded-lg border text-[11px] font-semibold flex flex-col items-center gap-1 transition-colors ${
                           active

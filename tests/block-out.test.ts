@@ -400,7 +400,8 @@ h.ok(panel.includes('type="color"'), "the studio offers any colour, not just swa
 const modal = readFileSync("src/components/InsertPropertiesModal.tsx", "utf8");
 h.ok(modal.includes('id="ipm-blockout"'), "the properties editor has a Block Out section");
 h.ok(modal.includes('"redactionRect"'), "the properties editor edits the same rectangle the preview drags");
-h.ok(modal.includes('updateVisualOptions("redactionMethod"'), "the method can be changed after the block is placed");
+h.ok(modal.includes("updateRedactionMethod(method.id)"), "the method can be changed after the block is placed");
+h.ok(/updateRedactionMethod[\s\S]{0,400}?redactionLabel\(method/.test(modal), "changing the method renames the block on the timeline");
 h.ok(modal.includes('updateVisualOptions("redactionColor"'), "the colour can be changed after the block is placed");
 h.ok(
   /show: !isSoundEffect && !isIntroOutro && !isCallToAction && !isBlockOut/.test(modal),
