@@ -172,7 +172,7 @@ export default function SetupStudio({
   sceneDuration = 20,
   singleScene = false,
   voiceoverEnabled = true,
-  motionStyle = "dynamic",
+  motionStyle = "none",
   sceneAnimationEnabled = false,
   loading = false,
   onSelectProject,

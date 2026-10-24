@@ -157,7 +157,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   resolution: "1080p",
   pacing_mode: "auto_speech",
   scene_duration: 20,
-  motion_style: "dynamic",
+  motion_style: "none",
   scene_animation_enabled: false,
   single_scene: false,
   voiceover_enabled: true,
@@ -459,13 +459,6 @@ export default function App() {
     saveCurrentProjectSettings({ motion_style: style });
     setCurrentProject((prev) => (prev ? { ...prev, motion_style: style } : null));
 
-    // When the new Scene Animation Effects system is ON, Setup no longer
-    // pushes camera movement onto every scene. The selected global Ken Burns
-    // value is preserved for backwards compatibility and for users who turn
-    // Scene Animation Effects back OFF, but live camera movement is controlled
-    // inside each scene's animation panel.
-    if (sceneAnimationEnabled) return;
-
     const motionMap: Record<string, SceneMotionType> = {
       dynamic: "ken_burns",
       ken_burns: "ken_burns",
@@ -477,11 +470,19 @@ export default function App() {
       none: "none",
     };
 
-    /**
-     * Persist each scene's motion to its stored meta. Without this the choice
-     * lived only in React state and was lost on reload, so the setting looked
-     * like it had not applied.
-     */
+    // Per-scene animation camera mapping when Scene Animation Effects is ON.
+    // The setup choice must still drive camera movement for every scene.
+    const animationMotionMap: Record<string, SceneMotionType> = {
+      dynamic: "ken_burns",
+      ken_burns: "ken_burns",
+      zoom_in: "slow_zoom",
+      zoom_out: "zoom_out",
+      pan: "pan_left",
+      shake: "cinematic_drift",
+      floating: "cinematic_drift",
+      none: "none",
+    };
+
     const persistMotion = (sceneId: number, effect: SceneMotionType) => {
       try {
         const existing = localStorage.getItem(`scenering_scene_meta_${sceneId}`);
@@ -492,6 +493,78 @@ export default function App() {
         );
       } catch {}
     };
+
+    const persistAnimationMotion = (sceneId: number, cameraMotion: SceneMotionType, fallbackAnimation: any) => {
+      try {
+        const existing = localStorage.getItem(`scenering_scene_meta_${sceneId}`);
+        const parsed = existing ? JSON.parse(existing) : {};
+        const prevAnim = parsed.animation || fallbackAnimation || {};
+        const nextAnim = {
+          ...prevAnim,
+          enabled: true,
+          camera: {
+            motion: cameraMotion,
+            speed: prevAnim?.camera?.speed ?? 0.45,
+            intensity: prevAnim?.camera?.intensity ?? 0.55,
+          },
+        };
+        localStorage.setItem(
+          `scenering_scene_meta_${sceneId}`,
+          JSON.stringify({ ...parsed, animation: nextAnim })
+        );
+      } catch {}
+    };
+
+    // Scene Animation Effects ON: propagate to each scene's animation.camera.motion
+    // so the choice is active on every scene, not just the first.
+    if (sceneAnimationEnabled) {
+      if (style === "dynamic") {
+        const dynamicAnimationList: SceneMotionType[] = [
+          "ken_burns",
+          "slow_zoom",
+          "pan_left",
+          "zoom_out",
+          "pan_right",
+          "cinematic_drift",
+        ];
+        setScenes((prev) =>
+          prev.map((s, idx) => {
+            const effect = dynamicAnimationList[idx % dynamicAnimationList.length];
+            persistAnimationMotion(s.id, effect, (s as any).animation);
+            const nextAnimation = {
+              ...(s.animation || {}),
+              enabled: true,
+              camera: {
+                motion: effect,
+                speed: (s.animation as any)?.camera?.speed ?? 0.45,
+                intensity: (s.animation as any)?.camera?.intensity ?? 0.55,
+              },
+            } as any;
+            return { ...s, animation: nextAnimation, motion_effect: effect } as Scene;
+          })
+        );
+      } else {
+        const targetAnim = animationMotionMap[style] || "none";
+        setScenes((prev) =>
+          prev.map((s) => {
+            persistAnimationMotion(s.id, targetAnim, (s as any).animation);
+            const nextAnimation = {
+              ...(s.animation || {}),
+              enabled: style === "none" ? false : true,
+              camera: {
+                motion: targetAnim,
+                speed: (s.animation as any)?.camera?.speed ?? 0.45,
+                intensity: (s.animation as any)?.camera?.intensity ?? 0.55,
+              },
+            } as any;
+            // Keep motion_effect in sync for when the user turns the feature off
+            persistMotion(s.id, motionMap[style] || "none");
+            return { ...s, animation: nextAnimation, motion_effect: motionMap[style] || "none" } as Scene;
+          })
+        );
+      }
+      return;
+    }
 
     if (style === "dynamic") {
       const dynamicList: SceneMotionType[] = [
@@ -510,7 +583,7 @@ export default function App() {
         })
       );
     } else {
-      const targetEffect = motionMap[style] || "ken_burns";
+      const targetEffect = motionMap[style] || "none";
       setScenes((prev) =>
         prev.map((s) => {
           persistMotion(s.id, targetEffect);
@@ -523,7 +596,69 @@ export default function App() {
   const handleUpdateSceneAnimationEnabled = useCallback((enabled: boolean) => {
     setSceneAnimationEnabled(enabled);
     saveCurrentProjectSettings({ scene_animation_enabled: enabled });
-  }, [saveCurrentProjectSettings]);
+    if (!enabled) return;
+    // When the per-scene animation system is turned on, seed every scene's
+    // camera motion from the current global choice so the effect is active on
+    // all scenes, not only those that already had an animation config.
+    const animMap: Record<string, string> = {
+      ken_burns: "ken_burns",
+      zoom_in: "slow_zoom",
+      zoom_out: "zoom_out",
+      pan: "pan_left",
+      shake: "cinematic_drift",
+      floating: "cinematic_drift",
+      none: "none",
+    };
+    const persist = (sceneId: number, cameraMotion: string, fallbackAnim: any) => {
+      try {
+        const existing = localStorage.getItem(`scenering_scene_meta_${sceneId}`);
+        const parsed = existing ? JSON.parse(existing) : {};
+        const prevAnim = parsed.animation || fallbackAnim || {};
+        const nextAnim = {
+          ...prevAnim,
+          enabled: motionStyle !== "none",
+          camera: {
+            motion: cameraMotion,
+            speed: prevAnim?.camera?.speed ?? 0.45,
+            intensity: prevAnim?.camera?.intensity ?? 0.55,
+          },
+        };
+        localStorage.setItem(`scenering_scene_meta_${sceneId}`, JSON.stringify({ ...parsed, animation: nextAnim }));
+      } catch {}
+    };
+    if (motionStyle === "dynamic") {
+      const list = ["ken_burns", "slow_zoom", "pan_left", "zoom_out", "pan_right", "cinematic_drift"];
+      setScenes((prev) =>
+        prev.map((s, idx) => {
+          const m = list[idx % list.length];
+          persist(s.id, m, (s as any).animation);
+          return {
+            ...s,
+            animation: {
+              ...((s as any).animation || {}),
+              enabled: true,
+              camera: { motion: m as any, speed: (s as any).animation?.camera?.speed ?? 0.45, intensity: (s as any).animation?.camera?.intensity ?? 0.55 },
+            },
+          } as Scene;
+        })
+      );
+    } else {
+      const target = animMap[motionStyle] || "none";
+      setScenes((prev) =>
+        prev.map((s) => {
+          persist(s.id, target, (s as any).animation);
+          return {
+            ...s,
+            animation: {
+              ...((s as any).animation || {}),
+              enabled: motionStyle !== "none",
+              camera: { motion: target as any, speed: (s as any).animation?.camera?.speed ?? 0.45, intensity: (s as any).animation?.camera?.intensity ?? 0.55 },
+            },
+          } as Scene;
+        })
+      );
+    }
+  }, [saveCurrentProjectSettings, motionStyle]);
 
   /**
    * A project whose whole picture is uploaded footage or an uploaded song.
@@ -1082,6 +1217,25 @@ export default function App() {
         ? [{ text: "", imageQuery: clip ? "" : (audio?.image.name || "abstract background") }]
         : parsedScenes;
 
+      // Resolve per-scene camera motion from the Setup choice so every scene
+      // inherits the same effect from the start — not just the first one.
+      const resolveMotionEffect = (idx: number): string => {
+        if (chosenMotion === "dynamic") {
+          const list = ["ken_burns", "zoom_in", "pan_left", "zoom_out", "pan_right", "floating"];
+          return list[idx % list.length];
+        }
+        const map: Record<string, string> = {
+          ken_burns: "ken_burns",
+          zoom_in: "zoom_in",
+          zoom_out: "zoom_out",
+          pan: "pan_left",
+          shake: "shake",
+          floating: "floating",
+          none: "none",
+        };
+        return map[chosenMotion] || "none";
+      };
+
       const sceneRows = sceneSources.map((s, i) => {
         const sceneText = s.text.trim();
         return {
@@ -1093,6 +1247,7 @@ export default function App() {
           duration: oneScene
             ? singleSceneDuration(sceneText, clip?.duration || audio?.track.duration)
             : sceneDurationForText(sceneText, chosenDuration),
+          motion_effect: resolveMotionEffect(i),
         };
       });
 
@@ -1124,7 +1279,46 @@ export default function App() {
       // under the scene's own meta key, which is the same place the scene
       // editor's clip panel writes to — so the footage is still attached
       // after a reload, and can be trimmed or muted there like any clip.
-      let createdScenes = (scenesData as Scene[]).map((sc) => ({ ...sc, transition: freshSettings.transition }));
+      let createdScenes: Scene[] = (scenesData as Scene[]).map((sc) => ({ ...sc, transition: freshSettings.transition }));
+
+      // Persist the Setup motion choice for every scene so it survives reloads
+      // and is visible in preview/render from the first frame of every scene.
+      if (freshSettings.scene_animation_enabled) {
+        const animMap: Record<string, string> = {
+          ken_burns: "ken_burns",
+          zoom_in: "slow_zoom",
+          zoom_out: "zoom_out",
+          pan: "pan_left",
+          shake: "cinematic_drift",
+          floating: "cinematic_drift",
+          none: "none",
+        };
+        createdScenes = createdScenes.map((sc, idx) => {
+          const animMotion = chosenMotion === "dynamic"
+            ? ["ken_burns", "slow_zoom", "pan_left", "zoom_out", "pan_right", "cinematic_drift"][idx % 6]
+            : (animMap[chosenMotion] || "none");
+          const anim = {
+            enabled: chosenMotion !== "none",
+            camera: { motion: animMotion as any, speed: 0.45, intensity: 0.55 },
+          };
+          try {
+            const key = `scenering_scene_meta_${sc.id}`;
+            const prev = localStorage.getItem(key);
+            const parsed = prev ? JSON.parse(prev) : {};
+            localStorage.setItem(key, JSON.stringify({ ...parsed, animation: anim, motion_effect: (sc as any).motion_effect || resolveMotionEffect(idx) }));
+          } catch {}
+          return { ...sc, animation: anim } as Scene;
+        });
+      } else {
+        createdScenes.forEach((sc, idx) => {
+          try {
+            const key = `scenering_scene_meta_${sc.id}`;
+            const prev = localStorage.getItem(key);
+            const parsed = prev ? JSON.parse(prev) : {};
+            localStorage.setItem(key, JSON.stringify({ ...parsed, motion_effect: (sc as any).motion_effect || resolveMotionEffect(idx) }));
+          } catch {}
+        });
+      }
       if (clip && createdScenes.length > 0) {
         const clipFields: Partial<Scene> = {
           source_media_kind: "uploaded_video",
@@ -1799,13 +1993,47 @@ export default function App() {
     const initialText = "New scene — replace this with your narration.";
     const initialDuration = sceneDurationForText(initialText, sceneDuration || 20);
 
-    const newSceneRow = {
+    const resolveNewSceneMotion = (): string => {
+      if (motionStyle === "dynamic") {
+        const list = ["ken_burns", "zoom_in", "pan_left", "zoom_out", "pan_right", "floating"];
+        return list[insertAt % list.length];
+      }
+      const m: Record<string, string> = {
+        ken_burns: "ken_burns",
+        zoom_in: "zoom_in",
+        zoom_out: "zoom_out",
+        pan: "pan_left",
+        shake: "shake",
+        floating: "floating",
+        none: "none",
+      };
+      return m[motionStyle] || "none";
+    };
+    const resolveNewSceneAnimMotion = (): string => {
+      if (motionStyle === "dynamic") {
+        const list = ["ken_burns", "slow_zoom", "pan_left", "zoom_out", "pan_right", "cinematic_drift"];
+        return list[insertAt % list.length];
+      }
+      const am: Record<string, string> = {
+        ken_burns: "ken_burns",
+        zoom_in: "slow_zoom",
+        zoom_out: "zoom_out",
+        pan: "pan_left",
+        shake: "cinematic_drift",
+        floating: "cinematic_drift",
+        none: "none",
+      };
+      return am[motionStyle] || "none";
+    };
+
+    const newSceneRow: any = {
       project_id: currentProject.id,
       order_index: insertAt,
       text: initialText,
       image_query: "cinematic background",
       duration: initialDuration,
       transition: videoTransition,
+      motion_effect: resolveNewSceneMotion(),
     };
 
     let created: Scene | null = null;
@@ -1831,7 +2059,18 @@ export default function App() {
         image_url: null,
         duration: initialDuration,
         transition: videoTransition,
+        motion_effect: resolveNewSceneMotion(),
         created_at: new Date().toISOString(),
+      } as Scene;
+    } else {
+      // Ensure motion from DB is present even if column was missing on older rows
+      (created as any).motion_effect = (created as any).motion_effect || resolveNewSceneMotion();
+    }
+    // Attach animation for newly inserted scenes when that system is enabled
+    if (sceneAnimationEnabled) {
+      (created as any).animation = {
+        enabled: motionStyle !== "none",
+        camera: { motion: resolveNewSceneAnimMotion(), speed: 0.45, intensity: 0.55 },
       };
     }
 
@@ -1851,9 +2090,11 @@ export default function App() {
         }
         const meta = localStorage.getItem(`scenering_scene_meta_${(created as Scene).id}`);
         const parsed = meta ? JSON.parse(meta) : {};
+        const extra: any = { is_inserted: true, duration: initialDuration, motion_effect: (created as any).motion_effect };
+        if ((created as any).animation) extra.animation = (created as any).animation;
         localStorage.setItem(
           `scenering_scene_meta_${(created as Scene).id}`,
-          JSON.stringify({ ...parsed, is_inserted: true, duration: initialDuration })
+          JSON.stringify({ ...parsed, ...extra })
         );
       } catch {}
       return renumbered;

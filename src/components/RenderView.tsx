@@ -330,7 +330,7 @@ export default function RenderView({
   onRenderSuccess,
   onRenderStart,
   sceneDuration = 20,
-  motionStyle = "dynamic",
+  motionStyle = "none",
   sceneAnimationEnabled = false,
   videoFilter = null,
   introSection = null,

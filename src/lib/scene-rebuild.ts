@@ -107,7 +107,7 @@ export function rebuildScenesFromScript(
       image_query: part.imageQuery || "abstract background",
       duration: options.durationFor(text, undefined),
       created_at: new Date(now).toISOString(),
-      motion_effect: "slow_zoom",
+      motion_effect: "none",
       audio_url: null,
       audio_name: null,
       video_url: null,

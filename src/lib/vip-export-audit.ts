@@ -271,7 +271,7 @@ export function stripVipFromExport(plan: PlanSlug, input: VipExportInput): Requi
     inserts: (input.inserts ?? []).filter((insert) => !removedInsertIds.has(insert.id)),
     videoFilter: removedIds.has("filter") ? null : input.videoFilter ?? null,
     sceneAnimationEnabled: removedIds.has("scene-animation") ? false : Boolean(input.sceneAnimationEnabled),
-    motionStyle: removedIds.has("motion") ? "dynamic" : input.motionStyle,
+    motionStyle: removedIds.has("motion") ? "none" : input.motionStyle,
     voiceEcho: removedIds.has("voice-echo") ? undefined : input.voiceEcho,
     removed,
   };
