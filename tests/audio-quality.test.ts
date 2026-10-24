@@ -192,7 +192,10 @@ h.ok(TELEMETRY_SAMPLE_STRIDE <= 6, "…but not so sparsely that the visualisers 
   h.ok(Number.isFinite(telemetry.frame(0).voice.level), "and nothing was written out of bounds");
 }
 
-const capture = render.slice(render.indexOf("const captureTelemetry"), render.indexOf("const captureTelemetry") + 2600);
+// The window has to be wide enough to hold the whole capture function; it
+// grew when the mix started reporting the progress it makes (which is what
+// keeps a long render's stall watchdog honest).
+const capture = render.slice(render.indexOf("const captureTelemetry"), render.indexOf("const captureTelemetry") + 4200);
 h.ok(capture.includes("TELEMETRY_SAMPLE_STRIDE"), "the render samples on the shared stride");
 h.ok(capture.includes("setAnalyserSpan("), "…and fills the frames between samples");
 h.ok(/for \(let frame = start; frame <= lastSample; frame \+= STRIDE\)/.test(capture), "it suspends only at the sampled frames");

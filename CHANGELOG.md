@@ -1,5 +1,124 @@
 # Changelog
 
+## Unreleased — Block Out: privacy redaction you can drag on the preview
+
+- **Video Studio has a Block Out section.** It covers words, names, numbers
+  or whole sections that must not be published, and it is available on every
+  plan — hiding your own private details is not sold as an upgrade.
+- **The block is placed by hand, on the video preview.** Add one and it
+  appears in the frame with eight grips: drag inside it to move it, pull any
+  corner or edge to resize it from that side. The rectangle is stored in
+  frame-normalised units, so the same block covers the same words in the
+  720p preview, a 1080p export and a 4K export.
+- **Three methods, not one.** Blur (the picture continues behind it, the
+  information does not), Pixelate (the censored-news mosaic) and Solid colour
+  with any hex value — black bars, brand colours, background matches.
+  Strength, corner rounding and the exact rectangle can also be typed in
+  afterwards in the properties panel.
+- **The block is never faded, never translucent and never sampled from an
+  empty buffer.** Unlike every other overlay it skips the 0.25 s fade-in, so
+  nothing underneath is visible on the first frame; and if the blur sample
+  cannot be taken for any reason the rectangle is filled solid black instead
+  of being left transparent. A redaction that fails must still redact.
+- **It is painted by the same code in the preview and the export**
+  (`paintRedaction()` in `src/lib/block-out.ts`, called from
+  `renderTimelineInsert()`), after the scene and its captions, so what the
+  creator sees blocked is exactly what is missing from the file.
+
+## Unreleased — the three-slot Vault, engineered for five, and the fifteen-minute guarantee
+
+- **The Vault keeps THREE finished videos — the designer's rule — and the
+  machinery behind it is engineered and tested for FIVE.** The design was
+  proven at five before the rule was tightened, so the capacity stays in the
+  code as a safety envelope rather than an allowance:
+  `MAX_VAULT_RENDERS = 3` is what a customer gets (the Vault panel reads it,
+  so the copy says "3 slots"), and `VAULT_CAPACITY_RENDERS = 5` is what every
+  deadline, prune and storage check is sized for. A vault that ever holds five
+  — an older build, a restored browser profile — is pruned back to three on
+  its next save or the first time the render screen opens, keeping the newest
+  rows (`vaultSlotsToDrop()`, `enforceVaultRule()`), instead of corrupting or
+  losing entries.
+- **A fifteen-minute render can fill any slot.** Every finishing deadline is
+  sized for the longest video the engine is built for, at the capacity
+  envelope — not for a one-minute Short:
+  - **The oldest slot is freed BEFORE the new file is written**, so the disk
+    never has to hold one render more than the Vault's capacity.
+  - **Vault deadlines scale with the file** (`vaultRequestTimeoutMs`): 90 s
+    floor, 8 MB/s, 20 min cap, so committing a 1.1 GB 1080p or 3.8 GB 4K
+    fifteen-minute render gets minutes instead of a fixed 90 seconds. The
+    render screen's outer budget (`vaultCommitTimeoutMs`) is always slightly
+    larger, so the inner transaction aborts cleanly first.
+  - **The offline audio mix is bounded by the video's length**
+    (`audioMixTimeoutMs`, ≈8½ minutes at fifteen minutes) instead of being
+    unbounded, and it now reports the percentage it has reached.
+  - **The MP4 fast-start reservation is a named, tested formula**
+    (`muxChunkReservation`): fifteen minutes at 24/25/30/60 fps always
+    reserves room for all 27,000 frames and 42,188 AAC packets.
+  - **The stall watchdog cannot kill a healthy long render.** A phase may keep
+    it quiet only when that phase carries its own deadline — the rule is
+    written on `withProgressTicker`, so bounded-but-slow is never treated as
+    hung, while a genuinely stopped step still is.
+- **Image quality is untouched by any of this.** The bitrate ladder,
+  resolution and frame rate still come only from the Master Render Profile: a
+  fifteen-minute render is encoded with exactly the same 1080p/4K bitrates as
+  a fifteen-second one, pinned by `tests/render-longform.test.ts`.
+- **The storage gate names the Vault** when it refuses a render, because
+  finished videos are usually the largest thing a customer can clear.
+
+## Unreleased — a render can no longer stall at the packaging step
+
+- **Fixed: a render that had encoded every frame could sit on "Package" for
+  ever, with no error, no working Cancel and no file — and the finished video
+  was then lost.** This is the failure reported after a second short render,
+  run straight after a first one that had already finished and been
+  downloaded: every frame done, then nothing past 95%. The whole stretch
+  between the last frame and the Vault was a set of unbounded waits, and any
+  one of them wedging produced the same silent hang. See
+  **[RENDER_STALLS.md](RENDER_STALLS.md)** for the full investigation.
+  - **`src/lib/render-guard.ts` (new).** `withTimeout()`, `drainEncoderQueue()`
+    and `withProgressTicker()` turn a browser-internal wait that stops moving
+    into a named `RenderTimeoutError` instead of a promise that never settles.
+    Every finishing step now has a deadline: the encoders' own flush
+    (`120 s`), the OPFS disk drain (`120 s`), closing and handing over the
+    staging file (`60 s`), reading the file back for verification (`60 s`) and
+    the Vault commit (`150 s`). An encoder queue that stops draining is
+    declared wedged after `60 s` — a queue that keeps moving, however slowly,
+    is never mistaken for a stall.
+  - **Cancel now works after the frames are done.** `OfflineExporter.abort()`
+    stops the encoder flush, the disk drain and the hand-over immediately; the
+    old flag was only read between frames, which is exactly when nobody needs
+    to press Cancel.
+  - **A stall never falls back to real-time recording.** A deadline that
+    expires is not a codec mismatch, so it is reported, not answered with a
+    full MediaRecorder re-encode that would take as long as the video is.
+  - **The Vault can no longer hang the render.** IndexedDB opens time out
+    after `15 s` and every transaction after `90 s` (both abort cleanly), a
+    `versionchange` closes the connection instead of blocking a newer one, and
+    a timed-out commit still leaves the finished file downloadable with the
+    existing "download this video before closing the tab" message.
+  - **A six-minute stall watchdog** ends any render that stops reporting
+    progress for any other reason (image decode, clip seek, the offline audio
+    mix), with a sentence explaining it — instead of a spinner plus a
+    before-unload prompt that would not let the customer close the tab.
+  - **Consecutive renders no longer accumulate.** The previous finished video
+    is released (app state, render-screen state and its object URL) the moment
+    a new render is authorised, abandoned `.part` staging files older than 30
+    minutes are swept before a render starts, a second encoder can never be
+    created while a job is live, and the MP4 fast-start chunk reservation has
+    real headroom (`+8` video, `+64` audio) so it can never trip the muxer's
+    hard cap at the packaging step.
+  - **The start lock can no longer be lost.** A failed `loadCustomVideos()`, a
+    watermark image that never answers (`15 s` deadline), or a missing render
+    canvas used to return without clearing the preparation flag, leaving the
+    Render button permanently dead until a reload; all three now release it.
+  - **`describeRenderFailure()`** reports a stall as
+    "The render stalled while finishing the file", says the frames themselves
+    were fine, and suggests clearing Vault space before retrying.
+  - **Tests:** `tests/render-guard.test.ts` (deadlines, queue draining,
+    cancellation, no unhandled rejections, a stuck OPFS writer) and new
+    failure-description and pipeline-order checks in
+    `tests/render-profile.test.ts` and `tests/render-quality-speed.test.ts`.
+
 ## Unreleased — true-resolution rendering, source photo selection, voice clarity & verified exports
 
 - **Imported photos are never pre-cut and fill the frame by default.** A

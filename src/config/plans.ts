@@ -148,6 +148,10 @@ export function isPlanCatalogItemIncluded(slug: PlanSlug, category: string, type
   if (slug !== "free") return true;
   const normalized = type.toLowerCase();
   if (category === "logo") return true;
+  // Privacy is not a creative flourish. Block Out hides personal information
+  // from a video the creator is about to publish, so every plan gets it — a
+  // Free member is never asked to pay to redact their own footage.
+  if (category === "block_out") return true;
   if (category === "call_to_action") return FREE_CATALOG.callsToAction.includes(normalized as (typeof FREE_CATALOG.callsToAction)[number]);
   if (category === "background_music") return FREE_CATALOG.backgroundMusic.includes(normalized as (typeof FREE_CATALOG.backgroundMusic)[number]);
   if (category === "audio_visualizers") return FREE_CATALOG.audioVisualisers.includes(normalized as (typeof FREE_CATALOG.audioVisualisers)[number]);

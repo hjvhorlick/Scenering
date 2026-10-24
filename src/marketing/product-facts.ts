@@ -64,7 +64,7 @@ export const CATALOG_COUNTS = {
   /** src/lib/video-studio-catalog.ts → SCENE_MOTIONS */
   sceneMotions: 5,
   /** src/lib/video-studio-catalog.ts → STUDIO_CATEGORIES */
-  studioCategories: 11,
+  studioCategories: 12,
   /** public/videos/intros + public/videos/outros */
   introClips: 5,
   outroClips: 5,

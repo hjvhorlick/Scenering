@@ -25,6 +25,19 @@ import {
 } from "../lib/text-art";
 import { resolveArtStyle } from "../lib/render-text-template";
 import { renderTimelineInsert } from "../lib/render-effects";
+import {
+  MAX_REDACTION_RADIUS,
+  MAX_REDACTION_STRENGTH,
+  MIN_REDACTION_STRENGTH,
+  REDACTION_METHODS,
+  REDACTION_SHAPES,
+  clampRedactionRect,
+  isHexColor,
+  redactionLabel,
+  resolveRedaction,
+  shapeRect,
+  type RedactionRect,
+} from "../lib/block-out";
 import { makeBus, type AudioFrame, type ReactionSource } from "../lib/audio-reactive";
 import { MOTION_PRESETS, MOTION_PRESETS_BY_ID } from "../lib/overlay-motion";
 import { VISUALIZER_PALETTES } from "../lib/visualizer-palettes";
@@ -808,10 +821,18 @@ function InsertPropertiesContent({
     insert.category === "lower_thirds";
   const isCallToAction = insert.category === "call_to_action";
   const isSticker = insert.category === "stickers";
+  /**
+   * Privacy blocks are their own kind of element: their geometry is the
+   * rectangle the user pulls on the preview, so the generic scale/rotation
+   * controls do not apply. They get one dedicated section instead.
+   */
+  const isBlockOut = insert.category === "block_out";
   const isScriptureTemplate = insert.type === "template_scripture" || insert.type.includes("scripture");
 
   // Initial tab selection based on element type
-  const defaultTab = isIntroOutro
+  const defaultTab = isBlockOut
+    ? "blockout"
+    : isIntroOutro
     ? "intro_fx"
     : isCallToAction
     ? "cta_platform"
@@ -872,7 +893,8 @@ function InsertPropertiesContent({
   const SECTION_TABS: SectionTab[] = [
     { tab: "intro_fx", id: "ipm-intro-fx", icon: "🎬", name: "Tension FX & Video", tone: "opt-btn-amber", show: isIntroOutro },
     { tab: "brand", id: "ipm-brand", icon: "🏷️", name: "Brand Logo", tone: "opt-btn-amber", show: isIntroOutro },
-    { tab: "visuals", id: "ipm-visuals", icon: "📐", name: "Position & Size", show: !isSoundEffect && !isIntroOutro && !isCallToAction },
+    { tab: "blockout", id: "ipm-blockout", icon: "🕶️", name: "Block Out", show: isBlockOut },
+    { tab: "visuals", id: "ipm-visuals", icon: "📐", name: "Position & Size", show: !isSoundEffect && !isIntroOutro && !isCallToAction && !isBlockOut },
     { tab: "design", id: "ipm-design", icon: "🎨", name: "Design", show: !isIntroOutro && isContentCard },
     { tab: "cta_platform", id: "ipm-cta-platform", icon: "🌐", name: "Platform", show: isCallToAction },
     { tab: "cta_text", id: "ipm-cta-text", icon: "✏️", name: "Text & Icon", show: isCallToAction },
@@ -1132,6 +1154,27 @@ function InsertPropertiesContent({
     }));
   };
 
+  /** The Block Out rectangle as it will be painted, with every value in range. */
+  const redaction = isBlockOut ? resolveRedaction(data) : null;
+
+  /**
+   * Changing the method also renames the block, so the chip on the timeline
+   * says what the block is actually doing rather than what it started as.
+   */
+  const updateRedactionMethod = (method: "blur" | "pixelate" | "solid") => {
+    setData((prev) => ({
+      ...prev,
+      title: redactionLabel(method, prev.visualOptions?.redactionColor),
+      visualOptions: { ...prev.visualOptions, redactionMethod: method },
+    }));
+  };
+
+  /** Move/resize the block from the numeric controls, clamped exactly like a drag. */
+  const updateRedactionRect = (patch: Partial<RedactionRect>) => {
+    if (!redaction) return;
+    updateVisualOptions("redactionRect", clampRedactionRect({ ...redaction.rect, ...patch }));
+  };
+
   const updateAudioSettings = (field: string, value: any) => {
     setData((prev) => ({
       ...prev,
@@ -1226,6 +1269,8 @@ function InsertPropertiesContent({
                 ? "🎬"
                 : insert.category === "outro"
                 ? "🏁"
+                : isBlockOut
+                ? "🕶️"
                 : isAudioVisualizer
                 ? "📊"
                 : isSoundEffect
@@ -1242,6 +1287,8 @@ function InsertPropertiesContent({
                     ? "Cinematic Intro (Before Script)"
                     : insert.category === "outro"
                     ? "Broadcast Outro (After Script)"
+                    : isBlockOut
+                    ? "Privacy Block"
                     : isAudioVisualizer
                     ? "Wave Effect"
                     : isSoundEffect
@@ -1256,6 +1303,8 @@ function InsertPropertiesContent({
                   ? "High-tension video opener with countdown, glitch or flare, custom text & logo reveal"
                   : insert.category === "outro"
                   ? "Professional end-slate video with social hub, subscribe button, text & logo"
+                  : isBlockOut
+                  ? "Cover words or sections — drag the block on the video preview and pull its edges to fit"
                   : isAudioVisualizer
                   ? "Adjust size, screen placement, and voiceover reactivity"
                   : isSoundEffect
@@ -1708,6 +1757,187 @@ function InsertPropertiesContent({
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB: BLOCK OUT — the rectangle pulled on the video preview */}
+          {isBlockOut && redaction && (
+            <div className="space-y-4">
+              <BlockTitle id="ipm-blockout" icon="🕶️" title="Block Out" hint="hide words or whole sections" />
+
+              <div className="bg-indigo-950/40 border border-indigo-800/60 rounded-xl p-3 text-xs text-indigo-200 flex items-start gap-2.5">
+                <span className="text-base"><Icon glyph="👆" /></span>
+                <p className="leading-relaxed">
+                  On the <span className="font-semibold text-white">video preview</span>, drag inside the block to move
+                  it, and pull any of its eight grips to resize it. Whatever is underneath is painted over before the
+                  file is written — it never reaches the export.
+                </p>
+              </div>
+
+              {/* Method */}
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-2">
+                <span className="text-xs font-medium text-white">How should it hide the video?</span>
+                <div className="grid grid-cols-3 gap-2">
+                  {REDACTION_METHODS.map((method) => {
+                    const active = redaction.method === method.id;
+                    return (
+                      <button
+                        key={method.id}
+                        type="button"
+                        onClick={() => updateRedactionMethod(method.id)}
+                        title={method.hint}
+                        className={`px-2 py-2 rounded-lg border text-[11px] font-semibold flex flex-col items-center gap-1 transition-colors ${
+                          active
+                            ? "bg-indigo-600 border-indigo-400 text-white shadow-sm"
+                            : "bg-gray-800 border-hairline text-gray-300 hover:bg-gray-700"
+                        }`}
+                      >
+                        <span className="text-base leading-none"><Icon glyph={method.icon} /></span>
+                        <span>{method.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-gray-400">
+                  {REDACTION_METHODS.find((method) => method.id === redaction.method)?.hint}
+                </p>
+              </div>
+
+              {/* Colour, for the solid method */}
+              {redaction.method === "solid" && (
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-white">Block colour</span>
+                    <span className="font-mono text-[11px] text-indigo-300">{redaction.color.toUpperCase()}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={redaction.color}
+                      onChange={(event) => updateVisualOptions("redactionColor", event.target.value.toUpperCase())}
+                      className="h-9 w-12 rounded border border-hairline bg-gray-800 p-0.5 cursor-pointer"
+                      aria-label="Block colour"
+                    />
+                    <input
+                      type="text"
+                      value={redaction.color.toUpperCase()}
+                      onChange={(event) => {
+                        const value = event.target.value.trim();
+                        const normalized = value.startsWith("#") ? value : `#${value}`;
+                        if (isHexColor(normalized)) updateVisualOptions("redactionColor", normalized.toUpperCase());
+                      }}
+                      className="flex-1 bg-gray-800 border border-hairline rounded-lg px-2 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
+                      aria-label="Block colour hex"
+                    />
+                  </div>
+                  <div className="grid grid-cols-8 gap-1.5">
+                    {["#000000", "#FFFFFF", "#111827", "#374151", "#6B7280", "#6366F1", "#0EA5E9", "#EF4444"].map((swatch) => (
+                      <button
+                        key={swatch}
+                        type="button"
+                        onClick={() => updateVisualOptions("redactionColor", swatch)}
+                        title={swatch}
+                        aria-label={`Use ${swatch}`}
+                        className={`h-6 rounded border transition-transform hover:scale-105 ${
+                          redaction.color.toLowerCase() === swatch.toLowerCase()
+                            ? "border-indigo-400 ring-2 ring-indigo-500/40"
+                            : "border-white/15"
+                        }`}
+                        style={{ backgroundColor: swatch }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Strength, for blur / pixelate */}
+              {redaction.method !== "solid" && (
+                <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-2">
+                  <div className="flex justify-between text-xs text-gray-300">
+                    <span className="font-medium text-white">
+                      {redaction.method === "blur" ? "Blur strength" : "Pixel size"}
+                    </span>
+                    <span className="font-mono text-indigo-400 font-bold">{redaction.strength.toFixed(2)}×</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={MIN_REDACTION_STRENGTH}
+                    max={MAX_REDACTION_STRENGTH}
+                    step={0.05}
+                    value={redaction.strength}
+                    onChange={(event) => updateVisualOptions("redactionStrength", parseFloat(event.target.value))}
+                    className="w-full accent-indigo-500 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-gray-500">
+                    <span>Subtle</span>
+                    <span>Unreadable</span>
+                    <span>Gone</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Corner rounding */}
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-2">
+                <div className="flex justify-between text-xs text-gray-300">
+                  <span className="font-medium text-white">Corner rounding</span>
+                  <span className="font-mono text-indigo-400 font-bold">{Math.round(redaction.radius * 200)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={MAX_REDACTION_RADIUS}
+                  step={0.02}
+                  value={redaction.radius}
+                  onChange={(event) => updateVisualOptions("redactionRadius", parseFloat(event.target.value))}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+              </div>
+
+              {/* Exact geometry — the same rectangle the preview drags */}
+              <div className="bg-gray-800/50 border border-hairline rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-white">Position &amp; size</span>
+                  <span className="text-[11px] text-gray-400">percent of the frame</span>
+                </div>
+                {[
+                  { label: "Left", key: "x" as const, min: 0, max: 100, value: redaction.rect.x * 100 },
+                  { label: "Top", key: "y" as const, min: 0, max: 100, value: redaction.rect.y * 100 },
+                  { label: "Width", key: "w" as const, min: 2, max: 100, value: redaction.rect.w * 100 },
+                  { label: "Height", key: "h" as const, min: 2, max: 100, value: redaction.rect.h * 100 },
+                ].map((control) => (
+                  <div key={control.key} className="space-y-1">
+                    <div className="flex justify-between text-[11px] text-gray-300">
+                      <span>{control.label}</span>
+                      <span className="font-mono text-indigo-300">{control.value.toFixed(1)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={control.min}
+                      max={control.max}
+                      step={0.5}
+                      value={control.value}
+                      onChange={(event) =>
+                        updateRedactionRect({ [control.key]: parseFloat(event.target.value) / 100 })
+                      }
+                      className="w-full accent-indigo-500 cursor-pointer"
+                      aria-label={`Block ${control.label.toLowerCase()}`}
+                    />
+                  </div>
+                ))}
+                <div className="grid grid-cols-4 gap-2 pt-1">
+                  {REDACTION_SHAPES.map((shape) => (
+                    <button
+                      key={shape.id}
+                      type="button"
+                      onClick={() => updateRedactionRect({ ...shapeRect(shape.id) })}
+                      className="px-2 py-1.5 rounded-lg border border-hairline bg-gray-800 text-[10px] font-semibold text-gray-300 hover:bg-gray-700 hover:text-white flex flex-col items-center gap-0.5"
+                    >
+                      <Icon glyph={shape.icon} />
+                      <span>{shape.name}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}

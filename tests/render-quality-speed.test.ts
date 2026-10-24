@@ -343,11 +343,23 @@ const h = createHarness();
   h.eq(badSync.ok, false, "600ms audio/video sync drift is rejected before download");
 
   const renderSrc = readFileSync("src/components/RenderView.tsx", "utf8");
-  const validateAt = renderSrc.indexOf("await validateFinishedExport(");
-  const vaultAt = renderSrc.indexOf("await saveRenderToVault(");
+  // The calls are now wrapped in a deadline (withTimeout(...)), so the check
+  // is on the call sites themselves — the ORDER is the invariant: a file that
+  // fails verification is never written to the Vault and never offered for
+  // download.
+  const validateAt = renderSrc.indexOf("validateFinishedExport(");
+  const vaultAt = renderSrc.indexOf("saveRenderToVault(");
   h.ok(
     validateAt > 0 && vaultAt > validateAt,
     "RenderView validates the finished export BEFORE committing to the Vault or presenting download"
+  );
+  h.ok(
+    /withTimeout\(\s*validateFinishedExport\(/.test(renderSrc),
+    "the verification step has a deadline, so it cannot hang the render"
+  );
+  h.ok(
+    /withTimeout\(\s*saveRenderToVault\(/.test(renderSrc),
+    "the Vault commit has a deadline, so it cannot hang the render"
   );
 }
 

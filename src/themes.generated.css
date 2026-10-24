@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 611 utility
+   Colour matrix for every non-classic theme. 618 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -510,8 +510,14 @@ html[data-theme="apple"] .bg-rose-950\/80 {
 html[data-theme="apple"] .bg-sky-950\/70 {
   background-color: rgb(229 246 254 / 0.7);
 }
+html[data-theme="apple"] .bg-slate-700\/95 {
+  background-color: rgb(232 232 237 / 0.95);
+}
 html[data-theme="apple"] .bg-slate-800\/70 {
   background-color: rgb(255 255 255 / 0.7);
+}
+html[data-theme="apple"] .bg-slate-800\/80 {
+  background-color: rgb(255 255 255 / 0.8);
 }
 html[data-theme="apple"] .bg-teal-500\/20 {
   background-color: rgb(149 223 215 / 0.2);
@@ -969,6 +975,9 @@ html[data-theme="apple"] .border-sky-900\/60 {
 html[data-theme="apple"] .border-slate-300\/60 {
   border-color: rgb(174 174 178 / 0.6);
 }
+html[data-theme="apple"] .border-slate-400 {
+  border-color: rgb(174 174 178 / 1);
+}
 html[data-theme="apple"] .border-teal-400 {
   border-color: rgb(45 212 191 / 1);
 }
@@ -1140,6 +1149,11 @@ html[data-theme="apple"] .from-slate-800 {
   --tw-gradient-to: rgb(255 255 255 / 0) var(--tw-gradient-to-position);
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
 }
+html[data-theme="apple"] .from-slate-900 {
+  --tw-gradient-from: rgb(255 255 255 / 1) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(255 255 255 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
 html[data-theme="apple"] .from-teal-950\/90 {
   --tw-gradient-from: rgb(216 252 245 / 0.9) var(--tw-gradient-from-position);
   --tw-gradient-to: rgb(216 252 245 / 0) var(--tw-gradient-to-position);
@@ -1225,6 +1239,9 @@ html[data-theme="apple"] .hover\:bg-gray-700\/50:hover {
 }
 html[data-theme="apple"] .hover\:bg-gray-700\/60:hover {
   background-color: rgb(232 232 237 / 0.6);
+}
+html[data-theme="apple"] .hover\:bg-gray-700\/70:hover {
+  background-color: rgb(232 232 237 / 0.7);
 }
 html[data-theme="apple"] .hover\:bg-gray-700\/80:hover {
   background-color: rgb(232 232 237 / 0.8);
@@ -1496,6 +1513,9 @@ html[data-theme="apple"] .ring-indigo-400\/50 {
 }
 html[data-theme="apple"] .ring-indigo-500 {
   --tw-ring-color: rgb(10 132 255 / 1);
+}
+html[data-theme="apple"] .ring-indigo-500\/40 {
+  --tw-ring-color: rgb(10 132 255 / 0.4);
 }
 html[data-theme="apple"] .ring-pink-500 {
   --tw-ring-color: rgb(236 72 153 / 1);
@@ -1835,6 +1855,9 @@ html[data-theme="apple"] .to-indigo-600 {
 }
 html[data-theme="apple"] .to-indigo-950\/40 {
   --tw-gradient-to: rgb(227 240 255 / 0.4) var(--tw-gradient-to-position);
+}
+html[data-theme="apple"] .to-indigo-950\/80 {
+  --tw-gradient-to: rgb(227 240 255 / 0.8) var(--tw-gradient-to-position);
 }
 html[data-theme="apple"] .to-purple-600 {
   --tw-gradient-to: rgb(206 163 246 / 1) var(--tw-gradient-to-position);
@@ -2394,8 +2417,14 @@ html[data-theme="windows"] .bg-rose-950\/80 {
 html[data-theme="windows"] .bg-sky-950\/70 {
   background-color: rgb(12 46 69 / 0.7);
 }
+html[data-theme="windows"] .bg-slate-700\/95 {
+  background-color: rgb(45 58 79 / 0.808);
+}
 html[data-theme="windows"] .bg-slate-800\/70 {
   background-color: rgb(32 43 60 / 0.546);
+}
+html[data-theme="windows"] .bg-slate-800\/80 {
+  background-color: rgb(32 43 60 / 0.624);
 }
 html[data-theme="windows"] .bg-teal-500\/20 {
   background-color: rgb(30 174 158 / 0.2);
@@ -2853,6 +2882,9 @@ html[data-theme="windows"] .border-sky-900\/60 {
 html[data-theme="windows"] .border-slate-300\/60 {
   border-color: rgb(126 143 170 / 0.6);
 }
+html[data-theme="windows"] .border-slate-400 {
+  border-color: rgb(126 143 170 / 1);
+}
 html[data-theme="windows"] .border-teal-400 {
   border-color: rgb(55 202 183 / 1);
 }
@@ -3024,6 +3056,11 @@ html[data-theme="windows"] .from-slate-800 {
   --tw-gradient-to: rgb(32 43 60 / 0) var(--tw-gradient-to-position);
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
 }
+html[data-theme="windows"] .from-slate-900 {
+  --tw-gradient-from: rgb(24 32 45 / 0.86) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(24 32 45 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
 html[data-theme="windows"] .from-teal-950\/90 {
   --tw-gradient-from: rgb(7 44 44 / 0.9) var(--tw-gradient-from-position);
   --tw-gradient-to: rgb(7 44 44 / 0) var(--tw-gradient-to-position);
@@ -3109,6 +3146,9 @@ html[data-theme="windows"] .hover\:bg-gray-700\/50:hover {
 }
 html[data-theme="windows"] .hover\:bg-gray-700\/60:hover {
   background-color: rgb(45 58 79 / 0.51);
+}
+html[data-theme="windows"] .hover\:bg-gray-700\/70:hover {
+  background-color: rgb(45 58 79 / 0.595);
 }
 html[data-theme="windows"] .hover\:bg-gray-700\/80:hover {
   background-color: rgb(45 58 79 / 0.68);
@@ -3380,6 +3420,9 @@ html[data-theme="windows"] .ring-indigo-400\/50 {
 }
 html[data-theme="windows"] .ring-indigo-500 {
   --tw-ring-color: rgb(76 194 255 / 1);
+}
+html[data-theme="windows"] .ring-indigo-500\/40 {
+  --tw-ring-color: rgb(76 194 255 / 0.4);
 }
 html[data-theme="windows"] .ring-pink-500 {
   --tw-ring-color: rgb(226 82 153 / 1);
@@ -3719,6 +3762,9 @@ html[data-theme="windows"] .to-indigo-600 {
 }
 html[data-theme="windows"] .to-indigo-950\/40 {
   --tw-gradient-to: rgb(76 194 255 / 0.056) var(--tw-gradient-to-position);
+}
+html[data-theme="windows"] .to-indigo-950\/80 {
+  --tw-gradient-to: rgb(76 194 255 / 0.112) var(--tw-gradient-to-position);
 }
 html[data-theme="windows"] .to-purple-600 {
   --tw-gradient-to: rgb(146 62 223 / 1) var(--tw-gradient-to-position);
@@ -4278,8 +4324,14 @@ html[data-theme="playful"] .bg-rose-950\/80 {
 html[data-theme="playful"] .bg-sky-950\/70 {
   background-color: rgb(0 50 83 / 0.7);
 }
+html[data-theme="playful"] .bg-slate-700\/95 {
+  background-color: rgb(56 44 88 / 0.95);
+}
 html[data-theme="playful"] .bg-slate-800\/70 {
   background-color: rgb(39 30 63 / 0.7);
+}
+html[data-theme="playful"] .bg-slate-800\/80 {
+  background-color: rgb(39 30 63 / 0.8);
 }
 html[data-theme="playful"] .bg-teal-500\/20 {
   background-color: rgb(0 208 185 / 0.2);
@@ -4737,6 +4789,9 @@ html[data-theme="playful"] .border-sky-900\/60 {
 html[data-theme="playful"] .border-slate-300\/60 {
   border-color: rgb(147 127 196 / 0.6);
 }
+html[data-theme="playful"] .border-slate-400 {
+  border-color: rgb(147 127 196 / 1);
+}
 html[data-theme="playful"] .border-teal-400 {
   border-color: rgb(23 239 212 / 1);
 }
@@ -4908,6 +4963,11 @@ html[data-theme="playful"] .from-slate-800 {
   --tw-gradient-to: rgb(39 30 63 / 0) var(--tw-gradient-to-position);
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
 }
+html[data-theme="playful"] .from-slate-900 {
+  --tw-gradient-from: rgb(30 23 49 / 1) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(30 23 49 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
 html[data-theme="playful"] .from-teal-950\/90 {
   --tw-gradient-from: rgb(0 52 51 / 0.9) var(--tw-gradient-from-position);
   --tw-gradient-to: rgb(0 52 51 / 0) var(--tw-gradient-to-position);
@@ -4993,6 +5053,9 @@ html[data-theme="playful"] .hover\:bg-gray-700\/50:hover {
 }
 html[data-theme="playful"] .hover\:bg-gray-700\/60:hover {
   background-color: rgb(56 44 88 / 0.6);
+}
+html[data-theme="playful"] .hover\:bg-gray-700\/70:hover {
+  background-color: rgb(56 44 88 / 0.7);
 }
 html[data-theme="playful"] .hover\:bg-gray-700\/80:hover {
   background-color: rgb(56 44 88 / 0.8);
@@ -5264,6 +5327,9 @@ html[data-theme="playful"] .ring-indigo-400\/50 {
 }
 html[data-theme="playful"] .ring-indigo-500 {
   --tw-ring-color: rgb(255 111 177 / 1);
+}
+html[data-theme="playful"] .ring-indigo-500\/40 {
+  --tw-ring-color: rgb(255 111 177 / 0.4);
 }
 html[data-theme="playful"] .ring-pink-500 {
   --tw-ring-color: rgb(255 59 156 / 1);
@@ -5603,6 +5669,9 @@ html[data-theme="playful"] .to-indigo-600 {
 }
 html[data-theme="playful"] .to-indigo-950\/40 {
   --tw-gradient-to: rgb(244 63 142 / 0.064) var(--tw-gradient-to-position);
+}
+html[data-theme="playful"] .to-indigo-950\/80 {
+  --tw-gradient-to: rgb(244 63 142 / 0.128) var(--tw-gradient-to-position);
 }
 html[data-theme="playful"] .to-purple-600 {
   --tw-gradient-to: rgb(151 36 255 / 1) var(--tw-gradient-to-position);
@@ -6162,8 +6231,14 @@ html[data-theme="glass"] .bg-rose-950\/80 {
 html[data-theme="glass"] .bg-sky-950\/70 {
   background-color: rgb(237 249 254 / 0.7);
 }
+html[data-theme="glass"] .bg-slate-700\/95 {
+  background-color: rgb(255 255 255 / 0.912);
+}
 html[data-theme="glass"] .bg-slate-800\/70 {
   background-color: rgb(255 255 255 / 0.651);
+}
+html[data-theme="glass"] .bg-slate-800\/80 {
+  background-color: rgb(255 255 255 / 0.744);
 }
 html[data-theme="glass"] .bg-teal-500\/20 {
   background-color: rgb(178 232 226 / 0.2);
@@ -6621,6 +6696,9 @@ html[data-theme="glass"] .border-sky-900\/60 {
 html[data-theme="glass"] .border-slate-300\/60 {
   border-color: rgb(128 108 170 / 0.6);
 }
+html[data-theme="glass"] .border-slate-400 {
+  border-color: rgb(128 108 170 / 1);
+}
 html[data-theme="glass"] .border-teal-400 {
   border-color: rgb(59 185 180 / 1);
 }
@@ -6792,6 +6870,11 @@ html[data-theme="glass"] .from-slate-800 {
   --tw-gradient-to: rgb(255 255 255 / 0) var(--tw-gradient-to-position);
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
 }
+html[data-theme="glass"] .from-slate-900 {
+  --tw-gradient-from: rgb(255 255 255 / 0.94) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(255 255 255 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
 html[data-theme="glass"] .from-teal-950\/90 {
   --tw-gradient-from: rgb(228 253 248 / 0.9) var(--tw-gradient-from-position);
   --tw-gradient-to: rgb(228 253 248 / 0) var(--tw-gradient-to-position);
@@ -6877,6 +6960,9 @@ html[data-theme="glass"] .hover\:bg-gray-700\/50:hover {
 }
 html[data-theme="glass"] .hover\:bg-gray-700\/60:hover {
   background-color: rgb(255 255 255 / 0.576);
+}
+html[data-theme="glass"] .hover\:bg-gray-700\/70:hover {
+  background-color: rgb(255 255 255 / 0.672);
 }
 html[data-theme="glass"] .hover\:bg-gray-700\/80:hover {
   background-color: rgb(255 255 255 / 0.768);
@@ -7148,6 +7234,9 @@ html[data-theme="glass"] .ring-indigo-400\/50 {
 }
 html[data-theme="glass"] .ring-indigo-500 {
   --tw-ring-color: rgb(183 158 230 / 1);
+}
+html[data-theme="glass"] .ring-indigo-500\/40 {
+  --tw-ring-color: rgb(183 158 230 / 0.4);
 }
 html[data-theme="glass"] .ring-pink-500 {
   --tw-ring-color: rgb(208 76 151 / 1);
@@ -7487,6 +7576,9 @@ html[data-theme="glass"] .to-indigo-600 {
 }
 html[data-theme="glass"] .to-indigo-950\/40 {
   --tw-gradient-to: rgb(183 158 230 / 0.08) var(--tw-gradient-to-position);
+}
+html[data-theme="glass"] .to-indigo-950\/80 {
+  --tw-gradient-to: rgb(183 158 230 / 0.16) var(--tw-gradient-to-position);
 }
 html[data-theme="glass"] .to-purple-600 {
   --tw-gradient-to: rgb(220 188 248 / 1) var(--tw-gradient-to-position);
@@ -8046,8 +8138,14 @@ html[data-theme="porcelain"] .bg-rose-950\/80 {
 html[data-theme="porcelain"] .bg-sky-950\/70 {
   background-color: rgb(226 245 254 / 0.7);
 }
+html[data-theme="porcelain"] .bg-slate-700\/95 {
+  background-color: rgb(234 228 218 / 0.95);
+}
 html[data-theme="porcelain"] .bg-slate-800\/70 {
   background-color: rgb(255 253 250 / 0.7);
+}
+html[data-theme="porcelain"] .bg-slate-800\/80 {
+  background-color: rgb(255 253 250 / 0.8);
 }
 html[data-theme="porcelain"] .bg-teal-500\/20 {
   background-color: rgb(138 220 211 / 0.2);
@@ -8505,6 +8603,9 @@ html[data-theme="porcelain"] .border-sky-900\/60 {
 html[data-theme="porcelain"] .border-slate-300\/60 {
   border-color: rgb(185 172 153 / 0.6);
 }
+html[data-theme="porcelain"] .border-slate-400 {
+  border-color: rgb(185 172 153 / 1);
+}
 html[data-theme="porcelain"] .border-teal-400 {
   border-color: rgb(45 212 191 / 1);
 }
@@ -8676,6 +8777,11 @@ html[data-theme="porcelain"] .from-slate-800 {
   --tw-gradient-to: rgb(255 253 250 / 0) var(--tw-gradient-to-position);
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
 }
+html[data-theme="porcelain"] .from-slate-900 {
+  --tw-gradient-from: rgb(255 253 250 / 1) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(255 253 250 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
 html[data-theme="porcelain"] .from-teal-950\/90 {
   --tw-gradient-from: rgb(212 251 244 / 0.9) var(--tw-gradient-from-position);
   --tw-gradient-to: rgb(212 251 244 / 0) var(--tw-gradient-to-position);
@@ -8761,6 +8867,9 @@ html[data-theme="porcelain"] .hover\:bg-gray-700\/50:hover {
 }
 html[data-theme="porcelain"] .hover\:bg-gray-700\/60:hover {
   background-color: rgb(234 228 218 / 0.6);
+}
+html[data-theme="porcelain"] .hover\:bg-gray-700\/70:hover {
+  background-color: rgb(234 228 218 / 0.7);
 }
 html[data-theme="porcelain"] .hover\:bg-gray-700\/80:hover {
   background-color: rgb(234 228 218 / 0.8);
@@ -9032,6 +9141,9 @@ html[data-theme="porcelain"] .ring-indigo-400\/50 {
 }
 html[data-theme="porcelain"] .ring-indigo-500 {
   --tw-ring-color: rgb(91 147 207 / 1);
+}
+html[data-theme="porcelain"] .ring-indigo-500\/40 {
+  --tw-ring-color: rgb(91 147 207 / 0.4);
 }
 html[data-theme="porcelain"] .ring-pink-500 {
   --tw-ring-color: rgb(236 72 153 / 1);
@@ -9371,6 +9483,9 @@ html[data-theme="porcelain"] .to-indigo-600 {
 }
 html[data-theme="porcelain"] .to-indigo-950\/40 {
   --tw-gradient-to: rgb(231 238 251 / 0.4) var(--tw-gradient-to-position);
+}
+html[data-theme="porcelain"] .to-indigo-950\/80 {
+  --tw-gradient-to: rgb(231 238 251 / 0.8) var(--tw-gradient-to-position);
 }
 html[data-theme="porcelain"] .to-purple-600 {
   --tw-gradient-to: rgb(201 153 245 / 1) var(--tw-gradient-to-position);

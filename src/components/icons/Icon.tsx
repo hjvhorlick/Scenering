@@ -194,6 +194,10 @@ export const ICON_FOR_GLYPH: Record<string, string> = {
   "🌀": "sparkle",
   "🌠": "star",
   "✸": "visualiser",
+
+  // Block Out — privacy redaction. The crossed circle is the nearest drawing:
+  // a block exists to deny something, not to decorate it.
+  "🕶": "ban",
 };
 
 /** Every drawing the sprite actually contains. */

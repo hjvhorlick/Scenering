@@ -409,6 +409,24 @@ export default function App() {
   /** The render screen is being looked at right now. */
   const showRenderPage = view === "editor" && editorStep === "render";
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
+  /**
+   * The object URL of the last finished render, owned here so it can be
+   * released. Every finished video used to stay pinned for the life of the
+   * page — app state, render-screen state and its blob URL — while the next
+   * one was encoded on top of it.
+   */
+  const renderedUrlRef = useRef<string | null>(null);
+  const clearRenderedVideo = useCallback(() => {
+    const previous = renderedUrlRef.current;
+    renderedUrlRef.current = null;
+    if (previous) {
+      try {
+        URL.revokeObjectURL(previous);
+      } catch {}
+    }
+    setRenderedBlob(null);
+    setRenderedUrl(null);
+  }, []);
 
   const handleUpdateAspectRatio = useCallback((ratio: AspectRatioType) => {
     setAspectRatio(ratio);
@@ -1327,8 +1345,7 @@ export default function App() {
     setInserts([]);
     setSelectedInsert(null);
     setEditingInsert(null);
-    setRenderedBlob(null);
-    setRenderedUrl(null);
+    clearRenderedVideo();
     setCustomerLogo(DEFAULT_PROJECT_SETTINGS.customer_logo);
     setCaptionsConfig(DEFAULT_PROJECT_SETTINGS.captions_config);
     setSelectedVoice(DEFAULT_PROJECT_SETTINGS.selected_voice);
@@ -2291,7 +2308,15 @@ export default function App() {
                 renderProfile={renderProfile}
                 renderedBlob={renderedBlob}
                 renderedUrl={renderedUrl}
+                onRenderStart={clearRenderedVideo}
                 onRenderSuccess={(blob, url) => {
+                  const previous = renderedUrlRef.current;
+                  if (previous && previous !== url) {
+                    try {
+                      URL.revokeObjectURL(previous);
+                    } catch {}
+                  }
+                  renderedUrlRef.current = url;
                   setRenderedBlob(blob);
                   setRenderedUrl(url);
                   // Only for the on-screen preview. Rendering is free; the

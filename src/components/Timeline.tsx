@@ -76,6 +76,7 @@ const CATEGORY_ICON: Record<string, string> = {
   sound_effects: "🔊",
   meditation: "🧘",
   filters: "🎨",
+  block_out: "🕶️",
 };
 
 function categoryBadgeClass(category: string): string {
@@ -98,6 +99,8 @@ function categoryBadgeClass(category: string): string {
       return "bg-orange-600/90 border-orange-400 text-orange-100";
     case "meditation":
       return "bg-teal-600/90 border-teal-400 text-teal-100";
+    case "block_out":
+      return "bg-slate-700/95 border-slate-400 text-slate-100";
     default:
       return "bg-indigo-600/90 border-indigo-400 text-indigo-100";
   }

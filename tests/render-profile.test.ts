@@ -210,6 +210,23 @@ const memFail = describeRenderFailure("RangeError: Array buffer allocation faile
 t.ok(/memory/i.test(memFail.title), "an OOM is explained as a memory problem");
 const storageFail = describeRenderFailure("Not enough protected browser storage for this render");
 t.ok(/storage/i.test(storageFail.title), "disk capacity is explained separately from RAM");
+/**
+ * A render that finishes every frame and then stalls while the file is being
+ * packaged is the failure this product cannot leave unexplained: the customer
+ * saw frames 100%, "Package" and then nothing at all.
+ */
+const stallFail = describeRenderFailure(
+  "RenderTimeoutError: The render stopped responding while the video encoder finished the last of its frames (nothing moved for 2m 00s). Every frame was encoded, but the browser never confirmed the finished file.",
+);
+t.ok(/stall/i.test(stallFail.title), "a stalled packaging step is named as a stall");
+t.ok(/frame/i.test(stallFail.explanation), "the explanation says the frames themselves were fine");
+t.ok(/Vault|space|storage/i.test(stallFail.retryHint), "the retry hint tells the creator what to free up");
+t.ok(stallFail.canAutoRetry, "a stall is worth retrying");
+t.ok(/^[A-Z]/.test(stallFail.title) && !/error/i.test(stallFail.title), "the title is human, not an error class");
+const watchdogFail = describeRenderFailure("render stopped responding: stall watchdog");
+t.eq(watchdogFail.title, stallFail.title, "the watchdog and the deadline report the same failure");
+const cancelledStallLookalike = describeRenderFailure("Render cancelled");
+t.eq(cancelledStallLookalike.title, "Render cancelled", "a cancel is still a cancel, never a stall");
 const unknown = describeRenderFailure("");
 t.ok(unknown.explanation.includes("incompatible with the source"), "unknown failures use the standard explanation");
 t.ok(unknown.canAutoRetry, "unknown failures can auto-retry");

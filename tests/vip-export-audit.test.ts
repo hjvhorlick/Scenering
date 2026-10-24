@@ -38,11 +38,11 @@ const insert = (over: Partial<TimelineInsert>): TimelineInsert =>
 // Every category the render can draw either costs a feature or is a
 // catalogue item that is checked per item. A category in neither list would
 // be a silent hole in the gate.
-const CATALOGUE_CHECKED = ["call_to_action", "logo", "background_music", "audio_visualizers"];
+const CATALOGUE_CHECKED = ["call_to_action", "logo", "background_music", "audio_visualizers", "block_out"];
 const studioCategories: TimelineInsert["category"][] = [
   "stickers", "content_cards", "text_templates", "lower_thirds", "audio_visualizers",
   "speech_reactive", "background_music", "filters", "sound_effects", "special_effects",
-  "meditation", "intro", "outro", "call_to_action", "logo",
+  "meditation", "intro", "outro", "call_to_action", "logo", "block_out",
 ];
 for (const category of studioCategories) {
   h.ok(
@@ -62,6 +62,10 @@ const vipProject = {
     // Included on Free, and must NOT be reported:
     insert({ id: "ok1", category: "audio_visualizers", type: "fine_radial_bars", title: "Radial bars" }),
     insert({ id: "ok2", category: "background_music", type: "bgm_divider", title: "Divider" }),
+    // Privacy redaction is deliberately not a plan feature: it must never be
+    // stripped from a Free download, or the export would publish what the
+    // creator blocked out.
+    insert({ id: "ok3", category: "block_out", type: "block_blur", title: "Block Out · Blur" }),
   ],
   videoFilter: { id: "cine_teal", settings: {} as any },
   sceneAnimationEnabled: true,
@@ -84,7 +88,7 @@ h.ok(ids.includes("motion"), "a paid camera movement is found");
 h.ok(ids.includes("voice-echo"), "echo and ambience are found");
 h.ok(ids.includes("voice"), "a voice outside the Free pair is found");
 h.ok(ids.includes("caption-style"), "a caption style outside the Free pair is found");
-h.ok(!ids.some((id) => id.endsWith("ok1") || id.endsWith("ok2")), "included choices are never reported as VIP");
+h.ok(!ids.some((id) => id.endsWith("ok1") || id.endsWith("ok2") || id.endsWith("ok3")), "included choices are never reported as VIP");
 
 // Every finding says what it is and why, in words a creator can act on.
 for (const finding of found) {
@@ -96,8 +100,8 @@ for (const finding of found) {
 /* ------------------------------------------------- the cleaned render */
 
 const safe = stripVipFromExport("free", vipProject);
-h.eq(safe.inserts.length, 2, "only the two included inserts survive into the render");
-h.ok(safe.inserts.every((item) => isPlanCatalogItemIncluded("free", item.category, item.type)), "and both are inside the Free selection");
+h.eq(safe.inserts.length, 3, "only the included inserts survive into the render");
+h.ok(safe.inserts.every((item) => isPlanCatalogItemIncluded("free", item.category, item.type)), "and all of them are inside the Free selection");
 h.eq(safe.videoFilter, null, "the filter is not applied to the file");
 h.eq(safe.sceneAnimationEnabled, false, "per-scene effects are not rendered");
 h.eq(safe.motionStyle, "dynamic", "the camera falls back to an included movement");
