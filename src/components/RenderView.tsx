@@ -116,7 +116,18 @@ import { validateFinishedExport, type ExportValidationReport } from "../lib/expo
 import { createFrameBudget } from "../lib/yield-to-browser";
 import { RenderTimer, formatMs } from "../lib/render-timing";
 import { holdRenderWakeLock, type RenderWakeLockState } from "../lib/render-wake-lock";
-import { formatStorageBytes, type RenderOutputStorageMode } from "../lib/render-output-store";
+import {
+  clearStaleRenderScratch,
+  formatStorageBytes,
+  type RenderOutputStorageMode,
+} from "../lib/render-output-store";
+import {
+  RenderCancelledError,
+  RenderTimeoutError,
+  formatGuardTime,
+  withProgressTicker,
+  withTimeout,
+} from "../lib/render-guard";
 import { drawSceneringWatermark, planRequiresSceneringWatermark } from "../lib/scenering-watermark";
 import Icon, { iconify } from "./icons/Icon";
 
@@ -170,6 +181,23 @@ const EMPTY_RENDER_HEALTH: RenderHealthState = {
 };
 
 /**
+ * How long a render may go without any real progress before the watchdog
+ * ends it.
+ *
+ * Every individual browser wait already has its own, shorter deadline (the
+ * encoder flush, the disk drain, the Vault commit). This is the backstop for
+ * the work none of those own, and it is deliberately generous: a long
+ * OfflineAudioContext mix on a slow machine is minutes, not seconds, and
+ * ending a healthy render would be worse than waiting.
+ */
+const RENDER_STALL_LIMIT_MS = 6 * 60 * 1000;
+
+/** Reading the finished file back to verify it. */
+const EXPORT_VALIDATION_TIMEOUT_MS = 60_000;
+/** Writing the finished file into the Vault (see render-vault.ts). */
+const VAULT_COMMIT_TIMEOUT_MS = 150_000;
+
+/**
  * Vault rows whose download the server has ALREADY counted, but whose file
  * has not been saved yet (the save dialog was cancelled, or the browser
  * refused it). Trying again uses that same counted download instead of
@@ -204,6 +232,15 @@ interface RenderViewProps {
   renderedBlob?: Blob | null;
   renderedUrl?: string | null;
   onRenderSuccess?: (blob: Blob, url: string) => void;
+  /**
+   * Told when a new render starts, so the last finished video can be released.
+   *
+   * A render is encoded in the browser, and until this existed the previous
+   * finished file stayed referenced by the app, by this screen and by its
+   * object URL for the whole session — hundreds of megabytes that the next
+   * encode then has to find room around.
+   */
+  onRenderStart?: () => void;
   /* Setup choices — shown read-only on this screen */
   sceneDuration?: number;
   motionStyle?: string;
@@ -302,6 +339,7 @@ export default function RenderView({
   renderedBlob: propRenderedBlob,
   renderedUrl: propRenderedUrl,
   onRenderSuccess,
+  onRenderStart,
   sceneDuration = 20,
   motionStyle = "dynamic",
   sceneAnimationEnabled = false,
@@ -453,6 +491,27 @@ export default function RenderView({
   /** Live job status, shared with the header so a background render stays visible. */
   const [job, setJob] = useState<RenderJobStatus>(() => getRenderStatus());
 
+  /** The object URL this screen created for the last finished render. */
+  const finishedUrlRef = useRef<string | null>(null);
+
+  /**
+   * Releases the last finished video: the object URL, this screen's copy and
+   * the app's copy. Called when a new render starts, so only one finished
+   * file is ever held while another is being encoded.
+   */
+  const clearFinishedRender = useCallback(() => {
+    const previous = finishedUrlRef.current;
+    finishedUrlRef.current = null;
+    if (previous) {
+      try {
+        URL.revokeObjectURL(previous);
+      } catch {}
+    }
+    setRenderedBlob(null);
+    setRenderedUrl(null);
+    onRenderStart?.();
+  }, [onRenderStart]);
+
   const refreshVault = useCallback(async () => {
     try {
       setVaultRenders(await listVaultRenders());
@@ -490,15 +549,35 @@ export default function RenderView({
   }, [vaultPreviewId, vaultRenders]);
 
   /**
+   * Stall bookkeeping for the render job (see the watchdog effect below).
+   *
+   *   heartbeat   — when real work last moved. Only genuine progress and stage
+   *                 changes touch it, never the cosmetic elapsed-time ticker.
+   *   abandoned   — the watchdog has already ended this job, so a late
+   *                 rejection from the stuck render must not overwrite the
+   *                 explanation the creator is reading.
+   *   token       — identifies one render, so cleanup from an abandoned render
+   *                 that finally settles can never clear a newer one.
+   *   exporter    — the live encoder, so Cancel reaches the packaging waits
+   *                 and not just the frame loop.
+   */
+  const renderHeartbeatRef = useRef(Date.now());
+  const renderAbandonedRef = useRef(false);
+  const renderTokenRef = useRef(0);
+  const activeExporterRef = useRef<OfflineExporter | null>(null);
+
+  /**
    * Progress/stage updates: the local render screen AND the app-wide job
    * status. The second half is what keeps the header pill alive when the
    * user walks away from this page mid-render.
    */
   const reportProgress = useCallback((p: number, stage?: string) => {
+    renderHeartbeatRef.current = Date.now();
     setRenderProgress(p);
     setRenderStatus({ progress: p, ...(stage ? { stage } : {}) });
   }, []);
   const reportStage = useCallback((stage: string) => {
+    renderHeartbeatRef.current = Date.now();
     setRenderStage(stage);
     setRenderStatus({ stage });
   }, []);
@@ -528,6 +607,45 @@ export default function RenderView({
       document.removeEventListener("visibilitychange", update);
       window.removeEventListener("beforeunload", beforeUnload);
     };
+  }, [isRendering]);
+
+  /**
+   * The last line of defence: no render may stay "running" for ever.
+   *
+   * The encoder and the Vault now time their own waits out (render-guard.ts,
+   * render-output-store.ts, render-vault.ts), but a render also spends time in
+   * things none of those own: decoding a scene photo, seeking a clip, the
+   * OfflineAudioContext mix. If *anything* in the pipeline stops reporting
+   * progress for RENDER_STALL_LIMIT_MS, the job is ended here with an
+   * explanation the creator can act on — rather than a spinner that never
+   * stops and a tab that warns them not to close it.
+   */
+  useEffect(() => {
+    if (!isRendering) return;
+    const timer = window.setInterval(() => {
+      if (renderAbandonedRef.current) return;
+      const quietMs = Date.now() - renderHeartbeatRef.current;
+      if (quietMs < RENDER_STALL_LIMIT_MS) return;
+      // Read from the shared job status rather than this render's state so the
+      // interval does not have to be recreated on every stage update.
+      const liveStage = getRenderStatus().stage || "finishing the file";
+      const message =
+        `The render stopped responding after ${formatGuardTime(quietMs)} without progress ` +
+        `(${liveStage}). It was ended rather than left running. ` +
+        `Nothing was lost from the project — start the render again.`;
+      renderAbandonedRef.current = true;
+      renderStartPendingRef.current = false;
+      abortControllerRef.current = true;
+      activeExporterRef.current?.abort(message);
+      lastRenderErrorRef.current = message;
+      setRenderError(message);
+      setFailureReport(describeRenderFailure("render stopped responding: stall watchdog"));
+      setRenderStatus({ active: false, progress: 0, stage: "Render stalled", error: message });
+      setIsRendering(false);
+      setIsPreparingRender(false);
+      setIsCancelling(false);
+    }, 15_000);
+    return () => window.clearInterval(timer);
   }, [isRendering]);
 
   // Sync with prop when returning to render tab
@@ -845,19 +963,72 @@ export default function RenderView({
     vipAcknowledged = false
   ): Promise<{ blob: Blob; container: "mp4" | "webm" } | null> => {
     if (scenesWithImages.length === 0 || isRendering || renderStartPendingRef.current) return null;
+    // The job status is shared beyond this screen. Two local WebCodecs
+    // encoders and two OfflineAudioContexts at once is exactly how a browser
+    // runs out of memory *between* renders, so a live job is never doubled —
+    // however this screen was reached.
+    if (getRenderStatus().active && !renderAbandonedRef.current) return null;
     renderStartPendingRef.current = true;
     setIsPreparingRender(true);
-    // Stable `custom-video:<id>` addresses are useless to the clip pool until
-    // IndexedDB has restored their live Blob URLs for this page load.
-    await loadCustomVideos();
+    const renderToken = renderTokenRef.current + 1;
+    renderTokenRef.current = renderToken;
+    renderAbandonedRef.current = false;
+    renderHeartbeatRef.current = Date.now();
+    // A render that was cancelled, crashed or lost with its tab leaves its
+    // `.part` staging file behind. Those files compete for the same protected
+    // storage the next encode needs, so sweep the ones that are provably not
+    // in use before anything is written.
+    void clearStaleRenderScratch(30 * 60 * 1000)
+      .then((swept) => {
+        if (swept.files > 0) {
+          console.info(
+            `Cleared ${swept.files} abandoned render file(s) (${formatStorageBytes(swept.bytes)}) before rendering.`,
+          );
+        }
+      })
+      .catch(() => {
+        /* the sweep is best-effort */
+      });
+    /**
+     * Preparation owns the start lock, so it must always give it back.
+     *
+     * These two steps used to run unguarded: a rejected `loadCustomVideos()`,
+     * or a watermark image that simply never answered, returned without
+     * clearing `renderStartPendingRef` — and from then on every press of
+     * Render did nothing at all until the page was reloaded. The watermark
+     * request now also has a deadline, because "never answers" is a real
+     * state for an image request on a flaky connection.
+     */
+    try {
+      // Stable `custom-video:<id>` addresses are useless to the clip pool
+      // until IndexedDB has restored their live Blob URLs for this page load.
+      await loadCustomVideos();
+    } catch (prepareError: any) {
+      const message = prepareError?.message || "This project's uploaded clips could not be prepared.";
+      lastRenderErrorRef.current = message;
+      setRenderError(message);
+      setRenderStatus({ active: false, error: message, stage: "Render could not start" });
+      renderStartPendingRef.current = false;
+      setIsPreparingRender(false);
+      return null;
+    }
 
     // The watermark is Free-plan policy, not a best-effort visual detail. Do
     // not produce a file if its required, fixed mark failed to load.
-    if (showPlanWatermark && !(await ensureWatermarkImage())) {
+    const watermark = showPlanWatermark
+      ? await withTimeout(
+          ensureWatermarkImage(),
+          15_000,
+          "the required Scenering watermark loaded",
+        ).catch(() => null)
+      : null;
+    if (showPlanWatermark && !watermark) {
       const message = "The required Scenering watermark could not load. Check your connection and try again.";
       lastRenderErrorRef.current = message;
       setRenderError(message);
       setRenderStatus({ active: false, error: message, stage: "Watermark unavailable" });
+      renderStartPendingRef.current = false;
+      setIsPreparingRender(false);
       return null;
     }
 
@@ -969,6 +1140,13 @@ export default function RenderView({
     setIsRendering(true);
     setIsPreparingRender(false);
     setIsCancelling(false);
+    // The previous finished video is still pinned three times (this screen's
+    // state, the app's, and its object URL). Holding it through the next
+    // encode is exactly the memory and disk pressure that makes a second
+    // render — but not the first — stumble at the packaging step. It has
+    // either been downloaded from the Vault already or is still there, so it
+    // is released only once this render is authorised and actually starting.
+    clearFinishedRender();
     setRenderTiming(null);
     setTimingCopied(false);
     reportProgress(0);
@@ -1023,6 +1201,8 @@ export default function RenderView({
       setRenderError("Canvas element not available");
       setRenderStatus({ active: false, error: "Canvas element not available", stage: "Render failed" });
       setIsRendering(false);
+      setIsPreparingRender(false);
+      renderStartPendingRef.current = false;
       return null;
     }
 
@@ -1034,6 +1214,8 @@ export default function RenderView({
       setRenderError("2D Context unavailable");
       setRenderStatus({ active: false, error: "2D Context unavailable", stage: "Render failed" });
       setIsRendering(false);
+      setIsPreparingRender(false);
+      renderStartPendingRef.current = false;
       return null;
     }
     ctx.imageSmoothingEnabled = true;
@@ -1237,16 +1419,20 @@ export default function RenderView({
       ): Promise<{ blob: Blob; container: "mp4" | "webm"; durableVaultCopy: boolean }> => {
         reportProgress(0.985);
         reportStage("4/4: Verifying output resolution, frame rate & audio sync…");
-        const validation = await validateFinishedExport(finalBlob, {
-          expectedWidth: width,
-          expectedHeight: height,
-          expectedFps: fpsUsed,
-          expectedDurationSec: estimatedTotalDuration,
-          expectedFrames: totalFrameCount(estimatedTotalDuration, fpsUsed),
-          engine: engineUsed,
-          encoderStats: encoderStats ?? null,
-          recordedFrames: recordedFrames ?? null,
-        });
+        const validation = await withTimeout(
+          validateFinishedExport(finalBlob, {
+            expectedWidth: width,
+            expectedHeight: height,
+            expectedFps: fpsUsed,
+            expectedDurationSec: estimatedTotalDuration,
+            expectedFrames: totalFrameCount(estimatedTotalDuration, fpsUsed),
+            engine: engineUsed,
+            encoderStats: encoderStats ?? null,
+            recordedFrames: recordedFrames ?? null,
+          }),
+          EXPORT_VALIDATION_TIMEOUT_MS,
+          "the finished file was verified",
+        );
         if (!validation.ok) {
           throw new Error(`Export validation failed: ${validation.errors.join(" ")}`);
         }
@@ -1260,22 +1446,26 @@ export default function RenderView({
         reportProgress(0.99);
         reportStage("4/4: Securing the finished video in the Vault…");
         try {
-          const entry = await saveRenderToVault({
-            blob: finalBlob,
-            title: plan?.label
-              ? `${project?.title || "Untitled render"} — ${plan.label}`
-              : project?.title || "Untitled render",
-            mimeType: finalBlob.type || fallbackMime,
-            durationSec: validation.durationSec,
-            width: validation.width,
-            height: validation.height,
-            label: `${resolutionToken(validation.width, validation.height)} · ${Math.round(validation.fps)}fps CFR · ${recordedContainer.toUpperCase()} · ${getQualityLevel(settings.quality).name}`,
-            // Provenance for the download that follows: the server keeps the
-            // duration and format it authorised, so the Vault can count what
-            // was actually rendered instead of trusting a retyped number.
-            projectId: project?.id ?? null,
-            reservationId: exportReservationId,
-          });
+          const entry = await withTimeout(
+            saveRenderToVault({
+              blob: finalBlob,
+              title: plan?.label
+                ? `${project?.title || "Untitled render"} — ${plan.label}`
+                : project?.title || "Untitled render",
+              mimeType: finalBlob.type || fallbackMime,
+              durationSec: validation.durationSec,
+              width: validation.width,
+              height: validation.height,
+              label: `${resolutionToken(validation.width, validation.height)} · ${Math.round(validation.fps)}fps CFR · ${recordedContainer.toUpperCase()} · ${getQualityLevel(settings.quality).name}`,
+              // Provenance for the download that follows: the server keeps the
+              // duration and format it authorised, so the Vault can count what
+              // was actually rendered instead of trusting a retyped number.
+              projectId: project?.id ?? null,
+              reservationId: exportReservationId,
+            }),
+            VAULT_COMMIT_TIMEOUT_MS,
+            "the finished video was committed to the Vault",
+          );
           // IndexedDB returns its verified clone. Use that Blob for preview,
           // download and App state, then the OPFS staging file may be removed.
           finishedBlob = entry.blob;
@@ -1291,6 +1481,15 @@ export default function RenderView({
         }
 
         const url = URL.createObjectURL(finishedBlob);
+        // One finished video is enough to hold: the previous URL (if this
+        // screen still owns one) is released before the new one is published.
+        const previousUrl = finishedUrlRef.current;
+        if (previousUrl && previousUrl !== url) {
+          try {
+            URL.revokeObjectURL(previousUrl);
+          } catch {}
+        }
+        finishedUrlRef.current = url;
         setRenderedBlob(finishedBlob);
         setRenderedUrl(url);
         setRenderedContainer(recordedContainer);
@@ -1825,8 +2024,8 @@ export default function RenderView({
          * generously — reserving slightly too much space costs a few unused
          * bytes, reserving too little would fail the export.
          */
-        expectedVideoChunks: Math.ceil(estimatedTotalDuration * fpsUsed) + 2,
-        expectedAudioChunks: Math.ceil((estimatedTotalDuration * 48_000) / 1024) + 8,
+        expectedVideoChunks: Math.ceil(estimatedTotalDuration * fpsUsed) + 8,
+        expectedAudioChunks: Math.ceil((estimatedTotalDuration * 48_000) / 1024) + 64,
       };
       let offlineProbe = await offlineExportSupported(offlineConfig);
 
@@ -1867,6 +2066,7 @@ export default function RenderView({
           // Configure real encoder instances before spending time on the audio
           // pass. A driver/configuration rejection is reported immediately.
           offlineEncoder = await OfflineExporter.create(offlineConfig);
+          activeExporterRef.current = offlineEncoder;
           setRenderHealth((health) => ({
             ...health,
             outputStorage: offlineEncoder!.outputStorage,
@@ -2140,7 +2340,25 @@ export default function RenderView({
           reportStage("4/4: Finalising the container…");
           reportProgress(0.95);
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
-          const offlineBlob = await offlineEncoder.finalize();
+          /**
+           * Everything from here to the Vault is browser-internal work with no
+           * visible output: the encoder's own flush, the disk drain, the index
+           * write and the hand-over as a File. It is also exactly where the
+           * reported failure happened — every frame done, then nothing.
+           * The ticker proves the tab is still alive, and the exporter's own
+           * deadlines turn a real stall into a named error instead of a
+           * percentage that never moves again.
+           */
+          const offlineBlob = await withProgressTicker(
+            "4/4: Finalising the container…",
+            () => offlineEncoder!.finalize(),
+            (text) => {
+              // Cosmetic only: deliberately not reportStage(), which would
+              // keep the stall watchdog thinking real work was happening.
+              setRenderStage(text);
+              setRenderStatus({ stage: text });
+            },
+          );
           setRenderHealth((health) => ({
             ...health,
             framesDone: totalFrames,
@@ -2189,7 +2407,13 @@ export default function RenderView({
             : String(offlineError);
           setOfflineFailureReason(reason);
           console.error("Frame-exact offline export failed:", offlineError);
-          if (requireFrameExact) {
+          // A deadline that expired is NOT a codec/configuration mismatch, so
+          // it must never be answered by silently re-encoding the whole video
+          // in real time through MediaRecorder: that takes as long as the
+          // video is, and the creator would be watching a spinner for another
+          // quarter of an hour without knowing why.
+          const stalled = offlineError instanceof RenderTimeoutError;
+          if (requireFrameExact || stalled) {
             throw new Error(`Frame-exact export failed. ${reason}`);
           }
           setRenderEngine("compatibility");
@@ -2704,7 +2928,11 @@ export default function RenderView({
       );
     } catch (err: any) {
       const message = err?.message || "Failed to render video";
-      if (abortControllerRef.current || message === "Render cancelled") {
+      // The stall watchdog already explained this job and handed the screen
+      // back; a late rejection from the render it gave up on must not clear
+      // the message the creator is reading.
+      if (renderAbandonedRef.current) return null;
+      if (abortControllerRef.current || message === "Render cancelled" || err instanceof RenderCancelledError) {
         setRenderError(null);
         setFailureReport(null);
         setRenderStatus({ active: false, progress: 0, stage: "Render cancelled", error: null });
@@ -2722,11 +2950,17 @@ export default function RenderView({
       return null;
     } finally {
       // Always released: the render authorisation is over, success or not.
+      // Both of these are bounded: this block is what re-enables the Render
+      // button, and a server that stops answering must never leave the screen
+      // stuck on "Rendering…" after the file is already finished.
       if (exportReservationId) {
-        try { await cancelFinalExport(exportReservationId); }
-        catch (cleanupError) { console.warn("Could not release the render authorisation:", cleanupError); }
+        try {
+          await withTimeout(cancelFinalExport(exportReservationId), 10_000, "the render authorisation was released");
+        } catch (cleanupError) { console.warn("Could not release the render authorisation:", cleanupError); }
       }
-      try { await releaseWakeLock(); } catch (cleanupError) { console.warn("Could not release the render wake lock:", cleanupError); }
+      try {
+        await withTimeout(releaseWakeLock(), 10_000, "the screen wake lock was released");
+      } catch (cleanupError) { console.warn("Could not release the render wake lock:", cleanupError); }
       setRenderHealth((health) => ({
         ...health,
         elapsedMs: health.startedAt ? Date.now() - health.startedAt : health.elapsedMs,
@@ -2745,16 +2979,21 @@ export default function RenderView({
       } catch {}
       try {
         if (renderAudioContext && renderAudioContext.state !== "closed") {
-          await renderAudioContext.close();
+          await withTimeout(renderAudioContext.close(), 10_000, "the render audio engine was shut down");
         }
       } catch {}
       renderAudioContext = null;
+      if (renderTokenRef.current === renderToken) activeExporterRef.current = null;
       // Keep the cancel state and start lock until *all* asynchronous cleanup
       // has settled, so a second render cannot inherit old audio or wake-lock work.
       renderStartPendingRef.current = false;
-      setIsPreparingRender(false);
-      setIsRendering(false);
-      setIsCancelling(false);
+      // A render the watchdog already ended must not clear the state of the
+      // render the creator started to replace it.
+      if (renderTokenRef.current === renderToken) {
+        setIsPreparingRender(false);
+        setIsRendering(false);
+        setIsCancelling(false);
+      }
     }
   };
 
@@ -2959,6 +3198,11 @@ export default function RenderView({
   const cancelRender = () => {
     if (!isRendering || isCancelling) return;
     abortControllerRef.current = true;
+    // The frame loop only reads that flag between frames. Once the frames are
+    // all in, the render is inside the encoder flush or a disk drain, so
+    // Cancel has to reach the exporter itself or the button does nothing at
+    // exactly the moment it is most needed.
+    activeExporterRef.current?.abort();
     setIsCancelling(true);
     reportStage("Stopping render…");
   };

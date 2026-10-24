@@ -77,10 +77,36 @@ function hasIndexedDb(): boolean {
   }
 }
 
+/**
+ * How long a Vault database request may stay unanswered.
+ *
+ * IndexedDB is the one part of the Vault that lives entirely inside the
+ * browser's own storage service. When that service is out of disk — or busy
+ * because the finished render is still being read off OPFS — a `put` of a
+ * several-hundred-megabyte Blob can simply never call its callbacks. Before
+ * this deadline the render screen waited on it for ever at 99%: cancel did
+ * nothing, no error was raised, and the finished video was never handed to
+ * the creator. Timing out here turns that into "the Vault could not verify a
+ * copy — download this video now", which the render screen already says.
+ */
+const DB_OPEN_TIMEOUT_MS = 15_000;
+const DB_REQUEST_TIMEOUT_MS = 90_000;
+
 function openDb(): Promise<IDBDatabase | null> {
   if (!hasIndexedDb()) return Promise.resolve(null);
   if (dbPromise) return dbPromise;
   dbPromise = new Promise<IDBDatabase | null>((resolve) => {
+    let settled = false;
+    const finish = (db: IDBDatabase | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(db);
+    };
+    const timer = setTimeout(() => {
+      dbPromise = null; // let a later attempt try again
+      finish(null);
+    }, DB_OPEN_TIMEOUT_MS);
     try {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = () => {
@@ -90,11 +116,23 @@ function openDb(): Promise<IDBDatabase | null> {
           store.createIndex("createdAt", "createdAt", { unique: false });
         }
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
+      req.onsuccess = () => {
+        const db = req.result;
+        // A newer deploy opening the database must not be blocked by a tab
+        // that is sitting on an old connection: close ours and let the next
+        // request re-open it.
+        db.onversionchange = () => {
+          try {
+            db.close();
+          } catch {}
+          dbPromise = null;
+        };
+        finish(db);
+      };
+      req.onerror = () => finish(null);
+      req.onblocked = () => finish(null);
     } catch {
-      resolve(null);
+      finish(null);
     }
   });
   return dbPromise;
@@ -102,7 +140,8 @@ function openDb(): Promise<IDBDatabase | null> {
 
 function tx<T>(
   mode: IDBTransactionMode,
-  run: (store: IDBObjectStore) => IDBRequest<T>
+  run: (store: IDBObjectStore) => IDBRequest<T>,
+  timeoutMs = DB_REQUEST_TIMEOUT_MS,
 ): Promise<T | null> {
   return openDb().then(
     (db) =>
@@ -116,9 +155,18 @@ function tx<T>(
           const req = run(t.objectStore(STORE));
           let result: T | null = null;
           let settled = false;
-          const finish = (value: T | null) => {
+          const timer = setTimeout(() => finish(null, true), Math.max(1, timeoutMs));
+          const finish = (value: T | null, abort = false) => {
             if (settled) return;
             settled = true;
+            clearTimeout(timer);
+            if (abort) {
+              // A transaction that never completed is rolled back rather than
+              // left holding a write lock on the store for the page's life.
+              try {
+                t.abort();
+              } catch {}
+            }
             resolve(value);
           };
           // A write request can succeed before the transaction later aborts

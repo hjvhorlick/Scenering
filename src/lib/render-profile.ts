@@ -695,6 +695,17 @@ export function describeRenderFailure(rawMessage: string): RenderFailureReport {
       canAutoRetry: false,
     };
   }
+  if (lower.includes("stopped responding") || lower.includes("stall watchdog") || lower.includes("stalled")) {
+    return {
+      title: "The render stalled while finishing the file",
+      explanation:
+        "Every frame was encoded, but the browser stopped answering while it was closing the file — the video encoder, the protected-disk write or the Vault commit stopped reporting progress. Scenering ended the wait instead of leaving the render running for ever. Nothing was lost from the project, and no unfinished file was presented as complete.",
+      retryHint:
+        "Start the render again — a fresh encode usually completes. If it stalls at the same point twice, clear space in the Vault (downloaded videos can be deleted) and render at 1080p rather than 2K/4K.",
+      technical: raw,
+      canAutoRetry: true,
+    };
+  }
   if (lower.includes("notsupported") || lower.includes("istypesupported") || lower.includes("mime") || lower.includes("codec")) {
     return {
       title: "This browser cannot record the selected format",

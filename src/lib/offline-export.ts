@@ -8,6 +8,30 @@ import {
   type RenderOutputStorageMode,
   type RenderOutputStore,
 } from "./render-output-store";
+import {
+  DEFAULT_ENCODER_STALL_MS,
+  RenderCancelledError,
+  drainEncoderQueue,
+  withTimeout,
+} from "./render-guard";
+
+/**
+ * Deadlines for the finishing stages.
+ *
+ * These are not performance targets — they are the point at which a silent
+ * browser-internal stall is declared a failure instead of a render that hangs
+ * for ever. Every one of them is far longer than the operation needs on a slow
+ * machine; see the header of render-guard.ts for why they exist.
+ */
+
+/** The encoders' own flush: the last chunks of video/audio. */
+export const ENCODER_FLUSH_TIMEOUT_MS = 120_000;
+/** Queued OPFS writes landing on disk. */
+export const OUTPUT_DRAIN_TIMEOUT_MS = 120_000;
+/** The staging file being closed and handed over as a File. */
+export const OUTPUT_HANDOVER_TIMEOUT_MS = 60_000;
+/** How long an encoder queue may sit at one depth before it is wedged. */
+export const ENCODE_QUEUE_STALL_MS = DEFAULT_ENCODER_STALL_MS;
 
 export type OfflineContainer = "mp4" | "webm";
 
@@ -323,6 +347,13 @@ export class OfflineExporter {
   private readonly store: RenderOutputStore;
   private readonly mime: string;
   private failure: Error | null = null;
+  private cancelled = false;
+  /** Resolves the instant `abort()` is called, so a pending wait can stop. */
+  private signalCancel: (() => void) | null = null;
+  private readonly cancelSignal: Promise<void> = new Promise<void>((resolve) => {
+    this.signalCancel = resolve;
+  });
+  private cancelFailure: Error | null = null;
   private decodedVideoChunks = 0;
   private submittedVideoFrames = 0;
   private maxVideoEndUs = 0;
@@ -463,7 +494,78 @@ export class OfflineExporter {
     }
   }
 
-  private throwIfFailed(): void { if (this.failure) throw this.failure; }
+  private throwIfFailed(): void {
+    if (this.failure) throw this.failure;
+    if (this.cancelled) throw new RenderCancelledError();
+  }
+
+  /** True once the creator has cancelled this encode. */
+  get isCancelled(): boolean {
+    return this.cancelled;
+  }
+
+  /**
+   * Stops every pending wait immediately.
+   *
+   * Cancel used to set a flag that was only read *between frames*. Once all
+   * the frames are in, the render is inside the encoder flush or a disk drain
+   * and nothing reads it again — which is why the Cancel button appeared
+   * dead at exactly the moment a customer is most likely to press it.
+   */
+  abort(message = "Render cancelled"): void {
+    if (this.cancelled) return;
+    this.cancelled = true;
+    this.cancelFailure = new RenderCancelledError(message);
+    try {
+      this.signalCancel?.();
+    } catch {}
+  }
+
+  /**
+   * Race a browser-internal wait against cancellation and a deadline.
+   *
+   * Both outcomes are named, so the render screen can say which of the four
+   * finishing steps stalled instead of freezing on an opaque percentage.
+   */
+  private guarded<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+    if (this.cancelled) return Promise.reject(this.cancelFailure || new RenderCancelledError());
+    const deadline = withTimeout(operation, timeoutMs, label);
+    const cancelled = this.cancelSignal.then(() => {
+      throw this.cancelFailure || new RenderCancelledError();
+    });
+    return Promise.race([deadline, cancelled]);
+  }
+
+  /** Wait for an encoder queue to drain, giving up if it stops moving. */
+  private async drainVideoQueue(): Promise<void> {
+    await drainEncoderQueue({
+      queueSize: () => this.video.encodeQueueSize,
+      limit: 6,
+      stallMs: ENCODE_QUEUE_STALL_MS,
+      operation: "the video encoder accepted the frames it was given",
+      yieldTo: yieldToBrowser,
+      throwIfFailed: () => this.throwIfFailed(),
+      isCancelled: () => this.cancelled,
+    });
+  }
+
+  private async drainAudioQueue(): Promise<void> {
+    await drainEncoderQueue({
+      queueSize: () => this.audio.encodeQueueSize,
+      limit: 8,
+      stallMs: ENCODE_QUEUE_STALL_MS,
+      operation: "the audio encoder accepted the soundtrack it was given",
+      yieldTo: yieldToBrowser,
+      throwIfFailed: () => this.throwIfFailed(),
+      isCancelled: () => this.cancelled,
+    });
+  }
+
+  /** Land the queued OPFS copies, with a deadline. */
+  private async drainOutput(operation: string): Promise<void> {
+    if (this.store.pendingBytes === 0) return;
+    await this.guarded(this.store.flush(), OUTPUT_DRAIN_TIMEOUT_MS, operation);
+  }
 
   async encodeCanvas(canvas: HTMLCanvasElement, frameIndex: number): Promise<void> {
     if (canvas.width !== this.config.width || canvas.height !== this.config.height) {
@@ -471,14 +573,14 @@ export class OfflineExporter {
         `Render canvas resolution mismatch: got ${canvas.width}×${canvas.height}, expected ${this.config.width}×${this.config.height}`
       );
     }
-    while (this.video.encodeQueueSize > 6) {
-      this.throwIfFailed();
-      await yieldToBrowser();
-    }
+    this.throwIfFailed();
+    await this.drainVideoQueue();
     // The muxer callback is synchronous while OPFS is asynchronous. Bound its
     // queued copies so encode speed can never outrun disk for the length of a
     // nine- or fifteen-minute video.
-    if (this.store.pendingBytes > 16 * 1024 * 1024) await this.store.flush();
+    if (this.store.pendingBytes > 16 * 1024 * 1024) {
+      await this.drainOutput("the encoded frames were written to protected browser storage");
+    }
     const timestamp = Math.round(frameIndex * 1_000_000 / this.config.fps);
     const next = Math.round((frameIndex + 1) * 1_000_000 / this.config.fps);
     const frame = new VideoFrame(canvas, { timestamp, duration: next - timestamp });
@@ -512,12 +614,13 @@ export class OfflineExporter {
     const channels = this.config.channels;
     const budget = createFrameBudget();
     for (let offset = 0; offset < buffer.length; offset += chunkFrames) {
-      while (this.audio.encodeQueueSize > 8) {
-        this.throwIfFailed();
-        await yieldToBrowser();
+      this.throwIfFailed();
+      await this.drainAudioQueue();
+      if (this.store.pendingBytes > 16 * 1024 * 1024) {
+        await this.drainOutput("the encoded soundtrack was written to protected browser storage");
       }
-      if (this.store.pendingBytes > 16 * 1024 * 1024) await this.store.flush();
       await budget.maybeYield();
+      this.throwIfFailed();
       onProgress?.(Math.min(1, offset / Math.max(1, buffer.length)));
       const frames = Math.min(chunkFrames, buffer.length - offset);
       const planar = new Float32Array(frames * channels);
@@ -569,28 +672,62 @@ export class OfflineExporter {
     };
   }
 
+  /**
+   * Finish the container and hand the file over.
+   *
+   * Every step here used to be an unbounded await — see render-guard.ts. Each
+   * one now has a deadline and a name, so a browser-side stall at 95% is
+   * reported as "the video encoder stopped responding while it finished the
+   * last of its frames" instead of hanging the render screen for ever.
+   */
   async finalize(): Promise<Blob> {
+    this.throwIfFailed();
     // Both encoders still have work queued at this point; flushing is where
     // the last of the video actually gets encoded, and on a long render that
     // is not instant.
-    await Promise.all([this.video.flush(), this.audio.flush()]);
+    await this.guarded(
+      Promise.all([this.video.flush(), this.audio.flush()]),
+      ENCODER_FLUSH_TIMEOUT_MS,
+      "the video encoder finished the last of its frames",
+    );
     this.throwIfFailed();
     // Encoder flush only guarantees output callbacks have run. Disk writes
     // triggered by those callbacks are asynchronous and need their own drain.
-    await this.store.flush();
-    this.video.close();
-    this.audio.close();
+    await this.guarded(
+      this.store.flush(),
+      OUTPUT_DRAIN_TIMEOUT_MS,
+      "the finished frames were written to protected browser storage",
+    );
+    try { this.video.close(); } catch {}
+    try { this.audio.close(); } catch {}
     this.muxer.finalize();
-    await this.store.flush();
-    return await this.store.toBlob(this.mime);
+    await this.guarded(
+      this.store.flush(),
+      OUTPUT_DRAIN_TIMEOUT_MS,
+      "the container index was written to disk",
+    );
+    return await this.guarded(
+      this.store.toBlob(this.mime),
+      OUTPUT_HANDOVER_TIMEOUT_MS,
+      "the finished file was handed back to the renderer",
+    );
   }
 
   /** Remove the OPFS staging file after the Vault has verified its own Blob. */
   async releaseOutputStorage(): Promise<void> {
-    await this.store.dispose();
+    await withTimeout(
+      this.store.dispose(),
+      OUTPUT_DRAIN_TIMEOUT_MS,
+      "the temporary render file was cleaned up",
+    ).catch(() => {
+      /* a leftover .part file is swept by clearStaleRenderScratch on the next render */
+    });
   }
 
   close(): void {
+    // Stops anything still waiting inside finalize() before the encoders are
+    // pulled out from under it.
+    this.abort();
     try { if (this.video.state !== "closed") this.video.close(); } catch {}
     try { if (this.audio.state !== "closed") this.audio.close(); } catch {}
     void this.store.dispose();
