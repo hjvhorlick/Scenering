@@ -383,14 +383,26 @@ function roundedPath(ctx: AnyContext, x: number, y: number, w: number, h: number
  * blur radius bigger than the frame. Floored against the frame size so a tiny
  * block on a 4K export still hides what a tiny block on the 720p preview hides.
  */
-function redactionCell(blockH: number, frameW: number, frameH: number, strength: number): number {
+function redactionCell(
+  blockH: number,
+  frameW: number,
+  frameH: number,
+  strength: number,
+  method: RedactionMethod
+): number {
   const floor = Math.max(3, Math.min(frameW, frameH) / 200);
   // At the default 0.6 a block about one line tall is cut into roughly six
   // rows: a legible mosaic rather than a soft smudge, and nothing of the
   // original letters survives. Pushed to 1.6 the same block becomes three
   // chunky rows; pulled down to 0.1 it is a light haze over whatever is
   // already large and public.
-  const wanted = blockH * (0.09 + strength * 0.14);
+  //
+  // A mosaic keeps more of a letter's silhouette than a blur does at the same
+  // cell size — the edges are still edges — so pixelate is cut coarser to
+  // reach the same "cannot be read" point. Privacy is judged by what is left
+  // legible, not by how many cells were drawn.
+  const methodFactor = method === "pixelate" ? 1.4 : 1;
+  const wanted = blockH * (0.09 + strength * 0.14) * methodFactor;
   return clamp(wanted, floor, Math.max(floor, blockH / 3));
 }
 
@@ -412,7 +424,7 @@ function paintSampledBlock(
   const source = (ctx.canvas as unknown as AnyCanvas | null) ?? null;
   if (!source || !(canvasW > 0) || !(canvasH > 0)) return false;
 
-  const cell = redactionCell(blockH, canvasW, canvasH, frame.strength);
+  const cell = redactionCell(blockH, canvasW, canvasH, frame.strength, frame.method);
   // A blur needs a little of the world outside its own edge, or it smears the
   // frame's transparent boundary into the block and lightens it at the edges.
   const pad = frame.method === "blur" ? Math.ceil(cell * 1.5) : 0;
