@@ -17,6 +17,7 @@ import {
   formatDuration,
 } from "../demo-project";
 import { HONESTY, LIVE_COUNTS, MESSAGES } from "../product-facts";
+import { PRODUCT_MODEL, PRODUCT_POSITIONING } from "../product-positioning";
 import type { ProjectPhase } from "../../components/StepNav";
 import Icon from "../../components/icons/Icon";
 
@@ -68,6 +69,7 @@ export default function Hero() {
             <div className="mkt-eyebrow">Script to finished video</div>
             <h1 className="mkt-h1">{MESSAGES.hero}</h1>
             <p className="mkt-lead">{MESSAGES.heroSub}</p>
+            <p className="mkt-small">{PRODUCT_POSITIONING} {PRODUCT_MODEL}</p>
 
             {/* No shortcut into the studio here — signing in is a decision
                 for the top of the page, not something to trip over. The

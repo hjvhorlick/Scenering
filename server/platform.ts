@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import express from "express";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExportCreativeManifest, type BillingInterval, type ExportCreativeManifest, type FeatureKey, type PlanSlug } from "../src/config/plans.ts";
+import { SITEMAP_IMAGE_PATH, SITEMAP_IMAGE_CAPTION } from "../src/marketing/seo-assets.ts";
 import { buildPricingTiers, lookupPriceEnv } from "../src/config/pricing-tiers.ts";
 import { FASTSPRING_DEFAULT_PRODUCT_PATHS, FASTSPRING_PRODUCT_PATH_ENV, fastspringCheckoutTags, fastspringProductMappings, fastspringProductPath, planForFastSpringProduct } from "../src/config/fastspring.ts";
 
@@ -1540,7 +1541,7 @@ export function registerPlatformRoutes(app: Express) {
      specific Allow wins over Disallow: /api/ — the rest of the API stays
      closed to crawlers. */
   app.get("/robots.txt", (req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nAllow: /api/social-links\nDisallow: /app\nDisallow: /login\nDisallow: /register\nDisallow: /forgot-password\nDisallow: /verify-email\nDisallow: /reset-password\nDisallow: /api/\nDisallow: /functions/\nSitemap: ${baseUrl(req)}/sitemap.xml\n`));
-  app.get("/sitemap.xml", (req, res) => { const root = baseUrl(req); const pages = ["", "/features", "/how-it-works", "/pricing", "/about", "/manual", "/faq", "/contact", "/privacy", "/terms", "/cookies", "/refunds"]; res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${pages.map((page) => `<url><loc>${root}${page || "/"}</loc></url>`).join("")}</urlset>`); });
+  app.get("/sitemap.xml", (req, res) => { const root = baseUrl(req); const pages = ["", "/features", "/how-it-works", "/pricing", "/about", "/manual", "/faq", "/contact", "/privacy", "/terms", "/cookies", "/refunds"]; res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">${pages.map((page) => `<url><loc>${root}${page || "/"}</loc>${page === "" ? `<image:image><image:loc>${root}${SITEMAP_IMAGE_PATH}</image:loc><image:caption>${SITEMAP_IMAGE_CAPTION}</image:caption></image:image>` : ""}</url>`).join("")}</urlset>`); });
   app.get("/api/plans", (_req, res) => res.json({ plans: PLAN_ORDER.map((slug) => PLAN_CONFIG[slug]) }));
 
   app.post("/api/auth/register", rateLimit("register", 5, 3600000), asyncHandlerVoid(async (req, res) => {
