@@ -1368,8 +1368,15 @@ export default function VideoPreview({
       return;
     }
 
-    const clampedX = Math.max(0.03, Math.min(0.97, p.x));
-    const clampedY = Math.max(0.03, Math.min(0.97, p.y));
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Preserve the grab offset, including when a preset/render clamp moved
+    // the visible anchor away from the stored position. A wide selection must
+    // not jump to put its centre underneath the pointer.
+    const bounds = getInsertBounds(drag.insert, canvas.width, canvas.height, canvas.getContext("2d"));
+    const clampedX = Math.max(0, Math.min(1, bounds.cx / canvas.width + p.x - drag.startX));
+    const clampedY = Math.max(0, Math.min(1, bounds.cy / canvas.height + p.y - drag.startY));
     const snapped = snapPosition(clampedX, clampedY);
 
     // A bar rack that stretches across the entire frame can only be moved up and

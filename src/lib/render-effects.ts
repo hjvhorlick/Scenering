@@ -7,6 +7,7 @@ import { AudioFrame, makeAudioFrame } from "./audio-reactive";
 import {
   renderAudioVisualizer,
   getVisualizerFootprint,
+  getVisualizerPlacement,
   isImmersiveVisualizer,
   isRoundVisualizer,
 } from "./render-visualizers";
@@ -678,10 +679,7 @@ export function getInsertBounds(
     case "meditation": {
       // Real drawn footprint, so a wall-to-wall bar rack can be grabbed and
       // dragged from anywhere along its length.
-      const fp = getVisualizerFootprint(item, w, h);
-      bw = fp.w;
-      bh = fp.h;
-      break;
+      return getVisualizerPlacement(item, w, h, cx, cy);
     }
     case "branding":
     case "logo":
