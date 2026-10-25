@@ -373,6 +373,33 @@ export function getVisualizerFootprint(
   return { w, h: body + pad };
 }
 
+/** One geometry contract for selection, dragging and the preview/export painter.
+ * Racks grow upwards from a baseline, not symmetrically around their anchor.
+ */
+export function getVisualizerPlacement(
+  item: TimelineInsert, canvasWidth: number, canvasHeight: number, x: number, y: number
+) {
+  const fp = getVisualizerFootprint(item, canvasWidth, canvasHeight);
+  let up = fp.h / 2;
+  let down = fp.h / 2;
+  const margin = Math.max(6, canvasHeight * 0.02);
+  if (isAdvancedAudioVisualizerType(item.type)) {
+    if (item.type === "advanced_spectrum_bars") {
+      up = fp.h * 0.9;
+      down = fp.h * 0.1;
+    }
+  } else if (!PIXABAY_TYPES.has(item.type) && !isRoundVisualizer(item.type) && !isImmersiveVisualizer(item.type)) {
+    const body = visualizerBodyHeight(item, canvasHeight);
+    up = item.type === "mirror_wave" ? body * 0.95 : body;
+    down = item.type === "mirror_wave" ? body * 0.95 : margin;
+  }
+  const clampAnchor = (v: number, before: number, after: number, limit: number) =>
+    before + after >= limit ? limit / 2 : Math.max(before, Math.min(limit - after, v));
+  const cx = isVisualizerFullWidth(item) ? canvasWidth / 2 : clampAnchor(x, fp.w / 2, fp.w / 2, canvasWidth);
+  const cy = clampAnchor(y, up, down, canvasHeight);
+  return { cx, cy, x: cx - fp.w / 2, y: cy - up, w: fp.w, h: up + down };
+}
+
 /** 720p is the reference frame: every pixel dimension scales from it, so the
  *  studio thumbnails are true miniatures of what lands in the video, including
  *  full 2K (2×) and 4K UHD (3×) exports. */
@@ -1575,6 +1602,7 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
   const { ctx, item, x, y, canvasWidth, canvasHeight, elapsed } = opts;
   const frame = opts.frame || EMPTY_FRAME;
   const compact = Boolean(opts.compact);
+  const placement = getVisualizerPlacement(item, canvasWidth, canvasHeight, x, y);
 
   const source: ReactionSource = (item.audioSource as ReactionSource) || "voice";
   /** the user's own logo (never a third-party one) for the centre visualisers */
@@ -1686,19 +1714,9 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
       ctx.rect(-canvasWidth / 2, -canvasHeight / 2, canvasWidth, canvasHeight);
       ctx.clip();
     } else if (box.shape === "wide") {
-      // bands stay inside the picture: the anchor is clamped by the band height
-      const margin = Math.max(6, canvasHeight * 0.02);
-      const anchorY = Math.max(
-        box.h + margin * 0.5,
-        Math.min(canvasHeight - box.h - margin * 0.5, y)
-      );
-      ctx.translate(fullWidth ? canvasWidth / 2 : x, anchorY);
+      ctx.translate(placement.cx, placement.cy);
     } else {
-      // objects and discs are clamped so their light stays in frame
-      const half = box.shape === "round" ? box.span * 0.5 : box.w * 0.5;
-      const cx = half * 2 >= canvasWidth ? canvasWidth / 2 : Math.max(half, Math.min(canvasWidth - half, x));
-      const cy = half * 2 >= canvasHeight ? canvasHeight / 2 : Math.max(half, Math.min(canvasHeight - half, y));
-      ctx.translate(cx, cy);
+      ctx.translate(placement.cx, placement.cy);
     }
     drawPixabayStyle(item.type, scene);
     // the circular family can be branded: the user's own logo in the hub
@@ -1726,11 +1744,8 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
    * canvas pass as the preview and export.
    * ------------------------------------------------------------------ */
   if (isAdvancedAudioVisualizerType(item.type)) {
-    const foot = advancedVisualizerFootprint(item, canvasWidth, canvasHeight);
-    const cx = foot.w >= canvasWidth ? canvasWidth / 2 : Math.max(foot.w / 2, Math.min(canvasWidth - foot.w / 2, x));
-    const cy = foot.h >= canvasHeight ? canvasHeight / 2 : Math.max(foot.h / 2, Math.min(canvasHeight - foot.h / 2, y));
     ctx.save();
-    ctx.translate(cx, cy);
+    ctx.translate(placement.cx, placement.cy);
     const fit = advancedVisualizerFitScale(item, canvasWidth, canvasHeight);
     if (fit !== 1) ctx.scale(fit, fit);
     ctx.lineJoin = "round";
@@ -1749,17 +1764,10 @@ export function renderAudioVisualizer(opts: VisualizerOptions) {
     return;
   }
 
-  // Nothing may be cut off by the frame: racks that mirror around the baseline
-  // are centred on the anchor, and every visualiser is clamped to stay inside
-  // the picture with a small margin.
   const mirrored = item.type === "mirror_wave";
   const margin = Math.max(6, canvasHeight * 0.02);
-  const upExtent = mirrored ? body * 0.95 : body * 1.0;
-  const downExtent = mirrored ? body * 0.95 : margin;
-  const anchorY = Math.max(upExtent + margin * 0.5, Math.min(canvasHeight - downExtent - margin * 0.5, y));
-
   ctx.save();
-  ctx.translate(fullWidth ? canvasWidth / 2 : x, anchorY);
+  ctx.translate(placement.cx, placement.cy);
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
 

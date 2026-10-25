@@ -40,6 +40,7 @@ import {
   pixabayVisualizerShape,
   visualizerBodyHeight,
   getVisualizerFootprint,
+  getVisualizerPlacement,
   renderAudioVisualizer,
   stretchFullVideoMedia,
 } from "../src/lib/render-visualizers";
@@ -1541,5 +1542,31 @@ h.ok(
   centreModal.includes("With no logo uploaded, the glowing orb shows instead"),
   "the panel says what happens when there is no logo yet"
 );
+
+// The selection rectangle and rendered anchor must use the same geometry,
+// especially when moving a wide rack down to its baseline at the frame edge.
+{
+  for (const type of ["spectrum", "mirror_wave", "advanced_spectrum_bars", "advanced_waveform", "fine_radial_bars_3d"]) {
+    for (const [w, height] of [[1280, 720], [720, 1280], [3840, 2160]]) {
+      const item = makeInsert(type);
+      const top = getVisualizerPlacement(item, w, height, w / 2, 0);
+      const bottom = getVisualizerPlacement(item, w, height, w / 2, height);
+      h.ok(bottom.cy > top.cy, `${type} can move vertically in ${w}x${height}`);
+      h.ok(Math.abs(top.y) < 0.001, `${type} top selection matches the rendered top edge`);
+      h.ok(Math.abs(bottom.y + bottom.h - height) < 0.001, `${type} bottom selection matches the rendered bottom edge`);
+      if (isVisualizerFullWidth(item)) {
+        const side = getVisualizerPlacement(item, w, height, 0, height / 2);
+        h.eq(side.cx, w / 2, `${type} full-width selection stays horizontally centred`);
+      }
+    }
+  }
+  const modal = read("src/components/InsertPropertiesModal.tsx");
+  const positions = modal.slice(modal.indexOf("const CTA_POSITIONS"), modal.indexOf("const [isPlayingTestSound"));
+  const ids = [...positions.matchAll(/id: "([a-z-]+)"/g)].map((m) => m[1]);
+  h.eq(ids.join(","), "top-left,top,top-right,left,center,right,bottom-left,bottom,bottom-right", "placement buttons follow a spatial 3 by 3 grid");
+  h.ok(modal.slice(modal.indexOf("{/* Position Presets */}")).includes("CTA_POSITIONS.map((pos)"), "visualisers use the ordered placement grid");
+  const preview = read("src/components/VideoPreview.tsx");
+  h.ok(preview.includes("p.x - drag.startX") && preview.includes("p.y - drag.startY"), "dragging preserves the grab offset instead of jumping to the pointer");
+}
 
 h.done("visualizers");

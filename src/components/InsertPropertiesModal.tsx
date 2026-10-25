@@ -2738,21 +2738,11 @@ function InsertPropertiesContent({
                   Screen Position Placement:
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: "top", label: "Top Center" },
-                    { id: "center", label: "Center" },
-                    { id: "bottom", label: "Bottom Center" },
-                    { id: "top-left", label: "Top Left" },
-                    { id: "top-right", label: "Top Right" },
-                    { id: "bottom-left", label: "Bottom Left" },
-                    { id: "bottom-right", label: "Bottom Right" },
-                    { id: "left", label: "Left Edge" },
-                    { id: "right", label: "Right Edge" },
-                  ].map((pos) => (
+                  {CTA_POSITIONS.map((pos) => (
                     <button
                       key={pos.id}
                       type="button"
-                      onClick={() => setData({ ...data, presetPosition: pos.id as any })}
+                      onClick={() => setData({ ...data, presetPosition: pos.id })}
                       className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                         data.presetPosition === pos.id
                           ? "bg-indigo-600 border-indigo-500 text-white shadow-sm"
