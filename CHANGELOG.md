@@ -2,6 +2,20 @@
 
 ## Unreleased — smooth camera, captions that follow the voice
 
+- **A rendered video keeps the camera movement its preview showed.** On a
+  plan without the per-scene effect stack, the cleaned copy handed to the
+  encoder reported scene animation as switched off — and that was taken to
+  mean the *camera* too. The export then read `scene.motion_effect`, a second
+  per-scene field the preview never looks at, so any project where the two had
+  drifted apart (every project saved before the Motion Style was propagated to
+  all scenes) glided on screen and froze or moved differently in the file,
+  scene by scene. The camera is audited separately (`camera_movements`), so
+  only the effect layers are stripped now, and a scene with no movement of
+  its own inherits the project's Motion Style for its position
+  (`motionForStyle()`, `resolveSceneCameraMotion(…, fallbackMotion)`) instead
+  of going static. The style→movement tables also exist once, in
+  `scene-animation.ts`, and the project editor writes from them, so the
+  preview and the file can no longer disagree about what a scene does.
 - **Ken Burns no longer steps or jumps back inside a rendered video.** The
   drift was clamped against the *instantaneous* zoom, so it raced ahead into
   headroom, got squashed for a few frames and then froze while the zoom kept
