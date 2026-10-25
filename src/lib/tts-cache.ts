@@ -1,6 +1,6 @@
 import type { Scene } from "../types";
 import { SPEECHIFY_RENDITION, synthesizeSpeechify } from "./speechify-client";
-import { cachedNarrationBelongsToScene } from "./voiceover-generation";
+import { cachedNarrationBelongsToScene, isPreparedVoiceoverId } from "./voiceover-generation";
 import type { WordTiming } from "./word-sync";
 
 export interface CachedAudioItem {
@@ -100,6 +100,32 @@ async function loadAudioFromIDB(
     });
   } catch {
     return null;
+  }
+}
+
+/**
+ * The word marks stored beside a scene's narration, whatever route its audio
+ * took out of the cache.
+ *
+ * Marks live in the durable `scene_<id>` row, which is written with every
+ * narration file and deleted when that narration is replaced. Resolving the
+ * audio through `scene.audio_url` (a saved URL, a restored project, another
+ * device's copy) used to come back with the sound but WITHOUT its marks — so
+ * the karaoke highlight silently fell back to a syllable estimate and the
+ * captions drifted off the voice even though the marks existed all along.
+ *
+ * The text check keeps them honest: a row that was made for a different script
+ * is a different line, and its timings do not describe this one.
+ */
+async function durableNarrationWords(sceneId: number, text: string): Promise<WordTiming[] | undefined> {
+  try {
+    const stored = await loadAudioFromIDB(`scene_${sceneId}`);
+    if (!stored?.words?.length) return undefined;
+    const storedText = typeof stored.text === "string" ? stored.text.trim() : "";
+    if (storedText && storedText !== (text || "").trim()) return undefined;
+    return stored.words;
+  } catch {
+    return undefined;
   }
 }
 
@@ -383,6 +409,14 @@ export async function resolveSceneAudioBuffer(
     if (sceneIdAudioCache.get(scene.id) === candidate) sceneIdAudioCache.delete(scene.id);
   }
   if (cached) {
+    /* A cache entry can hold the sound without the marks (it was made before
+       they were kept, or it was restored from a copy that only carried the
+       audio). The durable row is the authority, so the captions still follow
+       the voice instead of silently reverting to the estimate. */
+    if (!cached.words?.length) {
+      const words = await durableNarrationWords(scene.id, text);
+      if (words) cached.words = words;
+    }
     // If the buffer was decoded with matching sampleRate or AudioContext
     if (cached.audioBuffer && (!audioCtx || cached.audioBuffer.sampleRate === audioCtx.sampleRate)) {
       return {
@@ -445,6 +479,13 @@ export async function resolveSceneAudioBuffer(
       if (res.ok) {
         const arrayBuf = await res.arrayBuffer();
         const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+        /* The file came through its URL, so the marks have to be re-attached
+           from the durable row — this is the path a restored project, a
+           synced device and a re-opened tab take, and it used to lose them
+           (captions then followed an estimate instead of the voice). */
+        const words = isPreparedVoiceoverId(scene.voice_id)
+          ? undefined
+          : await durableNarrationWords(scene.id, text);
         const item: CachedAudioItem = {
           audioBuffer: decoded,
           blobUrl: scene.audio_url,
@@ -452,9 +493,10 @@ export async function resolveSceneAudioBuffer(
           voiceId,
           text,
           rawBuffer: arrayBuf,
+          words,
         };
         setCachedSceneAudio(scene.id, voiceId, text, item);
-        return { buffer: decoded, duration: decoded.duration, url: scene.audio_url };
+        return { buffer: decoded, duration: decoded.duration, url: scene.audio_url, words };
       }
     } catch (e) {
       console.warn("Failed resolving scene.audio_url for scene:", scene.id, e);

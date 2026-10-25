@@ -115,6 +115,98 @@ for (const motion of MOVING) {
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * MOTION MUST FLOW — one continuous move, not a stagger
+ *
+ * This is the "Ken Burns moves jagged" complaint, and it has one cause: the
+ * pan was clamped to the crop headroom of the *current* frame. A push-in has
+ * almost no room at scale 1.12, so the pan raced into the edge within the
+ * first fifth of the scene, the clamp squashed it there, and it then sat
+ * still while the zoom carried on. A pull-out is worse: its headroom SHRINKS
+ * as the scene runs, so the clamp dragged the picture backwards while it was
+ * zooming out. Both read as a camera that stutters.
+ *
+ * The travel is now budgeted from the smallest zoom of the whole move, so it
+ * fits on every frame. These checks pin the three properties that make that
+ * true, for every preset a whole-video camera choice can pick.
+ * ------------------------------------------------------------------------- */
+const FLOWING: SceneMotionType[] = [
+  "ken_burns", "slow_zoom", "zoom_in", "zoom_out", "zoom_pan",
+  "pan_left", "pan_right", "pan_up", "pan_down",
+];
+/* Presets whose move deliberately breathes — it slows to a stop and starts
+   again, and `shake` is a handheld tremor sampled far above this cadence —
+   so the straight-line rules below are not about them. What they still owe is
+   the edge-safety and NaN checks above. */
+for (const motion of FLOWING) {
+  for (const [w, hh] of FRAMES) {
+    for (const sceneIndex of [0, 1, 2, 3]) {
+      const N = 120;
+      const dxs: number[] = [];
+      const dys: number[] = [];
+      const scales: number[] = [];
+      for (let i = 0; i <= N; i++) {
+        const t = getMotionTransform(motion, i / N, w, hh, sceneIndex);
+        dxs.push(t.dx + (w * t.scale - w) / 2);
+        dys.push(t.dy + (hh * t.scale - hh) / 2);
+        scales.push(t.scale);
+      }
+      const deltas = (a: number[]) => a.slice(1).map((v, i) => v - a[i]);
+      const where = `${motion} @${w}x${hh} scene ${sceneIndex}`;
+
+      // 1. NO JOLT. Frame-to-frame acceleration may never spike: a step change
+      //    in velocity is what the eye reads as "jagged".
+      for (const [name, deltasOf] of [
+        ["pan x", deltas(dxs)],
+        ["pan y", deltas(dys)],
+        // scale is turned into pixels so it is comparable with the pans
+        ["zoom", deltas(scales).map((v) => v * w)],
+      ] as [string, number[]][]) {
+        const peak = Math.max(...deltasOf.map(Math.abs));
+        if (!(peak > 1e-9)) continue;
+        for (let i = 1; i < deltasOf.length; i++) {
+          const jolt = Math.abs(deltasOf[i] - deltasOf[i - 1]) / peak;
+          h.ok(jolt < 0.2, `${where}: ${name} jolts ${(jolt * 100).toFixed(0)}% of peak speed at frame ${i}`);
+        }
+      }
+
+      // 2. NO REVERSAL. A straight camera move travels one way only. A pan
+      //    that changes direction part-way through is the clamp dragging the
+      //    picture back, which is the jerk the customer sees.
+      if (FLOWING.includes(motion)) {
+        for (const [name, deltasOf] of [["pan x", deltas(dxs)], ["pan y", deltas(dys)]] as [string, number[]][]) {
+          const moving = deltasOf.filter((v) => Math.abs(v) > 1e-9);
+          if (moving.length < 8) continue;
+          const first = Math.sign(moving[0]);
+          const reversals = moving.filter((v) => Math.sign(v) !== first).length;
+          h.eq(reversals, 0, `${where}: ${name} never reverses`);
+        }
+      }
+
+      // 3. NO MID-SCENE STALL. A straight move keeps going until the scene
+      //    ends; a stretch of near-stillness in the middle is the old freeze.
+      if (FLOWING.includes(motion)) {
+        const speed = deltas(dxs).map(
+          (v, i) => Math.abs(v) + Math.abs(deltas(dys)[i]) + Math.abs(deltas(scales)[i]) * w * 0.5
+        );
+        const middle = speed.slice(Math.floor(speed.length * 0.2), Math.floor(speed.length * 0.8));
+        const median = [...middle].sort((a, b) => a - b)[Math.floor(middle.length / 2)] || 1e-9;
+        let run = 0;
+        let longest = 0;
+        for (const v of middle) {
+          if (v < median * 0.15) {
+            run += 1;
+            longest = Math.max(longest, run);
+          } else {
+            run = 0;
+          }
+        }
+        h.ok(longest <= 8, `${where}: stalls for ${longest} frames mid-scene`);
+      }
+    }
+  }
+}
+
 // A zero-length scene divides by zero upstream; NaN must never reach the canvas.
 for (const motion of ALL) {
   for (const p of [-5, -0.1, 1.1, 99, NaN, Infinity, -Infinity]) {

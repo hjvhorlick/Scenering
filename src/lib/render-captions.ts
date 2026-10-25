@@ -410,14 +410,27 @@ export function renderCanvasCaptions(
   const hasRealTiming =
     Boolean(sync?.wordTimings && sync.wordTimings.length > 0) && Number.isFinite(sync?.audioTimeSec as number);
 
+  /**
+   * The word the voice has actually reached.
+   *
+   * With speech marks this comes from the audio clock alone — never from
+   * `sceneProgress`. The progress value is an *estimate* of how far through
+   * the line the narration is, so on its own it runs ahead of and behind the
+   * real voice: exactly the drift these timings exist to remove. When marks
+   * are present they are the only authority, and the estimate is not
+   * consulted at all.
+   */
+  let spokenWordIndex = -1;
+
   if (hasRealTiming) {
     const timings = sync!.wordTimings!;
     const aligned = alignedWordTimingsCached(words, timings);
     const audioTime = Math.max(0, sync!.audioTimeSec as number);
     // Past the end of the speech (the scene's breathing tail): everything sung.
     const lastEnd = timings[timings.length - 1]?.end ?? 0;
+    spokenWordIndex = activeWordIndexAt(aligned, audioTime);
     activeWordGlobalIndex =
-      audioTime > lastEnd + 0.05 ? totalWords - 1 : activeWordIndexAt(aligned, audioTime);
+      audioTime > lastEnd + 0.05 ? totalWords - 1 : spokenWordIndex;
   } else if (safeProgress >= 1) {
     activeWordGlobalIndex = totalWords - 1;
   } else if (safeProgress <= 0) {
@@ -591,8 +604,16 @@ export function renderCanvasCaptions(
 
       lineObj.words.forEach((wrd, wInLineIdx) => {
         const globalWrdIdx = lineObj.startIndex + wInLineIdx;
-        const isCurrentActive = safeProgress < 1 && globalWrdIdx === activeWordGlobalIndex;
-        const isAlreadySung = safeProgress >= 1 || globalWrdIdx < activeWordGlobalIndex;
+        /* With real marks the words behind the voice are the ones already
+           spoken — a progress figure crossing 1 (the line's breathing tail)
+           must not paint the not-yet-spoken words as though they had been
+           said, which made the captions look like they had jumped ahead. */
+        const isCurrentActive = hasRealTiming
+          ? globalWrdIdx === activeWordGlobalIndex
+          : safeProgress < 1 && globalWrdIdx === activeWordGlobalIndex;
+        const isAlreadySung = hasRealTiming
+          ? globalWrdIdx < spokenWordIndex
+          : safeProgress >= 1 || globalWrdIdx < activeWordGlobalIndex;
         const curWordWidth = wordWidths[wInLineIdx];
 
         const wordX = Math.round(currentX);

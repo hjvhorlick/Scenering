@@ -53,9 +53,19 @@ export function getPresetCoords(preset?: TimelineInsert["presetPosition"]): { x:
  *
  * 2. MOTION MUST NEVER EXPOSE AN EDGE. Panning an image that is only scaled
  *    1.0 slides a blank gap into frame. Every preset that moves therefore
- *    scales up first, and the drift is clamped to the headroom that the
- *    zoom creates: at scale s the image overhangs the frame by (s-1)/2 on
- *    each side, so that is the furthest it may travel.
+ *    scales up first, and the drift stays inside the headroom that the zoom
+ *    creates: at scale s the image overhangs the frame by (s-1)/2 on each
+ *    side, so that is the furthest it may travel.
+ *
+ * 3. MOTION MUST FLOW FROM THE FIRST FRAME TO THE LAST. A preset's travel is
+ *    budgeted from the SMALLEST zoom the move ever reaches (see
+ *    `driftBudget()`), not from the zoom at the current frame. Clamping the
+ *    drift to the instantaneous zoom did this: the pan raced into the edge,
+ *    the clamp squashed it, and it then sat still for the rest of the scene
+ *    while the zoom carried on — a move that starts, staggers and stops. That
+ *    stagger is what "jagged Ken Burns" looks like. A move whose travel is
+ *    fixed up front keeps one continuous velocity for the whole scene and
+ *    never needs clamping part-way through.
  */
 
 /** Smooth start and end so moves feel like a camera, not a slide projector. */
@@ -70,6 +80,25 @@ function smoothstep(p: number): number {
  */
 function driftHeadroom(size: number, scale: number): number {
   return Math.max(0, (size * (scale - 1)) / 2 - 2);
+}
+
+/**
+ * The total drift a move may cover, in pixels, given the SMALLEST scale it
+ * passes through.
+ *
+ * The headroom at that scale is what the whole move has to fit inside, so
+ * budgeting from it means the requested travel is always reachable on every
+ * frame of the scene: no clamp ever engages mid-move, and the pan therefore
+ * keeps a constant rate from the first frame to the last. `use` leaves a
+ * margin so nothing sits exactly on the limit (where one pixel of rounding
+ * could show an uncovered edge).
+ *
+ * `size * (scale - 1)` is the full travel available at that scale: each side
+ * overhangs by half of it.
+ */
+function driftBudget(size: number, minScale: number, use = 0.92): number {
+  if (!(size > 0) || !(minScale > 1)) return 0;
+  return size * (minScale - 1) * use;
 }
 
 /** Soft-clamp a desired drift to what the current zoom can cover without hard stops. */
@@ -154,12 +183,20 @@ export function getMotionTransform(
       return { ...base, dy: base.dy + safeDrift(centred * travel, h, s) };
     }
     case "zoom_pan": {
-      const s = 1.10 + e * 0.28;
+      /* A push that also crosses the frame. The travel is budgeted from the
+         smallest zoom (the start, 1.10), so the pan has room on every frame:
+         it used to be clamped against the *current* zoom, which meant the
+         pan was held back at the start of the move and only caught up as
+         the zoom grew — a lurch, not a glide. */
+      const minScale = 1.10;
+      const s = minScale + e * 0.28;
       const base = centre(s);
+      const travelX = driftBudget(w, minScale);
+      const travelY = driftBudget(h, minScale) * 0.6;
       return {
         ...base,
-        dx: base.dx + safeDrift(centred * w * 0.095, w, s),
-        dy: base.dy + safeDrift(centred * h * 0.055, h, s),
+        dx: base.dx + centred * travelX,
+        dy: base.dy + centred * travelY,
       };
     }
     case "cinematic_drift":
@@ -210,43 +247,36 @@ export function getMotionTransform(
       return { scale: 1, dx: 0, dy: 0 };
     case "ken_burns":
     default: {
-      // Distinctly noticeable documentary Ken Burns: alternating angles and vectors across scenes
-      // with a deliberately visible 32% zoom and broad pan. Even on long scenes this
-      // must read as camera movement, not an almost-static photograph.
+      /* Distinctly noticeable documentary Ken Burns: alternating angles and
+         vectors across scenes, with a deliberately visible 32% zoom and a
+         broad pan that keeps moving for the whole scene.
+
+         Every move is expressed from the SAME smallest scale (1.12), and the
+         pan is budgeted from it, so a push-in and a pull-out travel the same
+         distance at the same rate — the only thing that changes between
+         scenes is the direction. That is what makes a video of several Ken
+         Burns scenes read as one continuous camera rather than a series of
+         lurches. */
       const pattern = Math.abs(sceneIndex || 0) % 4;
-      let s: number;
-      let dirX: number;
-      let dirY: number;
+      const pushIn = pattern === 0 || pattern === 2;
+      const dirX = pattern === 0 || pattern === 3 ? 1 : -1;
+      const dirY = pattern === 0 || pattern === 2 ? 0.7 : -0.7;
 
-      if (pattern === 0) {
-        // Dynamic push-in drifting right & down
-        s = 1.12 + e * 0.32;
-        dirX = 1;
-        dirY = 0.7;
-      } else if (pattern === 1) {
-        // Dynamic pull-out drifting left & up
-        s = 1.44 - e * 0.32;
-        dirX = -1;
-        dirY = -0.7;
-      } else if (pattern === 2) {
-        // Dynamic push-in drifting left & down
-        s = 1.12 + e * 0.32;
-        dirX = -1;
-        dirY = 0.7;
-      } else {
-        // Dynamic pull-out drifting right & up
-        s = 1.44 - e * 0.32;
-        dirX = 1;
-        dirY = -0.7;
-      }
-
+      const minScale = 1.12;
+      const span = 0.32;
+      const s = pushIn ? minScale + e * span : minScale + span - e * span;
       const base = centre(s);
-      const driftX = centred * w * 0.12 * dirX;
-      const driftY = centred * h * 0.085 * dirY;
+
+      /* ~11% of the frame width and ~8% of its height of travel, all of it
+         inside the room the tightest crop of the move provides — so the pan
+         glides from the first frame to the last instead of running into the
+         edge and stalling while the zoom carried on. */
+      const travelX = driftBudget(w, minScale);
+      const travelY = driftBudget(h, minScale) * 0.7;
       return {
         ...base,
-        dx: base.dx + safeDrift(driftX, w, s),
-        dy: base.dy + safeDrift(driftY, h, s),
+        dx: base.dx + centred * travelX * dirX,
+        dy: base.dy + centred * travelY * dirY,
       };
     }
   }

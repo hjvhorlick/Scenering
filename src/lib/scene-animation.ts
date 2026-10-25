@@ -1609,10 +1609,22 @@ export function sceneCameraProgress(scene: Pick<Scene, "animation">, sceneAnimat
   if (!sceneAnimationEnabled) return safe;
   const cfg = resolveSceneAnimation(scene.animation);
   const speed = clamp(cfg.camera?.speed ?? DEFAULT_SCENE_ANIMATION_CAMERA.speed, 0, 1);
-  // Slow still completes most of the travel; fast gets there earlier. The scene
-  // duration remains the authority, so motion never changes timing/captions.
-  const factor = 0.72 + speed * 0.86;
-  return clamp(safe * factor, 0, 1);
+  /**
+   * Speed decides how the travel is spread across the scene — never when it
+   * stops. It used to multiply the progress and clamp at 1 (`p * 1.107`), so
+   * the camera finished its move about a tenth of the way before the end and
+   * then stood perfectly still until the cut: a move that flows and then
+   * freezes reads as a stutter, not a camera.
+   *
+   * `1 - (1 - p)^k` is monotonic, starts at 0, and is exactly 1 at the end of
+   * the scene for every k, so the travel always lands on the last frame:
+   *   - k = 1 (speed 0) is a constant rate, the whole scene long;
+   *   - k > 1 front-loads the move and eases into its end.
+   * The scene duration remains the authority, so motion never changes
+   * timing/captions.
+   */
+  const rate = 1 + speed * 0.9;
+  return clamp(1 - Math.pow(1 - safe, rate), 0, 1);
 }
 
 export function getSceneCameraTransform(

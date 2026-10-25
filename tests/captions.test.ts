@@ -181,6 +181,121 @@ h.eq(earlyFills.filter((f) => f === "set:fillStyle=#7DD3FC").length, 1, "early: 
 const lateFills = karaokeFillsAt(1.2);
 h.eq(lateFills.filter((f) => f === "set:fillStyle=#7DD3FC").length, 1, "late: exactly one highlighted word (the second)");
 
+/* ---------------------------------------------------------------------
+ * With speech marks, the voice alone decides what has been said
+ *
+ * The karaoke fill has three states: the word being spoken (highlight), the
+ * words already spoken (text colour) and the words still to come (soft
+ * white). Those last two used to be decided by `sceneProgress` even when real
+ * marks were present — so the moment the progress figure reached 1 (the
+ * line's breathing tail, or any estimate that ran short) EVERY remaining
+ * word was painted as though it had been spoken. That is the "captions ran
+ * ahead of the voice" the marks exist to prevent.
+ * ------------------------------------------------------------------- */
+{
+  const sungSplit = (sync: any, progress: number) => {
+    const { ctx, opsWithArgs } = createStubContext(1920, 1080);
+    renderCanvasCaptions(
+      ctx,
+      "Sunrise mountains over quiet water",
+      progress,
+      {
+        ...DEFAULT_CAPTIONS_CONFIG,
+        enabled: true,
+        mode: "karaoke",
+        highlightColor: "#7DD3FC",
+        textColor: "#FFFFFF",
+      },
+      1920,
+      1080,
+      sync
+    );
+    const fills = opsWithArgs.filter((o) => o.startsWith("set:fillStyle="));
+    return {
+      highlighted: fills.filter((f) => f === "set:fillStyle=#7DD3FC").length,
+      spoken: fills.filter((f) => f === "set:fillStyle=#FFFFFF").length,
+      upcoming: fills.filter((f) => f === "set:fillStyle=rgba(255, 255, 255, 0.82)").length,
+    };
+  };
+
+  const marks = [
+    { text: "Sunrise", start: 0.0, end: 0.5 },
+    { text: "mountains", start: 0.6, end: 1.1 },
+    { text: "over", start: 1.2, end: 1.45 },
+    { text: "quiet", start: 1.5, end: 1.9 },
+    { text: "water", start: 2.0, end: 2.6 },
+  ];
+
+  // Early in the line, but the progress figure already says "finished".
+  const early = sungSplit({ wordTimings: marks, audioTimeSec: 0.2 }, 1);
+  h.eq(early.highlighted, 1, "marks: exactly one word is highlighted");
+  h.eq(early.spoken, 0, "marks: nothing is painted as already spoken at 0.2s");
+  h.eq(early.upcoming, 4, "marks: the four words still to come stay in the upcoming tone");
+
+  // Part-way through: the words behind the voice, and only those, are spoken.
+  const midway = sungSplit({ wordTimings: marks, audioTimeSec: 1.3 }, 1);
+  h.eq(midway.highlighted, 1, "marks: still one highlighted word part-way through");
+  h.eq(midway.spoken, 2, "marks: the two words already said are painted as spoken");
+  h.eq(midway.upcoming, 2, "marks: the rest stay upcoming");
+
+  // Without marks the estimate still drives the three states (unchanged).
+  const estimate = sungSplit(undefined, 1);
+  h.eq(estimate.highlighted, 0, "estimate: at progress 1 nothing is still being spoken");
+  h.eq(estimate.spoken, 5, "estimate: progress 1 paints every word as spoken");
+  h.eq(estimate.upcoming, 0, "estimate: progress 1 leaves nothing upcoming");
+}
+
+/* ---------------------------------------------------------------------
+ * A caption word at the end of a line is held until the voice stops
+ *
+ * The last caption word used to own exactly one spoken word, so the tail of
+ * the line — a delay, or the words an expansion put after it — played with
+ * nothing lit. It now stays lit for as long as the speech lasts.
+ * ------------------------------------------------------------------- */
+{
+  const held = alignWordTimings(["HELLO", "3:16"], [
+    { text: "Hello", start: 0.0, end: 0.4 },
+    { text: "chapter", start: 0.5, end: 0.8 },
+    { text: "three", start: 0.8, end: 1.0 },
+    { text: "verse", start: 1.0, end: 1.2 },
+    { text: "sixteen", start: 1.2, end: 1.6 },
+  ]);
+  h.near((held[0] as any).end, 0.4, 1e-6, "the word before an expansion ends with its own spoken word");
+  h.near((held[1] as any).start, 0.5, 1e-6, "the final caption word starts when its expansion starts");
+  h.near((held[1] as any).end, 1.6, 1e-6, "the final caption word stays lit until the voice stops");
+}
+
+/* ---------------------------------------------------------------------
+ * An unmatched run re-syncs at the next word both streams share
+ *
+ * When the sanitiser inserts words the caption does not have, the caption
+ * words over them cannot each be given one spoken word (that walks the
+ * highlight further behind the voice with every word). Each word after the
+ * run must land on its own mark again.
+ * ------------------------------------------------------------------- */
+{
+  const resynced = alignWordTimings(["GROWTH", "#1", "IN", "2025"], [
+    { text: "growth", start: 0.0, end: 0.3 },
+    { text: "number", start: 0.34, end: 0.56 },
+    { text: "one", start: 0.6, end: 0.78 },
+    { text: "in", start: 0.86, end: 0.98 },
+    { text: "twenty", start: 1.05, end: 1.3 },
+    { text: "twenty", start: 1.32, end: 1.55 },
+    { text: "five", start: 1.57, end: 1.8 },
+  ]);
+  h.near((resynced[0] as any).start, 0.0, 1e-6, "the word before the run keeps its exact start");
+  h.near((resynced[0] as any).end, 0.3, 1e-6, "the word before the run ends with its own spoken word");
+  h.near((resynced[1] as any).start, 0.34, 1e-6, "the unmatched run starts at the first inserted word");
+  h.near((resynced[2] as any).start, 0.86, 1e-6, "the next shared word lands on its own mark (re-synced)");
+  h.near((resynced[3] as any).start, 1.05, 1e-6, "and the following word does too");
+  for (let i = 1; i < resynced.length; i++) {
+    h.ok(
+      (resynced[i] as any).start >= (resynced[i - 1] as any).start,
+      `re-synced word ${i} never starts before the one before it`
+    );
+  }
+}
+
 
 /* ---------------------------------------------------------------------
  * Switching captions off actually switches them off

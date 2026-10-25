@@ -113,6 +113,15 @@ export interface VipExportInput {
 const FREE_MOTION_STYLES = ["dynamic", "static", "none"];
 
 /**
+ * What a paid camera movement is replaced with in a Free download.
+ *
+ * "dynamic" (an included movement), not "none": stripping a paid preset must
+ * take away the paid *look*, not turn the customer's video into a slideshow
+ * of still photographs. A Free render keeps its camera moving.
+ */
+const FREE_MOTION_FALLBACK = "dynamic";
+
+/**
  * Everything in this project that the plan does not include in a final
  * download, in the order a creator would look for it.
  */
@@ -271,7 +280,7 @@ export function stripVipFromExport(plan: PlanSlug, input: VipExportInput): Requi
     inserts: (input.inserts ?? []).filter((insert) => !removedInsertIds.has(insert.id)),
     videoFilter: removedIds.has("filter") ? null : input.videoFilter ?? null,
     sceneAnimationEnabled: removedIds.has("scene-animation") ? false : Boolean(input.sceneAnimationEnabled),
-    motionStyle: removedIds.has("motion") ? "none" : input.motionStyle,
+    motionStyle: removedIds.has("motion") ? FREE_MOTION_FALLBACK : input.motionStyle,
     voiceEcho: removedIds.has("voice-echo") ? undefined : input.voiceEcho,
     removed,
   };

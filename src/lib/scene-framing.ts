@@ -333,6 +333,20 @@ const CACHE_ENTRIES_PER_IMAGE = 4;
 /** The blurred backdrop is built at a capped internal resolution — behind a
  *  40px+ blur, upscaling from ~1440px stays silky smooth even on 2K/4K frames. */
 const BACKDROP_CACHE_MAX_EDGE = 1440;
+/**
+ * The largest zoom any camera move applies to a scene photo (Ken Burns tops
+ * out at 1.44, the floating drift at 1.22 with extra sway).
+ *
+ * The mip level is chosen against THIS fixed overscan, not against the
+ * destination rectangle of the current frame. That rectangle grows and
+ * shrinks with the Ken Burns zoom, so choosing from it could make the draw
+ * switch to a different downsampled copy part-way through a move — one frame
+ * where the picture changes sharpness and the draw pays for a whole new
+ * resample chain. It also disagreed with `prewarmSceneFrame()`, which warmed
+ * the level sized for the unscaled frame, so the first frame of a scene built
+ * a second copy: a visible hitch exactly where the motion starts.
+ */
+const MAX_CAMERA_OVERSCAN = 1.5;
 
 function canUseDomCanvas(): boolean {
   return typeof document !== "undefined" && typeof document.createElement === "function";
@@ -520,7 +534,7 @@ export function prewarmSceneFrame(
   if (!img) return;
   const f = resolveFraming(scene);
   const g = grade && grade !== "none" ? grade : null;
-  const baseMip = mipCopy(img, frameW, frameH, f.crop.w, f.crop.h);
+  const baseMip = mipCopy(img, frameW * MAX_CAMERA_OVERSCAN, frameH * MAX_CAMERA_OVERSCAN, f.crop.w, f.crop.h);
   if (g) gradedCopy(img, g, baseMip);
   if (f.fit !== "cover" && f.backdrop === "blur") {
     blurredBackdrop(img, frameW, frameH, f, g);
@@ -666,7 +680,9 @@ export function drawSceneImage(
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  const baseMip = mipCopy(img, fg.dw, fg.dh, f.crop.w, f.crop.h);
+  // Same mip level on every frame of the move (and on the prewarmed one), so
+  // the source can never change under the camera mid-scene.
+  const baseMip = mipCopy(img, frameW * MAX_CAMERA_OVERSCAN, frameH * MAX_CAMERA_OVERSCAN, f.crop.w, f.crop.h);
   if (grade) {
     // FAST PATH: draw the pre-graded copy of the photo (grade baked in
     // once) so the per-frame draw never pays the CPU ctx.filter cost.
