@@ -2483,7 +2483,10 @@ export default function RenderView({
           renderTimer.stage("audio encode");
           reportStage("4/4: Encoding sample-exact audio…");
           reportProgress(0.86);
-          await offlineEncoder.encodeAudio(mixedAudio, 4_800, (fraction) => {
+          // Natural packet framing (1024 frames for AAC, a 20 ms packet for
+          // Opus) is chosen inside the exporter from the configured codec, so
+          // the platform encoder never has to re-buffer arbitrary chunks.
+          await offlineEncoder.encodeAudio(mixedAudio, undefined, (fraction) => {
             reportProgress(0.86 + fraction * 0.08);
           });
           setRenderHealth((health) => ({
@@ -2542,6 +2545,12 @@ export default function RenderView({
             exportStats.offCadenceFrames === 0
               ? `every one of ${exportStats.encodedVideoChunks} frames arrived on its own tick (no jitter)`
               : `${exportStats.offCadenceFrames} of ${exportStats.encodedVideoChunks} frames arrived off-tick`,
+          );
+          renderTimer.note(
+            "audio continuity",
+            exportStats.audioPacketGaps === 0 && exportStats.audioPacketOverlaps === 0
+              ? `all ${exportStats.encodedAudioChunks} audio packets are gapless (no dropouts)`
+              : `${exportStats.audioPacketGaps} gap(s), ${exportStats.audioPacketOverlaps} overlap(s); widest ${Math.round(exportStats.audioMaxContinuityGapUs / 1000)}ms`,
           );
           renderTimer.note(
             "motion",

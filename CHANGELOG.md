@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased — the rendered voice no longer breaks or glitches
+
+- **The voice in a rendered video had intermittent dips and grit; the same
+  voice in the preview was clean.** The preview plays through one soft master
+  limiter and nothing else. The offline render chain added a four-band vocal
+  EQ, a compressor, a **+1.28 dB makeup gain** and then a *hard* limiter
+  (zero knee, 20:1, 1 ms attack at −1.2 dB) on top of narration that
+  Speechify already loudness-maximises (−14 LUFS / −2 dBTP). The EQ and the
+  makeup gain pushed every loud syllable, sibilant and plosive over the
+  limiter's threshold, so it fired repeatedly through the whole voiceover.
+  Each firing is an instantaneous gain dip — the reported "intermittent
+  breaks" — and fast gain reduction on a zero knee adds transient grit — the
+  "glitches". It existed only in the render graph, which is why the preview
+  never showed it. The render limiter now uses the exact same parameters as
+  the live-preview limiter (soft 6 dB knee, 16:1, −1.5 dB, 3 ms attack,
+  150 ms release — `RENDER_LIMITER_*` in `audio-mastering.ts`), the makeup
+  gain is unity, and a test pins the two limiter sets together so they cannot
+  drift apart again. The vocal-clarity EQ, the gentle voice compressor and
+  music ducking are unchanged.
+- **Audio is encoded in the codec's own natural packet size.** The
+  `AudioEncoder` was fed arbitrary 4,800-frame `AudioData` pieces (100 ms),
+  leaving every platform encoder to re-buffer them into its internal packet
+  size — a step that behaves differently across Chrome, Edge, Safari and
+  Firefox. PCM is now handed over in natural packets: 1,024 frames for AAC
+  (the fixed AAC-LC packet every platform encoder normalises to) and a 20 ms
+  packet for Opus (960 frames at 48 kHz). The PCM content is untouched; only
+  the piece size changes, so the encode is identical on paper and no longer
+  depends on a platform-specific buffering quirk.
+- **The exported audio packets are measured for dropouts on every render.**
+  `AudioContinuityGuard` (in `offline-export.ts`) watches the timestamp of
+  every encoded audio packet against the previous packet's end. Sub-microsecond
+  timestamp rounding is ignored; a missing packet is a ~21 ms AAC hole and is
+  counted. The result is printed in the render timing report ("all N audio
+  packets are gapless"), so a platform encoder that ever drops or duplicates a
+  packet on any browser is named in the report instead of shipping as an
+  audible hole in the voice.
+- **Regression coverage** (`tests/audio-render-path.test.ts`): the limiter and
+  makeup-gain safety values, preview/render limiter parity, natural packet
+  framing for AAC and Opus, gapless input slicing including the short final
+  packet, and the continuity guard's gap/overlap/reset behaviour — 700+
+  deterministic checks, all browser-independent.
+
 ## Unreleased — one renderer, a verified MP4, and the B-frame bug behind the judder
 
 - **Why the voice was perfect and everything burned into the picture was not.**

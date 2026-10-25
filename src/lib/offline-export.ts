@@ -36,6 +36,70 @@ export const ENCODE_QUEUE_STALL_MS = DEFAULT_ENCODER_STALL_MS;
 
 export type OfflineContainer = "mp4" | "webm";
 
+/**
+ * How many PCM frames one AudioData handed to the audio encoder should carry.
+ *
+ * Feeding the encoder in the codec's own packet size means the platform
+ * encoder never has to accumulate or split an arbitrary-sized input before it
+ * can emit a packet. Every browser's AAC encoder normalises its output to
+ * 1024-frame packets anyway (via an internal FIFO), so asking for anything
+ * larger only adds a platform-dependent buffering step to the path — and that
+ * step is exactly where cross-browser behaviour differs. AAC-LC is always
+ * 1024 frames; WebCodecs Opus defaults to a 20 ms packet (960 frames at
+ * 48 kHz). See the Chromium AudioToolbox/Media Foundation encoder wrappers,
+ * which both drain their inputs through a 1024-frame FIFO.
+ */
+export function audioChunkFramesForCodec(codec: string, sampleRate: number): number {
+  if (/opus/i.test(codec)) return Math.max(1, Math.round(sampleRate * 0.02));
+  return 1024;
+}
+
+/**
+ * Round-trip timing check for the audio packets an encoder actually emits.
+ *
+ * A rendered voice with an intermittent hole in it is, at the container
+ * level, a packet whose timestamp does not begin where the previous packet
+ * ended. Encoder implementations are supposed to emit a gapless stream, but
+ * this runs on Chrome, Edge, Safari and Firefox through platform codec
+ * services that do not all behave identically, so the exporter measures the
+ * stream instead of assuming it. Rounding noise between adjacent packets
+ * (sub-microsecond at 48 kHz) is ignored; a missing packet is a ~21 ms AAC
+ * hole and is counted.
+ */
+export const AUDIO_CONTINUITY_TOLERANCE_US = 2_000;
+
+export class AudioContinuityGuard {
+  private lastEndUs: number | null = null;
+  /** Packets that started later than the previous packet's end. */
+  gaps = 0;
+  /** Packets that started before the previous packet's end. */
+  overlaps = 0;
+  /** Widest gap observed, in microseconds. */
+  maxGapUs = 0;
+
+  constructor(private readonly toleranceUs: number = AUDIO_CONTINUITY_TOLERANCE_US) {}
+
+  observe(timestampUs: number, durationUs: number): void {
+    if (this.lastEndUs !== null) {
+      const delta = timestampUs - this.lastEndUs;
+      if (delta > this.toleranceUs) {
+        this.gaps += 1;
+        if (delta > this.maxGapUs) this.maxGapUs = delta;
+      } else if (delta < -this.toleranceUs) {
+        this.overlaps += 1;
+      }
+    }
+    this.lastEndUs = timestampUs + Math.max(0, durationUs);
+  }
+
+  reset(): void {
+    this.lastEndUs = null;
+    this.gaps = 0;
+    this.overlaps = 0;
+    this.maxGapUs = 0;
+  }
+}
+
 export interface OfflineExportConfig {
   container: OfflineContainer;
   width: number;
@@ -128,6 +192,14 @@ export interface OfflineExportStats {
   encodedAudioChunks: number;
   videoDurationSec: number;
   audioDurationSec: number;
+  /**
+   * Round-trip continuity of the encoded audio packets. Zero gaps and zero
+   * overlaps means every packet begins exactly where the previous one ended,
+   * so no platform encoder dropped or duplicated a piece of the soundtrack.
+   */
+  audioPacketGaps: number;
+  audioPacketOverlaps: number;
+  audioMaxContinuityGapUs: number;
   effectiveFps: number;
   maxFrameDurationDriftUs: number;
   /**
@@ -379,6 +451,10 @@ export class OfflineExporter {
   private readonly muxer: MuxerLike;
   private readonly store: RenderOutputStore;
   private readonly mime: string;
+  /** Codec string the platform audio encoder was configured with. */
+  private readonly audioCodec: string;
+  /** Watches the emitted audio packets for gaps or overlaps. */
+  private readonly audioContinuity = new AudioContinuityGuard();
   private failure: Error | null = null;
   private cancelled = false;
   /** Resolves the instant `abort()` is called, so a pending wait can stop. */
@@ -424,6 +500,7 @@ export class OfflineExporter {
     if (!api) throw new Error("WebCodecs disappeared after capability probing");
     this.config = { ...config, sampleRate: config.sampleRate ?? 48_000, channels: config.channels ?? 2 };
     this.store = store;
+    this.audioCodec = probe.audioCodec;
     this.outputStorage = store.mode;
     this.outputStorageDetail = outputStorageDetail;
     const fail = (error: DOMException) => { this.failure = new Error(error.message || "WebCodecs encoding failed"); };
@@ -517,6 +594,9 @@ export class OfflineExporter {
         this.encodedAudioChunksCount += 1;
         const endUs = chunk.timestamp + (chunk.duration ?? 0);
         if (endUs > this.maxAudioEndUs) this.maxAudioEndUs = endUs;
+        // Measure before muxing: a hole or a repeated timestamp here is an
+        // audible dropout in the finished voice, whatever the muxer then does.
+        this.audioContinuity.observe(chunk.timestamp, chunk.duration ?? 0);
         this.muxer.addAudioChunk(chunk, meta);
       },
       error: fail,
@@ -668,25 +748,39 @@ export class OfflineExporter {
   /**
    * Encode the whole mixed soundtrack.
    *
+   * PCM is handed over in the codec's own natural packet size (1024 frames
+   * for AAC, a 20 ms packet for Opus), so no platform encoder has to buffer
+   * or split an arbitrary-sized input before emitting a packet. The PCM
+   * stream itself is unchanged — only the size of the AudioData pieces it is
+   * cut into — and the emitted packets are checked for gaps and overlaps by
+   * the continuity guard, so a platform encoder that ever drops a packet on
+   * any browser is measured in the export stats instead of shipping as an
+   * audible hole in the voice.
+   *
    * This used to hand control back only when the encoder's queue was full.
    * When the encoder keeps up — which it does, because AAC is cheap next to
    * H.264 — the queue never fills, nothing is awaited, and the loop runs to
-   * completion in one go. Nine minutes of audio is 5,400 turns of it, and the
-   * window is frozen solid for every one of them. That is the stall at the
-   * end of a long render, when the progress bar has stopped at the last step
-   * and the tab stops responding.
-   *
-   * It now yields on a time budget as well, so the browser gets a turn
-   * several times a second no matter how fast the encoder is going.
+   * completion in one go. Nine minutes of audio is thousands of turns of it,
+   * and the window used to freeze for every one. It now also yields on a
+   * time budget, so the browser gets a turn several times a second no matter
+   * how fast the encoder is going.
    */
   async encodeAudio(
     buffer: AudioBuffer,
-    chunkFrames = 4_800,
+    /**
+     * PCM frames per AudioData. Omit to use the codec's natural packet size
+     * (1024 for AAC, a 20 ms packet for Opus) — the value every platform
+     * encoder normalises to internally anyway. An explicit override exists
+     * for tests and for code that has measured a reason to deviate.
+     */
+    chunkFrames?: number,
     onProgress?: (fraction: number) => void,
   ): Promise<void> {
     const channels = this.config.channels;
+    const naturalFrames = audioChunkFramesForCodec(this.audioCodec, this.config.sampleRate);
+    const framesPerChunk = chunkFrames && chunkFrames > 0 ? chunkFrames : naturalFrames;
     const budget = createFrameBudget();
-    for (let offset = 0; offset < buffer.length; offset += chunkFrames) {
+    for (let offset = 0; offset < buffer.length; offset += framesPerChunk) {
       this.throwIfFailed();
       await this.drainAudioQueue();
       if (this.store.pendingBytes > 16 * 1024 * 1024) {
@@ -695,7 +789,7 @@ export class OfflineExporter {
       await budget.maybeYield();
       this.throwIfFailed();
       onProgress?.(Math.min(1, offset / Math.max(1, buffer.length)));
-      const frames = Math.min(chunkFrames, buffer.length - offset);
+      const frames = Math.min(framesPerChunk, buffer.length - offset);
       const planar = new Float32Array(frames * channels);
       for (let channel = 0; channel < channels; channel++) {
         const source = buffer.getChannelData(Math.min(channel, buffer.numberOfChannels - 1));
@@ -740,6 +834,9 @@ export class OfflineExporter {
       encodedAudioChunks: this.encodedAudioChunksCount,
       videoDurationSec,
       audioDurationSec,
+      audioPacketGaps: this.audioContinuity.gaps,
+      audioPacketOverlaps: this.audioContinuity.overlaps,
+      audioMaxContinuityGapUs: this.audioContinuity.maxGapUs,
       effectiveFps: Math.round(effectiveFps * 100) / 100,
       maxFrameDurationDriftUs: Math.round(this.maxFrameDurationDriftUs),
       reorderedChunks: this.reorderedChunks,

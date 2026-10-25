@@ -8,9 +8,12 @@
  * voice/music buses and the recorder destination and guarantees the final
  * mix has:
  *
- *   • no clipping                 (a brick-wall-ish limiter at the end)
+ *   • no clipping                 (a soft safety limiter at the end, tuned
+ *                                  exactly like the live preview's limiter)
  *   • no excessive loudness       (gentle bus compression, ~2 dB of work)
- *   • audible narration           (voice bus passes through untouched)
+ *   • audible narration           (gentle vocal leveling and clarity EQ,
+ *                                  never enough gain to re-trigger the
+ *                                  limiter on ordinary speech)
  *   • music that never overpowers speech
  *     (voice-priority ducking: the music bus is eased down while the
  *      narrator is speaking and eased back up in the gaps)
@@ -60,6 +63,30 @@ export function duckTimeConstant(currentGain: number, targetGain: number): numbe
 }
 
 /* ------------------------------------------------------------------ *
+ * The render's safety limiter.
+ *
+ * These are the exact values VideoPreview.tsx gives its master limiter,
+ * pinned as exports so the rendered file and the approved preview share one
+ * limiter. A soft knee (not zero) and a 16:1 ratio mean a peak is rounded
+ * off rather than slammed, which is what keeps loud narration free of the
+ * dips and grit an over-driven hard limiter puts into a voice track.
+ * ------------------------------------------------------------------ */
+export const RENDER_LIMITER_THRESHOLD_DB = -1.5;
+export const RENDER_LIMITER_KNEE_DB = 6;
+export const RENDER_LIMITER_RATIO = 16;
+export const RENDER_LIMITER_ATTACK_SECONDS = 0.003;
+export const RENDER_LIMITER_RELEASE_SECONDS = 0.15;
+/**
+ * Makeup gain after the gentle voice compressor.
+ *
+ * The compressor only does about 1–2 dB of work, and adding it back on top
+ * of already maximised narration was enough to drive the limiter on every
+ * loud syllable. Unity gain keeps the voice clear and leaves real headroom
+ * for the limiter to do its actual job: catching the occasional true peak.
+ */
+export const VOICE_MAKEUP_GAIN = 1.0;
+
+/* ------------------------------------------------------------------ *
  * The Web Audio chain
  * ------------------------------------------------------------------ */
 
@@ -99,14 +126,29 @@ export function createMasteringChain(ctx: BaseAudioContext, mode: MasteringMode)
     duckGain.gain.value = 1;
     internalNodes.push(duckGain);
 
-    // Brick-wall-ish safety limiter: the render can never clip, no matter
-    // what the user stacked on the timeline.
+    // Safety limiter: the render can never clip, no matter what the user
+    // stacked on the timeline. It is deliberately the SAME limiter the live
+    // preview plays through (VideoPreview.tsx) — a soft knee and a gentle
+    // ratio, engaged only on the rare peak — so the exported voice sounds
+    // like the one the creator approved.
+    //
+    // THE BUG THIS REPLACES: this used to be a hard-knee (knee 0), 20:1,
+    // 1 ms-attack limiter at -1.2 dB, sitting behind a +1.28 dB makeup gain
+    // and the presence/air EQ. Speechify narration is already loudness
+    // maximised (-14 LUFS / -2 dBTP), so those gains pushed every loud
+    // syllable, sibilant and plosive OVER the limiter's threshold. It fired
+    // over and over through the whole voiceover: each firing is an instant
+    // gain dip (the "intermittent breaks") and fast 20:1 gain reduction on a
+    // zero knee adds transient grit (the "glitches"). It only ever existed in
+    // the offline render chain, which is exactly why the preview stayed clean
+    // while the rendered voice did not. The constants are exported so the two
+    // chains can never silently drift apart again.
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -1.2;
-    limiter.knee.value = 0;
-    limiter.ratio.value = 20;
-    limiter.attack.value = 0.001;
-    limiter.release.value = 0.09;
+    limiter.threshold.value = RENDER_LIMITER_THRESHOLD_DB;
+    limiter.knee.value = RENDER_LIMITER_KNEE_DB;
+    limiter.ratio.value = RENDER_LIMITER_RATIO;
+    limiter.attack.value = RENDER_LIMITER_ATTACK_SECONDS;
+    limiter.release.value = RENDER_LIMITER_RELEASE_SECONDS;
     internalNodes.push(limiter);
 
     // Dedicated vocal clarity & leveling channel, isolated from music-bus
@@ -151,7 +193,7 @@ export function createMasteringChain(ctx: BaseAudioContext, mode: MasteringMode)
     voiceCompressor.release.value = 0.16;
 
     const voiceMakeup = ctx.createGain();
-    voiceMakeup.gain.value = 1.16;
+    voiceMakeup.gain.value = VOICE_MAKEUP_GAIN;
     voiceTail.connect(voiceCompressor);
     voiceCompressor.connect(voiceMakeup);
     voiceMakeup.connect(limiter);
