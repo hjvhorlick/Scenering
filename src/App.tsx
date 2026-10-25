@@ -15,6 +15,7 @@ import VideoStudio from "./components/VideoStudio";
 import { pickRandomImageUrl, rawImageUrl } from "./lib/image-picker";
 import { searchImagePool, proxyImageUrl } from "./lib/image-search";
 import { sceneHasVisual } from "./lib/scene-framing";
+import { motionForStyle, motionForAnimationStyle } from "./lib/scene-animation";
 import RenderView from "./components/RenderView";
 import { getRenderStatus, subscribeRenderStatus, type RenderJobStatus } from "./lib/render-status";
 import { listVaultRenders, subscribeVault } from "./lib/render-vault";
@@ -600,15 +601,6 @@ export default function App() {
     // When the per-scene animation system is turned on, seed every scene's
     // camera motion from the current global choice so the effect is active on
     // all scenes, not only those that already had an animation config.
-    const animMap: Record<string, string> = {
-      ken_burns: "ken_burns",
-      zoom_in: "slow_zoom",
-      zoom_out: "zoom_out",
-      pan: "pan_left",
-      shake: "cinematic_drift",
-      floating: "cinematic_drift",
-      none: "none",
-    };
     const persist = (sceneId: number, cameraMotion: string, fallbackAnim: any) => {
       try {
         const existing = localStorage.getItem(`scenering_scene_meta_${sceneId}`);
@@ -627,10 +619,9 @@ export default function App() {
       } catch {}
     };
     if (motionStyle === "dynamic") {
-      const list = ["ken_burns", "slow_zoom", "pan_left", "zoom_out", "pan_right", "cinematic_drift"];
       setScenes((prev) =>
         prev.map((s, idx) => {
-          const m = list[idx % list.length];
+          const m = motionForAnimationStyle("dynamic", idx);
           persist(s.id, m, (s as any).animation);
           return {
             ...s,
@@ -643,9 +634,9 @@ export default function App() {
         })
       );
     } else {
-      const target = animMap[motionStyle] || "none";
       setScenes((prev) =>
-        prev.map((s) => {
+        prev.map((s, idx) => {
+          const target = motionForAnimationStyle(motionStyle, idx);
           persist(s.id, target, (s as any).animation);
           return {
             ...s,
@@ -1219,22 +1210,7 @@ export default function App() {
 
       // Resolve per-scene camera motion from the Setup choice so every scene
       // inherits the same effect from the start — not just the first one.
-      const resolveMotionEffect = (idx: number): string => {
-        if (chosenMotion === "dynamic") {
-          const list = ["ken_burns", "zoom_in", "pan_left", "zoom_out", "pan_right", "floating"];
-          return list[idx % list.length];
-        }
-        const map: Record<string, string> = {
-          ken_burns: "ken_burns",
-          zoom_in: "zoom_in",
-          zoom_out: "zoom_out",
-          pan: "pan_left",
-          shake: "shake",
-          floating: "floating",
-          none: "none",
-        };
-        return map[chosenMotion] || "none";
-      };
+      const resolveMotionEffect = (idx: number): string => motionForStyle(chosenMotion, idx);
 
       const sceneRows = sceneSources.map((s, i) => {
         const sceneText = s.text.trim();
@@ -1284,19 +1260,8 @@ export default function App() {
       // Persist the Setup motion choice for every scene so it survives reloads
       // and is visible in preview/render from the first frame of every scene.
       if (freshSettings.scene_animation_enabled) {
-        const animMap: Record<string, string> = {
-          ken_burns: "ken_burns",
-          zoom_in: "slow_zoom",
-          zoom_out: "zoom_out",
-          pan: "pan_left",
-          shake: "cinematic_drift",
-          floating: "cinematic_drift",
-          none: "none",
-        };
         createdScenes = createdScenes.map((sc, idx) => {
-          const animMotion = chosenMotion === "dynamic"
-            ? ["ken_burns", "slow_zoom", "pan_left", "zoom_out", "pan_right", "cinematic_drift"][idx % 6]
-            : (animMap[chosenMotion] || "none");
+          const animMotion = motionForAnimationStyle(chosenMotion, idx);
           const anim = {
             enabled: chosenMotion !== "none",
             camera: { motion: animMotion as any, speed: 0.45, intensity: 0.55 },
@@ -1993,38 +1958,8 @@ export default function App() {
     const initialText = "New scene — replace this with your narration.";
     const initialDuration = sceneDurationForText(initialText, sceneDuration || 20);
 
-    const resolveNewSceneMotion = (): string => {
-      if (motionStyle === "dynamic") {
-        const list = ["ken_burns", "zoom_in", "pan_left", "zoom_out", "pan_right", "floating"];
-        return list[insertAt % list.length];
-      }
-      const m: Record<string, string> = {
-        ken_burns: "ken_burns",
-        zoom_in: "zoom_in",
-        zoom_out: "zoom_out",
-        pan: "pan_left",
-        shake: "shake",
-        floating: "floating",
-        none: "none",
-      };
-      return m[motionStyle] || "none";
-    };
-    const resolveNewSceneAnimMotion = (): string => {
-      if (motionStyle === "dynamic") {
-        const list = ["ken_burns", "slow_zoom", "pan_left", "zoom_out", "pan_right", "cinematic_drift"];
-        return list[insertAt % list.length];
-      }
-      const am: Record<string, string> = {
-        ken_burns: "ken_burns",
-        zoom_in: "slow_zoom",
-        zoom_out: "zoom_out",
-        pan: "pan_left",
-        shake: "cinematic_drift",
-        floating: "cinematic_drift",
-        none: "none",
-      };
-      return am[motionStyle] || "none";
-    };
+    const resolveNewSceneMotion = (): string => motionForStyle(motionStyle, insertAt);
+    const resolveNewSceneAnimMotion = (): string => motionForAnimationStyle(motionStyle, insertAt);
 
     const newSceneRow: any = {
       project_id: currentProject.id,

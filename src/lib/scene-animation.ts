@@ -1597,11 +1597,91 @@ export function enabledSceneAnimationEffects(animation?: SceneAnimationConfig | 
   return resolveSceneAnimation(animation).effects?.filter((effectValue) => effectValue.enabled !== false) || [];
 }
 
-export function resolveSceneCameraMotion(scene: Pick<Scene, "motion_effect" | "animation">, sceneAnimationEnabled: boolean): SceneMotionType | undefined {
-  if (!sceneAnimationEnabled) return (scene.motion_effect as SceneMotionType) || "none";
+/**
+ * How a project-wide Motion Style becomes one movement per scene.
+ *
+ * These two tables are the ONLY definition of the mapping. The project editor
+ * writes `motion_effect` (and `animation.camera.motion`) from them, and the
+ * export reads them back, so a scene can never be created with one movement
+ * and rendered with another. Keeping copies of these lists in the components
+ * is what let the preview and the file drift apart.
+ */
+export const MOTION_STYLE_ROTATION: SceneMotionType[] = [
+  "ken_burns",
+  "zoom_in",
+  "pan_left",
+  "zoom_out",
+  "pan_right",
+  "floating",
+];
+export const ANIMATION_STYLE_ROTATION: SceneMotionType[] = [
+  "ken_burns",
+  "slow_zoom",
+  "pan_left",
+  "zoom_out",
+  "pan_right",
+  "cinematic_drift",
+];
+/** Named styles that map to one movement (the legacy per-scene field). */
+const MOTION_EFFECT_BY_STYLE: Record<string, SceneMotionType> = {
+  ken_burns: "ken_burns",
+  zoom_in: "zoom_in",
+  zoom_out: "zoom_out",
+  pan: "pan_left",
+  shake: "shake",
+  floating: "floating",
+  none: "none",
+};
+/** Named styles that map to one movement for the per-scene animation stack. */
+const ANIMATION_MOTION_BY_STYLE: Record<string, SceneMotionType> = {
+  ken_burns: "ken_burns",
+  zoom_in: "slow_zoom",
+  zoom_out: "zoom_out",
+  pan: "pan_left",
+  shake: "cinematic_drift",
+  floating: "cinematic_drift",
+  none: "none",
+};
+
+/** The movement a scene gets from the project-wide Motion Style (legacy field). */
+export function motionForStyle(style: string | undefined, sceneIndex = 0): SceneMotionType {
+  const key = style || "none";
+  if (key === "dynamic") {
+    return MOTION_STYLE_ROTATION[Math.abs(sceneIndex) % MOTION_STYLE_ROTATION.length];
+  }
+  return MOTION_EFFECT_BY_STYLE[key] || "none";
+}
+
+/** The movement a scene gets from the Motion Style in its animation stack. */
+export function motionForAnimationStyle(style: string | undefined, sceneIndex = 0): SceneMotionType {
+  const key = style || "none";
+  if (key === "dynamic") {
+    return ANIMATION_STYLE_ROTATION[Math.abs(sceneIndex) % ANIMATION_STYLE_ROTATION.length];
+  }
+  return ANIMATION_MOTION_BY_STYLE[key] || "none";
+}
+
+/**
+ * The camera movement a scene is drawn with.
+ *
+ * `fallbackMotion` is the movement the project's Motion Style gives this
+ * scene. It is used when the scene carries no movement of its own — which is
+ * exactly what happens to a project whose per-scene animation stack is
+ * stripped for the download (or whose `motion_effect` was never written).
+ * Without it such a scene was drawn with `"none"`: the preview glided and the
+ * finished file froze, scene by scene, which reads as a jerky camera.
+ */
+export function resolveSceneCameraMotion(
+  scene: Pick<Scene, "motion_effect" | "animation">,
+  sceneAnimationEnabled: boolean,
+  fallbackMotion?: SceneMotionType
+): SceneMotionType | undefined {
+  if (!sceneAnimationEnabled) {
+    return (scene.motion_effect as SceneMotionType) || fallbackMotion || "none";
+  }
   const cfg = resolveSceneAnimation(scene.animation);
-  if (cfg.enabled === false) return "none";
-  return cfg.camera?.motion || "none";
+  if (cfg.enabled === false) return fallbackMotion || "none";
+  return cfg.camera?.motion || fallbackMotion || "none";
 }
 
 export function sceneCameraProgress(scene: Pick<Scene, "animation">, sceneAnimationEnabled: boolean, progress: number): number {
@@ -1609,10 +1689,22 @@ export function sceneCameraProgress(scene: Pick<Scene, "animation">, sceneAnimat
   if (!sceneAnimationEnabled) return safe;
   const cfg = resolveSceneAnimation(scene.animation);
   const speed = clamp(cfg.camera?.speed ?? DEFAULT_SCENE_ANIMATION_CAMERA.speed, 0, 1);
-  // Slow still completes most of the travel; fast gets there earlier. The scene
-  // duration remains the authority, so motion never changes timing/captions.
-  const factor = 0.72 + speed * 0.86;
-  return clamp(safe * factor, 0, 1);
+  /**
+   * Speed decides how the travel is spread across the scene — never when it
+   * stops. It used to multiply the progress and clamp at 1 (`p * 1.107`), so
+   * the camera finished its move about a tenth of the way before the end and
+   * then stood perfectly still until the cut: a move that flows and then
+   * freezes reads as a stutter, not a camera.
+   *
+   * `1 - (1 - p)^k` is monotonic, starts at 0, and is exactly 1 at the end of
+   * the scene for every k, so the travel always lands on the last frame:
+   *   - k = 1 (speed 0) is a constant rate, the whole scene long;
+   *   - k > 1 front-loads the move and eases into its end.
+   * The scene duration remains the authority, so motion never changes
+   * timing/captions.
+   */
+  const rate = 1 + speed * 0.9;
+  return clamp(1 - Math.pow(1 - safe, rate), 0, 1);
 }
 
 export function getSceneCameraTransform(
@@ -1621,9 +1713,10 @@ export function getSceneCameraTransform(
   progress: number,
   w: number,
   h: number,
-  sceneIndex = 0
+  sceneIndex = 0,
+  fallbackMotion?: SceneMotionType
 ): { scale: number; dx: number; dy: number } {
-  const motion = resolveSceneCameraMotion(scene, sceneAnimationEnabled);
+  const motion = resolveSceneCameraMotion(scene, sceneAnimationEnabled, fallbackMotion);
   const p = sceneCameraProgress(scene, sceneAnimationEnabled, progress);
   const base = getMotionTransform(motion, p, w, h, sceneIndex);
   if (!sceneAnimationEnabled) return base;

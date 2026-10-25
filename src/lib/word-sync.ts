@@ -27,6 +27,9 @@ function normalizeWord(word: string): string {
   return (word || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+/** How many caption words ahead a re-sync anchor is looked for. */
+const ANCHOR_LOOKAHEAD = 4;
+
 /** Cheap containment/equality match between a caption word and a spoken word. */
 function wordsMatch(caption: string, spoken: string): boolean {
   const c = normalizeWord(caption);
@@ -65,6 +68,29 @@ export function alignWordTimings(captionWords: readonly string[], timings: reado
   let t = 0; // index into timings
   let lastEnd = 0;
 
+  /**
+   * The first spoken word at or after `from` that any of the next few caption
+   * words names.
+   *
+   * Looking just ONE caption word ahead is enough while the two streams agree,
+   * and it is what makes the citation case exact ("3:16" spans "chapter three
+   * verse sixteen"). It is not enough when the sanitiser has *inserted*
+   * words the caption does not have: then a run of caption words each fail to
+   * match the spoken word they are being paired with, and consuming one
+   * spoken word per caption word walks the highlight further and further
+   * behind the voice — the cumulative lag that reads as captions that are
+   * "not following" at all. Looking a few words ahead for the next anchor
+   * re-syncs at the next word both streams share.
+   */
+  const findAnchor = (fromCaption: number, fromTiming: number, span = ANCHOR_LOOKAHEAD): { caption: number; timing: number } | null => {
+    for (let k = fromCaption; k < Math.min(n, fromCaption + span); k++) {
+      for (let j = fromTiming; j < timings.length; j++) {
+        if (wordsMatch(captionWords[k], timings[j].text)) return { caption: k, timing: j };
+      }
+    }
+    return null;
+  };
+
   for (let i = 0; i < n; i++) {
     if (t >= timings.length) {
       // No spoken words left: spread the remaining tail evenly so the last
@@ -80,35 +106,72 @@ export function alignWordTimings(captionWords: readonly string[], timings: reado
 
     const start = timings[t].start;
 
-    // Look ahead: where does the NEXT caption word start being spoken?
-    let consume = 1;
-    if (i + 1 < n) {
-      let j = t;
-      let nextAt = -1;
-      while (j < timings.length) {
-        if (j > t && wordsMatch(captionWords[i + 1], timings[j].text)) {
-          nextAt = j;
-          break;
-        }
-        j++;
-      }
-      if (nextAt === -1) {
-        // Next caption word never matches: pair this caption word with the
-        // single next spoken word (1:1 fallback) so both streams still drain.
-        consume = 1;
-        const end = timings[t].end;
-        result[i] = { start, end: Math.max(start, end) };
-        lastEnd = Math.max(lastEnd, result[i]!.end);
-        t += 1;
-        continue;
-      }
-      consume = nextAt - t;
+    /* The last caption word is held for as long as the voice keeps speaking.
+       It used to end with one spoken word, so the tail of the line — the
+       words a delay or an expansion put after the caption's last word — ran
+       with nothing lit. */
+    if (i === n - 1) {
+      const end = Math.max(lastEnd, timings[timings.length - 1].end, start + 0.05);
+      result[i] = { start, end };
+      return result;
     }
 
+    /* Where does the NEXT caption word start being spoken? Only that one word
+       is searched here, on purpose: an expansion ("3:16") matches nothing in
+       the spoken stream, and the caption word before it must stop at the
+       expansion's first spoken word rather than skipping to whatever word
+       turns up later in the line. */
+    const nextAnchor = findAnchor(i + 1, t + 1, 1);
+
+    /* Does the caption word being placed actually name the spoken word it is
+       standing on? If it does, this word owns the spoken words up to the next
+       anchor (the expansion/citation rule). If it does not, the sanitiser put
+       extra words here, and this word must not be allowed to consume one
+       spoken word per caption word for the rest of the line. */
+    const ownsCurrentSpokenWord = wordsMatch(captionWords[i], timings[t].text);
+
+    if (!ownsCurrentSpokenWord) {
+      const anchor = findAnchor(i + 1, t + 1);
+      if (anchor) {
+        /* Spread this run of unmatched caption words across the spoken words
+           they cover, ending exactly where the anchor word starts. The anchor
+           keeps its own exact timing, so the drift cannot outlive the run. */
+        const spanEnd = timings[Math.max(t, anchor.timing - 1)].end;
+        const slots = Math.max(1, anchor.caption - i);
+        const slice = Math.max(0.001, (spanEnd - start) / slots);
+        for (let m = i; m < anchor.caption; m++) {
+          result[m] = { start: start + (m - i) * slice, end: start + (m - i + 1) * slice };
+        }
+        lastEnd = Math.max(lastEnd, spanEnd);
+        t = anchor.timing;
+        i = anchor.caption - 1;
+        continue;
+      }
+      // Nothing ahead matches at all: pair this word with the single spoken
+      // word under it (1:1 fallback) so both streams still drain.
+      const end = Math.max(start, timings[t].end);
+      result[i] = { start, end };
+      lastEnd = Math.max(lastEnd, end);
+      t += 1;
+      continue;
+    }
+
+    const nextAt = nextAnchor ? nextAnchor.timing : -1;
+    if (nextAt === -1) {
+      // The next caption word never matches: this one ends with its own
+      // spoken word, and the pairing continues from the following word.
+      const end = Math.max(start, timings[t].end);
+      result[i] = { start, end };
+      lastEnd = Math.max(lastEnd, end);
+      t += 1;
+      continue;
+    }
+
+    const consume = Math.max(1, nextAt - t);
     const lastConsumed = timings[Math.min(t + consume - 1, timings.length - 1)];
-    const end = i === n - 1 ? Math.max(lastConsumed.end, timings[t].start + 0.05) : lastConsumed.end;
-    result[i] = { start, end: Math.max(start, end) };
-    lastEnd = Math.max(lastEnd, result[i]!.end);
+    const end = Math.max(start, lastConsumed.end);
+    result[i] = { start, end };
+    lastEnd = Math.max(lastEnd, end);
     t += consume;
   }
 

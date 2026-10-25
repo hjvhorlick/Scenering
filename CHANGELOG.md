@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased — smooth camera, captions that follow the voice
+
+- **A rendered video keeps the camera movement its preview showed.** On a
+  plan without the per-scene effect stack, the cleaned copy handed to the
+  encoder reported scene animation as switched off — and that was taken to
+  mean the *camera* too. The export then read `scene.motion_effect`, a second
+  per-scene field the preview never looks at, so any project where the two had
+  drifted apart (every project saved before the Motion Style was propagated to
+  all scenes) glided on screen and froze or moved differently in the file,
+  scene by scene. The camera is audited separately (`camera_movements`), so
+  only the effect layers are stripped now, and a scene with no movement of
+  its own inherits the project's Motion Style for its position
+  (`motionForStyle()`, `resolveSceneCameraMotion(…, fallbackMotion)`) instead
+  of going static. The style→movement tables also exist once, in
+  `scene-animation.ts`, and the project editor writes from them, so the
+  preview and the file can no longer disagree about what a scene does.
+- **Ken Burns no longer steps or jumps back inside a rendered video.** The
+  drift was clamped against the *instantaneous* zoom, so it raced ahead into
+  headroom, got squashed for a few frames and then froze while the zoom kept
+  going — the "jagged" movement. The travel is now budgeted up front from a
+  fixed minimum scale (`driftBudget()`), so a pan consumes a constant amount
+  of headroom over the whole shot and is never clamped mid-move. The camera
+  progress curve also no longer finishes its travel early and leaves a dead
+  tail (`sceneCameraProgress`), and the copy buffer the frame is drawn from is
+  oversized (`MAX_CAMERA_OVERSCAN`) so the largest drift never samples beyond
+  the edge of the image.
+- **Captions follow the voiceover's word marks, not an estimate.** Three
+  separate defects were fixed:
+  - Word marks were dropped whenever a scene's audio was resolved from its
+    `audio_url` (the normal path after a reload or a restored project), so the
+    captions fell back to a syllable estimate that drifted from the speaker.
+    `durableNarrationWords()` now reads the authoritative `scene_<id>` cache
+    row and backfills `words`, guarded by a text match so a re-recorded script
+    cannot inherit stale marks.
+  - The exported captions treated any word before the current progress as
+    "already sung", so once progress reached 1 every word was painted as
+    spoken and the captions visibly ran ahead of the voice. Filled words are
+    now counted from the spoken word index under real marks.
+  - Re-alignment consumed exactly one spoken word per caption word, so a
+    sanitised or expanded word (a citation read out in full) pushed the rest
+    of the caption permanently behind the voice. Unmatched runs are now spread
+    evenly to the next shared anchor, and the last word is held to the end of
+    its mark.
+- **Both are covered by regression tests** (`tests/motion.test.ts` forbids
+  velocity jolts, direction reversals and mid-scene stalls across every motion
+  preset and frame size; `tests/captions.test.ts` pins the three-state caption
+  fill under marks, the final-word hold and the re-sync after an expansion).
+- **A Free render keeps a moving camera.** Stripping a paid camera movement
+  now falls back to the included `dynamic` movement instead of `none`, so a
+  downgrade removes the paid look without turning the video into stills.
+
 ## Unreleased — Block Out: privacy redaction you can drag on the preview
 
 - **Video Studio has a Block Out section.** It covers words, names, numbers

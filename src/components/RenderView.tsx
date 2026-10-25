@@ -35,7 +35,7 @@ import { resolveVoicePreset } from "../data/voice-presets";
 import {
   renderTimelineInsert,
 } from "../lib/render-effects";
-import { getSceneCameraTransform, renderSceneAnimationEffects } from "../lib/scene-animation";
+import { getSceneCameraTransform, motionForStyle, renderSceneAnimationEffects } from "../lib/scene-animation";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { PackedAudioTelemetry, TELEMETRY_SAMPLE_STRIDE } from "../lib/audio-telemetry";
@@ -1079,7 +1079,22 @@ export default function RenderView({
     });
     const exportInserts = exportSafe.inserts;
     const exportFilter = exportSafe.videoFilter;
-    const exportSceneAnimation = exportSafe.sceneAnimationEnabled;
+    /**
+     * The per-scene effect stack (weather, water, particles…) is the paid part
+     * and is stripped for a plan that does not include special effects.
+     *
+     * The CAMERA is a different feature (`camera_movements`, audited through
+     * `motionStyle` above), so it must NOT be switched off by that strip. It
+     * used to be: with the stack stripped, `getSceneCameraTransform()` read
+     * `scene.motion_effect` instead of `scene.animation.camera.motion`, which
+     * is a field the preview never touched — so on any project where the two
+     * had drifted apart (every project saved before the style was propagated
+     * to all scenes) the preview glided and the finished file froze or moved
+     * differently, scene by scene. That is "the Ken Burns looks jagged in the
+     * video but fine in the preview".
+     */
+    const exportSceneEffects = exportSafe.sceneAnimationEnabled;
+    const exportSceneAnimation = sceneAnimationEnabled || exportSceneEffects;
     const exportMotionStyle = exportSafe.motionStyle;
     const exportVoiceEcho = exportSafe.voiceEcho;
     setVipOmittedLast(exportSafe.removed);
@@ -1101,7 +1116,7 @@ export default function RenderView({
         if (narrationVoices.some((voiceId) => !isPlanVoiceIncluded("free", voiceId))) required.add("advanced_voice");
         if (captionsConfig?.enabled && !["newsroom_clean", "cinema_classic"].includes(captionsConfig.preset || "newsroom_clean")) required.add("premium_captions");
         if (exportMotionStyle && !["dynamic", "static", "none"].includes(exportMotionStyle)) required.add("camera_movements");
-        if (exportSceneAnimation) required.add("special_effects");
+        if (exportSceneEffects) required.add("special_effects");
         // Echo and ambience are written into the exported voice track, so the
         // export is what they are charged against; previewing them stays free.
         if (voiceEchoIsActive(resolveVoiceEcho(exportVoiceEcho))) required.add("voice_echo");
@@ -1798,13 +1813,17 @@ export default function RenderView({
           }
         }
 
+        /* The movement the project's Motion Style gives this scene is the
+           fallback, so a scene whose own movement was stripped or never
+           written still moves in the file exactly as the preview showed. */
         const { scale, dx, dy } = getSceneCameraTransform(
           currentScene,
           exportSceneAnimation,
           progressInScene,
           width,
           height,
-          currentSceneIdx
+          currentSceneIdx,
+          motionForStyle(exportMotionStyle, currentSceneIdx)
         );
         const safeScale = isNaN(scale) ? 1 : scale;
         const safeDx = isNaN(dx) ? 0 : dx;
@@ -1840,7 +1859,8 @@ export default function RenderView({
                   1,
                   width,
                   height,
-                  Math.max(0, currentSceneIdx - 1)
+                  Math.max(0, currentSceneIdx - 1),
+                  motionForStyle(exportMotionStyle, Math.max(0, currentSceneIdx - 1))
                 )
               : { scale: 1, dx: 0, dy: 0 };
             const safePrevScale = isNaN(prevScale) ? 1 : prevScale;
@@ -1891,7 +1911,7 @@ export default function RenderView({
         }
 
         // --- Per-scene living-scene animation layers ---
-        if (exportSceneAnimation) {
+        if (exportSceneEffects) {
           try {
             renderSceneAnimationEffects(
               ctx,
