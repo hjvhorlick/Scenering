@@ -377,16 +377,16 @@ const footageScene = {
   );
   h.eq(
     [...render.matchAll(/clipAudioPlanFor\(entry\.scene, entry\.startTime, entry\.duration\)/g)].length,
-    2,
-    "in BOTH pipelines — the frame-exact one and the compatibility fallback"
+    1,
+    "in the one pipeline there is — the frame-exact renderer"
   );
   h.ok(
     render.includes("scheduleClipAudio(offlineCtx, track, plan, offlineMusicAnalyser, 0)"),
     "the frame-exact render decodes and schedules it into its offline mix"
   );
   h.ok(
-    render.includes("scheduleClipAudio(audioCtx, track, plan, musicAnalyser, renderAudioT0)"),
-    "and the compatibility render schedules it on the live clock"
+    !render.includes("new MediaRecorder"),
+    "and no real-time recorder exists to schedule it on a second, live clock"
   );
   h.ok(
     render.includes("has no soundtrack this browser can read"),
@@ -1116,8 +1116,8 @@ const footageScene = {
   );
   h.eq(
     (render.match(/audioBuffers\.get\(entry\.scene\.id\)/g) || []).length,
-    2,
-    "both the offline export and the realtime preview read that same map"
+    1,
+    "the export reads that map, and it is the only renderer left"
   );
 
   // With nothing spoken, the caption clock spans the scene rather than being

@@ -50,6 +50,15 @@ export class PackedAudioTelemetry {
   private readonly musicFrequency: Uint8Array;
   private readonly voiceWaveform: Uint8Array;
   private readonly musicWaveform: Uint8Array;
+  /**
+   * Reused output for `frameSmooth()`. One set of arrays for the life of the
+   * render, never one allocation per frame: a fifteen-minute export asks for
+   * 27,000 frames and each one carries a thousand analyser bins.
+   */
+  private readonly smoothVoiceFreq: Uint8Array;
+  private readonly smoothMusicFreq: Uint8Array;
+  private readonly smoothVoiceWave: Uint8Array;
+  private readonly smoothMusicWave: Uint8Array;
 
   constructor(frameCount: number, frequencyBins: number, waveformBins: number) {
     this.frameCount = Math.max(1, Math.floor(frameCount));
@@ -62,6 +71,11 @@ export class PackedAudioTelemetry {
     this.musicFrequency = new Uint8Array(this.frameCount * this.frequencyBins);
     this.voiceWaveform = new Uint8Array(this.frameCount * this.waveformBins);
     this.musicWaveform = new Uint8Array(this.frameCount * this.waveformBins);
+
+    this.smoothVoiceFreq = new Uint8Array(this.frequencyBins);
+    this.smoothMusicFreq = new Uint8Array(this.frequencyBins);
+    this.smoothVoiceWave = new Uint8Array(this.waveformBins);
+    this.smoothMusicWave = new Uint8Array(this.waveformBins);
 
     // Web Audio time-domain silence is centred on 128, not zero. Filling once
     // means an unrecorded frame is correctly silent instead of a full-scale
@@ -158,6 +172,61 @@ export class PackedAudioTelemetry {
         wave: this.musicWaveform.subarray(waveStart, waveStart + this.waveformBins),
       },
     };
+  }
+
+  /**
+   * A frame whose analyser values are interpolated between the two samples
+   * that bracket it.
+   *
+   * The offline pass only suspends the audio graph every
+   * `TELEMETRY_SAMPLE_STRIDE` frames, so a held row makes anything driven by
+   * the analyser — visualisers, reactive stickers, audio-reactive camera
+   * pulses — move in steps of three frames: ten updates a second in a
+   * thirty-frame-per-second video. On screen that reads as a stutter, and it
+   * looks exactly like the camera jumping. Interpolating between the samples
+   * keeps the memory cost identical (the stride still only stores one row per
+   * three frames) while every frame gets its own value, so the movement is
+   * continuous.
+   *
+   * The returned arrays are owned by this object and overwritten on the next
+   * call: draw with them, do not keep them.
+   */
+  frameSmooth(index: number, stride = TELEMETRY_SAMPLE_STRIDE): AudioFrame {
+    const clamped = Math.max(0, Math.min(this.frameCount - 1, Math.floor(index)));
+    const step = Math.max(1, Math.floor(stride));
+    const from = Math.min(this.frameCount - 1, clamped - (clamped % step));
+    const to = Math.min(this.frameCount - 1, from + step);
+    if (from === to) return this.frame(clamped);
+    const t = (clamped - from) / (to - from);
+    this.lerpBins(this.voiceFrequency, from, to, t, this.smoothVoiceFreq);
+    this.lerpBins(this.musicFrequency, from, to, t, this.smoothMusicFreq);
+    this.lerpBins(this.voiceWaveform, from, to, t, this.smoothVoiceWave, 128);
+    this.lerpBins(this.musicWaveform, from, to, t, this.smoothMusicWave, 128);
+    const voiceLevel = this.voiceLevels[from] + (this.voiceLevels[to] - this.voiceLevels[from]) * t;
+    const musicLevel = this.musicLevels[from] + (this.musicLevels[to] - this.musicLevels[from]) * t;
+    return {
+      voice: { level: voiceLevel, freq: this.smoothVoiceFreq, wave: this.smoothVoiceWave },
+      music: { level: musicLevel, freq: this.smoothMusicFreq, wave: this.smoothMusicWave },
+    };
+  }
+
+  /** Blend two stored rows into `out`, without allocating. */
+  private lerpBins(
+    source: Uint8Array,
+    from: number,
+    to: number,
+    t: number,
+    out: Uint8Array,
+    centre = 0,
+  ): void {
+    const bins = out.length;
+    const a = from * bins;
+    const b = to * bins;
+    for (let i = 0; i < bins; i++) {
+      const va = source[a + i] - centre;
+      const vb = source[b + i] - centre;
+      out[i] = Math.max(0, Math.min(255, Math.round(centre + va + (vb - va) * t)));
+    }
   }
 
   private writeBus(index: number, bus: AudioBus, voice: boolean): void {

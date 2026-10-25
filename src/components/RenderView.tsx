@@ -35,7 +35,12 @@ import { resolveVoicePreset } from "../data/voice-presets";
 import {
   renderTimelineInsert,
 } from "../lib/render-effects";
-import { getSceneCameraTransform, motionForStyle, renderSceneAnimationEffects } from "../lib/scene-animation";
+import {
+  getSceneCameraTransform,
+  motionForStyle,
+  renderSceneAnimationEffects,
+  resolveSceneCameraMotion,
+} from "../lib/scene-animation";
 import { renderCanvasCaptions, DEFAULT_CAPTIONS_CONFIG } from "../lib/render-captions";
 import { AudioFrame, EMPTY_FRAME, makeBus } from "../lib/audio-reactive";
 import { PackedAudioTelemetry, TELEMETRY_SAMPLE_STRIDE } from "../lib/audio-telemetry";
@@ -135,6 +140,8 @@ import {
   withTimeout,
 } from "../lib/render-guard";
 import { drawSceneringWatermark, planRequiresSceneringWatermark } from "../lib/scenering-watermark";
+import { FrameMotionAudit, type MotionAuditReport } from "../lib/frame-motion-audit";
+import { auditFinishedMp4, describeAudit, type Mp4Audit } from "../lib/mp4-audit";
 import Icon, { iconify } from "./icons/Icon";
 
 /**
@@ -170,6 +177,10 @@ interface RenderHealthState {
   telemetryBytes: number;
   tabHidden: boolean;
   wakeLock: RenderWakeLockState;
+  /** Frames the encoder reported off their own 1/fps tick. */
+  offCadenceFrames: number;
+  /** One-line motion check: did the picture actually move between samples? */
+  motionCheck: string;
 }
 
 const EMPTY_RENDER_HEALTH: RenderHealthState = {
@@ -184,6 +195,8 @@ const EMPTY_RENDER_HEALTH: RenderHealthState = {
   telemetryBytes: 0,
   tabHidden: false,
   wakeLock: "released",
+  offCadenceFrames: 0,
+  motionCheck: "Waiting for the first frames…",
 };
 
 /**
@@ -440,7 +453,13 @@ export default function RenderView({
   /** Never hide which pipeline made the file. During diagnosis, frame-exact
    * is required by default so a silent MediaRecorder fallback cannot be
    * mistaken for a successful fix. */
-  const [renderEngine, setRenderEngine] = useState<"checking" | "frame-exact" | "compatibility" | null>(null);
+  /**
+   * Which engine produced (or is producing) the file.
+   *
+   * There is only one engine now. `failed` exists so the screen can say the
+   * browser could not do it instead of quietly recording something worse.
+   */
+  const [renderEngine, setRenderEngine] = useState<"checking" | "frame-exact" | "failed" | null>(null);
   const [offlineFailureReason, setOfflineFailureReason] = useState<string | null>(null);
   /**
    * Said out loud when an uploaded clip's own soundtrack could not be read by
@@ -449,7 +468,6 @@ export default function RenderView({
    * about.
    */
   const [clipAudioNotice, setClipAudioNotice] = useState<string | null>(null);
-  const [requireFrameExact, setRequireFrameExact] = useState(true);
   /** How many scene photos had to be replaced by placeholder cards in the
    *  last render — surfaced so a dead image URL is never silent again. */
   const [imageFallbackCount, setImageFallbackCount] = useState(0);
@@ -457,6 +475,15 @@ export default function RenderView({
   const [renderHealth, setRenderHealth] = useState<RenderHealthState>(EMPTY_RENDER_HEALTH);
   /** Verified post-encode dimensions, frame rate, duration and A/V sync. */
   const [exportValidation, setExportValidation] = useState<ExportValidationReport | null>(null);
+  /**
+   * The finished file, read back the way a player reads it: container, codec,
+   * frame count, frame timing and audio length. `exportValidation` asks the
+   * browser to decode the result; this asks the bytes themselves, which is the
+   * only way to catch a file that plays, but plays badly.
+   */
+  const [outputAudit, setOutputAudit] = useState<Mp4Audit | null>(null);
+  /** Did the picture actually move between sampled frames, or was it held? */
+  const [motionAudit, setMotionAudit] = useState<MotionAuditReport | null>(null);
 
   // ---- Master Render Profile UI state ---------------------------------
   /** Technical details panel (read-only — normal users never need it). */
@@ -1173,6 +1200,8 @@ export default function RenderView({
     setFailureReport(null);
     setShowFailureDetail(false);
     setRenderEngine("checking");
+    setOutputAudit(null);
+    setMotionAudit(null);
     setOfflineFailureReason(null);
     setExportValidation(null);
     setClipAudioNotice(null);
@@ -2077,31 +2106,41 @@ export default function RenderView({
       };
       let offlineProbe = await offlineExportSupported(offlineConfig);
 
-      // Many Chromium builds expose VP9/Opus WebCodecs but not AAC or H.264
-      // (especially Linux and embedded preview browsers). Preserve the
-      // frame-exact timeline by switching container rather than falling all
-      // the way back to real-time MediaRecorder.
-      if (!offlineProbe.supported && requestedContainer === "mp4") {
-        const mp4Reason = offlineProbe.reason;
-        const webmConfig: OfflineExportConfig = { ...offlineConfig, container: "webm" };
-        const webmProbe = await offlineExportSupported(webmConfig);
-        if (webmProbe.supported) {
-          offlineContainer = "webm";
-          offlineConfig = webmConfig;
-          offlineProbe = webmProbe;
-          reportStage("MP4 WebCodecs unavailable — using frame-exact VP9/Opus WebM…");
-          console.info("MP4 frame-exact codecs unavailable; preserving offline rendering with WebM:", mp4Reason);
-        } else {
-          offlineProbe = {
-            ...webmProbe,
-            reason: `MP4 failed: ${mp4Reason || "unsupported"}. WebM failed: ${webmProbe.reason || "unsupported"}`,
-          };
-        }
+      /**
+       * One renderer. It is frame-exact, and it produces the container the
+       * project asked for or it produces nothing.
+       *
+       * Two escapes were removed from this screen and must not come back:
+       *
+       *  - **A silent switch to WebM.** When H.264/AAC probing failed, the
+       *    render used to carry on in VP9/Opus and the Setup screen went on
+       *    saying "H.264 High · yuv420p". The customer asked for MP4 and got a
+       *    file they could not use where MP4 is required, with no warning.
+       *  - **A real-time MediaRecorder fallback.** It painted the canvas while
+       *    the audio played and captured whatever came out. Its motion is only
+       *    as even as the machine is fast: the camera stalls, catches up, and
+       *    stalls again, which is exactly the "stop and go" the frame-exact
+       *    renderer exists to prevent.
+       *
+       * A browser that cannot do the job is now told so, before any work is
+       * spent, naming the thing that is missing.
+       */
+      if (!offlineProbe.supported || typeof OfflineAudioContext === "undefined") {
+        const reason =
+          typeof OfflineAudioContext === "undefined"
+            ? "This browser has no OfflineAudioContext, so the soundtrack cannot be mixed sample-exactly."
+            : offlineProbe.reason || "No WebCodecs configuration in this browser can encode the requested video.";
+        setOfflineFailureReason(reason);
+        setRenderEngine("failed");
+        console.error("Frame-exact offline export unsupported:", reason);
+        throw new Error(
+          `${requestedContainer.toUpperCase()} cannot be rendered frame-exactly in this browser, so no file was made. ` +
+            `Scenering encodes H.264 + AAC MP4 with WebCodecs (Chrome, Edge or Safari). ${reason}`,
+        );
       }
 
-      if (offlineProbe.supported && typeof OfflineAudioContext !== "undefined") {
-        let offlineEncoder: OfflineExporter | null = null;
-        try {
+      let offlineEncoder: OfflineExporter | null = null;
+      try {
           reportStage("3/4: Rendering sample-exact audio mix…");
           reportProgress(0.32);
           // Times itself, because the renders that go wrong are the long ones
@@ -2368,6 +2407,22 @@ export default function RenderView({
 
           renderTimer.stage("video frames");
           const encodeBudget = createFrameBudget();
+          /**
+           * Watches the picture the encoder is actually given, so "the motion
+           * is stop-and-go" can be answered with a number instead of a guess:
+           * how many sampled frames repeated the one before them, and for how
+           * long the picture was held.
+           */
+          const motionWatch = new FrameMotionAudit(fpsUsed);
+          /**
+           * A project whose scenes are deliberately still is not a stuttering
+           * render, so the motion check only raises a flag when the timeline
+           * actually asked the camera to move.
+           */
+          const motionExpected = scenesWithImages.some(
+            (scene, index) =>
+              (resolveSceneCameraMotion(scene, exportSceneAnimation, motionForStyle(exportMotionStyle, index)) ?? "none") !== "none",
+          );
           let assetScene = -1;
           let lastOfflineProgressAt = 0;
           for (let frame = 0; frame < totalFrames; frame++) {
@@ -2387,7 +2442,11 @@ export default function RenderView({
               const elapsed = Math.max(0, time - active.startTime);
               await clipPool.seekExact(active.scene, Math.min(1, elapsed / Math.max(0.1, active.duration)), active.duration);
             }
-            drawFrameAt(time, telemetry.frame(frame));
+            /* Interpolated, not held: a row is stored once every few frames
+               to keep memory bounded, but every frame gets its own analyser
+               value so audio-reactive visuals move continuously. */
+            drawFrameAt(time, telemetry.frameSmooth(frame, TELEMETRY_SAMPLE_STRIDE));
+            motionWatch.sample(frame, canvas);
             await offlineEncoder.encodeCanvas(canvas, frame);
             const progressNow = performance.now();
             if (frame === totalFrames - 1 || progressNow - lastOfflineProgressAt >= 250) {
@@ -2395,11 +2454,14 @@ export default function RenderView({
               const progress = 0.35 + ((frame + 1) / totalFrames) * 0.5;
               reportProgress(Math.min(0.85, progress));
               reportStage(`3/4: Encoding frame ${frame + 1} of ${totalFrames} (frame-exact)…`);
+              const stats = offlineEncoder.getExportStats();
               setRenderHealth((health) => ({
                 ...health,
                 framesDone: frame + 1,
                 outputBytes: offlineEncoder!.bytesWritten,
                 queuedOutputBytes: offlineEncoder!.queuedOutputBytes,
+                offCadenceFrames: stats.offCadenceFrames,
+                motionCheck: motionWatch.report.summary,
               }));
             }
             // Hand the browser a turn on a time budget rather than every
@@ -2475,6 +2537,59 @@ export default function RenderView({
           renderTimer.note("visual assets", "bounded 3-scene decode window");
           const exportStats = offlineEncoder.getExportStats();
           renderTimer.note("verified output", `${exportStats.codedWidth}x${exportStats.codedHeight} · ${exportStats.effectiveFps}fps`);
+          renderTimer.note(
+            "frame cadence",
+            exportStats.offCadenceFrames === 0
+              ? `every one of ${exportStats.encodedVideoChunks} frames arrived on its own tick (no jitter)`
+              : `${exportStats.offCadenceFrames} of ${exportStats.encodedVideoChunks} frames arrived off-tick`,
+          );
+          renderTimer.note(
+            "motion",
+            motionExpected
+              ? motionWatch.verdict.detail
+              : `${motionWatch.report.summary} (this project asks for still pictures, so a held frame is intended)`,
+          );
+          if (exportStats.reorderedChunks > 0) {
+            renderTimer.note(
+              "frame order",
+              exportStats.signedOffsetsPatched
+                ? `the encoder reordered ${exportStats.reorderedChunks} frames (B-frames); the index was written signed so every frame presents on time`
+                : `the encoder reordered ${exportStats.reorderedChunks} frames (B-frames), handled by the index`,
+            );
+          }
+
+          /**
+           * Read the finished file back before it is called finished.
+           *
+           * This is the step that answers "is it really an MP4, with every
+           * frame, at a constant frame rate?" from the bytes themselves. A
+           * structure that a player cannot use is a failed render — not a file
+           * handed over with a warning — because the customer's next stop is a
+           * video editor, not this screen.
+           */
+          reportStage("4/4: Reading the finished file back…");
+          const audit = await auditFinishedMp4(offlineBlob, {
+            width: offlineConfig.width,
+            height: offlineConfig.height,
+            fps: fpsUsed,
+            frames: totalFrames,
+            durationSec: estimatedTotalDuration,
+            container: offlineContainer,
+            requireAudio: false,
+          });
+          setOutputAudit(audit);
+          setMotionAudit(motionWatch.report);
+          renderTimer.note("container audit", audit.ok ? audit.summary : audit.problems.join(" · "));
+          const structural = !audit.isMp4
+            || !audit.video
+            || audit.video.sampleCount !== totalFrames
+            || audit.video.zeroSizeSamples > 0;
+          if (structural) {
+            throw new Error(
+              `The finished ${offlineContainer.toUpperCase()} failed its own check: ${audit.problems.join(" ")}`,
+            );
+          }
+
           const timingReport = renderTimer.format();
           console.log(timingReport);
           setRenderTiming(timingReport);
@@ -2503,526 +2618,17 @@ export default function RenderView({
             : String(offlineError);
           setOfflineFailureReason(reason);
           console.error("Frame-exact offline export failed:", offlineError);
-          // A deadline that expired is NOT a codec/configuration mismatch, so
-          // it must never be answered by silently re-encoding the whole video
-          // in real time through MediaRecorder: that takes as long as the
-          // video is, and the creator would be watching a spinner for another
-          // quarter of an hour without knowing why.
-          const stalled = offlineError instanceof RenderTimeoutError;
-          if (requireFrameExact || stalled) {
-            throw new Error(`Frame-exact export failed. ${reason}`);
-          }
-          setRenderEngine("compatibility");
-          reportStage(`Compatibility fallback: ${reason}`);
-          reportProgress(0.34);
+          /**
+           * There is no fallback, on purpose.
+           *
+           * A deadline that expired is not a codec mismatch, and the old answer
+           * to both was a silent re-encode in real time. That takes as long as
+           * the video is and produces exactly the uneven motion the frame-exact
+           * renderer exists to avoid, so a failed render now says what failed —
+           * by name — and leaves the Render button ready to try again.
+           */
+          throw new Error(`Frame-exact export failed. ${reason}`);
         }
-      } else {
-        const reason = typeof OfflineAudioContext === "undefined"
-          ? "OfflineAudioContext is unavailable in this browser"
-          : offlineProbe.reason || "WebCodecs configuration is unsupported";
-        setOfflineFailureReason(reason);
-        console.error("Frame-exact offline export unsupported:", reason);
-        if (requireFrameExact) {
-          throw new Error(`Frame-exact export is required but unavailable. ${reason}`);
-        }
-        setRenderEngine("compatibility");
-        reportStage(`Compatibility fallback: ${reason}`);
-      }
-
-      // Automatic compatibility fallback remains available only when the
-      // user explicitly unticks "Require frame-exact rendering".
-      setRenderEngine("compatibility");
-      setRenderHealth((health) => ({
-        ...health,
-        outputStorage: "memory",
-        outputStorageDetail: "Compatibility recorder chunks in memory",
-      }));
-      if (typeof MediaRecorder === "undefined") {
-        throw new Error("This browser supports neither WebCodecs offline export nor MediaRecorder");
-      }
-
-      // Ensure AudioContext is active and running
-      if (audioCtx.state === "suspended") {
-        try {
-          await audioCtx.resume();
-        } catch (resumeErr) {
-          console.warn("AudioContext resume warning:", resumeErr);
-        }
-      }
-
-      // Setup audio destination mixer
-      const dest = audioCtx.createMediaStreamDestination();
-
-      // Optional audio mastering stage (Master Render Profile §12/§13):
-      // Automatic (default) protects the final mix — no clipping, no runaway
-      // loudness, and voice-priority ducking so music never buries speech.
-      // Manual passes the user's own mix through completely untouched.
-      const mastering: MasteringChain = createMasteringChain(audioCtx, settings.audioMastering);
-      mastering.output.connect(dest);
-
-      // Inaudible continuous carrier tone to guarantee AudioContext destination stream clock never stalls in Chrome/Safari
-      try {
-        const carrierOsc = audioCtx.createOscillator();
-        const carrierGain = audioCtx.createGain();
-        carrierGain.gain.value = 0.00001; // inaudible
-        carrierOsc.connect(carrierGain);
-        carrierGain.connect(dest);
-        carrierOsc.start();
-      } catch (carrierErr) {
-        console.warn("Carrier oscillator warning:", carrierErr);
-      }
-
-      // Ambient background music: REAL instrumental recordings from the
-      // library (no synthetic tones).
-      let ambientGainNode: AudioNode | null = null;
-      if (settings.backgroundMusic !== "none" && settings.musicVolume > 0) {
-        const styleTrackId = AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic];
-        const track = styleTrackId ? getBackgroundMusicTrack(styleTrackId) : undefined;
-        if (track) {
-          try {
-            const res = await fetch(track.url);
-            if (res.ok) {
-              const musicBuf = await audioCtx.decodeAudioData(await res.arrayBuffer());
-              const src = audioCtx.createBufferSource();
-              src.buffer = musicBuf;
-              src.loop = true; // real tracks loop to fill the whole video
-              const g = audioCtx.createGain();
-              g.gain.value = Math.max(0, Math.min(1, settings.musicVolume)) * 0.85;
-              src.connect(g);
-              g.connect(mastering.musicInput || dest);
-              src.start();
-              ambientGainNode = g;
-            }
-          } catch (musicErr) {
-            console.warn("Real background track failed to load:", musicErr);
-          }
-        }
-      }
-
-      // Paint initial background on canvas so captureStream receives valid dimensions & non-empty buffer immediately
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, width, height);
-
-      // Video recording stream — captured at the profile's constant rate
-      let videoStream: MediaStream;
-      try {
-        videoStream = canvas.captureStream(fpsUsed);
-      } catch {
-        videoStream = (canvas as any).captureStream ? (canvas as any).captureStream() : (canvas as any).mozCaptureStream();
-      }
-
-      // Combine video and audio tracks safely
-      const audioTracks = dest.stream.getAudioTracks();
-      const videoTracks = videoStream.getVideoTracks();
-      let combinedStream: MediaStream;
-      if (audioTracks.length > 0 && videoTracks.length > 0) {
-        combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
-      } else {
-        combinedStream = videoStream;
-      }
-
-      // Recording container. The requested format is honoured when the browser
-      // can record it, and the fallback is always HONEST: the download
-      // extension matches whatever was actually recorded. (Before, the
-      // recorder always produced WebM while the file was named .mp4 — the
-      // mislabelled file is why the download "did not work" in players.)
-      const MP4_MIMES = [
-        "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
-        "video/mp4;codecs=avc1,mp4a.40.2",
-        "video/mp4",
-      ];
-      const WEBM_MIMES = [
-        "video/webm;codecs=vp9,opus",
-        "video/webm;codecs=vp8,opus",
-        "video/webm",
-      ];
-      const wantedContainer: "mp4" | "webm" =
-        targetFormat === "webm"
-          ? "webm"
-          : targetFormat === "mp4" || targetFormat === "mov"
-          ? "mp4"
-          : (plan ? plan.container : settings.format) === "webm"
-          ? "webm"
-          : "mp4";
-      let mimeType = "";
-      for (const candidate of wantedContainer === "mp4" ? MP4_MIMES : WEBM_MIMES) {
-        if (MediaRecorder.isTypeSupported(candidate)) {
-          mimeType = candidate;
-          break;
-        }
-      }
-      if (!mimeType) {
-        // Browser cannot record the wanted container → use the other one and
-        // say so through the file extension (never a mislabelled file).
-        for (const candidate of wantedContainer === "mp4" ? WEBM_MIMES : MP4_MIMES) {
-          if (MediaRecorder.isTypeSupported(candidate)) {
-            mimeType = candidate;
-            break;
-          }
-        }
-      }
-
-      // Bitrates come from the Master Render Profile's platform-aware ladder
-      // (src/lib/render-profile.ts) — scaled to the real frame size and rate,
-      // never one arbitrary number for every video.
-      let recorder: MediaRecorder;
-      try {
-        recorder = new MediaRecorder(combinedStream, {
-          ...(mimeType ? { mimeType } : {}),
-          videoBitsPerSecond: videoKbps * 1000,
-          audioBitsPerSecond: audioKbps * 1000,
-        });
-      } catch (recErr) {
-        console.warn("MediaRecorder creation with mimeType failed, falling back to default:", recErr);
-        try {
-          recorder = new MediaRecorder(combinedStream);
-        } catch (streamErr) {
-          console.warn("MediaRecorder with combinedStream failed, falling back to video-only stream:", streamErr);
-          recorder = new MediaRecorder(videoStream);
-        }
-      }
-
-      const recordedContainer: "mp4" | "webm" = (recorder.mimeType || mimeType || "video/webm").includes("mp4")
-        ? "mp4"
-        : "webm";
-
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
-
-      recorder.onerror = (e: any) => {
-        console.error("MediaRecorder runtime error:", e);
-      };
-
-      // 3. Render frames & play audio in real time with exact timeline synchronization
-      reportStage(`3/4: Preparing real-time compatibility timeline...`);
-      reportProgress(0.35);
-
-      const videoPromise = new Promise<Blob>((resolve) => {
-        let isResolved = false;
-        const finalizeBlob = () => {
-          if (isResolved) return;
-          isResolved = true;
-          const outputMime = recorder.mimeType || mimeType || "video/webm";
-          const blob = new Blob(chunks, { type: outputMime });
-          resolve(blob);
-        };
-
-        recorder.onstop = finalizeBlob;
-        recorder.onerror = (e) => {
-          console.error("MediaRecorder error event:", e);
-          if (!isResolved) {
-            finalizeBlob();
-          }
-        };
-
-        // Safety fallback timer so videoPromise never hangs forever
-        setTimeout(() => {
-          if (!isResolved) {
-            console.warn("Video render safety timer completed");
-            finalizeBlob();
-          }
-        }, Math.max(15, estimatedTotalDuration + 15) * 1000);
-      });
-
-      const visualizerFftSize = requiredVisualizerFftSize(exportInserts);
-
-      // Voice bus → mastering voice input (never ducked, always intelligible)
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = visualizerFftSize;
-      analyser.smoothingTimeConstant = 0.72;
-      analyser.minDecibels = -92;
-      analyser.maxDecibels = -12;
-      analyser.connect(mastering.voiceInput);
-
-      // Music bus: background track / SFX analysed separately, then through
-      // the mastering stage's ducking path (music steps aside for speech)
-      const musicAnalyser = audioCtx.createAnalyser();
-      musicAnalyser.fftSize = visualizerFftSize;
-      musicAnalyser.smoothingTimeConstant = 0.72;
-      musicAnalyser.minDecibels = -92;
-      musicAnalyser.maxDecibels = -12;
-      musicAnalyser.connect(mastering.musicInput);
-
-      if (ambientGainNode) {
-        try {
-          ambientGainNode.disconnect();
-        } catch {}
-        ambientGainNode.connect(musicAnalyser);
-      }
-
-      const echoCfg = resolveVoiceEcho(exportVoiceEcho);
-      let voiceEchoGraph: VoiceEchoGraph | null = null;
-      if (voiceEchoIsActive(echoCfg)) {
-        try {
-          voiceEchoGraph = createVoiceEchoGraph(audioCtx, echoCfg);
-          voiceEchoGraph.output.connect(analyser);
-        } catch (echoErr) {
-          console.warn("Voice echo could not be created, rendering a dry voice:", echoErr);
-          voiceEchoGraph = null;
-        }
-      }
-
-      // Mix timeline insert audio (BGM, SFX, CTA jingles, intro/outro sounds)
-      let insertMixer: InsertAudioMixer | null = null;
-      try {
-        const insertPlans = [
-          ...buildInsertAudioPlan(exportInserts, estimatedTotalDuration),
-          ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
-        ];
-        if (insertPlans.length > 0) {
-          insertMixer = new InsertAudioMixer(audioCtx, musicAnalyser);
-          const loaded = await insertMixer.load(insertPlans);
-          if (loaded > 0) {
-            reportStage(`3/4: Audio ready (${loaded} track(s)) — rendering video...`);
-          }
-        }
-      } catch (err) {
-        console.warn("Insert audio render setup warning:", err);
-      }
-
-      // Pre-schedule EVERY scene's narration at its exact planned offset from renderAudioT0.
-      const renderAudioT0 = audioCtx.currentTime + 0.12;
-      const scheduledSources: AudioBufferSourceNode[] = [];
-      const stopScheduledAudio = () => {
-        for (const src of scheduledSources) {
-          try {
-            src.stop();
-          } catch {}
-        }
-      };
-
-      sceneSchedule.forEach((entry) => {
-        const item = audioBuffers.get(entry.scene.id);
-        if (item) {
-          try {
-            const source = audioCtx.createBufferSource();
-            source.buffer = item.buffer;
-            source.connect(voiceEchoGraph ? voiceEchoGraph.input : analyser);
-            // The scene's own window is the limit, exactly as on the offline
-            // path: nothing from this line is heard after its picture ends.
-            source.start(
-              renderAudioT0 + entry.startTime + entry.speechOffset,
-              0,
-              Math.max(0.05, entry.duration - entry.speechOffset)
-            );
-            scheduledSources.push(source);
-          } catch (audioErr) {
-            console.warn("Error scheduling scene audio:", audioErr);
-          }
-        }
-      });
-
-      /* The soundtrack of any clip attached to a scene, on the very same
-         clock. This is the compatibility renderer's twin of the offline
-         pass: a seeked video element makes no noise, so the original sound
-         has to be decoded and placed here or the exported file has none. */
-      const realtimeClipTracks = new Map<number, AudioBuffer | null>();
-      for (const entry of sceneSchedule) {
-        if (abortControllerRef.current) throw new Error("Render cancelled");
-        const plan = clipAudioPlanFor(entry.scene, entry.startTime, entry.duration);
-        if (!plan) continue;
-        if (!realtimeClipTracks.has(entry.scene.id)) {
-          realtimeClipTracks.set(entry.scene.id, await loadClipAudio(entry.scene.video_url, audioCtx));
-        }
-        const track = realtimeClipTracks.get(entry.scene.id);
-        if (!track) {
-          setClipAudioNotice(
-            `"${entry.scene.video_name || "The uploaded video"}" has no soundtrack this browser can read, so the export is silent over it.`
-          );
-          continue;
-        }
-        const started = scheduleClipAudio(audioCtx, track, plan, musicAnalyser, renderAudioT0);
-        // Registered with the narration so cancelling stops this too.
-        if (started) scheduledSources.push(started);
-      }
-
-      if (insertMixer) {
-        try {
-          insertMixer.startFrom(0);
-        } catch {}
-      }
-
-      // Synchronize exact start: wait until audioCtx reaches renderAudioT0
-      await new Promise<void>((resolveWait) => {
-        const waitLoop = () => {
-          if (audioCtx.currentTime >= renderAudioT0 || abortControllerRef.current) {
-            resolveWait();
-          } else {
-            requestAnimationFrame(waitLoop);
-          }
-        };
-        waitLoop();
-      });
-
-      // Start recording at the exact moment audio playback begins
-      try {
-        recorder.start(100);
-      } catch (recStartErr) {
-        console.warn("MediaRecorder start with timeslice failed, trying start():", recStartErr);
-        try {
-          recorder.start();
-        } catch (recFatal) {
-          console.error("MediaRecorder start error:", recFatal);
-        }
-      }
-
-      const renderStartTime = performance.now();
-      let smoothedGlobalTime = 0;
-      let lastFrameWallTime = renderStartTime;
-      let lastProgressUiUpdate = 0;
-      let lastProgressVal = 0.35;
-      let lastResumeAttempt = 0;
-      let realTimeAssetScene = 0;
-      let compatibilityPaintedFrames = 0;
-
-      // Frame drawing loop with robust error boundaries and background tab resilience.
-      //
-      // Pacing comes from the shared frame ticker: requestAnimationFrame while
-      // the tab is visible (true vsync cadence — the exported motion glides),
-      // a Web Worker timer while it is hidden (page timers would be throttled
-      // to ~1Hz and the video would judder), and a watchdog if both stall.
-      // The previous loop raced a 16ms setTimeout against every rAF, and the
-      // resulting jitter was captured straight into the file: the Ken Burns
-      // read as choppy, jumping frames instead of a camera move.
-      await new Promise<void>((resolveLoop) => {
-        let isLoopFinished = false;
-        const ticker = createFrameTicker(() => renderFrame());
-        frameTickerOwnerRef.current = renderToken;
-        frameTickerRef.current = ticker;
-
-        const cleanupAndFinish = () => {
-          if (isLoopFinished) return;
-          isLoopFinished = true;
-          ticker.stop();
-          if (frameTickerRef.current === ticker) frameTickerRef.current = null;
-          try {
-            insertMixer?.stop();
-          } catch {}
-          try {
-            voiceEchoGraph?.dispose();
-          } catch {}
-          try {
-            mastering.dispose();
-          } catch {}
-          try {
-            if (recorder && recorder.state !== "inactive") {
-              recorder.stop();
-            }
-          } catch (e) {
-            console.warn("Recorder stop notice:", e);
-          }
-          resolveLoop();
-        };
-
-        const renderFrame = () => {
-          if (isLoopFinished) return;
-
-          if (abortControllerRef.current) {
-            cleanupAndFinish();
-            return;
-          }
-
-          try {
-            const now = performance.now();
-            const dt = Math.max(0, Math.min(0.1, (now - lastFrameWallTime) / 1000));
-            lastFrameWallTime = now;
-
-            // Direct phase-lock to Web Audio hardware clock: zero lag, zero drift
-            const targetAudioTime = audioCtx.state === "running"
-              ? Math.max(0, audioCtx.currentTime - renderAudioT0)
-              : smoothedGlobalTime + dt;
-
-            if (audioCtx.state === "running") {
-              smoothedGlobalTime = targetAudioTime;
-            } else {
-              smoothedGlobalTime += dt;
-            }
-            const currentGlobalTime = smoothedGlobalTime;
-
-            const nextAssetScene = sceneIndexAt(currentGlobalTime);
-            if (nextAssetScene !== realTimeAssetScene) {
-              realTimeAssetScene = nextAssetScene;
-              // The previous scene preloaded this one; now prefetch one more.
-              // Real-time fallback cannot pause its audio clock to await I/O.
-              void ensureVisualWindow(nextAssetScene);
-            }
-
-            if (audioCtx.state !== "running" && now - renderStartTime - lastResumeAttempt > 2000) {
-              lastResumeAttempt = now - renderStartTime;
-              audioCtx.resume().catch(() => {});
-            }
-
-            try {
-              insertMixer?.tick(currentGlobalTime);
-            } catch {}
-
-            // Check if render reached end
-            if (currentGlobalTime >= estimatedTotalDuration) {
-              cleanupAndFinish();
-              return;
-            }
-
-            const rawProgress = 0.35 + (currentGlobalTime / estimatedTotalDuration) * 0.55;
-            const clampedProgress = Math.min(0.92, Math.max(0.35, isNaN(rawProgress) ? 0.35 : rawProgress));
-
-            if (now - lastProgressUiUpdate > 250 || Math.abs(clampedProgress - lastProgressVal) >= 0.01) {
-              lastProgressUiUpdate = now;
-              lastProgressVal = clampedProgress;
-              reportProgress(clampedProgress);
-              reportStage(
-                `3/4: Compatibility render (${formatDuration(currentGlobalTime)} / ${formatDuration(estimatedTotalDuration)})`
-              );
-            }
-
-            const readBus = (node: AnalyserNode | null) => {
-              if (!node) return makeBus(0, null, null);
-              const freq = new Uint8Array(node.frequencyBinCount);
-              node.getByteFrequencyData(freq);
-              const wave = new Uint8Array(node.fftSize);
-              node.getByteTimeDomainData(wave);
-              let sum = 0;
-              for (let i = 0; i < freq.length; i++) sum += freq[i];
-              return makeBus(sum / (freq.length * 255), freq, wave);
-            };
-            const audioFrame: AudioFrame = { voice: readBus(analyser), music: readBus(musicAnalyser) };
-            try { mastering.updateVoiceLevel(audioFrame.voice.level, audioCtx.currentTime); } catch {}
-            // Seeking is clock/mixer work, not canvas work; keep drawFrameAt pure.
-            let clipEntry = sceneSchedule[sceneSchedule.length - 1];
-            for (const entry of sceneSchedule) {
-              if (currentGlobalTime >= entry.startTime && currentGlobalTime < entry.endTime) { clipEntry = entry; break; }
-              if (currentGlobalTime < entry.startTime) { clipEntry = entry; break; }
-            }
-            if (clipEntry && sceneHasClip(clipEntry.scene)) {
-              const elapsed = Math.max(0, currentGlobalTime - clipEntry.startTime);
-              clipPool.seekToProgress(clipEntry.scene, Math.min(1, elapsed / Math.max(0.1, clipEntry.duration)), clipEntry.duration);
-            }
-            drawFrameAt(currentGlobalTime, audioFrame);
-            compatibilityPaintedFrames += 1;
-          } catch (frameErr) {
-            console.error("Frame render recoverable error:", frameErr);
-          }
-        };
-
-        ticker.start(fpsUsed);
-      });
-
-      // 4. Encoding stream & packaging
-      reportStage("4/4: Finalizing video stream & container...");
-      reportProgress(0.95);
-
-      const finalBlob = await videoPromise;
-      stopScheduledAudio();
-
-      return await finishSuccessfulExport(
-        finalBlob,
-        recordedContainer,
-        mimeType || "video/webm",
-        "compatibility",
-        null,
-        compatibilityPaintedFrames
-      );
     } catch (err: any) {
       const message = err?.message || "Failed to render video";
       // The stall watchdog already explained this job and handed the screen
@@ -3972,15 +3578,15 @@ export default function RenderView({
                   <div className={`mb-2 px-2.5 py-1 rounded-full border text-[10px] font-bold ${
                     renderEngine === "frame-exact"
                       ? "bg-emerald-950 border-emerald-600 text-emerald-300"
-                      : renderEngine === "compatibility"
-                      ? "bg-amber-950 border-amber-600 text-amber-300"
+                      : renderEngine === "failed"
+                      ? "bg-rose-950 border-rose-600 text-rose-300"
                       : "bg-indigo-950 border-indigo-600 text-indigo-300"
                   }`}>
                     {iconify(
                       renderEngine === "frame-exact"
-                        ? "✓ FRAME-EXACT WEBCODECS"
-                        : renderEngine === "compatibility"
-                        ? "⚠ REAL-TIME COMPATIBILITY FALLBACK"
+                        ? "✓ FRAME-EXACT WEBCODECS · H.264/AAC MP4"
+                        : renderEngine === "failed"
+                        ? "✕ BROWSER CANNOT RENDER THIS FRAME-EXACTLY"
                         : "CHECKING FRAME-EXACT SUPPORT…",
                     )}
                   </div>
@@ -4053,7 +3659,19 @@ export default function RenderView({
                       }`}>
                         {renderHealth.wakeLock === "active" ? "✓ DEVICE KEPT AWAKE" : "BROWSER MANAGES WAKE"}
                       </span>
+                      <span className={`rounded-full border px-2 py-1 text-[9px] font-bold ${
+                        renderHealth.offCadenceFrames === 0
+                          ? "border-emerald-700/60 bg-emerald-950/60 text-emerald-200"
+                          : "border-rose-700/70 bg-rose-950/80 text-rose-200"
+                      }`}>
+                        {renderHealth.offCadenceFrames === 0
+                          ? "✓ EVERY FRAME ON ITS OWN CLOCK TICK"
+                          : `⚠ ${renderHealth.offCadenceFrames} FRAMES OFF-CLOCK`}
+                      </span>
                     </div>
+                    <p className="mt-2 text-[9px] leading-relaxed text-gray-300">
+                      {renderHealth.motionCheck}
+                    </p>
                     <p className="mt-2 text-[9px] leading-relaxed text-gray-400">
                       {renderHealth.tabHidden
                         ? "This tab is in the background. Message-channel yielding keeps the encode moving without timer throttling."
@@ -4140,22 +3758,22 @@ export default function RenderView({
                 </div>
               )}
 
-              {/* During diagnosis, never silently accept the old real-time path. */}
+              {/* There is no switch any more, and no second renderer to switch
+                  to. Every frame is drawn from the timeline and encoded on its
+                  own timestamp; a browser that cannot do that is told so
+                  rather than given a real-time recorder whose motion depends
+                  on how busy the machine is. */}
               {!isRendering && !renderedUrl && (
-                <label className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-950/40 border border-emerald-800/70 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={requireFrameExact}
-                    onChange={(event) => setRequireFrameExact(event.target.checked)}
-                    className="mt-0.5 accent-emerald-500"
-                  />
-                  <span>
-                    <span className="block text-[11px] font-bold text-emerald-200">Require frame-exact rendering</span>
-                    <span className="block text-[10px] text-emerald-300/75 leading-relaxed">
-                      Recommended. If WebCodecs fails, show the exact reason instead of silently creating a jittery real-time recording.
-                    </span>
-                  </span>
-                </label>
+                <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-800/70">
+                  <p className="text-[11px] font-bold text-emerald-200">Frame-exact rendering, always</p>
+                  <p className="text-[10px] text-emerald-300/75 leading-relaxed">
+                    {/* One engine, one container: H.264 + AAC MP4 at the frame rate chosen in Setup.
+                        Nothing is substituted and nothing is renamed. */}
+                    Every frame is drawn from the timeline and encoded on its own timestamp, then the
+                    finished MP4 is read back and checked — container, frame count, constant frame rate
+                    and audio length — before it is offered for download.
+                  </p>
+                </div>
               )}
 
               {offlineFailureReason && !isRendering && (
@@ -4268,8 +3886,22 @@ export default function RenderView({
                           ? "bg-emerald-900 border-emerald-600 text-emerald-100"
                           : "bg-amber-900 border-amber-600 text-amber-100"
                       }`}>
-                        {renderEngine === "frame-exact" ? "FRAME-EXACT WEBCODECS" : "REAL-TIME FALLBACK"}
+                        {renderEngine === "frame-exact" ? "FRAME-EXACT WEBCODECS" : "RENDER INCOMPLETE"}
                       </span>
+                      {outputAudit && (
+                        <span
+                          title={outputAudit.problems.join(" ")}
+                          className={`px-2 py-0.5 rounded-full border text-[9px] font-bold ${
+                            outputAudit.ok
+                              ? "border-emerald-500/70 bg-emerald-950/80 text-emerald-100"
+                              : "border-amber-500/70 bg-amber-950/90 text-amber-100"
+                          }`}
+                        >
+                          {outputAudit.ok
+                            ? `MP4 VERIFIED · ${outputAudit.video?.sampleCount ?? 0} FRAMES · ${(outputAudit.video?.frameRate ?? 0).toFixed(0)} FPS CFR`
+                            : "MP4 CHECK FOUND A PROBLEM"}
+                        </span>
+                      )}
                       {exportValidation?.ok && (
                         <span className="px-2 py-0.5 rounded-full border border-teal-500/70 bg-teal-950/80 text-teal-100 text-[9px] font-bold">
                           VERIFIED OUTPUT
@@ -4321,6 +3953,49 @@ export default function RenderView({
                       every finished video waits there until you download it, so nothing gets lost between renders.
                     </p>
                   </div>
+
+                  {/* The finished file, read back the way a player reads it.
+                      This is the answer to "is it really the MP4 I asked for,
+                      with smooth, even motion?" — from the bytes, not from
+                      what the encoder was asked to do. */}
+                  {outputAudit && (
+                    <div
+                      className={`p-3 rounded-xl border space-y-1.5 ${
+                        outputAudit.ok
+                          ? "bg-emerald-950/40 border-emerald-800/70"
+                          : "bg-amber-950/40 border-amber-700/70"
+                      }`}
+                    >
+                      <p className={`text-[11px] font-bold ${outputAudit.ok ? "text-emerald-200" : "text-amber-200"}`}>
+                        <Icon glyph={outputAudit.ok ? "✅" : "⚠"} /> {describeAudit(outputAudit)}
+                      </p>
+                      <p className="text-[10px] leading-relaxed text-gray-300">
+                        Container {outputAudit.brand ? `“${outputAudit.brand}”` : "unrecognised"} ·{" "}
+                        {outputAudit.video
+                          ? `${outputAudit.video.sampleCount.toLocaleString()} frames at ${
+                              outputAudit.video.frameRate
+                                ? `${outputAudit.video.frameRate.toFixed(2)} fps constant frame rate`
+                                : "variable frame timing"
+                            }${outputAudit.video.codecDetail ? ` · ${outputAudit.video.codecDetail}` : ""}`
+                          : "no video track"}{" "}
+                        · index at the {outputAudit.fastStart ? "front" : "end"}
+                      </p>
+                      {motionAudit && (
+                        <p className={`text-[10px] leading-relaxed ${motionAudit.repeated > 0 ? "text-amber-200/90" : "text-gray-400"}`}>
+                          {motionAudit.summary}
+                        </p>
+                      )}
+                      {outputAudit.problems.length > 0 && (
+                        <ul className="mt-1 space-y-1">
+                          {outputAudit.problems.map((problem, index) => (
+                            <li key={index} className="text-[10px] leading-relaxed text-amber-100/90">
+                              • {problem}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
 
                   {/* How long the render took, on screen rather than hidden
                       in the browser console. Nobody should need developer

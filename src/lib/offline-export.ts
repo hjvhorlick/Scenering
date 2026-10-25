@@ -1,6 +1,7 @@
 import { Muxer as Mp4Muxer, StreamTarget as Mp4Target } from "mp4-muxer";
 import { Muxer as WebMMuxer, StreamTarget as WebMTarget } from "webm-muxer";
 import { createFrameBudget, yieldToBrowser } from "./yield-to-browser";
+import { patchSignedCompositionOffsets } from "./mp4-audit";
 import {
   createOpfsOutputStore,
   estimateMuxedOutputBytes,
@@ -85,6 +86,18 @@ function avcLevelForSize(width: number, height: number, fps = 30): string {
   return highFrameRate ? "34" : "33";
 }
 
+/**
+ * Ticks per second written into the video track's sample table.
+ *
+ * A thousand ticks per frame, so a frame time can be recorded to a thousandth
+ * of a frame instead of being rounded to a whole one. The frame rate itself is
+ * still what the timeline uses; this only makes the container precise enough
+ * to describe it.
+ */
+export function trackTimescale(fps: number): number {
+  return Math.max(1000, Math.round(fps * 1000));
+}
+
 /** H.264 High profile, with a level appropriate to the frame size and rate. */
 export function avcCodecForSize(width: number, height: number, fps = 30): string {
   return `avc1.6400${avcLevelForSize(width, height, fps)}`;
@@ -117,6 +130,26 @@ export interface OfflineExportStats {
   audioDurationSec: number;
   effectiveFps: number;
   maxFrameDurationDriftUs: number;
+  /**
+   * Chunks the encoder emitted out of presentation order (B-frames). Harmless
+   * in a container that carries composition offsets — which this muxer is
+   * given — but fatal if they are ever muxed as if they were in order, so the
+   * count belongs in the report.
+   */
+  reorderedChunks: number;
+  /** Largest composition offset applied, in microseconds. */
+  maxCompositionOffsetUs: number;
+  /** True when the encoder reordered frames and the index needed the signed fix. */
+  signedOffsetsPatched: boolean;
+  /**
+   * Frames whose timestamp was not exactly on its own 1/fps tick. A non-zero
+   * value means the container's sample table carries uneven frame durations,
+   * which a player turns into held frames and rushed frames: stop-and-go.
+   */
+  offCadenceFrames: number;
+  /** Presentation timestamp of every frame, in microseconds, in submission order. */
+  firstFramePtsUs: number;
+  lastFramePtsUs: number;
 }
 
 function videoConfig(
@@ -362,6 +395,20 @@ export class OfflineExporter {
   private codedWidth = 0;
   private codedHeight = 0;
   private maxFrameDurationDriftUs = 0;
+  private reorderedChunks = 0;
+  private maxCompositionOffsetUs = 0;
+  /**
+   * Smallest composition offset the encoder needed, in microseconds. Below
+   * zero means the encoder emitted frames out of presentation order (B-frames)
+   * and the MP4 index has to be able to say so — see
+   * `patchSignedCompositionOffsets`.
+   */
+  private minCompositionOffsetUs = 0;
+  private signedOffsetsPatched = false;
+  private offCadenceFrames = 0;
+  private firstFramePtsUs = -1;
+  private lastFramePtsUs = 0;
+  private mp4SignatureChecked = false;
   /** Where the growing muxed file lives during the encode. */
   readonly outputStorage: RenderOutputStorageMode;
   /** Human-readable detail shown in the render health panel/report. */
@@ -386,7 +433,18 @@ export class OfflineExporter {
     if (config.container === "mp4") {
       this.muxer = new Mp4Muxer({
         target: new Mp4Target({ onData }),
-        video: { codec: "avc", width: config.width, height: config.height, frameRate: config.fps },
+        /**
+         * The video track's timescale. mp4-muxer stores every sample duration
+         * in these ticks, so the timescale decides how exactly a frame time can
+         * be written down. Passing the frame rate itself (30) gives one tick
+         * per frame: ANY rounding — an encoder reporting 33 333 µs for one
+         * frame and 33 334 µs for the next, which every hardware encoder does
+         * at some point — becomes a whole frame of error, and the player holds
+         * one frame and rushes the next. A thousand ticks per frame absorbs
+         * that rounding into a thousandth of a frame and the sample table stays
+         * uniform. See tests/render-audit.test.ts.
+         */
+        video: { codec: "avc", width: config.width, height: config.height, frameRate: trackTimescale(config.fps) },
         audio: { codec: "aac", numberOfChannels: this.config.channels, sampleRate: this.config.sampleRate },
         /**
          * Reserve room for the index rather than holding the whole file to
@@ -425,12 +483,27 @@ export class OfflineExporter {
         const endUs = chunk.timestamp + chunkDurUs;
         if (endUs > this.maxVideoEndUs) this.maxVideoEndUs = endUs;
 
+        // Cadence telemetry: the sample table is only uniform if every frame
+        // landed exactly on its own tick of the timeline.
+        const expectedPtsUs = Math.round((this.decodedVideoChunks * 1_000_000) / this.config.fps);
+        if (this.firstFramePtsUs < 0) this.firstFramePtsUs = chunk.timestamp;
+        this.lastFramePtsUs = chunk.timestamp;
+        const offCadence = Math.abs(chunk.timestamp - expectedPtsUs) > 1;
+        if (offCadence) this.offCadenceFrames += 1;
+
         if (config.container === "mp4") {
           // VideoEncoder emits chunks in decode order; supplying exact DTS→PTS
           // offsets lets latencyMode: "quality" use B-frames cleanly in MP4.
-          const decodeTimestampUs = Math.round((this.decodedVideoChunks * 1_000_000) / this.config.fps);
+          const compositionTimeOffset = chunk.timestamp - expectedPtsUs;
           this.decodedVideoChunks += 1;
-          const compositionTimeOffset = chunk.timestamp - decodeTimestampUs;
+          if (compositionTimeOffset !== 0) {
+            this.reorderedChunks += 1;
+            const magnitude = Math.abs(compositionTimeOffset);
+            if (magnitude > this.maxCompositionOffsetUs) this.maxCompositionOffsetUs = magnitude;
+            if (compositionTimeOffset < this.minCompositionOffsetUs) {
+              this.minCompositionOffsetUs = compositionTimeOffset;
+            }
+          }
           this.muxer.addVideoChunk(chunk, meta, chunk.timestamp, compositionTimeOffset);
         } else {
           this.decodedVideoChunks += 1;
@@ -669,6 +742,12 @@ export class OfflineExporter {
       audioDurationSec,
       effectiveFps: Math.round(effectiveFps * 100) / 100,
       maxFrameDurationDriftUs: Math.round(this.maxFrameDurationDriftUs),
+      reorderedChunks: this.reorderedChunks,
+      maxCompositionOffsetUs: Math.round(this.maxCompositionOffsetUs),
+      signedOffsetsPatched: this.signedOffsetsPatched,
+      offCadenceFrames: this.offCadenceFrames,
+      firstFramePtsUs: Math.max(0, this.firstFramePtsUs),
+      lastFramePtsUs: this.lastFramePtsUs,
     };
   }
 
@@ -706,11 +785,50 @@ export class OfflineExporter {
       OUTPUT_DRAIN_TIMEOUT_MS,
       "the container index was written to disk",
     );
-    return await this.guarded(
+    let blob = await this.guarded(
       this.store.toBlob(this.mime),
       OUTPUT_HANDOVER_TIMEOUT_MS,
       "the finished file was handed back to the renderer",
     );
+    if (this.config.container === "mp4" && this.minCompositionOffsetUs < 0) {
+      /**
+       * The encoder reordered frames, so the index must be allowed to express
+       * a negative offset. `mp4-muxer` writes the composition table as
+       * version 0, where offsets are unsigned — the negative values land in
+       * the file as enormous positive ones and the picture jumps ahead by
+       * hours for those frames while the audio stays perfect. Raising the
+       * table's version makes the bytes mean what they were written to mean.
+       * tests/render-audit.test.ts proves both halves of that.
+       */
+      const repaired = await patchSignedCompositionOffsets(blob);
+      this.signedOffsetsPatched = repaired.patched > 0;
+      blob = repaired.blob;
+    }
+    if (this.config.container === "mp4") {
+      /**
+       * The bytes are checked before the file is called a video.
+       *
+       * An `.mp4` name over WebM content is the failure that reaches the
+       * customer as "the player will not open it" or "it stutters", and it is
+       * invisible everywhere else in the pipeline. Three bytes are enough to
+       * tell: an ISO base-media file begins with a box whose type is `ftyp`.
+       */
+      const header = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+      const brand = String.fromCharCode(header[4] ?? 0, header[5] ?? 0, header[6] ?? 0, header[7] ?? 0);
+      this.mp4SignatureChecked = true;
+      if (brand !== "ftyp") {
+        throw new Error(
+          `The encoder produced ${brand ? `"${brand}"` : "nothing"} instead of an MP4 header. ` +
+            "The file was not handed over, because a WebM download renamed .mp4 will not play where MP4 is expected.",
+        );
+      }
+    }
+    return blob;
+  }
+
+  /** True once the finished file's first bytes were confirmed to be MP4. */
+  get containerVerified(): boolean {
+    return this.mp4SignatureChecked;
   }
 
   /** Remove the OPFS staging file after the Vault has verified its own Blob. */
