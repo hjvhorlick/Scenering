@@ -199,18 +199,25 @@ classes to components, regenerate the matrix with `npm run theme:css`.
 5. **Video Studio** — the look of the finished video: filters, text templates,
    3D stickers, lower thirds, titles, call-to-action badges, sound effects,
    intro and outro.
-6. **Render** — carries out the output choices made in Setup with a frame-exact,
-   offline WebCodecs renderer, then places the finished video in the Vault.
-   Every frame, narration sample and caption timestamp is generated from the
-   timeline rather than wall-clock speed. On a slow machine rendering may take
-   longer than the video's duration, but output smoothness and sync are
-   unaffected. Long Chromium renders stream their growing container into
-   protected browser storage with bounded backpressure; decoded photos/video
-   decoders are kept to a three-scene window and audio telemetry is packed into
-   fixed arrays. The on-screen health panel shows these safeguards, elapsed and
-   estimated time, frames, output bytes and background-tab state. Browsers
-   without WebCodecs can use the explicit real-time MediaRecorder compatibility
-   renderer. Need another platform's cut? Go back to Setup, pick that
+6. **Render** — carries out the output choices made in Setup with the one
+   renderer there is: a frame-exact, offline WebCodecs encoder. It produces the
+   container Setup asked for or it produces nothing — there is no silent switch
+   to WebM and no real-time fallback, because a recorder that captures the
+   canvas at whatever rate the machine manages is exactly how "smooth on the
+   preview, jagged in the file" happens. Every frame, narration sample and
+   caption timestamp is generated from the timeline rather than wall-clock
+   speed, and **the finished file is then read back** (`src/lib/mp4-audit.ts`):
+   container brand, codec and profile, frame count, constant-frame-rate timing,
+   the first frame's presentation time, empty frames, and the audio track's
+   length against the picture. A file that fails that check is reported rather
+   than handed over, and the finished screen prints what was verified. Long
+   Chromium renders stream their growing container into protected browser
+   storage with bounded backpressure; decoded photos/video decoders are kept to
+   a three-scene window and audio telemetry is packed into fixed arrays and
+   interpolated per frame. The on-screen health panel shows these safeguards,
+   elapsed and estimated time, frames, output bytes, background-tab state,
+   whether every frame landed on its own clock tick, and whether the picture
+   actually moved. Need another platform's cut? Go back to Setup, pick that
    destination, render again.
 
 ## Project layout
@@ -264,18 +271,21 @@ single source of truth for their job:
   measured — the panel is honest about that too.
 - **`text-art.ts`** / **`render-text-template.ts`** — title lettering and the
   29 text templates.
-- **`offline-export.ts`** — the preferred frame-exact WebCodecs encoder and
-  MP4/WebM muxer. `render-output-store.ts` gives it a random-access OPFS target,
+- **`offline-export.ts`** — the frame-exact WebCodecs encoder and MP4/WebM
+  muxer. The video track's timescale is a thousand ticks per frame, so frame
+  durations are exact rather than rounded to whole frames, and when the
+  encoder reorders frames (B frames) the composition table is raised to the
+  signed version — see `mp4-audit.ts`, which also reads every finished file
+  back and checks the container, frame count, frame timing and audio length
+  before it is offered for download. `render-output-store.ts` gives it a random-access OPFS target,
   preserving MP4 index patching while draining the growing file to disk with a
   bounded queue; browsers without OPFS retain the piecewise memory fallback.
-  `audio-telemetry.ts` packs every analyser frame into contiguous arrays rather
-  than retaining thousands of promises and objects. The exporter renders
-  independently of playback speed; `frame-ticker.ts` provides pacing only for
-  the explicit real-time MediaRecorder fallback. In that fallback it uses
-  `requestAnimationFrame` while the tab is visible,
-  a Web Worker timer while it is hidden, and a
-  watchdog if both stall. This is why the Ken Burns glides instead of
-  stuttering in the recorded file.
+  `audio-telemetry.ts` packs every analyser sample into contiguous arrays
+  rather than retaining thousands of promises and objects, and interpolates
+  between those samples so every frame gets its own analyser value. The
+  exporter renders independently of playback speed — there is no real-time
+  recorder left, so nothing in a rendered file is paced by the machine that
+  made it. This is why the Ken Burns glides instead of stuttering.
 - **`word-sync.ts`** — word-level caption timing. The TTS engine reports the
   spoken offset of every word; the karaoke highlight follows the voice itself
   rather than an estimate of it.

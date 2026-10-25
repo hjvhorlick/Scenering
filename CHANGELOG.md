@@ -1,5 +1,76 @@
 # Changelog
 
+## Unreleased — one renderer, a verified MP4, and the B-frame bug behind the judder
+
+- **Why the voice was perfect and everything burned into the picture was not.**
+  Chrome's H.264 encoder with `latencyMode: "quality"` reorders frames (B
+  frames): it emits I, P, B, B, so the frame that has to be *shown* second is
+  written *third*. The renderer gave the muxer the exact presentation time of
+  every frame and a decode time of its own, which is right — but it computed a
+  **negative** composition offset for each B frame, and `mp4-muxer` only ever
+  writes the composition table (`ctts`) as **version 0, whose offsets are
+  unsigned**. A negative offset written as two's complement becomes an
+  enormous positive one: those frames were stamped up to **39 hours** into the
+  movie. A player answers that by holding the picture and then snapping ahead,
+  which is exactly a camera that stops and jumps and a caption highlight that
+  freezes and lurches — while the separately stored audio track plays
+  flawlessly. Every frame's *picture* was correct and evenly spaced; only its
+  timestamp lied. The fix is one byte: when the encoder reorders, the index is
+  raised to version 1, where those same bytes are read as the negative
+  offsets they were written to be (`patchSignedCompositionOffsets`,
+  `OfflineExporter.finalize`). `tests/render-audit.test.ts` builds exactly that
+  file and proves both halves: 24 of 48 frames presenting 143 165 s late
+  before the repair, ±1 frame after it.
+- **The finished file is now read back before it is called finished.**
+  `src/lib/mp4-audit.ts` walks the muxed bytes the way a player does — `ftyp`
+  brand, `moov` before `mdat`, the `stts` sample table, `ctts`, `stsz`, `edts`
+  — and reports the container, the real codec and profile, the frame count,
+  whether the frame timing is genuinely constant, the first frame's
+  presentation time, whether any frame was written empty, and the length of
+  the audio track against the picture. It reads only the head (or tail) of the
+  file, so a 900 MB render costs a few megabytes of I/O. Structural faults —
+  not an MP4, no video track, a missing frame, an empty frame — fail the
+  render with the reason instead of handing over a file that will not play
+  properly. Everything else is shown. The finished screen now says
+  `MP4 VERIFIED · 27,000 FRAMES · 30 FPS CFR` or names the problem.
+- **A video track with a frame rate as its timescale is no longer allowed to
+  round.** `mp4-muxer` writes sample durations in the track's timescale, and
+  the track was given `frameRate: 30` — one tick per frame. Any encoder
+  rounding (33 333 µs for one frame, 33 334 µs for the next) then becomes a
+  **whole frame** of error in the sample table. The timescale is now
+  `trackTimescale(fps)` — a thousand ticks per frame — so rounding costs a
+  thousandth of a frame and the table stays uniform. `tests/render-audit.test.ts`
+  pins the coarse case as one that must be reported.
+- **There is one renderer, and it is frame-exact.** The real-time
+  `MediaRecorder` compatibility path is gone, together with the
+  "Require frame-exact rendering" switch that used to guard it. It recorded
+  the canvas at whatever rate the machine could manage, so its motion was only
+  as even as the hardware — the judder the frame-exact renderer exists to
+  prevent — and it is what made "why is my render jagged?" answerable only by
+  asking which engine had run. A browser that cannot encode the requested
+  container frame-exactly now says so, by name, before any work is spent.
+- **No silent container substitution.** When H.264/AAC probing failed, the
+  render used to carry on in VP9/Opus WebM while Project Setup went on
+  advertising "H.264 High · yuv420p". Requests for MP4 now either produce a
+  verified MP4, or report exactly which WebCodecs configuration is missing.
+  The exporter also checks the finished bytes begin with an `ftyp` box before
+  handing anything over, so an `.mp4` download can never be WebM content.
+- **Analyser values are interpolated, not held.** The offline audio pass stores
+  one row of analyser data every third frame to keep memory bounded, and every
+  frame in between was handed the *same* row — so anything driven by the mix
+  (visualisers, reactive stickers, audio-reactive camera pulses) moved in
+  steps of three frames: ten updates a second in a 30 fps video. That reads as
+  a stutter independent of the camera. `PackedAudioTelemetry.frameSmooth()`
+  blends between the stored rows into reusable scratch buffers — the memory
+  cost is unchanged and every frame gets its own value.
+- **"Is the picture moving?" is now measured, not assumed.**
+  `src/lib/frame-motion-audit.ts` reduces sampled frames to a 32×18 signature
+  and counts how often a frame repeats the one before it, and for how long.
+  Six samples a second, a few tenths of a millisecond each. The render health
+  panel shows the line live, the timing report keeps it, and a held picture
+  longer than a fifth of a second is called out — only when the project
+  actually asked the camera to move.
+
 ## Unreleased — smooth camera, captions that follow the voice
 
 - **A rendered video keeps the camera movement its preview showed.** On a

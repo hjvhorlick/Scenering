@@ -275,16 +275,22 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
   // the render — this is the one that decides what lands in the file
   const render = read("src/components/RenderView.tsx");
   h.ok(render.includes("createVoiceEchoGraph"), "the render builds the echo chain");
+  // The render that lands in the file is the offline one, so that is where the
+  // echo has to be built and where the narration has to pass through it.
   h.ok(
-    render.includes("source.connect(voiceEchoGraph ? voiceEchoGraph.input : analyser)"),
-    "rendered narration is recorded through the echo chain"
+    render.includes("createVoiceEchoGraph(offlineCtx, offlineEchoConfig)"),
+    "the frame-exact render builds the echo chain on its own offline context"
   );
   h.ok(
-    render.includes("voiceEchoGraph.output.connect(analyser)"),
+    render.includes("offlineEcho ? offlineEcho.input : voiceAnalyser"),
+    "rendered narration is mixed through the echo chain"
+  );
+  h.ok(
+    render.includes("offlineEcho.output.connect(voiceAnalyser)"),
     "the visualisers still react to the voice as it sounds (echo included)"
   );
   h.ok(render.includes('describeVoiceEcho(voiceEcho)'), "the render screen shows the chosen space");
-  h.ok(render.includes("voiceEchoGraph?.dispose()"), "the chain is torn down when a render ends");
+  h.ok(render.includes("offlineEcho?.dispose()"), "the chain is torn down when a render ends");
 
   // the setting itself
   const app = read("src/App.tsx");

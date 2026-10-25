@@ -90,8 +90,12 @@ released. It is not evidence that the voice was involved.
   a job is live; the MP4 fast-start reservation has real headroom.
 - **A stall is never answered with a real-time re-encode.** Before, an offline
   failure with "require frame-exact" unticked fell back to `MediaRecorder`,
-  which takes as long as the video is. A deadline is reported, not papered
-  over.
+  which takes as long as the video is — and that fallback is now gone
+  altogether, along with the switch. There is one renderer, it is frame-exact,
+  and a deadline is reported rather than papered over. The same change is what
+  fixed the juddering files: see the "one renderer, a verified MP4" entry in
+  CHANGELOG.md for the B-frame/index defect that made a perfect soundtrack sit
+  against a picture that stopped and jumped.
 - **The start lock is always released** — a failed clip restore, a watermark
   image that never answers, or a missing canvas no longer leave the Render
   button dead until a reload.
