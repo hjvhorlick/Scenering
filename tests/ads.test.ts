@@ -94,6 +94,22 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
   h.ok(slot.includes("if (!clientId || !slot) return null;"), "unconfigured slot renders nothing and reserves no space");
   h.ok(slot.includes("pagead2.googlesyndication.com"), "the ad script loads from Google, never through the Worker");
 
+  // One loader per page, even though the verification snippet pasted into
+  // index.html carries no id: the id check alone would never see it, so
+  // ensureAdsenseScript must also recognise the library by src before
+  // injecting a second copy of adsbygoogle.js.
+  const bootstrap = read("index.html");
+  const pasted = /<script[^>]*adsbygoogle\.js\?client=[^>]*>/.exec(bootstrap)?.[0] ?? "";
+  h.ok(
+    pasted.includes("adsbygoogle.js?client=ca-pub-3303356901060479") && !pasted.includes(" id="),
+    "the pasted verification snippet carries no element id"
+  );
+  h.ok(
+    slot.includes(`document.querySelector('script[src*="adsbygoogle.js?client="]')`),
+    "AdSlot recognises an already-present loader by src, so a configured slot never adds a second adsbygoogle.js"
+  );
+  h.ok(slot.includes("script.id = ADSENSE_SCRIPT_ID"), "AdSlot still marks the script it injects for the id-based dedupe");
+
   const marketing = read("src/marketing/MarketingSite.tsx");
   h.ok(marketing.includes('kind="web"') && marketing.indexOf('kind="web"') > marketing.indexOf("<Examples"), "the homepage unit sits below the examples, not in the hero");
   const publicPage = read("src/marketing/PublicPage.tsx");
