@@ -452,7 +452,7 @@ let giftProgramme: any;
 /* ---- 12. Wiring ------------------------------------------------------------------- */
 {
   const worker = readFileSync(new URL("../worker.ts", import.meta.url), "utf8");
-  h.ok(/processEmailCampaignQueue\(\)\.then\(\(\) => processEmailPrograms\(\)\)/.test(worker), "the five-minute cron runs programmes after campaigns, one after the other");
+  h.ok(/processEmailCampaignQueue\(\)\.then\(\(\) => processEmailPrograms\(\)\)/.test(worker), "the hourly cron runs programmes after campaigns, one after the other");
   const serverSource = readFileSync(new URL("../server.ts", import.meta.url), "utf8");
   h.ok(serverSource.includes("registerProgramRoutes(app)"), "the programme routes are registered");
 }

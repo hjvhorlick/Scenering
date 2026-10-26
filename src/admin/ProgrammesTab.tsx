@@ -156,7 +156,7 @@ export default function ProgrammesTab({ templates, refreshTemplates }: { templat
                   <Figure value={fmtNumber(programme.stats.waiting)} label="waiting" />
                   <Figure value={fmtNumber(programme.stats.skipped + programme.stats.failed)} label="not sent" />
                 </div>
-                {programme.stats.nextDueAt && programme.status === "on" && <p className="text-xs text-gray-400">Next email due {fmtDateTime(programme.stats.nextDueAt)}. Emails go out within five minutes of their time.</p>}
+                {programme.stats.nextDueAt && programme.status === "on" && <p className="text-xs text-gray-400">Next email due {fmtDateTime(programme.stats.nextDueAt)}. Emails go out within an hour of their time.</p>}
                 <div className="flex flex-wrap gap-2">
                   <button type="button" className={`opt-btn ${programme.status === "on" ? "" : "opt-btn-on"}`} onClick={() => void toggle(programme)}>{programme.status === "on" ? "Switch off" : "Switch on"}</button>
                   <button type="button" className="opt-btn" onClick={() => setEditing(programme)}>Change</button>

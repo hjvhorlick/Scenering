@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased — AdSense, off until configured, free-plan studio rails
+
+- **Advertising is wired but completely inert by default**
+  (`src/shared/ads.ts`, `src/shared/AdSlot.tsx`). Nothing renders, reserves
+  space, or loads Google's script until `VITE_ADSENSE_CLIENT_ID` and the
+  slot ids are set at build time (see `.env.example`); the build then also
+  writes `dist/ads.txt` for the publisher. Ads load browser→Google directly,
+  so they add **zero Worker requests**.
+- **Public webpages:** one small unit — below the examples on the homepage,
+  above the footer on standalone pages; never in the hero, beside pricing,
+  or on legal/account-flow pages.
+- **Studio:** free-plan members only, Setup and Render pages only, as fixed
+  160 px rails on both sides at viewport widths ≥ 1750 px, where that space
+  is genuinely unused beside the centred workspace. Never over the canvas,
+  timeline or any editing step, never on smaller screens, and paid plans
+  (including an owner previewing a paid plan) see no studio ads at all.
+  New `tests/ads.test.ts` pins the gates and placements.
+- Privacy and Cookie pages now disclose AdSense (cookies, EEA/UK consent
+  message, free-plan-only studio ads) before the feature can be enabled.
+
+## Unreleased — idle Worker traffic cut (no render or quality change)
+
+- **Workspace sync poll: 25 seconds → 5 minutes, and never while the tab is
+  hidden** (`src/lib/workspace-sync.ts`). The poll only notices changes made
+  on *another* device; this device's own edits still push within ~1 second,
+  and returning to the tab (focus / visibility change) still syncs
+  immediately. An idle open studio tab used to cost ~144 Worker requests an
+  hour around the clock; it now costs ~12, and nothing while hidden. Worst
+  case, a change made on a second device takes up to five minutes to appear
+  instead of 25 seconds.
+- **Email campaign/programme cron: every 5 minutes → hourly**
+  (`15 * * * *` in `wrangler.jsonc`, dispatched in `worker.ts`). The
+  always-on cron drops from 288 to 24 invocations a day. Scheduled campaigns
+  and automated programme emails may now start up to an hour after their
+  time instead of within five minutes — admin copy and the admin manual say
+  so. Transactional email (verification, password reset), the inbox, and
+  campaigns sent with the admin page open are unaffected, and the hourly
+  voice-upload expiry sweep is unchanged. Raise the frequency again when
+  campaign volume makes the wait matter.
+- Neither change touches rendering, preview, image search or any output
+  setting; both only change how often background housekeeping runs.
+
 ## Unreleased — the rendered voice no longer breaks or glitches
 
 - **The voice in a rendered video had intermittent dips and grit; the same

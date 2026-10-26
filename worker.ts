@@ -58,7 +58,7 @@ export default {
   //                    D1 bookkeeping row. The only expiry path for that
   //                    storage; there is no per-request sweep on Workers
   //                    the way the old JSON-file server had one.
-  //  - "*/5 * * * *"  drains the Email Centre's campaign queue: starts
+  //  - "15 * * * *"   drains the Email Centre's campaign queue (hourly): starts
   //                    scheduled campaigns whose time has arrived and sends
   //                    the next bounded batch of any campaign mid-send.
   //                    Large campaigns are therefore never pushed through
@@ -71,7 +71,7 @@ export default {
   //                    never runs both at once.
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     setEnv(env);
-    if (event.cron === "*/5 * * * *") {
+    if (event.cron === "15 * * * *") {
       ctx.waitUntil(processEmailCampaignQueue().then(() => processEmailPrograms()));
       return;
     }

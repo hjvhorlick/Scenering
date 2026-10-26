@@ -9,7 +9,7 @@ matrix.*
 Worker** (the Express API, bridged via `cloudflare:node`), **one static-asset
 set** (`dist/`, served by Cloudflare's asset layer), **one D1 database**, **one
 KV namespace**, **one R2 bucket** and **two Cron Triggers** (an hourly sweep
-and a five-minute email-queue drain). Nothing needs
+and an hourly email-queue drain). Nothing needs
 a Node.js server, a container, or any other host.
 
 > **One plan requirement:** run it on the **Workers Paid** plan ($5/month).
@@ -82,10 +82,10 @@ deploy.
 | Narration (TTS) | Browser (`src/lib/speechify-client.ts`) | Direct browser `fetch` to Speechify; the customer's key never reaches the Worker | ✅ No Worker proxy; Simba 3.2 audio and speech marks; errors are surfaced with no alternate-provider or silent-audio fallback |
 | Image search (Pexels / Pixabay / Wikimedia) | `server.ts` | Outbound `fetch` with 12 s timeouts + provider clamps | ✅ verified (nature-library fallback when no keys) |
 | Email | `server/email.ts` | Resend HTTPS API in production (`EMAIL_PROVIDER=resend`, authenticated by the `RESEND_API_KEY` secret); `console` remains available for local development. SMTP is not available from Workers | ✅ |
-| Email Centre — templates, consented audiences, campaigns, delivery history, unsubscribe/preferences pages | `server/email-centre.ts` | **D1** (templates/campaigns/deliveries, `migrations/0002_email_centre.sql`) + the Resend provider above. Large sends are queued as D1 delivery rows and drained **20 at a time by the five-minute Cron Trigger** (never one long request); delivery outcomes recorded from **Resend's webhook** at `/api/webhooks/resend` (HMAC-verified raw bytes, optional) | ✅ verified |
+| Email Centre — templates, consented audiences, campaigns, delivery history, unsubscribe/preferences pages | `server/email-centre.ts` | **D1** (templates/campaigns/deliveries, `migrations/0002_email_centre.sql`) + the Resend provider above. Large sends are queued as D1 delivery rows and drained **20 at a time by the hourly Cron Trigger** (never one long request); delivery outcomes recorded from **Resend's webhook** at `/api/webhooks/resend` (HMAC-verified raw bytes, optional) | ✅ verified |
 | Email Centre inbox — contact-form messages and email to the owner's address (vincent@scenering.com), answered from `/admin` → Inbox, with attachments, saved replies and owner alerts | `server/inbox.ts`, `server/inbox-core.ts`, `server/inbox-settings.ts`, `src/inbox-db.ts` | **Email Routing** → the Worker's `email()` handler (`worker.ts`) for incoming mail; **D1** (`migrations/0003_inbox.sql`, which the Worker also creates itself on first use); **R2** (`AUDIO_BUCKET`, `inbox/` prefix) for attachments; replies go out through the Resend provider above | ✅ verified locally (wrangler `/cdn-cgi/handler/email`); needs the one-time Email Routing setup in step 8 |
 | Email Centre members and gift codes — the member list with plans and videos, free time given to one member, and shareable gift codes with their results (`/admin` → Members, Gifts) | `server/members.ts`, `server/gift-codes.ts`, `src/members-db.ts`, `src/gifts-db.ts` | **D1** (`migrations/0004_gift_codes.sql`, which the Worker also creates itself on first use); a used gift code is an ordinary complimentary grant, redeemed through the existing `/api/complimentary-codes/redeem` | ✅ verified locally |
-| Email Centre programmes — emails that go out by themselves to each member at their own moment (after joining, before a gift ends) (`/admin` → Programmes) | `server/programs.ts`, `src/programs-db.ts` | **D1** (`migrations/0005_programs.sql`, created by the Worker on first use); run by the **five-minute Cron Trigger** after the campaign queue, at most 10 emails per run, through the Resend provider above | ✅ verified locally (wrangler `/cdn-cgi/handler/scheduled`) |
+| Email Centre programmes — emails that go out by themselves to each member at their own moment (after joining, before a gift ends) (`/admin` → Programmes) | `server/programs.ts`, `src/programs-db.ts` | **D1** (`migrations/0005_programs.sql`, created by the Worker on first use); run by the **hourly Cron Trigger** after the campaign queue, at most 10 emails per run, through the Resend provider above | ✅ verified locally (wrangler `/cdn-cgi/handler/scheduled`) |
 | Billing webhooks | `server/platform.ts` | Inbound HTTPS at `/api/webhooks/fastspring`, `X-FS-Signature` (HMAC-SHA256 base64 of `rawBody`) verified against raw bytes; outbound to `api.fastspring.com` for optional session checkouts and pre-authenticated Account Management links | ✅ verified (503/401 paths) |
 | Scheduled email link expiry, token expiry | `src/db.ts` | D1, ISO-8601 comparisons (fixed — see §4) | ✅ verified |
 
@@ -339,7 +339,7 @@ Then:
    `complained` and `failed` events: a spam complaint counts as an
    unsubscribe, and inbox replies show their delivery state) and
    copy its signing secret into `RESEND_WEBHOOK_SECRET`. The scheduled-send
-   queue drains on the five-minute Cron Trigger — no further wiring needed.
+   queue drains on the hourly Cron Trigger — no further wiring needed.
 7. **Migrations** — run `npx wrangler d1 migrations apply scenering-db --remote`
    before merging a new SQL file to `main` (Workers Builds redeploys `main`
    with `wrangler deploy` directly, whereas `npm run deploy` gates on
@@ -398,7 +398,7 @@ Neither cron fires automatically under `wrangler dev` — trigger them manually:
 
 ```bash
 curl http://localhost:8787/cdn-cgi/local/scheduled                                  # hourly audio sweep
-curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=*/5%20*%20*%20*%20*"       # email campaign queue
+curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=15%20*%20*%20*%20*"       # email campaign queue
 ```
 
 ## 7. Verification performed for this report

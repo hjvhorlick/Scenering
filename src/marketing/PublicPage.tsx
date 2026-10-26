@@ -22,6 +22,7 @@ import Devices from "./sections/Devices";
 import Sources from "./sections/Sources";
 import { LEGAL_CONTACT_PATH, LEGAL_DOCUMENTS, LEGAL_EFFECTIVE_DATE, LEGAL_ORGANISATION, LEGAL_OWNER, type LegalKind } from "./legal-content";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
+import AdSlot from "../shared/AdSlot";
 import SocialLinksRow from "../shared/SocialLinks";
 import StoreNoticeBanner from "../shared/StoreNotice";
 import { applyPageSeo } from "./seo";
@@ -50,7 +51,8 @@ export default function PublicPage({ path }: { path: string }) {
   else if (path === "/unsubscribe") content = <UnsubscribePage />;
   else if (path === "/welcome") content = <WelcomePage />;
   else content = <LegalPage kind={path.slice(1) as "privacy" | "terms" | "cookies" | "refunds"} />;
-  return <div className="mkt-root"><SiteCornerMenu /><PublicNav currentPath={path} /><StoreNoticeBanner /><main id="main" className="pub-main">{content}</main><PublicFooter /></div>;
+  const showWebAd = !["/privacy", "/terms", "/cookies", "/refunds", "/verify-email", "/reset-password", "/email-preferences", "/unsubscribe"].includes(path);
+  return <div className="mkt-root"><SiteCornerMenu /><PublicNav currentPath={path} /><StoreNoticeBanner /><main id="main" className="pub-main">{content}</main>{showWebAd && <AdSlot kind="web" className="mkt-container" style={{ maxWidth: 728, margin: "24px auto 0", padding: "0 16px 24px" }} testId="adsense-web" />}<PublicFooter /></div>;
 }
 
 function PublicNav({ currentPath }: { currentPath?: string }) { return <nav className="mkt-nav" aria-label="Main"><div className="mkt-container mkt-nav-inner"><a href="/" className="mkt-nav-logo"><BrandMark height={26} /></a><SocialLinksRow size={13} tone="light" className="mkt-nav-social" /><div className="pub-navlinks">{NAV.map(([href, label]) => <a key={href} href={href} className="mkt-nav-link">{label}</a>)}<HeaderLegalMenu currentPath={currentPath} /></div><span className="mkt-nav-spacer" /><span className="sc-corner-reserve" aria-hidden="true" /></div></nav>; }
