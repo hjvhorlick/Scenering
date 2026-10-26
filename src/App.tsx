@@ -2248,8 +2248,9 @@ export default function App() {
 
   // Per-side geometry in CSS pixels: a 160 px rail (12 px gap to the
   // workspace border, 8 px clearance to the viewport edge) centred in the
-  // region below the header and the corner menu (top). null = that side has
-  // no room and the rail stays out.
+  // region below the header and the corner menu, dropped a further 80 px
+  // (≈2 cm) below that row (top). null = that side has no room and the rail
+  // stays out.
   const [railSides, setRailSides] = useState<{ left: number | null; right: number | null; top: number }>({
     left: null,
     right: null,
@@ -2269,6 +2270,9 @@ export default function App() {
     const RAIL_WIDTH = 160;
     const RAIL_GAP = 12;
     const EDGE_MIN = 8;
+    // Extra drop below the header/menu row: at least another 2 cm (~80 px),
+    // on the owner's call after seeing the first fit.
+    const RAIL_TOP_CLEAR = 80;
     const fits = (margin: number) => margin >= RAIL_WIDTH + RAIL_GAP + EDGE_MIN;
     const measure = () => {
       const rect = workspace.getBoundingClientRect();
@@ -2287,7 +2291,7 @@ export default function App() {
       setRailSides({
         left: fits(leftMargin) ? Math.round(leftMargin - RAIL_GAP - RAIL_WIDTH) : null,
         right: fits(rightMargin) ? Math.round(rightMargin - RAIL_GAP - RAIL_WIDTH) : null,
-        top: Math.round(Math.max(0, boundary)),
+        top: Math.round(Math.max(0, boundary) + RAIL_TOP_CLEAR),
       });
     };
     measure();

@@ -17,12 +17,12 @@
  *  - Public webpages: ONE small unit, away from the hero and the work.
  *  - Studio: free plan only, Setup and Render pages only, as fixed side
  *    rails fitted just outside the centred workspace's borders, below the
- *    header and the corner-menu row — each side shows only when its own
- *    margin is genuinely unused and wide enough to hold the rail (all
- *    measured at runtime, no fixed viewport-width wall) — never over the
- *    canvas, the timeline, or any editing surface, and never on mobile,
- *    where no margin could ever fit one. The corner menu (z-200) stays
- *    above the rails (z-30) at all times.
+ *    header and the corner-menu row (plus 80 px of clearance) — each side
+ *    shows only when its own margin is genuinely unused and wide enough to
+ *    hold the rail (all measured at runtime, no fixed viewport-width wall) —
+ *    never over the canvas, the timeline, or any editing surface, and never
+ *    on mobile, where no margin could ever fit one. The corner menu
+ *    (z-200) stays above the rails (z-30) at all times.
  *  - Paid plans (sceneflow/sceneforge), the owner-admin plan preview of a
  *    paid plan, and every other studio step: no ads at all.
  */
