@@ -79,15 +79,26 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
 }
 
 /* Wiring: the placements the owner agreed — one web unit away from the hero
-   and pricing, and studio side rails on Setup + Render only, wide screens
-   only. These are source checks so a refactor cannot quietly move an ad
-   onto the editing canvas. */
+   and pricing, and studio side rails on Setup + Render only, fitted into
+   genuine side margin only. These are source checks so a refactor cannot
+   quietly move an ad onto the editing canvas. */
 {
   const app = read("src/App.tsx");
   h.ok(app.includes('kind="studio"') && app.includes("showAdRails"), "studio rails render from the eligibility switch");
   h.ok(app.includes('view === "create" || showRenderPage'), "rails limited to Setup and Render");
-  h.ok(app.includes("min-[1750px]:block"), "rails only where the side space is genuinely unused");
-  h.ok(app.includes("fixed left-3") && app.includes("fixed right-3"), "one rail on each side");
+  h.ok(
+    app.includes("[data-studio-workspace]") && app.includes("getBoundingClientRect"),
+    "rails measure the centred workspace instead of assuming a fixed viewport width"
+  );
+  h.ok(!app.includes("min-[1750px]"), "no blanket 1750 px wall — each side qualifies from its own margin");
+  h.ok(
+    app.includes('testId="adsense-studio-left"') && app.includes('testId="adsense-studio-right"'),
+    "one rail on each side"
+  );
+  h.ok(
+    read("src/components/SetupStudio.tsx").includes('data-studio-workspace="setup"'),
+    "the Setup workspace exposes the box the rails measure"
+  );
   h.ok(app.includes("getInterfacePlan(sessionAccount)"), "owner plan preview decides the rails, so previewing paid hides them");
 
   const slot = read("src/shared/AdSlot.tsx");

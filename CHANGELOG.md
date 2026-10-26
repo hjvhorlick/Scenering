@@ -35,11 +35,14 @@
   above the footer on standalone pages; never in the hero, beside pricing,
   or on legal/account-flow pages.
 - **Studio:** free-plan members only, Setup and Render pages only, as fixed
-  160 px rails on both sides at viewport widths ≥ 1750 px, where that space
-  is genuinely unused beside the centred workspace. Never over the canvas,
-  timeline or any editing step, never on smaller screens, and paid plans
-  (including an owner previewing a paid plan) see no studio ads at all.
-  New `tests/ads.test.ts` pins the gates and placements.
+  160 px rails placed just outside the centred workspace's borders. Each
+  side measures its own margin at runtime and shows the rail only when that
+  space is genuinely unused (12 px gap to the workspace, 8 px clearance to
+  the viewport edge), so ordinary laptop widths get the rails wherever the
+  layout leaves room instead of a blanket ≥ 1750 px viewport wall — and a
+  rail can still never cover the canvas, timeline or any editing step. Paid
+  plans (including an owner previewing a paid plan) see no studio ads at
+  all. `tests/ads.test.ts` pins the gates and placements.
 - Privacy and Cookie pages now disclose AdSense (cookies, EEA/UK consent
   message, free-plan-only studio ads) before the feature can be enabled.
 

@@ -83,8 +83,10 @@ on a page to verify the site and to serve ads there. The same pass writes
 
 Ad units are separate and off until `VITE_ADSENSE_SLOT_WEB` /
 `VITE_ADSENSE_SLOT_STUDIO` name real slot ids: one small unit on the public
-webpages, and studio side rails for free-plan members only on the Setup and
-Render pages at viewport widths ≥ 1750 px. Clear the publisher id and the site
+webpages, and studio side rails for free-plan members on the Setup and
+Render pages, each rail fitted just outside the centred workspace's border on
+any side whose margin is genuinely free — measured per side at runtime, with
+no fixed viewport-width threshold. Clear the publisher id and the site
 loads nothing from Google at all. Ads load browser→Google directly, so they add
 no Worker requests.
 
