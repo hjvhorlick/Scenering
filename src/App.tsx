@@ -2236,12 +2236,58 @@ export default function App() {
   };
 
   // Free-plan advertising rails (src/shared/ads.ts): Setup and Render only,
-  // only on screens wide enough that the fixed rails sit in the unused space
-  // beside the centred workspace (>= 1750 px) — never over the work, never
-  // on the editing steps, never for paid plans. Inert until configured.
+  // never over the work, never on the editing steps, never for paid plans.
+  // Inert until configured. Instead of one blanket viewport-width wall, each
+  // rail measures the centred workspace ([data-studio-workspace]) and appears
+  // only when the margin on its own side is genuinely unused — placed just
+  // outside the workspace border, so ordinary laptop screens get the rails
+  // wherever the layout actually leaves the room.
   const showAdRails =
     studioAdsEligible(sessionSignedIn, sessionAccount ? getInterfacePlan(sessionAccount) : null) &&
     (view === "create" || showRenderPage);
+
+  // Per-side geometry in CSS pixels from the viewport edge: a 160 px rail,
+  // 12 px of gap to the workspace border, and 8 px of clearance to the
+  // viewport edge. null = that side has no room and the rail stays out.
+  const [railSides, setRailSides] = useState<{ left: number | null; right: number | null }>({
+    left: null,
+    right: null,
+  });
+
+  useEffect(() => {
+    if (!showAdRails) {
+      setRailSides({ left: null, right: null });
+      return;
+    }
+    const workspace = document.querySelector<HTMLElement>("[data-studio-workspace]");
+    if (!workspace) {
+      setRailSides({ left: null, right: null });
+      return;
+    }
+    const RAIL_WIDTH = 160;
+    const RAIL_GAP = 12;
+    const EDGE_MIN = 8;
+    const fits = (margin: number) => margin >= RAIL_WIDTH + RAIL_GAP + EDGE_MIN;
+    const measure = () => {
+      const rect = workspace.getBoundingClientRect();
+      const leftMargin = rect.left;
+      const rightMargin = window.innerWidth - rect.right;
+      setRailSides({
+        left: fits(leftMargin) ? Math.round(leftMargin - RAIL_GAP - RAIL_WIDTH) : null,
+        right: fits(rightMargin) ? Math.round(rightMargin - RAIL_GAP - RAIL_WIDTH) : null,
+      });
+    };
+    measure();
+    // The workspace box moves when the window resizes or the layout reflows
+    // (step change, wrapping toolbar, scrollbar), so follow both.
+    const observer = new ResizeObserver(measure);
+    observer.observe(workspace);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [showAdRails, view, showRenderPage]);
 
   return (
     <div className="flex min-h-screen bg-gray-950 text-white font-sans">
@@ -2249,8 +2295,12 @@ export default function App() {
       <SiteCornerMenu />
       {showAdRails && (
         <>
-          <AdSlot kind="studio" testId="adsense-studio-left" className="hidden min-[1750px]:block fixed left-3 top-1/2 -translate-y-1/2 z-30 w-[160px] text-gray-300" />
-          <AdSlot kind="studio" testId="adsense-studio-right" className="hidden min-[1750px]:block fixed right-3 top-1/2 -translate-y-1/2 z-30 w-[160px] text-gray-300" />
+          {railSides.left !== null && (
+            <AdSlot kind="studio" testId="adsense-studio-left" className="fixed top-1/2 -translate-y-1/2 z-30 w-[160px] text-gray-300" style={{ left: railSides.left }} />
+          )}
+          {railSides.right !== null && (
+            <AdSlot kind="studio" testId="adsense-studio-right" className="fixed top-1/2 -translate-y-1/2 z-30 w-[160px] text-gray-300" style={{ right: railSides.right }} />
+          )}
         </>
       )}
       {/* Main Content */}
@@ -2483,6 +2533,7 @@ export default function App() {
           {(showRenderPage || renderInFlight) && (
             <div
               aria-hidden={!showRenderPage}
+              data-studio-workspace={showRenderPage ? "render" : undefined}
               className={
                 showRenderPage
                   ? "p-2 sm:p-4 lg:p-6 max-w-6xl 2xl:max-w-[1600px] mx-auto"

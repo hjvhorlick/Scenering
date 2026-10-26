@@ -15,10 +15,12 @@
  *
  * Placement rules, as agreed with the product owner:
  *  - Public webpages: ONE small unit, away from the hero and the work.
- *  - Studio: free plan only, Setup and Render pages only, and only as fixed
- *    side rails on screens wide enough (>= 1750 px) that the rails sit in
- *    genuinely unused space beside the centred workspace — never over the
- *    canvas, the timeline, or any editing surface, and never on mobile.
+ *  - Studio: free plan only, Setup and Render pages only, as fixed side
+ *    rails fitted just outside the centred workspace's borders — each side
+ *    shows only when its own margin is genuinely unused and wide enough to
+ *    hold the rail (measured at runtime, no fixed viewport-width wall) —
+ *    never over the canvas, the timeline, or any editing surface, and never
+ *    on mobile, where no margin could ever fit one.
  *  - Paid plans (sceneflow/sceneforge), the owner-admin plan preview of a
  *    paid plan, and every other studio step: no ads at all.
  */

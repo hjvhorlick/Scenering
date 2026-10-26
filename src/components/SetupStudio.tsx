@@ -573,7 +573,7 @@ export default function SetupStudio({
 
 
   return (
-    <div className="w-full max-w-4xl 2xl:max-w-6xl mx-auto space-y-3 sm:space-y-5 lg:space-y-6 pb-12 animate-fade-in px-1 sm:px-0">
+    <div data-studio-workspace="setup" className="w-full max-w-4xl 2xl:max-w-6xl mx-auto space-y-3 sm:space-y-5 lg:space-y-6 pb-12 animate-fade-in px-1 sm:px-0">
       {/* ---------------- Frame header ---------------- */}
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <div className="min-w-0">
