@@ -70,6 +70,24 @@ Cloudflare Worker secrets (the names match `.env.example`):
 | `PIXABAY_API_KEY` | Default stock photo search key | Customer's Pixabay key or Wikimedia Commons |
 | `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` | Projects sync across devices | Saved in your browser |
 
+### Advertising (Google AdSense)
+
+The publisher id is a build-time value, not a secret (`VITE_ADSENSE_CLIENT_ID`
+in `.env`, documented in `.env.example`). When it is set, the build writes
+Google's AdSense loader into the `<head>` of every page it produces — the front
+page, every standalone page and the app shell — because AdSense needs that tag
+on a page to verify the site and to serve ads there. The same pass writes
+`dist/ads.txt` for the publisher. The three internal inspection pages
+(`/brand-check`, `/icon-sheet`, `/render-probe`, all `noindex`) are copied from
+`public/` untouched and carry no ad script.
+
+Ad units are separate and off until `VITE_ADSENSE_SLOT_WEB` /
+`VITE_ADSENSE_SLOT_STUDIO` name real slot ids: one small unit on the public
+webpages, and studio side rails for free-plan members only on the Setup and
+Render pages at viewport widths ≥ 1750 px. Clear the publisher id and the site
+loads nothing from Google at all. Ads load browser→Google directly, so they add
+no Worker requests.
+
 Image search has a hard quality gate: only photo-like images are used (no
 black-and-white shots, diagrams or flat artwork — thumbnails are analysed
 pixel-by-pixel), and every image that reaches a scene is 16:9 and at least

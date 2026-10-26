@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { adsenseClientId, adsenseSlotId, type AdsenseSlotKind } from "./ads";
+import { ADSENSE_SCRIPT_ID, adsenseClientId, adsenseSlotId, type AdsenseSlotKind } from "./ads";
 
 /**
  * One Google AdSense unit. Renders NOTHING — no box, no gap, no script —
@@ -8,16 +8,17 @@ import { adsenseClientId, adsenseSlotId, type AdsenseSlotKind } from "./ads";
  * only knows how to load Google's script once and fill one unit.
  *
  * The script loads lazily with the first mounted slot, straight from Google
- * to the visitor's browser: ads never touch the Scenering Worker.
+ * to the visitor's browser: ads never touch the Scenering Worker. When the
+ * build already wrote Google's loader into the page's <head> (every page gets
+ * it once a publisher id is configured — see src/marketing/seo-head.ts), this
+ * finds that tag by id and loads nothing: one loader per page, always.
  */
-
-const SCRIPT_ID = "scenering-adsbygoogle";
 
 function ensureAdsenseScript(clientId: string): void {
   if (typeof document === "undefined") return;
-  if (document.getElementById(SCRIPT_ID)) return;
+  if (document.getElementById(ADSENSE_SCRIPT_ID)) return;
   const script = document.createElement("script");
-  script.id = SCRIPT_ID;
+  script.id = ADSENSE_SCRIPT_ID;
   script.async = true;
   script.crossOrigin = "anonymous";
   script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(clientId)}`;

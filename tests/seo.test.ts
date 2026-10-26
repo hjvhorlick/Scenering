@@ -242,7 +242,9 @@ h.ok(marketingSite.includes('applyPageSeo("/", "/")'), "homepage section aliases
 /* 9. The build writes the files; the never-connected module is gone. */
 const viteConfig = read("vite.config.ts");
 h.ok(
-  viteConfig.includes("seoPageShells()") && viteConfig.includes("pageShellFiles(html)") && viteConfig.includes('applyPageShell(html, "/")'),
+  viteConfig.includes("seoPageShells(adsenseClientId)") &&
+    viteConfig.includes("pageShellFiles(html, adsenseClientId)") &&
+    viteConfig.includes('applyPageShell(html, "/", adsenseClientId)'),
   "the build writes every page's file from seo-head.ts"
 );
 h.ok(

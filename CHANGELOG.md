@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased — Google's AdSense snippet in every page's head
+
+- **The AdSense loader tag now ships in the head of every page the build
+  writes** (`src/shared/ads.ts` `adsenseScriptTag`, applied by
+  `src/marketing/seo-head.ts` and `vite.config.ts`). AdSense asks a publisher
+  to paste its `adsbygoogle.js` snippet into each page of the site; typing it
+  into `index.html` would have covered only the front page and the SPA
+  fallback, so the page-shell pass writes it into all of them — `index.html`
+  (which also answers `/app`), and every generated page file (`/pricing`,
+  `/faq`, `/manual`, …). One tag per page, inside `<head>`, and re-applying
+  the page shell replaces the block rather than appending a second loader.
+- **Driven by the same build-time value as `ads.txt`**: set
+  `VITE_ADSENSE_CLIENT_ID` (now filled in for this site in `.env.example`) and
+  rebuild. Cleared or malformed, no tag is written and nothing is loaded from
+  Google — the silent default is unchanged.
+- **No duplicate loader:** `AdSlot` and the new head tag share one id
+  (`ADSENSE_SCRIPT_ID`), so the lazy loader in the studio finds the head tag
+  already present and loads nothing.
+- Ad units are still off until the slot ids are configured, so this change
+  adds verification and ad serving readiness without adding an ad to a page
+  that has no unit. `tests/ads.test.ts` now pins the tag: present, exactly
+  once, inside `<head>`, on every page path, and absent when unconfigured.
+
 ## Unreleased — AdSense, off until configured, free-plan studio rails
 
 - **Advertising is wired but completely inert by default**
