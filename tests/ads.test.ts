@@ -94,6 +94,7 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
     app.includes('".t-app-hdr"') && app.includes('".sc-corner"'),
     "rails measure the header and corner menu so they never cover either"
   );
+  h.ok(app.includes("RAIL_TOP_CLEAR = 80"), "rails drop a further ~2 cm below the header/menu row");
   h.ok(!app.includes("min-[1750px]"), "no blanket 1750 px wall — each side qualifies from its own margin");
   h.ok(
     app.includes('testId="adsense-studio-left"') && app.includes('testId="adsense-studio-right"'),
