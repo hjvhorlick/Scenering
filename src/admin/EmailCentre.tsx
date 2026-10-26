@@ -928,7 +928,7 @@ function CampaignEditor({ templates, onClose, onCreated }: { templates: EmailTem
         <label className="flex items-center gap-2 text-xs text-gray-300"><input type="checkbox" checked={schedule} onChange={(e) => setSchedule(e.target.checked)} /> Schedule this campaign for later</label>
         {schedule && (
           <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="Send at" hint="Sent automatically in five-minute windows by the campaign queue."><input type="datetime-local" className={inputClass} value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} /></Field>
+            <Field label="Send at" hint="Sent automatically in hourly windows by the campaign queue."><input type="datetime-local" className={inputClass} value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} /></Field>
           </div>
         )}
       </div>
@@ -971,7 +971,7 @@ function CampaignDetail({ id, onClose }: { id: string; onClose: () => void }) {
 
   // While the campaign is mid-send, keep the numbers moving: each tick
   // asks the server to process the next bounded batch (the same thing the
-  // five-minute cron does), then refreshes. The cron is the backstop when
+  // hourly cron does), then refreshes. The cron is the backstop when
   // this page is closed.
   const status = detail?.campaign.status;
   useEffect(() => {

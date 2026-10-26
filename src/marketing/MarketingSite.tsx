@@ -17,6 +17,7 @@ import IconSprite from "../components/icons/IconSprite";
 import PublicPage, { isStandalonePublicPath } from "./PublicPage";
 import SiteCornerMenu from "../shared/SiteCornerMenu";
 import SocialLinksRow from "../shared/SocialLinks";
+import AdSlot from "../shared/AdSlot";
 import StoreNoticeBanner from "../shared/StoreNotice";
 import { applyPageSeo } from "./seo";
 
@@ -164,6 +165,12 @@ export default function MarketingSite() {
 
         {/* Proof: the kinds of videos it makes. */}
         <Examples />
+
+        {/* The one advertising unit on the public site: small, below the
+            content and above the closing call to action, never in the hero
+            or beside the pricing decision. Renders nothing until AdSense
+            is configured (src/shared/ads.ts). */}
+        <AdSlot kind="web" className="mkt-container" style={{ maxWidth: 728, margin: "8px auto 0", padding: "0 16px" }} testId="adsense-web" />
 
         <FinalCta />
       </main>

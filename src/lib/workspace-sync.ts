@@ -40,7 +40,13 @@ import {
 const STATE_KEY = "scenering_sync_state_v1";
 const OWNER_KEY = "scenering_sync_owner";
 const PUSH_DELAY_MS = 1200;
-const POLL_INTERVAL_MS = 25_000;
+// The poll only exists to notice changes made on ANOTHER device; this
+// device's own edits already push within ~1 s (PUSH_DELAY_MS) and returning
+// to the tab syncs immediately (focus/visibilitychange below). It used to
+// run every 25 s, which cost ~144 Worker requests per hour for every open
+// studio tab — idle tabs included. Five minutes keeps cross-device changes
+// feeling prompt while cutting that idle traffic by ~95%.
+const POLL_INTERVAL_MS = 300_000;
 const UPDATE_EVENT = "scenering:workspace-updated";
 
 type SyncState = {
@@ -374,7 +380,12 @@ export function startWorkspaceSync(userId?: string) {
   if (userId) adoptAccount(userId);
   enabled = true;
   void syncNow();
-  if (!pollTimer) pollTimer = setInterval(() => { void syncNow(); }, POLL_INTERVAL_MS);
+  if (!pollTimer) pollTimer = setInterval(() => {
+    // A hidden tab has nobody to show another device's changes to, and the
+    // visibilitychange wake below syncs the moment it comes back.
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    void syncNow();
+  }, POLL_INTERVAL_MS);
   if (!(window as any).__sceneringWorkspaceListeners) {
     (window as any).__sceneringWorkspaceListeners = true;
     const wake = () => { if (document.visibilityState !== "hidden") void syncNow(); };

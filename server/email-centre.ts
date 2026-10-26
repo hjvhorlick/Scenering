@@ -797,7 +797,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
 }
 
 /**
- * The Cron Trigger's entry point (worker.ts, every five minutes):
+ * The Cron Trigger's entry point (worker.ts, hourly):
  * starts due scheduled campaigns and drains in-flight ones, within a fixed
  * send budget per tick. Failures in one campaign never stop the others.
  */

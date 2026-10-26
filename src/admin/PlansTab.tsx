@@ -373,7 +373,7 @@ function UsePlan({ plan, count, replyReady, onClose, refreshTemplates, onOpenCam
         <label className="block space-y-1">
           <span className="block text-xs font-bold text-gray-300">First email goes out</span>
           <input type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} className={inputClass} />
-          <span className="block text-[11px] text-gray-500">Your own time zone. Scheduled emails go out within five minutes of their time.</span>
+          <span className="block text-[11px] text-gray-500">Your own time zone. Scheduled emails go out within an hour of their time.</span>
         </label>
       )}
       <ol className="space-y-2" aria-label="The emails in this plan">

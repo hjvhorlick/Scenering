@@ -110,7 +110,7 @@ const allText = (item: { q: string; a: string; steps: readonly string[]; points?
 /* ---- 3. Every number matches the code -------------------------------------------- */
 {
   h.eq(F.campaignBatch, emailCentre.SEND_BATCH_SIZE, "campaign batch size");
-  h.eq(F.campaignPerRun, emailCentre.CRON_SEND_BUDGET, "campaign emails per five-minute run");
+  h.eq(F.campaignPerRun, emailCentre.CRON_SEND_BUDGET, "campaign emails per hourly run");
   h.eq(F.largestAudience, emailCentre.MAX_AUDIENCE, "largest campaign audience");
   h.eq(F.programmePerRun, programs.PROGRAM_SEND_BUDGET, "programme emails per run");
   h.eq(F.programmeEmails, programs.MAX_PROGRAM_STEPS, "emails in one programme");
@@ -135,7 +135,7 @@ const allText = (item: { q: string; a: string; steps: readonly string[]; points?
   h.ok(read("server/email-centre.ts").includes(`.slice(0, ${F.handPicked});`), "people in a hand-picked audience");
   h.ok(read("src/admin/EmailCentre.tsx").includes(`Between ${F.quietMinDays} and ${F.quietMaxDays} days.`), "days without a download");
   h.ok(read("src/lib/email-templates.ts").includes(`This link expires in ${F.confirmLinkHours} hours.`), "how long a confirmation link works");
-  h.ok(/"crons":\s*\[[^\]]*"\*\/5 \* \* \* \*"/.test(read("wrangler.jsonc")), "the email queue runs every five minutes");
+  h.ok(/"crons":\s*\[[^\]]*"15 \* \* \* \*"/.test(read("wrangler.jsonc")), "the email queue runs every hour");
   h.ok(read("src/admin/GiftsTab.tsx").includes("Letters, numbers and dashes, 4 to 32 characters."), "what a chosen code may contain");
   h.ok(read("server/gift-codes.ts").includes("SCN-"), "chosen codes cannot look like the older SCN- codes");
   h.ok(read("src/marketing/legal-content.ts").includes("Refunds are considered case by case."), "what the Terms say about refunds");

@@ -390,7 +390,7 @@ export function createApp(): express.Express {
   // activity, and gift codes with their results (server/members.ts). Admin-only.
   registerMembersRoutes(app);
   // Email programmes: emails that go out by themselves to each member at
-  // their own moment, sent by the five-minute cron (server/programs.ts). Admin-only.
+  // their own moment, sent by the hourly cron (server/programs.ts). Admin-only.
   registerProgramRoutes(app);
 
   // Health check

@@ -7,7 +7,7 @@ import { platformRateLimit, requirePlatformAdmin } from "./platform.ts";
 
 /**
  * Email programmes: emails that go out by themselves, to each member at
- * their own moment, run by the five-minute Cron Trigger (worker.ts).
+ * their own moment, run by the hourly Cron Trigger (worker.ts).
  *
  * Safety rules, all enforced here or in src/programs-db.ts:
  *  - a programme does nothing until the owner switches it on, and only

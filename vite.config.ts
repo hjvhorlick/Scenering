@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { applyPageShell, pageShellFiles } from "./src/marketing/seo-head";
 
@@ -37,8 +37,32 @@ function seoPageShells(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), seoPageShells()],
+/**
+ * When an AdSense publisher id is configured for the build, Google requires
+ * an ads.txt at the site root naming that publisher. Write it alongside the
+ * page shells so the operator never has to hand-edit dist/ (which the next
+ * build would erase anyway). No publisher id → no ads.txt, matching the
+ * no-ads default.
+ */
+function adsTxtFile(clientId: string): Plugin {
+  let outDir = "";
+  return {
+    name: "scenering-ads-txt",
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    writeBundle() {
+      const match = /^ca-pub-(\d{10,})$/.exec(clientId.trim());
+      if (!match) return;
+      writeFileSync(join(outDir, "ads.txt"), `google.com, pub-${match[1]}, DIRECT, f08c47fec0942fa0\n`);
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "VITE_");
+  return {
+  plugins: [react(), seoPageShells(), adsTxtFile(env.VITE_ADSENSE_CLIENT_ID || "")],
   server: {
     host: "0.0.0.0",
     port: 3000,
@@ -65,4 +89,5 @@ export default defineConfig({
       output: { banner: "/*! Scenering © 2026 Henry John Vincent Horlick. All rights reserved. Proprietary software. */" },
     },
   },
+  };
 });

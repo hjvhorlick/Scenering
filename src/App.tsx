@@ -60,7 +60,9 @@ import {
   loadCustomMusic,
   type CustomMusicTrack,
 } from "./lib/custom-music";
-import { getSession } from "./lib/session";
+import { getSession, getInterfacePlan, useSession } from "./lib/session";
+import AdSlot from "./shared/AdSlot";
+import { studioAdsEligible } from "./shared/ads";
 import { getApiKeysHeaders, getApiKeysQueryParams } from "./lib/api-keys";
 import {
   calculateDynamicDuration,
@@ -245,6 +247,7 @@ async function quickImageSearch(
 }
 
 export default function App() {
+  const { account: sessionAccount, signedIn: sessionSignedIn } = useSession();
   const [view, setView] = useState<View>("create");
   const [editorStep, setEditorStep] = useState<EditorStep>("scenes");
   const [projects, setProjects] = useState<Project[]>([]);
@@ -2232,10 +2235,24 @@ export default function App() {
     });
   };
 
+  // Free-plan advertising rails (src/shared/ads.ts): Setup and Render only,
+  // only on screens wide enough that the fixed rails sit in the unused space
+  // beside the centred workspace (>= 1750 px) — never over the work, never
+  // on the editing steps, never for paid plans. Inert until configured.
+  const showAdRails =
+    studioAdsEligible(sessionSignedIn, sessionAccount ? getInterfacePlan(sessionAccount) : null) &&
+    (view === "create" || showRenderPage);
+
   return (
     <div className="flex min-h-screen bg-gray-950 text-white font-sans">
       <IconSprite />
       <SiteCornerMenu />
+      {showAdRails && (
+        <>
+          <AdSlot kind="studio" testId="adsense-studio-left" className="hidden min-[1750px]:block fixed left-3 top-1/2 -translate-y-1/2 z-30 w-[160px] text-gray-300" />
+          <AdSlot kind="studio" testId="adsense-studio-right" className="hidden min-[1750px]:block fixed right-3 top-1/2 -translate-y-1/2 z-30 w-[160px] text-gray-300" />
+        </>
+      )}
       {/* Main Content */}
       {/* min-w-0 is load-bearing: without it this flex child keeps its
           content's intrinsic width and drags the whole app wider than the

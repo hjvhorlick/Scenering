@@ -165,7 +165,7 @@ export const GIFT_STATE_TEXT: Record<GiftCodeState, string> = {
 /** What each campaign status means. The test checks every status in src/db.ts has one. */
 export const CAMPAIGN_STATUS_TEXT: Record<string, string> = {
   draft: "saved, not sent. You can still test it, send it or cancel it.",
-  scheduled: "waiting for its time. It goes out within five minutes of that time.",
+  scheduled: "waiting for its time. It goes out within an hour of that time.",
   sending: "going out in batches right now.",
   sent: "handed to the email provider.",
   completed: "finished, with no failures.",
@@ -1150,7 +1150,7 @@ export const ADMIN_MANUAL: readonly ManualTopic[] = [
       {
         id: "prog-speed",
         q: "How quickly do programme emails go out?",
-        a: `Scenering checks every five minutes and sends up to ${F.programmePerRun} programme emails each time.`,
+        a: `Scenering checks every hour and sends up to ${F.programmePerRun} programme emails each time.`,
         steps: [
           "Each email goes out within minutes of its time (for example two days after the member was added), unless many are due at once.",
           "Keep an eye on *What happened* when you first switch a programme on.",
@@ -1325,7 +1325,7 @@ export const ADMIN_MANUAL: readonly ManualTopic[] = [
           "Watch the progress bar. You can close the page: the rest goes out by itself.",
         ],
         tips: [
-          `It goes out in batches of ${F.campaignBatch}. With the page open it goes faster; with the page closed, up to ${F.campaignPerRun} go out every five minutes.`,
+          `It goes out in batches of ${F.campaignBatch}. With the page open it goes faster; with the page closed, up to ${F.campaignPerRun} go out every hour.`,
           "Once a batch has gone to the email provider, those emails cannot be called back.",
           "On Resend's free plan, check the daily limit before a big send.",
         ],
@@ -1334,7 +1334,7 @@ export const ADMIN_MANUAL: readonly ManualTopic[] = [
       {
         id: "camp-schedule",
         q: "How do I schedule a campaign for later?",
-        a: "Schedule it when you create it. It goes out within five minutes of its time, even if nobody is signed in.",
+        a: "Schedule it when you create it. It goes out within an hour of its time, even if nobody is signed in.",
         steps: [
           "Open *Campaigns* and select *New campaign*.",
           "Fill in the campaign as usual.",
