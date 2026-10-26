@@ -40,9 +40,13 @@
   space is genuinely unused (12 px gap to the workspace, 8 px clearance to
   the viewport edge), so ordinary laptop widths get the rails wherever the
   layout leaves room instead of a blanket ≥ 1750 px viewport wall — and a
-  rail can still never cover the canvas, timeline or any editing step. Paid
-  plans (including an owner previewing a paid plan) see no studio ads at
-  all. `tests/ads.test.ts` pins the gates and placements.
+  rail can still never cover the canvas, timeline or any editing step.
+  Vertically, the rails centre only in the region below the app header and
+  the ☰ corner menu — both measured at runtime and re-checked on scroll and
+  resize — and their z-30 sits beneath the menu's z-200, so neither the
+  header nor the menu is ever covered. Paid plans (including an owner
+  previewing a paid plan) see no studio ads at all.
+  `tests/ads.test.ts` pins the gates and placements.
 - Privacy and Cookie pages now disclose AdSense (cookies, EEA/UK consent
   message, free-plan-only studio ads) before the feature can be enabled.
 
