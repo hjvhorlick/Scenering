@@ -2246,22 +2246,24 @@ export default function App() {
     studioAdsEligible(sessionSignedIn, sessionAccount ? getInterfacePlan(sessionAccount) : null) &&
     (view === "create" || showRenderPage);
 
-  // Per-side geometry in CSS pixels from the viewport edge: a 160 px rail,
-  // 12 px of gap to the workspace border, and 8 px of clearance to the
-  // viewport edge. null = that side has no room and the rail stays out.
-  const [railSides, setRailSides] = useState<{ left: number | null; right: number | null }>({
+  // Per-side geometry in CSS pixels: a 160 px rail (12 px gap to the
+  // workspace border, 8 px clearance to the viewport edge) centred in the
+  // region below the header and the corner menu (top). null = that side has
+  // no room and the rail stays out.
+  const [railSides, setRailSides] = useState<{ left: number | null; right: number | null; top: number }>({
     left: null,
     right: null,
+    top: 0,
   });
 
   useEffect(() => {
     if (!showAdRails) {
-      setRailSides({ left: null, right: null });
+      setRailSides({ left: null, right: null, top: 0 });
       return;
     }
     const workspace = document.querySelector<HTMLElement>("[data-studio-workspace]");
     if (!workspace) {
-      setRailSides({ left: null, right: null });
+      setRailSides({ left: null, right: null, top: 0 });
       return;
     }
     const RAIL_WIDTH = 160;
@@ -2272,20 +2274,34 @@ export default function App() {
       const rect = workspace.getBoundingClientRect();
       const leftMargin = rect.left;
       const rightMargin = window.innerWidth - rect.right;
+      // The rails occupy the region below whatever of the app header or the
+      // fixed corner menu is on screen — so a tall filled ad can never ride
+      // up into either. The menu's z-index (200) already beats the rails'
+      // (30); this keeps them out of that row entirely as well.
+      const header = document.querySelector<HTMLElement>(".t-app-hdr");
+      const corner = document.querySelector<HTMLElement>(".sc-corner");
+      const boundary = Math.max(
+        header ? header.getBoundingClientRect().bottom : 0,
+        corner ? corner.getBoundingClientRect().bottom : 0
+      );
       setRailSides({
         left: fits(leftMargin) ? Math.round(leftMargin - RAIL_GAP - RAIL_WIDTH) : null,
         right: fits(rightMargin) ? Math.round(rightMargin - RAIL_GAP - RAIL_WIDTH) : null,
+        top: Math.round(Math.max(0, boundary)),
       });
     };
     measure();
     // The workspace box moves when the window resizes or the layout reflows
-    // (step change, wrapping toolbar, scrollbar), so follow both.
+    // (step change, wrapping toolbar, scrollbar), and the header's visible
+    // bottom shifts with page scroll — follow all three.
     const observer = new ResizeObserver(measure);
     observer.observe(workspace);
     window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, { passive: true });
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure);
     };
   }, [showAdRails, view, showRenderPage]);
 
@@ -2296,10 +2312,14 @@ export default function App() {
       {showAdRails && (
         <>
           {railSides.left !== null && (
-            <AdSlot kind="studio" testId="adsense-studio-left" className="fixed top-1/2 -translate-y-1/2 z-30 w-[160px] text-gray-300" style={{ left: railSides.left }} />
+            <div className="fixed z-30 flex items-center" style={{ left: railSides.left, top: railSides.top, bottom: 0 }}>
+              <AdSlot kind="studio" testId="adsense-studio-left" className="w-[160px] text-gray-300" />
+            </div>
           )}
           {railSides.right !== null && (
-            <AdSlot kind="studio" testId="adsense-studio-right" className="fixed top-1/2 -translate-y-1/2 z-30 w-[160px] text-gray-300" style={{ right: railSides.right }} />
+            <div className="fixed z-30 flex items-center" style={{ right: railSides.right, top: railSides.top, bottom: 0 }}>
+              <AdSlot kind="studio" testId="adsense-studio-right" className="w-[160px] text-gray-300" />
+            </div>
           )}
         </>
       )}

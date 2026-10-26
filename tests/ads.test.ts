@@ -90,6 +90,10 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
     app.includes("[data-studio-workspace]") && app.includes("getBoundingClientRect"),
     "rails measure the centred workspace instead of assuming a fixed viewport width"
   );
+  h.ok(
+    app.includes('".t-app-hdr"') && app.includes('".sc-corner"'),
+    "rails measure the header and corner menu so they never cover either"
+  );
   h.ok(!app.includes("min-[1750px]"), "no blanket 1750 px wall — each side qualifies from its own margin");
   h.ok(
     app.includes('testId="adsense-studio-left"') && app.includes('testId="adsense-studio-right"'),
