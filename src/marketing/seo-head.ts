@@ -34,7 +34,6 @@
  */
 import { PLAN_CONFIG, PLAN_ORDER } from "../config/plans";
 import { SITE_SECTION_PATHS, isFeatureTourPath } from "../lib/route";
-import { adsenseScriptTag } from "../shared/ads";
 import { STRUCTURED_DATA_ID } from "../shared/structured-data";
 import { LEGAL_DOCUMENTS, LEGAL_ORGANISATION, LEGAL_OWNER } from "./legal-content";
 import { INDEXABLE_ROBOTS, NOINDEX_ROBOTS, SEO_PAGES, SHARE_IMAGE, canonicalPathFor, canonicalUrl, seoForPath, siteUrl } from "./seo";
@@ -257,18 +256,15 @@ const INDENT = "\n    ";
 /**
  * The tags between the seo markers in <head>, markers included.
  *
- * `adsenseClientId` is the publisher id from the build env
- * (VITE_ADSENSE_CLIENT_ID). When it is set, Google's AdSense loader goes into
- * this page's head — the snippet AdSense asks a publisher to paste into every
- * page of the site, which is also how Google verifies the site for ads. When it
- * is not set, no tag is written and nothing is loaded from Google.
+ * Google's AdSense verification snippet is NOT one of them: it is pasted
+ * literally into index.html (and the public/ tool pages), so every page this
+ * file generates carries it — there is deliberately no build-time way to add
+ * a second loader here.
  */
-export function renderSeoHead(path: string, adsenseClientId = ""): string {
+export function renderSeoHead(path: string): string {
   const seo = seoForPath(path);
   const indexable = seo.indexable !== false;
   const lines: string[] = [];
-  const adScript = adsenseScriptTag(adsenseClientId);
-  if (adScript) lines.push(adScript);
   lines.push(
     `<title>${escapeHtml(seo.title)}</title>`,
     `<meta name="description" content="${escapeHtml(seo.description)}" />`,
@@ -337,11 +333,12 @@ function replaceBlock(html: string, start: string, end: string, block: string): 
 /**
  * index.html (source or built) with a page's tags and summary in place.
  * Re-applying it to its own output is safe — the whole generated block is
- * replaced, so a page never ends up with Google's loader tag twice.
+ * replaced, and Google's AdSense snippet lives in the head outside the
+ * markers, so a page never ends up with that loader twice.
  */
-export function applyPageShell(html: string, path: string, adsenseClientId = ""): string {
+export function applyPageShell(html: string, path: string): string {
   return replaceBlock(
-    replaceBlock(html, SEO_HEAD_START, SEO_HEAD_END, renderSeoHead(path, adsenseClientId)),
+    replaceBlock(html, SEO_HEAD_START, SEO_HEAD_END, renderSeoHead(path)),
     SEO_PAGE_START,
     SEO_PAGE_END,
     renderSeoPage(path),
@@ -349,8 +346,8 @@ export function applyPageShell(html: string, path: string, adsenseClientId = "")
 }
 
 /** The extra files a build writes next to index.html: one per page except the front page. */
-export function pageShellFiles(indexHtml: string, adsenseClientId = ""): { file: string; html: string }[] {
+export function pageShellFiles(indexHtml: string): { file: string; html: string }[] {
   return pageShellPaths()
     .filter((path) => path !== "/")
-    .map((path) => ({ file: `${path.slice(1)}.html`, html: applyPageShell(indexHtml, path, adsenseClientId) }));
+    .map((path) => ({ file: `${path.slice(1)}.html`, html: applyPageShell(indexHtml, path) }));
 }
