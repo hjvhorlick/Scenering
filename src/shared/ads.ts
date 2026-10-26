@@ -25,10 +25,42 @@
 
 export type AdsenseSlotKind = "web" | "studio";
 
+/**
+ * The id of Google's AdSense loader in the page. The build writes it into every
+ * page's <head> (src/marketing/seo-head.ts), and AdSlot reuses the same id when
+ * it loads the script lazily — so a page carries one loader, never two.
+ */
+export const ADSENSE_SCRIPT_ID = "scenering-adsbygoogle";
+
+/** A syntactically valid `ca-pub-…` publisher id, or "" for anything else. */
+function validClientId(value: string | undefined): string {
+  const trimmed = (value || "").trim();
+  return /^ca-pub-\d{10,}$/.test(trimmed) ? trimmed : "";
+}
+
 /** `ca-pub-123…` from the build env, or "" when advertising is not configured. */
 export function adsenseClientId(env: Record<string, string | undefined>): string {
-  const value = (env?.VITE_ADSENSE_CLIENT_ID || "").trim();
-  return /^ca-pub-\d{10,}$/.test(value) ? value : "";
+  return validClientId(env?.VITE_ADSENSE_CLIENT_ID);
+}
+
+/**
+ * Google's site-verification snippet, for inside every page's <head>: the
+ * loader tag AdSense asks the publisher to paste into each page. Returns ""
+ * when no publisher id is configured, so an unconfigured build writes no tag
+ * and loads nothing from Google.
+ *
+ * Written by the build rather than typed into index.html so all of the site's
+ * pages get it — the front page, every standalone page, and the app shell —
+ * and so the id still lives in one place (VITE_ADSENSE_CLIENT_ID).
+ */
+export function adsenseScriptTag(clientId: string): string {
+  const id = validClientId(clientId);
+  if (!id) return "";
+  return (
+    `<script async id="${ADSENSE_SCRIPT_ID}" ` +
+    `src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(id)}" ` +
+    `crossorigin="anonymous"></script>`
+  );
 }
 
 /** The ad-unit slot id for a placement, or "" when that placement is off. */

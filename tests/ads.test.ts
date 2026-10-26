@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createHarness } from "./harness";
-import { adsTxtLine, adsenseClientId, adsensePlacementEnabled, adsenseSlotId, studioAdsEligible } from "../src/shared/ads";
+import { ADSENSE_SCRIPT_ID, adsTxtLine, adsenseClientId, adsensePlacementEnabled, adsenseScriptTag, adsenseSlotId, studioAdsEligible } from "../src/shared/ads";
+import { applyPageShell, pageShellFiles, pageShellPaths } from "../src/marketing/seo-head";
 
 const h = createHarness();
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -37,6 +38,36 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
   h.eq(studioAdsEligible(true, "sceneforge"), false, "SceneForge sees no studio ads");
   h.eq(studioAdsEligible(false, "free"), false, "signed-out visitors see no studio ads");
   h.eq(studioAdsEligible(true, null), false, "unknown plan sees no studio ads");
+}
+
+/* Google's snippet, on every page. AdSense asks the publisher to paste its
+   loader into the <head> of each page; the build writes it into every page
+   file instead, so no page is ever missed and the id still lives in one place
+   (VITE_ADSENSE_CLIENT_ID). Nothing is written when no id is configured. */
+{
+  const clientId = "ca-pub-3303356901060479";
+  const source = read("index.html");
+  h.eq(adsenseScriptTag(""), "", "no publisher id, no snippet");
+  h.eq(adsenseScriptTag("pub-123"), "", "a malformed publisher id writes no snippet");
+  const tag = adsenseScriptTag(clientId);
+  h.ok(
+    tag.startsWith("<script async ") && tag.includes(`js/adsbygoogle.js?client=${clientId}`) && tag.includes('crossorigin="anonymous"'),
+    "the snippet is Google's own: an async loader of adsbygoogle.js with the publisher id and crossorigin"
+  );
+  h.ok(tag.includes(`id="${ADSENSE_SCRIPT_ID}"`), "the snippet carries the id AdSlot looks for, so a page never loads two loaders");
+
+  for (const path of pageShellPaths()) {
+    const withAds = applyPageShell(source, path, clientId);
+    const at = withAds.indexOf("js/adsbygoogle.js");
+    h.ok(at > 0 && at < withAds.indexOf("</head>"), `${path}: Google's AdSense snippet is inside <head>`);
+    h.eq(withAds.split("js/adsbygoogle.js").length - 1, 1, `${path}: exactly one AdSense loader, never two`);
+    h.eq(applyPageShell(withAds, path, clientId), withAds, `${path}: re-applying the page shell does not duplicate the snippet`);
+    h.ok(!applyPageShell(source, path).includes("adsbygoogle"), `${path}: no Google script at all until a publisher id is configured`);
+  }
+  h.ok(
+    pageShellFiles(applyPageShell(source, "/", clientId), clientId).every((file) => file.html.includes(clientId)),
+    "every page file the build writes carries the snippet"
+  );
 }
 
 /* Wiring: the placements the owner agreed — one web unit away from the hero

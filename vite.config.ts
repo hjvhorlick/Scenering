@@ -16,8 +16,12 @@ import { applyPageShell, pageShellFiles } from "./src/marketing/seo-head";
  * dist/faq.html and the rest, each with that page's tags. Cloudflare's asset
  * layer serves dist/pricing.html at /pricing and redirects /pricing.html and
  * /pricing/ there. No Worker code runs for any of it.
+ *
+ * When a publisher id is configured for the build, the same pass also writes
+ * Google's AdSense loader into each of those files' <head> — the snippet
+ * AdSense asks for on every page, which is how Google verifies the site.
  */
-function seoPageShells(): Plugin {
+function seoPageShells(adsenseClientId: string): Plugin {
   let outDir = "";
   return {
     name: "scenering-seo-page-shells",
@@ -26,13 +30,13 @@ function seoPageShells(): Plugin {
     },
     transformIndexHtml: {
       order: "post",
-      handler: (html) => applyPageShell(html, "/"),
+      handler: (html) => applyPageShell(html, "/", adsenseClientId),
     },
     writeBundle(_options, bundle) {
       const index = bundle["index.html"];
       if (!index || index.type !== "asset") throw new Error("[seo] the build produced no index.html to copy page files from");
       const html = typeof index.source === "string" ? index.source : new TextDecoder().decode(index.source);
-      for (const { file, html: page } of pageShellFiles(html)) writeFileSync(join(outDir, file), page);
+      for (const { file, html: page } of pageShellFiles(html, adsenseClientId)) writeFileSync(join(outDir, file), page);
     },
   };
 }
@@ -61,8 +65,13 @@ function adsTxtFile(clientId: string): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
+  // The publisher id is also what puts Google's AdSense loader into every
+  // page's <head> (src/shared/ads.ts), so the site can be verified and show
+  // ads. Same build-time variable as ads.txt — one value, one place; empty
+  // means the site loads nothing from Google.
+  const adsenseClientId = env.VITE_ADSENSE_CLIENT_ID || "";
   return {
-  plugins: [react(), seoPageShells(), adsTxtFile(env.VITE_ADSENSE_CLIENT_ID || "")],
+  plugins: [react(), seoPageShells(adsenseClientId), adsTxtFile(adsenseClientId)],
   server: {
     host: "0.0.0.0",
     port: 3000,
