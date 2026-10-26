@@ -8,15 +8,19 @@ import { ADSENSE_SCRIPT_ID, adsenseClientId, adsenseSlotId, type AdsenseSlotKind
  * only knows how to load Google's script once and fill one unit.
  *
  * The script loads lazily with the first mounted slot, straight from Google
- * to the visitor's browser: ads never touch the Scenering Worker. When the
- * build already wrote Google's loader into the page's <head> (every page gets
- * it once a publisher id is configured — see src/marketing/seo-head.ts), this
- * finds that tag by id and loads nothing: one loader per page, always.
+ * to the visitor's browser: ads never touch the Scenering Worker. The
+ * AdSense verification snippet pasted into index.html already loads the same
+ * library — it carries no element id, as Google writes it — so before
+ * injecting anything this checks the document for ANY adsbygoogle loader,
+ * by id or by src: one loader per page, always.
  */
 
 function ensureAdsenseScript(clientId: string): void {
   if (typeof document === "undefined") return;
   if (document.getElementById(ADSENSE_SCRIPT_ID)) return;
+  // The pasted verification snippet has no id, so the id check alone would
+  // append a second loader next to it. Recognise the library by src too.
+  if (document.querySelector('script[src*="adsbygoogle.js?client="]')) return;
   const script = document.createElement("script");
   script.id = ADSENSE_SCRIPT_ID;
   script.async = true;
