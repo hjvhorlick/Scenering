@@ -24,8 +24,9 @@
  *                   variety to stay accepted.
  *
  * `classifyPhotoMetrics` is pure and unit-tested; `analyzeImageUrl` is the
- * browser half (thumbnail → canvas → metrics). Images load through the server
- * proxy so the canvas is never tainted by a cross-origin read.
+ * browser half (thumbnail → canvas → metrics). Images load directly first
+ * and fall back through the server proxy only when necessary, so the canvas
+ * can be read without proxying every thumbnail.
  */
 
 
@@ -40,6 +41,38 @@ export interface PhotoMetrics {
 /** Analysis canvas size — small enough to be instant, large enough to see. */
 const ANALYSIS_W = 64;
 const ANALYSIS_H = 36;
+const POSITIVE_CACHE_MS = 15 * 60_000;
+const NEGATIVE_CACHE_MS = 30_000;
+const MAX_VERDICT_CACHE = 1_200;
+const verdictCache = new Map<string, { verdict: boolean; expiresAt: number }>();
+
+function cachedVerdict(url: string): boolean | null {
+  const cached = verdictCache.get(url);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    verdictCache.delete(url);
+    return null;
+  }
+  // Refresh insertion order so the cache evicts the least recently used URL.
+  verdictCache.delete(url);
+  verdictCache.set(url, cached);
+  return cached.verdict;
+}
+
+function rememberVerdict(url: string, verdict: boolean, cacheMs = verdict ? POSITIVE_CACHE_MS : NEGATIVE_CACHE_MS) {
+  if (!url) return;
+  verdictCache.delete(url);
+  verdictCache.set(url, { verdict, expiresAt: Date.now() + cacheMs });
+  while (verdictCache.size > MAX_VERDICT_CACHE) {
+    const oldest = verdictCache.keys().next().value;
+    if (oldest === undefined) break;
+    verdictCache.delete(oldest);
+  }
+}
+
+export function clearPhotoAnalysisCache(): void {
+  verdictCache.clear();
+}
 
 /**
  * The verdict on measured metrics. Thresholds are deliberately conservative:
@@ -94,9 +127,12 @@ export async function analyzeImageUrl(
   opts: { proxy?: (url: string) => string; timeoutMs?: number } = {}
 ): Promise<boolean> {
   if (typeof document === "undefined") return false;
+  const cached = cachedVerdict(url);
+  if (cached !== null) return cached;
 
   // Load directly first (the browser can usually reach the host even when
-  // the server cannot), then through the proxy as backup.
+  // the server cannot), then through the proxy as backup. The proxy is only
+  // used for sources that really need it; ordinary grid thumbnails do not.
   const loadOne = (src: string) =>
     new Promise<HTMLImageElement | null>((resolve) => {
       const el = new Image();
@@ -107,7 +143,7 @@ export async function analyzeImageUrl(
         clearTimeout(timer);
         resolve(ok && el.naturalWidth > 0 ? el : null);
       };
-      const timer = setTimeout(() => finish(false), opts.timeoutMs ?? 5000);
+      const timer = setTimeout(() => finish(false), opts.timeoutMs ?? 2500);
       el.onload = () => finish(true);
       el.onerror = () => finish(false);
       if (!/^(data|blob):/.test(src)) el.crossOrigin = "anonymous";
@@ -119,57 +155,74 @@ export async function analyzeImageUrl(
     const proxied = opts.proxy(url);
     if (proxied !== url) img = await loadOne(proxied);
   }
-  if (!img) return false;
+  if (!img) {
+    rememberVerdict(url, false);
+    return false;
+  }
 
   try {
     const canvas = document.createElement("canvas");
     canvas.width = ANALYSIS_W;
     canvas.height = ANALYSIS_H;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return false;
+    if (!ctx) {
+      rememberVerdict(url, false);
+      return false;
+    }
     ctx.drawImage(img, 0, 0, ANALYSIS_W, ANALYSIS_H);
     const { data } = ctx.getImageData(0, 0, ANALYSIS_W, ANALYSIS_H);
-    return classifyPhotoMetrics(computePhotoMetrics(data)) === "photo";
+    const verdict = classifyPhotoMetrics(computePhotoMetrics(data)) === "photo";
+    rememberVerdict(url, verdict);
+    return verdict;
   } catch {
+    rememberVerdict(url, false);
     return false;
   }
 }
 
-/** How many candidates a search will verify — bounds proxy traffic. */
-export const MAX_ANALYZED = 40;
+/** How many candidates a search may verify — bounds fallback proxy traffic. */
+export const MAX_ANALYZED = 24;
 /** Verification runs this many thumbnails at a time. */
 const CONCURRENCY = 8;
 
 /**
- * Filters a candidate pool down to photographic images.
- *
- * Analyses up to `MAX_ANALYZED` thumbnails concurrently (small batches keep
- * the network and the UI tame). If every single one fails to verify — proxy
- * down, canvas blocked — the original pool is returned unchanged: showing
- * something beats showing nothing, and the server-side dimension gate has
- * already run either way.
+ * Filters uncertain provider results down to photographic images. Known photo
+ * libraries are trusted by image-search.ts and bypass this pixel probe. For
+ * sources that need it, stop as soon as the visible grid is full rather than
+ * waiting for every possible thumbnail in the safety cap.
  */
 export async function filterPhotoLikeCandidates<T extends { url: string; thumbnail?: string }>(
   candidates: readonly T[],
-  opts: { proxy?: (url: string) => string; maxAnalyzed?: number } = {}
+  opts: { proxy?: (url: string) => string; maxAnalyzed?: number; targetAccepted?: number; timeoutMs?: number } = {}
 ): Promise<T[]> {
   if (typeof document === "undefined" || candidates.length === 0) return [...candidates];
 
   const limit = Math.min(opts.maxAnalyzed ?? MAX_ANALYZED, candidates.length);
-  const toVerify = candidates.slice(0, limit);
-  const verdicts = new Map<string, boolean>();
-
-  for (let start = 0; start < toVerify.length; start += CONCURRENCY) {
-    const batch = toVerify.slice(start, start + CONCURRENCY);
-    await Promise.all(
-      batch.map(async (c) => {
-        const src = c.thumbnail || c.url;
-        verdicts.set(src, await analyzeImageUrl(src, { proxy: opts.proxy }));
-      })
-    );
+  const targetAccepted = Math.max(1, opts.targetAccepted ?? 12);
+  const unique: T[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates.slice(0, limit)) {
+    const url = candidate.thumbnail || candidate.url;
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    unique.push(candidate);
   }
 
-  const passed = toVerify.filter((c) => verdicts.get(c.thumbnail || c.url) === true);
+  const passed: T[] = [];
+  for (let start = 0; start < unique.length && passed.length < targetAccepted; start += CONCURRENCY) {
+    const batch = unique.slice(start, start + CONCURRENCY);
+    const batchVerdicts = await Promise.all(
+      batch.map(async (candidate) => ({
+        candidate,
+        accepted: await analyzeImageUrl(candidate.thumbnail || candidate.url, {
+          proxy: opts.proxy,
+          timeoutMs: opts.timeoutMs,
+        }),
+      }))
+    );
+    passed.push(...batchVerdicts.filter((entry) => entry.accepted).map((entry) => entry.candidate));
+  }
+
   if (passed.length === 0) {
     console.warn("image analysis: no candidate could be verified as a photo — using the unfiltered pool");
     return [...candidates];
