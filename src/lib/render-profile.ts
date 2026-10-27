@@ -858,6 +858,23 @@ export function resolveRenderProfileSettings(
   return { ...DEFAULT_RENDER_PROFILE_SETTINGS, ...(stored || {}) };
 }
 
+/**
+ * Destination preset defaults that must travel together.
+ *
+ * The setup notice promises 30 FPS and MP4 for platform presets, so selecting a
+ * destination must reset those settings too. Previously it only changed the
+ * destination and canvas; a saved WebM/60 FPS override silently survived, and
+ * the UI then claimed MP4 while the renderer correctly produced WebM.
+ * Custom output deliberately preserves the creator's overrides.
+ */
+export function renderProfileForDestination(
+  destination: PublishDestinationType
+): Partial<RenderProfileSettings> {
+  return destination === "custom"
+    ? { destination }
+    : { destination, fps: 30, format: "mp4" };
+}
+
 /** The canvas a destination preset implies. "custom" implies nothing — the
  *  user drives aspect and resolution themselves in Advanced overrides. */
 export function destinationCanvas(

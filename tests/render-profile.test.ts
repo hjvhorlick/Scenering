@@ -29,6 +29,7 @@ import {
   masterLabelForAspect,
   resolveRenderProfileSettings,
   destinationCanvas,
+  renderProfileForDestination,
   destinationFileToken,
 } from "../src/lib/render-profile";
 import {
@@ -330,6 +331,10 @@ t.ok(
   /pickDestination/.test(setupStudioSrc) && /QUALITY_LEVELS/.test(setupStudioSrc),
   "destination and quality presets live in Project Setup"
 );
+t.ok(
+  /onUpdateRenderProfile\?\.\(renderProfileForDestination\(id\)\)/.test(setupStudioSrc),
+  "changing destination applies its format and FPS defaults instead of retaining a stale incompatible override"
+);
 
 // ---- Setup-owned render profile helpers --------------------------------
 const resolved = resolveRenderProfileSettings(undefined);
@@ -342,6 +347,12 @@ const tiktokCanvas = destinationCanvas("tiktok");
 t.eq(tiktokCanvas?.aspect, "9:16", "TikTok destination sets a vertical canvas");
 t.eq(tiktokCanvas?.resolution, "1080p", "platform destinations pin 1080p");
 t.eq(destinationCanvas("custom"), null, "custom destination leaves the canvas alone");
+const youtubePreset = renderProfileForDestination("youtube");
+t.eq(youtubePreset.format, "mp4", "choosing YouTube resets a stale WebM override to the platform-safe MP4 default");
+t.eq(youtubePreset.fps, 30, "choosing YouTube also resets a stale FPS override to 30");
+const tiktokPreset = renderProfileForDestination("tiktok");
+t.eq(tiktokPreset.format, "mp4", "TikTok's platform preset also prefers MP4");
+t.eq(renderProfileForDestination("custom").format, undefined, "Custom preserves the creator's existing format override");
 t.eq(destinationFileToken("youtube_shorts"), "Shorts", "filename token uses the platform short name");
 t.eq(destinationFileToken("custom"), "Master", "custom output files are Master files");
 

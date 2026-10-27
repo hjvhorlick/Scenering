@@ -16,6 +16,7 @@ import {
   FRAME_RATE_CHOICES,
   DEFAULT_RENDER_PROFILE_SETTINGS,
   destinationCanvas,
+  renderProfileForDestination,
   resolveFrameRate,
   getQualityLevel,
 } from "../lib/render-profile";
@@ -227,7 +228,7 @@ export default function SetupStudio({
    * Advanced overrides below.
    */
   const pickDestination = (id: PublishDestinationType) => {
-    onUpdateRenderProfile?.({ destination: id });
+    onUpdateRenderProfile?.(renderProfileForDestination(id));
     const canvas = destinationCanvas(id);
     if (canvas) {
       onUpdateAspectRatio(canvas.aspect);
@@ -1127,7 +1128,9 @@ export default function SetupStudio({
                       </button>
                     ))}
                   </div>
-                  <p className="text-[9px] text-gray-500 mt-1.5 leading-relaxed">MP4 is the standard every platform accepts.</p>
+                  <p className="text-[9px] text-gray-500 mt-1.5 leading-relaxed">
+                    MP4 · H.264/AAC is the social-platform default. WebM · VP9/Opus is an alternative; actual encoder support varies by browser and is checked before rendering.
+                  </p>
                 </div>
                 <div>
                   <div className="text-[11px] font-semibold text-gray-300 mb-1.5">Audio mastering</div>

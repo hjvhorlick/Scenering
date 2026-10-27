@@ -27,9 +27,15 @@ function normalizeWord(word: string): string {
   return (word || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-/** How many caption words ahead a re-sync anchor is looked for. */
-const ANCHOR_LOOKAHEAD = 4;
-
+/**
+ * Search the remainder of the caption line for the next shared timing anchor.
+ *
+ * A short fixed look-ahead let sanitiser-expanded phrases (numbers, symbols,
+ * abbreviations) consume one unrelated speech mark per caption word. The
+ * highlight then fell behind until it happened to find a later anchor. The
+ * search is bounded by the line itself, and remains monotonic, so even a long
+ * expansion is interpolated as one run and the next shared word re-locks it.
+ */
 /** Cheap containment/equality match between a caption word and a spoken word. */
 function wordsMatch(caption: string, spoken: string): boolean {
   const c = normalizeWord(caption);
@@ -69,8 +75,8 @@ export function alignWordTimings(captionWords: readonly string[], timings: reado
   let lastEnd = 0;
 
   /**
-   * The first spoken word at or after `from` that any of the next few caption
-   * words names.
+   * The first spoken word at or after `from` that any remaining caption
+   * word names.
    *
    * Looking just ONE caption word ahead is enough while the two streams agree,
    * and it is what makes the citation case exact ("3:16" spans "chapter three
@@ -79,10 +85,10 @@ export function alignWordTimings(captionWords: readonly string[], timings: reado
    * match the spoken word they are being paired with, and consuming one
    * spoken word per caption word walks the highlight further and further
    * behind the voice — the cumulative lag that reads as captions that are
-   * "not following" at all. Looking a few words ahead for the next anchor
-   * re-syncs at the next word both streams share.
+   * "not following" at all. Searching the rest of the line lets this whole
+   * unmatched run be interpolated up to the next word both streams share.
    */
-  const findAnchor = (fromCaption: number, fromTiming: number, span = ANCHOR_LOOKAHEAD): { caption: number; timing: number } | null => {
+  const findAnchor = (fromCaption: number, fromTiming: number, span = n): { caption: number; timing: number } | null => {
     for (let k = fromCaption; k < Math.min(n, fromCaption + span); k++) {
       for (let j = fromTiming; j < timings.length; j++) {
         if (wordsMatch(captionWords[k], timings[j].text)) return { caption: k, timing: j };
