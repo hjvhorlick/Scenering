@@ -31,10 +31,28 @@ export function isSingleScene(choice: SceneLengthChoice | number | undefined): b
 /** The card shown beside the 10/20/30 options in Setup. */
 export const SINGLE_SCENE_OPTION = {
   id: SINGLE_SCENE,
-  label: "One Scene",
+  label: "Single Scene",
   tag: "Whole script, one shot",
   description: "No scene splitting — keep the entire script together as one scene.",
 } as const;
+
+/** Scene lengths for an uploaded audio source, with a shorter final scene when needed. */
+export function audioSceneDurations(audioSeconds: number, targetSeconds: number): number[] {
+  const sourceSeconds = Number(audioSeconds);
+  if (!Number.isFinite(sourceSeconds) || sourceSeconds <= 0) return [];
+  const requestedTarget = Number(targetSeconds);
+  const totalTenthsRaw = sourceSeconds * 10;
+  if (!Number.isFinite(totalTenthsRaw) || totalTenthsRaw > Number.MAX_SAFE_INTEGER) return [];
+  const totalTenths = Math.max(1, Math.round(totalTenthsRaw));
+  const targetTenths = Math.round(Math.max(1, Number.isFinite(requestedTarget) ? requestedTarget : 20) * 10);
+  if (totalTenths <= 0 || targetTenths <= 0) return [];
+
+  const durations: number[] = [];
+  for (let remaining = totalTenths; remaining > 0; remaining -= targetTenths) {
+    durations.push(Math.min(remaining, targetTenths) / 10);
+  }
+  return durations;
+}
 
 export const DURATION_OPTIONS: {
   seconds: DurationOption;

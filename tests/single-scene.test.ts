@@ -22,6 +22,7 @@ import {
   NARRATION_LEAD_IN_SECONDS,
   SINGLE_SCENE,
   SINGLE_SCENE_OPTION,
+  audioSceneDurations,
   countScenesFromScript,
   countWords,
   isSingleScene,
@@ -102,6 +103,16 @@ const LONG_SCRIPT = Array.from(
   ok(isSingleScene(SINGLE_SCENE), "the single-scene choice identifies itself");
   ok(!isSingleScene(20), "a numeric duration is not the single-scene choice");
   eq(SINGLE_SCENE_OPTION.id, SINGLE_SCENE, "the Setup card and the splitter agree on the choice id");
+  eq(SINGLE_SCENE_OPTION.label, "Single Scene", "the existing one-scene script option has a clearer label");
+}
+
+{
+  eq(JSON.stringify(audioSceneDurations(65, 20)), JSON.stringify([20, 20, 20, 5]), "audio scenes follow the target with a shorter final scene");
+  eq(JSON.stringify(audioSceneDurations(60, 20)), JSON.stringify([20, 20, 20]), "an exact multiple has no extra empty scene");
+  eq(JSON.stringify(audioSceneDurations(8, 20)), JSON.stringify([8]), "short audio remains one scene at its actual length");
+  eq(JSON.stringify(audioSceneDurations(0.02, 20)), JSON.stringify([0.1]), "very short playable audio still gets one scene");
+  eq(audioSceneDurations(0, 20).length, 0, "empty audio does not create blank scenes");
+  eq(audioSceneDurations(Infinity, 20).length, 0, "invalid metadata cannot create an unbounded scene plan");
 }
 
 /* ------------------------------------------------------------------ *
@@ -291,26 +302,28 @@ const LONG_SCRIPT = Array.from(
     setup.includes("Choose a target of 10, 20 or 30 seconds") &&
       setup.includes("onClick={handleSelectSingleScene}") &&
       setup.includes("onUpdateSingleScene?.(true)"),
-    "one-scene mode changes the scene count without switching to a media-source workflow"
+    "the original single-scene choice remains available beside timed audio scenes"
   );
   ok(
-    !setup.includes("Choose what you already have") &&
-      !setup.includes("Upload my own video") &&
-      !setup.includes("Upload music/audio + pictures") &&
-      !setup.includes("VIDEO_UPLOAD_ACCEPT") &&
-      !setup.includes("AUDIO_UPLOAD_ACCEPT"),
-    "Setup no longer contains the experimental video or music upload sections"
+    setup.includes("Audio Input") && setup.includes("Choose audio file") &&
+      setup.includes("audioSceneCount") && setup.includes("Remove audio"),
+    "Setup offers an audio-input route and previews the duration-based scene count"
   );
   ok(
-    /if \(!scriptText && !isExistingProject\)/.test(setup) &&
-      setup.includes("singleScene: oneScene"),
-    "a new Setup project starts from a script and carries the one-scene choice into Scenes"
+    /if \(!scriptText && !\(audioInputSelected && audioTrack\) && !isExistingProject\)/.test(setup) &&
+      setup.includes("singleScene: oneScene") && setup.includes("audio: { track: audioTrack }"),
+    "audio input creates scenes without a screenplay while the existing single-scene script option remains"
   );
   const app = read("src/App.tsx");
   ok(
     app.includes('source_media_kind: "uploaded_video"') &&
       /scene\.source_media_kind === "uploaded_video" && Boolean\(scene\.video_url\)/.test(app),
     "uploaded footage from existing scene-editing tools remains represented correctly in the project"
+  );
+  ok(
+    app.includes("audioSceneDurations(audio.track.duration, chosenDuration)") &&
+      app.includes("const oneScene = Boolean(options?.singleScene && !audio)"),
+    "audio scenes follow their source duration without changing the script scene splitter"
   );
 }
 

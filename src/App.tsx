@@ -74,6 +74,7 @@ import {
   sceneDurationForText,
   singleSceneDuration,
   splitScriptIntoScenes,
+  audioSceneDurations,
 } from "./lib/duration-utils";
 import { TRANSITION_GROUPS, transitionsInGroup } from "./lib/scene-transition";
 import type { Project, Scene, TimelineInsert, SceneMotionType, SceneTransitionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType, RenderProfileSettings } from "./types";
@@ -115,8 +116,10 @@ export interface NewProjectOptions {
   /** An uploaded song plus the first still for a voiceover-free music video. */
   audio?: {
     track: CustomMusicTrack;
-    image: { url: string; name: string };
+    image?: { url: string; name: string };
   };
+  /** Creates empty scenes without requiring a screenplay. */
+  sceneCount?: number;
 }
 
 export interface ProjectSettings {
@@ -1149,9 +1152,9 @@ export default function App() {
     options?: NewProjectOptions
   ): Promise<boolean> => {
     const chosenDuration = targetDuration || 20;
-    const oneScene = options?.singleScene ?? false;
+    const audio = options?.audio;
+    const oneScene = Boolean(options?.singleScene && !audio);
     const clip = oneScene ? options?.clip : undefined;
-    const audio = oneScene ? options?.audio : undefined;
     // Source media keeps its own soundtrack; neither route synthesises a
     // second voice over the uploaded video or song.
     const narration = audio || clip ? false : options?.voiceoverEnabled ?? true;
@@ -1167,6 +1170,7 @@ export default function App() {
       : audioDuration > 0
         ? audioDuration
         : chosenDuration;
+    const defaultSceneDuration = audio ? chosenDuration : projectDuration;
     // Keep the canvas choices made on the single setup frame (aspect ratio, resolution, motion)
     const chosenAspect = aspectRatio;
     const chosenResolution = resolution;
@@ -1175,19 +1179,20 @@ export default function App() {
     try {
       const { data: projectData, error: projectError } = await supabase
         .from("projects")
-        .insert({ title, script, default_duration: projectDuration, user_id: getSession()?.user.id ?? null })
+        .insert({ title, script, default_duration: defaultSceneDuration, user_id: getSession()?.user.id ?? null })
         .select()
         .single();
       if (projectError) throw projectError;
 
       const project = projectData as Project;
       const parsedScenes = parseScript(script, chosenDuration, oneScene);
+      const audioDurations = audio ? audioSceneDurations(audio.track.duration, chosenDuration) : [];
       const initialInserts = audio ? [createMusicVideoInsert(audio.track)] : [];
 
       // Clean, isolated project setup with defaults
       const freshSettings: ProjectSettings = {
         ...DEFAULT_PROJECT_SETTINGS,
-        scene_duration: projectDuration,
+        scene_duration: defaultSceneDuration,
         aspect_ratio: chosenAspect,
         resolution: chosenResolution,
         motion_style: chosenMotion,
@@ -1207,9 +1212,15 @@ export default function App() {
       // at all: someone uploading a music video has footage and no words, and
       // the rest of the app (captions, music, the studio, the timeline) is
       // built around there being a scene to hang them on.
-      const sceneSources = oneScene && parsedScenes.length === 0
-        ? [{ text: "", imageQuery: clip ? "" : (audio?.image.name || "abstract background") }]
-        : parsedScenes;
+      const sceneSources = audio
+        ? audioDurations.map((duration, index) => ({
+            text: "",
+            imageQuery: `${audio.track.name} scene ${index + 1}`,
+            duration,
+          }))
+        : oneScene && parsedScenes.length === 0
+          ? [{ text: "", imageQuery: clip ? "" : "abstract background" }]
+          : parsedScenes;
 
       // Resolve per-scene camera motion from the Setup choice so every scene
       // inherits the same effect from the start — not just the first one.
@@ -1222,10 +1233,12 @@ export default function App() {
           order_index: i,
           text: sceneText,
           image_query: s.imageQuery,
-          image_url: audio && i === 0 ? audio.image.url : null,
-          duration: oneScene
-            ? singleSceneDuration(sceneText, clip?.duration || audio?.track.duration)
-            : sceneDurationForText(sceneText, chosenDuration),
+          image_url: audio?.image && i === 0 ? audio.image.url : null,
+          duration: audio && "duration" in s
+            ? s.duration
+            : oneScene
+              ? singleSceneDuration(sceneText, clip?.duration || audio?.track.duration)
+              : sceneDurationForText(sceneText, chosenDuration),
           motion_effect: resolveMotionEffect(i),
         };
       });
@@ -1322,7 +1335,7 @@ export default function App() {
       // `addCustomImage` supplied a stable custom-image address in Setup. Pin
       // it exactly as SceneEditor's upload path does, so a later script edit or
       // image search cannot silently replace the creator's chosen artwork.
-      if (audio && createdScenes.length > 0) {
+      if (audio?.image && createdScenes.length > 0) {
         const imageFields: Partial<Scene> = {
           source_media_kind: "audio_image",
           image_url: audio.image.url,
@@ -2109,10 +2122,12 @@ export default function App() {
       source_media_kind: "audio_image",
       video_url: null,
       video_name: null,
-      image_url: source.image.url,
-      image_query: source.image.name,
-      image_query_locked: true,
-      blank_color: null,
+      ...(source.image ? {
+        image_url: source.image.url,
+        image_query: source.image.name,
+        image_query_locked: true,
+        blank_color: null,
+      } : {}),
       ...(changed.audio ? { duration: Math.max(1, source.track.duration) } : {}),
       ...transcriptReset,
     });

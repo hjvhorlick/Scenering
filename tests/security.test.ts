@@ -21,6 +21,7 @@ const sessionUi = readFileSync("src/lib/session.ts", "utf8");
 h.ok(accountUi.includes("Preview the Studio as a customer plan") && accountUi.includes("setAdminPlanPreview"), "owner administration can preview Free, SceneFlow and SceneForge interfaces");
 h.ok(sessionUi.includes("scenering_admin_plan_preview") && sessionUi.includes('account?.user?.role !== "admin"'), "plan preview is session-scoped and restricted to the owner administrator interface");
 h.ok(sessionUi.includes("sessionStorage") && !sessionUi.includes("localStorage.setItem(LEGACY_SESSION_TOKEN_KEY"), "the development preview bridge never persists a bearer token in localStorage");
+h.ok(/try \{\s*const preview = window\.sessionStorage\.getItem\(ADMIN_PLAN_PREVIEW_KEY\);[\s\S]*catch \{\s*return authoritative;/.test(sessionUi), "blocked browser storage cannot crash the authenticated admin interface");
 h.ok(platform.includes("embeddedPreviewSessionBridgeEnabled") && platform.includes("if (!embeddedPreviewSessionBridgeEnabled()) return \"\""), "header-token sessions are disabled outside explicit embedded development previews");
 h.ok(platform.includes('"/api/admin/complimentary-memberships"') && platform.includes("ComplimentaryGrant"), "owner can issue audited expiring complimentary memberships");
 h.ok(platform.includes("setUTCMonth") && platform.includes("setUTCFullYear"), "complimentary periods are exactly one calendar month or year");
