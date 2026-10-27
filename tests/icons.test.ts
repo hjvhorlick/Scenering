@@ -258,6 +258,34 @@ const RETIRED_WORDS = new Set([
  */
 const RETIRED_IN_FILE = new Map<string, Set<string>>([
   [
+    /**
+     * 2026-10-27, owner: the render failure card was rewritten from the
+     * encoder's vocabulary into plain sentences. The old copy is quoted in
+     * the complaint that triggered it — "This browser cannot record the
+     * selected format… the selected encoding settings are not supported by
+     * this browser's encoder… retry using the standard compatible profile
+     * (H.264 MP4 · 30 fps · Quality, falling back to WebM if needed)" — and
+     * every one of those words is gone on purpose, along with the raw log
+     * that used to sit under "Advanced Details". Nothing a customer needed to
+     * act on was dropped: each report now carries a plain explanation, a
+     * retry hint and a short support code (SC-ENCODER, SC-STALL, …), and the
+     * raw text is logged to the console for support instead of printed at the
+     * customer. `describeRenderFailure` is exercised directly by
+     * tests/render-profile.test.ts, which now also asserts that no codec
+     * vocabulary can reach the card again.
+     */
+    "src/lib/render-profile.ts",
+    new Set([
+      "if", "quality", "by", "without", "encoder", "fps", "profile", "can",,
+      "selected", "Scenering", "compatible", "automatically", "be", "kept", "under", "Advanced",,
+      "Details", "cannot", "are", "record", "format", "could", "not", "rendered",,
+      "because", "encoding", "settings", "supported", "browser's", "retry", "using", "standard",,
+      "falling", "back", "needed", "image", "source", "forbids", "cross-origin", "permission",,
+      "canvas", "re-searching", "fixes", "permanently", "disk", "fill", "presented", "complete",,
+      "create", "incompatible",
+    ]),
+  ],
+  [
     // The account-menu resume comments were shortened while retaining the
     // actual project-title text and tooltip; this is developer commentary.
     // 2026-10-16: the owner opened every section once a project is open, so

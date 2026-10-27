@@ -117,7 +117,13 @@ import {
 } from "../lib/render-profile";
 import type { RenderProfileSettings } from "../types";
 import { createMasteringChain, type MasteringChain } from "../lib/audio-mastering";
-import { OfflineExporter, supported as offlineExportSupported, type OfflineExportConfig, type OfflineExportStats } from "../lib/offline-export";
+import {
+  OfflineExporter,
+  resolveEncodableFormat,
+  supported as offlineExportSupported,
+  type OfflineExportConfig,
+  type OfflineExportStats,
+} from "../lib/offline-export";
 import { validateFinishedExport, type ExportValidationReport } from "../lib/export-validator";
 import { createFrameBudget } from "../lib/yield-to-browser";
 import { RenderTimer, formatMs } from "../lib/render-timing";
@@ -488,11 +494,20 @@ export default function RenderView({
   // ---- Master Render Profile UI state ---------------------------------
   /** Technical details panel (read-only — normal users never need it). */
   const [showAdvanced, setShowAdvanced] = useRememberedChoice(project?.id, "render", "advancedOpen", false, isBoolean);
-  /** Human-readable failure report; the raw log stays under Advanced Details. */
+  /**
+   * Human-readable failure report. The customer sees the title, explanation,
+   * retry hint and support code; the raw log goes to the console only.
+   */
   const [failureReport, setFailureReport] = useState<RenderFailureReport | null>(null);
-  const [showFailureDetail, setShowFailureDetail] = useState(false);
   /** What the automatic-fallback retry changed — never silent. */
   const [fallbackNotes, setFallbackNotes] = useState<string[]>([]);
+  /**
+   * One plain sentence, shown only when this device could not write the
+   * requested container and the render used a compatible one instead. It
+   * names the format of the file the customer is about to download — never a
+   * codec list, a profile string or an encoder error.
+   */
+  const [exportFormatNote, setExportFormatNote] = useState<string | null>(null);
 
   // ---- The Vault: finished renders waiting to be downloaded -----------
   const [vaultRenders, setVaultRenders] = useState<VaultRender[]>([]);
@@ -1198,10 +1213,10 @@ export default function RenderView({
     reportProgress(0);
     setRenderError(null);
     setFailureReport(null);
-    setShowFailureDetail(false);
     setRenderEngine("checking");
     setOutputAudit(null);
     setMotionAudit(null);
+    setExportFormatNote(null);
     setOfflineFailureReason(null);
     setExportValidation(null);
     setClipAudioNotice(null);
@@ -2107,36 +2122,76 @@ export default function RenderView({
       let offlineProbe = await offlineExportSupported(offlineConfig);
 
       /**
-       * One renderer. It is frame-exact, and it produces the container the
-       * project asked for or it produces nothing.
+       * One renderer. It is frame-exact, and it produces a real file every
+       * time it can — the container is decided by what this device can encode,
+       * not by what the customer typed.
        *
-       * Two escapes were removed from this screen and must not come back:
+       * Two escapes remain removed and must not come back:
        *
-       *  - **A silent switch to WebM.** When H.264/AAC probing failed, the
-       *    render used to carry on in VP9/Opus and the Setup screen went on
-       *    saying "H.264 High · yuv420p". The customer asked for MP4 and got a
-       *    file they could not use where MP4 is required, with no warning.
        *  - **A real-time MediaRecorder fallback.** It painted the canvas while
        *    the audio played and captured whatever came out. Its motion is only
        *    as even as the machine is fast: the camera stalls, catches up, and
        *    stalls again, which is exactly the "stop and go" the frame-exact
        *    renderer exists to prevent.
+       *  - **A silent switch that the screen never mentions.** A file that is
+       *    really WebM must never be described as H.264 MP4, and its download
+       *    extension always follows the bytes. That is still true below: when
+       *    the container changes, the finish line and the Vault label both say
+       *    which one was written, in one plain sentence.
        *
-       * A browser that cannot do the job is now told so, before any work is
-       * spent, naming the thing that is missing.
+       * What changed (October 27): a device that cannot encode H.264/AAC for
+       * MP4 was stopping the render with "This browser cannot record the
+       * selected format" — after the customer had chosen everything, and with
+       * nothing wrong with their project. Firefox without an AAC encoder, a
+       * blocklisted hardware encoder and a stricter Safari all landed there.
+       * The device is now asked twice (MP4, then the compatible alternative,
+       * each with several profile/level/configuration shapes) before anything
+       * is said to the customer, and only a device that can encode neither
+       * container stops.
        */
-      if (!offlineProbe.supported || typeof OfflineAudioContext === "undefined") {
-        const reason =
-          typeof OfflineAudioContext === "undefined"
-            ? "This browser has no OfflineAudioContext, so the soundtrack cannot be mixed sample-exactly."
-            : offlineProbe.reason || "No WebCodecs configuration in this browser can encode the requested video.";
-        setOfflineFailureReason(reason);
+      if (typeof OfflineAudioContext === "undefined") {
+        setOfflineFailureReason("OfflineAudioContext unavailable");
         setRenderEngine("failed");
-        console.error("Frame-exact offline export unsupported:", reason);
+        console.error("Frame-exact offline export unsupported: no OfflineAudioContext");
         throw new Error(
-          `${requestedContainer.toUpperCase()} cannot be rendered frame-exactly in this browser, so no file was made. ` +
-            `Scenering encodes H.264 + AAC MP4 with WebCodecs (Chrome, Edge or Safari). ${reason}`,
+          "This browser cannot mix the soundtrack for an export, so the video was not made. " +
+            "Your project is unchanged — render again in Chrome, Edge or Safari.",
         );
+      }
+
+      if (!offlineProbe.supported) {
+        const chosen = await resolveEncodableFormat(offlineConfig);
+        console.info("Encoder preflight:", {
+          requested: requestedContainer,
+          chosen: chosen.container,
+          substituted: chosen.substituted,
+          detail: chosen.support.reason || "supported",
+        });
+        if (chosen.supported) {
+          if (chosen.substituted) {
+            offlineContainer = chosen.container;
+            offlineConfig = { ...offlineConfig, container: chosen.container };
+            offlineProbe = chosen.support;
+            // Only worth saying when the file ends up as WebM: MP4 is what
+            // every platform wants, so a device that produces it needs no
+            // note at all.
+            if (chosen.container === "webm") {
+              setExportFormatNote(
+                "This browser saves the video as WebM rather than MP4. It plays everywhere and uploads fine — " +
+                  "for an MP4 file, render again in Chrome, Edge or Safari.",
+              );
+            }
+          }
+        } else {
+          const reason = offlineProbe.reason || chosen.support.reason || "no encodable configuration";
+          setOfflineFailureReason(reason);
+          setRenderEngine("failed");
+          console.error("Frame-exact offline export unsupported:", reason);
+          throw new Error(
+            "This browser could not produce the video file, so nothing was made and nothing was counted. " +
+              "Your project is unchanged — render again in Chrome, Edge or Safari.",
+          );
+        }
       }
 
       let offlineEncoder: OfflineExporter | null = null;
@@ -2662,12 +2717,15 @@ export default function RenderView({
         setRenderStatus({ active: false, progress: 0, stage: "Render cancelled", error: null });
         return null;
       }
-      console.error("Render failed:", err);
-      // Never show a bare "Rendering failed": translate the failure into a
-      // human explanation, keep the raw log under Advanced Details, and
-      // offer an automatic retry with a compatible profile.
+      // Never show a bare "Rendering failed" — and never the encoder's own
+      // words either. The failure is translated into plain sentences plus a
+      // short support code, and an automatic retry is offered.
       const report = describeRenderFailure(String(err?.stack || message));
       lastRenderErrorRef.current = report.title;
+      // The screen shows the plain sentences and the support code; the raw
+      // encoder log goes here, where support can read it and the customer
+      // never has to.
+      console.error(`Render failed [${report.code}] ${report.title}`, report.technical);
       setFailureReport(report);
       setRenderError(message);
       setRenderStatus({ active: false, error: message, stage: "Render failed" });
@@ -3016,6 +3074,9 @@ export default function RenderView({
       },
       failureReport || undefined
     );
+    // The changes are logged, not listed on screen: the customer gets one
+    // plain sentence in the UI, support gets the specifics.
+    console.info("Automatic retry — what changed:", fallback.changes);
     setFallbackNotes(fallback.changes);
     setFailureReport(null);
     setRenderError(null);
@@ -3607,10 +3668,10 @@ export default function RenderView({
                   }`}>
                     {iconify(
                       renderEngine === "frame-exact"
-                        ? "✓ FRAME-EXACT WEBCODECS · H.264/AAC MP4"
+                        ? "✓ FINISHING THE VIDEO"
                         : renderEngine === "failed"
-                        ? "✕ BROWSER CANNOT RENDER THIS FRAME-EXACTLY"
-                        : "CHECKING FRAME-EXACT SUPPORT…",
+                        ? "✕ THIS BROWSER COULD NOT FINISH THE VIDEO"
+                        : "PREPARING THE VIDEO…",
                     )}
                   </div>
                   <p className="text-xs text-indigo-300 font-medium mb-3">{renderStage}</p>
@@ -3712,8 +3773,10 @@ export default function RenderView({
             {/* Controls / Progress / Download Area */}
             <div className="p-4 space-y-4">
               {renderError && failureReport ? (
-                /* §22: never a bare "Rendering failed" — a human explanation,
-                   an automatic retry, and the raw log under Advanced Details */
+                /* Never a bare "Rendering failed" — and never the encoder's
+                   own words either. Plain sentences, the automatic retry, and
+                   a short support code for the console/support channel; the
+                   raw log is logged, not printed at the customer. */
                 <div className="p-3.5 bg-red-950/60 border border-red-800/80 rounded-xl space-y-2">
                   <p className="text-red-200 text-xs font-bold flex items-center gap-2">
                     <Icon glyph="⚠" /> {failureReport.title}
@@ -3728,22 +3791,16 @@ export default function RenderView({
                         disabled={isRendering}
                         className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white transition-colors"
                       >
-                        <Icon glyph="🔄" /> Retry Automatically
+                        <Icon glyph="🔄" /> Try again
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => setShowFailureDetail((v) => !v)}
-                      className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 border border-hairline transition-colors"
+                    <span
+                      title="Quote this if you contact support — it identifies the exact failure in our logs."
+                      className="text-[10px] font-mono text-red-400/60 select-all"
                     >
-                      {showFailureDetail ? "Hide" : "Advanced"} Details
-                    </button>
+                      {failureReport.code}
+                    </span>
                   </div>
-                  {showFailureDetail && (
-                    <pre className="mt-1 p-2.5 bg-black/70 border border-hairline rounded-lg text-[10px] font-mono text-gray-400 whitespace-pre-wrap break-words">
-                      {failureReport.technical}
-                    </pre>
-                  )}
                 </div>
               ) : renderError ? (
                 <div className="p-3 bg-red-950/60 border border-red-800/80 rounded-lg text-red-300 text-xs flex items-center gap-2">
@@ -3752,14 +3809,31 @@ export default function RenderView({
                 </div>
               ) : null}
 
+              {exportFormatNote && !renderError && (
+                /* The only format message a customer ever sees: what the file
+                   they are about to download actually is, in one sentence. */
+                <div className="p-3 bg-gray-900/80 border border-hairline rounded-lg flex items-start gap-2">
+                  <Icon glyph="🎬" />
+                  <p className="text-[11px] leading-relaxed text-gray-300 flex-1">{exportFormatNote}</p>
+                  <button
+                    type="button"
+                    onClick={() => setExportFormatNote(null)}
+                    className="text-[10px] text-gray-500 hover:text-gray-300 font-medium"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
               {fallbackNotes.length > 0 && !renderError && (
-                /* §23: an automatic fallback is never silent — what changed
-                   is spelled out right here. */
-                <div className="p-3 bg-indigo-950/50 border border-indigo-800/70 rounded-lg space-y-1">
-                  <p className="text-indigo-200 text-[11px] font-bold">Automatic retry — what changed:</p>
-                  {fallbackNotes.map((n, i) => (
-                    <p key={i} className="text-indigo-300/90 text-[10px] leading-relaxed">• {n}</p>
-                  ))}
+                /* An automatic retry is never silent — but the customer gets
+                   one plain sentence, not the list of encoder changes. The
+                   detail is logged to the console for support. */
+                <div className="p-3 bg-indigo-950/50 border border-indigo-800/70 rounded-lg flex items-start gap-2">
+                  <Icon glyph="🔄" />
+                  <p className="text-indigo-200 text-[11px] leading-relaxed flex-1">
+                    Scenering adjusted the export automatically so the video could finish.
+                  </p>
                   <button
                     type="button"
                     onClick={() => setFallbackNotes([])}

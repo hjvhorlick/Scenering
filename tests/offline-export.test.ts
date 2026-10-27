@@ -1,4 +1,4 @@
-import { avcCodecForSize, ChunkStore, supported } from "../src/lib/offline-export";
+import { avcCodecForSize, ChunkStore, resolveEncodableFormat, supported } from "../src/lib/offline-export";
 
 let checks = 0;
 const equal = (actual: unknown, expected: unknown, label: string) => {
@@ -135,6 +135,113 @@ const deepEqual = (actual: number[], expected: number[], label: string) => {
   equal(blob.size, 64 + 500 * 1024, "many appends: blob size is right");
   const head = new Uint8Array(await blob.slice(0, 64).arrayBuffer());
   equal(head.every((b) => b === 7), true, "index written back over the reserved space");
+}
+
+/* ------------------------------------------------------------------ *
+ * Encoder preflight: the "This browser cannot record the selected
+ * format" regression.
+ *
+ * A real device answers these probes in ways the old single-shot check
+ * misread: it refuses High profile but encodes Main happily, or it has no
+ * H.264 encoder at all but a perfectly good VP9/Opus one. Both used to stop
+ * the render with a codec message; both must now produce a video.
+ * ------------------------------------------------------------------ */
+
+const baseConfig = {
+  container: "mp4" as const,
+  width: 1920,
+  height: 1080,
+  fps: 30,
+  videoKbps: 12_000,
+  audioKbps: 192,
+};
+
+/** Install a fake WebCodecs surface that answers per codec family. */
+function stubCodecs(options: {
+  videoAccepts: (codec: string, config?: VideoEncoderConfig) => boolean;
+  audioAccepts: (codec: string) => boolean;
+}) {
+  const probes: string[] = [];
+  (globalThis as any).VideoEncoder = {
+    isConfigSupported: async (config: VideoEncoderConfig) => {
+      probes.push(`v:${config.codec}`);
+      return { supported: options.videoAccepts(config.codec, config), config };
+    },
+  };
+  (globalThis as any).AudioEncoder = {
+    isConfigSupported: async (config: AudioEncoderConfig) => {
+      probes.push(`a:${config.codec}`);
+      return { supported: options.audioAccepts(config.codec), config };
+    },
+  };
+  return probes;
+}
+function uninstallCodecs() {
+  delete (globalThis as any).VideoEncoder;
+  delete (globalThis as any).AudioEncoder;
+}
+
+/** A device with no High-profile H.264 encoder, but a working Main one. */
+{
+  const probes = stubCodecs({
+    videoAccepts: (codec, config) => codec.startsWith("avc1.4d00") && !config?.latencyMode,
+    audioAccepts: (codec) => codec === "mp4a.40.2",
+  });
+  const probe = await supported(baseConfig);
+  equal(probe.supported, true, "a Main-profile-only device is still MP4-capable");
+  equal(probe.videoCodec?.startsWith("avc1.4d00"), true, "it reports the profile it actually accepted");
+  equal(Boolean(probe.encoderConfig), true, "the accepted configuration is kept for configure()");
+  equal(probe.encoderConfig?.latencyMode, undefined, "the encoder is configured with the shape that was accepted");
+  equal(probes.some((p) => p === "v:avc1.640028"), true, "High profile is tried first, as the best option");
+  uninstallCodecs();
+}
+
+/** A device with no H.264 at all, but VP9/Opus. */
+{
+  stubCodecs({
+    videoAccepts: (codec) => codec.startsWith("vp09") || codec === "vp8",
+    audioAccepts: (codec) => codec === "opus",
+  });
+  const requested = await supported(baseConfig);
+  equal(requested.supported, false, "a device without H.264 cannot produce MP4");
+  const choice = await resolveEncodableFormat(baseConfig);
+  equal(choice.supported, true, "…but the render still goes ahead");
+  equal(choice.substituted, true, "…and the substitution is recorded, never silent");
+  equal(choice.container, "webm", "the container follows the encoder that exists");
+  uninstallCodecs();
+}
+
+/** A device with an AAC encoder but only the minimal H.264 configuration. */
+{
+  stubCodecs({
+    videoAccepts: (codec, config) =>
+      codec.startsWith("avc1.42") && config !== undefined && !("framerate" in config) && !("avc" in config),
+    audioAccepts: (codec) => codec === "mp4a.40.2",
+  });
+  const probe = await supported(baseConfig);
+  equal(probe.supported, false, "the probe never accepts a configuration it cannot reproduce at encode time");
+  uninstallCodecs();
+}
+
+/** Nothing can encode: the caller is told, without a codec being named. */
+{
+  stubCodecs({ videoAccepts: () => false, audioAccepts: () => false });
+  const choice = await resolveEncodableFormat(baseConfig);
+  equal(choice.supported, false, "a device that encodes neither container reports unsupported");
+  equal(choice.container, "mp4", "the requested container is reported back unchanged");
+  uninstallCodecs();
+}
+
+/** WebM-requested projects are probed for MP4 as their alternative. */
+{
+  stubCodecs({
+    videoAccepts: (codec) => codec.startsWith("avc1"),
+    audioAccepts: (codec) => codec === "mp4a.40.2",
+  });
+  const choice = await resolveEncodableFormat({ ...baseConfig, container: "webm" });
+  equal(choice.supported, true, "a WebM project on an MP4-only device still renders");
+  equal(choice.container, "mp4", "…in the container the device can write");
+  uninstallCodecs();
 }
 
 console.log(`PASS offline-export: ${checks} checks, 0 failed`);
