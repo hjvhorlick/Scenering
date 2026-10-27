@@ -410,15 +410,14 @@ for (const { name, text } of marketingFiles) {
     `${name}: no seventh stage is promised`
   );
 }
-// The hero's chips are the same six phases.
+// The hero names the same six phases, in the phase rail's own order, one small
+// chip each — the six-tab rail it used to draw is gone.
 {
   const hero = read("src/marketing/sections/Hero.tsx");
-  const ids = [...hero.matchAll(/\{ id: "([a-z]+)", label: "[^"]+", phase: "([a-z]+)" \}/g)];
-  h.eq(ids.length, PROJECT_PHASES.length, "the hero has one chip per phase");
-  ids.forEach(([, id, phase], index) => {
-    h.eq(id, PROJECT_PHASES[index].id, `hero chip ${index + 1} is the ${PROJECT_PHASES[index].id} phase`);
-    h.eq(phase, PROJECT_PHASES[index].id, `hero chip ${index + 1} opens the frame on its own tab`);
-  });
+  ok(hero.includes("PROJECT_PHASES.map"), "the hero lists the studio's own phases");
+  ok(!hero.includes("AppFrame"), "the hero draws no studio window");
+  ok(!hero.includes("TimelineMock") && !hero.includes("PlayerFrame"), "…and no timeline or player");
+  h.eq(PROJECT_PHASES.length, 6, "six phases");
 }
 h.eq(EXAMPLE_VIDEOS.length, 8, "eight example categories");
 for (const category of [
@@ -800,7 +799,8 @@ for (const { name, text } of marketingFiles) {
   const landmark =
     /<Section/.test(text) ||
     /role="tablist"/.test(text) ||
-    /<section[^>]*aria-label(?:ledby)?=/.test(text);
+    /<section[^>]*aria-label(?:ledby)?=/.test(text) ||
+    /<header[^>]*className="mkt-hero"/.test(text);
   ok(landmark, `${name}: renders a landmark section`);
   ok(!/<img(?![^>]*alt=)/.test(text), `${name}: no <img> without alt`);
 }

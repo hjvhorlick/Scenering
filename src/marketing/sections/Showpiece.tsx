@@ -19,11 +19,11 @@ import { MarketingImage } from "../components/primitives";
  * page opens on something saturated and then settles into the porcelain the
  * rest of the site is made of.
  *
- * The four steps under it are markup, not part of the picture. Text baked
- * into a bitmap cannot be read aloud, cannot be translated, does not reflow
- * on a phone and goes soft on a high-density screen. Drawn here they stay
- * sharp, they are in the accessibility tree, and each one says something the
- * application genuinely does.
+ * The four items under it are markup, not part of the picture: text baked into
+ * a bitmap cannot be read aloud, cannot be translated, does not reflow on a
+ * phone and goes soft on a high-density screen. They are chips rather than
+ * cards now — four small statements, one line of a phone screen instead of
+ * four stacked blocks.
  */
 
 const STEPS = [
@@ -38,7 +38,7 @@ export default function Showpiece() {
     <section className="mkt-showpiece" aria-labelledby="showpiece-title">
       <div className="mkt-container mkt-showpiece-inner">
         <div className="mkt-showpiece-art">
-          <MarketingImage assetId="brand.showpiece" sizes="(min-width: 900px) 340px, 62vw" eager />
+          <MarketingImage assetId="brand.showpiece" sizes="(min-width: 900px) 180px, 34vw" eager />
         </div>
 
         <div className="mkt-showpiece-copy">
@@ -46,17 +46,14 @@ export default function Showpiece() {
             Every part of a video, in one place.
           </h2>
           <p className="mkt-showpiece-lede">
-            Pictures, narration, music and the cut — assembled on your own machine.
+            Pictures, narration, music and the cut, on your own machine.
           </p>
 
-          <ul className="mkt-showpiece-steps">
+          <ul className="mkt-showpiece-chips">
             {STEPS.map((step) => (
-              <li key={step.label} className="mkt-showpiece-step">
-                <Icon name={step.icon} size="lg" />
-                <span className="mkt-showpiece-step-text">
-                  <b>{step.label}</b>
-                  <i>{step.note}</i>
-                </span>
+              <li key={step.label} className="mkt-showpiece-chip">
+                <Icon name={step.icon} size="sm" />
+                <b>{step.label}</b>
               </li>
             ))}
           </ul>
