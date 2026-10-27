@@ -81,9 +81,9 @@ ok(tour.length > 25_000, `the features tour has substance (${tour.length} chars 
 
 /* --------------------------------------------------------- structure */
 
-// The front page is a sales page: what you get, what it costs to run, the
-// plans, the proof, the close — and nothing else.
-const HOME_SECTIONS = ["features", "no-meter", "pricing", "examples", "start"];
+// The front page is a sales page: what you can put on a scene, what you get,
+// what it costs to run, the plans, the proof, the close — and nothing else.
+const HOME_SECTIONS = ["effects", "features", "no-meter", "pricing", "examples", "start"];
 const homeRendered = [...home.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1]);
 h.eq(homeRendered.join(","), HOME_SECTIONS.join(","), "the front page renders the sales story, in order");
 

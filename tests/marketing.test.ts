@@ -311,6 +311,7 @@ ok(HONESTY.localNote.includes("Preview renders do not use final-export allowance
 const site = read("src/marketing/MarketingSite.tsx");
 const STORY = [
   "Hero",
+  "EffectsLibrary",
   "FeatureTour",
   "NoMeter",
   "Pricing",
@@ -323,7 +324,10 @@ for (const section of STORY) {
   ok(at > cursor, `${section} appears in sales order on the front page`);
   cursor = at;
 }
-for (const moved of ["IdeaToVideo", "ScenesSection", "VisualResearch", "VoiceSection", "CaptionsSection", "VideoStudioSection", "EffectsLibrary", "BeforeAfter", "Control", "Formats", "Devices", "Sources", "Questions"]) {
+// The effects library now sits high on the front page by the owner's request
+// ("place it high up in the home page"), so it is the one demonstration that
+// is no longer confined to the tour.
+for (const moved of ["IdeaToVideo", "ScenesSection", "VisualResearch", "VoiceSection", "CaptionsSection", "VideoStudioSection", "BeforeAfter", "Control", "Formats", "Devices", "Sources", "Questions"]) {
   ok(!site.includes(`<${moved} />`), `${moved} no longer crowds the front page`);
 }
 
