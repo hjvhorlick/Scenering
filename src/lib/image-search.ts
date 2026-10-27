@@ -33,6 +33,55 @@ import { filterPhotoLikeCandidates } from "./image-analysis";
  */
 export const MAX_BROADENING_STEPS = 4;
 
+/** Keep fetched pools around for a session so replace/research reuses providers' results. */
+const POOL_CACHE_TTL_MS = 10 * 60_000;
+const EMPTY_POOL_CACHE_TTL_MS = 3 * 60_000;
+const MAX_POOL_CACHE_ENTRIES = 32;
+const poolCache = new Map<string, { expiresAt: number; pool: ImageCandidate[] }>();
+const poolRequests = new Map<string, Promise<ImageCandidate[]>>();
+
+function poolCacheKey(query: string, options: ResearchOptions): string {
+  const headers = Object.entries(options.headers || {}).sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify([
+    query.trim().toLocaleLowerCase(),
+    options.frameWidth ? Math.round(options.frameWidth) : 0,
+    options.frameHeight ? Math.round(options.frameHeight) : 0,
+    headers,
+    options.queryParams || "",
+  ]);
+}
+
+function readCachedPool(key: string): ImageCandidate[] | null {
+  const entry = poolCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    poolCache.delete(key);
+    return null;
+  }
+  poolCache.delete(key);
+  poolCache.set(key, entry);
+  return entry.pool.map((candidate) => ({ ...candidate }));
+}
+
+function rememberPool(key: string, pool: ImageCandidate[]): void {
+  poolCache.delete(key);
+  poolCache.set(key, {
+    pool: pool.map((candidate) => ({ ...candidate })),
+    expiresAt: Date.now() + (pool.length ? POOL_CACHE_TTL_MS : EMPTY_POOL_CACHE_TTL_MS),
+  });
+  while (poolCache.size > MAX_POOL_CACHE_ENTRIES) {
+    const oldest = poolCache.keys().next().value;
+    if (oldest === undefined) break;
+    poolCache.delete(oldest);
+  }
+}
+
+/** Clear the bounded in-memory search pool (useful after changing provider keys). */
+export function clearImageSearchPoolCache(): void {
+  poolCache.clear();
+  poolRequests.clear();
+}
+
 export {
   fallbackCandidates,
   VISIBLE_CANDIDATES,
@@ -72,7 +121,7 @@ export function proxyImageUrl(url: string): string {
  * Never throws: a failed search must leave the scene's existing photo alone
  * rather than clearing it, so callers get an empty pool and do nothing.
  */
-async function fetchPool(
+async function fetchPoolUncached(
   query: string,
   options: ResearchOptions
 ): Promise<ImageCandidate[]> {
@@ -99,6 +148,28 @@ async function fetchPool(
   }
 }
 
+async function fetchPool(query: string, options: ResearchOptions): Promise<ImageCandidate[]> {
+  // A caller-owned AbortSignal is never shared with another caller or cached,
+  // so cancelling one modal search cannot cancel the pool for other consumers.
+  if (options.signal) return fetchPoolUncached(query, options);
+
+  const key = poolCacheKey(query, options);
+  const cached = readCachedPool(key);
+  if (cached) return cached;
+
+  const pending = poolRequests.get(key);
+  if (pending) return (await pending).map((candidate) => ({ ...candidate }));
+
+  const request = fetchPoolUncached(query, options).then((pool) => {
+    rememberPool(key, pool);
+    return pool;
+  }).finally(() => {
+    if (poolRequests.get(key) === request) poolRequests.delete(key);
+  });
+  poolRequests.set(key, request);
+  return (await request).map((candidate) => ({ ...candidate }));
+}
+
 /**
  * Ask the server for the candidate pool behind a query, then keep only the
  * images that are genuinely photographic.
@@ -114,7 +185,15 @@ export async function searchImagePool(
 ): Promise<ImageCandidate[]> {
   const pool = await fetchPool(query, options);
   if (pool.length === 0) return [];
-  return filterPhotoLikeCandidates(pool, { proxy: proxyImageUrl });
+
+  // Pexels and Pixabay are photo-only stock libraries and already enforce the
+  // resolution/aspect gate server-side. Avoid loading/analyzing dozens of
+  // thumbnails for these sources; reserve pixel probing for Wikimedia or
+  // future mixed-content providers.
+  if (pool.every((candidate) => ["pexels", "pixabay", "nature-library", "nature"].includes(candidate.source))) {
+    return pool;
+  }
+  return filterPhotoLikeCandidates(pool, { proxy: proxyImageUrl, targetAccepted: VISIBLE_CANDIDATES });
 }
 
 /** The outcome of a broadened search, including how it was reached. */

@@ -8,8 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { ImageCandidate } from "../lib/image-search";
-import { proxyImageUrl } from "../lib/image-search";
+import { proxyImageUrl, type ImageCandidate } from "../lib/image-search";
 import Icon, { iconify } from "./icons/Icon";
 
 interface ImageCandidateStripProps {
@@ -216,7 +215,7 @@ export default function ImageCandidateStrip({
                 title={`Use this photo (${c.source})`}
               >
                 <img
-                  src={proxyImageUrl(c.thumbnail || c.url)}
+                  src={c.thumbnail || c.url}
                   alt={`Candidate ${i + 1}`}
                   className="w-full h-full object-cover transition-transform group-hover:scale-105"
                   loading="lazy"

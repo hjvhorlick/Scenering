@@ -269,4 +269,18 @@ h.ok(
   "an unknown criteria still searches for something rather than nothing"
 );
 
+// --------------------------------------- bounded client-side pool reuse
+h.ok(imageSearch.includes("POOL_CACHE_TTL_MS = 10 * 60_000"), "search pools are reused for ten minutes");
+h.ok(imageSearch.includes("MAX_POOL_CACHE_ENTRIES = 32"), "the session pool cache is bounded");
+h.ok(imageSearch.includes("poolRequests"), "simultaneous identical searches are deduplicated");
+h.ok(imageSearch.includes("options.headers") && imageSearch.includes("options.queryParams"), "different provider keys do not share cached results");
+h.ok(bodyOf("searchImagePool").includes("fetchPool(query, options)"), "all consumers load through the reusable pool");
+h.ok(imageSearch.includes("EMPTY_POOL_CACHE_TTL_MS = 3 * 60_000"), "empty results are briefly cached to avoid repeating fallback searches");
+h.ok(
+  imageSearch.includes("candidate.source") && imageSearch.includes("\"pexels\"") && imageSearch.includes("\"pixabay\""),
+  "known stock-photo sources skip redundant client-side pixel analysis"
+);
+h.ok(strip.includes("src={c.thumbnail || c.url}"), "research thumbnails load directly without a proxy request");
+h.ok(imageSearch.includes("clearImageSearchPoolCache"), "the session pool cache can be cleared explicitly");
+
 h.done("image-search-wiring");
