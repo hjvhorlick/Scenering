@@ -311,6 +311,7 @@ ok(HONESTY.localNote.includes("Preview renders do not use final-export allowance
 const site = read("src/marketing/MarketingSite.tsx");
 const STORY = [
   "Hero",
+  "EffectsLibrary",
   "FeatureTour",
   "NoMeter",
   "Pricing",
@@ -323,7 +324,10 @@ for (const section of STORY) {
   ok(at > cursor, `${section} appears in sales order on the front page`);
   cursor = at;
 }
-for (const moved of ["IdeaToVideo", "ScenesSection", "VisualResearch", "VoiceSection", "CaptionsSection", "VideoStudioSection", "EffectsLibrary", "BeforeAfter", "Control", "Formats", "Devices", "Sources", "Questions"]) {
+// The effects library now sits high on the front page by the owner's request
+// ("place it high up in the home page"), so it is the one demonstration that
+// is no longer confined to the tour.
+for (const moved of ["IdeaToVideo", "ScenesSection", "VisualResearch", "VoiceSection", "CaptionsSection", "VideoStudioSection", "BeforeAfter", "Control", "Formats", "Devices", "Sources", "Questions"]) {
   ok(!site.includes(`<${moved} />`), `${moved} no longer crowds the front page`);
 }
 
@@ -410,15 +414,14 @@ for (const { name, text } of marketingFiles) {
     `${name}: no seventh stage is promised`
   );
 }
-// The hero's chips are the same six phases.
+// The hero names the same six phases, in the phase rail's own order, one small
+// chip each — the six-tab rail it used to draw is gone.
 {
   const hero = read("src/marketing/sections/Hero.tsx");
-  const ids = [...hero.matchAll(/\{ id: "([a-z]+)", label: "[^"]+", phase: "([a-z]+)" \}/g)];
-  h.eq(ids.length, PROJECT_PHASES.length, "the hero has one chip per phase");
-  ids.forEach(([, id, phase], index) => {
-    h.eq(id, PROJECT_PHASES[index].id, `hero chip ${index + 1} is the ${PROJECT_PHASES[index].id} phase`);
-    h.eq(phase, PROJECT_PHASES[index].id, `hero chip ${index + 1} opens the frame on its own tab`);
-  });
+  ok(hero.includes("PROJECT_PHASES.map"), "the hero lists the studio's own phases");
+  ok(!hero.includes("AppFrame"), "the hero draws no studio window");
+  ok(!hero.includes("TimelineMock") && !hero.includes("PlayerFrame"), "…and no timeline or player");
+  h.eq(PROJECT_PHASES.length, 6, "six phases");
 }
 h.eq(EXAMPLE_VIDEOS.length, 8, "eight example categories");
 for (const category of [
@@ -643,6 +646,16 @@ ok(
   ok(corner.includes("await signOut()"), "the shared application menu can sign out");
   ok(read("src/App.tsx").includes("<SiteCornerMenu />"), "the signed-in studio mounts the same corner menu");
   ok(read("src/studio/SignIn.tsx").includes("<SiteCornerMenu />"), "login and registration mount the same corner menu");
+
+  /* The menu's page links are anchors with a real href, not buttons. A button
+     can only navigate once this bundle has loaded and attached its handler; an
+     anchor opens the page either way and can be opened in a new tab, copied,
+     or prefetched. The owner reported the menu's pages failing to open. */
+  const pageLinks = corner.slice(corner.indexOf("Scenering pages"), corner.indexOf("Front page sections"));
+  ok(pageLinks.includes("<a") && pageLinks.includes("href={href}"), "the menu's page links carry a real href");
+  ok(pageLinks.includes("aria-current"), "the menu marks the current page for assistive technology");
+  ok(pageLinks.includes("event.metaKey") && pageLinks.includes("event.preventDefault"), "a plain click stays instant, a modifier click keeps the browser's behaviour");
+  ok(!/PRODUCT_LINKS\.map\(\(\[href, label\]\) => <button/.test(corner), "the page links are no longer buttons");
 }
 
 /* ----------------------------------------------- 7. performance */
@@ -800,7 +813,8 @@ for (const { name, text } of marketingFiles) {
   const landmark =
     /<Section/.test(text) ||
     /role="tablist"/.test(text) ||
-    /<section[^>]*aria-label(?:ledby)?=/.test(text);
+    /<section[^>]*aria-label(?:ledby)?=/.test(text) ||
+    /<header[^>]*className="mkt-hero"/.test(text);
   ok(landmark, `${name}: renders a landmark section`);
   ok(!/<img(?![^>]*alt=)/.test(text), `${name}: no <img> without alt`);
 }

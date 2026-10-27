@@ -121,7 +121,10 @@ function beginWorkspaceSync(account: AccountSession | null) {
 export async function refreshSession(): Promise<AccountSession | null> {
   if (pending) return pending;
   pending = jsonRequest("/api/auth/session").then((data) => {
-    current = data;
+    // Only an object carrying a user is a session. Anything else — a captive
+    // portal, a proxy answering HTML, a shape that drifts — is "signed out",
+    // never a crash: every page that reads the session must survive it.
+    current = data && typeof data === "object" && (data as AccountSession).user ? (data as AccountSession) : null;
     beginWorkspaceSync(current);
     return current;
   }).catch((err: any) => {
@@ -138,18 +141,18 @@ export async function refreshSession(): Promise<AccountSession | null> {
   return pending;
 }
 export function isSignedIn() { return Boolean(current); }
-export function getProfileName() { return current?.user.displayName || null; }
+export function getProfileName() { return current?.user?.displayName || null; }
 export function getSession() { return current; }
 
 const ADMIN_PLAN_PREVIEW_KEY = "scenering_admin_plan_preview";
 export function getInterfacePlan(account: AccountSession | null = current): PlanSlug {
   const authoritative = account?.membership?.plan_id || "free";
-  if (account?.user.role !== "admin" || typeof window === "undefined") return authoritative;
+  if (account?.user?.role !== "admin" || typeof window === "undefined") return authoritative;
   const preview = window.sessionStorage.getItem(ADMIN_PLAN_PREVIEW_KEY);
   return preview === "free" || preview === "sceneflow" || preview === "sceneforge" ? preview : authoritative;
 }
 export function setAdminPlanPreview(plan: PlanSlug | null) {
-  if (current?.user.role !== "admin" || typeof window === "undefined") return;
+  if (current?.user?.role !== "admin" || typeof window === "undefined") return;
   if (plan) window.sessionStorage.setItem(ADMIN_PLAN_PREVIEW_KEY, plan);
   else window.sessionStorage.removeItem(ADMIN_PLAN_PREVIEW_KEY);
   announce();

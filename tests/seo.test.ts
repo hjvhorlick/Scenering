@@ -282,6 +282,16 @@ for (const path of ["/app", "/login", "/register", "/forgot-password", "/verify-
   h.ok(platform.includes(`Disallow: ${path}`), `${path} is excluded from crawler discovery`);
 }
 const headers = read("public/_headers");
+// Every standalone page is its own document naming the hashed bundle, so each
+// one must revalidate. A rule for "/index.html" never covered "/features":
+// after a deployment, a cached features.html asked for a bundle that no longer
+// existed, 404'd, and rendered a blank page while the home page kept working.
+for (const page of [...PUBLIC_PAGES, ...PRIVATE_PAGES].map((entry) => entry.path)) {
+  if (page === "/") continue;
+  const rule = `\n${page}\n  Cache-Control: no-cache, must-revalidate`;
+  h.ok(headers.includes(rule), `${page} revalidates its document after a deployment`);
+  h.ok(headers.includes(`${page}.html\n  Cache-Control: no-cache, must-revalidate`), `${page}.html revalidates too`);
+}
 h.ok(/https:\/\/:version\.:subdomain\.workers\.dev\/\*\n\s+X-Robots-Tag: noindex/.test(headers), "every page on a workers.dev address says noindex");
 for (const page of ["brand-check", "icon-sheet", "render-probe"]) {
   h.ok(

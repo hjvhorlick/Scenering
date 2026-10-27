@@ -143,7 +143,7 @@ html[data-mkt="1"] .sc-corner {
 .sc-corner-head b { font-size: 15px; }
 .sc-corner-head span { color: var(--sc-menu-muted); font-size: 11px; text-transform: capitalize; }
 .sc-corner-links, .sc-corner-actions { display: grid; gap: 3px; }
-.sc-corner-links button, .sc-corner-actions button {
+.sc-corner-links a, .sc-corner-links button, .sc-corner-actions button {
   width: 100%;
   display: flex;
   align-items: center;
@@ -156,13 +156,15 @@ html[data-mkt="1"] .sc-corner {
   text-align: left;
   font: 650 13px/1.2 var(--pc-sans);
   cursor: pointer;
+  text-decoration: none;
 }
+.sc-corner-links a:hover, .sc-corner-links a:focus-visible,
 .sc-corner-links button:hover, .sc-corner-links button:focus-visible,
 .sc-corner-actions button:hover, .sc-corner-actions button:focus-visible {
   background: var(--sc-menu-hover);
   outline: none;
 }
-.sc-corner-links button.is-current { background: var(--sc-menu-selected); color: #0b2347; box-shadow: var(--sc-menu-control-shadow); }
+.sc-corner-links a.is-current, .sc-corner-links button.is-current { background: var(--sc-menu-selected); color: #0b2347; box-shadow: var(--sc-menu-control-shadow); }
 .sc-corner-links small { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
 .sc-corner-separator { height: 1px; background: var(--sc-menu-line); margin: 8px 4px; }
 

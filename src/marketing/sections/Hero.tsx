@@ -1,63 +1,36 @@
-import { useRef } from "react";
 import { scrollToSection } from "../../lib/route";
-import { useInView, useStageSequence } from "../hooks";
 import { MarketingImage, Pill } from "../components/primitives";
-import AppFrame from "../components/AppFrame";
-import Waveform from "../components/Waveform";
 import CaptionLine from "../components/CaptionLine";
-import PlayerFrame from "../components/PlayerFrame";
-import TimelineMock from "../components/TimelineMock";
 import {
   DEMO_CAPTION_STYLE,
   DEMO_PROJECT,
   DEMO_SCENES,
-  DEMO_TIMELINE_EXTRAS,
   DEMO_TOTAL_SECONDS,
-  DEMO_VOICE,
   formatDuration,
 } from "../demo-project";
 import { HONESTY, LIVE_COUNTS, MESSAGES } from "../product-facts";
-import type { ProjectPhase } from "../../components/StepNav";
-import Icon from "../../components/icons/Icon";
+import { PROJECT_PHASES } from "../../components/StepNav";
 
 /**
- * The hero: one idea becoming a complete video, in the six steps the studio
- * really has.
+ * The hero: the promise, the two buttons, and one small picture.
  *
- *   1 Script (Setup)     4 Captions
- *   2 Scenes & visuals   5 Video Studio
- *   3 Voice              6 Finished video (Render)
+ * The copy side is unchanged — it is the part that works: the promise, the
+ * sub-line, Start Free and See Plans & Pricing, the four pills and the honest
+ * note about where your work lives.
  *
- * One chip per phase, in the phase rail's own order, so the frame's tabs and
- * the chips below it always agree — choosing the visuals belongs to Scenes
- * because that is the tab it happens on. The sequence runs only while the
- * hero is on screen, any step can be selected from the keyboard, and with
- * reduced motion the finished composition is what loads.
+ * What is gone is the workspace that used to sit beside it: an app frame with
+ * a six-tab rail, a script sheet, a 16:9 player, four chips, a five-card scene
+ * strip, a waveform, a caption stage, a three-lane timeline and another
+ * six-button stage rail. That single composition was around 900px tall on a
+ * phone and was the widest thing on the page — the one block that kept
+ * running past the right edge.
+ *
+ * In its place: one 16:9 still from the demonstration project with its
+ * duration, one caption sample drawn from the real caption catalogue, and the
+ * existing honesty line. It is the same on a phone as on a desktop.
  */
-
-const STAGES = [
-  { id: "setup", label: "Script", phase: "setup" },
-  { id: "scenes", label: "Scenes & visuals", phase: "scenes" },
-  { id: "voiceover", label: "Voice", phase: "voiceover" },
-  { id: "captions", label: "Captions", phase: "captions" },
-  { id: "studio", label: "Video Studio", phase: "studio" },
-  { id: "render", label: "Finished video", phase: "render" },
-] as const;
-
 export default function Hero() {
-  const figureRef = useRef<HTMLElement>(null);
-  const inView = useInView(figureRef);
-  // Plays through once and rests on the finished video — a hero that
-  // restarts every twelve seconds is a distraction, and the six chips below
-  // let anyone step back through it by hand.
-  const { stage, goTo, reached } = useStageSequence(STAGES.length, {
-    intervalMs: 1900,
-    active: inView,
-    loop: false,
-  });
-
-  const phase = STAGES[stage].phase as ProjectPhase;
-  const playing = stage === STAGES.length - 1;
+  const scene = DEMO_SCENES[3];
 
   return (
     <header className="mkt-hero" id="top">
@@ -104,141 +77,35 @@ export default function Hero() {
             </p>
           </div>
 
-          {/* --------------------------------------------- the workspace */}
-          <figure ref={figureRef} style={{ margin: 0 }}>
-            <AppFrame
-              title={`${DEMO_PROJECT.title} · ${DEMO_PROJECT.format} · ${DEMO_PROJECT.resolution}`}
-              phase={phase}
+          {/* --------------------------------------- one small finished scene */}
+          <figure className="mkt-hero-art">
+            <MarketingImage
+              assetId={scene.assetId}
+              sizes="(min-width: 1080px) 420px, 92vw"
+              eager
             >
-              <div className="mkt-work">
-                {/* script + preview */}
-                <div className="mkt-work-top">
-                  <div className="mkt-script">
-                    <div className="mkt-strip-label">
-                      <span aria-hidden="true"><Icon glyph="📝" /></span> Script
-                    </div>
-                    {DEMO_PROJECT.script.map((line, index) => (
-                      <p
-                        key={line}
-                        className={`mkt-script-line${reached(1) ? " is-split" : ""}`}
-                        style={{ transitionDelay: `${index * 70}ms` }}
-                      >
-                        {line}
-                      </p>
-                    ))}
-                  </div>
+              <span className="mkt-thumb-tag">{formatDuration(DEMO_TOTAL_SECONDS)}</span>
+              <span className="mkt-thumb-tag is-right">{DEMO_PROJECT.format}</span>
+            </MarketingImage>
 
-                  <div>
-                    <PlayerFrame
-                      assetId={DEMO_SCENES[3].assetId}
-                      caption={reached(3) ? DEMO_SCENES[3].caption : undefined}
-                      captionStyle={DEMO_CAPTION_STYLE}
-                      highlightWord={playing ? 1 : undefined}
-                      progress={playing ? 0.62 : 0.24}
-                      badge={
-                        playing
-                          ? `Playing · ${formatDuration(DEMO_TOTAL_SECONDS)}`
-                          : `Preview · ${formatDuration(DEMO_TOTAL_SECONDS)}`
-                      }
-                      grade={reached(4) ? DEMO_TIMELINE_EXTRAS.filter.css : undefined}
-                      sizes="(min-width: 1080px) 420px, 92vw"
-                    />
-                    <div className={`mkt-chiprow mkt-stage${reached(4) ? " is-in" : ""}`} style={{ marginTop: 8 }}>
-                      {/* the demonstration project's own timeline, named the
-                          way the studio names these things */}
-                      <span className="mkt-chip is-on"><Icon glyph="◑" /> {DEMO_TIMELINE_EXTRAS.filter.name}</span>
-                      <span className="mkt-chip"><Icon glyph="♪" /> {DEMO_TIMELINE_EXTRAS.music.name}</span>
-                      <span className="mkt-chip"><Icon glyph="✱" /> {DEMO_TIMELINE_EXTRAS.sticker.name}</span>
-                      <span className="mkt-chip"><Icon glyph="▶" /> {DEMO_TIMELINE_EXTRAS.cta.name}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* scenes */}
-                <div className={`mkt-stage${reached(1) ? " is-in" : ""}`}>
-                  <div className="mkt-strip">
-                    {DEMO_SCENES.map((scene, index) => (
-                      <div key={scene.number} className="mkt-mini" style={{ transitionDelay: `${index * 60}ms` }}>
-                        <MarketingImage assetId={scene.assetId} sizes="120px">
-                          <span className="mkt-thumb-tag">{scene.duration.toFixed(1)}s</span>
-                        </MarketingImage>
-                        <div className="mkt-mini-top">
-                          <span className="mkt-scene-no">{scene.number}</span>
-                          {reached(2) && (
-                            <span className="mkt-pill is-accent" style={{ padding: "1px 6px", fontSize: 10 }} aria-hidden="true">
-                              <Icon glyph="🎙" />
-                            </span>
-                          )}
-                        </div>
-                        <p className="mkt-mini-text">{scene.text}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* narration */}
-                <div className={`mkt-stage${reached(2) ? " is-in" : ""}`}>
-                  <div className="mkt-strip-row">
-                    <span className="mkt-strip-label">
-                      <span aria-hidden="true"><Icon glyph="🎙" /></span> {DEMO_VOICE.name} · {DEMO_VOICE.accent}
-                    </span>
-                    <Waveform seed="hero-narration" variant="dots" height={26} live={playing} />
-                  </div>
-                </div>
-
-                {/* captions */}
-                <div className={`mkt-stage${reached(3) ? " is-in" : ""}`}>
-                  <div className="mkt-strip-row">
-                    <span className="mkt-strip-label">
-                      <span aria-hidden="true"><Icon glyph="💬" /></span> {DEMO_CAPTION_STYLE.name}
-                    </span>
-                    <div className="mkt-capstage">
-                      <CaptionLine
-                        text={DEMO_SCENES[3].caption}
-                        style={DEMO_CAPTION_STYLE}
-                        size={14}
-                        highlightWord={1}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* timeline */}
-                <div className={`mkt-stage${reached(4) ? " is-in" : ""}`}>
-                  <TimelineMock
-                    showHeader={false}
-                    playheadAt={playing ? 0.62 : 0.24}
-                    showRuler={false}
-                    height={22}
-                  />
-                </div>
-              </div>
-            </AppFrame>
-
-            {/* stage control — also the caption for the whole figure */}
-            <div className="mkt-optrow" style={{ marginTop: 12 }} role="tablist" aria-label="Workflow stage shown">
-              {STAGES.map((entry, index) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  role="tab"
-                  className="mkt-opt"
-                  aria-selected={stage === index}
-                  tabIndex={stage === index ? 0 : -1}
-                  onClick={() => goTo(index)}
-                >
-                  <span className="mkt-opt-no">{String(index + 1).padStart(2, "0")}</span>
-                  {entry.label}
-                </button>
-              ))}
+            <div className="mkt-capstage" style={{ marginTop: 10 }}>
+              <CaptionLine text={scene.caption} style={DEMO_CAPTION_STYLE} size={14} highlightWord={1} />
             </div>
+
+            {/* The six phases, as one small row of chips rather than the
+                six-tab rail and the six-button stage rail that used to bracket
+                the workspace. Same phases, same order, one line each. */}
+            <ul className="mkt-hero-phases" aria-label="The six phases">
+              {PROJECT_PHASES.map((entry, index) => (
+                <li key={entry.id}>
+                  <span className="mkt-opt-no">{String(index + 1).padStart(2, "0")}</span> {entry.tab}
+                </li>
+              ))}
+            </ul>
 
             <figcaption className="mkt-figcap">
               <Pill>{HONESTY.conceptLabel}</Pill>
-              <span>
-                “{DEMO_PROJECT.title}” — a fictional {formatDuration(DEMO_TOTAL_SECONDS)} project used across this
-                page.
-              </span>
+              <span>“{DEMO_PROJECT.title}” — a fictional project used across this page.</span>
             </figcaption>
           </figure>
         </div>

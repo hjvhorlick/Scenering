@@ -96,8 +96,80 @@ function Root() {
   );
 }
 
+/**
+ * Last line of defence: a page that throws must never be a white screen.
+ *
+ * Every standalone page is its own HTML document naming a hashed bundle. When
+ * a deployment replaces that bundle while a browser still holds an older
+ * document, the script 404s and React unmounts the tree, which is what "the
+ * page is not opening" looks like to a visitor — an empty page with nothing to
+ * read. This catches that (and any render error) and offers the one action
+ * that fixes it, instead of silence.
+ */
+class AppErrorBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean; reason: string }> {
+  state = { failed: false, reason: "" };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { failed: true, reason: error instanceof Error ? error.message : String(error) };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("[app] a page failed to render:", error);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div
+        role="alert"
+        style={{
+          minHeight: "60vh",
+          display: "grid",
+          placeContent: "center",
+          gap: 12,
+          padding: "32px 20px",
+          textAlign: "center",
+          fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif",
+          color: "#31343c",
+        }}
+      >
+        <h1 style={{ fontSize: 20, margin: 0 }}>This page could not load.</h1>
+        <p style={{ fontSize: 14, margin: 0, color: "#5b6270", maxWidth: "46ch" }}>
+          A file it needs has changed since this tab was opened. Reloading fetches the current one.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          style={{ justifySelf: "center", padding: "10px 18px", borderRadius: 8, border: "1px solid #c9ced8", background: "#fff", fontSize: 14, cursor: "pointer" }}
+        >
+          Reload the page
+        </button>
+        <small style={{ fontSize: 12, color: "#8a919e" }}>{this.state.reason}</small>
+      </div>
+    );
+  }
+}
+
+// Vite tells us when a lazily imported chunk no longer exists — the same
+// stale-document case, one layer deeper. One reload picks up the new one;
+// asking twice would loop, so it only fires once per document.
+if (typeof window !== "undefined") {
+  const key = "scenering:chunk-reload";
+  window.addEventListener("vite:preloadError", () => {
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {
+      // storage blocked — reload once anyway
+    }
+    window.location.reload();
+  });
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <Root />
+    <AppErrorBoundary>
+      <Root />
+    </AppErrorBoundary>
   </React.StrictMode>
 );

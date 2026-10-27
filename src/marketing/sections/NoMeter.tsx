@@ -23,7 +23,7 @@ export default function NoMeter() {
         id="no-meter"
         eyebrow="What it costs to make one"
         title={NO_METER.message}
-        lead={NO_METER.lead}
+        lead="No per-video billing and no server-owned key. Provider usage follows your own Speechify account."
       />
 
       <div className="mkt-grid cols-2">
@@ -37,7 +37,9 @@ export default function NoMeter() {
 
       <div className="mkt-panel mkt-pad mkt-nometer-note">
         <p className="mkt-small">
-          <b>Stated plainly.</b> {NO_METER.caveat}
+          <b>Stated plainly.</b> Generated narration requires your Speechify API key. It stays in this browser and
+          goes straight to Speechify — Scenering never receives or stores it. Speechify usage and billing follow
+          your Speechify account.
         </p>
         <p className="mkt-small">
           Photos come from free libraries:{" "}

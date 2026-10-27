@@ -7,6 +7,7 @@ import HeaderLegalMenu from "./components/HeaderLegalMenu";
 import Hero from "./sections/Hero";
 import Showpiece from "./sections/Showpiece";
 import FeatureTour from "./sections/FeatureTour";
+import EffectsLibrary from "./sections/EffectsLibrary";
 import NoMeter from "./sections/NoMeter";
 import Examples from "./sections/Examples";
 import Pricing from "./sections/Pricing";
@@ -160,6 +161,12 @@ export default function MarketingSite() {
             <Stat value={`${CATALOG_COUNTS.musicTracks + CATALOG_COUNTS.soundEffects}`} label="music & effects" />
           </div>
         </div>
+
+        {/* What can go on a scene — the effects library, lifted off the tour
+            and placed high up here, because "what can I actually put on the
+            picture?" is a question this page should answer before it asks for
+            a plan. One block, six small cards, four names each. */}
+        <EffectsLibrary />
 
         {/* What you get — six cards, one benefit each, every one linking to
             its full demonstration on /features. The demonstrations

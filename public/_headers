@@ -64,6 +64,113 @@ https://:version.:subdomain.workers.dev/*
 /app/*
   Cache-Control: no-cache, must-revalidate
 
+# Every standalone page is its own HTML document, written at build time, naming
+# the same hashed bundle (dist/features.html, dist/pricing.html …). Cloudflare's
+# asset layer serves each one at its clean URL — /features, /pricing — so a rule
+# for /index.html alone never covered them.
+#
+# That gap broke the features page in production. A deployment replaces the
+# hashed bundle; a browser still holding yesterday's features.html asked for
+# yesterday's JavaScript, got a 404, and rendered a blank document — the home
+# page kept working because "/" was already revalidating. Every page now carries
+# the same no-cache rule, so a document is never older than the bundle it names.
+
+/features
+  Cache-Control: no-cache, must-revalidate
+
+/features.html
+  Cache-Control: no-cache, must-revalidate
+
+/how-it-works
+  Cache-Control: no-cache, must-revalidate
+
+/how-it-works.html
+  Cache-Control: no-cache, must-revalidate
+
+/pricing
+  Cache-Control: no-cache, must-revalidate
+
+/pricing.html
+  Cache-Control: no-cache, must-revalidate
+
+/about
+  Cache-Control: no-cache, must-revalidate
+
+/about.html
+  Cache-Control: no-cache, must-revalidate
+
+/manual
+  Cache-Control: no-cache, must-revalidate
+
+/manual.html
+  Cache-Control: no-cache, must-revalidate
+
+/faq
+  Cache-Control: no-cache, must-revalidate
+
+/faq.html
+  Cache-Control: no-cache, must-revalidate
+
+/contact
+  Cache-Control: no-cache, must-revalidate
+
+/contact.html
+  Cache-Control: no-cache, must-revalidate
+
+/privacy
+  Cache-Control: no-cache, must-revalidate
+
+/privacy.html
+  Cache-Control: no-cache, must-revalidate
+
+/terms
+  Cache-Control: no-cache, must-revalidate
+
+/terms.html
+  Cache-Control: no-cache, must-revalidate
+
+/cookies
+  Cache-Control: no-cache, must-revalidate
+
+/cookies.html
+  Cache-Control: no-cache, must-revalidate
+
+/refunds
+  Cache-Control: no-cache, must-revalidate
+
+/refunds.html
+  Cache-Control: no-cache, must-revalidate
+
+/verify-email
+  Cache-Control: no-cache, must-revalidate
+
+/verify-email.html
+  Cache-Control: no-cache, must-revalidate
+
+/reset-password
+  Cache-Control: no-cache, must-revalidate
+
+/reset-password.html
+  Cache-Control: no-cache, must-revalidate
+
+/email-preferences
+  Cache-Control: no-cache, must-revalidate
+
+/email-preferences.html
+  Cache-Control: no-cache, must-revalidate
+
+/unsubscribe
+  Cache-Control: no-cache, must-revalidate
+
+/unsubscribe.html
+  Cache-Control: no-cache, must-revalidate
+
+# Hashed JavaScript and CSS never change either: the filename contains the
+# build's hash, so a new build produces new names. Caching them for a year is
+# what stops every menu click from re-downloading the bundle it already has.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
 # The brand tile and the icons never change between deployments: the artwork
 # behind them is committed and the filenames are stable, so they can be cached
 # hard. Google's favicon guidance asks for a stable URL — this is how stable.
