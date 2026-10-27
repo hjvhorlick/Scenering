@@ -19,7 +19,7 @@ h.ok(platform.includes('"/api/admin/overview"'), "owner has a protected operatio
 const accountUi = readFileSync("src/components/AccountMembershipModal.tsx", "utf8");
 const sessionUi = readFileSync("src/lib/session.ts", "utf8");
 h.ok(accountUi.includes("Preview the Studio as a customer plan") && accountUi.includes("setAdminPlanPreview"), "owner administration can preview Free, SceneFlow and SceneForge interfaces");
-h.ok(sessionUi.includes("scenering_admin_plan_preview") && sessionUi.includes('account?.user.role !== "admin"'), "plan preview is session-scoped and restricted to the owner administrator interface");
+h.ok(sessionUi.includes("scenering_admin_plan_preview") && sessionUi.includes('account?.user?.role !== "admin"'), "plan preview is session-scoped and restricted to the owner administrator interface");
 h.ok(sessionUi.includes("sessionStorage") && !sessionUi.includes("localStorage.setItem(LEGACY_SESSION_TOKEN_KEY"), "the development preview bridge never persists a bearer token in localStorage");
 h.ok(platform.includes("embeddedPreviewSessionBridgeEnabled") && platform.includes("if (!embeddedPreviewSessionBridgeEnabled()) return \"\""), "header-token sessions are disabled outside explicit embedded development previews");
 h.ok(platform.includes('"/api/admin/complimentary-memberships"') && platform.includes("ComplimentaryGrant"), "owner can issue audited expiring complimentary memberships");
