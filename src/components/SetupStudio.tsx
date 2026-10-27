@@ -39,6 +39,7 @@ import {
   singleSceneDuration,
   countWords,
   formatDuration,
+  audioSceneDurations,
 } from "../lib/duration-utils";
 import type { NewProjectOptions } from "../App";
 import Icon, { iconify } from "./icons/Icon";
@@ -46,6 +47,7 @@ import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "..
 import { getInterfacePlan, useSession } from "../lib/session";
 import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
 import { isBoolean, useRememberedChoice } from "../lib/section-memory";
+import { addCustomMusic, type CustomMusicTrack } from "../lib/custom-music";
 
 /**
  * The longest project title the Setup input accepts.
@@ -194,6 +196,7 @@ export default function SetupStudio({
 }: SetupStudioProps) {
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
+  const isExistingProject = Boolean(project?.id);
   /* The same FastSpring-localized prices as the website and /pricing —
      the visitor's own currency, tax included, not USD base numbers. */
   const { displayPrice, annualSavingLine } = useLocalizedPlanPrices();
@@ -214,6 +217,11 @@ export default function SetupStudio({
    * saved settings yet) can be set up before it exists.
    */
   const [oneScene, setOneScene] = useState<boolean>(singleScene);
+  const [audioInputOpen, setAudioInputOpen] = useState(false);
+  const [audioTrack, setAudioTrack] = useState<CustomMusicTrack | null>(null);
+  const [audioUploadBusy, setAudioUploadBusy] = useState(false);
+  const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
+  const audioInputSelected = audioInputOpen && !isExistingProject;
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -280,6 +288,9 @@ export default function SetupStudio({
     const init = initialFor(project, scenes);
     setTitle(init.title);
     setScript(init.script);
+    setAudioTrack(null);
+    setAudioUploadError(null);
+    setAudioInputOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
@@ -324,9 +335,11 @@ export default function SetupStudio({
 
   const wordsCount = countWords(script);
   const estimatedReadingSec = Math.round((wordsCount / 2.5) * 10) / 10;
-  const detectedScenesCount = countScenesFromScript(script, activeDuration, oneScene);
-  const isExistingProject = Boolean(project?.id);
-  const canStart = script.trim().length > 0 || isExistingProject;
+  const audioSceneCount = audioTrack ? audioSceneDurations(audioTrack.duration, activeDuration).length : 0;
+  const detectedScenesCount = audioInputSelected && audioTrack
+    ? audioSceneCount
+    : countScenesFromScript(script, activeDuration, oneScene);
+  const canStart = isExistingProject || (audioInputSelected ? Boolean(audioTrack) : script.trim().length > 0);
 
   const showNotice = (msg: string) => {
     setAppliedNotice(msg);
@@ -385,7 +398,7 @@ export default function SetupStudio({
        request for twenty-second scenes must not be answered by the rule that
        lets footage decide its own length. */
     onUpdateSceneDuration?.(seconds, false);
-    onCalibrateScenesWordCount?.(seconds, false);
+    if (!audioInputSelected) onCalibrateScenesWordCount?.(seconds, false);
 
     const currentScriptText = script.trim();
     if (isExistingProject && currentScriptText) {
@@ -407,7 +420,34 @@ export default function SetupStudio({
    * the script is re-split with the one-scene rule, which simply returns the
    * whole thing. Nothing the user wrote is rewritten.
    */
+  const handleAudioUpload = async (file?: File) => {
+    if (!file) return;
+    setAudioUploadBusy(true);
+    setAudioUploadError(null);
+    try {
+      const track = await addCustomMusic(file);
+      setAudioTrack(track);
+      setAudioInputOpen(true);
+      setOneScene(false);
+      onUpdateSingleScene?.(false);
+      showNotice(`Audio input ready — ${audioSceneDurations(track.duration, activeDuration).length} scenes at ${activeDuration}s.`);
+    } catch (err) {
+      setAudioUploadError((err as Error)?.message || "That audio could not be uploaded.");
+    } finally {
+      setAudioUploadBusy(false);
+    }
+  };
+
+  const handleSelectAudioInput = () => {
+    if (isExistingProject) return;
+    setAudioInputOpen(true);
+    setOneScene(false);
+    onUpdateSingleScene?.(false);
+    showNotice("Upload music or audio to create scenes based on its length.");
+  };
+
   const handleSelectSingleScene = () => {
+    setAudioInputOpen(false);
     setOneScene(true);
     onUpdateSingleScene?.(true);
 
@@ -429,12 +469,19 @@ export default function SetupStudio({
   const handleStartProject = async () => {
     if (starting) return;
     const scriptText = script.trim();
-    const durToApply = oneScene
-      ? singleSceneDuration(scriptText)
-      : selectedDuration || 20;
+    const durToApply = audioInputSelected
+      ? activeDuration
+      : oneScene
+        ? singleSceneDuration(scriptText)
+        : selectedDuration || 20;
 
-    if (!scriptText && !isExistingProject) {
-      showNotice("Add a script in section 3 before continuing.");
+    if (audioInputSelected && !audioTrack) {
+      showNotice("Upload a music or audio file in section 4 before continuing.");
+      return;
+    }
+
+    if (!scriptText && !(audioInputSelected && audioTrack) && !isExistingProject) {
+      showNotice("Add a script in section 3 or upload audio in section 4 before continuing.");
       document.getElementById("screenplay-script")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
@@ -446,6 +493,7 @@ export default function SetupStudio({
         const ok = await onCreateProject(title.trim() || "Untitled Video", scriptText, durToApply, {
           singleScene: oneScene,
           voiceoverEnabled,
+          ...(audioInputSelected && audioTrack ? { audio: { track: audioTrack } } : {}),
         });
         // A create that returns false failed; anything else is treated as
         // success because the app navigates itself on the happy path.
@@ -477,6 +525,9 @@ export default function SetupStudio({
     setTitle("");
     setScript("");
     setOneScene(false);
+    setAudioInputOpen(false);
+    setAudioTrack(null);
+    setAudioUploadError(null);
     setStartError(null);
   };
 
@@ -726,18 +777,18 @@ export default function SetupStudio({
         <SectionHeading
           step={3}
           title="Screenplay script & narration"
-          subtitle={
-            oneScene
+          subtitle={audioInputSelected
+            ? "Audio input creates scenes according to the track length. Any screenplay text stays separate from the audio scenes."
+            : oneScene
               ? "Paste the full script. It stays together as one scene."
-              : "Paste the full script. Each paragraph becomes a scene. There is no limit on the number of scenes."
-          }
+              : "Paste the full script. Each paragraph becomes a scene. There is no limit on the number of scenes."}
           badge={
             <div className="hidden sm:flex items-center gap-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-hairline text-[11px] shrink-0">
               <span className="text-indigo-300 font-semibold">{detectedScenesCount} Scenes</span>
               <span className="text-gray-500">•</span>
               <span className="text-gray-300">{wordsCount} Words</span>
               <span className="text-gray-500">•</span>
-              <span className="text-amber-300 font-medium">~{formatDuration(estimatedReadingSec)}</span>
+              <span className="text-amber-300 font-medium">{audioInputSelected ? (audioTrack ? formatDuration(audioTrack.duration) : "Audio length") : `~${formatDuration(estimatedReadingSec)}`}</span>
             </div>
           }
         />
@@ -748,16 +799,18 @@ export default function SetupStudio({
           <span className="text-gray-500">•</span>
           <span className="text-gray-300">{wordsCount} Words</span>
           <span className="text-gray-500">•</span>
-          <span className="text-amber-300 font-medium">~{estimatedReadingSec}s Speech</span>
+          <span className="text-amber-300 font-medium">{audioInputSelected ? (audioTrack ? formatDuration(audioTrack.duration) : "Audio length") : `~${estimatedReadingSec}s Speech`}</span>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <span className="text-[11px] font-medium text-gray-400">
-            {oneScene
-              ? "Write or paste your script below — all of it stays in one scene."
-              : "Write or paste your own script below — each paragraph becomes one scene."}
+            {audioInputSelected
+              ? "The audio input sets scene count and timing; screenplay text remains separate."
+              : oneScene
+                ? "Write or paste your script below — all of it stays in one scene."
+                : "Write or paste your own script below — each paragraph becomes one scene."}
           </span>
-          {!oneScene && (
+          {!oneScene && !audioInputSelected && (
           <button
             type="button"
             onClick={handleFormatScriptToTargetDuration}
@@ -819,10 +872,12 @@ export default function SetupStudio({
         <SectionHeading
           step={4}
           title="Scene length"
-          subtitle="Choose a target of 10, 20 or 30 seconds, or keep your script together in one scene."
+          subtitle={audioInputSelected
+            ? "Upload music or audio. Scenering divides its length into scenes using the selected 10, 20 or 30 second target."
+            : "Choose a target of 10, 20 or 30 seconds, or keep your script together in one scene."}
           badge={
             <span className="px-2.5 py-0.5 bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 rounded-full text-[10px] font-bold shrink-0">
-              {oneScene ? "1 Scene" : `${activeDuration}s Active`}
+              {audioInputSelected ? (audioTrack ? `${audioSceneCount} Audio Scenes` : "Awaiting Audio") : oneScene ? "1 Scene" : `${activeDuration}s Active`}
             </span>
           }
         />
@@ -887,7 +942,79 @@ export default function SetupStudio({
               {oneScene && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
             </div>
           </button>
+
+          {!isExistingProject && (
+            <button
+              type="button"
+              onClick={handleSelectAudioInput}
+              aria-pressed={audioInputSelected}
+              className={`p-3.5 rounded-xl border text-left transition-all flex items-start justify-between gap-3 ${
+                audioInputSelected
+                  ? "bg-indigo-950/80 border-indigo-500 text-white shadow-md ring-1 ring-indigo-400"
+                  : "bg-gray-800/80 border-hairline text-gray-300 hover:bg-gray-750 hover:text-white"
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-bold text-white">Audio Input</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                    audioInputSelected ? "bg-indigo-600 text-white" : "bg-gray-700 text-gray-300"
+                  }`}>
+                    Duration-based scenes
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-0.5">Upload music or audio; scene count follows the track length.</p>
+              </div>
+              <div className={`w-4 h-4 mt-0.5 rounded-full border shrink-0 flex items-center justify-center ${
+                audioInputSelected ? "border-indigo-400 bg-indigo-600" : "border-hairline"
+              }`}>
+                {audioInputSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+              </div>
+            </button>
+          )}
         </div>
+
+        {!isExistingProject && audioInputSelected && (
+          <div className="mt-3 p-4 rounded-xl border border-indigo-700/60 bg-indigo-950/35 space-y-3">
+            <div>
+              <p className="text-xs font-bold text-white">Audio input</p>
+              <p className="text-[11px] text-gray-300 mt-1">Choose 10, 20 or 30 seconds per scene above. Audio length determines the scene count, with the last scene shortened to the remaining time.</p>
+            </div>
+            {audioTrack ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-900/80 border border-hairline px-3 py-2.5">
+                <span className="min-w-0 text-[11px] text-gray-200 truncate">
+                  <strong className="text-white">{audioTrack.name}</strong> · {formatDuration(audioTrack.duration)} · {audioSceneCount} scenes at {activeDuration}s
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAudioTrack(null)}
+                  className="text-[11px] text-rose-300 hover:text-white underline decoration-dotted shrink-0"
+                >
+                  Remove audio
+                </button>
+              </div>
+            ) : (
+              <label className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                audioUploadBusy ? "bg-gray-700 text-gray-400 cursor-wait" : "bg-indigo-600 hover:bg-indigo-500 text-white"
+              }`}>
+                <span>{audioUploadBusy ? "Reading audio…" : "Choose audio file"}</span>
+                <input
+                  type="file"
+                  accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
+                  disabled={audioUploadBusy}
+                  className="sr-only"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    event.currentTarget.value = "";
+                    void handleAudioUpload(file);
+                  }}
+                />
+              </label>
+            )}
+            {audioUploadError && <p role="alert" className="text-[11px] text-rose-300">{audioUploadError}</p>}
+            {audioTrack && <p className="text-[10px] text-gray-400">The uploaded track becomes the soundtrack; add or change visuals for the resulting scenes in Scenes.</p>}
+          </div>
+        )}
       </div>
 
       {/* ---------------- 5. Output & destination ----------------
@@ -1330,16 +1457,16 @@ export default function SetupStudio({
       <div className="bg-gray-900/80 border border-hairline rounded-2xl p-4 sm:p-5 shadow-lg">
         <p className="text-xs text-gray-400">
           <span className="text-white font-semibold text-sm block mb-0.5">
-            {isExistingProject ? "Setup ready" : canStart ? "Ready to build your video" : "Waiting for a script"}
+            {isExistingProject ? "Setup ready" : canStart ? "Ready to build your video" : "Waiting for a script or audio input"}
           </span>
-          {scenes.length} scene(s) configured
+          {audioInputSelected && audioTrack ? `${audioSceneCount} audio scene(s) planned` : `${scenes.length} scene(s) configured`}
           {project?.title ? ` · ${project.title}` : ""} · {activeDuration}s scenes · {aspectRatio} · {resolution}
         </p>
         {!canStart && (
           <p className="text-[11px] text-amber-300 flex items-center gap-1.5 mt-2">
             <Icon glyph="⚠" />
             <span>
-              Add a script in section 3 to continue.
+              Add a script in section 3 or upload music/audio in section 4 to continue.
             </span>
           </p>
         )}

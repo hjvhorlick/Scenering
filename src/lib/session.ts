@@ -148,14 +148,24 @@ const ADMIN_PLAN_PREVIEW_KEY = "scenering_admin_plan_preview";
 export function getInterfacePlan(account: AccountSession | null = current): PlanSlug {
   const authoritative = account?.membership?.plan_id || "free";
   if (account?.user?.role !== "admin" || typeof window === "undefined") return authoritative;
-  const preview = window.sessionStorage.getItem(ADMIN_PLAN_PREVIEW_KEY);
-  return preview === "free" || preview === "sceneflow" || preview === "sceneforge" ? preview : authoritative;
+  // Some privacy modes and embedded previews throw on storage access. Plan
+  // preview is optional; it must never make an authenticated admin screen crash.
+  try {
+    const preview = window.sessionStorage.getItem(ADMIN_PLAN_PREVIEW_KEY);
+    return preview === "free" || preview === "sceneflow" || preview === "sceneforge" ? preview : authoritative;
+  } catch {
+    return authoritative;
+  }
 }
 export function setAdminPlanPreview(plan: PlanSlug | null) {
   if (current?.user?.role !== "admin" || typeof window === "undefined") return;
-  if (plan) window.sessionStorage.setItem(ADMIN_PLAN_PREVIEW_KEY, plan);
-  else window.sessionStorage.removeItem(ADMIN_PLAN_PREVIEW_KEY);
-  announce();
+  try {
+    if (plan) window.sessionStorage.setItem(ADMIN_PLAN_PREVIEW_KEY, plan);
+    else window.sessionStorage.removeItem(ADMIN_PLAN_PREVIEW_KEY);
+    announce();
+  } catch {
+    // The preview toggle is best-effort when browser storage is unavailable.
+  }
 }
 export async function signIn(email: string, password: string) {
   const data = await jsonRequest("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });

@@ -400,26 +400,25 @@ for (const item of CATALOG_ITEMS.background_music) {
   const setup = read("src/components/SetupStudio.tsx");
   const app = read("src/App.tsx");
   h.ok(
-    !setup.includes("Upload music/audio + pictures") &&
-      !setup.includes("Choose what you already have") &&
-      !setup.includes("AUDIO_UPLOAD_ACCEPT") &&
-      !setup.includes("IMAGE_UPLOAD_ACCEPT"),
-    "the experimental audio-plus-picture upload source has been removed from Setup"
+    setup.includes("Audio Input") && setup.includes("Choose audio file") &&
+      setup.includes("audioSceneCount") && setup.includes("addCustomMusic(file)"),
+    "Setup uses uploaded source audio to determine the scene count"
   );
   h.ok(
-    /if \(!scriptText && !isExistingProject\)/.test(setup) &&
-      setup.includes("singleScene: oneScene"),
-    "Setup now creates projects from a script and only passes through the scene-count choice"
+    /if \(!scriptText && !\(audioInputSelected && audioTrack\) && !isExistingProject\)/.test(setup) &&
+      setup.includes("audio: { track: audioTrack }"),
+    "audio-only projects can start without changing the regular script flow"
   );
   h.ok(
     app.includes("const initialInserts = audio ? [createMusicVideoInsert(audio.track)] : [];") &&
+      app.includes("audioSceneDurations(audio.track.duration, chosenDuration)") &&
       app.includes("setInserts(initialInserts)"),
-    "project creation attaches the uploaded track immediately rather than only adding it to the library"
+    "project creation attaches the audio source and creates duration-based scenes"
   );
   h.ok(
     app.includes("image_query_locked: true") &&
-      app.includes("image_url: audio && i === 0 ? audio.image.url : null"),
-    "the uploaded image is attached and pinned to the first scene"
+      app.includes("if (audio?.image && createdScenes.length > 0)"),
+    "the optional audio-plus-image attach path still pins its uploaded image to the first scene"
   );
   h.ok(
     /const narration = audio \|\| clip \? false : options\?\.voiceoverEnabled \?\? true;/.test(app),
