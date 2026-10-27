@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased — a render no longer fails because one encoder is missing
+
+- **"This browser cannot record the selected format — the video could not be
+  rendered because the selected encoding settings are not supported by this
+  browser's encoder" is gone.** It was shown to customers on projects where
+  nothing was wrong: their settings were fine, the project was fine, and one
+  codec was unavailable on one device. The render now asks the device twice
+  before it says anything.
+- **The capability probe is no longer a single shot.** It used to ask for
+  H.264 High profile at 1080p with `latencyMode: "quality"`, a hardware hint
+  and variable rate control — and one "no" from any of those ended the render.
+  It now walks High → Main → Baseline → Constrained Baseline at both the real
+  frame rate's level and 30 fps's level, and tries the richest configuration
+  down to a minimal one (`src/lib/offline-export.ts`). A blocklisted hardware
+  encoder, a software-only Main encoder and a stricter Safari all used to fail
+  here and now simply encode.
+- **A device that cannot write MP4 falls back to the container it can write**
+  (`resolveEncodableFormat`, used by the render preflight). The finished file
+  is labelled and downloaded with the extension that matches its bytes, and
+  the screen says so in one sentence — "this browser saves the video as WebM
+  rather than MP4" — instead of stopping. Only a device that can encode
+  neither container stops, and even then the message names no codec.
+- **The failure card speaks English.** Titles and explanations are plain
+  sentences; the browser's raw error, the "Advanced Details" panel that
+  printed it and the "H.264 MP4 · 30 fps · High quality, falling back to
+  WebM" retry instructions are gone from the screen and now go to the console
+  with a short quotable support code (`SC-ENCODER`, `SC-STALL`, `SC-STORAGE`,
+  `SC-MEMORY`, `SC-IMAGE`, `SC-RENDER`, `SC-CANCEL`). The automatic-retry
+  notice likewise says one sentence instead of listing the encoder changes.
+- The encoder is configured with exactly the configuration the probe
+  accepted, so a probe that succeeds can no longer be followed by
+  `configure()` throwing — which used to look like a render failing for no
+  reason. `tests/offline-export.test.ts` drives the probe with fake devices
+  (Main-profile-only, VP9-only, nothing at all); `tests/render-profile.test.ts`
+  pins the plain copy and asserts no codec vocabulary can reach the card.
+
 ## Unreleased — Google's AdSense snippet in every page's head
 
 - **The AdSense loader tag now ships in the head of every page the build

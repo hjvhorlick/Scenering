@@ -132,6 +132,19 @@ export interface OfflineSupport {
   audioCodec?: string;
   hardwareAcceleration?: HardwareAcceleration;
   bitrateMode?: VideoEncoderBitrateMode;
+  /**
+   * The exact configuration the browser said it supports.
+   *
+   * Probing is deliberately more forgiving than the old single-shot check —
+   * it tries without `latencyMode`, without display dimensions and without
+   * the acceleration/rate-control hints — so the configuration that comes
+   * back may be a cut-down one. Handing the encoder anything other than the
+   * configuration that answered "supported" is how a probe that succeeds is
+   * followed by `configure()` throwing, which the customer sees as the render
+   * failing for no reason.
+   */
+  encoderConfig?: VideoEncoderConfig;
+  audioEncoderConfig?: AudioEncoderConfig;
   reason?: string;
 }
 
@@ -167,11 +180,33 @@ export function avcCodecForSize(width: number, height: number, fps = 30): string
   return `avc1.6400${avcLevelForSize(width, height, fps)}`;
 }
 
+/**
+ * Every H.264 profile/level string worth asking for, best first.
+ *
+ * A browser's answer to "can you encode H.264 at 1080p?" is not one answer.
+ * Hardware encoders advertise High profile; blocked or blacklisted hardware
+ * leaves only a software Main or Constrained Baseline encoder; Safari and
+ * Firefox are stricter about which level strings they will even acknowledge.
+ * Probing High alone — which is what this used to do — turned "no High
+ * hardware encoder" into "this browser cannot record the selected format",
+ * even though the same browser would happily encode Main or Baseline. The
+ * list therefore walks profiles first (best compression first) and then the
+ * level computed for the real frame rate and the conservative one computed
+ * for 30 fps.
+ */
 function avcFallbacks(width: number, height: number, fps = 30): string[] {
-  const level = avcLevelForSize(width, height, fps);
-  // High, Main, then Constrained Baseline. Some Chrome installations expose
-  // only a software Main/Baseline encoder even though High hardware probing fails.
-  return [`avc1.6400${level}`, `avc1.4d00${level}`, `avc1.42e0${level}`];
+  const levels = [avcLevelForSize(width, height, fps), avcLevelForSize(width, height, 30)];
+  // High, Main, Baseline, Constrained Baseline — the four profiles every
+  // H.264 encoder implements at least one of.
+  const profiles = ["6400", "4d00", "42e0", "42c0"];
+  const codecs: string[] = [];
+  for (const profile of profiles) {
+    for (const level of levels) {
+      const codec = `avc1.${profile}${level}`;
+      if (!codecs.includes(codec)) codecs.push(codec);
+    }
+  }
+  return codecs;
 }
 
 function candidates(config: OfflineExportConfig): Array<{ video: string; audio: string }> {
@@ -180,6 +215,7 @@ function candidates(config: OfflineExportConfig): Array<{ video: string; audio: 
   }
   return [
     { video: "vp09.00.10.08", audio: "opus" },
+    { video: "vp09.00.41.08", audio: "opus" },
     { video: "vp8", audio: "opus" },
   ];
 }
@@ -224,25 +260,66 @@ export interface OfflineExportStats {
   lastFramePtsUs: number;
 }
 
+/**
+ * The shape of a video configuration, richest first.
+ *
+ * `isConfigSupported()` rejects a configuration for any field the encoder does
+ * not understand, not only for the codec. `latencyMode: "quality"`,
+ * `hardwareAcceleration`, `bitrateMode` and `displayWidth`/`displayHeight`
+ * are all optional in the WebCodecs specification and are all refused by some
+ * real browsers — Firefox ignores `latencyMode`, Safari historically rejected
+ * unknown dictionary members on some versions, and a hardware encoder that
+ * only offers constant bitrate refuses `bitrateMode: "variable"`. Asking for
+ * the richest shape and then degrading it one field at a time is what turns a
+ * spurious "unsupported" into a finished video, and every shape still carries
+ * `avc: { format: "avc" }` so the MP4 muxer receives the length-prefixed
+ * bitstream it writes into the file.
+ */
+function videoConfigVariants(
+  config: OfflineExportConfig,
+  codec: string,
+  hardwareAcceleration?: HardwareAcceleration,
+  bitrateMode?: VideoEncoderBitrateMode
+): VideoEncoderConfig[] {
+  const common: VideoEncoderConfig = {
+    codec,
+    width: config.width,
+    height: config.height,
+    ...(config.fps ? { framerate: config.fps } : {}),
+    bitrate: config.videoKbps * 1000,
+    ...(bitrateMode ? { bitrateMode } : {}),
+    ...(hardwareAcceleration ? { hardwareAcceleration } : {}),
+    ...(config.container === "mp4" ? { avc: { format: "avc" as const } } : {}),
+  };
+  const withLatency: VideoEncoderConfig = {
+    ...common,
+    displayWidth: config.width,
+    displayHeight: config.height,
+    latencyMode: "quality",
+  };
+  const minimal: VideoEncoderConfig = {
+    codec,
+    width: config.width,
+    height: config.height,
+    bitrate: config.videoKbps * 1000,
+    ...(config.container === "mp4" ? { avc: { format: "avc" as const } } : {}),
+  };
+  return [withLatency, common, minimal];
+}
+
+/**
+ * The configuration the exporter will actually hand to `configure()`.
+ *
+ * Kept in one place so the probe and the encoder can never diverge: whatever
+ * `isConfigSupported()` accepted is what the encoder is constructed with.
+ */
 function videoConfig(
   config: OfflineExportConfig,
   codec: string,
   hardwareAcceleration?: HardwareAcceleration,
   bitrateMode?: VideoEncoderBitrateMode
 ): VideoEncoderConfig {
-  return {
-    codec,
-    width: config.width,
-    height: config.height,
-    displayWidth: config.width,
-    displayHeight: config.height,
-    framerate: config.fps,
-    bitrate: config.videoKbps * 1000,
-    ...(bitrateMode ? { bitrateMode } : {}),
-    ...(hardwareAcceleration ? { hardwareAcceleration } : {}),
-    latencyMode: "quality",
-    ...(config.container === "mp4" ? { avc: { format: "avc" as const } } : {}),
-  };
+  return videoConfigVariants(config, codec, hardwareAcceleration, bitrateMode)[0];
 }
 
 /** Import-safe WebCodecs capability probe with a useful failure diagnosis. */
@@ -257,48 +334,69 @@ export async function supported(config: OfflineExportConfig): Promise<OfflineSup
   }
 
   const attempts: string[] = [];
-  for (const pair of candidates(config)) {
-    let audioSupported = false;
+  // One audio answer serves every video attempt: the audio codec is the same
+  // for all of them, and probing it once per video candidate made a browser
+  // with no H.264 encoder sit inside a long chain of identical async calls
+  // before it could say so.
+  const audioAnswers = new Map<string, { ok: boolean; config: AudioEncoderConfig }>();
+  const probeAudio = async (codec: string): Promise<{ ok: boolean; config: AudioEncoderConfig }> => {
+    const key = codec;
+    const cached = audioAnswers.get(key);
+    if (cached) return cached;
+    const audioConfig: AudioEncoderConfig = {
+      codec,
+      sampleRate: config.sampleRate ?? 48_000,
+      numberOfChannels: config.channels ?? 2,
+      bitrate: config.audioKbps * 1000,
+    };
+    let answer: { ok: boolean; config: AudioEncoderConfig } = { ok: false, config: audioConfig };
     try {
-      const audio = await api.AudioEncoder.isConfigSupported({
-        codec: pair.audio,
-        sampleRate: config.sampleRate ?? 48_000,
-        numberOfChannels: config.channels ?? 2,
-        bitrate: config.audioKbps * 1000,
-      });
-      audioSupported = Boolean(audio.supported);
+      const audio = await api.AudioEncoder.isConfigSupported(audioConfig);
+      answer = { ok: Boolean(audio.supported), config: audioConfig };
     } catch (error) {
-      attempts.push(`${pair.audio} audio probe threw ${error instanceof Error ? error.message : String(error)}`);
+      attempts.push(`${codec} audio probe threw ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (!audioSupported) {
-      attempts.push(`${pair.audio} audio is unsupported`);
-      continue;
+    if (!answer.ok && !attempts.some((a) => a.startsWith(`${codec} audio`))) {
+      attempts.push(`${codec} audio is unsupported`);
     }
+    audioAnswers.set(key, answer);
+    return answer;
+  };
+
+  for (const pair of candidates(config)) {
+    const audioAnswer = await probeAudio(pair.audio);
+    if (!audioAnswer.ok) continue;
 
     // First ask for hardware + VBR so detailed scenes, caption edges and
     // visualisers receive bits where needed; fall back cleanly when a driver
     // only exposes default rate control or software encoding.
     for (const acceleration of ["prefer-hardware", undefined] as const) {
       for (const bitrateMode of ["variable", undefined] as const) {
-        try {
-          const video = await api.VideoEncoder.isConfigSupported(
-            videoConfig(config, pair.video, acceleration, bitrateMode)
-          );
-          if (video.supported) {
-            return {
-              supported: true,
-              videoCodec: pair.video,
-              audioCodec: pair.audio,
-              ...(acceleration ? { hardwareAcceleration: acceleration } : {}),
-              ...(bitrateMode ? { bitrateMode } : {}),
-            };
+        for (const candidateConfig of videoConfigVariants(config, pair.video, acceleration, bitrateMode)) {
+          try {
+            const video = await api.VideoEncoder.isConfigSupported(candidateConfig);
+            if (video.supported) {
+              return {
+                supported: true,
+                videoCodec: pair.video,
+                audioCodec: pair.audio,
+                ...(acceleration ? { hardwareAcceleration: acceleration } : {}),
+                ...(bitrateMode ? { bitrateMode } : {}),
+                // `isConfigSupported` may hand back a normalised copy; use the
+                // one the browser answered about when it gives us one.
+                encoderConfig: (video.config as VideoEncoderConfig | undefined) ?? candidateConfig,
+                audioEncoderConfig: audioAnswer.config,
+              };
+            }
+          } catch (error) {
+            attempts.push(
+              `${pair.video} video probe threw ${error instanceof Error ? error.message : String(error)}`
+            );
           }
-          attempts.push(
-            `${pair.video} video (${acceleration || "browser-selected"}, ${bitrateMode || "default-rc"}) is unsupported`
-          );
-        } catch (error) {
-          attempts.push(`${pair.video} video probe threw ${error instanceof Error ? error.message : String(error)}`);
         }
+        attempts.push(
+          `${pair.video} video (${acceleration || "browser-selected"}, ${bitrateMode || "default-rc"}) is unsupported`
+        );
       }
     }
   }
@@ -307,6 +405,48 @@ export async function supported(config: OfflineExportConfig): Promise<OfflineSup
     reason: `No supported ${config.container.toUpperCase()} WebCodecs configuration. ${attempts.join("; ")}`,
   };
 }
+
+/** What the renderer should actually encode, once the browser has been asked. */
+export interface EncodableFormat {
+  supported: boolean;
+  /** The container that will really be written. */
+  container: OfflineContainer;
+  /** True when the requested container could not be encoded on this device. */
+  substituted: boolean;
+  support: OfflineSupport;
+}
+
+/**
+ * Pick the container this browser can actually produce.
+ *
+ * The project asks for MP4 because that is what platforms take. If the
+ * device cannot encode H.264/AAC — a Firefox installation without an AAC
+ * encoder, a hardened build, a machine whose hardware encoder is blocklisted
+ * — the honest answer used to be "This browser cannot record the selected
+ * format", shown to the customer after they had already chosen everything and
+ * pressed Render. Nothing was wrong with their project, their settings or
+ * their choice; one codec was unavailable on one device.
+ *
+ * So the device is asked twice before the customer is told anything: MP4
+ * first, then the compatible alternative. If either works, the render goes
+ * ahead in the container that works and the finish line says so in one
+ * sentence. Only when neither container can be encoded does this return
+ * `supported: false`, and even then the message the customer sees names no
+ * codec.
+ */
+export async function resolveEncodableFormat(config: OfflineExportConfig): Promise<EncodableFormat> {
+  const requested = await supported(config);
+  if (requested.supported) {
+    return { supported: true, container: config.container, substituted: false, support: requested };
+  }
+  const alternate: OfflineContainer = config.container === "mp4" ? "webm" : "mp4";
+  const fallback = await supported({ ...config, container: alternate });
+  if (fallback.supported) {
+    return { supported: true, container: alternate, substituted: true, support: fallback };
+  }
+  return { supported: false, container: config.container, substituted: false, support: requested };
+}
+
 
 
 /**
@@ -601,13 +741,23 @@ export class OfflineExporter {
       },
       error: fail,
     });
-    this.video.configure(videoConfig(config, probe.videoCodec, probe.hardwareAcceleration, probe.bitrateMode));
-    this.audio.configure({
-      codec: probe.audioCodec,
-      sampleRate: this.config.sampleRate,
-      numberOfChannels: this.config.channels,
-      bitrate: config.audioKbps * 1000,
-    });
+    /**
+     * Configure with exactly what the probe accepted — never a rebuilt
+     * "equivalent" configuration. A browser that only accepted the cut-down
+     * shape (no `latencyMode`, no acceleration hint) would otherwise throw
+     * here, after the project had already been told the render was starting.
+     */
+    this.video.configure(
+      probe.encoderConfig ?? videoConfig(config, probe.videoCodec, probe.hardwareAcceleration, probe.bitrateMode)
+    );
+    this.audio.configure(
+      probe.audioEncoderConfig ?? {
+        codec: probe.audioCodec,
+        sampleRate: this.config.sampleRate,
+        numberOfChannels: this.config.channels,
+        bitrate: config.audioKbps * 1000,
+      }
+    );
   }
 
   static async create(config: OfflineExportConfig): Promise<OfflineExporter> {

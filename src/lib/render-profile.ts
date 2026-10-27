@@ -675,13 +675,32 @@ export interface RenderFailureReport {
   explanation: string;
   /** what "Retry Automatically" will do */
   retryHint: string;
-  /** the raw technical log, kept under Advanced Details */
+  /**
+   * The raw encoder/recorder log.
+   *
+   * Kept for the browser console and for support, and deliberately NOT shown
+   * on the render screen: a customer reading `NotSupportedError`,
+   * `avc1.640028` or `VideoEncoder.isConfigSupported` learns nothing they can
+   * act on and reasonably concludes the product is broken. What they see is
+   * `title` and `explanation`; what support needs is `code` and this log.
+   */
   technical: string;
+  /** Short, quotable reference for support — never a stack trace. */
+  code: string;
   /** false only when retrying cannot possibly help (e.g. user cancelled) */
   canAutoRetry: boolean;
 }
 
-/** Turn any encoder/recorder failure into something a human can act on. */
+/**
+ * Turn any encoder/recorder failure into something a human can act on.
+ *
+ * The rule this function exists to enforce: whatever the browser threw, the
+ * customer never reads it. No codec strings, no profile/level names, no
+ * `NotSupportedError`, no advice about "the selected encoding settings" —
+ * the customer did not select any, and being told they did is what made a
+ * perfectly good project look broken. Each report carries a short support
+ * code instead, and the raw log goes to the console and to support.
+ */
 export function describeRenderFailure(rawMessage: string): RenderFailureReport {
   const raw = rawMessage || "Unknown render error";
   const lower = raw.toLowerCase();
@@ -692,6 +711,7 @@ export function describeRenderFailure(rawMessage: string): RenderFailureReport {
       explanation: "You stopped this render before it finished. Nothing was saved.",
       retryHint: "Start the render again whenever you are ready.",
       technical: raw,
+      code: "SC-CANCEL",
       canAutoRetry: false,
     };
   }
@@ -699,20 +719,23 @@ export function describeRenderFailure(rawMessage: string): RenderFailureReport {
     return {
       title: "The render stalled while finishing the file",
       explanation:
-        "Every frame was encoded, but the browser stopped answering while it was closing the file — the video encoder, the protected-disk write or the Vault commit stopped reporting progress. Scenering ended the wait instead of leaving the render running for ever. Nothing was lost from the project, and no unfinished file was presented as complete.",
+        "Every frame of the video was drawn, but the browser stopped answering while it was closing the file. Scenering ended the wait instead of leaving the render running for ever. Nothing was lost from your project, and no unfinished video was offered as finished.",
       retryHint:
-        "Start the render again — a fresh encode usually completes. If it stalls at the same point twice, clear space in the Vault (downloaded videos can be deleted) and render at 1080p rather than 2K/4K.",
+        "Start the render again — a fresh attempt usually finishes. If it stalls at the same point twice, free some space in the Vault (downloaded videos can be deleted) and render at 1080p rather than 2K/4K.",
       technical: raw,
+      code: "SC-STALL",
       canAutoRetry: true,
     };
   }
   if (lower.includes("notsupported") || lower.includes("istypesupported") || lower.includes("mime") || lower.includes("codec")) {
     return {
-      title: "This browser cannot record the selected format",
+      title: "This device could not finish the video",
       explanation:
-        "The video could not be rendered because the selected encoding settings are not supported by this browser's encoder.",
-      retryHint: "Scenering can automatically retry using the standard compatible profile (H.264 MP4 · 30 fps · High quality, falling back to WebM if needed).",
+        "The browser stopped while it was writing the video, so no file was made. Your project is unchanged and nothing was counted against your plan.",
+      retryHint:
+        "Try again — Scenering will use whatever this device handles best. If it happens twice, render in Chrome, Edge or Safari.",
       technical: raw,
+      code: "SC-ENCODER",
       canAutoRetry: true,
     };
   }
@@ -720,9 +743,11 @@ export function describeRenderFailure(rawMessage: string): RenderFailureReport {
     return {
       title: "An image blocked the recording",
       explanation:
-        "One of the scene images comes from a source that forbids exporting (a cross-origin image without permission). The canvas refused to record with it on screen.",
-      retryHint: "Scenering can retry — re-searching that scene's image in the Scenes step usually fixes this permanently.",
+        "One of the scene images comes from a source that does not allow exporting. The browser refused to record the picture with it on screen; nothing else was affected.",
+      retryHint:
+        "Retry — it usually completes. If it returns, search that scene's image again in the Scenes step and it is fixed for good.",
       technical: raw,
+      code: "SC-IMAGE",
       canAutoRetry: true,
     };
   }
@@ -735,9 +760,10 @@ export function describeRenderFailure(rawMessage: string): RenderFailureReport {
     return {
       title: "Not enough browser storage for this render",
       explanation:
-        "Scenering stopped before the final file could fill the browser's protected disk space. The project is unchanged and no partial video was presented as complete.",
-      retryHint: "Free browser/site storage, or let Scenering retry at 720p Standard quality to create a smaller file.",
+        "The browser ran out of the protected space it uses to build the final video file. Your project is unchanged and no partial video was offered as finished.",
+      retryHint: "Free some browser/site storage, or let Scenering retry this render with a smaller file (720p Standard quality).",
       technical: raw,
+      code: "SC-STORAGE",
       canAutoRetry: true,
     };
   }
@@ -745,17 +771,19 @@ export function describeRenderFailure(rawMessage: string): RenderFailureReport {
     return {
       title: "The browser ran out of memory",
       explanation: "The render needed more memory than the browser would give it — long videos at high resolutions are the usual cause.",
-      retryHint: "Scenering can automatically retry at 720p Standard quality, which needs far less memory.",
+      retryHint: "Scenering can automatically retry with a smaller file (720p Standard quality), which needs far less memory.",
       technical: raw,
+      code: "SC-MEMORY",
       canAutoRetry: true,
     };
   }
   return {
     title: "The video could not be rendered",
     explanation:
-      "The video could not be rendered because the selected encoding settings are incompatible with the source.",
-    retryHint: "Scenering can automatically retry using the standard compatible profile.",
+      "The export stopped before the final file was finished. Nothing in your project was lost, and no download was counted.",
+    retryHint: "Try again — a fresh attempt usually clears it.",
     technical: raw,
+    code: "SC-RENDER",
     canAutoRetry: true,
   };
 }

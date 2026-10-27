@@ -204,7 +204,7 @@ t.eq(cancelled.canAutoRetry, false, "a user cancel is not auto-retried");
 const codecFail = describeRenderFailure("NotSupportedError: mimeType video/mp4 is not supported");
 t.ok(codecFail.canAutoRetry, "a codec failure offers automatic retry");
 t.ok(!/notsupportederror/i.test(codecFail.explanation), "the explanation is human, not the raw error");
-t.eq(codecFail.technical.includes("NotSupportedError"), true, "the raw log is kept for Advanced Details");
+t.eq(codecFail.technical.includes("NotSupportedError"), true, "the raw log is kept for support, not printed at the customer");
 const taintFail = describeRenderFailure("SecurityError: canvas is tainted by cross-origin data");
 t.ok(/image/i.test(taintFail.title), "a tainted canvas is explained as an image problem");
 const memFail = describeRenderFailure("RangeError: Array buffer allocation failed — out of memory");
@@ -229,8 +229,30 @@ t.eq(watchdogFail.title, stallFail.title, "the watchdog and the deadline report 
 const cancelledStallLookalike = describeRenderFailure("Render cancelled");
 t.eq(cancelledStallLookalike.title, "Render cancelled", "a cancel is still a cancel, never a stall");
 const unknown = describeRenderFailure("");
-t.ok(unknown.explanation.includes("incompatible with the source"), "unknown failures use the standard explanation");
+t.ok(/project was lost/i.test(unknown.explanation), "unknown failures reassure the creator that nothing was lost");
 t.ok(unknown.canAutoRetry, "unknown failures can auto-retry");
+/**
+ * The card the customer reads must never contain the encoder's vocabulary.
+ * This is the regression that produced "This browser cannot record the
+ * selected format — the selected encoding settings are not supported by this
+ * browser's encoder" on a project where nothing was wrong.
+ */
+for (const [name, report] of [
+  ["codec", codecFail],
+  ["taint", taintFail],
+  ["memory", memFail],
+  ["storage", storageFail],
+  ["stall", stallFail],
+  ["unknown", unknown],
+] as const) {
+  const card = `${report.title} ${report.explanation} ${report.retryHint}`;
+  t.ok(
+    !/codec|h\.?264|avc1|aac|vp9|opus|webcodecs|mime|encoder settings|selected encoding settings|fps|mp4|webm|profile|bitrate/i.test(card),
+    `the ${name} failure card shows no encoder vocabulary`
+  );
+  t.ok(/^SC-[A-Z]+$/.test(report.code), `the ${name} failure card carries a short support code`);
+  t.ok(report.technical.length > 0, `the ${name} failure keeps the raw log for support`);
+}
 
 const fb = buildCompatibilityFallback({ format: "webm", fps: 60, quality: "custom", resolution: "1080p" });
 t.eq(fb.patch.format, "mp4", "fallback returns to MP4");
@@ -330,6 +352,39 @@ t.ok(
 t.ok(
   /pickDestination/.test(setupStudioSrc) && /QUALITY_LEVELS/.test(setupStudioSrc),
   "destination and quality presets live in Project Setup"
+);
+/**
+ * The render screen must never again answer a missing encoder with an encoder
+ * message. Three things are pinned here:
+ *   1. a device whose requested container is unsupported is asked for the
+ *      compatible one before the customer is told anything;
+ *   2. the raw log is not printed on the screen (no "Advanced Details" panel,
+ *      no `<pre>` of the browser's error);
+ *   3. the phrases from the complaint are gone.
+ */
+t.ok(
+  /resolveEncodableFormat\(offlineConfig\)/.test(renderViewSrc),
+  "the render preflight falls back to a container this device can actually encode"
+);
+t.ok(
+  !/cannot be rendered frame-exactly in this browser/.test(renderViewSrc),
+  "no render path tells the customer their browser cannot render the project"
+);
+t.ok(
+  !/Advanced Details|showFailureDetail/.test(renderViewSrc),
+  "the raw encoder log is never printed at the customer"
+);
+t.ok(
+  /console\.error\(`Render failed \[\$\{report\.code\}\]/.test(renderViewSrc),
+  "the raw log and its support code go to the console instead"
+);
+t.ok(
+  /failureReport\.code/.test(renderViewSrc) && !/failureReport\.technical/.test(renderViewSrc),
+  "the failure card shows the short support code, never the technical string"
+);
+t.ok(
+  !/setFallbackNotes\([^)]*\)\s*;?[\s\S]{0,600}fallbackNotes\.map/.test(renderViewSrc),
+  "an automatic retry no longer lists the encoder changes to the customer"
 );
 t.ok(
   /onUpdateRenderProfile\?\.\(renderProfileForDestination\(id\)\)/.test(setupStudioSrc),
