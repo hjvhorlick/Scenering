@@ -1,21 +1,19 @@
-import { useState } from "react";
-import { Section, SectionHead, Pill, FigureNote } from "../components/primitives";
-import AppFrame from "../components/AppFrame";
-import SceneCard from "../components/SceneCard";
+import { Section, SectionHead, FigureNote, Pill } from "../components/primitives";
+import { Facts, Tiles, Tile, Note } from "../components/blocks";
 import { DEMO_PROJECT, DEMO_SCENES, DEMO_TOTAL_SECONDS, formatDuration } from "../demo-project";
 import { HONESTY, MESSAGES } from "../product-facts";
-import Icon from "../../components/icons/Icon";
 
 /**
- * The Scenes board.
+ * Scenes — three facts and three thumbnails.
  *
- * The point this section has to land: scenes follow *meaning and narration*.
- * Each card shows its own duration, and they are all different, because a
- * scene lasts as long as the line it narrates. There is no fixed interval,
- * no "new picture every ten seconds".
+ * The old section carried an app window with every scene card in it, each
+ * one expandable, beside three paragraphs of explanation. Three small
+ * pictures and three one-line facts say the same thing and fit on a phone
+ * without a second layout.
  */
 export default function ScenesSection() {
-  const [selected, setSelected] = useState(3);
+  const shortest = Math.min(...DEMO_SCENES.map((scene) => scene.duration)).toFixed(1);
+  const longest = Math.max(...DEMO_SCENES.map((scene) => scene.duration)).toFixed(1);
 
   return (
     <Section id="scenes">
@@ -23,67 +21,37 @@ export default function ScenesSection() {
         id="scenes"
         eyebrow="02 · Scenes"
         title={MESSAGES.scenes}
-        lead="Scenes follow your sentences, and each one lasts exactly as long as its own narration."
+        lead="Each scene lasts as long as its own narration."
       />
 
-      <div className="mkt-split is-reverse">
-        <div>
-          <ul className="mkt-list">
-            <li>
-              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
-              <span>
-                <b>Divided by meaning, not by a timer.</b> Scene lengths below run from{" "}
-                {Math.min(...DEMO_SCENES.map((s) => s.duration)).toFixed(1)}s to{" "}
-                {Math.max(...DEMO_SCENES.map((s) => s.duration)).toFixed(1)}s — there is no fixed interval.
-              </span>
-            </li>
-            <li>
-              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
-              <span>
-                <b>Narration sets the timing.</b> Each scene is fitted to its audio, so there are no silent gaps —
-                and re-wording a line re-times it.
-              </span>
-            </li>
-            <li>
-              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
-              <span>
-                <b>Every card is editable.</b> Rewrite it, swap or upload the visual, crop it, change the motion.
-              </span>
-            </li>
-          </ul>
+      <Facts
+        items={[
+          { term: "Divided by meaning.", text: `Scenes run from ${shortest}s to ${longest}s — no fixed interval.` },
+          { term: "Narration sets the timing.", text: "Rewording a line re-times it." },
+          { term: "Every card is editable.", text: "Rewrite, swap the picture, crop or change the motion." },
+        ]}
+      />
 
-          <div className="mkt-stats" style={{ marginTop: 20 }}>
-            <div className="mkt-stat">
-              <b>{DEMO_SCENES.length}</b>
-              <span>scenes in this project</span>
-            </div>
-            <div className="mkt-stat">
-              <b>{formatDuration(DEMO_TOTAL_SECONDS)}</b>
-              <span>total runtime</span>
-            </div>
-          </div>
-        </div>
+      <Tiles min={150}>
+        {DEMO_SCENES.slice(0, 3).map((scene) => (
+          <Tile
+            key={scene.number}
+            assetId={scene.assetId}
+            label={`Scene ${scene.number}`}
+            note={`${scene.duration.toFixed(1)}s`}
+            badge={`${scene.duration.toFixed(1)}s`}
+          />
+        ))}
+      </Tiles>
 
-        <figure style={{ margin: 0 }}>
-          <AppFrame title={`${DEMO_PROJECT.title} · Scenes`} phase="scenes">
-            <div style={{ display: "grid", gap: 10 }}>
-              {DEMO_SCENES.map((scene, index) => (
-                <SceneCard
-                  key={scene.number}
-                  scene={scene}
-                  selected={index === selected}
-                  onSelect={() => setSelected(index)}
-                  compact={index !== selected}
-                />
-              ))}
-            </div>
-          </AppFrame>
-          <FigureNote>
-            <Pill>{HONESTY.conceptLabel}</Pill>
-            <span>Select a card to see the scene controls — the studio behaves the same way.</span>
-          </FigureNote>
-        </figure>
-      </div>
+      <Note>
+        {DEMO_SCENES.length} scenes · {formatDuration(DEMO_TOTAL_SECONDS)} in total.
+      </Note>
+
+      <FigureNote>
+        <Pill>{HONESTY.demoLabel}</Pill>
+        <span>“{DEMO_PROJECT.title}” is fictional.</span>
+      </FigureNote>
     </Section>
   );
 }

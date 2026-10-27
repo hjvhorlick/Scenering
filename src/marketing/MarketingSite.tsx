@@ -33,8 +33,12 @@ import { applyPageSeo } from "./seo";
  * would:
  *
  *   key art → the promise (hero) → proof in numbers → what you get
- *   (six cards, each linking to its full demonstration) → what it costs
- *   to run (nothing metered) → the plans → finished examples → start
+ *   (six compact cards, each linking to its full demonstration) → what it
+ *   costs to run (nothing metered) → the plans → finished examples → start
+ *
+ * The single advertising unit sits directly under the hero, where a visitor
+ * who is not ready to choose a plan can still be served one — and never in
+ * the hero itself, beside the price list, or over a demonstration.
  *
  * Everything is still composed from the same demonstration project and the
  * app's own catalogues, so improving Scenering improves this page.
@@ -141,13 +145,19 @@ export default function MarketingSite() {
         <Showpiece />
         <Hero />
 
+        {/* The one advertising unit on the public site: directly below the
+            hero, the first quiet pause on the page, and never in the hero,
+            beside the pricing decision or over a demonstration. Renders
+            nothing until AdSense is configured (src/shared/ads.ts). */}
+        <AdSlot kind="web" className="mkt-ad" testId="adsense-web" />
+
         {/* what the numbers actually are */}
-        <div className="mkt-container" style={{ paddingBottom: 8 }}>
+        <div className="mkt-container mkt-stats-band">
           <div className="mkt-stats">
-            <Stat value={`${LIVE_COUNTS.voices}`} label="narrators, with previews" />
+            <Stat value={`${LIVE_COUNTS.voices}`} label="narrators" />
             <Stat value={`${LIVE_COUNTS.captionStyles}`} label="caption styles" />
             <Stat value={`${CATALOG_COUNTS.filters}`} label="video filters" />
-            <Stat value={`${CATALOG_COUNTS.musicTracks + CATALOG_COUNTS.soundEffects}`} label="music & sound effects" />
+            <Stat value={`${CATALOG_COUNTS.musicTracks + CATALOG_COUNTS.soundEffects}`} label="music & effects" />
           </div>
         </div>
 
@@ -165,12 +175,6 @@ export default function MarketingSite() {
 
         {/* Proof: the kinds of videos it makes. */}
         <Examples />
-
-        {/* The one advertising unit on the public site: small, below the
-            content and above the closing call to action, never in the hero
-            or beside the pricing decision. Renders nothing until AdSense
-            is configured (src/shared/ads.ts). */}
-        <AdSlot kind="web" className="mkt-container" style={{ maxWidth: 728, margin: "8px auto 0", padding: "0 16px" }} testId="adsense-web" />
 
         <FinalCta />
       </main>

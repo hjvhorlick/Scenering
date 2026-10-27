@@ -127,7 +127,15 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
   h.ok(slot.includes("script.id = ADSENSE_SCRIPT_ID"), "AdSlot still marks the script it injects for the id-based dedupe");
 
   const marketing = read("src/marketing/MarketingSite.tsx");
-  h.ok(marketing.includes('kind="web"') && marketing.indexOf('kind="web"') > marketing.indexOf("<Examples"), "the homepage unit sits below the examples, not in the hero");
+  // Placement, as the product owner asked: one unit directly below the hero,
+  // before the features/pitch continues — never inside the hero, never beside
+  // the pricing decision, never over a demonstration.
+  const webAt = marketing.indexOf('kind="web"');
+  h.ok(
+    webAt > marketing.indexOf("<Hero />") && webAt < marketing.indexOf("<FeatureTour />"),
+    "the homepage unit sits directly below the hero and above the features"
+  );
+  h.ok(webAt > -1 && !marketing.slice(marketing.indexOf("<Hero"), marketing.indexOf("<Hero />") + 1).includes("AdSlot"), "the hero itself carries no advertising");
   const publicPage = read("src/marketing/PublicPage.tsx");
   h.ok(publicPage.includes("showWebAd") && publicPage.includes('"/privacy"'), "no ads on legal or account-flow pages");
 

@@ -114,8 +114,41 @@ function PageHero({ eyebrow, title, lead }: { eyebrow: string; title: string; le
  * area it names — isFeatureTourPath routes those paths to this page and
  * MarketingSite's scroll effect finds the section id once it is rendered.
  */
-function FeaturesPage() { return <><PageHero eyebrow="Features" title="The whole studio, demonstrated." lead="Everything below is the real workflow, drawn from a demonstration project — not a storyboard of promises. Start with the question on your mind, or walk the tour in order." /><Questions /><IdeaToVideo /><ScenesSection /><VisualResearch /><VoiceSection /><CaptionsSection /><VideoStudioSection /><EffectsLibrary /><BeforeAfter /><Control /><Formats /><Devices /><Sources /><section className="mkt-container pub-callout"><div><h2>Seen enough?</h2><p>Free creates real finished videos, and premium tools stay visible so you can preview locked voices, captions and studio tools before deciding whether SceneFlow or SceneForge fits your workflow.</p></div><a className="mkt-btn mkt-btn-primary" href="/pricing">Compare plans</a></section></>; }
-function HowPage() { const steps = ["Understand the supplied script or audio", "Build logical scenes around meaning and narration", "Research relevant visuals from configured sources", "Add and preview narration", "Style readable captions", "Finish with creative controls in Video Studio", "Preview, correct and create the final export"]; return <><PageHero eyebrow="How It Works" title="A clear workflow, not a mystery box." lead="Follow the video from source material to export, with room to make corrections at every stage." /><section className="mkt-container pub-steps">{steps.map((step, i) => <article key={step}><b>{i + 1}</b><div><h2>{step}</h2><p>{i === 2 ? "Scenering primarily uses fetched visual sources. Pexels and Pixabay work when configured; Wikimedia Commons and the bundled nature library provide fallbacks." : "Review the result, make changes and continue when it feels right."}</p></div></article>)}</section><section className="mkt-container pub-callout"><div><h2>Preview without using final-export allowance.</h2><p>Perfect scenes, visuals, voices, captions and effects first. Plan usage applies when you confirm a final export.</p></div><a className="mkt-btn mkt-btn-primary" href="/register">Start Free</a></section></>; }
+function FeaturesPage() { return <><PageHero eyebrow="Features" title="The whole studio, demonstrated." lead="Every demonstration below is the real workflow with a fictional project. Start with a question, or walk the tour in order." /><Questions /><IdeaToVideo /><ScenesSection /><VisualResearch /><VoiceSection /><CaptionsSection /><VideoStudioSection /><EffectsLibrary /><BeforeAfter /><Control /><Formats /><Devices /><Sources /><section className="mkt-container pub-callout"><div><h2>Seen enough?</h2><p>Free creates real finished videos, and premium tools stay visible so you can preview locked voices, captions and studio tools before deciding whether SceneFlow or SceneForge fits your workflow.</p></div><a className="mkt-btn mkt-btn-primary" href="/pricing">Compare plans</a></section></>; }
+function HowPage() {
+  const steps = [
+    ["Paste or import", "A script or prepared audio file; nothing else is needed."],
+    ["Scenes", "The text is split around meaning and narration, not a timer."],
+    ["Visuals", "Each scene searches your sources; swap any picture in one click."],
+    ["Narration", "Pick a narrator, preview it, then narrate every scene."],
+    ["Captions", "Choose a style and let word timing come from the audio."],
+    ["Video Studio", "Filters, motion, music and effects against the same timeline."],
+    ["Export", "Preview freely, then render 16:9 or 9:16 on your machine."],
+  ] as const;
+  return (
+    <>
+      <PageHero eyebrow="How It Works" title="A clear workflow, not a mystery box." lead="Seven steps from source material to a finished file, correctable at every one." />
+      <section className="mkt-container pub-steps">
+        {steps.map(([title, note], i) => (
+          <article key={title}>
+            <b>{i + 1}</b>
+            <div>
+              <h2>{title}</h2>
+              <p>{note}</p>
+            </div>
+          </article>
+        ))}
+      </section>
+      <section className="mkt-container pub-callout">
+        <div>
+          <h2>Previews are free.</h2>
+          <p>Plan usage applies when you confirm a final export, not while you adjust.</p>
+        </div>
+        <a className="mkt-btn mkt-btn-primary" href="/register">Start Free</a>
+      </section>
+    </>
+  );
+}
 
 /**
  * The pricing page: three tiers, monthly/yearly, country-localized

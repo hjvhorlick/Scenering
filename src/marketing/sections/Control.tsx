@@ -1,15 +1,12 @@
-import { Section, SectionHead, Pill, FigureNote } from "../components/primitives";
-import SceneTransformation from "../components/SceneTransformation";
+import { Section, SectionHead, FigureNote, Pill } from "../components/primitives";
+import { Facts, Note } from "../components/blocks";
 import { CONTROL_POINTS, HONESTY, MESSAGES } from "../product-facts";
-import { DEMO_SCENES } from "../demo-project";
 
 /**
- * "You stay in control."
+ * "You stay in control." — four facts, no illustration.
  *
- * The honest counterweight to everything automatic on this page: Scenering
- * makes the first version, and then every decision it made is a control you
- * can reach. Twelve of them are listed, each one a thing the studio can
- * actually do.
+ * The step-through scene transformation that used to sit beside this was a
+ * fixed-size composite of four frames. The claim is made by the list.
  */
 export default function Control() {
   return (
@@ -18,35 +15,20 @@ export default function Control() {
         id="control"
         eyebrow="You stay in control"
         title="Automatic doesn’t mean uncontrollable."
-        lead="What Scenering makes is a first version. Every decision it took is a control you can reach."
+        lead="What Scenering makes is a first version. Every decision is a control you can reach."
       />
 
-      <div className="mkt-split">
-        <div>
-          <div className="mkt-grid cols-2">
-            {CONTROL_POINTS.map((point) => (
-              <div className="mkt-panel-flat" key={point.label} style={{ padding: 14 }}>
-                <b style={{ fontSize: 14 }}>{point.label}</b>
-                <p className="mkt-small" style={{ marginTop: 5 }}>
-                  {point.detail}
-                </p>
-              </div>
-            ))}
-          </div>
+      <Facts items={CONTROL_POINTS.slice(0, 4).map((point) => ({ term: point.label, text: point.detail }))} />
 
-          <p className="mkt-small" style={{ marginTop: 14 }}>
-            <b>{MESSAGES.control}</b> Nothing renders until you ask for it.
-          </p>
-        </div>
+      <Note>
+        <b>{MESSAGES.control}</b> Nothing renders until you ask for it. The <a href="/manual">manual</a>{" "}
+        documents the rest.
+      </Note>
 
-        <figure style={{ margin: 0 }}>
-          <SceneTransformation scene={DEMO_SCENES[3]} />
-          <FigureNote>
-            <Pill>{HONESTY.conceptLabel}</Pill>
-            <span>One scene, from script to finished shot — step through it yourself.</span>
-          </FigureNote>
-        </figure>
-      </div>
+      <FigureNote>
+        <Pill>{HONESTY.demoLabel}</Pill>
+        <span>A first version you can change, not a locked export.</span>
+      </FigureNote>
     </Section>
   );
 }

@@ -4,27 +4,30 @@ import { EXAMPLE_VIDEOS, HONESTY } from "../product-facts";
 /**
  * "What can you create?"
  *
- * Eight fictional projects, one per kind of video Scenering suits. They are
- * all faceless — no presenters, no people, nothing that needs a camera — and
- * every card is labelled as a demonstration. None of them are customer work
- * and the page never suggests otherwise.
+ * Four of the eight fictional projects — one per kind of video Scenering
+ * suits — rather than the whole catalogue. Eight full cards made the section
+ * long enough to lose the point on a phone; four show the range and the link
+ * to /features carries the rest. They are all faceless, all labelled as a
+ * demonstration, and none of them is customer work.
  */
+const SHOWN = EXAMPLE_VIDEOS.slice(0, 4);
+
 export default function Examples() {
   return (
     <Section id="examples">
       <SectionHead
         id="examples"
         eyebrow="What can you create?"
-        title="Faceless videos, across eight kinds of story."
-        lead="Eight projects written for this page, to show the range of the workflow."
+        title="Faceless videos, four kinds of story."
+        lead="Projects written for this page, to show the range of the workflow."
       />
 
       <div className="mkt-grid cols-4">
-        {EXAMPLE_VIDEOS.map((example) => (
+        {SHOWN.map((example) => (
           <article className="mkt-example" key={example.id}>
             <MarketingImage
               assetId={example.assetId}
-              sizes="(min-width: 1000px) 280px, (min-width: 700px) 45vw, 92vw"
+              sizes="(min-width: 1000px) 280px, (min-width: 700px) 45vw, 44vw"
             >
               <span className="mkt-thumb-tag">{example.duration}</span>
               <span className="mkt-thumb-tag is-right">{example.format}</span>
@@ -45,10 +48,7 @@ export default function Examples() {
 
       <FigureNote>
         <Pill>{HONESTY.demoLabel}</Pill>
-        <span>
-          Fictional concepts, faceless by design. No real people, no customer projects, and no claim about how any
-          video will perform.
-        </span>
+        <span>Fictional concepts, faceless by design. No customer projects, no claim about views.</span>
       </FigureNote>
     </Section>
   );

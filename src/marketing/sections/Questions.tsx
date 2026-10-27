@@ -4,7 +4,7 @@ import { goToSection, SITE_SECTIONS } from "../../lib/route";
 import Icon from "../../components/icons/Icon";
 
 /**
- * The six worries, at the top of the features tour.
+ * The first four worries, at the top of the features tour.
  *
  * A visitor does not arrive wanting a feature list; they arrive with a
  * specific doubt about whether this is for them — will it cost me credits, do
@@ -29,18 +29,21 @@ function pathFor(sectionId: string): string {
   return SITE_SECTIONS.find((section) => section.id === sectionId)?.path ?? `/${sectionId}`;
 }
 
+/** The four doubts worth answering before the tour; the rest live on /faq. */
+const ASKED_FIRST = COMMON_QUESTIONS.slice(0, 4);
+
 export default function Questions() {
   return (
     <Section id="questions" tone="white">
       <SectionHead
         id="questions"
         eyebrow="Before you start"
-        title="The six things people ask first."
+        title="The questions people ask first."
         lead="Pick the one you were about to ask."
       />
 
       <ul className="mkt-qs">
-        {COMMON_QUESTIONS.map((item) => (
+        {ASKED_FIRST.map((item) => (
           <li key={item.id}>
             <a
               className="mkt-q"
@@ -62,6 +65,10 @@ export default function Questions() {
           </li>
         ))}
       </ul>
+
+      <p className="mkt-qs-more">
+        <a href="/faq">Every question, answered in full →</a>
+      </p>
     </Section>
   );
 }
