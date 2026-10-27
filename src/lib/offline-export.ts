@@ -322,6 +322,15 @@ function videoConfig(
   return videoConfigVariants(config, codec, hardwareAcceleration, bitrateMode)[0];
 }
 
+/** Ensure an MP4-bound configuration keeps its length-prefixed AVC bitstream. */
+function withMp4BitstreamFormat(
+  container: OfflineExportConfig["container"],
+  config: VideoEncoderConfig,
+): VideoEncoderConfig {
+  if (container !== "mp4" || config.avc) return config;
+  return { ...config, avc: { format: "avc" } };
+}
+
 /** Import-safe WebCodecs capability probe with a useful failure diagnosis. */
 export async function supported(config: OfflineExportConfig): Promise<OfflineSupport> {
   const api = browserCodecs();
@@ -383,8 +392,14 @@ export async function supported(config: OfflineExportConfig): Promise<OfflineSup
                 ...(acceleration ? { hardwareAcceleration: acceleration } : {}),
                 ...(bitrateMode ? { bitrateMode } : {}),
                 // `isConfigSupported` may hand back a normalised copy; use the
-                // one the browser answered about when it gives us one.
-                encoderConfig: (video.config as VideoEncoderConfig | undefined) ?? candidateConfig,
+                // one the browser answered about when it gives us one. The AVC
+                // bitstream format is re-stated if a browser drops it, because
+                // without it the encoder may emit Annex B and the MP4 muxer
+                // would write length-unaware samples that no player can read.
+                encoderConfig: withMp4BitstreamFormat(
+                  config.container,
+                  (video.config as VideoEncoderConfig | undefined) ?? candidateConfig,
+                ),
                 audioEncoderConfig: audioAnswer.config,
               };
             }
