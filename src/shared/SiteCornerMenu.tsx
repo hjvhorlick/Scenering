@@ -130,7 +130,28 @@ export default function SiteCornerMenu() {
 
       <div className="sc-corner-separator" />
       <nav aria-label="Scenering pages" className="sc-corner-links">
-        {PRODUCT_LINKS.map(([href, label]) => <button key={href} className={path === href ? "is-current" : ""} onClick={() => go(href)}><span>{label}</span>{path === href && <small>Current</small>}</button>)}
+        {/* Real links, not buttons. A button can only ever work if this
+            bundle has finished loading and its handler is attached; an anchor
+            opens the page either way — and the browser can open it in a new
+            tab, copy its address, prefetch it on hover, or follow it at all
+            without JavaScript. A plain left click still navigates instantly
+            without a round trip. */}
+        {PRODUCT_LINKS.map(([href, label]) => (
+          <a
+            key={href}
+            href={href}
+            className={path === href ? "is-current" : ""}
+            aria-current={path === href ? "page" : undefined}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+              event.preventDefault();
+              go(href);
+            }}
+          >
+            <span>{label}</span>
+            {path === href && <small>Current</small>}
+          </a>
+        ))}
       </nav>
 
       {/* The front page explains each part of the studio in its own area;

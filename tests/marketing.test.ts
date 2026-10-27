@@ -642,6 +642,16 @@ ok(
   ok(corner.includes("await signOut()"), "the shared application menu can sign out");
   ok(read("src/App.tsx").includes("<SiteCornerMenu />"), "the signed-in studio mounts the same corner menu");
   ok(read("src/studio/SignIn.tsx").includes("<SiteCornerMenu />"), "login and registration mount the same corner menu");
+
+  /* The menu's page links are anchors with a real href, not buttons. A button
+     can only navigate once this bundle has loaded and attached its handler; an
+     anchor opens the page either way and can be opened in a new tab, copied,
+     or prefetched. The owner reported the menu's pages failing to open. */
+  const pageLinks = corner.slice(corner.indexOf("Scenering pages"), corner.indexOf("Front page sections"));
+  ok(pageLinks.includes("<a") && pageLinks.includes("href={href}"), "the menu's page links carry a real href");
+  ok(pageLinks.includes("aria-current"), "the menu marks the current page for assistive technology");
+  ok(pageLinks.includes("event.metaKey") && pageLinks.includes("event.preventDefault"), "a plain click stays instant, a modifier click keeps the browser's behaviour");
+  ok(!/PRODUCT_LINKS\.map\(\(\[href, label\]\) => <button/.test(corner), "the page links are no longer buttons");
 }
 
 /* ----------------------------------------------- 7. performance */

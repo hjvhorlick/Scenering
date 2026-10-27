@@ -165,6 +165,12 @@ https://:version.:subdomain.workers.dev/*
 /unsubscribe.html
   Cache-Control: no-cache, must-revalidate
 
+# Hashed JavaScript and CSS never change either: the filename contains the
+# build's hash, so a new build produces new names. Caching them for a year is
+# what stops every menu click from re-downloading the bundle it already has.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
 # The brand tile and the icons never change between deployments: the artwork
 # behind them is committed and the filenames are stable, so they can be cached
 # hard. Google's favicon guidance asks for a stable URL — this is how stable.
