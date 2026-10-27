@@ -8,8 +8,7 @@ import { DEMO_SCENES } from "../demo-project";
  *
  * The honest counterweight to everything automatic on this page: Scenering
  * makes the first version, and then every decision it made is a control you
- * can reach. Twelve of them are listed, each one a thing the studio can
- * actually do.
+ * can reach. Four of the twelve are listed here; /manual documents the rest.
  */
 export default function Control() {
   return (
@@ -18,13 +17,13 @@ export default function Control() {
         id="control"
         eyebrow="You stay in control"
         title="Automatic doesn’t mean uncontrollable."
-        lead="What Scenering makes is a first version. Every decision it took is a control you can reach."
+        lead="What Scenering makes is a first version. Every decision is a control you can reach."
       />
 
       <div className="mkt-split">
         <div>
           <div className="mkt-grid cols-2">
-            {CONTROL_POINTS.map((point) => (
+            {CONTROL_POINTS.slice(0, 4).map((point) => (
               <div className="mkt-panel-flat" key={point.label} style={{ padding: 14 }}>
                 <b style={{ fontSize: 14 }}>{point.label}</b>
                 <p className="mkt-small" style={{ marginTop: 5 }}>
@@ -43,7 +42,7 @@ export default function Control() {
           <SceneTransformation scene={DEMO_SCENES[3]} />
           <FigureNote>
             <Pill>{HONESTY.conceptLabel}</Pill>
-            <span>One scene, from script to finished shot — step through it yourself.</span>
+            <span>One scene, script to finished shot.</span>
           </FigureNote>
         </figure>
       </div>

@@ -1,4 +1,4 @@
-import { Section, SectionHead, Pill } from "../components/primitives";
+import { Section, SectionHead } from "../components/primitives";
 import { NO_METER, VISUAL_SOURCES } from "../product-facts";
 
 /**
@@ -28,32 +28,20 @@ export default function NoMeter() {
 
       <div className="mkt-grid cols-2">
         {NO_METER.points.map((point) => (
-          <div className="mkt-panel-flat" key={point.label} style={{ padding: 16 }}>
-            <b style={{ fontSize: 14 }}>{point.label}</b>
-            <p className="mkt-small" style={{ marginTop: 6 }}>
-              {point.detail}
-            </p>
+          <div className="mkt-panel-flat mkt-point" key={point.label}>
+            <b>{point.label}</b>
+            <p className="mkt-small">{point.detail}</p>
           </div>
         ))}
       </div>
 
-      <div className="mkt-panel mkt-pad" style={{ marginTop: 16 }}>
-        <div className="mkt-scene-top">
-          <Pill tone="plain">Stated plainly</Pill>
-        </div>
-        <p className="mkt-small" style={{ marginTop: 8 }}>
-          {NO_METER.caveat}
+      <div className="mkt-panel mkt-pad mkt-nometer-note">
+        <p className="mkt-small">
+          <b>Stated plainly.</b> {NO_METER.caveat}
         </p>
-        <p className="mkt-small" style={{ marginTop: 8 }}>
-          The photo libraries are free to search:{" "}
-          {openSources.map((source, index) => (
-            <span key={source.id}>
-              <b>{source.name}</b>
-              {index < openSources.length - 2 ? ", " : index === openSources.length - 2 ? " and " : ""}
-            </span>
-          ))}
-          . Two of them ask you to bring your own key, which is free to get and takes a minute —
-          Scenering tells you where to put it.
+        <p className="mkt-small">
+          Photos come from free libraries:{" "}
+          {openSources.map((source) => source.name).join(", ")}. Two ask for a free key.
         </p>
       </div>
     </Section>

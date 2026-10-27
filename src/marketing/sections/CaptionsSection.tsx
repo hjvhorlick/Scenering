@@ -46,7 +46,7 @@ export default function CaptionsSection() {
         id="captions"
         eyebrow="05 · Captions"
         title={MESSAGES.captions}
-        lead={`${LIVE_COUNTS.captionStyles} styles across ${LIVE_COUNTS.captionCategories} families — word-by-word highlighting or a clean subtitle line, in your own colours.`}
+        lead={`${LIVE_COUNTS.captionStyles} styles across ${LIVE_COUNTS.captionCategories} families — word by word or a clean line.`}
       />
 
       <div className="mkt-split is-reverse">
@@ -55,15 +55,13 @@ export default function CaptionsSection() {
             <li>
               <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
-                <b>Timed to the narration.</b> Caption timing comes from the generated audio, not from a guess at
-                reading speed.
+                <b>Timed to the narration.</b> Timing comes from the generated audio, not a reading-speed guess.
               </span>
             </li>
             <li>
               <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
-                <b>Word-by-word or line-by-line.</b> Karaoke highlighting for social cuts, a steady subtitle
-                otherwise.
+                <b>Word by word or line by line.</b> Karaoke for social cuts, steady subtitles otherwise.
               </span>
             </li>
             <li>
@@ -106,13 +104,13 @@ export default function CaptionsSection() {
                   <span className="mkt-card is-on">
                     <span className="mkt-card-title"><Icon glyph="✨" /> Karaoke Mode</span>
                     <span className="mkt-card-note">
-                      Active word highlights and glows dynamically in sync with narration.
+                      Active word highlights, in sync with narration.
                     </span>
                   </span>
                   <span className="mkt-card">
                     <span className="mkt-card-title"><Icon glyph="📝" /> Normal Mode</span>
                     <span className="mkt-card-note">
-                      Clean, traditional subtitles showing complete sentences with uniform color.
+                      Plain subtitles, whole sentences, one colour.
                     </span>
                   </span>
                 </div>
@@ -127,13 +125,13 @@ export default function CaptionsSection() {
                   <span className="mkt-card is-on">
                     <span className="mkt-card-title"><Icon glyph="🔲" /> Transparent</span>
                     <span className="mkt-card-note">
-                      Pure text with high-contrast outlines and drop-shadows. No background box.
+                      Outlined text, no background box.
                     </span>
                   </span>
                   <span className="mkt-card">
                     <span className="mkt-card-title"><Icon glyph="⬛" /> Blocked Box</span>
                     <span className="mkt-card-note">
-                      Translucent dark rounded pill behind text for maximum cinematic legibility.
+                      Translucent pill behind the text.
                     </span>
                   </span>
                 </div>
@@ -161,7 +159,7 @@ export default function CaptionsSection() {
               </p>
 
               <div style={{ display: "grid", gap: 8 }}>
-                {CAPTION_STYLES.map((entry) => {
+                {CAPTION_STYLES.slice(0, 4).map((entry) => {
                   const free = isPlanCaptionIncluded("free", entry.id);
                   const on = entry.id === style.id;
                   return (
@@ -206,7 +204,7 @@ export default function CaptionsSection() {
                   Enable or disable caption overlays individually per scene.
                 </p>
                 <div style={{ display: "grid", gap: 7 }} aria-hidden="true">
-                  {DEMO_SCENES.slice(0, 3).map((item) => (
+                  {DEMO_SCENES.slice(0, 2).map((item) => (
                     <div
                       className="mkt-strip-row"
                       key={item.number}
@@ -226,7 +224,7 @@ export default function CaptionsSection() {
           </AppFrame>
           <FigureNote>
             <Pill>{HONESTY.conceptLabel}</Pill>
-            <span>Styles rendered from the app’s caption catalogue — same fonts, colours and outlines.</span>
+            <span>Styles rendered from the app’s caption catalogue.</span>
           </FigureNote>
         </figure>
       </div>

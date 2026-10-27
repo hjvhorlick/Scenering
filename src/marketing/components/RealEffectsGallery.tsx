@@ -20,8 +20,8 @@ import { DEMO_PROJECT } from "../demo-project";
  * catalogues, so nothing here can be renamed behind the website's back.
  */
 
-const GRADES = ["golden_hour", "teal_orange", "silver_noir", "pastel_dream"];
-const STICKERS = ["star", "verified", "bell", "arrow", "trophy", "fire", "hundred", "play"];
+const GRADES = ["golden_hour", "teal_orange", "silver_noir"];
+const STICKERS = ["star", "verified", "bell", "arrow"];
 const BADGES = ["youtube_subscribe", "instagram_follow", "spotify_listen", "website_visit"];
 
 export default function RealEffectsGallery() {
@@ -79,25 +79,6 @@ export default function RealEffectsGallery() {
               width={250}
             />
             <figcaption>{templateName("lt_broadcast_bar")}</figcaption>
-          </figure>
-          <figure className="mkt-real-item">
-            <RealTemplate
-              templateId="lesson_stat"
-              content={{ number: "4,000", label: "years of cities built beside water" }}
-              width={250}
-            />
-            <figcaption>{templateName("lesson_stat")}</figcaption>
-          </figure>
-          <figure className="mkt-real-item">
-            <RealTemplate
-              templateId="quote_editorial"
-              content={{
-                primaryText: "A map of the oldest cities is a map of water.",
-                author: "Narration, scene 05",
-              }}
-              width={250}
-            />
-            <figcaption>{templateName("quote_editorial")}</figcaption>
           </figure>
         </div>
       </div>

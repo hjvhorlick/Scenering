@@ -266,7 +266,7 @@ export default function IdeaToVideo() {
           id="workflow"
           eyebrow="From idea to video"
           title={`${WORKFLOW_STAGES.length} steps, one project.`}
-          lead="Pick a step to see the part of the studio that handles it. One project, carried the whole way."
+          lead="Pick a step to see the part of the studio that handles it."
         />
 
         <div className="mkt-split mkt-workflow-split">

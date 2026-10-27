@@ -91,7 +91,7 @@ export default function VideoStudioSection() {
         id="video-studio"
         eyebrow="06 · Video Studio"
         title={MESSAGES.studio}
-        lead="A preview, a timeline, and every layer that sits on top of it — filters, text, stickers, lower thirds, calls to action, intro and outro — arranged against the scenes you already have."
+        lead="A preview, a timeline, and the layers that sit on top: filters, text, stickers, sound."
       />
 
       <figure ref={figureRef} style={{ margin: 0 }}>
@@ -148,7 +148,7 @@ export default function VideoStudioSection() {
               </div>
 
               <div style={{ display: "grid", gap: 7, marginTop: 10 }}>
-                {TOOL_TABS[tab].tools.map((tool) => (
+                {TOOL_TABS[tab].tools.slice(0, 4).map((tool) => (
                   <div
                     className="mkt-strip-row"
                     key={tool.name}
@@ -187,8 +187,7 @@ export default function VideoStudioSection() {
         <FigureNote>
           <Pill>{HONESTY.conceptLabel}</Pill>
           <span>
-            Track widths are the real scene durations of the demonstration project — {formatDuration(DEMO_TOTAL_SECONDS)}{" "}
-            in total.
+            Track widths are the project’s real scene durations — {formatDuration(DEMO_TOTAL_SECONDS)} in total.
           </span>
         </FigureNote>
       </figure>

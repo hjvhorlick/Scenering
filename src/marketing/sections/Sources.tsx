@@ -23,14 +23,14 @@ export default function Sources() {
         id="sources"
         eyebrow="Visual sources"
         title="Where do the visuals come from?"
-        lead="Scenering searches the sources you connect for existing photographs. It does not invent a picture for a scene."
+        lead="Scenering searches the sources you connect for existing photographs. It never invents one."
       />
 
       <div className="mkt-grid cols-2">
         <div className="mkt-panel mkt-pad">
           <h3 className="mkt-h3">Connected sources</h3>
           <p className="mkt-small" style={{ marginTop: 6 }}>
-            Searched in this order. The first source that returns something suitable wins.
+            Searched in this order; the first suitable result wins.
           </p>
 
           <div style={{ display: "grid", gap: 9, marginTop: 14 }}>
@@ -51,11 +51,10 @@ export default function Sources() {
           </div>
 
           <div className="mkt-panel-flat mkt-pad" style={{ marginTop: 14 }}>
-            <b style={{ fontSize: 14 }}>Connect your visual sources in Setup.</b>
+            <b style={{ fontSize: 14 }}>Connect your sources in Setup.</b>
             <p className="mkt-small" style={{ marginTop: 6 }}>
-              Paste a key, and Scenering handles the rest — building the query, pacing the requests and choosing
-              what to keep. Without any keys it still works: Wikimedia Commons and the built-in library are always
-              available.
+              Paste a key and Scenering handles the query, pacing and filtering. No keys? Wikimedia Commons and
+              the built-in library still work.
             </p>
           </div>
         </div>
@@ -63,8 +62,7 @@ export default function Sources() {
         <div className="mkt-panel mkt-pad">
           <h3 className="mkt-h3">Search first, download once</h3>
           <p className="mkt-small" style={{ marginTop: 6 }}>
-            A project only pulls down the pictures it uses. Nothing is bulk-downloaded “just in case”, which keeps
-            projects small and the sources happy.
+            A project downloads only the pictures it uses — never a bulk “just in case” copy.
           </p>
 
           <ol className="mkt-list" style={{ marginTop: 14 }}>
@@ -83,8 +81,7 @@ export default function Sources() {
           <div className="mkt-panel-flat mkt-pad" style={{ marginTop: 14 }}>
             <b style={{ fontSize: 14 }}>Quality gate</b>
             <p className="mkt-small" style={{ marginTop: 6 }}>
-              Every image that reaches a scene is photographic, 16:9 and at least 1920 × 1080 — checked before it is
-              used, so a 1080p render never upscales its footage.
+              Every image is photographic, 16:9 and at least 1920 × 1080, so a 1080p render never upscales.
             </p>
           </div>
         </div>

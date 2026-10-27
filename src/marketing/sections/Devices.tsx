@@ -21,7 +21,7 @@ export default function Devices() {
         id="devices"
         eyebrow="Anywhere you work"
         title="Desktop, tablet and phone."
-        lead="It runs in the browser. Wide screens get the full timeline; smaller ones recompose around the same project."
+        lead="It runs in the browser. Wide screens get the full timeline; phones recompose around the same project."
       />
 
       <div className="mkt-devices">
@@ -44,7 +44,7 @@ export default function Devices() {
         </div>
 
         {/* tablet */}
-        <div className="mkt-device">
+        <div className="mkt-device is-tablet">
           <div className="mkt-device-screen">
             <AppFrame title="Scenes" phase="scenes" compact>
               <div style={{ display: "grid", gap: 8 }}>
@@ -77,8 +77,7 @@ export default function Devices() {
       <FigureNote>
         <Pill>{HONESTY.conceptLabel}</Pill>
         <span>
-          Layouts differ by screen size on purpose — the timeline and the heavier studio controls belong on a wide
-          screen, and the phone layout is built for reviewing and adjusting scenes.
+          The timeline belongs on a wide screen; the phone layout is built for reviewing and adjusting scenes.
         </span>
       </FigureNote>
 

@@ -35,7 +35,7 @@ export default function BeforeAfter() {
         id="before-after"
         eyebrow="Before · after"
         title="The same words, twice."
-        lead="Everything on the right came out of the text on the left."
+        lead="Everything on the right came from the text on the left."
       />
 
       <div className="mkt-ba">
@@ -53,8 +53,7 @@ export default function BeforeAfter() {
             ))}
           </div>
           <p className="mkt-small" style={{ marginTop: 12 }}>
-            {DEMO_PROJECT.script.join(" ").split(/\s+/).length} words. No pictures, no voice, no timing, nothing to
-            upload.
+            {DEMO_PROJECT.script.join(" ").split(/\s+/).length} words. No pictures, voice or timing.
           </p>
         </div>
 
@@ -100,7 +99,7 @@ export default function BeforeAfter() {
 
       <div className="mkt-panel-flat mkt-pad" style={{ marginTop: 16 }}>
         <label htmlFor="ba-range" className="mkt-strip-label" style={{ marginBottom: 8 }}>
-          Fade the finished project in and out
+          Fade the finished project
         </label>
         <input
           id="ba-range"
@@ -116,7 +115,7 @@ export default function BeforeAfter() {
 
       <FigureNote>
         <Pill>{HONESTY.demoLabel}</Pill>
-        <span>“{DEMO_PROJECT.title}” is fictional — written for this page, not a customer project.</span>
+        <span>“{DEMO_PROJECT.title}” is fictional, written for this page.</span>
       </FigureNote>
     </Section>
   );

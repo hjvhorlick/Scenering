@@ -19,7 +19,7 @@ export default function Formats() {
         id="formats"
         eyebrow="Output"
         title="Widescreen and vertical, from one project."
-        lead="Pick the shape in Setup and render. Same scenes and narration; the framing and caption size follow."
+        lead="Pick the shape in Setup and render. Same scenes, same narration; framing follows."
       />
 
       <div className="mkt-formats">
@@ -60,9 +60,8 @@ export default function Formats() {
 
       <div className="mkt-panel-flat mkt-pad" style={{ marginTop: 18 }}>
         <p className="mkt-small">
-          <b>How the second cut is made:</b> go back to Setup, choose the other destination and render again.
-          Scenering does not silently re-crop a finished video — you decide the shape, then the renderer builds that
-          version frame by frame.
+          <b>The second cut:</b> return to Setup, choose the other destination, render again. Scenering never
+          silently re-crops a finished video.
         </p>
       </div>
 

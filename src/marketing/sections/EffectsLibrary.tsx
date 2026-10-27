@@ -31,7 +31,7 @@ export default function EffectsLibrary() {
         id="effects"
         eyebrow="Effects library"
         title="Everything you can put on top of a scene."
-        lead={`${live} kinds of effect are in the app today; ${soon} more are planned and labelled as such.`}
+        lead={`${live} effect types are in the app today; ${soon} more are marked “coming soon”.`}
       />
 
       <figure className="mkt-figure" ref={galleryRef}>
@@ -42,9 +42,7 @@ export default function EffectsLibrary() {
               Rendered by the app, here on the page
             </Pill>
             <p className="mkt-small" style={{ marginTop: 8 }}>
-              Nothing below is a picture of the product. Every grade, sticker, caption plate and badge on this
-              panel is drawn by the same code that draws the finished video — so what you are looking at is what
-              would be exported.
+              Every grade, sticker and badge here is drawn by the same code that draws the finished video.
             </p>
           </div>
           <Suspense fallback={<div className="mkt-real-loading">Loading the real effects…</div>}>
@@ -64,7 +62,7 @@ export default function EffectsLibrary() {
             </p>
 
             <ul className="mkt-list" style={{ marginTop: 14 }}>
-              {category.items.map((item) => (
+              {category.items.slice(0, 4).map((item) => (
                 <li key={item.name}>
                   <span className={`mkt-tick${item.status === "soon" ? " is-lock" : ""}`} aria-hidden="true">
                     {item.status === "soon" ? "…" : "✓"}
@@ -98,7 +96,7 @@ export default function EffectsLibrary() {
           <span className="mkt-dot" aria-hidden="true" />
           Counts read from the app’s catalogues
         </Pill>
-        <span>{HONESTY.demoLabel} — the artwork on this page uses a fictional project.</span>
+        <span>{HONESTY.demoLabel} — fictional project throughout.</span>
       </FigureNote>
     </Section>
   );

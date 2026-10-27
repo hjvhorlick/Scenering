@@ -182,7 +182,9 @@ html[data-mkt="1"][data-theme] body {
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 18px;
+  /* 14px a side on a phone: at 320px every pixel of gutter is a pixel the
+     content does not get, and the mockups need all of it. */
+  padding: 0 14px;
 }
 
 @media (min-width: 768px) {
@@ -600,6 +602,7 @@ html[data-mkt="1"][data-theme] body {
 
 .mkt-pill {
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   gap: 6px;
   padding: 3px 9px;
@@ -660,7 +663,7 @@ html[data-mkt="1"][data-theme] body {
    Tighter bands keep the same structure while bringing the next thing to look
    at into view sooner. */
 .mkt-section {
-  padding: 40px 0;
+  padding: 30px 0;
   scroll-margin-top: 72px;
 }
 
@@ -771,7 +774,7 @@ html[data-mkt="1"][data-theme] body {
 }
 
 .mkt-pad {
-  padding: 18px;
+  padding: 14px;
 }
 
 @media (min-width: 768px) {
@@ -822,6 +825,10 @@ html[data-mkt="1"][data-theme] body {
 }
 
 .mkt-app-title {
+  /* A flex child will not shrink below its own text by default, so one long
+     project title used to push the phase tabs out of the frame. */
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: 12px;
   font-weight: 700;
   color: var(--mkt-ink-2);
@@ -877,7 +884,7 @@ html[data-mkt="1"][data-theme] body {
 }
 
 .mkt-app-body {
-  padding: 14px;
+  padding: 10px;
 }
 
 @media (min-width: 768px) {
@@ -1260,7 +1267,7 @@ html[data-mkt="1"][data-theme] body {
 }
 
 .mkt-showpiece-art {
-  width: min(86vw, 380px);
+  width: min(62vw, 250px);
 }
 
 .mkt-showpiece-art img {
@@ -1534,11 +1541,30 @@ html[data-mkt="1"][data-theme] body {
 
 .mkt-apptabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--mkt-line);
+  /* The app's tab labels are nowrap by design; on a phone the row scrolls
+     under the finger rather than dragging the frame sideways. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mkt-apptabs::-webkit-scrollbar {
+  display: none;
+}
+
+.mkt-apptabs > * {
+  flex: 0 0 auto;
+}
+
+@media (min-width: 700px) {
+  .mkt-apptabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
 }
 
 /* ---- timeline ----
@@ -1554,7 +1580,7 @@ html[data-mkt="1"][data-theme] body {
 .mkt-tl {
   --mkt-play: 0;
   /* the pinned lane chips overlay the left edge of every lane */
-  --mkt-lane-x: 62px;
+  --mkt-lane-x: 46px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2723,6 +2749,7 @@ html[data-mkt="1"][data-theme] body {
 
 .mkt-chip {
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
@@ -2773,10 +2800,19 @@ html[data-mkt="1"][data-theme] body {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   font-size: 11px;
   font-weight: 680;
   color: var(--mkt-ink-3);
-  white-space: nowrap;
+  /* Wraps on a phone; a nowrap label next to a long caption was what pushed
+     the scene rows past the frame edge. */
+  white-space: normal;
+}
+
+@media (min-width: 560px) {
+  .mkt-strip-label {
+    white-space: nowrap;
+  }
 }
 
 /* The strip each caption specimen is set on.
@@ -2837,6 +2873,7 @@ html[data-mkt="1"][data-theme] body {
 
 .mkt-result-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
@@ -2848,6 +2885,7 @@ html[data-mkt="1"][data-theme] body {
 /* search box */
 .mkt-search {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
@@ -3006,11 +3044,13 @@ html[data-mkt="1"][data-theme] body {
 .mkt-real-visualiser canvas {
   display: block;
   max-width: 100%;
+  height: auto;
   border-radius: 10px;
 }
 
 .mkt-real-item.is-badge canvas {
-  width: 168px;
+  width: 100%;
+  max-width: 168px;
   height: auto;
 }
 
@@ -3265,11 +3305,11 @@ html[data-mkt="1"][data-theme] body {
    of padding on each side is more than a tenth of the screen. */
 @media (width <= 359px) {
   .mkt-container {
-    padding: 0 13px;
+    padding: 0 12px;
   }
 
   .mkt-section {
-    padding: 32px 0;
+    padding: 26px 0;
   }
 
   .mkt-head {
@@ -3497,6 +3537,295 @@ html[data-mkt="1"][data-theme] body {
 .mkt-section {
   content-visibility: auto;
   contain-intrinsic-size: auto 900px;
+}
+
+/* ================================== 7. phone-first blocks
+
+   Most of this site is read on a phone, so the phone layout is the base and
+   every wide layout is an addition. Two things changed here from the older
+   desktop-shaped page:
+
+   1. Cards that used to stack a full-width photograph over three lines of
+      copy are now a small picture on the left and the words on the right.
+      A 16:9 still at the full width of a 320px screen is a 180px block of
+      image for one sentence; at 104px wide it is a thumbnail, the sentence
+      sits beside it, and four cards fit where two used to.
+
+   2. Every flex and grid child that carries text may shrink below its
+      content (`min-width: 0`). That, not `overflow-x: clip`, is what stops
+      a long line from pushing a panel past the right edge.
+*/
+
+/* ---- the one advertising unit, directly under the hero ---- */
+.mkt-ad {
+  width: 100%;
+  max-width: 728px;
+  margin: 18px auto 0;
+  padding: 0 14px;
+}
+
+.mkt-ad ins {
+  /* AdSense auto units measure their parent; never let one exceed it. */
+  max-width: 100%;
+}
+
+/* ---- the stat band ---- */
+.mkt-stats-band {
+  padding-top: 16px;
+  padding-bottom: 4px;
+}
+
+/* ---- what you get: small cards, big words ---- */
+.mkt-tour {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.mkt-tour-card {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.mkt-tour-card .mkt-thumb {
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+
+.mkt-tour-card .mkt-thumb img {
+  height: 100%;
+  object-fit: cover;
+}
+
+.mkt-tour-body {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 10px 12px;
+}
+
+.mkt-tour-body h3 {
+  margin: 0;
+  font-size: 14.5px;
+}
+
+.mkt-tour-body p {
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.mkt-tour-cue {
+  margin-top: 4px;
+  font-size: 11.5px;
+}
+
+@media (min-width: 720px) {
+  .mkt-tour {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+    gap: 14px;
+  }
+
+  .mkt-tour-card {
+    display: block;
+  }
+
+  .mkt-tour-card .mkt-thumb {
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+
+  .mkt-tour-body {
+    display: block;
+    padding: 13px 15px 15px;
+  }
+
+  .mkt-tour-body h3 {
+    margin: 0 0 5px;
+    font-size: 15.5px;
+  }
+
+  .mkt-tour-body p {
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  .mkt-tour-cue {
+    margin-top: 10px;
+    font-size: 12.5px;
+  }
+}
+
+/* ---- examples: four compact cards instead of four posters ---- */
+.mkt-grid.cols-4 {
+  grid-template-columns: 1fr;
+}
+
+.mkt-example {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0;
+  padding: 8px;
+}
+
+.mkt-example > .mkt-thumb {
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.mkt-example > div {
+  align-content: center;
+  padding: 0 4px 0 10px !important;
+}
+
+@media (min-width: 560px) {
+  .mkt-grid.cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mkt-example {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 9px;
+  }
+
+  .mkt-example > .mkt-thumb {
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+
+  .mkt-example > div {
+    padding: 2px 4px 6px !important;
+  }
+}
+
+@media (min-width: 1000px) {
+  .mkt-grid.cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* ---- lists and notes ---- */
+.mkt-list-tight {
+  gap: 7px;
+}
+
+.mkt-list-tight li {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.mkt-qs-more {
+  margin-top: 14px;
+  text-align: center;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.mkt-figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.mkt-point {
+  padding: 12px;
+}
+
+.mkt-point b {
+  font-size: 13.5px;
+}
+
+.mkt-nometer-note {
+  margin-top: 14px;
+}
+
+.mkt-search-query {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- device frames: the phone drawing is the one a phone needs ---- */
+.mkt-device.is-tablet {
+  display: none;
+}
+
+@media (min-width: 620px) {
+  .mkt-device.is-tablet {
+    display: block;
+  }
+}
+
+/* ---- shrink-proof children ----
+   A grid or flex child defaults to `min-width: auto`, which means "never
+   narrower than my longest word". One long token — a URL, a caption, a file
+   name — then sets the floor for the whole row and the row overflows. */
+.mkt-split > *,
+.mkt-grid > *,
+.mkt-work > *,
+.mkt-work-top > *,
+.mkt-stats > *,
+.mkt-qs > li,
+.mkt-ba > *,
+.mkt-formats > *,
+.mkt-devices > *,
+.mkt-tour > *,
+.mkt-real-block,
+.mkt-real-row > *,
+.mkt-scene,
+.mkt-scene-body,
+.mkt-strip-row > *,
+.mkt-app,
+.mkt-app-body,
+.mkt-panel,
+.mkt-panel-flat,
+.mkt-panel-big {
+  min-width: 0;
+}
+
+.mkt-root p,
+.mkt-root li,
+.mkt-root h1,
+.mkt-root h2,
+.mkt-root h3,
+.mkt-root h4,
+.mkt-root b,
+.mkt-root .mkt-small,
+.mkt-root .mkt-lead,
+.mkt-root .mkt-figcap {
+  overflow-wrap: break-word;
+}
+
+/* A backstop for a browser too old for `overflow-x: clip`, which is what the
+   page used to rely on. Older WebKit ignores the value outright, so nothing
+   was clipped at all and one wide element panned the entire document.
+   Putting the fallback on <html> rather than an inner div keeps the sticky
+   nav working. */
+@supports not (overflow-x: clip) {
+  html[data-mkt="1"] {
+    overflow-x: hidden;
+  }
+}
+
+/* ---- standalone pages on a phone ---- */
+@media (width <= 580px) {
+  .pub-plan {
+    padding: 18px;
+  }
+
+  .pub-price {
+    margin: 16px 0 2px;
+  }
+
+  .pub-callout,
+  .pub-hero {
+    padding-inline: 18px;
+  }
+
+  .pub-steps {
+    gap: 10px;
+  }
 }
 
 /* ---- printing ----

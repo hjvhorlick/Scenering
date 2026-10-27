@@ -592,7 +592,7 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
     answer:
       "No. Every video Scenering makes is faceless: real footage, a narrator and captions. You are never on camera.",
     section: "examples",
-    cue: `See ${EXAMPLE_VIDEOS.length} examples`,
+    cue: "See the examples",
   },
   {
     id: "voice",

@@ -23,7 +23,7 @@ export default function ScenesSection() {
         id="scenes"
         eyebrow="02 · Scenes"
         title={MESSAGES.scenes}
-        lead="Scenes follow your sentences, and each one lasts exactly as long as its own narration."
+        lead="Scenes follow your sentences; each lasts as long as its narration."
       />
 
       <div className="mkt-split is-reverse">
@@ -32,22 +32,21 @@ export default function ScenesSection() {
             <li>
               <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
-                <b>Divided by meaning, not by a timer.</b> Scene lengths below run from{" "}
+                <b>Divided by meaning.</b> Scene lengths run from{" "}
                 {Math.min(...DEMO_SCENES.map((s) => s.duration)).toFixed(1)}s to{" "}
-                {Math.max(...DEMO_SCENES.map((s) => s.duration)).toFixed(1)}s — there is no fixed interval.
+                {Math.max(...DEMO_SCENES.map((s) => s.duration)).toFixed(1)}s — no fixed interval.
               </span>
             </li>
             <li>
               <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
-                <b>Narration sets the timing.</b> Each scene is fitted to its audio, so there are no silent gaps —
-                and re-wording a line re-times it.
+                <b>Narration sets the timing.</b> Each scene is fitted to its audio; rewording a line re-times it.
               </span>
             </li>
             <li>
               <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
               <span>
-                <b>Every card is editable.</b> Rewrite it, swap or upload the visual, crop it, change the motion.
+                <b>Every card is editable.</b> Rewrite, swap the picture, crop or change the motion.
               </span>
             </li>
           </ul>
@@ -67,7 +66,7 @@ export default function ScenesSection() {
         <figure style={{ margin: 0 }}>
           <AppFrame title={`${DEMO_PROJECT.title} · Scenes`} phase="scenes">
             <div style={{ display: "grid", gap: 10 }}>
-              {DEMO_SCENES.map((scene, index) => (
+              {DEMO_SCENES.slice(0, 3).map((scene, index) => (
                 <SceneCard
                   key={scene.number}
                   scene={scene}
@@ -80,7 +79,7 @@ export default function ScenesSection() {
           </AppFrame>
           <FigureNote>
             <Pill>{HONESTY.conceptLabel}</Pill>
-            <span>Select a card to see the scene controls — the studio behaves the same way.</span>
+            <span>Select a card to see its controls.</span>
           </FigureNote>
         </figure>
       </div>

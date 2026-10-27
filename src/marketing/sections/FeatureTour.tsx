@@ -23,43 +23,43 @@ const TOUR = [
     id: "scenes",
     path: "/scenes",
     assetId: "scene.01",
-    title: "Your script becomes a storyboard",
-    pitch: "Paste a script and it is split into editable scenes — reorder, rewrite and retime every one.",
+    title: "Script to storyboard",
+    pitch: "Your script splits into editable scenes.",
   },
   {
     id: "visuals",
     path: "/visuals",
     assetId: "search.well",
-    title: "The right pictures, found for you",
-    pitch: "Every scene searches Pexels, Pixabay and Wikimedia Commons. One click swaps any shot.",
+    title: "Visuals found for you",
+    pitch: "Free photo libraries, one click to swap.",
   },
   {
     id: "voice",
     path: "/voice",
     assetId: "scene.02",
-    title: "Narration without a microphone",
-    pitch: `${LIVE_COUNTS.voices} narrators with previews read your scenes aloud, timed word by word.`,
+    title: "Narration, no microphone",
+    pitch: `${LIVE_COUNTS.voices} narrators, timed to the word.`,
   },
   {
     id: "captions",
     path: "/captions",
     assetId: "scene.03",
-    title: "Captions people actually read",
-    pitch: `${LIVE_COUNTS.captionStyles} caption styles, synced to the narration, styled per project or per scene.`,
+    title: "Captions people read",
+    pitch: `${LIVE_COUNTS.captionStyles} styles, synced to the voice.`,
   },
   {
     id: "video-studio",
     path: "/video-studio",
     assetId: "scene.04",
-    title: "Music, motion and polish",
-    pitch: "Filters, lower thirds, camera movement, music beds and sound effects — the finishing room.",
+    title: "Music, motion, polish",
+    pitch: "Filters, lower thirds, music and effects.",
   },
   {
     id: "effects",
     path: "/effects",
     assetId: "scene.05",
-    title: "Finished videos, 16:9 and 9:16",
-    pitch: "Preview as often as you like, then export a finished video for YouTube, Shorts or Reels.",
+    title: "16:9 and 9:16",
+    pitch: "Preview freely, then export the finished cut.",
   },
 ] as const;
 
@@ -69,19 +69,19 @@ export default function FeatureTour() {
       <SectionHead
         id="features"
         eyebrow="What you get"
-        title="Everything a faceless channel needs, in one studio."
-        lead="Six stages, each one editable. Pick any card to see that stage demonstrated with a real project."
+        title="Everything a faceless channel needs."
+        lead="Six stages, each one editable. Pick one to see it demonstrated."
       />
 
       <div className="mkt-tour">
         {TOUR.map((card) => (
           <a key={card.id} className="mkt-tour-card" href={card.path}>
-            <MarketingImage assetId={card.assetId} sizes="(min-width: 900px) 360px, 92vw" />
+            <MarketingImage assetId={card.assetId} sizes="(min-width: 720px) 300px, 44vw" />
             <div className="mkt-tour-body">
               <h3>{card.title}</h3>
               <p>{card.pitch}</p>
               <span className="mkt-tour-cue">
-                See it in action <span aria-hidden="true"><Icon glyph="→" /></span>
+                See it <span aria-hidden="true"><Icon glyph="→" /></span>
               </span>
             </div>
           </a>
@@ -90,7 +90,7 @@ export default function FeatureTour() {
 
       <p style={{ textAlign: "center", marginTop: 22 }}>
         <a className="mkt-btn" href="/features">
-          Tour every feature in detail
+          See every feature
         </a>
       </p>
     </Section>

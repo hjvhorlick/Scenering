@@ -14,7 +14,9 @@
  * and ads add zero Worker requests — the browser talks to Google directly.
  *
  * Placement rules, as agreed with the product owner:
- *  - Public webpages: ONE small unit, away from the hero and the work.
+ *  - Public webpages: ONE responsive unit directly below the hero — the
+ *    first quiet pause on the page — never inside the hero itself, beside
+ *    the pricing decision or over a demonstration.
  *  - Studio: free plan only, Setup and Render pages only, as fixed side
  *    rails fitted just outside the centred workspace's borders, below the
  *    header and the corner-menu row (plus 80 px of clearance) — each side

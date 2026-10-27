@@ -50,15 +50,15 @@ export default function VoiceSection() {
         id="voice"
         eyebrow="04 · Voice Over"
         title={MESSAGES.voice}
-        lead={`${LIVE_COUNTS.voices} narrators — ${LIVE_COUNTS.maleVoices} male, ${LIVE_COUNTS.femaleVoices} female — each with a preview before you commit.`}
+        lead={`${LIVE_COUNTS.voices} narrators, each with a preview before you commit.`}
       />
 
       <div className="mkt-split">
         <div>
           <div className="mkt-panel-flat mkt-pad">
             <h3 className="mkt-h3">How narration is produced</h3>
-            <ul className="mkt-list" style={{ marginTop: 12 }}>
-              {NARRATION_CHAIN.map((step, index) => (
+            <ul className="mkt-list mkt-list-tight" style={{ marginTop: 12 }}>
+              {NARRATION_CHAIN.slice(0, 4).map((step, index) => (
                 <li key={step.name}>
                   <span className="mkt-tick" aria-hidden="true">
                     {index + 1}
@@ -70,8 +70,7 @@ export default function VoiceSection() {
               ))}
             </ul>
             <p className="mkt-small" style={{ marginTop: 12 }}>
-              If the Speechify key is missing, invalid or out of credits, Scenering shows the synthesis error. It never
-              substitutes another provider, browser speech or a silent placeholder.
+              A missing or failing Speechify key shows the real error — never a silent substitute.
             </p>
           </div>
 
@@ -81,7 +80,7 @@ export default function VoiceSection() {
               <Pill tone="live">Per-scene voices</Pill>
             </div>
             <p className="mkt-small" style={{ marginTop: 6 }}>
-              A scene can use a different narrator from the rest of the project — enough for a two-hander.
+              One scene can use a different narrator — enough for a two-hander.
             </p>
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
               {DEMO_DIALOGUE.map((line) => (
@@ -103,9 +102,8 @@ export default function VoiceSection() {
             </div>
           </div>
 
-          <p className="mkt-small" style={{ marginTop: 14 }}>
-            <b>Free</b> includes {freeVoiceCount} narrators; SceneFlow and SceneForge include all{" "}
-            {LIVE_COUNTS.voices}.
+          <p className="mkt-small" style={{ marginTop: 12 }}>
+            <b>Free</b> includes {freeVoiceCount} narrators; paid plans include all {LIVE_COUNTS.voices}.
           </p>
         </div>
 
@@ -150,7 +148,7 @@ export default function VoiceSection() {
               </div>
 
               <div className="mkt-strip" role="listbox" aria-label="Narrator">
-                {voices.slice(0, 10).map((voice) => {
+                {voices.slice(0, 4).map((voice) => {
                   const free = isPlanVoiceIncluded("free", voice.id);
                   return (
                     <button
@@ -212,7 +210,7 @@ export default function VoiceSection() {
                 </div>
               </div>
 
-              {DEMO_SCENES.slice(0, 3).map((scene) => (
+              {DEMO_SCENES.slice(0, 2).map((scene) => (
                 <div className="mkt-strip-row" key={scene.number}>
                   <span className="mkt-strip-label">
                     <span className="mkt-scene-no">{scene.number}</span>
@@ -233,14 +231,13 @@ export default function VoiceSection() {
                 <span className="mkt-chip is-on">Narrate all scenes</span>
                 <span className="mkt-chip">Download narration</span>
                 <span className="mkt-chip">Room ambience · VIP</span>
-                <span className="mkt-chip">Pronunciation dictionary</span>
               </div>
               <p className="mkt-small">Project narration: {formatDuration(DEMO_TOTAL_SECONDS)}</p>
             </div>
           </AppFrame>
           <FigureNote>
             <Pill>{HONESTY.conceptLabel}</Pill>
-            <span>Narrator list generated from the app’s catalogue.</span>
+            <span>Narrators read from the app’s catalogue.</span>
           </FigureNote>
         </figure>
       </div>

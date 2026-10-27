@@ -27,10 +27,10 @@ import { MarketingImage } from "../components/primitives";
  */
 
 const STEPS = [
-  { icon: "image", label: "Fetches images", note: "from your visual sources" },
-  { icon: "mic", label: "Adds voice over", note: "one narrator or two" },
-  { icon: "music", label: "Includes music", note: "beds and sound effects" },
-  { icon: "clapper", label: "Creates full videos", note: "16:9 and 9:16" },
+  { icon: "image", label: "Finds images", note: "from your sources" },
+  { icon: "mic", label: "Adds narration", note: "one voice or two" },
+  { icon: "music", label: "Adds music", note: "beds and effects" },
+  { icon: "clapper", label: "Makes the video", note: "16:9 and 9:16" },
 ] as const;
 
 export default function Showpiece() {
@@ -38,7 +38,7 @@ export default function Showpiece() {
     <section className="mkt-showpiece" aria-labelledby="showpiece-title">
       <div className="mkt-container mkt-showpiece-inner">
         <div className="mkt-showpiece-art">
-          <MarketingImage assetId="brand.showpiece" sizes="(min-width: 900px) 380px, 86vw" eager />
+          <MarketingImage assetId="brand.showpiece" sizes="(min-width: 900px) 340px, 62vw" eager />
         </div>
 
         <div className="mkt-showpiece-copy">
@@ -46,7 +46,7 @@ export default function Showpiece() {
             Every part of a video, in one place.
           </h2>
           <p className="mkt-showpiece-lede">
-            Pictures, narration, music and the cut — put together on your own machine.
+            Pictures, narration, music and the cut — assembled on your own machine.
           </p>
 
           <ul className="mkt-showpiece-steps">

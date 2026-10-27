@@ -19,12 +19,18 @@ import Icon from "../../components/icons/Icon";
  *     least 1920×1080 — and only the picture a scene actually uses gets
  *     downloaded.
  *
- * And then the message that matters most to a creator: don't like the image?
- * Replace it. This demonstration really does swap, so the visitor feels it.
+ * Four results are shown — three usable and one the filter threw out — not the
+ * whole list: the point is the decision, and a phone cannot read a contact
+ * sheet. The replace button still really swaps the preview.
  */
+const SHOWN_RESULTS = [
+  ...DEMO_SEARCH_RESULTS.filter((result) => result.accepted).slice(0, 3),
+  ...DEMO_SEARCH_RESULTS.filter((result) => !result.accepted).slice(0, 1),
+];
+
 export default function VisualResearch() {
   const scene = DEMO_SCENES[2];
-  const accepted = DEMO_SEARCH_RESULTS.filter((result) => result.accepted && result.assetId);
+  const accepted = SHOWN_RESULTS.filter((result) => result.accepted && result.assetId);
   const [chosen, setChosen] = useState(0);
   const current = accepted[chosen];
 
@@ -34,46 +40,38 @@ export default function VisualResearch() {
         id="visuals"
         eyebrow="03 · Visuals"
         title={MESSAGES.visuals}
-        lead="Each scene writes its own search, checks what comes back and keeps the one that fits — and you can overrule it."
+        lead="Each scene writes its own search and keeps the picture that fits — and you can overrule it."
       />
 
-      {/* the flow, spelled out */}
-      <div className="mkt-panel mkt-pad" style={{ marginBottom: 18 }}>
-        <div className="mkt-flow">
-          {SEARCH_POLICY.map((step, index) => (
-            <span key={step.step} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <span className="mkt-chip is-on">
-                {index + 1}. {step.step}
-              </span>
-              <span className="mkt-small">{step.detail}</span>
-              {index < SEARCH_POLICY.length - 1 && (
-                <span className="mkt-flow-arrow" aria-hidden="true"><Icon glyph="→" /></span>
-              )}
+      {/* the rules, in one line each */}
+      <ul className="mkt-list mkt-list-tight">
+        {SEARCH_POLICY.map((step) => (
+          <li key={step.step}>
+            <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
+            <span>
+              <b>{step.step}.</b> {step.detail}
             </span>
-          ))}
-        </div>
-      </div>
+          </li>
+        ))}
+      </ul>
 
-      <figure style={{ margin: 0 }}>
+      <figure className="mkt-figure" style={{ margin: "16px 0 0" }}>
         <AppFrame title="Where Cities Begin · Scene 03 · Visual search" phase="scenes">
           <div className="mkt-work">
             <div className="mkt-search">
               <span aria-hidden="true"><Icon glyph="🔍" /></span>
-              <span>{scene.query}</span>
-              <span className="mkt-pill is-plain" style={{ marginLeft: "auto" }}>
-                built from the scene text
-              </span>
+              <span className="mkt-search-query">{scene.query}</span>
+              <span className="mkt-pill is-plain">from the scene</span>
             </div>
 
             <div className="mkt-work-top">
               {/* results */}
               <div>
                 <p className="mkt-strip-label" style={{ marginBottom: 8 }}>
-                  Results — {DEMO_SEARCH_RESULTS.filter((r) => r.accepted).length} usable of{" "}
-                  {DEMO_SEARCH_RESULTS.length}
+                  Results — {accepted.length} usable of {SHOWN_RESULTS.length}
                 </p>
                 <div className="mkt-results">
-                  {DEMO_SEARCH_RESULTS.map((result) => {
+                  {SHOWN_RESULTS.map((result) => {
                     const index = accepted.findIndex((entry) => entry.label === result.label);
                     const isChosen = index === chosen && index >= 0;
                     const selectable = result.accepted && result.assetId;
@@ -108,7 +106,7 @@ export default function VisualResearch() {
                   })}
                 </div>
                 <p className="mkt-small" style={{ marginTop: 8 }}>
-                  Anything that is not a 16:9 photograph of at least 1920&nbsp;×&nbsp;1080 is skipped before you see it.
+                  Anything not a 16:9 photo of 1920&nbsp;×&nbsp;1080 is skipped before you see it.
                 </p>
               </div>
 
@@ -134,15 +132,11 @@ export default function VisualResearch() {
                     ⟳ Replace
                   </button>
                   <button type="button" className="mkt-mini-btn">
-                    <Icon glyph="⬆" /> Use my own file
-                  </button>
-                  <button type="button" className="mkt-mini-btn">
-                    ⤢ Crop &amp; reposition
+                    <Icon glyph="⬆" /> My own file
                   </button>
                 </div>
                 <p className="mkt-small" style={{ marginTop: 10 }}>
-                  <b>Don’t like it? Replace it.</b> Another result, a fresh search, or your own photo or clip —
-                  the text, narration and timing stay as they were.
+                  <b>Don’t like it? Replace it.</b> Text, narration and timing stay as they were.
                 </p>
               </div>
             </div>
@@ -151,7 +145,7 @@ export default function VisualResearch() {
 
         <FigureNote>
           <Pill>{HONESTY.conceptLabel}</Pill>
-          <span>Try it — choosing a result really does change the scene preview.</span>
+          <span>Choosing a result really does change the preview.</span>
         </FigureNote>
       </figure>
     </Section>
