@@ -187,13 +187,17 @@ ok(
   //    built out of them is a desktop layout with apologies. The marketing
   //    sheet must stay predominantly min-width.
   const minW = (mkt.match(/@media \(min-width/g) || []).length;
-  const maxW = (mkt.match(/@media \(max-width|@media \(width <=/g) || []).length;
-  ok(minW >= maxW, `marketing.css is mobile-first (${minW} min-width vs ${maxW} max-width queries)`);
-  ok(minW >= 20, "the page has real breakpoints, not one catch-all");
+  const maxW = (mkt.match(/@media \(max-width/g) || []).length;
+  ok(minW >= 20, `the page has real min-width breakpoints (${minW})`);
+  ok(maxW >= 8, `the narrow-screen overrides are max-width queries (${maxW}), which every phone parses`);
+  // Range syntax (`width <= 719px`) is not understood by older iOS Safari or
+  // older Android WebView: the whole block is dropped, so the phone layout of
+  // the standalone pages vanished and the page was left with desktop grids.
+  ok(!/\(\s*width\s*<=?|<=?\s*width\s*<=?/.test(mkt), "no range-syntax media queries, which old browsers drop whole");
 
   // 3. The extremes at both ends are handled on purpose.
   ok(/@media \(min-width: 1600px\)/.test(mkt), "there is a layout for a very wide monitor");
-  ok(/@media \(width <= 359px\)/.test(mkt), "there is a layout for a 320px phone");
+  ok(/@media \(max-width: 359px\)/.test(mkt), "there is a layout for a 320px phone");
   ok(/@media \(max-height: 560px\)/.test(mkt), "there is a layout for a phone held sideways");
   ok(/@media \(pointer: coarse\)/.test(mkt), "touch screens get finger-sized targets");
   ok(/@media \(pointer: coarse\)/.test(menu), "the corner menu gets finger-sized rows too");
@@ -243,7 +247,7 @@ ok(
 
   // 8. The standalone pages get the tablet range, not three columns or one.
   ok(
-    /@media \(620px <= width <= 900px\)[\s\S]{0,400}grid-template-columns: repeat\(2/.test(mkt),
+    /@media \(min-width: 620px\) and \(max-width: 900px\)[\s\S]{0,400}grid-template-columns: repeat\(2/.test(mkt),
     "the standalone pages show two columns on a tablet"
   );
 
@@ -352,7 +356,7 @@ ok(
   ok(!/style=\{\{ width: 92 \}\}/.test(marketingSite + publicPage + signInPage), "no header guesses the menu width");
   ok(/\.sc-corner\s*\{[^}]*z-index:\s*200/s.test(menu), "the corner button remains above page content while its reserved slot stays clear");
   ok(mkt.includes("@media (min-width: 1280px)"), "the public link rail appears only when it fits beside social links and the corner reserve");
-  ok(mkt.includes("@media (width <= 1279px) { .pub-navlinks { display: none; } }"), "standalone page links never run underneath the menu on compact widths");
+  ok(mkt.includes("@media (max-width: 1279px) { .pub-navlinks { display: none; } }"), "standalone page links never run underneath the menu on compact widths");
 
   // --- 2. a phone gets the glyph, and keeps the name ---------------------
   ok(
@@ -399,7 +403,7 @@ ok(
     "the plan comparison still scrolls on a desktop where it is a table"
   );
   ok(
-    /@media \(width <= 780px\)[\s\S]{0,900}\.pub-table tbody tr \{[^}]*border-radius/s.test(mkt),
+    /@media \(max-width: 780px\)[\s\S]{0,900}\.pub-table tbody tr \{[^}]*border-radius/s.test(mkt),
     "…and becomes one card per row on a phone"
   );
   ok(

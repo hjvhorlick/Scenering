@@ -1,18 +1,16 @@
-import { Section, SectionHead, Pill, MarketingImage, FigureNote } from "../components/primitives";
-import AppFrame from "../components/AppFrame";
-import TimelineMock from "../components/TimelineMock";
-import SceneCard from "../components/SceneCard";
-import { DEMO_SCENES } from "../demo-project";
+import { Section, SectionHead, FigureNote, Pill } from "../components/primitives";
+import { Facts, Note } from "../components/blocks";
 import { HONESTY } from "../product-facts";
 import { DEVICE_PERFORMANCE } from "../device-guidance";
 
 /**
- * Desktop, tablet, phone.
+ * Devices — three facts, no device mockups.
  *
- * Scenering is responsive, and the layout genuinely recomposes rather than
- * shrinking: the timeline is a desktop and tablet surface, a phone gets the
- * scene list and the previews. The caption under the illustration says that
- * out loud instead of implying every control is identical everywhere.
+ * The three framed screenshots (desktop, tablet, phone) were the clearest
+ * example of the problem: three separate compositions, one of which existed
+ * only to show that a phone could show something smaller. The answer is a
+ * short statement of what each screen is for, and the performance guidance
+ * people actually ask about.
  */
 export default function Devices() {
   return (
@@ -21,79 +19,36 @@ export default function Devices() {
         id="devices"
         eyebrow="Anywhere you work"
         title="Desktop, tablet and phone."
-        lead="It runs in the browser. Wide screens get the full timeline; phones recompose around the same project."
+        lead="It runs in the browser, and the project is the same on every screen."
       />
 
-      <div className="mkt-devices">
-        {/* desktop */}
-        <div className="mkt-device">
-          <div className="mkt-device-screen">
-            <AppFrame title="Where Cities Begin · Video Studio" phase="studio">
-              <div style={{ display: "grid", gap: 9 }}>
-                <MarketingImage assetId={DEMO_SCENES[1].assetId} sizes="(min-width: 820px) 520px, 90vw" />
-                <TimelineMock
-                  showHeader={false}
-                  playheadAt={0.45}
-                  showRuler={false}
-                  height={18}
-                />
-              </div>
-            </AppFrame>
-          </div>
-          <p className="mkt-device-foot">Desktop — full timeline and tool rails</p>
-        </div>
+      <Facts
+        items={[
+          { term: "Wide screens", text: "get the full timeline and the tool rails." },
+          { term: "Phones and tablets", text: "review scenes, swap pictures and adjust text." },
+          { term: "Projects sync", text: "to every device you sign in to." },
+        ]}
+      />
 
-        {/* tablet */}
-        <div className="mkt-device is-tablet">
-          <div className="mkt-device-screen">
-            <AppFrame title="Scenes" phase="scenes" compact>
-              <div style={{ display: "grid", gap: 8 }}>
-                {DEMO_SCENES.slice(0, 2).map((scene) => (
-                  <SceneCard key={scene.number} scene={scene} showActions={false} compact />
-                ))}
-              </div>
-            </AppFrame>
-          </div>
-          <p className="mkt-device-foot">Tablet — scene board and previews</p>
-        </div>
-
-        {/* phone */}
-        <div className="mkt-device is-phone">
-          <div className="mkt-device-screen">
-            <AppFrame title="Scene 01" phase="scenes" compact>
-              <div style={{ display: "grid", gap: 8 }}>
-                <MarketingImage assetId={DEMO_SCENES[0].assetId} sizes="200px" />
-                <p className="mkt-mini-text">{DEMO_SCENES[0].text}</p>
-                <span className="mkt-pill is-accent" style={{ justifySelf: "start" }}>
-                  {DEMO_SCENES[0].duration.toFixed(1)}s
-                </span>
-              </div>
-            </AppFrame>
-          </div>
-          <p className="mkt-device-foot">Phone — review and edit scenes</p>
-        </div>
+      <div className="mkt-panel mkt-pad" style={{ marginTop: 14 }}>
+        <b style={{ fontSize: 13.5 }}>{DEVICE_PERFORMANCE.testedSystem}</b>
+        <p className="mkt-small" style={{ marginTop: 6 }}>
+          {DEVICE_PERFORMANCE.lowerSpecExpectation}
+        </p>
+        <p className="mkt-small" style={{ marginTop: 6 }}>
+          {DEVICE_PERFORMANCE.persistentRender}
+        </p>
+        <p className="mkt-small" style={{ marginTop: 6 }}>
+          <b>Recommended:</b> {DEVICE_PERFORMANCE.recommendation}
+        </p>
       </div>
 
-      <FigureNote>
-        <Pill>{HONESTY.conceptLabel}</Pill>
-        <span>
-          The timeline belongs on a wide screen; the phone layout is built for reviewing and adjusting scenes.
-        </span>
-      </FigureNote>
+      <Note>{HONESTY.localNote}</Note>
 
-      <aside className="mkt-device-performance mkt-panel mkt-pad" aria-labelledby="device-performance-title">
-        <div>
-          <Pill>Performance guidance</Pill>
-          <h3 id="device-performance-title">Start with the PC you have.</h3>
-          <p>
-            <strong>{DEVICE_PERFORMANCE.testedSystem}</strong> {DEVICE_PERFORMANCE.lowerSpecExpectation}
-          </p>
-        </div>
-        <div className="mkt-device-performance-details">
-          <p>{DEVICE_PERFORMANCE.persistentRender}</p>
-          <p><strong>Recommended:</strong> {DEVICE_PERFORMANCE.recommendation}</p>
-        </div>
-      </aside>
+      <FigureNote>
+        <Pill>Rendering on your machine</Pill>
+        <span>Rendering happens on your machine, not on a server queue.</span>
+      </FigureNote>
     </Section>
   );
 }

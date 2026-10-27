@@ -1,41 +1,27 @@
-import { useEffect, useState } from "react";
-import { Section, SectionHead, Pill, FigureNote } from "../components/primitives";
-import AppFrame from "../components/AppFrame";
+import { useEffect } from "react";
+import { Section, SectionHead, FigureNote, Pill } from "../components/primitives";
+import { Facts, Note } from "../components/blocks";
 import CaptionLine from "../components/CaptionLine";
-import PlayerFrame from "../components/PlayerFrame";
 import { CAPTION_STYLES, loadCaptionFonts } from "../../data/caption-styles";
 import { DEMO_SCENES } from "../demo-project";
 import { HONESTY, LIVE_COUNTS, MESSAGES } from "../product-facts";
 import { PLAN_CONFIG, isPlanCaptionIncluded } from "../../config/plans";
-import Icon from "../../components/icons/Icon";
 
 /**
- * Captions.
+ * Captions — four facts and four samples.
  *
- * Every style on this page is rendered from the same recipe the video
- * renderer burns in — typeface, case, tracking, colours, outline and shadow
- * all come from `src/data/caption-styles.ts`. If a style is added to the app
- * it appears here; the count in the heading is the length of that array.
- *
- * Styles outside the Free set carry a quiet lock. The Free set is shown
- * working and complete, not crippled.
- */
-
-/**
- * Which styles Free includes comes from the plan configuration, not from a
- * list typed on the website — the hand-written one here named three while
- * the plan allowed two, so the page was quietly over-promising.
+ * The samples are real: each one is drawn from the same recipe the renderer
+ * burns into the video. They are small rows on a dark strip, not a studio
+ * window with a preview, two card pairs, a toggle list and the whole
+ * catalogue.
  */
 const freeStyles = CAPTION_STYLES.filter((style) => isPlanCaptionIncluded("free", style.id));
 const freeStyleCount = PLAN_CONFIG.free.limits.captionStyles ?? freeStyles.length;
 
 export default function CaptionsSection() {
   const scene = DEMO_SCENES[3];
-  const [styleId, setStyleId] = useState(freeStyles[0]?.id ?? CAPTION_STYLES[0].id);
-  const style = CAPTION_STYLES.find((entry) => entry.id === styleId) ?? CAPTION_STYLES[0];
+  const styles = CAPTION_STYLES.slice(0, 4);
 
-  // The caption typefaces are web fonts; load them once this section exists
-  // so the previews are honest rather than approximated in a system font.
   useEffect(() => {
     loadCaptionFonts();
   }, []);
@@ -49,185 +35,41 @@ export default function CaptionsSection() {
         lead={`${LIVE_COUNTS.captionStyles} styles across ${LIVE_COUNTS.captionCategories} families — word by word or a clean line.`}
       />
 
-      <div className="mkt-split is-reverse">
-        <div>
-          <ul className="mkt-list">
-            <li>
-              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
-              <span>
-                <b>Timed to the narration.</b> Timing comes from the generated audio, not a reading-speed guess.
-              </span>
-            </li>
-            <li>
-              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
-              <span>
-                <b>Word by word or line by line.</b> Karaoke for social cuts, steady subtitles otherwise.
-              </span>
-            </li>
-            <li>
-              <span className="mkt-tick" aria-hidden="true"><Icon glyph="✓" /></span>
-              <span>
-                <b>Yours to adjust.</b> Size, position, case, text and highlight colour, background box or none.
-              </span>
-            </li>
-            <li>
-              <span className="mkt-tick is-lock" aria-hidden="true"><Icon glyph="🔒" /></span>
-              <span>
-                <b>{freeStyleCount} styles on Free, all {LIVE_COUNTS.captionStyles} on SceneFlow.</b> Free exports carry a fixed Scenering watermark; paid exports do not.
-              </span>
-            </li>
-          </ul>
+      <Facts
+        items={[
+          { term: "Timed to the narration.", text: "Timing comes from the generated audio, not a reading-speed guess." },
+          { term: "Word by word or line by line.", text: "Karaoke for social cuts, steady subtitles otherwise." },
+          { term: "Per project or per scene.", text: "Switch captions off for a single scene." },
+          { term: "Your typeface, your colours.", text: "Each style is a real preset in the renderer." },
+        ]}
+      />
 
-          <div className="mkt-panel-flat mkt-pad" style={{ marginTop: 16 }}>
-            <p className="mkt-strip-label" style={{ marginBottom: 10 }}>
-              {style.category} · {style.name}
-            </p>
-            <p className="mkt-small">{style.description}</p>
+      <div className="mkt-samples">
+        {styles.map((style, index) => (
+          <div className="mkt-sample" key={style.id}>
+            <span className="mkt-sample-head">
+              <b>{style.name}</b>
+              {isPlanCaptionIncluded("free", style.id) ? (
+                <span className="mkt-pill is-live">Free</span>
+              ) : (
+                <span className="mkt-pill is-plain">SceneFlow</span>
+              )}
+            </span>
+            <span className="mkt-capstage">
+              <CaptionLine text={scene.caption} style={style} size={14} highlightWord={index % 3} />
+            </span>
           </div>
-        </div>
-
-        <figure style={{ margin: 0 }}>
-          <AppFrame title="Where Cities Begin · Captions" phase="captions">
-            {/* The Captions step is five panels, in this order, each with its
-                own heading: Caption Playback Style, Background Framing, Live
-                Caption Preview, Subtitle Visual Style Presets, and the
-                per-scene toggles. See src/components/CaptionsStudio.tsx. The
-                first two offer their choice as a pair of cards, each with the
-                app's own title and line of explanation. */}
-            <div className="mkt-work">
-              <div>
-                <p className="mkt-panelhead">
-                  <span><Icon glyph="🎤" /> Caption Playback Style</span>
-                  <span className="mkt-panelstate">Dynamic Sync</span>
-                </p>
-                <div className="mkt-cardgrid" aria-hidden="true">
-                  <span className="mkt-card is-on">
-                    <span className="mkt-card-title"><Icon glyph="✨" /> Karaoke Mode</span>
-                    <span className="mkt-card-note">
-                      Active word highlights, in sync with narration.
-                    </span>
-                  </span>
-                  <span className="mkt-card">
-                    <span className="mkt-card-title"><Icon glyph="📝" /> Normal Mode</span>
-                    <span className="mkt-card-note">
-                      Plain subtitles, whole sentences, one colour.
-                    </span>
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <p className="mkt-panelhead">
-                  <span><Icon glyph="🖼" /> Background Framing</span>
-                  <span className="mkt-panelstate">No Box</span>
-                </p>
-                <div className="mkt-cardgrid" aria-hidden="true">
-                  <span className="mkt-card is-on">
-                    <span className="mkt-card-title"><Icon glyph="🔲" /> Transparent</span>
-                    <span className="mkt-card-note">
-                      Outlined text, no background box.
-                    </span>
-                  </span>
-                  <span className="mkt-card">
-                    <span className="mkt-card-title"><Icon glyph="⬛" /> Blocked Box</span>
-                    <span className="mkt-card-note">
-                      Translucent pill behind the text.
-                    </span>
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <p className="mkt-panelhead">
-                  <span><Icon glyph="👁" /> Live Caption Preview</span>
-                </p>
-                <PlayerFrame
-                  assetId={scene.assetId}
-                  caption={scene.caption}
-                  captionStyle={style}
-                  highlightWord={2}
-                  progress={0.52}
-                  badge="Karaoke · word by word"
-                  captionSize={17}
-                  sizes="(min-width: 950px) 520px, 92vw"
-                />
-              </div>
-
-              <p className="mkt-panelhead" style={{ marginBottom: 0 }}>
-                <span><Icon glyph="🎨" /> Subtitle Visual Style Presets</span>
-                <span className="mkt-panelstate">Click to preview style</span>
-              </p>
-
-              <div style={{ display: "grid", gap: 8 }}>
-                {CAPTION_STYLES.slice(0, 4).map((entry) => {
-                  const free = isPlanCaptionIncluded("free", entry.id);
-                  const on = entry.id === style.id;
-                  return (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      className="mkt-strip-row"
-                      onClick={() => setStyleId(entry.id)}
-                      aria-pressed={on}
-                      style={{
-                        cursor: "pointer",
-                        textAlign: "left",
-                        borderColor: on ? "var(--mkt-accent-line)" : undefined,
-                        boxShadow: on ? "0 0 0 3px var(--mkt-accent-soft)" : undefined,
-                      }}
-                    >
-                      <span className="mkt-strip-label">
-                        {entry.name}
-                        {free ? (
-                          <span className="mkt-pill is-live" style={{ fontSize: 9.5 }}>
-                            Free
-                          </span>
-                        ) : (
-                          <span className="mkt-pill is-plain" style={{ fontSize: 9.5 }}>
-                            <Icon glyph="🔒" /> SceneFlow
-                          </span>
-                        )}
-                      </span>
-                      <span className="mkt-capstage">
-                        <CaptionLine text={scene.caption} style={entry} size={15} highlightWord={2} />
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div>
-                <p className="mkt-panelhead" style={{ marginBottom: 2 }}>
-                  <span><Icon glyph="📜" /> Scene Subtitles & On/Off Toggles</span>
-                </p>
-                <p className="mkt-small" style={{ margin: "0 0 9px" }}>
-                  Enable or disable caption overlays individually per scene.
-                </p>
-                <div style={{ display: "grid", gap: 7 }} aria-hidden="true">
-                  {DEMO_SCENES.slice(0, 2).map((item) => (
-                    <div
-                      className="mkt-strip-row"
-                      key={item.number}
-                      style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}
-                    >
-                      <span className="mkt-strip-label">
-                        Scene {item.number} · {item.caption}
-                      </span>
-                      <span className="mkt-pill is-live" style={{ fontSize: 9.5 }}>
-                        Captions on
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </AppFrame>
-          <FigureNote>
-            <Pill>{HONESTY.conceptLabel}</Pill>
-            <span>Styles rendered from the app’s caption catalogue.</span>
-          </FigureNote>
-        </figure>
+        ))}
       </div>
+
+      <Note>
+        <b>Free</b> includes {freeStyleCount} styles; paid plans unlock all {LIVE_COUNTS.captionStyles}.
+      </Note>
+
+      <FigureNote>
+        <Pill>{HONESTY.demoLabel}</Pill>
+        <span>Styles rendered from the app’s caption catalogue.</span>
+      </FigureNote>
     </Section>
   );
 }

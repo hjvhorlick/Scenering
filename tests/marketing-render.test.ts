@@ -77,7 +77,7 @@ try {
 const html = home + tour;
 
 ok(home.length > 20_000, `the front page has substance (${home.length} chars of markup)`);
-ok(tour.length > 40_000, `the features tour has substance (${tour.length} chars of markup)`);
+ok(tour.length > 25_000, `the features tour has substance (${tour.length} chars of markup)`);
 
 /* --------------------------------------------------------- structure */
 
@@ -149,14 +149,22 @@ ok(files.size >= 10, `${files.size} distinct optimised images referenced`);
 
 /* ----------------------------------------------------- interactivity */
 
-const tablists = [...html.matchAll(/role="tablist"[\s\S]{0,4000}?<\/div>/g)];
-ok(tablists.length >= 4, `${tablists.length} interactive demonstrations`);
-const selected = (html.match(/aria-selected="true"/g) || []).length;
-const unselected = (html.match(/aria-selected="false"/g) || []).length;
-ok(selected >= 5, `${selected} tabs start selected`);
-ok(unselected > selected, "most tabs start unselected — one per group is active");
-ok(html.includes('tabindex="-1"'), "roving tab order is in the markup");
-ok(!/tabindex="0"[^>]*aria-selected="false"/.test(html), "the focusable tab is the selected one");
+/*
+ * The demonstrations are gone. Every one of them was a fixed-size composition
+ * — an app window with a timeline, a results grid, a caption studio — that had
+ * to be redesigned for a phone and rebuilt as a second, smaller component.
+ * The page is now static small blocks: facts, steps, tiles and samples, the
+ * same markup at every width, so nothing here is a tab-driven demo window.
+ */
+const tabpanels = [...html.matchAll(/role="tabpanel"/g)];
+ok(tabpanels.length === 0, "no tab-driven demonstration windows are left on the page");
+// The hero keeps its single workspace illustration (the owner asked for it to
+// stay exactly as it is); the tour draws no window at all.
+ok(!tour.includes("mkt-app-body") && !tour.includes("mkt-tl-view"), "the tour draws no studio window or timeline");
+ok((home.match(/mkt-app-body/g) || []).length === 1, "the front page's only window is the hero's");
+ok(html.includes('tabindex="-1"'), "the skip target and closed menus stay out of the tab order");
+ok(html.includes("mkt-tiles"), "the tour is built from the small tile block");
+ok(html.includes("mkt-facts") && html.includes("mkt-steps-mini"), "…and its fact and step blocks");
 
 /* ---------------------------------------------------------- honesty */
 
@@ -186,7 +194,7 @@ ok(!html.includes("[object Object]"), "no object stringified into the markup");
 ok(!/>\s*null\s*</.test(html), "no 'null' rendered as text");
 // Buttons are operable and described.
 const buttons = [...html.matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)];
-ok(buttons.length > 30, `${buttons.length} controls rendered`);
+ok(buttons.length >= 10, `${buttons.length} controls rendered`);
 for (const [whole, inner] of buttons) {
   // A control is named by its text, by aria-label, or by the alt text of the
   // image inside it (the wordmark button in the nav).

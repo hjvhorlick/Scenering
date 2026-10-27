@@ -97,5 +97,9 @@ h.ok(home.includes("mkt-footer-legal-list") && home.includes("mkt-footer-legal-b
 h.ok(read("src/shared/SiteCornerMenu.tsx").includes('go("/refunds")'), "the in-app corner menu reaches it too");
 h.ok(read("server/platform.ts").includes('"/refunds"'), "and it is in the sitemap a reviewer or crawler would find");
 for (const rule of [".pub-legal-date", ".pub-legal-summary", ".pub-prose section + section", ".pub-prose ul", ".pub-prose .pub-table-wrap", ".pub-prose .pub-table th[scope=\"row\"]", ".pub-legal-note", ".mkt-footer-legal-list", ".mkt-footer-legal-bar", ".mkt-footer-legal-pills", ".mkt-nav-legal", ".mkt-nav-legal-panel", ".mkt-nav-legal-item"]) h.ok(css.includes(rule), `CSS includes ${rule}`);
-h.ok(!css.match(/@media[^{}]*max-width/), "marketing CSS uses mobile-first media queries");
+// Classic media syntax only. Range queries (`width <= 719px`) are dropped whole
+// by older iOS Safari and Android WebView, which is how the standalone pages
+// once lost their phone layout; max-width min-width pairs are understood
+// everywhere and stay allowed.
+h.ok(!/\(\s*width\s*<=?/.test(css), "marketing CSS uses media syntax every browser parses");
 h.done("legal");

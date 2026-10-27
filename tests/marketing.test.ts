@@ -391,19 +391,17 @@ ok(
   WORKFLOW_STAGES[1].body.toLowerCase().includes("search"),
   "…and the Scenes step says the searching happens there"
 );
-// Phones use a purpose-built workflow glimpse rather than squeezing a full
-// desktop editor into a narrow viewport. The same phase tabs remain available
-// and it advances only while visible, unless the visitor selects a step.
+// One workflow block, the same on every screen. It used to have a desktop
+// workspace and a phone-only animated copy of it; two designs of one idea is
+// exactly what made the page unmanageable on a small screen.
 {
   const workflow = read("src/marketing/sections/IdeaToVideo.tsx");
+  ok(!workflow.includes("CompactWorkflowPreview"), "the workflow has no phone-only twin");
+  ok(!workflow.includes("AppFrame") && !workflow.includes("PlayerFrame"), "the workflow draws no studio window");
+  ok(workflow.includes("<Steps"), "the workflow is a list of small steps");
   const css = read("src/marketing/marketing.css");
-  ok(workflow.includes("CompactWorkflowPreview"), "workflow has a compact phone preview");
-  ok(workflow.includes('useMediaQuery("(width <= 719px)")'), "workflow selects the compact preview at the phone breakpoint");
-  ok(workflow.includes("useStageSequence(WORKFLOW_STAGES.length"), "compact workflow keeps a visible-stage animation");
-  ok(workflow.includes("active: compact && inView"), "phone animation runs only while its section is visible");
-  ok(workflow.includes("mobileSequence.goTo"), "selecting a phone step pauses the automatic sequence");
-  ok(css.includes(".mkt-workflow-mobile-demo") && css.includes("@keyframes mkt-workflow-swap"), "compact preview has a small transition animation");
-  ok(css.includes(".mkt-workflow-desktop-copy") && css.includes(".mkt-workflow-mobile-copy"), "desktop detail is replaced by concise phone copy");
+  ok(!css.includes(".mkt-workflow-mobile-demo"), "the phone-only preview's styles are gone too");
+  ok(css.includes(".mkt-steps-mini"), "one small step block serves every width");
 }
 // Nothing may still claim a seventh stage.
 for (const { name, text } of marketingFiles) {
@@ -716,7 +714,7 @@ const HEAVY = [
   "lib/offline-export",
   "lib/render-",
 ];
-const REAL_PREVIEW_MODULES = ["RealEffects.tsx", "RealEffectsGallery.tsx"];
+const REAL_PREVIEW_MODULES: string[] = [];
 for (const { name, text } of marketingFiles) {
   if (!/\.tsx?$/.test(name)) continue;
   if (REAL_PREVIEW_MODULES.some((allowed) => name.endsWith(allowed))) continue;
@@ -729,30 +727,14 @@ for (const { name, text } of marketingFiles) {
     `${name}: reaches the real-effect previews through lazy(), not a static import`
   );
 }
-// The real-effect modules must actually be the real thing: the studio's own
-// preview components, not a lookalike rebuilt for the website.
-const realEffects = read("src/marketing/components/RealEffects.tsx");
-for (const component of [
-  "components/FilterPreviewCanvas",
-  "components/StickerPreviewCanvas",
-  "components/TemplatePreviewCanvas",
-  "components/CtaOptionThumb",
-  "components/EffectVisualPreview",
-]) {
-  ok(realEffects.includes(component), `the website renders effects with the app's ${component}`);
-}
-// Both entry points into them are lazy.
+// The renderers the gallery used are gone from the website. They still belong
+// to the studio, and the app still draws with them; the marketing chunk simply
+// no longer carries a canvas.
+ok(existsSync("src/marketing/components/RealEffects.tsx") === false, "the canvas gallery module is removed");
+ok(existsSync("src/marketing/components/RealEffectsGallery.tsx") === false, "…and so is its gallery");
 ok(
-  read("src/marketing/sections/EffectsLibrary.tsx").includes("lazy(() => import(\"../components/RealEffectsGallery\"))"),
-  "the effects gallery is its own chunk"
-);
-ok(
-  read("src/marketing/sections/VideoStudioSection.tsx").includes("lazy(() =>"),
-  "the live visualiser is its own chunk"
-);
-ok(
-  read("src/marketing/sections/VoiceSection.tsx").includes("lazy(() =>"),
-  "so is the one in the voice section"
+  read("src/components/FilterPreviewCanvas.tsx").length > 0,
+  "the studio's own preview components are untouched"
 );
 
 /*
@@ -765,7 +747,7 @@ ok(
 {
   const voice = read("src/marketing/sections/VoiceSection.tsx");
   ok(!voice.includes("<Waveform"), "the voice section draws no invented waveform");
-  ok(voice.includes("RealVisualiser"), "…it shows the studio's own visualiser instead");
+  ok(!voice.includes("RealVisualiser"), "…and no visualiser canvas either — narrators are cards");
 
   const timeline = read("src/marketing/components/TimelineMock.tsx");
   ok(
@@ -889,13 +871,22 @@ ok(read("src/shared/SiteCornerMenu.tsx").includes('["/", "Home"]'), "the shared 
 // layout being walked back, which is where overflow comes from.
 const queries = css.match(/@media[^{]+/g) ?? [];
 ok(queries.length > 0, `the stylesheet has ${queries.length} media queries`);
+// Breakpoints must use the classic min-/max-width form. Range syntax
+// (`width <= 719px`) reads better, but older iOS Safari and older Android
+// WebView do not understand it and drop the entire block — which is exactly
+// how the standalone pages once lost their phone layout and showed a
+// three-column plan grid on a 375px screen.
 for (const query of queries) {
   const feature = query.replace(/\s+/g, " ").trim();
   ok(
-    !/max-width:\s*\d/.test(feature) || /print|prefers-/.test(feature),
-    `mobile-first (min-width only): ${feature}`,
+    !/\(\s*width\s*[<>]|<=?\s*width\s*[<>]?=?/.test(feature),
+    `classic media syntax every browser parses: ${feature}`,
   );
 }
+ok(
+  (css.match(/@media \(min-width/g) || []).length >= 20,
+  "the sheet keeps its min-width (mobile-first) breakpoints",
+);
 
 /* Walk the base layer — every rule outside a min-width query — and budget it
    against the narrowest phone we support. */
@@ -952,6 +943,16 @@ for (const rule of rules.filter((r) => !r.responsive)) {
     const fixed = [...columns[1].matchAll(/(\d+)px/g)].reduce((sum, m) => sum + Number(m[1]), 0);
     ok(fixed < 260, `${rule.selector}: grid columns are not ${fixed}px of fixed track`);
   }
+}
+
+// The base layer is the phone layout, not a desktop one walked back: the
+// multi-column grids only appear in a min-width query.
+for (const selector of [".mkt-split", ".mkt-work-top", ".mkt-grid.cols-2", ".mkt-grid.cols-3", ".mkt-devices", ".mkt-stats"]) {
+  const base = rules.find((r) => r.selector.split(",").some((s) => s.trim() === selector) && !r.responsive);
+  if (!base) continue;
+  const columns = base.body.match(/grid-template-columns:\s*([^;]+)/)?.[1] ?? "";
+  const fixed = [...columns.matchAll(/(\d+)px/g)].reduce((sum, m) => sum + Number(m[1]), 0);
+  ok(fixed === 0, `${selector} starts as a one- or two-column phone layout, not a fixed desktop grid`);
 }
 
 // 100vw ignores the scrollbar on desktop and overflows by its width.
@@ -1032,7 +1033,7 @@ ok(/\.mkt-totop:focus-visible/.test(css), "back-to-top shows a focus ring");
 /* Images tell the browser how much of the screen they will take, so a phone
    downloads a phone-sized file. */
 const imgSizes = marketingSource.match(/sizes="[^"]+"/g) ?? [];
-ok(imgSizes.length >= 10, `${imgSizes.length} images declare their layout width`);
+ok(imgSizes.length >= 6, `${imgSizes.length} images declare their layout width`);
 for (const size of imgSizes) {
   const value = size.slice(7, -1);
   // Two honest shapes: an element that grows with the screen ends in a
