@@ -76,6 +76,32 @@ const contraction = alignWordTimings(["DON'T", "PANIC"], [
 h.near((contraction[0] as any).start, 0.1, 1e-6, "contraction spans its expansion");
 h.near((contraction[0] as any).end, 0.45, 1e-6, "contraction ends when its expansion ends");
 
+// ------------------------------------------------- alignment: long sanitizer expansion
+// A short fixed look-ahead used to pair these unmatched caption words with
+// unrelated speech marks one-by-one. The next shared word then jumped back
+// into place, producing the recurring fall-behind / catch-up behaviour.
+{
+  const longExpansion = alignWordTimings(
+    ["INTRO", "ALPHA", "BETA", "GAMMA", "DELTA", "EPSILON", "ANCHOR", "FINISH"],
+    [
+      { text: "intro", start: 0, end: 0.2 },
+      { text: "one", start: 0.21, end: 0.35 },
+      { text: "two", start: 0.36, end: 0.5 },
+      { text: "three", start: 0.51, end: 0.65 },
+      { text: "four", start: 0.66, end: 0.8 },
+      { text: "five", start: 0.81, end: 0.95 },
+      { text: "six", start: 0.96, end: 1.1 },
+      { text: "anchor", start: 1.11, end: 1.35 },
+      { text: "finish", start: 1.36, end: 1.6 },
+    ]
+  );
+  h.near((longExpansion[6] as any).start, 1.11, 1e-6, "a shared word after a long expansion re-locks to its exact speech mark");
+  h.near((longExpansion[7] as any).start, 1.36, 1e-6, "the following word stays locked after the expansion");
+  for (let i = 1; i < longExpansion.length; i++) {
+    h.ok((longExpansion[i] as any).start >= (longExpansion[i - 1] as any).start, `long expansion word ${i} stays monotonic`);
+  }
+}
+
 // ------------------------------------------------- alignment: degenerate
 h.eq(alignWordTimings([], timings).length, 0, "no caption words → empty");
 const noTimings = alignWordTimings(words, []);

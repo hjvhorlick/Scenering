@@ -2577,26 +2577,37 @@ export default function RenderView({
            * video editor, not this screen.
            */
           reportStage("4/4: Reading the finished file back…");
-          const audit = await auditFinishedMp4(offlineBlob, {
-            width: offlineConfig.width,
-            height: offlineConfig.height,
-            fps: fpsUsed,
-            frames: totalFrames,
-            durationSec: estimatedTotalDuration,
-            container: offlineContainer,
-            requireAudio: false,
-          });
-          setOutputAudit(audit);
           setMotionAudit(motionWatch.report);
-          renderTimer.note("container audit", audit.ok ? audit.summary : audit.problems.join(" · "));
-          const structural = !audit.isMp4
-            || !audit.video
-            || audit.video.sampleCount !== totalFrames
-            || audit.video.zeroSizeSamples > 0;
-          if (structural) {
-            throw new Error(
-              `The finished ${offlineContainer.toUpperCase()} failed its own check: ${audit.problems.join(" ")}`,
-            );
+          if (offlineContainer === "mp4") {
+            // This byte-level parser understands ISO-BMFF/MP4 only. Running it
+            // on WebM reports "not an MP4" by design; treating that as a
+            // structural failure used to throw away every valid WebM render
+            // after encoding had completed, leaving the Vault with nothing to
+            // download. WebM is checked by the browser probe and the common
+            // post-encode validator below instead.
+            const audit = await auditFinishedMp4(offlineBlob, {
+              width: offlineConfig.width,
+              height: offlineConfig.height,
+              fps: fpsUsed,
+              frames: totalFrames,
+              durationSec: estimatedTotalDuration,
+              container: "mp4",
+              requireAudio: false,
+            });
+            setOutputAudit(audit);
+            renderTimer.note("container audit", audit.ok ? audit.summary : audit.problems.join(" · "));
+            const structural = !audit.isMp4
+              || !audit.video
+              || audit.video.sampleCount !== totalFrames
+              || audit.video.zeroSizeSamples > 0;
+            if (structural) {
+              throw new Error(
+                `The finished MP4 failed its own check: ${audit.problems.join(" ")}`,
+              );
+            }
+          } else {
+            setOutputAudit(null);
+            renderTimer.note("container audit", "WebM uses the browser metadata and export validation checks");
           }
 
           const timingReport = renderTimer.format();
@@ -3310,8 +3321,11 @@ export default function RenderView({
                       {destinationCheck.allOk ? (
                         <span className="text-emerald-400 font-semibold">· ready</span>
                       ) : (
-                        <span className="text-amber-400 font-semibold">· needs attention</span>
+                        <span className="text-amber-400 font-semibold">· recommendations</span>
                       )}
+                    </p>
+                    <p className="text-[10px] text-gray-500 leading-relaxed mb-1.5">
+                      Choosing a platform preset sets MP4 and 30 FPS automatically. Browser codec support is checked before frame encoding; an unsupported format stops the render before a finished file is offered.
                     </p>
                     <ul className="space-y-0.5">
                       {destinationCheck.checks.map((c) => (

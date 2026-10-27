@@ -207,6 +207,9 @@ for (const tag of videoTags) {
 }
 
 h.ok(render.includes("reserveFinalExport") && render.includes("cancelFinalExport") && !render.includes("completeFinalExport"), "a render is authorised and then released — it never counts a download itself");
+h.ok(render.includes("Browser codec support is checked before frame encoding"), "unsupported browser codecs are identified during render preflight rather than after completion");
+const renderStartHandler = render.slice(render.indexOf("const handleStartRender = async"), render.indexOf("const saveRenderBlob = async"));
+h.ok(!renderStartHandler.includes("destinationCheck") && !renderStartHandler.includes("allOk"), "platform advice is not confused with the browser's actual encoder-support probe");
 h.ok(entitlementsSource.includes('"/api/usage/download"') && /recordVideoDownload[\s\S]{0,700}if \(!response\.ok\) throw/.test(entitlementsSource), "the client's download counter throws when the server refuses");
 h.ok(platformSource.includes('"/api/usage/download"') && platformSource.includes("createUsageRecordWithinLimit"), "the server counts downloads with a single check-and-record statement");
 

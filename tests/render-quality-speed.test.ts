@@ -367,6 +367,14 @@ const h = createHarness();
     /withTimeout\(\s*saveRenderToVault\(/.test(renderSrc),
     "the Vault commit has a deadline, so it cannot hang the render"
   );
+  h.ok(
+    /if \(offlineContainer === "mp4"\)\s*\{[\s\S]{0,900}auditFinishedMp4\(/.test(renderSrc),
+    "the MP4-only byte parser runs only for MP4 output"
+  );
+  h.ok(
+    /else \{\s*setOutputAudit\(null\);\s*renderTimer\.note\("container audit", "WebM uses the browser metadata and export validation checks"\)/.test(renderSrc),
+    "valid WebM output is checked by browser metadata and common export validation instead of being rejected as non-MP4"
+  );
 }
 
 // ---------------------------------------------------------------------------
