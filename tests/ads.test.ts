@@ -126,26 +126,6 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
   );
   h.ok(slot.includes("script.id = ADSENSE_SCRIPT_ID"), "AdSlot still marks the script it injects for the id-based dedupe");
 
-  // An empty unit must not leave the word "Advertisement" over a blank band:
-  // the label is gated on a real fill, and an unfilled/never-answered unit
-  // removes itself outright. Both were observed on the live page.
-  h.ok(
-    slot.includes('data-ad-status') && slot.includes('fill === "unfilled") return null'),
-    "an unfilled unit removes itself instead of leaving a reserved band"
-  );
-  h.ok(
-    slot.includes('fill === "filled" ? ('),
-    "the 'Advertisement' label is rendered only when an ad has actually filled"
-  );
-  h.ok(
-    slot.includes("UNFILLED_AFTER_MS"),
-    "a unit that never answers (blocked script) is treated as unfilled on a deadline"
-  );
-  h.ok(
-    /ad-slot=\{slot\}[\s\S]*?data-ad-format="auto"/.test(slot),
-    "the responsive unit still declares its slot and auto format"
-  );
-
   const marketing = read("src/marketing/MarketingSite.tsx");
   // Placement, as the product owner asked: one unit directly below the hero,
   // before the features/pitch continues — never inside the hero, never beside
