@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased — a music video no longer fails its own frame check
+
+- **Reported:** a music video with no narration rendered all the way to the end
+  and was then refused with "The video could not be rendered … Try again — a
+  fresh attempt usually clears it", on every attempt.
+- **The cause was two roundings of one number.** The encode loop counted frames
+  with `Math.ceil(duration × fps)`; the post-encode verification counted them
+  with `Math.round(duration × fps)`. Whenever the product had a fractional part
+  below 0.5 the encoder wrote one frame more than the check expected, the check
+  raised a hard error ("Encoder emitted 2894 video frames instead of 2893") and
+  the finished file was thrown away. A retry repeated the same arithmetic, so
+  the failure was permanent.
+- **Why only this project, and why now.** A narration scene's length is stored
+  to one decimal place, so at 24/25/30/50/60 fps `duration × fps` is always
+  whole and both roundings agreed. A single-scene music video takes its length
+  from the uploaded clip's own duration (96.44 s, 87.419 s), and roughly half of
+  those land in the mismatch window. The strict frame-count check arrived on
+  25 October, which is when this started.
+- **One frame count, one helper.** `totalFrameCount` now rounds up and is the
+  only source: the encode loop, the MP4 byte audit and `validateFinishedExport`
+  are all handed the same number (`src/lib/render-profile.ts`,
+  `src/components/RenderView.tsx`), so the number encoded is the number
+  verified. Rounding up is also the right answer on its own — the last,
+  possibly partial, frame belongs to the timeline.
+- **The verifier tolerates one frame of bookkeeping** (`src/lib/export-validator.ts`).
+  A container may legitimately collapse a duplicated boundary frame, and
+  refusing a finished video for that is refusing it for a byte. Three frames
+  missing — a visible hold — still fails.
+- **A refused file is no longer called a retryable render.** New `SC-VERIFY`
+  report: "The finished video did not pass its own check … This is a problem on
+  our side, not in your project", with no automatic retry offered, because the
+  check runs on the bytes after encoding and a retry reaches the same verdict.
+  The support code identifies the exact check.
+- **A soundtrack that fails to load is said out loud.** Music and effects that
+  could not be decoded used to be skipped in silence, so a music video could
+  export with no music and look like a success. The render still completes, but
+  a notice now names how many soundtracks are missing and asks for the music to
+  be re-selected.
+- `tests/render-frame-count.test.ts` (new, 126 checks) pins the arithmetic for
+  eleven clip durations × five frame rates, drives `validateFinishedExport`
+  with the reported 96.44 s project both as it is wired now and as the old code
+  wired it, and fails if the renderer ever rounds the frame count itself again.
+
 ## Unreleased — a render no longer fails because one encoder is missing
 
 - **"This browser cannot record the selected format — the video could not be

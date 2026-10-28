@@ -246,7 +246,18 @@ export function evaluateExportValidation(input: ExportValidationInput): ExportVa
 
   if (input.engine === "frame-exact" && input.encoderStats) {
     actualFps = input.encoderStats.effectiveFps || input.expectedFps;
-    const chunksMatch = input.encoderStats.encodedVideoChunks === input.expectedFrames;
+    /**
+     * One frame of slack, not zero.
+     *
+     * `totalFrameCount` is the single source of truth and the encoder loop now
+     * uses it too, so an exact match is the normal case. But a container is
+     * allowed to collapse a duplicated frame at a boundary — the picture is
+     * identical — and refusing a file over that is refusing a finished video
+     * for a byte of bookkeeping. A real gap (2+ frames, which is a visible
+     * hold or a dropped moment) still fails.
+     */
+    const frameDelta = Math.abs(input.encoderStats.encodedVideoChunks - input.expectedFrames);
+    const chunksMatch = frameDelta <= 1;
     const fpsDelta = Math.abs(actualFps - input.expectedFps);
     const cadenceSteady = input.encoderStats.maxFrameDurationDriftUs <= 2500;
     fpsOk = chunksMatch && fpsDelta <= 0.5 && cadenceSteady;

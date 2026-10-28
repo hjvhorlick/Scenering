@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 620 utility
+   Colour matrix for every non-classic theme. 622 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -1448,6 +1448,9 @@ html[data-theme="apple"] .hover\:text-emerald-300:hover {
 html[data-theme="apple"] .hover\:text-gray-200:hover {
   color: rgb(58 58 60 / 1);
 }
+html[data-theme="apple"] .hover\:text-gray-300:hover {
+  color: rgb(66 66 69 / 1);
+}
 html[data-theme="apple"] .hover\:text-indigo-200:hover {
   color: rgb(0 94 196 / 1);
 }
@@ -1786,6 +1789,9 @@ html[data-theme="apple"] .text-red-300\/90 {
 }
 html[data-theme="apple"] .text-red-400 {
   color: rgb(225 46 46 / 1);
+}
+html[data-theme="apple"] .text-red-400\/60 {
+  color: rgb(225 46 46 / 0.6);
 }
 html[data-theme="apple"] .text-rose-200 {
   color: rgb(190 18 60 / 1);
@@ -3361,6 +3367,9 @@ html[data-theme="windows"] .hover\:text-emerald-300:hover {
 html[data-theme="windows"] .hover\:text-gray-200:hover {
   color: rgb(226 233 244 / 1);
 }
+html[data-theme="windows"] .hover\:text-gray-300:hover {
+  color: rgb(201 212 228 / 1);
+}
 html[data-theme="windows"] .hover\:text-indigo-200:hover {
   color: rgb(196 231 255 / 1);
 }
@@ -3699,6 +3708,9 @@ html[data-theme="windows"] .text-red-300\/90 {
 }
 html[data-theme="windows"] .text-red-400 {
   color: rgb(240 121 121 / 1);
+}
+html[data-theme="windows"] .text-red-400\/60 {
+  color: rgb(240 121 121 / 0.6);
 }
 html[data-theme="windows"] .text-rose-200 {
   color: rgb(251 208 213 / 1);
@@ -5274,6 +5286,9 @@ html[data-theme="playful"] .hover\:text-emerald-300:hover {
 html[data-theme="playful"] .hover\:text-gray-200:hover {
   color: rgb(245 240 255 / 1);
 }
+html[data-theme="playful"] .hover\:text-gray-300:hover {
+  color: rgb(228 219 250 / 1);
+}
 html[data-theme="playful"] .hover\:text-indigo-200:hover {
   color: rgb(255 211 230 / 1);
 }
@@ -5612,6 +5627,9 @@ html[data-theme="playful"] .text-red-300\/90 {
 }
 html[data-theme="playful"] .text-red-400 {
   color: rgb(255 113 113 / 1);
+}
+html[data-theme="playful"] .text-red-400\/60 {
+  color: rgb(255 113 113 / 0.6);
 }
 html[data-theme="playful"] .text-rose-200 {
   color: rgb(255 213 218 / 1);
@@ -7187,6 +7205,9 @@ html[data-theme="glass"] .hover\:text-emerald-300:hover {
 html[data-theme="glass"] .hover\:text-gray-200:hover {
   color: rgb(48 46 56 / 1);
 }
+html[data-theme="glass"] .hover\:text-gray-300:hover {
+  color: rgb(58 56 67 / 1);
+}
 html[data-theme="glass"] .hover\:text-indigo-200:hover {
   color: rgb(111 83 184 / 1);
 }
@@ -7525,6 +7546,9 @@ html[data-theme="glass"] .text-red-300\/90 {
 }
 html[data-theme="glass"] .text-red-400 {
   color: rgb(206 53 61 / 1);
+}
+html[data-theme="glass"] .text-red-400\/60 {
+  color: rgb(206 53 61 / 0.6);
 }
 html[data-theme="glass"] .text-rose-200 {
   color: rgb(177 30 73 / 1);
@@ -9100,6 +9124,9 @@ html[data-theme="porcelain"] .hover\:text-emerald-300:hover {
 html[data-theme="porcelain"] .hover\:text-gray-200:hover {
   color: rgb(67 64 58 / 1);
 }
+html[data-theme="porcelain"] .hover\:text-gray-300:hover {
+  color: rgb(82 77 69 / 1);
+}
 html[data-theme="porcelain"] .hover\:text-indigo-200:hover {
   color: rgb(36 90 153 / 1);
 }
@@ -9438,6 +9465,9 @@ html[data-theme="porcelain"] .text-red-300\/90 {
 }
 html[data-theme="porcelain"] .text-red-400 {
   color: rgb(225 46 46 / 1);
+}
+html[data-theme="porcelain"] .text-red-400\/60 {
+  color: rgb(225 46 46 / 0.6);
 }
 html[data-theme="porcelain"] .text-rose-200 {
   color: rgb(190 18 60 / 1);

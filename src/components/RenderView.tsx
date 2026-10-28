@@ -2203,7 +2203,11 @@ export default function RenderView({
           // tell me which part was slow.
           const renderTimer = new RenderTimer();
           renderTimer.stage("encoder setup");
-          const totalFrames = Math.ceil(estimatedTotalDuration * fpsUsed);
+          // THE frame count for this render. Deliberately the shared helper
+          // rather than an inline `Math.ceil`: the validator compares the
+          // encoder's output against its own count, and when the two rounded
+          // differently a finished file was thrown away by its own check.
+          const totalFrames = totalFrameCount(estimatedTotalDuration, fpsUsed);
           setRenderHealth((health) => ({ ...health, totalFrames }));
           // Configure real encoder instances before spending time on the audio
           // pass. A driver/configuration rejection is reported immediately.
@@ -2288,7 +2292,26 @@ export default function RenderView({
             ...buildSectionAudioPlan(introSec, outroSec, introDuration, estimatedTotalDuration),
           ];
           const offlineInsertMixer = new InsertAudioMixer(offlineCtx, offlineMusicAnalyser);
-          await offlineInsertMixer.load(insertPlans);
+          const loadedInsertTracks = await offlineInsertMixer.load(insertPlans);
+          /**
+           * A music track that would not decode used to be skipped in silence,
+           * so a music video could export with no music and look like a
+           * success. The render still goes ahead — a missing song must never
+           * cost the creator the whole export — but it is said out loud.
+           */
+          if (loadedInsertTracks < insertPlans.length) {
+            const missingTracks = insertPlans.length - loadedInsertTracks;
+            setClipAudioNotice((previous) =>
+              [
+                previous,
+                `${missingTracks} soundtrack${missingTracks === 1 ? "" : "s"} (music or sound effect) could not be loaded, ` +
+                  `so the export is silent where ${missingTracks === 1 ? "it" : "they"} should play. ` +
+                  "Re-select that music in the timeline and render again.",
+              ]
+                .filter(Boolean)
+                .join(" "),
+            );
+          }
           // Placed on the timeline up front, to the sample, so the render does
           // not have to stop once per frame to ask whether a sound is due.
           offlineInsertMixer.scheduleAll();
