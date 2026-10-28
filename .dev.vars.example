@@ -24,7 +24,7 @@ SESSION_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 SCENERING_OWNER_EMAIL=owner@example.test
 
 # Optional server-side stock media fallbacks (users can also supply their own
-# keys in the studio's API-keys modal; Speechify is always browser-held):
+# keys in the studio's API-keys modal). Piper uses no speech-provider key.
 PEXELS_API_KEY=
 PIXABAY_API_KEY=
 
