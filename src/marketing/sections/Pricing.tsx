@@ -14,10 +14,8 @@ import { useLocalizedPlanPrices } from "../../lib/use-localized-prices";
  */
 export default function Pricing() {
   const [interval, setInterval] = useState<BillingInterval>("monthly");
-  /* The same FastSpring-localized prices the /pricing page and the checkout
-     use — the visitor's own currency, tax included — instead of the USD
-     base numbers. Until FastSpring answers, displayPrice falls back to the
-     base price labelled "USD". */
+  /* Subscription prices are fixed in USD; the same display helper is shared
+     with /pricing and the in-app plan cards. */
   const { displayPrice } = useLocalizedPlanPrices();
 
   const capacity: Record<string, string> = {
@@ -58,7 +56,7 @@ export default function Pricing() {
               <p className="mkt-small">{capacity[slug]}</p>
               <a
                 className="mkt-btn mkt-btn-primary"
-                href={slug === "free" ? "/register" : `/pricing?plan=${slug}&interval=${interval}`}
+                href={slug === "free" ? "/register" : `/pricing?provider=paypal&plan=${slug}&interval=${interval}`}
               >
                 {slug === "free" ? "Start Free" : `Choose ${plan.name}`}
               </a>
@@ -68,13 +66,13 @@ export default function Pricing() {
       </div>
 
       <p className="mkt-small" style={{ textAlign: "center", marginTop: 14 }}>
-        Every plan renders 16:9 and 9:16, and narrates with your own Speechify key.{" "}
+        Every plan renders 16:9 and 9:16, with local Piper narration.{" "}
         <a href="/pricing">Compare every feature →</a>
       </p>
 
       <p className="pub-legal-note">
-        Prices include tax in your local currency, as FastSpring calculates them. By subscribing you agree to the{" "}
-        <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>. Cancel any time — see the{" "}
+        Subscription prices are shown in USD. PayPal Sandbox checkout is for testing only; production billing remains disabled. By subscribing you agree to the{" "}
+        <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>. See the{" "}
         <a href="/refunds">Refund &amp; Cancellation Policy</a> and <a href="/cookies">Cookie Information</a>.
       </p>
     </Section>

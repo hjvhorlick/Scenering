@@ -134,7 +134,7 @@ export function createMasteringChain(ctx: BaseAudioContext, mode: MasteringMode)
     //
     // THE BUG THIS REPLACES: this used to be a hard-knee (knee 0), 20:1,
     // 1 ms-attack limiter at -1.2 dB, sitting behind a +1.28 dB makeup gain
-    // and the presence/air EQ. Speechify narration is already loudness
+    // and the presence/air EQ. Generated narration is already loudness
     // maximised (-14 LUFS / -2 dBTP), so those gains pushed every loud
     // syllable, sibilant and plosive OVER the limiter's threshold. It fired
     // over and over through the whole voiceover: each firing is an instant

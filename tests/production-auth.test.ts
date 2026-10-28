@@ -12,7 +12,7 @@ process.env.SCENERING_OWNER_EMAIL = "hjvhorlick@gmail.com";
 delete process.env.DEV_SANDBOX_AUTO_PROVISION;
 installTestPlatformEnv();
 const { db } = await import("../src/db.ts");
-const { assertSecurePlatformConfiguration, registerPlatformRoutes, resolveFastSpringCustomerForUser } = await import("../server/platform.ts");
+const { assertSecurePlatformConfiguration, registerPlatformRoutes } = await import("../server/platform.ts");
 
 /**
  * A production server never hands a verification or password-reset link back
@@ -89,41 +89,17 @@ try {
   assert.ok(user);
   assert.equal(user.role, "user");
 
-  // Every billing customer entry point independently repairs an unmigrated DB.
-  testD1().sqlite.exec("DROP TABLE billing_customers");
-  assert.equal(await db.findBillingCustomerByUser(user.id, user.email), null);
-  testD1().sqlite.exec("DROP TABLE billing_customers");
-  assert.equal(await db.findBillingCustomer("acct_test"), null);
-  testD1().sqlite.exec("DROP TABLE billing_customers");
-  const mapping = { provider: "fastspring", providerCustomerId: "acct_test", userId: user.id, email: user.email, lastEventAt: "2026-10-19T00:00:00Z" };
-  await db.upsertBillingCustomer(mapping);
-  await db.upsertBillingCustomer({ ...mapping, email: "stale@example.com", lastEventAt: "2026-10-18T00:00:00Z" });
-  assert.equal((await db.findBillingCustomer("acct_test"))?.email, user.email);
-  assert.equal((await db.findBillingCustomerByUser(user.id))?.providerCustomerId, "acct_test");
-  assert.equal((await resolveFastSpringCustomerForUser(user))?.accountId, "acct_test");
-  assert.ok(testD1().sqlite.prepare("SELECT name FROM sqlite_master WHERE name = 'idx_billing_customers_user'").get());
-
-  // Login and session reads also work when the customer table is absent.
-  testD1().sqlite.exec("DROP TABLE billing_customers");
+  // Authentication and session reads remain independent of billing tables.
   const login = await post("login", credentials);
   assert.equal(login.status, 200);
   const cookie = String(login.headers.get("set-cookie")).split(";")[0];
-  testD1().sqlite.exec("DROP TABLE billing_customers");
   assert.equal((await fetch(`${base}/api/auth/session`, { headers: { Cookie: cookie } })).status, 200);
 
-  const findCustomer = db.findBillingCustomerByUser;
-  db.findBillingCustomerByUser = async () => { throw new Error("D1 schema unavailable"); };
-  try {
-    assert.equal(await resolveFastSpringCustomerForUser(user), null);
-    assert.equal((await post("login", credentials)).status, 200);
-    assert.equal((await fetch(`${base}/api/auth/session`, { headers: { Cookie: cookie } })).status, 200);
-  } finally {
-    db.findBillingCustomerByUser = findCustomer;
-  }
+  // Account reads still degrade safely if a legacy subscription schema is absent.
   const listSubscriptions = db.listSubscriptionsForUser;
   db.listSubscriptionsForUser = async () => { throw new Error("no such table: subscriptions"); };
   try {
-    assert.equal(await resolveFastSpringCustomerForUser(user), null);
+    assert.equal((await fetch(`${base}/api/account`, { headers: { Cookie: cookie } })).status, 200);
   } finally {
     db.listSubscriptionsForUser = listSubscriptions;
   }
@@ -182,7 +158,7 @@ try {
    * them used to reject the whole Promise.all and answer 500. They must now
    * degrade quietly: the owner keeps SceneForge, everybody else keeps their
    * stored membership. */
-  for (const table of ["subscriptions", "billing_customers", "complimentary_grants", "usage_records"]) {
+  for (const table of ["subscriptions", "complimentary_grants", "usage_records"]) {
     testD1().sqlite.exec(`DROP TABLE ${table}`);
   }
   const ownerAfterDrops = await post("login", { email: "hjvhorlick@gmail.com", password: credentials.password });

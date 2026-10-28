@@ -1,38 +1,6 @@
 import { env } from "./env";
 import type { BillingInterval, ExportCreativeManifest, PlanSlug } from "./config/plans.ts";
 
-/** Match migration 0006 when the remote database has not applied it yet. */
-async function ensureBillingCustomersTable(): Promise<void> {
-  await env().DB.prepare(`CREATE TABLE IF NOT EXISTS billing_customers (
-    provider TEXT NOT NULL DEFAULT 'fastspring',
-    provider_customer_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    email TEXT NOT NULL,
-    last_event_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (provider, provider_customer_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  )`).run();
-  await env().DB.prepare(
-    "CREATE INDEX IF NOT EXISTS idx_billing_customers_user ON billing_customers(user_id)"
-  ).run();
-}
-
-/** Execute a billing_customers query directly with zero DDL round-trips on
- *  migrated databases, self-healing transparently if migration 0006 is absent. */
-async function withBillingCustomersTable<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (err: any) {
-    if (/no such table:\s*billing_customers/i.test(String(err?.message || err))) {
-      await ensureBillingCustomersTable();
-      return fn();
-    }
-    throw err;
-  }
-}
-
 /* ------------------------------------------------------------------ *
  * 0007 runtime repair — the belt to server/platform.ts's braces.
  *
@@ -207,9 +175,7 @@ export interface Subscription {
   providerCustomerId: string | null;
   providerSubscriptionId: string | null;
   providerProductId: string | null;
-  /** FastSpring's product path (`sceneflow-monthly`, `sceneflow-yearly`,
-   *  `sceneforge-monthly`, `sceneforge-yearly`), which is what a webhook maps
-   *  back to a Scenering plan. */
+  /** Provider plan/product identifier, used to map verified events to a plan. */
   providerPriceId: string | null;
   planId: PlanSlug;
   billingInterval: BillingInterval;
@@ -227,6 +193,20 @@ export interface Subscription {
   /** `occurred_at` of the newest provider event applied to this row, used to
    *  drop late redeliveries of older events. */
   providerEventOccurredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PayPalCheckoutIntent {
+  id: string;
+  userId: string;
+  intentHash: string;
+  planId: Exclude<PlanSlug, "free">;
+  billingInterval: BillingInterval;
+  paypalPlanId: string;
+  paypalSubscriptionId: string | null;
+  status: "created" | "approved" | "completed" | "cancelled" | "expired";
+  expiresAt: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -512,6 +492,14 @@ function rowToSubscription(row: any): Subscription {
     customerPortalUrl: row.customer_portal_url, updatePaymentUrl: row.update_payment_url, cardBrand: row.card_brand,
     cardLastFour: row.card_last_four, renewalPrice: row.renewal_price,
     providerEventOccurredAt: row.provider_event_occurred_at, createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+function rowToPayPalCheckoutIntent(row: any): PayPalCheckoutIntent {
+  return {
+    id: String(row.id), userId: String(row.user_id), intentHash: String(row.intent_hash),
+    planId: row.plan_id, billingInterval: row.billing_interval, paypalPlanId: String(row.paypal_plan_id),
+    paypalSubscriptionId: row.paypal_subscription_id ?? null, status: row.status,
+    expiresAt: String(row.expires_at), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   };
 }
 function rowToUsage(row: any): UsageRecord {
@@ -833,10 +821,10 @@ export const db = {
   // --- subscriptions ---
   /** The subscription to show and to authorise against.
    *
-   *  A member can end up with more than one row — a second purchase, or a
-   *  re-subscription after a cancellation, arrives from FastSpring with a new
-   *  subscription id. The one that matters is the one FastSpring told us about most
-   *  recently, so this orders by `updated_at` and breaks a tie on `created_at`
+   *  A member can end up with more than one row — a second purchase or a
+   *  re-subscription after a cancellation arrives with a new subscription id.
+   *  The latest verified provider update is authoritative, so this orders by
+   *  `updated_at` and breaks a tie on `created_at`
    *  and `id`: two rows written in the same millisecond must not make the
    *  answer depend on which one SQLite happens to return first. */
   async findActiveSubscriptionByUserId(userId: string): Promise<Subscription | null> {
@@ -852,14 +840,6 @@ export const db = {
   },
   async findSubscriptionByProviderId(providerSubscriptionId: string): Promise<Subscription | null> {
     const row = await env().DB.prepare("SELECT * FROM subscriptions WHERE provider_subscription_id = ?").bind(providerSubscriptionId).first();
-    return row ? rowToSubscription(row) : null;
-  },
-  /** Newest non-expired subscription for a FastSpring account id (`acct…`).
-   *  Subscription webhooks always carry the account id even when they carry
-   *  no `tags`, so this is the fallback that matches a renewal, a
-   *  cancellation or a failed payment to the account that owns it. */
-  async findSubscriptionByProviderCustomerId(providerCustomerId: string): Promise<Subscription | null> {
-    const row = await env().DB.prepare("SELECT * FROM subscriptions WHERE provider_customer_id = ? AND status != 'expired' ORDER BY created_at DESC LIMIT 1").bind(providerCustomerId).first();
     return row ? rowToSubscription(row) : null;
   },
   async listExpirableSubscriptions(): Promise<Subscription[]> {
@@ -902,6 +882,39 @@ export const db = {
     setClauses.push("updated_at = ?"); values.push(nowIso());
     values.push(id);
     await env().DB.prepare(`UPDATE subscriptions SET ${setClauses.join(", ")} WHERE id = ?`).bind(...values).run();
+  },
+
+  async createPayPalCheckoutIntent(row: Omit<PayPalCheckoutIntent, "createdAt" | "updatedAt">): Promise<PayPalCheckoutIntent> {
+    const stamp = nowIso();
+    const intent: PayPalCheckoutIntent = { ...row, createdAt: stamp, updatedAt: stamp };
+    await env().DB.prepare(`INSERT INTO paypal_checkout_intents
+      (id, user_id, intent_hash, plan_id, billing_interval, paypal_plan_id, paypal_subscription_id, status, expires_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(intent.id, intent.userId, intent.intentHash, intent.planId, intent.billingInterval, intent.paypalPlanId,
+        intent.paypalSubscriptionId, intent.status, intent.expiresAt, intent.createdAt, intent.updatedAt).run();
+    return intent;
+  },
+  async expirePayPalCheckoutIntents(): Promise<void> {
+    await env().DB.prepare("UPDATE paypal_checkout_intents SET status = 'expired', updated_at = ? WHERE status IN ('created', 'approved') AND expires_at <= ?")
+      .bind(nowIso(), nowIso()).run();
+  },
+  async findPayPalCheckoutIntentByHash(intentHash: string): Promise<PayPalCheckoutIntent | null> {
+    const row = await env().DB.prepare("SELECT * FROM paypal_checkout_intents WHERE intent_hash = ? AND expires_at > ?")
+      .bind(intentHash, nowIso()).first();
+    return row ? rowToPayPalCheckoutIntent(row) : null;
+  },
+  async findPayPalCheckoutIntentBySubscriptionId(subscriptionId: string): Promise<PayPalCheckoutIntent | null> {
+    const row = await env().DB.prepare("SELECT * FROM paypal_checkout_intents WHERE paypal_subscription_id = ?")
+      .bind(subscriptionId).first();
+    return row ? rowToPayPalCheckoutIntent(row) : null;
+  },
+  async bindPayPalCheckoutIntent(intentId: string, subscriptionId: string, status: PayPalCheckoutIntent["status"] = "created"): Promise<void> {
+    await env().DB.prepare("UPDATE paypal_checkout_intents SET paypal_subscription_id = ?, status = ?, updated_at = ? WHERE id = ?")
+      .bind(subscriptionId, status, nowIso(), intentId).run();
+  },
+  async updatePayPalCheckoutIntent(intentId: string, status: PayPalCheckoutIntent["status"]): Promise<void> {
+    await env().DB.prepare("UPDATE paypal_checkout_intents SET status = ?, updated_at = ? WHERE id = ?")
+      .bind(status, nowIso(), intentId).run();
   },
 
   // --- usage records ---
@@ -1055,45 +1068,6 @@ export const db = {
     await env().DB.prepare("UPDATE complimentary_codes SET status = 'expired' WHERE status = 'active' AND expires_at <= ?").bind(nowSql()).run();
   },
 
-  // --- billing customer ↔ account mapping (FastSpring) ---
-  /** Records which Scenering account a FastSpring customer account (`acct…`)
-   *  belongs to. Written from the webhooks that carry an email address or the
-   *  checkout `tags`, so that later subscription webhooks can still be matched.
-   *  Mapping alone never grants a plan; only a subscription event does. */
-  async upsertBillingCustomer(row: { provider: string; providerCustomerId: string; userId: string; email: string; lastEventAt: string | null }): Promise<void> {
-    /* The WHERE on the update half is what makes a late redelivery harmless:
-       an event older than the newest one already applied changes nothing. */
-    await withBillingCustomersTable(() =>
-      env().DB.prepare(
-        `INSERT INTO billing_customers (provider, provider_customer_id, user_id, email, last_event_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(provider, provider_customer_id) DO UPDATE SET user_id = excluded.user_id, email = excluded.email, last_event_at = excluded.last_event_at, updated_at = excluded.updated_at
-       WHERE billing_customers.last_event_at IS NULL OR billing_customers.last_event_at < excluded.last_event_at`
-      ).bind(row.provider, row.providerCustomerId, row.userId, row.email, row.lastEventAt, nowIso(), nowIso()).run()
-    );
-  },
-  /** One customer-id mapping for `provider` (defaults to `"fastspring"`). */
-  async findBillingCustomer(providerCustomerId: string, provider?: string): Promise<{ userId: string; email: string } | null> {
-    const row = await withBillingCustomersTable(() =>
-      provider
-        ? env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? AND provider = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId, provider).first()
-        : env().DB.prepare("SELECT user_id, email FROM billing_customers WHERE provider_customer_id = ? ORDER BY updated_at DESC LIMIT 1").bind(providerCustomerId).first()
-    );
-    return row ? { userId: String((row as any).user_id), email: String((row as any).email) } : null;
-  },
-  async findBillingCustomerByUser(userId: string, email?: string, provider = "fastspring"): Promise<{ providerCustomerId: string; userId: string; email: string } | null> {
-    const cleanEmail = String(email || "").trim().toLowerCase();
-    const row = await withBillingCustomersTable(() =>
-      cleanEmail
-        ? env().DB.prepare(
-            "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = ? AND (user_id = ? OR lower(email) = ?) ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, updated_at DESC LIMIT 1"
-          ).bind(provider, userId, cleanEmail, userId).first()
-        : env().DB.prepare(
-            "SELECT provider_customer_id, user_id, email FROM billing_customers WHERE provider = ? AND user_id = ? ORDER BY updated_at DESC LIMIT 1"
-          ).bind(provider, userId).first()
-    );
-    return row ? { providerCustomerId: String((row as any).provider_customer_id), userId: String((row as any).user_id), email: String((row as any).email) } : null;
-  },
   async listSubscriptionsForUser(userId: string): Promise<Subscription[]> {
     const result = await env().DB.prepare(
       "SELECT * FROM subscriptions WHERE user_id = ? ORDER BY updated_at DESC, created_at DESC, id DESC"
@@ -1110,7 +1084,33 @@ export const db = {
     await env().DB.prepare("INSERT INTO webhook_events (id, provider_event_id, event_name, status, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .bind(newId("wh"), row.providerEventId, row.eventName, row.status, jsonOrNull(row.payload), nowIso()).run();
   },
-  /** Marks on the original event's row that a redelivery arrived (FastSpring
+  /** Atomically claims an incoming webhook event so concurrent redeliveries cannot apply it twice. */
+  async claimWebhookEvent(row: Omit<WebhookEvent, "id" | "createdAt">): Promise<boolean> {
+    const result = await env().DB.prepare("INSERT OR IGNORE INTO webhook_events (id, provider_event_id, event_name, status, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(newId("wh"), row.providerEventId, row.eventName, row.status, jsonOrNull(row.payload), nowIso()).run();
+    return Number(result.meta?.changes || 0) > 0;
+  },
+  async findWebhookEventByProviderId(providerEventId: string): Promise<WebhookEvent | null> {
+    const row = await env().DB.prepare("SELECT * FROM webhook_events WHERE provider_event_id = ?").bind(providerEventId).first();
+    return row ? rowToWebhookEvent(row) : null;
+  },
+  async claimRetryableWebhookEvent(providerEventId: string): Promise<boolean> {
+    const result = await env().DB.prepare("UPDATE webhook_events SET status = 'processing', created_at = ? WHERE provider_event_id = ? AND status = 'retryable_error'").bind(nowIso(), providerEventId).run();
+    return Number(result.meta?.changes || 0) > 0;
+  },
+  async reclaimStaleWebhookEvent(providerEventId: string, staleBefore: string): Promise<boolean> {
+    const result = await env().DB.prepare("UPDATE webhook_events SET created_at = ? WHERE provider_event_id = ? AND status = 'processing' AND created_at < ?")
+      .bind(nowIso(), providerEventId, staleBefore).run();
+    return Number(result.meta?.changes || 0) > 0;
+  },
+  async updateWebhookEventStatus(providerEventId: string, status: string, payload?: unknown): Promise<void> {
+    if (payload === undefined) {
+      await env().DB.prepare("UPDATE webhook_events SET status = ? WHERE provider_event_id = ?").bind(status, providerEventId).run();
+    } else {
+      await env().DB.prepare("UPDATE webhook_events SET status = ?, payload = ? WHERE provider_event_id = ?").bind(status, jsonOrNull(payload), providerEventId).run();
+    }
+  },
+  /** Marks on the original event's row that a redelivery arrived (provider
    *  retries until it gets a 2xx, and the owner's webhook log should show it)
    *  without creating a second row for the same provider event id — the column
    *  is UNIQUE, and the original outcome must stay visible. */

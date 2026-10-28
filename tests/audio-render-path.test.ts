@@ -8,7 +8,7 @@
  *   1. the automatic mastering chain (audio-mastering.ts) — the preview plays
  *      through one soft limiter only; the render used to add vocal EQ, a
  *      compressor, +1.28 dB of makeup gain and then a hard-knee 20:1 limiter
- *      that an already maximised Speechify track over-drove on every loud
+ *      that an already normalised narration track over-drove on every loud
  *      syllable;
  *   2. the WebCodecs audio encode (offline-export.ts) — PCM is now fed in the
  *      codec's natural packet size, and the packets the platform encoder

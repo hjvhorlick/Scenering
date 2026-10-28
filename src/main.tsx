@@ -71,7 +71,16 @@ function Loading({ label }: { label: string }) {
 }
 
 function Root() {
-  const { route } = useRoute();
+  const { route, path } = useRoute();
+
+  // The Arena development preview opens the actual Studio application.
+  if (import.meta.env.DEV && path === "/") {
+    return (
+      <Suspense fallback={<Loading label="Opening the studio preview…" />}>
+        <StudioEntry />
+      </Suspense>
+    );
+  }
 
   if (route === "studio") {
     return (
@@ -90,9 +99,32 @@ function Root() {
   }
 
   return (
-    <Suspense fallback={<Loading label="Loading…" />}>
-      <MarketingSite />
-    </Suspense>
+    <>
+      <Suspense fallback={<Loading label="Loading…" />}>
+        <MarketingSite />
+      </Suspense>
+      {import.meta.env.DEV && (
+        <nav
+          aria-label="Development previews"
+          style={{
+            position: "fixed",
+            right: 16,
+            bottom: 16,
+            zIndex: 9999,
+            display: "flex",
+            gap: 8,
+            padding: 8,
+            borderRadius: 12,
+            border: "1px solid #55634f",
+            background: "rgba(21, 29, 24, .96)",
+            boxShadow: "0 8px 28px rgba(0,0,0,.3)",
+            font: "600 12px/1.2 system-ui, sans-serif",
+          }}
+        >
+          <a href="/app" style={{ color: "#d9f99d", padding: "8px 10px", textDecoration: "none" }}>Open Scenering Studio</a>
+        </nav>
+      )}
+    </>
   );
 }
 

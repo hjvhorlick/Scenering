@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { getStoredApiKeys, saveStoredApiKeys, clearStoredApiKeys, CustomerApiKeys } from "../lib/api-keys";
-import { verifySpeechifyApiKey } from "../lib/speechify-client";
 import Icon, { iconify } from "./icons/Icon";
 
 interface ApiKeysModalProps {
@@ -13,15 +12,12 @@ interface ApiKeysModalProps {
 export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalProps) {
   const [pexelsKey, setPexelsKey] = useState("");
   const [pixabayKey, setPixabayKey] = useState("");
-  const [speechifyKey, setSpeechifyKey] = useState("");
   const [showPexels, setShowPexels] = useState(false);
   const [showPixabay, setShowPixabay] = useState(false);
-  const [showSpeechify, setShowSpeechify] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResults, setTestResults] = useState<{
     pexels?: { valid: boolean; message: string };
     pixabay?: { valid: boolean; message: string };
-    speechify?: { valid: boolean; message: string };
   } | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -30,7 +26,6 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
       const current = getStoredApiKeys();
       setPexelsKey(current.pexelsKey);
       setPixabayKey(current.pixabayKey);
-      setSpeechifyKey(current.speechifyKey);
       setTestResults(null);
       setSaveSuccess(false);
     }
@@ -47,18 +42,15 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
     const keysToSave: CustomerApiKeys = {
       pexelsKey: pexelsKey.trim(),
       pixabayKey: pixabayKey.trim(),
-      speechifyKey: speechifyKey.trim(),
     };
 
     const results: {
       pexels?: { valid: boolean; message: string };
       pixabay?: { valid: boolean; message: string };
-      speechify?: { valid: boolean; message: string };
     } = {};
 
     try {
-      // Only image-search keys are sent to Scenering's existing image-key
-      // verifier. Speechify is tested below with a direct browser request.
+      // Only stock-image search keys are sent to Scenering's image-key verifier.
       if (keysToSave.pexelsKey || keysToSave.pixabayKey) {
         const res = await fetch("/api/verify-keys", {
           method: "POST",
@@ -87,17 +79,6 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
         }
       }
 
-      if (keysToSave.speechifyKey) {
-        try {
-          results.speechify = await verifySpeechifyApiKey(keysToSave.speechifyKey);
-        } catch (error: any) {
-          results.speechify = {
-            valid: false,
-            message: error?.message || "Speechify could not verify this API key directly.",
-          };
-        }
-      }
-
       saveStoredApiKeys(keysToSave);
       setTestResults(results);
       setSaveSuccess(true);
@@ -117,7 +98,6 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
       clearStoredApiKeys();
       setPexelsKey("");
       setPixabayKey("");
-      setSpeechifyKey("");
       setTestResults(null);
       setSaveSuccess(true);
       if (onSaved) onSaved();
@@ -160,7 +140,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
             <div>
               <h2 className="text-base font-semibold text-white">Provider API Keys</h2>
               <p className="text-xs text-gray-400">
-                Add your own stock-image and Speechify voiceover keys
+                Add your own stock-image search keys
               </p>
             </div>
           </div>
@@ -183,9 +163,9 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
               <span>
-                {pexelsKey.trim() || pixabayKey.trim() || speechifyKey.trim()
-                  ? "Keys are saved in this browser. Speechify requests go directly to Speechify; Pexels and Pixabay keys are used for stock-image search."
-                  : "All provider keys have been cleared from this browser."}
+                {pexelsKey.trim() || pixabayKey.trim()
+                  ? "Stock-image search keys are saved in this browser."
+                  : "All stock-image search keys have been cleared from this browser."}
               </span>
             </div>
           )}
@@ -306,65 +286,6 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
             </p>
           </div>
 
-          {/* Speechify Section */}
-          <div className="space-y-2 pt-2 border-t border-hairline">
-            <div className="flex items-center justify-between gap-3">
-              <label className="text-xs font-semibold text-gray-200 uppercase tracking-wider flex items-center gap-2">
-                <span>Speechify API Key</span>
-                {speechifyKey.trim() ? (
-                  <span className="text-[10px] bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.5 rounded font-normal normal-case">
-                    Configured
-                  </span>
-                  ) : (
-                    <span className="text-[10px] bg-amber-950/60 text-amber-300 px-1.5 py-0.5 rounded font-normal normal-case">
-                      Required for voiceover
-                    </span>
-                  )}
-              </label>
-              <a
-                href="https://platform.speechify.ai/api-keys"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-indigo-400 hover:text-indigo-300 underline inline-flex items-center gap-1 whitespace-nowrap"
-              >
-                Get Speechify key
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </a>
-            </div>
-            <div className="relative">
-              <input
-                type={showSpeechify ? "text" : "password"}
-                value={speechifyKey}
-                onChange={(e) => setSpeechifyKey(e.target.value)}
-                placeholder="Paste your Speechify API key..."
-                autoComplete="off"
-                className="w-full pl-3 pr-10 py-2.5 bg-gray-800/80 border border-hairline rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono"
-              />
-              <button
-                type="button"
-                onClick={() => setShowSpeechify(!showSpeechify)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 text-xs px-1"
-              >
-                {showSpeechify ? "Hide" : "Show"}
-              </button>
-            </div>
-            {testResults?.speechify && (
-              <p
-                className={`text-xs ${
-                  testResults.speechify.valid ? "text-emerald-400" : "text-amber-400"
-                } flex items-center gap-1.5 pt-0.5`}
-              >
-                <span>{iconify(testResults.speechify.valid ? "✓" : "⚠")}</span>
-                {testResults.speechify.message}
-              </p>
-            )}
-            <p className="text-[11px] text-gray-400">
-              Used for voiceovers and voice previews. The key stays in this browser and goes directly from your browser to Speechify; Scenering and Cloudflare do not receive it.
-            </p>
-          </div>
-
           {/* Wikimedia fallback reminder */}
           <div className="p-3 bg-gray-800/60 rounded-xl border border-hairline text-xs text-gray-400 space-y-1">
             <div className="font-semibold text-gray-300 flex items-center gap-1.5">
@@ -380,7 +301,7 @@ export default function ApiKeysModal({ isOpen, onClose, onSaved }: ApiKeysModalP
             <button
               type="button"
               onClick={handleClear}
-              disabled={testing || (!pexelsKey && !pixabayKey && !speechifyKey)}
+              disabled={testing || (!pexelsKey && !pixabayKey)}
               className="px-3 py-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Clear Keys

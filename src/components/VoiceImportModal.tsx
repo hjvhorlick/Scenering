@@ -1,11 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import type { Scene } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
-import { getStoredApiKeys } from "../lib/api-keys";
 import { STUDIO_VOICE_PRESETS, migrateLegacyVoiceId } from "../data/voice-presets";
-import { isPlanVoiceIncluded } from "../config/plans";
-import { getInterfacePlan, useSession } from "../lib/session";
-import { buildSpeechifyVoiceDirectory, fetchSpeechifyVoiceCatalog, synthesizeSpeechify } from "../lib/speechify-client";
+import { fetchSceneAudioWithTimeline } from "../lib/tts-cache";
 import Icon, { iconify } from "./icons/Icon";
 import { AUDIO_UPLOAD_ACCEPT, assertMediaFile, probeAudioFile } from "../lib/media-file";
 
@@ -28,17 +25,6 @@ export const REAL_STUDIO_VOICES = STUDIO_VOICE_PRESETS.map((voice) => ({
   sampleText: voice.sampleText,
 }));
 
-export interface RealVoiceItem {
-  /** Provider ID used for search/display; profileId routes through the plan-aware curated binding when available. */
-  id: string;
-  profileId?: string;
-  name: string;
-  gender: "male" | "female";
-  locale: string;
-  lang: string;
-  friendlyName: string;
-}
-
 export default function VoiceImportModal({
   scene,
   targetSceneIndex = 0,
@@ -48,72 +34,19 @@ export default function VoiceImportModal({
   onAttachAudio,
   onApplyVoiceToAllScenes,
 }: VoiceImportModalProps) {
-  const { account } = useSession();
-  const currentPlan = getInterfacePlan(account);
-  const canBrowseAdvancedVoices = isPlanVoiceIncluded(currentPlan, "speechify_male_02");
-  const [activeTab, setActiveTab] = useState<"library" | "all_directory" | "upload" | "record">("library");
+  const [activeTab, setActiveTab] = useState<"library" | "upload" | "record">("library");
   const [genderFilter, setGenderFilter] = useState<"all" | "male" | "female">("all");
-  const [selectedVoiceId, setSelectedVoiceId] = useState<string>(migrateLegacyVoiceId(scene?.voice_id) || "speechify_male_01");
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>(migrateLegacyVoiceId(scene?.voice_id) || "scenering_male_01");
   const [previewPlayingId, setPreviewPlayingId] = useState<string | null>(null);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // The customer-owned Speechify key is used only for browser-to-Speechify
-  // requests; it is never attached to a Scenering/Cloudflare request.
-  const [allVoicesList, setAllVoicesList] = useState<RealVoiceItem[]>([]);
-  const [loadingVoicesList, setLoadingVoicesList] = useState(false);
-  const [voiceDirectoryError, setVoiceDirectoryError] = useState<string | null>(null);
-  const [hasSpeechifyKey, setHasSpeechifyKey] = useState(() => Boolean(getStoredApiKeys().speechifyKey));
-
   useEffect(() => {
     if (!isOpen) return;
-    setSelectedVoiceId(migrateLegacyVoiceId(scene?.voice_id) || "speechify_male_01");
+    setSelectedVoiceId(migrateLegacyVoiceId(scene?.voice_id) || "scenering_male_01");
     setAttachmentError(null);
   }, [isOpen, scene?.voice_id]);
-
-  useEffect(() => {
-    const refreshProviderKey = (event: Event) => {
-      const detail = event instanceof CustomEvent ? event.detail : null;
-      const nextKey = typeof detail?.speechifyKey === "string"
-        ? detail.speechifyKey.trim()
-        : getStoredApiKeys().speechifyKey;
-      setHasSpeechifyKey(Boolean(nextKey));
-      setAllVoicesList([]);
-      setVoiceDirectoryError(null);
-    };
-    window.addEventListener("scenering-api-keys-updated", refreshProviderKey);
-    return () => window.removeEventListener("scenering-api-keys-updated", refreshProviderKey);
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    if (!hasSpeechifyKey) {
-      setAllVoicesList([]);
-      setLoadingVoicesList(false);
-      setVoiceDirectoryError(null);
-      return;
-    }
-    if (allVoicesList.length > 0) return;
-
-    let active = true;
-    setLoadingVoicesList(true);
-    setVoiceDirectoryError(null);
-    fetchSpeechifyVoiceCatalog()
-      .then((catalog) => buildSpeechifyVoiceDirectory(catalog, canBrowseAdvancedVoices))
-      .then((voices) => {
-        if (active) setAllVoicesList(voices);
-      })
-      .catch((error: any) => {
-        if (!active) return;
-        console.warn("Could not load Speechify voices directly:", error);
-        setVoiceDirectoryError(error?.message || "Could not load Speechify voices.");
-      })
-      .finally(() => {
-        if (active) setLoadingVoicesList(false);
-      });
-    return () => { active = false; };
-  }, [isOpen, allVoicesList.length, hasSpeechifyKey, canBrowseAdvancedVoices]);
 
   // File Upload State
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -161,7 +94,7 @@ export default function VoiceImportModal({
       });
     } catch (error: any) {
       setPreviewPlayingId(null);
-      setAttachmentError(error?.message || "Speechify voice preview failed. Check the key in API Keys.");
+      setAttachmentError(error?.message || "Piper voice preview failed. Check the model download status and retry.");
     }
   };
 
@@ -251,7 +184,7 @@ export default function VoiceImportModal({
     }
   };
 
-  // Attach a selected Speechify voice to the scene. Errors are surfaced in
+  // Attach a selected Piper voice to the scene. Errors are surfaced in
   // this modal; a failed request must never leave a blank/placeholder track.
   const handleAttachLibraryVoice = async (applyAll = false) => {
     if (!scene && !applyAll) return;
@@ -267,22 +200,24 @@ export default function VoiceImportModal({
       }
 
       if (scene) {
-        const synthesized = await synthesizeSpeechify(scene.text || "", selectedVoiceId);
-        const audioUrl = URL.createObjectURL(synthesized.blob);
+        const synthesized = await fetchSceneAudioWithTimeline(scene.text || "", selectedVoiceId);
+        if (!synthesized) throw new Error("Piper returned no audio.");
+        const blob = new Blob([synthesized.rawBuffer], { type: synthesized.mimeType });
+        const audioUrl = URL.createObjectURL(blob);
         try {
-          const { duration } = await probeAudioFile(synthesized.blob);
-          onAttachAudio(scene.id, audioUrl, `Speechify Voice (${selectedVoiceId})`, Math.ceil(duration));
+          const { duration } = await probeAudioFile(blob);
+          onAttachAudio(scene.id, audioUrl, `Piper Voice (${selectedVoiceId})`, Math.ceil(duration));
           setLoadingAudio(false);
           onClose();
         } catch {
           URL.revokeObjectURL(audioUrl);
           setLoadingAudio(false);
-          setAttachmentError("The Speechify audio could not be decoded by this browser.");
+          setAttachmentError("The Piper WAV could not be decoded by this browser.");
         }
       }
     } catch (error: any) {
       setLoadingAudio(false);
-      setAttachmentError(error?.message || "Could not attach this Speechify voice.");
+      setAttachmentError(error?.message || "Could not attach this Piper voice.");
     }
   };
 
@@ -362,17 +297,6 @@ export default function VoiceImportModal({
             <Icon glyph="🎭" /> Studio Real Voices
           </button>
           <button
-            onClick={() => setActiveTab("all_directory")}
-            className={`opt-btn ${activeTab === "all_directory" ? "opt-btn-on" : ""}`}
-          >
-            <Icon glyph="🌐" /> {hasSpeechifyKey ? "Speechify Voice Library" : "More Voices"}
-            {allVoicesList.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800">
-                {allVoicesList.length}
-              </span>
-            )}
-          </button>
-          <button
             onClick={() => setActiveTab("upload")}
             className={`opt-btn ${activeTab === "upload" ? "opt-btn-on" : ""}`}
           >
@@ -391,11 +315,6 @@ export default function VoiceImportModal({
           {attachmentError && (
             <div role="alert" className="p-3 bg-amber-950/70 border border-amber-700/70 rounded-xl text-xs text-amber-200">
               {attachmentError}
-            </div>
-          )}
-          {activeTab === "all_directory" && voiceDirectoryError && (
-            <div role="alert" className="p-3 bg-amber-950/70 border border-amber-700/70 rounded-xl text-xs text-amber-200">
-              {voiceDirectoryError}
             </div>
           )}
           {/* TAB 1: STUDIO REAL VOICES */}
@@ -509,150 +428,6 @@ export default function VoiceImportModal({
                     Script Text for Scene {targetSceneIndex + 1}:
                   </span>
                   <p className="text-gray-200 italic">"{scene.text}"</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 2: PROVIDER VOICE DIRECTORY */}
-          {activeTab === "all_directory" && (
-            <div className="space-y-4">
-              {/* Filter and Search Bar */}
-              <div className="flex flex-col sm:flex-row gap-3 bg-gray-950/60 p-3 rounded-xl border border-hairline">
-                {/* Search */}
-                <div className="flex-1">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={hasSpeechifyKey ? "Search Speechify voices by name, ID, or locale..." : "Search available voices by name, ID, or locale..."}
-                    className="w-full bg-gray-900 border border-hairline rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-
-                {/* Gender Tabs */}
-                <div className="flex gap-1.5 self-start sm:self-auto">
-                  <button
-                    onClick={() => setGenderFilter("all")}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                      genderFilter === "all"
-                        ? "bg-indigo-600 text-white"
-                        : "bg-gray-800 text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    All ({allVoicesList.length})
-                  </button>
-                  <button
-                    onClick={() => setGenderFilter("male")}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 ${
-                      genderFilter === "male"
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-800 text-gray-400 hover:text-blue-300"
-                    }`}
-                  >
-                    <Icon glyph="👨" /> Male ({allVoicesList.filter((v) => v.gender === "male").length})
-                  </button>
-                  <button
-                    onClick={() => setGenderFilter("female")}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 ${
-                      genderFilter === "female"
-                        ? "bg-pink-600 text-white"
-                        : "bg-gray-800 text-gray-400 hover:text-pink-300"
-                    }`}
-                  >
-                    <Icon glyph="👩" /> Female ({allVoicesList.filter((v) => v.gender === "female").length})
-                  </button>
-                </div>
-              </div>
-
-              {!hasSpeechifyKey && (
-                <div className="p-3 bg-indigo-950/50 border border-indigo-800/60 rounded-xl text-xs text-indigo-200">
-                  Add your Speechify API key in the top-right API Keys modal to browse the voice library and synthesize previews.
-                </div>
-              )}
-
-              {loadingVoicesList ? (
-                <div className="p-8 text-center text-xs text-indigo-300 flex items-center justify-center gap-2">
-                  <span className="animate-spin"><Icon glyph="⏳" /></span>
-                  <span>{hasSpeechifyKey ? "Loading Speechify voice library..." : "Loading available voices..."}</span>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {allVoicesList
-                    .filter((v) => {
-                      if (genderFilter !== "all" && v.gender !== genderFilter) return false;
-                      if (!searchQuery.trim()) return true;
-                      const q = searchQuery.toLowerCase();
-                      return (
-                        v.name.toLowerCase().includes(q) ||
-                        v.friendlyName.toLowerCase().includes(q) ||
-                        v.id.toLowerCase().includes(q) ||
-                        v.locale.toLowerCase().includes(q)
-                      );
-                    })
-                    .map((v) => {
-                      const voiceSelectionId = v.profileId || v.id;
-                      const isSelected = selectedVoiceId === voiceSelectionId || selectedVoiceId === v.id;
-                      const isPlaying = previewPlayingId === voiceSelectionId;
-                      const cleanName = v.friendlyName.trim();
-                      return (
-                        <div
-                          key={v.id}
-                          onClick={() => setSelectedVoiceId(voiceSelectionId)}
-                          className={`p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
-                            isSelected
-                              ? v.gender === "male"
-                                ? "bg-blue-950/40 border-blue-500 ring-1 ring-blue-500"
-                                : "bg-pink-950/40 border-pink-500 ring-1 ring-pink-500"
-                              : "bg-gray-800/40 hover:bg-gray-800/80 border-hairline text-gray-300"
-                          }`}
-                        >
-                          <div>
-                            <div className="flex items-center justify-between gap-1 mb-1">
-                              <span className="font-bold text-xs text-white flex items-center gap-1.5 truncate">
-                                <span>{iconify(v.gender === "male" ? "👨" : "👩")}</span>
-                                <span className="truncate">{cleanName}</span>
-                              </span>
-                              <span
-                                className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-semibold border shrink-0 ${
-                                  v.gender === "male"
-                                    ? "bg-blue-950 text-blue-300 border-blue-800"
-                                    : "bg-pink-950 text-pink-300 border-pink-800"
-                                }`}
-                              >
-                                {v.locale}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-gray-400 font-mono truncate">{v.id}</p>
-                          </div>
-
-                          <div className="pt-2 mt-2 border-t border-hairline flex items-center justify-between">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePlayVoiceSample(
-                                  voiceSelectionId,
-                                  `Hello! This is a Speechify voice sample for ${cleanName}.`
-                                );
-                              }}
-                              className={`text-xs font-semibold flex items-center gap-1 px-2.5 py-1 rounded-lg transition-colors ${
-                                isPlaying
-                                  ? "bg-amber-600 text-white"
-                                  : "bg-gray-700 hover:bg-gray-600 text-gray-200"
-                              }`}
-                            >
-                              <span>{iconify(isPlaying ? "⏹️ Stop" : "▶ Listen Sample")}</span>
-                            </button>
-                            {isSelected && (
-                              <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
-                                <Icon glyph="✓" /> Selected
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
                 </div>
               )}
             </div>
@@ -811,7 +586,7 @@ export default function VoiceImportModal({
             </button>
           </div>
 
-          {(activeTab === "library" || activeTab === "all_directory") && (
+          {activeTab === "library" && (
             <div className="flex items-center gap-2">
               {allScenes.length > 1 && onApplyVoiceToAllScenes && (
                 <button

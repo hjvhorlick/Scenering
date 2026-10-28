@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — Piper voiceover migration
+
+- Replaced Speechify synthesis and its API-key settings with browser-local Piper, routed through preview, per-scene/batch narration, render preparation, WAV downloads and voiceover ZIP exports.
+- Kept the established 20 Scenering profile descriptions and added one-at-a-time preview controls; legacy `speechify_male_*` / `speechify_female_*` selections migrate to provider-independent Scenering IDs.
+- Removed the standalone Piper test route and added a development CTA that opens a local demo project directly at Voiceover.
+- Updated marketing, legal, FAQ and help disclosures for first-use runtime/model downloads, local text synthesis and estimated (not verified) word timing.
+- Validation: both TypeScript checks, all 85 test suites and the production Vite build pass. This does not verify real browser model downloads or audible playback. The current 20 profiles share a smaller provisional model set; model/accent selection and license/attribution audits remain open.
+
 ## Unreleased — a music video no longer fails its own frame check
 
 - **Reported:** a music video with no narration rendered all the way to the end
@@ -952,45 +960,13 @@
   the picker keeps a further 48px margin (`mr-12`) between itself and the
   button.
 
-## Unreleased — FastSpring merchant-of-record billing
+## Unreleased — PayPal Sandbox-only subscriptions
 
-- **FastSpring is the sole merchant of record.** All four subscriptions
-  ($19/$180 SceneFlow, $39/$372 SceneForge) sell through FastSpring's popup
-  storefront (`sbl.min.js`) or a server-created session checkout, with the
-  signed-in account's `user_id` and `email` riding every order as FastSpring
-  `tags` — so each `subscription.*` webhook maps a payment back to the right
-  Scenering account and grants `sceneflow` or `sceneforge` on the
-  `memberships` row. `POST /api/webhooks/fastspring` verifies `X-FS-Signature`
-  (base64 HMAC-SHA256 over the raw body, constant-time), records every event
-  id in `webhook_events` for replay protection, and handles
-  `subscription.activated`, `subscription.updated`,
-  `subscription.charge.completed`, `subscription.charge.failed`,
-  `subscription.canceled` and `subscription.deactivated`. The Account window
-  provides FastSpring's Account Management links (cancel, update card,
-  customer portal), the owner's checklist displays the *FastSpring billing*
-  panel, the CSP allows `*.onfastspring.com` and `*.fastspring.com`, and
-  `FASTSPRING.md` is the step-by-step dashboard runbook. FastSpring's
-  `canceled` is "will not renew" rather than terminal, so a cancelled
-  subscription keeps its plan until the paid period ends.
-- **Localized prices on every plan surface come from FastSpring's Store
-  Builder Library (`sbl.min.js`).** When `FASTSPRING_STOREFRONT` is set, the
-  pricing page, homepage pricing cards, Setup Studio plan cards and the
-  Account & Membership modal display the visitor's localized price and currency
-  returned by FastSpring, falling back cleanly to the USD base price until
-  FastSpring responds.
-- **A public Refund and Cancellation Policy at `/refunds`.** `/refunds` covers
-  how to cancel, what is not refunded automatically, how to request a refund,
-  that FastSpring holds and returns the money as merchant of record,
-  digital-content cooling-off, statutory rights and chargebacks; the Terms
-  point at it, and it is linked from the public footer, the in-app corner
-  menu, the legal cross-links and the sitemap.
-- **The admin Manual includes a Taking payments topic** with the exact values
-  to enter in the FastSpring dashboard (storefront path, the four product
-  paths, the webhook URL and its HMAC secret, the six events to tick) and what
-  to check when a payment did not grant access.
-- Migration `0006_billing.sql` renames `subscriptions.provider_variant_id` to
-  `provider_price_id`, adds `provider_event_occurred_at` and the
-  `billing_customers` table, and sets the provider default to `fastspring`.
+- Paid checkout now uses PayPal Sandbox only in development. Production checkout and PayPal Live mode remain disabled; no deployment, webhook registration or Live cutover is included.
+- The authenticated server creates a short-lived checkout intent, verifies the resulting subscription with PayPal, and grants access only from verified provider state. Webhook event IDs are processed idempotently; account management and cancellation use PayPal Sandbox.
+- Plan prices and benefits are unchanged: SceneFlow is $19/month or $180/year; SceneForge is $39/month or $372/year. Pricing is displayed in USD.
+- Legacy database migrations and stored subscription records are retained for compatibility and historical access. No destructive data cleanup is included.
+- See [`PAYPAL_SANDBOX.md`](PAYPAL_SANDBOX.md) for server-side configuration, reachability verification before registering a callback, and pre-rollout checks.
 
 ## Unreleased — The Email Centre: marketing email members actually asked for
 

@@ -138,14 +138,14 @@ for (const plan of PLAN_ORDER.filter((slug) => slug !== "free")) {
 // VIP in their video.
 h.eq(auditVipForExport("free", {}).length, 0, "an empty project triggers no warning");
 h.ok(
-  auditVipForExport("free", { selectedVoice: "speechify_male_01", sceneVoices: ["speechify_female_02"] }).some((finding) => finding.id === "voice"),
+  auditVipForExport("free", { selectedVoice: "scenering_male_01", sceneVoices: ["scenering_female_02"] }).some((finding) => finding.id === "voice"),
   "a VIP voice assigned to one scene is caught even when the global voice is Free"
 );
 h.eq(
   auditVipForExport("free", {
     inserts: [insert({ id: "s", category: "call_to_action", type: "cta_youtube_subscribe", title: "Subscribe" })],
     captionsConfig: { enabled: true, preset: "newsroom_clean" } as any,
-    selectedVoice: "speechify_female_01",
+    selectedVoice: "scenering_female_01",
   }).length,
   0,
   "the standard Subscribe button, a Free caption style and a Free voice raise nothing"

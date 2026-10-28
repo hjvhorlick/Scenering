@@ -125,7 +125,7 @@ h.eq(usageRows(free.id).length, 0, "refused requests record nothing");
 
 /* Rendering is free: the render's authorisation never counts anything,
    and a render still in progress does not block downloading a finished one. */
-const manifest = { features: [], voice: "speechify_male_01", captionStyle: "newsroom_clean", backgroundMusic: [], audioVisualisers: [], callsToAction: [] };
+const manifest = { features: [], voice: "scenering_male_01", captionStyle: "newsroom_clean", backgroundMusic: [], audioVisualisers: [], callsToAction: [] };
 const reserved = await call("/api/usage/final-export/reserve", free.cookie, { projectId: "project-1", durationMinutes: 3, format: "long", creativeManifest: manifest });
 h.eq(reserved.status, 201, "a final render is still authorised before encoding");
 const midRender = await download(free.cookie, 3);

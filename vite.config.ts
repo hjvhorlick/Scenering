@@ -4,6 +4,24 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { applyPageShell, pageShellFiles } from "./src/marketing/seo-head";
 
+/** Forward the public preview's browser origin through Vite's local API proxy.
+ * Wrangler otherwise sees only Host: 127.0.0.1:8787, so the Worker correctly
+ * rejects a browser POST whose Origin is the Arena preview hostname. Vite
+ * overwrites these values from its incoming request; no client-supplied
+ * forwarded headers are trusted directly by the Worker. */
+function forwardPreviewOrigin(proxy: any) {
+  proxy.on("proxyReq", (proxyReq: any, req: any) => {
+    const incomingHost = String(req.headers.host || "").split(",")[0].trim();
+    if (incomingHost) proxyReq.setHeader("x-forwarded-host", incomingHost);
+
+    let incomingProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+    if (!incomingProto && typeof req.headers.origin === "string") {
+      try { incomingProto = new URL(req.headers.origin).protocol.replace(/:$/, ""); } catch { /* origin guard rejects malformed origins */ }
+    }
+    if (incomingProto) proxyReq.setHeader("x-forwarded-proto", incomingProto);
+  });
+}
+
 /**
  * Every public page gets its own HTML file: its own title, description,
  * canonical URL, link-preview tags, structured data and a short readable
@@ -73,11 +91,13 @@ export default defineConfig(({ mode }) => {
     host: "0.0.0.0",
     port: 3000,
     allowedHosts: true,
+    // Build-check artifacts are temporary and must never trigger a full SPA reload.
+    watch: { ignored: ["**/.arena/**"] },
     // Let a local Vite preview reach the companion Wrangler worker using
     // same-origin URLs, just like the production asset/worker deployment.
     proxy: {
-      "/api": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true },
-      "/functions/v1": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true },
+      "/api": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true, configure: forwardPreviewOrigin },
+      "/functions/v1": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true, configure: forwardPreviewOrigin },
     },
   },
   preview: {
@@ -85,8 +105,8 @@ export default defineConfig(({ mode }) => {
     port: 3000,
     allowedHosts: true,
     proxy: {
-      "/api": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true },
-      "/functions/v1": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true },
+      "/api": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true, configure: forwardPreviewOrigin },
+      "/functions/v1": { target: "http://127.0.0.1:8787", changeOrigin: true, xfwd: true, configure: forwardPreviewOrigin },
     },
   },
   build: {

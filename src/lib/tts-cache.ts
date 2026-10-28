@@ -1,7 +1,9 @@
 import type { Scene } from "../types";
-import { SPEECHIFY_RENDITION, synthesizeSpeechify } from "./speechify-client";
+import { sanitizeTextForSpeech } from "./speech-sanitizer";
 import { cachedNarrationBelongsToScene, isPreparedVoiceoverId } from "./voiceover-generation";
 import type { WordTiming } from "./word-sync";
+
+const LOCAL_TTS_RENDITION = "piper-browser-v1";
 
 export interface CachedAudioItem {
   audioBuffer: AudioBuffer;
@@ -141,10 +143,9 @@ export function getSharedAudioContext(): AudioContext {
 }
 
 export function getAudioCacheKey(sceneId: number, voiceId: string, text: string): string {
-  // voiceId is the style, not the Speechify voice behind it, so narration is
-  // also filed under the rendition: audio made with an earlier casting or
-  // earlier audio settings is never replayed after either changes.
-  return `${SPEECHIFY_RENDITION}_${sceneId}_${voiceId}_${text.trim()}`;
+  // Cache by engine rendition, Scenering profile and script so prior-model
+  // audio is never replayed after the voice mapping or text changes.
+  return `${LOCAL_TTS_RENDITION}_${sceneId}_${voiceId}_${text.trim()}`;
 }
 
 export function getCachedSceneAudio(sceneId: number, voiceId?: string, text?: string): CachedAudioItem | undefined {
@@ -171,7 +172,7 @@ export function hasCachedSceneAudio(sceneId: number, voiceId?: string, text?: st
 function sceneAudioKeyPrefix(sceneId: number): string {
   // `getAudioCacheKey` is `${rendition}_${sceneId}_${voiceId}_${text}`, so the
   // trailing underscore keeps scene 12 from matching scene 123's files.
-  return `${SPEECHIFY_RENDITION}_${sceneId}_`;
+  return `${LOCAL_TTS_RENDITION}_${sceneId}_`;
 }
 
 /**
@@ -381,7 +382,7 @@ export async function resolveSceneAudioBuffer(
   audioCtx: AudioContext
 ): Promise<{ buffer: AudioBuffer; duration: number; url: string; words?: WordTiming[] } | null> {
   const text = (scene.text || "").trim();
-  const voiceId = scene.voice_id || "speechify_male_01";
+  const voiceId = scene.voice_id || "scenering_male_01";
   const key = getAudioCacheKey(scene.id, voiceId, text);
 
   // 1. Resolve only the CURRENT selection. The old scene-id fallback ignored
@@ -443,7 +444,7 @@ export async function resolveSceneAudioBuffer(
   // 2. Check the exact voice+text IndexedDB key when there is no explicit
   // audio URL, or when the saved URL is an object URL from a previous page
   // session. Generated blob URLs cannot survive a reload; user-imported
-  // prepared tracks are excluded because they are not Speechify cache entries.
+  // prepared tracks are excluded because they are user-supplied audio.
   try {
     const preparedTrack = /^(custom|import):/.test(scene.voice_id || "");
     const staleGeneratedBlob = Boolean(scene.audio_url?.startsWith("blob:") && !preparedTrack);
@@ -506,22 +507,59 @@ export async function resolveSceneAudioBuffer(
   return null;
 }
 
-/** Fetch Speechify narration and its word timings directly from Speechify. */
+/** Generate Piper narration and estimated word timings for the existing caption pipeline. */
 export async function fetchSceneAudioWithTimeline(
   text: string,
   voice: string,
-  opts: { timeoutMs?: number; signal?: AbortSignal } = {}
+  opts: {
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    onProgress?: (update: { stage: string; message: string; fraction?: number }) => void;
+  } = {}
 ): Promise<{ rawBuffer: ArrayBuffer; mimeType: string; words: WordTiming[] } | null> {
   const cleanText = (text || "").trim();
   if (!cleanText) return null;
-  const audio = await synthesizeSpeechify(cleanText, voice, opts);
-  return { rawBuffer: audio.rawBuffer, mimeType: audio.mimeType, words: audio.words };
+
+  const profileId = voice.startsWith("piper:") ? voice.slice("piper:".length) : voice;
+  const [{ resolvePiperProfileVoice, estimatePiperWordTimings }, { synthesizePiper }] = await Promise.all([
+    import("./piper-profile-bindings"),
+    import("./piper-tts"),
+  ]);
+  const profile = resolvePiperProfileVoice(`piper:${profileId}`);
+  if (!profile) throw new Error(`No Piper voice is mapped for Scenering profile “${profileId}”.`);
+  const speechText = sanitizeTextForSpeech(cleanText).trim();
+  const result = await synthesizePiper(profile.voice, speechText, opts.onProgress, profile.speed);
+  return {
+    rawBuffer: result.wav,
+    mimeType: "audio/wav",
+    words: estimatePiperWordTimings(speechText, result.duration),
+  };
+}
+
+/** Explicitly warm one mapped Piper profile and its runtime in the browser worker. */
+export async function preloadLocalPiperVoice(
+  voice: string,
+  onProgress?: (update: { stage: string; message: string; fraction?: number }) => void
+): Promise<void> {
+  const [{ resolvePiperProfileVoice }, { preloadPiperVoice }] = await Promise.all([
+    import("./piper-profile-bindings"),
+    import("./piper-tts"),
+  ]);
+  const profile = resolvePiperProfileVoice(voice);
+  if (!profile) throw new Error("This Scenering voice profile has no Piper model mapping yet.");
+  await preloadPiperVoice(profile.voice, onProgress);
+}
+
+/** Stop an in-flight development Piper download/synthesis and release its worker. */
+export async function stopLocalPiperSynthesis(): Promise<void> {
+  const module = await import("./piper-tts");
+  module.stopPiperWorker();
 }
 
 // Pre-generate and cache TTS audio for all scenes in memory
 export async function pregenerateAllScenesAudio(
   scenes: Scene[],
-  defaultVoice: string = "speechify_male_01",
+  defaultVoice: string = "scenering_male_01",
   onProgress?: (completed: number, total: number) => void
 ): Promise<Map<number, CachedAudioItem>> {
   const audioCtx = getSharedAudioContext();
@@ -575,9 +613,9 @@ export async function pregenerateAllScenesAudio(
         continue;
       }
 
-      // 2. Synthesize directly with Speechify (including word timings for captions)
+      // 2. Synthesize with Piper and carry the estimated word timings into captions.
       const withTimeline = await fetchSceneAudioWithTimeline(text, voiceId, { timeoutMs: 15000 });
-      if (!withTimeline) throw new Error(`Speechify returned no audio for scene ${scene.id}.`);
+      if (!withTimeline) throw new Error(`Piper returned no audio for scene ${scene.id}.`);
       const decoded = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
       const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
       const blobUrl = URL.createObjectURL(blob);
@@ -596,7 +634,7 @@ export async function pregenerateAllScenesAudio(
       setCachedSceneAudio(scene.id, voiceId, text, item);
       results.set(scene.id, item);
     } catch (error) {
-      console.warn(`Speechify audio preparation failed for scene ${scene.id}:`, error);
+      console.warn(`Piper audio preparation failed for scene ${scene.id}:`, error);
       throw error;
     }
 

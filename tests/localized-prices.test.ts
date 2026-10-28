@@ -13,8 +13,8 @@ import {
 const h = createHarness();
 const read = (path: string) => readFileSync(path, "utf8");
 
-/* The catalogue stays in USD and FastSpring converts per country; these
-   helpers only label and re-format what FastSpring returns. */
+/* Subscription prices are fixed in USD; currency helpers remain available for
+   other displays but subscription checkout does not localize or convert them. */
 h.eq(PLAN_BASE_CURRENCY, "USD", "the plan base currency is USD");
 h.eq(formatBasePrice(PLAN_CONFIG.sceneflow.prices.monthly), "$19 USD", "a fallback base price is labelled USD");
 h.eq(formatBasePrice(PLAN_CONFIG.sceneforge.prices.yearly), "$372 USD", "yearly fallback base price is labelled USD");
@@ -55,14 +55,13 @@ for (const surface of PRICE_SURFACES) {
 }
 
 const hook = read("src/lib/use-localized-prices.ts");
-h.ok(hook.includes("loadFastSpringBuilder("), "the hook previews prices through FastSpring Store Builder Library");
-h.ok(hook.includes("onFastSpringData("), "the hook reads FastSpring's localized product data");
+h.ok(hook.includes("/api/billing/public-config"), "the hook loads the public PayPal Sandbox plan configuration");
 h.ok(hook.includes("/api/billing/public-config"), "the hook loads the public billing config");
 h.ok(hook.includes("formatBasePrice"), "the hook's fallback is the labelled USD base price");
 
-/* Static copy that cannot localize says it is quoting the USD base. */
+/* Static copy states the fixed USD subscription prices and Sandbox limitation. */
 const legal = read("src/marketing/legal-content.ts");
-h.ok(legal.includes("US Dollar (USD) base prices") && legal.includes("$19/month") && legal.includes("$39/month"), "the Terms label their prices as USD base prices");
-h.ok(legal.includes("local currency"), "the Terms say the local-currency checkout total is the price paid");
+h.ok(legal.includes("US Dollars (USD)") && legal.includes("$19/month") && legal.includes("$39/month"), "the Terms label their subscription prices as USD");
+h.ok(legal.includes("production billing is disabled"), "the Terms disclose that checkout is Sandbox-only");
 
 h.done("localized-prices");

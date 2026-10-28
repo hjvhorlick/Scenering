@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 622 utility
+   Colour matrix for every non-classic theme. 629 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -185,6 +185,9 @@ html[data-theme="apple"] .bg-emerald-700 {
 }
 html[data-theme="apple"] .bg-emerald-900 {
   background-color: rgb(206 248 229 / 1);
+}
+html[data-theme="apple"] .bg-emerald-900\/40 {
+  background-color: rgb(206 248 229 / 0.4);
 }
 html[data-theme="apple"] .bg-emerald-900\/50 {
   background-color: rgb(206 248 229 / 0.5);
@@ -723,6 +726,9 @@ html[data-theme="apple"] .border-emerald-600\/80 {
 html[data-theme="apple"] .border-emerald-700 {
   border-color: rgb(4 120 87 / 1);
 }
+html[data-theme="apple"] .border-emerald-700\/50 {
+  border-color: rgb(4 120 87 / 0.5);
+}
 html[data-theme="apple"] .border-emerald-700\/60 {
   border-color: rgb(4 120 87 / 0.6);
 }
@@ -1204,6 +1210,9 @@ html[data-theme="apple"] .hover\:bg-amber-950\/50:hover {
 html[data-theme="apple"] .hover\:bg-blue-50:hover {
   background-color: rgb(239 246 255 / 1);
 }
+html[data-theme="apple"] .hover\:bg-blue-500:hover {
+  background-color: rgb(167 199 251 / 1);
+}
 html[data-theme="apple"] .hover\:bg-blue-600:hover {
   background-color: rgb(157 185 246 / 1);
 }
@@ -1224,6 +1233,9 @@ html[data-theme="apple"] .hover\:bg-emerald-600:hover {
 }
 html[data-theme="apple"] .hover\:bg-emerald-800:hover {
   background-color: rgb(183 243 219 / 1);
+}
+html[data-theme="apple"] .hover\:bg-emerald-800\/60:hover {
+  background-color: rgb(183 243 219 / 0.6);
 }
 html[data-theme="apple"] .hover\:bg-emerald-900:hover {
   background-color: rgb(206 248 229 / 1);
@@ -1371,6 +1383,9 @@ html[data-theme="apple"] .hover\:bg-slate-700:hover {
 }
 html[data-theme="apple"] .hover\:bg-teal-900:hover {
   background-color: rgb(198 250 240 / 1);
+}
+html[data-theme="apple"] .hover\:bg-white\/10:hover {
+  background-color: rgb(255 255 255 / 0.1);
 }
 html[data-theme="apple"] .hover\:bg-white\/25:hover {
   background-color: rgb(255 255 255 / 0.25);
@@ -1655,6 +1670,9 @@ html[data-theme="apple"] .text-cyan-400 {
 html[data-theme="apple"] .text-emerald-100 {
   color: rgb(4 120 87 / 1);
 }
+html[data-theme="apple"] .text-emerald-100\/75 {
+  color: rgb(4 120 87 / 0.75);
+}
 html[data-theme="apple"] .text-emerald-100\/90 {
   color: rgb(4 120 87 / 0.9);
 }
@@ -1675,6 +1693,9 @@ html[data-theme="apple"] .text-emerald-400 {
 }
 html[data-theme="apple"] .text-emerald-400\/80 {
   color: rgb(8 159 111 / 0.8);
+}
+html[data-theme="apple"] .text-emerald-50 {
+  color: rgb(4 120 87 / 1);
 }
 html[data-theme="apple"] .text-fuchsia-100 {
   color: rgb(162 28 175 / 1);
@@ -2104,6 +2125,9 @@ html[data-theme="windows"] .bg-emerald-700 {
 }
 html[data-theme="windows"] .bg-emerald-900 {
   background-color: rgb(10 74 57 / 1);
+}
+html[data-theme="windows"] .bg-emerald-900\/40 {
+  background-color: rgb(10 74 57 / 0.4);
 }
 html[data-theme="windows"] .bg-emerald-900\/50 {
   background-color: rgb(10 74 57 / 0.5);
@@ -2642,6 +2666,9 @@ html[data-theme="windows"] .border-emerald-600\/80 {
 html[data-theme="windows"] .border-emerald-700 {
   border-color: rgb(11 113 84 / 1);
 }
+html[data-theme="windows"] .border-emerald-700\/50 {
+  border-color: rgb(11 113 84 / 0.5);
+}
 html[data-theme="windows"] .border-emerald-700\/60 {
   border-color: rgb(11 113 84 / 0.6);
 }
@@ -3123,6 +3150,9 @@ html[data-theme="windows"] .hover\:bg-amber-950\/50:hover {
 html[data-theme="windows"] .hover\:bg-blue-50:hover {
   background-color: rgb(240 246 254 / 1);
 }
+html[data-theme="windows"] .hover\:bg-blue-500:hover {
+  background-color: rgb(70 133 235 / 1);
+}
 html[data-theme="windows"] .hover\:bg-blue-600:hover {
   background-color: rgb(49 103 223 / 1);
 }
@@ -3143,6 +3173,9 @@ html[data-theme="windows"] .hover\:bg-emerald-600:hover {
 }
 html[data-theme="windows"] .hover\:bg-emerald-800:hover {
   background-color: rgb(11 90 68 / 1);
+}
+html[data-theme="windows"] .hover\:bg-emerald-800\/60:hover {
+  background-color: rgb(11 90 68 / 0.6);
 }
 html[data-theme="windows"] .hover\:bg-emerald-900:hover {
   background-color: rgb(10 74 57 / 1);
@@ -3290,6 +3323,9 @@ html[data-theme="windows"] .hover\:bg-slate-700:hover {
 }
 html[data-theme="windows"] .hover\:bg-teal-900:hover {
   background-color: rgb(23 74 71 / 1);
+}
+html[data-theme="windows"] .hover\:bg-white\/10:hover {
+  background-color: rgb(238 243 250 / 0.1);
 }
 html[data-theme="windows"] .hover\:bg-white\/25:hover {
   background-color: rgb(238 243 250 / 0.25);
@@ -3574,6 +3610,9 @@ html[data-theme="windows"] .text-cyan-400 {
 html[data-theme="windows"] .text-emerald-100 {
   color: rgb(211 248 229 / 1);
 }
+html[data-theme="windows"] .text-emerald-100\/75 {
+  color: rgb(211 248 229 / 0.75);
+}
 html[data-theme="windows"] .text-emerald-100\/90 {
   color: rgb(211 248 229 / 0.9);
 }
@@ -3594,6 +3633,9 @@ html[data-theme="windows"] .text-emerald-400 {
 }
 html[data-theme="windows"] .text-emerald-400\/80 {
   color: rgb(62 201 150 / 0.8);
+}
+html[data-theme="windows"] .text-emerald-50 {
+  color: rgb(237 252 245 / 1);
 }
 html[data-theme="windows"] .text-fuchsia-100 {
   color: rgb(249 233 254 / 1);
@@ -4023,6 +4065,9 @@ html[data-theme="playful"] .bg-emerald-700 {
 }
 html[data-theme="playful"] .bg-emerald-900 {
   background-color: rgb(0 86 63 / 1);
+}
+html[data-theme="playful"] .bg-emerald-900\/40 {
+  background-color: rgb(0 86 63 / 0.4);
 }
 html[data-theme="playful"] .bg-emerald-900\/50 {
   background-color: rgb(0 86 63 / 0.5);
@@ -4561,6 +4606,9 @@ html[data-theme="playful"] .border-emerald-600\/80 {
 html[data-theme="playful"] .border-emerald-700 {
   border-color: rgb(0 126 90 / 1);
 }
+html[data-theme="playful"] .border-emerald-700\/50 {
+  border-color: rgb(0 126 90 / 0.5);
+}
 html[data-theme="playful"] .border-emerald-700\/60 {
   border-color: rgb(0 126 90 / 0.6);
 }
@@ -5042,6 +5090,9 @@ html[data-theme="playful"] .hover\:bg-amber-950\/50:hover {
 html[data-theme="playful"] .hover\:bg-blue-50:hover {
   background-color: rgb(249 252 255 / 1);
 }
+html[data-theme="playful"] .hover\:bg-blue-500:hover {
+  background-color: rgb(56 132 255 / 1);
+}
 html[data-theme="playful"] .hover\:bg-blue-600:hover {
   background-color: rgb(22 95 255 / 1);
 }
@@ -5062,6 +5113,9 @@ html[data-theme="playful"] .hover\:bg-emerald-600:hover {
 }
 html[data-theme="playful"] .hover\:bg-emerald-800:hover {
   background-color: rgb(0 103 74 / 1);
+}
+html[data-theme="playful"] .hover\:bg-emerald-800\/60:hover {
+  background-color: rgb(0 103 74 / 0.6);
 }
 html[data-theme="playful"] .hover\:bg-emerald-900:hover {
   background-color: rgb(0 86 63 / 1);
@@ -5209,6 +5263,9 @@ html[data-theme="playful"] .hover\:bg-slate-700:hover {
 }
 html[data-theme="playful"] .hover\:bg-teal-900:hover {
   background-color: rgb(10 89 84 / 1);
+}
+html[data-theme="playful"] .hover\:bg-white\/10:hover {
+  background-color: rgb(255 255 255 / 0.1);
 }
 html[data-theme="playful"] .hover\:bg-white\/25:hover {
   background-color: rgb(255 255 255 / 0.25);
@@ -5493,6 +5550,9 @@ html[data-theme="playful"] .text-cyan-400 {
 html[data-theme="playful"] .text-emerald-100 {
   color: rgb(213 255 234 / 1);
 }
+html[data-theme="playful"] .text-emerald-100\/75 {
+  color: rgb(213 255 234 / 0.75);
+}
 html[data-theme="playful"] .text-emerald-100\/90 {
   color: rgb(213 255 234 / 0.9);
 }
@@ -5513,6 +5573,9 @@ html[data-theme="playful"] .text-emerald-400 {
 }
 html[data-theme="playful"] .text-emerald-400\/80 {
   color: rgb(31 237 162 / 0.8);
+}
+html[data-theme="playful"] .text-emerald-50 {
+  color: rgb(244 255 250 / 1);
 }
 html[data-theme="playful"] .text-fuchsia-100 {
   color: rgb(252 242 255 / 1);
@@ -5942,6 +6005,9 @@ html[data-theme="glass"] .bg-emerald-700 {
 }
 html[data-theme="glass"] .bg-emerald-900 {
   background-color: rgb(219 250 236 / 1);
+}
+html[data-theme="glass"] .bg-emerald-900\/40 {
+  background-color: rgb(219 250 236 / 0.4);
 }
 html[data-theme="glass"] .bg-emerald-900\/50 {
   background-color: rgb(219 250 236 / 0.5);
@@ -6480,6 +6546,9 @@ html[data-theme="glass"] .border-emerald-600\/80 {
 html[data-theme="glass"] .border-emerald-700 {
   border-color: rgb(27 113 99 / 1);
 }
+html[data-theme="glass"] .border-emerald-700\/50 {
+  border-color: rgb(27 113 99 / 0.5);
+}
 html[data-theme="glass"] .border-emerald-700\/60 {
   border-color: rgb(27 113 99 / 0.6);
 }
@@ -6961,6 +7030,9 @@ html[data-theme="glass"] .hover\:bg-amber-950\/50:hover {
 html[data-theme="glass"] .hover\:bg-blue-50:hover {
   background-color: rgb(243 248 255 / 1);
 }
+html[data-theme="glass"] .hover\:bg-blue-500:hover {
+  background-color: rgb(191 214 252 / 1);
+}
 html[data-theme="glass"] .hover\:bg-blue-600:hover {
   background-color: rgb(183 204 249 / 1);
 }
@@ -6981,6 +7053,9 @@ html[data-theme="glass"] .hover\:bg-emerald-600:hover {
 }
 html[data-theme="glass"] .hover\:bg-emerald-800:hover {
   background-color: rgb(202 246 228 / 1);
+}
+html[data-theme="glass"] .hover\:bg-emerald-800\/60:hover {
+  background-color: rgb(202 246 228 / 0.6);
 }
 html[data-theme="glass"] .hover\:bg-emerald-900:hover {
   background-color: rgb(219 250 236 / 1);
@@ -7128,6 +7203,9 @@ html[data-theme="glass"] .hover\:bg-slate-700:hover {
 }
 html[data-theme="glass"] .hover\:bg-teal-900:hover {
   background-color: rgb(214 251 244 / 1);
+}
+html[data-theme="glass"] .hover\:bg-white\/10:hover {
+  background-color: rgb(255 255 255 / 0.098);
 }
 html[data-theme="glass"] .hover\:bg-white\/25:hover {
   background-color: rgb(255 255 255 / 0.245);
@@ -7412,6 +7490,9 @@ html[data-theme="glass"] .text-cyan-400 {
 html[data-theme="glass"] .text-emerald-100 {
   color: rgb(20 115 96 / 1);
 }
+html[data-theme="glass"] .text-emerald-100\/75 {
+  color: rgb(20 115 96 / 0.75);
+}
 html[data-theme="glass"] .text-emerald-100\/90 {
   color: rgb(20 115 96 / 0.9);
 }
@@ -7432,6 +7513,9 @@ html[data-theme="glass"] .text-emerald-400 {
 }
 html[data-theme="glass"] .text-emerald-400\/80 {
   color: rgb(24 148 116 / 0.8);
+}
+html[data-theme="glass"] .text-emerald-50 {
+  color: rgb(20 115 96 / 1);
 }
 html[data-theme="glass"] .text-fuchsia-100 {
   color: rgb(153 38 170 / 1);
@@ -7861,6 +7945,9 @@ html[data-theme="porcelain"] .bg-emerald-700 {
 }
 html[data-theme="porcelain"] .bg-emerald-900 {
   background-color: rgb(202 248 227 / 1);
+}
+html[data-theme="porcelain"] .bg-emerald-900\/40 {
+  background-color: rgb(202 248 227 / 0.4);
 }
 html[data-theme="porcelain"] .bg-emerald-900\/50 {
   background-color: rgb(202 248 227 / 0.5);
@@ -8399,6 +8486,9 @@ html[data-theme="porcelain"] .border-emerald-600\/80 {
 html[data-theme="porcelain"] .border-emerald-700 {
   border-color: rgb(4 120 87 / 1);
 }
+html[data-theme="porcelain"] .border-emerald-700\/50 {
+  border-color: rgb(4 120 87 / 0.5);
+}
 html[data-theme="porcelain"] .border-emerald-700\/60 {
   border-color: rgb(4 120 87 / 0.6);
 }
@@ -8880,6 +8970,9 @@ html[data-theme="porcelain"] .hover\:bg-amber-950\/50:hover {
 html[data-theme="porcelain"] .hover\:bg-blue-50:hover {
   background-color: rgb(239 246 255 / 1);
 }
+html[data-theme="porcelain"] .hover\:bg-blue-500:hover {
+  background-color: rgb(157 193 251 / 1);
+}
 html[data-theme="porcelain"] .hover\:bg-blue-600:hover {
   background-color: rgb(146 177 245 / 1);
 }
@@ -8900,6 +8993,9 @@ html[data-theme="porcelain"] .hover\:bg-emerald-600:hover {
 }
 html[data-theme="porcelain"] .hover\:bg-emerald-800:hover {
   background-color: rgb(175 242 215 / 1);
+}
+html[data-theme="porcelain"] .hover\:bg-emerald-800\/60:hover {
+  background-color: rgb(175 242 215 / 0.6);
 }
 html[data-theme="porcelain"] .hover\:bg-emerald-900:hover {
   background-color: rgb(202 248 227 / 1);
@@ -9047,6 +9143,9 @@ html[data-theme="porcelain"] .hover\:bg-slate-700:hover {
 }
 html[data-theme="porcelain"] .hover\:bg-teal-900:hover {
   background-color: rgb(194 250 239 / 1);
+}
+html[data-theme="porcelain"] .hover\:bg-white\/10:hover {
+  background-color: rgb(255 255 255 / 0.1);
 }
 html[data-theme="porcelain"] .hover\:bg-white\/25:hover {
   background-color: rgb(255 255 255 / 0.25);
@@ -9331,6 +9430,9 @@ html[data-theme="porcelain"] .text-cyan-400 {
 html[data-theme="porcelain"] .text-emerald-100 {
   color: rgb(4 120 87 / 1);
 }
+html[data-theme="porcelain"] .text-emerald-100\/75 {
+  color: rgb(4 120 87 / 0.75);
+}
 html[data-theme="porcelain"] .text-emerald-100\/90 {
   color: rgb(4 120 87 / 0.9);
 }
@@ -9351,6 +9453,9 @@ html[data-theme="porcelain"] .text-emerald-400 {
 }
 html[data-theme="porcelain"] .text-emerald-400\/80 {
   color: rgb(8 159 111 / 0.8);
+}
+html[data-theme="porcelain"] .text-emerald-50 {
+  color: rgb(4 120 87 / 1);
 }
 html[data-theme="porcelain"] .text-fuchsia-100 {
   color: rgb(162 28 175 / 1);

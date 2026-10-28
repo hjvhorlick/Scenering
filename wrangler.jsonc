@@ -84,10 +84,7 @@
     "PUBLIC_APP_URL": "https://scenering.com",
     "SCENERING_OWNER_EMAIL": "hjvhorlick@gmail.com",
     "EMAIL_PROVIDER": "resend",
-    // FastSpring merchant of record (see FASTSPRING.md).
-    // Plain var, not a secret — it names which storefront to open; the
-    // webhook secret and optional API credentials go in with `wrangler secret put`.
-    "FASTSPRING_STOREFRONT": ""
+    "PAYPAL_ENVIRONMENT": "sandbox"
   },
   // Worker Previews: what Workers Builds deploys for every branch other than
   // main (`npx wrangler preview`). Wrangler 4.147+ refuses to run that command
@@ -115,7 +112,7 @@
       "PUBLIC_APP_URL": "",
       "SCENERING_OWNER_EMAIL": "",
       "EMAIL_PROVIDER": "console",
-      "FASTSPRING_STOREFRONT": ""
+      "PAYPAL_ENVIRONMENT": "sandbox"
     }
   }
 }

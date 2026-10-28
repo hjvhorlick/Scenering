@@ -7,6 +7,13 @@
 # when NODE_ENV is unset; only say "development" here.
 NODE_ENV=development
 
+# The local Vite reverse proxy is the only trusted proxy. It forwards the
+# preview host/protocol for same-origin checks and secure cookies.
+TRUST_PROXY=1
+DEV_EMBEDDED_PREVIEW=1
+# Let the current local/preview request host define its own link origin.
+PUBLIC_APP_URL=
+
 # Required in production (≥ 32 chars — e.g. `openssl rand -hex 32`).
 # The server reads SESSION_SECRET; SCENERING_AUTH_SECRET is only a legacy
 # alias, never the name to configure a deployment with.
@@ -30,12 +37,13 @@ RESEND_WEBHOOK_SECRET=
 EMAIL_FROM=Scenering <noreply@scenering.com>
 EMAIL_REPLY_TO=support@scenering.com
 
-# FastSpring billing (see FASTSPRING.md for the full setup checklist):
-FASTSPRING_STOREFRONT=
-FASTSPRING_WEBHOOK_SECRET=
-FASTSPRING_API_USERNAME=
-FASTSPRING_API_PASSWORD=
-FASTSPRING_SCENEFLOW_MONTHLY_PATH=sceneflow-monthly
-FASTSPRING_SCENEFLOW_YEARLY_PATH=sceneflow-yearly
-FASTSPRING_SCENEFORGE_MONTHLY_PATH=sceneforge-monthly
-FASTSPRING_SCENEFORGE_YEARLY_PATH=sceneforge-yearly
+# PayPal subscriptions are Sandbox-only and must remain disabled in production.
+# Keep Client Secret and Webhook ID in server-side secrets, never VITE_* vars.
+PAYPAL_ENVIRONMENT=sandbox
+PAYPAL_CLIENT_ID=
+PAYPAL_CLIENT_SECRET=
+PAYPAL_WEBHOOK_ID=
+PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID=
+PAYPAL_SCENEFLOW_YEARLY_PLAN_ID=
+PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID=
+PAYPAL_SCENEFORGE_YEARLY_PLAN_ID=

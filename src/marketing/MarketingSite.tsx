@@ -236,7 +236,7 @@ export default function MarketingSite() {
                   <a href="/refunds" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/refunds"); } }}>
                     Refund &amp; Cancellation Policy
                   </a>
-                  <span>Cancelling &amp; FastSpring refunds</span>
+                  <span>Cancelling &amp; PayPal Sandbox</span>
                 </li>
                 <li>
                   <a href="/cookies" onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); navigate("/cookies"); } }}>

@@ -42,9 +42,9 @@ const scene = (id: number, overrides: Partial<Scene> = {}): Scene => ({
   ...overrides,
 });
 
-const voiceA = "speechify_male_01";
-const voiceB = "speechify_female_03";
-const voiceC = "speechify_male_07";
+const voiceA = "scenering_male_01";
+const voiceB = "scenering_female_03";
+const voiceC = "scenering_male_07";
 
 /* ---- 1. Which files are this scene's narration? -------------------- */
 

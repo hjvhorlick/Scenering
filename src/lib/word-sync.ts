@@ -1,7 +1,7 @@
 /**
  * Word-level caption ↔ voice synchronisation.
  *
- * Speechify can return word-level speech marks with each synthesis response.
+ * Piper currently returns audio only, so this module handles estimated timing until verified alignment is available.
  * Those marks are converted upstream to seconds and aligned to the displayed
  * caption words here. If marks are absent, the renderer uses its local timing
  * estimate instead.

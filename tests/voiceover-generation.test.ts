@@ -39,9 +39,9 @@ const music = (overrides: Partial<TimelineInsert> = {}): TimelineInsert => ({
   ...overrides,
 });
 
-const primaryVoice = "speechify_male_01";
-const secondVoice = "speechify_female_01";
-const voiceB = "speechify_female_03";
+const primaryVoice = "scenering_male_01";
+const secondVoice = "scenering_female_01";
+const voiceB = "scenering_female_03";
 
 h.eq(expectedVoiceForSceneIndex(0, primaryVoice, true, secondVoice), primaryVoice, "rotation starts with Voice A");
 h.eq(expectedVoiceForSceneIndex(1, primaryVoice, true, secondVoice), secondVoice, "rotation assigns Voice B to the next scene");
@@ -138,9 +138,9 @@ h.eq(
     snapshot: initialSnapshot,
   }).length,
   0,
-  "prepared audio is preserved when a music bed changes instead of being sent to Speechify"
+  "prepared audio is preserved when a music bed changes"
 );
-h.ok(!isPreparedVoiceoverId(primaryVoice), "a Speechify style is not mistaken for an imported voice");
+h.ok(!isPreparedVoiceoverId(primaryVoice), "a Scenering profile is not mistaken for an imported voice");
 
 h.eq(
   planVoiceoverGeneration([scene(4, { text: "   " })], { ...baseOptions, snapshot: {} }).length,

@@ -171,14 +171,11 @@ ok(html.includes("mkt-facts") && html.includes("mkt-steps-mini"), "…and its fa
 ok(html.includes("Interface shown with example project data"), "interfaces are labelled as demonstrations");
 ok(html.includes("Example created for demonstration"), "examples are labelled");
 ok(html.includes("Coming soon"), "planned features are labelled on the page");
-// 2026-10-16, owner: the developer note about payment-provider credentials was
-// never meant for visitors (it names the provider the billing integration is
-// configured against — FastSpring), and the plan cards
-// promised narration with a free Google key while every other line on the page
-// says narration uses your own Speechify key.
+// The developer note about billing configuration is for administrators, not
+// public visitors. The plan cards identify browser-local Piper narration.
 ok(!html.includes("Paid checkout requires configured"), "no payment-setup note is shown to visitors");
 ok(!html.includes("Google AI Studio") && !html.includes("free Google key"), "the pricing section no longer promises a Google narration key");
-ok(html.includes("with your own Speechify key"), "the plans name Speechify for narration, like the rest of the page");
+ok(html.includes("with local Piper narration"), "the plans identify Piper as the narration engine");
 ok(html.includes("Preview renders do not use final-export allowance"), "preview usage is stated");
 ok(html.includes("2-core Celeron with 4 GB RAM"), "the tested low-spec Celeron configuration is visible on the marketing page");
 ok(html.includes("persistent render engine"), "the marketing page explains persistent rendering for modest hardware");

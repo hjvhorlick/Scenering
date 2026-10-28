@@ -702,7 +702,7 @@ export function stopAllSoundPreviews(): void {
   currentActiveUrl = null;
   notifyAudioListeners(null, false, currentPreviewVolume);
 
-  // Stop any active Speechify preview so it never talks over the next sound.
+  // Stop any active voice preview so it never talks over the next sound.
   try {
     ttsPlayer.stop();
   } catch {}
@@ -863,8 +863,8 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
     doc += `🎙️ VOICEOVER & SPEECH SYNTHESIS (TTS):
 • Voice Profile: ${voiceName}
   Profile Type: ${voiceGender ? `${voiceGender.toUpperCase()} • ` : ""}${voiceAccent || "Studio Narration"}
-  Technology: ${voiceEngine || "Speechify text-to-speech (customer-provided API key)"}
-  License: ${!voiceEngine || /speechify/i.test(voiceEngine) ? "Subject to Speechify's current terms and the customer's account plan" : "The creator is responsible for the rights to imported audio"}
+  Technology: ${voiceEngine || "Piper local neural text-to-speech"}
+  License: ${!voiceEngine || /piper/i.test(voiceEngine) ? "Subject to the selected Piper model's license and attribution terms" : "The creator is responsible for the rights to imported audio"}
 
 `;
   }

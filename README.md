@@ -52,14 +52,13 @@ production deployment should be on the Workers Paid plan: password hashing
 
 ## API keys and narration
 
-The top-right **API Keys** modal keeps its three provider fields: Pexels,
-Pixabay and Speechify. Your Speechify key is stored in this browser and is sent
-directly from the browser to `api.speechify.ai` in the provider authorization
-header. It is not sent to Scenering or Cloudflare. Speechify usage and charges
-are governed by your Speechify account. If Speechify blocks direct browser
-requests (for example, through CORS policy), the app reports that error rather
-than proxying your key through Scenering or switching providers, using browser
-speech, or inserting a silent track.
+The **API Keys** modal contains only the external image-search keys: Pexels
+and Pixabay. Generated narration uses Piper in the browser and requires no
+speech-provider key. A selected voice model is downloaded on first use and
+cached where browser storage allows; model and voice-data license/attribution
+terms apply. Scene text is synthesized locally and is not sent to the model
+host. Word-level karaoke timing is currently estimated rather than returned by
+Piper as verified speech marks.
 
 The operator may optionally configure stock-image defaults in `.dev.vars` or
 Cloudflare Worker secrets (the names match `.env.example`):
@@ -111,46 +110,20 @@ and a framing you set by hand is never overwritten. A search term typed by
 hand is pinned to the scene, so later edits to the script cannot silently
 replace it.
 
-## Billing (FastSpring)
+## Billing (PayPal Sandbox only)
 
-Payments are handled entirely by [FastSpring](https://www.fastspring.com/),
-which is the **merchant of record**: it sells the subscription, takes the card,
-charges and remits the sales tax, and pays Scenering. Scenering never sees a
-card number and stores no payment details of its own — only the subscription's
-status, plan, period dates and the Account Management links FastSpring returns.
+Scenering subscription checkout uses PayPal Sandbox for development and testing only. Production checkout remains disabled; no Live credentials, deployment, webhook registration, or billing cutover is included. Prices and plan benefits are unchanged: SceneFlow is $19/month or $180/year, and SceneForge is $39/month or $372/year.
 
-Everything needed is a server-side secret or variable; nothing is hard-coded,
-and no secret reaches the browser bundle. In production set secrets with
-`wrangler secret put <NAME>`; locally they live in `.dev.vars`. The full
-connection runbook is **[FASTSPRING.md](FASTSPRING.md)**.
-
-| Step | Where |
+| Step | Implementation |
 |---|---|
-| Customer picks a plan | Account & Membership modal or `/pricing` → `GET /api/billing/checkout/:plan/:interval` (or `GET /api/billing/fastspring/checkout/:plan/:interval`) |
-| Server opens checkout | FastSpring popup (`sbl.min.js`, `FASTSPRING_STOREFRONT`) or a server-created session (`POST /sessions` with the product path, the buyer's email and the tags) |
-| Tags travel with the order | `tags` = `{ user_id, email }` — the FastSpring half of "which Scenering account paid" |
-| FastSpring confirms the purchase | `POST /api/webhooks/fastspring`, verified against `FASTSPRING_WEBHOOK_SECRET` (HMAC-SHA256 of the raw body, base64, in `X-FS-Signature`, constant-time compare) |
-| Webhook maps the purchase to a plan | `FASTSPRING_<PLAN>_<INTERVAL>_PATH` (defaults `sceneflow-monthly`, `sceneflow-yearly`, `sceneforge-monthly`, `sceneforge-yearly`), matched against the product path in the payload |
-| Webhook finds the account | `data.tags.user_id` / `data.tags.email`; failing that, the account FastSpring created at checkout or the `billing_customers` mapping an earlier webhook left behind |
-| Access changes | the account's membership row, which is what every entitlement check reads |
-| Subscriptions are managed | FastSpring's Account Management portal — *Customer portal*, *Manage or cancel* and *Update payment card* all lead there |
+| Customer chooses a paid plan | `/pricing` or Account & Membership opens the PayPal Sandbox approval flow in development only |
+| Checkout is associated with an account | The authenticated server creates a short-lived intent bound to the user, selected plan, interval and configured PayPal plan ID |
+| Approval is confirmed | The server fetches the subscription from PayPal Sandbox and validates provider state and the intent; browser return alone never grants access |
+| Lifecycle updates | `POST /api/webhooks/paypal` verifies each signature with PayPal before processing, and event IDs are claimed idempotently |
+| Account management | Account & Membership links to PayPal Sandbox subscription management and provides cancellation |
+| Secrets and plans | Client secret, webhook ID and plan IDs are server-side configuration; see [`PAYPAL_SANDBOX.md`](PAYPAL_SANDBOX.md) |
 
-The webhook handles `subscription.activated`, `subscription.updated`,
-`subscription.charge.completed`, `subscription.charge.failed`,
-`subscription.canceled` and `subscription.deactivated`; every other event is
-recorded and ignored. A failed rebill keeps access while FastSpring retries
-the card (`past_due`), a cancellation runs to the end of the paid period, and
-`deactivated` returns the member to Free. Each event id is recorded in
-`webhook_events`, so a redelivery cannot apply twice.
-
-Until the keys are filled in, checkout answers `503 BILLING_NOT_CONFIGURED`
-and the webhook answers `503`; nothing else in the app is affected, and the
-Free plan works throughout.
-
-The full connection runbook — the exact values to enter in the FastSpring
-dashboard, in order — is **[FASTSPRING.md](FASTSPRING.md)**. The same
-checklist lives in the app: **Account & Membership** → *Owner administration*
-→ *FastSpring billing*.
+The callback route is `/api/webhooks/paypal`; do not register it with PayPal until the actual non-production deployment endpoint has been verified publicly reachable. Historical subscription rows and database migrations are retained without destructive cleanup; no legacy checkout or webhook is active.
 
 ## Themes
 
@@ -184,13 +157,10 @@ classes to components, regenerate the matrix with `npm run theme:css`.
    even offered in this mode: a one-scene project has no target length, its
    length is the footage's (or the time the script takes to read when there is
    no footage), and one click splits the script again when you want that back.
-   Two choices sit beside
-   the upload: keep the sound inside your footage or leave it out of the
-   finished video, and whether to transcribe that sound into captions.
-   Captions are made by Whisper running on your own device (`src/lib/speech-
-   to-text.ts`) — free, no key, nothing uploaded; the engine and a quantised
-   model (about 40 MB) are fetched once and cached, and an SRT or VTT file
-   works instead if you already have the words.
+   Choose whether to keep the sound inside your footage or leave it out of the
+   finished video. In the Captions step, the script and narration provide the
+   normal caption text and timing; for footage-based captions, import an SRT or
+   VTT file if you already have timed subtitles.
 2. **Scenes** — one card per scene. Swap the image, drop in a video clip, crop
    and reposition (aspect ratio is always preserved), edit the narration, and
    pick the transition between scenes from twenty-one options grouped by
@@ -212,10 +182,9 @@ classes to components, regenerate the matrix with `npm run theme:css`.
 4. **Captions** — styling and timing. One switch turns captions on or off for
    the whole project, and any single scene can be switched off on its own;
    both are obeyed by the live preview and the exported file. A scene whose
-   picture is your own footage has no narration to time captions to, so it
-   offers to transcribe that footage's soundtrack here (or to import an
-   SRT/VTT); the words and their per-word timings then behave like any other
-   scene's captions.
+   picture is your own footage has no narration to time captions to, so you
+   can import an SRT/VTT file if you already have timed subtitles; they behave
+   like any other scene's captions.
 5. **Video Studio** — the look of the finished video: filters, text templates,
    3D stickers, lower thirds, titles, call-to-action badges, sound effects,
    intro and outro.
@@ -410,8 +379,8 @@ edited before. Each answers in one true line and links to the section that
 explains it, which then flashes so the answer is found rather than hunted.
 The narration disclosure is checked against the code by
 `tests/marketing.test.ts`: the script is split by `splitScriptIntoScenes()`,
-the search terms come from `topic-extract.ts`, and Speechify synthesis uses
-the customer-provided key with no alternate-provider or silent-track fallback.
+the search terms come from `topic-extract.ts`, and Piper runs locally in the
+browser with surfaced model errors and no silent-track fallback.
 
 ### The door
 

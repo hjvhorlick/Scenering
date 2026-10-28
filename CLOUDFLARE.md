@@ -79,14 +79,14 @@ deploy.
 | 24 h expiry sweep for those uploads | `worker.ts` `scheduled` handler | **Cron Trigger** — hourly, `triggers.crons` in `wrangler.jsonc` | ✅ verified |
 | SPA shell + hashed bundles + `/sounds`, `/videos`, `/nature`, `/marketing` (221 MB, 151 files) | Vite build → `dist/` | **Workers Static Assets** with `single-page-application` fallback | ✅ verified |
 | Bundled nature library from inside the API | `server.ts` proxy route | **`ASSETS` binding** (`env.ASSETS.fetch`) — no filesystem on Workers | ✅ verified |
-| Narration (TTS) | Browser (`src/lib/speechify-client.ts`) | Direct browser `fetch` to Speechify; the customer's key never reaches the Worker | ✅ No Worker proxy; Simba 3.2 audio and speech marks; errors are surfaced with no alternate-provider or silent-audio fallback |
+| Narration (TTS) | Browser (`src/lib/piper-tts.ts`, `src/lib/piper-tts.worker.ts`) | Piper synthesis and scene text stay in the browser; selected model weights are fetched from a public model host when needed | ⚠️ No Worker TTS route; model fetch/caching is implemented, but real browser audio playback and model-license audit remain to be verified |
 | Image search (Pexels / Pixabay / Wikimedia) | `server.ts` | Outbound `fetch` with 12 s timeouts + provider clamps | ✅ verified (nature-library fallback when no keys) |
 | Email | `server/email.ts` | Resend HTTPS API in production (`EMAIL_PROVIDER=resend`, authenticated by the `RESEND_API_KEY` secret); `console` remains available for local development. SMTP is not available from Workers | ✅ |
 | Email Centre — templates, consented audiences, campaigns, delivery history, unsubscribe/preferences pages | `server/email-centre.ts` | **D1** (templates/campaigns/deliveries, `migrations/0002_email_centre.sql`) + the Resend provider above. Large sends are queued as D1 delivery rows and drained **20 at a time by the hourly Cron Trigger** (never one long request); delivery outcomes recorded from **Resend's webhook** at `/api/webhooks/resend` (HMAC-verified raw bytes, optional) | ✅ verified |
 | Email Centre inbox — contact-form messages and email to the owner's address (vincent@scenering.com), answered from `/admin` → Inbox, with attachments, saved replies and owner alerts | `server/inbox.ts`, `server/inbox-core.ts`, `server/inbox-settings.ts`, `src/inbox-db.ts` | **Email Routing** → the Worker's `email()` handler (`worker.ts`) for incoming mail; **D1** (`migrations/0003_inbox.sql`, which the Worker also creates itself on first use); **R2** (`AUDIO_BUCKET`, `inbox/` prefix) for attachments; replies go out through the Resend provider above | ✅ verified locally (wrangler `/cdn-cgi/handler/email`); needs the one-time Email Routing setup in step 8 |
 | Email Centre members and gift codes — the member list with plans and videos, free time given to one member, and shareable gift codes with their results (`/admin` → Members, Gifts) | `server/members.ts`, `server/gift-codes.ts`, `src/members-db.ts`, `src/gifts-db.ts` | **D1** (`migrations/0004_gift_codes.sql`, which the Worker also creates itself on first use); a used gift code is an ordinary complimentary grant, redeemed through the existing `/api/complimentary-codes/redeem` | ✅ verified locally |
 | Email Centre programmes — emails that go out by themselves to each member at their own moment (after joining, before a gift ends) (`/admin` → Programmes) | `server/programs.ts`, `src/programs-db.ts` | **D1** (`migrations/0005_programs.sql`, created by the Worker on first use); run by the **hourly Cron Trigger** after the campaign queue, at most 10 emails per run, through the Resend provider above | ✅ verified locally (wrangler `/cdn-cgi/handler/scheduled`) |
-| Billing webhooks | `server/platform.ts` | Inbound HTTPS at `/api/webhooks/fastspring`, `X-FS-Signature` (HMAC-SHA256 base64 of `rawBody`) verified against raw bytes; outbound to `api.fastspring.com` for optional session checkouts and pre-authenticated Account Management links | ✅ verified (503/401 paths) |
+| Billing webhooks | `server/platform.ts` | PayPal Sandbox callback at `/api/webhooks/paypal`; signatures are verified by PayPal before lifecycle updates. Checkout and webhook handling are unavailable in production. | ✅ Sandbox-only implementation; registration waits for verified reachability |
 | Scheduled email link expiry, token expiry | `src/db.ts` | D1, ISO-8601 comparisons (fixed — see §4) | ✅ verified |
 
 The Express bridge is Cloudflare's supported path for Node frameworks: the
@@ -266,12 +266,11 @@ platform's documented behaviour, then re-verified under `wrangler dev`:
 - **`Express + nodejs_compat` bridge limitations** (from Cloudflare's docs):
   no trailers, early hints or 1xx responses; TLS-specific server options are
   ignored; the http Agent is a no-op. None are used by this app.
-- **Speechify Simba 3.2** is called directly from the customer's browser to
-  `api.speechify.ai`. The Speechify key is read from this browser's local
-  storage and is never sent to the Scenering API or Cloudflare Worker. The
-  Worker has no Speechify key header or synthesis route. If Speechify refuses
-  direct browser access (for example, due to CORS), the app reports that
-  failure; it does not proxy the key or fall back to another provider or silent audio.
+- **Piper narration** is synthesized in the browser worker. Scene text is not
+  sent to a speech provider or the Scenering Worker. A selected model is fetched
+  from its configured public model host when not cached; its license and
+  attribution terms apply. Typechecks and source tests do not prove that model
+  download and audible playback work in a real browser.
 - **KV eventual consistency** (§3) — accepted for abuse mitigation.
 
 ## 6. Deploying
@@ -309,27 +308,7 @@ Then:
    this exact address, complete the email-verification link, then sign in at
    `/admin`. Matching the configured email alone never grants access. If this
    setting changes, the previous owner loses admin access on their next request.
-5. **FastSpring** — the full connection runbook is **[FASTSPRING.md](FASTSPRING.md)**;
-   the shape of it:
-   1. In FastSpring: create a popup storefront (`popup-scenering`) and set
-      `"FASTSPRING_STOREFRONT"` in `wrangler.jsonc` (e.g.
-      `scenering.test.onfastspring.com/popup-scenering` while testing,
-      `scenering.onfastspring.com/popup-scenering` for live orders).
-   2. Create the four subscription products (`sceneflow-monthly`,
-      `sceneflow-yearly`, `sceneforge-monthly`, `sceneforge-yearly`).
-   3. FastSpring → Developer Tools → Webhooks → add a URL webhook pointing at
-      `https://<your-domain>/api/webhooks/fastspring`; subscribe to the six
-      subscription events (`subscription.activated`, `subscription.updated`,
-      `subscription.charge.completed`, `subscription.charge.failed`,
-      `subscription.canceled`, `subscription.deactivated`); copy the HMAC
-      SHA256 Secret into `FASTSPRING_WEBHOOK_SECRET`.
-   4. (Optional) Set `FASTSPRING_API_USERNAME` and `FASTSPRING_API_PASSWORD`
-      with `wrangler secret put` if you want server-created `/sessions`
-      checkouts and pre-authenticated Account Management URLs.
-   5. Sign in as the owner → **Account & Membership** — the go-live checklist
-      must report ready, and shows the storefront environment, the exact
-      webhook URL and the last 25 deliveries with their outcome. It warns out
-      loud if a production deployment is still pointed at a `.test.` storefront.
+5. **PayPal subscriptions (Sandbox only)** — follow [`PAYPAL_SANDBOX.md`](PAYPAL_SANDBOX.md). Configure Sandbox credentials and plan IDs only on a non-production environment. Before registering a webhook, verify that the exact deployed callback URL is publicly reachable at `/api/webhooks/paypal`; do not guess a URL. Production billing and Live mode remain disabled.
 6. **Resend** — campaign sends from the Email Centre use the same provider as
    transactional mail: set the `RESEND_API_KEY` secret
    (`EMAIL_PROVIDER=resend` is already the default var). Optional: set
@@ -411,23 +390,13 @@ curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=15%20*%20*%20*%20*"    
   static assets · register (scrypt under workerd) · verify-email · login ·
   cookie session · account · entitlements · export check/reserve/complete with
   plan enforcement · contact · social links · image search (provider
-  waterfall → nature fallback) · TTS voices (Speechify-key authenticated and
-  plan-filtered) · TTS synthesis (explicit upstream/error paths, no audio fallback) · image proxy (ASSETS binding, host
+  waterfall → nature fallback) · local Piper narration (no Worker TTS route; browser/model-download testing still required) · image proxy (ASSETS binding, host
   allowlist, blocked-host placeholder) · audio upload (R2 write + D1 row) ·
   audio read-back + ownership 401 · webhook 503/401 paths · rate-limit 429 ·
   **20-request same-second burst with zero failures** · admin overview
   (bulk-read shape) · owner role grant · origin enforcement 403 · legacy
   `/functions/v1/*` routes · manual cron trigger.
-- **FastSpring connection matrix** against the same runtime with `FASTSPRING_*`
-  configured and FastSpring's API faked at the `fetch` boundary: popup and
-  session checkout responses (storefront, product path, `tags` carrying the
-  account id and email), the `X-FS-Signature` contract (valid / wrong secret /
-  missing / tampered body / non-JSON), account-event mapping and the
-  `billing_customers` fallback it enables, the full subscription lifecycle and
-  the paid-period rules for `canceled` / `past_due` / `trialing` / `deactivated`,
-  Account Management links, duplicate redelivery no-ops + log marks, 202s for
-  unmatchable events and unknown product paths, and the owner's go-live
-  checklist reporting ready with the exact webhook URL.
+- **PayPal Sandbox billing** is covered by `tests/paypal-billing.test.ts`: authenticated checkout intents, Sandbox API host pinning, entitlement verification, webhook signature checks, idempotency, and production/Live rejection. No real Sandbox transaction has been configured or executed.
 - **Email Centre (2026-10-06)** against the same runtime with seeded local
   D1: dashboard stats · template CRUD (create, edit, duplicate, archive,
   per-audience preview with `{{first_name}}`/`{{display_name}}`

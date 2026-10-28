@@ -71,7 +71,7 @@ export const SEO_PAGES: Readonly<Record<string, PageSeo>> = {
   },
   "/manual": {
     title: "Scenering Manual | Editing and Export Guide",
-    description: "Use the Scenering guide for setup, scenes, visual research, Speechify voiceover, caption timing, Video Studio, final exports and troubleshooting.",
+    description: "Use the Scenering guide for setup, scenes, visual research, Piper voiceover, caption timing, Video Studio, final exports and troubleshooting.",
   },
   "/contact": {
     title: "Contact Scenering | Product Support",

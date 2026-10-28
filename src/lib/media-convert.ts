@@ -9,7 +9,7 @@
  * used to be refused outright — even though the picture inside was perfectly
  * ordinary H.264.
  *
- * Mediabunny (already a dependency, used by the transcription worker) can
+ * Mediabunny (already a dependency used by the media-handling helpers) can
  * demux those files and tell us exactly what is inside. This module uses it
  * for two things, both on demand so the main bundle does not pay for them:
  *

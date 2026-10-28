@@ -254,18 +254,16 @@ export interface Scene {
   /** How the clip is fitted when its length differs from the scene's. */
   video_fit_mode?: "trim" | "loop" | "slow";
 
-  // --- Captions taken from the clip's own audio -------------------------
+  // --- Imported timed captions -----------------------------------------
   /**
-   * Per-word timings of the speech inside the attached clip, in seconds from
-   * the start of the SOURCE FILE (see `src/lib/clip-transcript.ts`, which
-   * shifts them into scene time when it draws). Narrated scenes get their
-   * timings from the TTS engine instead, so this is only ever set by a
-   * transcription of uploaded footage.
+   * Per-word caption timings in seconds from the source media. The renderer
+   * shifts them into scene time when needed. Narrated scenes use their voice
+   * timing data instead.
    */
   caption_words?: { text: string; start: number; end: number }[];
-  /** Where the caption words came from: the footage, or typed by hand. */
+  /** Whether the timed captions were imported from a subtitle file or typed. */
   caption_source?: "transcript" | "manual";
-  /** Length of the audio the transcript covers, used to spot a stale one. */
+  /** Media length the imported subtitle file covers, used to spot stale timings. */
   caption_audio_duration?: number;
 
   /**

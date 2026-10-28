@@ -332,7 +332,7 @@ export default function RenderView({
   project,
   scenes,
   inserts,
-  selectedVoice = "speechify_male_01",
+  selectedVoice = "scenering_male_01",
   availableVoices = [],
   aspectRatio = "16:9",
   resolution: propResolution = "1080p",
@@ -1154,7 +1154,7 @@ export default function RenderView({
         // will contain — not on the project, which may still hold VIP work
         // the creator wants to keep for when they upgrade.
         const required = new Set<FeatureKey>();
-        const narrationVoices = [selectedVoice || "speechify_male_01", ...sceneVoiceIds];
+        const narrationVoices = [selectedVoice || "scenering_male_01", ...sceneVoiceIds];
         if (narrationVoices.some((voiceId) => !isPlanVoiceIncluded("free", voiceId))) required.add("advanced_voice");
         if (captionsConfig?.enabled && !["newsroom_clean", "cinema_classic"].includes(captionsConfig.preset || "newsroom_clean")) required.add("premium_captions");
         if (exportMotionStyle && !["dynamic", "static", "none"].includes(exportMotionStyle)) required.add("camera_movements");
@@ -1176,7 +1176,7 @@ export default function RenderView({
         if (denied) throw new Error(`Your current membership does not include ${denied.replace(/_/g, " ")} in a Final Export. You can still preview it or change membership.`);
         const creativeManifest = {
           features: [...required],
-          voice: sceneVoiceIds.find((voiceId) => !isPlanVoiceIncluded("free", voiceId)) || selectedVoice || "speechify_male_01",
+          voice: sceneVoiceIds.find((voiceId) => !isPlanVoiceIncluded("free", voiceId)) || selectedVoice || "scenering_male_01",
           captionStyle: captionsConfig?.preset || "newsroom_clean",
           backgroundMusic: exportInserts.filter((insert) => insert.category === "background_music").map((insert) => insert.type),
           audioVisualisers: exportInserts.filter((insert) => insert.category === "audio_visualizers" || insert.category === "speech_reactive").map((insert) => insert.type),
@@ -1360,7 +1360,7 @@ export default function RenderView({
             }
             if (spokenText) {
               const withTimeline = await fetchSceneAudioWithTimeline(spokenText, sceneVoice, { timeoutMs: 20000 });
-              if (!withTimeline) throw new Error(`Speechify returned no audio for scene ${sceneIndex + 1}.`);
+              if (!withTimeline) throw new Error(`Piper returned no audio for scene ${sceneIndex + 1}.`);
               const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
               const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
               const blobUrl = URL.createObjectURL(blob);
@@ -2908,9 +2908,9 @@ export default function RenderView({
       .filter((u): u is string => Boolean(u));
 
     const currentVoice = availableVoices?.find((v) => v.id === selectedVoice);
-    const voiceDisplay = currentVoice ? currentVoice.name : (selectedVoice || "Speechify narrator");
+    const voiceDisplay = currentVoice ? currentVoice.name : (selectedVoice || "Piper narrator");
     const isCustomImport = selectedVoice?.startsWith("custom:") || selectedVoice?.startsWith("import:");
-    const isSpeechifyStyle = Boolean(currentVoice?.id.startsWith("speechify_"));
+    const isSceneringProfile = Boolean(currentVoice?.id.startsWith("scenering_"));
     const voiceGender = currentVoice?.gender === "male"
       ? "Male Narrator"
       : currentVoice?.gender === "female"
@@ -2965,12 +2965,12 @@ export default function RenderView({
       voiceGender: isCustomImport ? "User Prepared Voice" : voiceGender,
       voiceAccent: isCustomImport
         ? "Custom Imported Audio File"
-        : currentVoice?.accent || currentVoice?.locale || (isSpeechifyStyle ? "Scenering style profile" : "Speechify voice"),
+        : currentVoice?.accent || currentVoice?.locale || (isSceneringProfile ? "Scenering Piper profile" : "Piper neural voice"),
       voiceEngine: isCustomImport
         ? "User-Prepared Audio File (Imported Track)"
-        : isSpeechifyStyle
-          ? "Speechify text-to-speech — customer-provided API key, Scenering style profile"
-          : "Speechify text-to-speech — customer-provided API key",
+        : isSceneringProfile
+          ? "Piper local neural text-to-speech, Scenering style profile"
+          : "Piper local neural voice",
     });
   };
 
@@ -3262,7 +3262,7 @@ export default function RenderView({
                 icon="🎙️"
                 label="Voiceover"
                 value={voiceDisplayName}
-                hint="Speechify voice"
+                hint="Piper voice"
               />
               <SummaryRow
                 icon="🔊"

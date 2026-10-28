@@ -23,7 +23,7 @@ export function isVoiceoverAudioSnapshot(value: unknown): value is VoiceoverAudi
   });
 }
 
-/** A prepared file is an explicit per-scene voice choice, not Speechify TTS. */
+/** A prepared file is an explicit per-scene user recording, not generated Piper narration. */
 export function isPreparedVoiceoverId(voiceId: string | null | undefined): boolean {
   return typeof voiceId === "string" && /^(custom|import):/.test(voiceId);
 }
@@ -87,7 +87,7 @@ export function sceneNeedsVoiceoverGeneration(
   if (!scene.audio_url) return true;
 
   // A user-provided prepared track stays attached as an explicit scene
-  // override. It cannot be re-synthesized by Speechify when music changes.
+  // override. It cannot be re-synthesized by Piper when music changes.
   if (isPreparedVoiceoverId(scene.voice_id)) return false;
   if (scene.voice_id !== expectedVoice) return true;
   if (!previous) return false;
@@ -215,7 +215,7 @@ export function recordGeneratedVoiceover(
  *    narration is being made.
  *
  * A prepared file (the creator's own recording, `custom:`/`import:`) is not
- * Speechify narration: it is an explicit per-scene choice, so neither rule
+ * Piper narration: it is an explicit per-scene choice, so neither rule
  * touches it.
  * ------------------------------------------------------------------ */
 

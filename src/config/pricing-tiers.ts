@@ -1,21 +1,17 @@
-import { FASTSPRING_DEFAULT_PRODUCT_PATHS, FASTSPRING_PRODUCT_PATH_ENV } from "./fastspring";
 import { PLAN_CONFIG, PLAN_ORDER, type PlanSlug } from "./plans";
 
 /**
- * One editable row of the pricing page. The names, descriptions and
- * feature lists live here so a plan change is a one-line edit; the
- * FastSpring product paths are filled in from the environment
- * (FASTSPRING_*_PATH) or their canonical defaults (`sceneflow-monthly`,
- * `sceneflow-yearly`, `sceneforge-monthly`, `sceneforge-yearly`). An empty
- * priceId means the tier is not sold through FastSpring — Free is signed up
- * for, not bought.
+ * Public plan catalogue shared by the marketing surfaces and PayPal Sandbox.
+ * Prices and benefits come from PLAN_CONFIG; only public PayPal plan IDs are
+ * read from server configuration. No provider credentials are exposed here.
  */
 export interface Tier {
   id: PlanSlug;
   name: "Free" | "SceneFlow" | "SceneForge";
   description: string;
   features: string[];
-  priceId: { month: string; year: string };
+  /** PayPal plan IDs are public identifiers only; secrets remain server-side. */
+  planId: { monthly: string; yearly: string };
 }
 
 export const TIER_FEATURES: Record<PlanSlug, string[]> = {
@@ -42,46 +38,6 @@ export const TIER_FEATURES: Record<PlanSlug, string[]> = {
   ],
 };
 
-export const PRICE_ENV_ALIASES: Record<string, readonly string[]> = {
-  FASTSPRING_SCENEFLOW_MONTHLY_PATH: [
-    "FASTSPRING_SCENEFLOW_MONTHLY_PATH",
-  ],
-  FASTSPRING_SCENEFLOW_YEARLY_PATH: [
-    "FASTSPRING_SCENEFLOW_YEARLY_PATH",
-    "FASTSPRING_SCENEFLOW_ANNUAL_PATH",
-  ],
-  FASTSPRING_SCENEFORGE_MONTHLY_PATH: [
-    "FASTSPRING_SCENEFORGE_MONTHLY_PATH",
-  ],
-  FASTSPRING_SCENEFORGE_YEARLY_PATH: [
-    "FASTSPRING_SCENEFORGE_YEARLY_PATH",
-    "FASTSPRING_SCENEFORGE_ANNUAL_PATH",
-  ],
-};
-
-export function lookupPriceEnv(lookup: (name: string) => string | undefined, canonicalName: string): string {
-  if (!canonicalName) return "";
-  const candidates = PRICE_ENV_ALIASES[canonicalName] || [canonicalName];
-  for (const key of candidates) {
-    const val = String(lookup(key) || "").trim();
-    if (val) return val;
-  }
-  for (const slug of ["sceneflow", "sceneforge"] as const) {
-    for (const interval of ["monthly", "yearly"] as const) {
-      if (FASTSPRING_PRODUCT_PATH_ENV[slug][interval] === canonicalName) {
-        return FASTSPRING_DEFAULT_PRODUCT_PATHS[slug][interval];
-      }
-    }
-  }
-  return "";
-}
-
-/**
- * Builds the tier list from the plan configuration plus a lookup over
- * the server's environment variables (the FastSpring product paths). Kept in
- * one place so the marketing page, the API response and the billing
- * code all describe the same three tiers.
- */
 export function buildPricingTiers(lookup: (name: string) => string | undefined): Tier[] {
   return PLAN_ORDER.map((slug) => {
     const plan = PLAN_CONFIG[slug];
@@ -90,9 +46,9 @@ export function buildPricingTiers(lookup: (name: string) => string | undefined):
       name: plan.name as Tier["name"],
       description: plan.description,
       features: TIER_FEATURES[slug],
-      priceId: {
-        month: lookupPriceEnv(lookup, plan.priceEnv.monthly),
-        year: lookupPriceEnv(lookup, plan.priceEnv.yearly),
+      planId: {
+        monthly: slug === "free" ? "" : String(lookup(plan.paypalPlanEnv.monthly) || "").trim(),
+        yearly: slug === "free" ? "" : String(lookup(plan.paypalPlanEnv.yearly) || "").trim(),
       },
     };
   });

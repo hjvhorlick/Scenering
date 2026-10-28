@@ -14,10 +14,9 @@ import "./sign-in.css";
  */
 export default function StudioEntry() {
   const { signedIn, checking } = useSession();
-  // A local, read-only-ish UI preview for this development build. This switch
-  // is compiled out of production and never grants a real account/session.
-  const previewOnly = import.meta.env.DEV &&
-    new URLSearchParams(window.location.search).get("preview") === "studio";
+  // Local app preview is available at /app in development without a seeded
+  // account. This is compiled out of production and never grants a real session.
+  const previewOnly = import.meta.env.DEV;
   const canOpenStudio = signedIn || previewOnly;
   const [studio, setStudio] = useState<StudioComponent | null>(() => getPreloadedStudio());
   const LoadedStudio = studio ?? getPreloadedStudio();

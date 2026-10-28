@@ -207,10 +207,10 @@ export const SEARCH_POLICY: { step: string; detail: string }[] = [
   { step: "Use", detail: "Only the selected visual is downloaded into the project." },
 ];
 
-/** Speechify BYOK synthesis; failures are surfaced instead of falling back. */
+/** Browser-local Piper narration; model assets are fetched only when selected. */
 export const NARRATION_CHAIN: { name: string; detail: string }[] = [
-  { name: "Your Speechify key", detail: "Add your customer-owned key in API Keys. It stays in this browser and is sent directly from your browser to Speechify, never through Scenering or Cloudflare." },
-  { name: "Speechify Simba 3.2", detail: "Speechify generates the selected narrator profile. Any provider usage or charges are governed by your Speechify account." },
+  { name: "Piper neural TTS", detail: "The selected Piper voice model runs locally in your browser; scene text is not sent to a speech provider." },
+  { name: "Runtime and model download", detail: "The Piper runtime and selected voice model load on first use and are cached by the browser where storage allows. The current build has about 30 MB of uncompressed WASM/runtime data before the chosen voice model." }
 ];
 
 /* ------------------------------------------------------------- effects map */
@@ -627,14 +627,11 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
 
 /* ------------------------------------------------------------- no metering */
 
-/**
- * Clear disclosure of Scenering's BYOK narration model. No other service or
- * silent placeholder is substituted when Speechify synthesis fails.
- */
+/** Clear disclosure of the browser-local Piper narration workflow. */
 export const NO_METER = {
-  message: "Your Speechify account. No Scenering TTS meter.",
+  message: "Local Piper narration. No per-voice API key.",
   lead:
-    "Scenering does not bill per narration or use a server-owned Speechify key. You provide your Speechify key, and provider usage or charges follow your Speechify account.",
+    "Scenering generates narration in your browser with Piper neural text-to-speech. There is no per-request voice API charge from Scenering.",
   points: [
     {
       label: "Your script stays your script",
@@ -647,9 +644,9 @@ export const NO_METER = {
         "Search terms come from the scene's own nouns and names, and real photographs are fetched from free libraries.",
     },
     {
-      label: "Narration uses your Speechify key",
+      label: "Narration runs in your browser",
       detail:
-        "Speechify generates audio for the selected narrator profile. Add your key in API Keys; Scenering reports synthesis errors instead of switching providers or inserting silence.",
+        "Piper processes the selected scene text locally. Its runtime assets and selected voice model load on first use and are cached when browser storage allows.",
     },
     {
       label: "The video is made on your machine",
@@ -658,14 +655,14 @@ export const NO_METER = {
     },
   ],
   caveat:
-    "Generated narration requires your Speechify API key. It is held in this browser and sent directly from your browser to Speechify; Scenering does not receive or store the key. Speechify usage and billing are subject to your Speechify account. If Speechify blocks direct browser requests, the app reports that error and does not proxy the key through Cloudflare.",
+    "The first use needs an internet connection to load Piper's runtime assets (about 30 MB uncompressed in the current build) and the selected voice model. The model and voice-data license/attribution terms apply; browser storage can be cleared or evicted. Piper currently estimates word timing for karaoke rather than receiving verified speech marks.",
 } as const;
 
 /** Honest, repeated everywhere it matters. */
 export const HONESTY = {
   demoLabel: "Example created for demonstration",
   conceptLabel: "Interface shown with example project data",
-  planLabel: "Paid checkout requires configured FastSpring credentials",
+  planLabel: "PayPal Sandbox subscriptions are test-only; production billing is disabled",
   localNote:
     "Your account controls membership while project media and frame-exact rendering remain in your browser. Preview renders do not use final-export allowance.",
 } as const;

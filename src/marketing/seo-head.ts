@@ -107,8 +107,8 @@ const APP_DESCRIPTION =
 const APP_FEATURES = [
   "Script-to-scene planning",
   "Visual research and selection",
-  "Speechify voiceover with a customer-provided API key",
-  "Word-synced captions",
+  "Browser-local Piper neural voiceover",
+  "Script captions and karaoke timing",
   "Video Studio editing and effects",
   "MP4 and WebM export",
 ];

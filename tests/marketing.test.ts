@@ -51,7 +51,7 @@ import { normalizePath, routeForPath, sectionForPath, SITE_SECTIONS, SITE_SECTIO
 
 import { CAPTION_STYLES } from "../src/data/caption-styles";
 import { PROJECT_PHASES } from "../src/components/StepNav";
-import { FREE_SPEECHIFY_VOICE_IDS, STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
+import { FREE_SCENERING_VOICE_IDS, STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
 import { VIDEO_FILTERS, FILTER_GROUPS, getFilterCss, makeFilterConfig } from "../src/data/video-filters";
 import { TEXT_TEMPLATES, TEMPLATE_BY_ID } from "../src/data/text-templates";
 import { CTA_PLATFORMS, CTA_GROUPS } from "../src/data/cta-library";
@@ -506,49 +506,43 @@ ok(
 }
 
 /*
- * Speechify BYOK is the only generated-narration path. Keep the catalogue,
- * key transport, failure behavior and public disclosure in sync.
+ * Piper is the only generated-narration path. Keep the catalogue, local runtime,
+ * failure behavior and public disclosure in sync.
  */
 {
   const server = read("server.ts");
   const splitter = read("src/lib/duration-utils.ts");
   const topics = read("src/lib/topic-extract.ts");
   const apiKeys = read("src/lib/api-keys.ts");
-  const speechifyClient = read("src/lib/speechify-client.ts");
   const apiKeysModal = read("src/components/ApiKeysModal.tsx");
   const preview = read("src/components/VideoPreview.tsx");
   const render = read("src/components/RenderView.tsx");
+  const ttsCache = read("src/lib/tts-cache.ts");
+  const main = read("src/main.tsx");
 
   ok(splitter.includes("export function splitScriptIntoScenes"), "the script is still divided arithmetically");
   ok(topics.includes("No NLP model is available"), "search terms are extracted structurally, not by a model");
-  h.eq(STUDIO_VOICE_PRESETS.length, 20, "the Speechify catalogue has exactly twenty profiles");
+  h.eq(STUDIO_VOICE_PRESETS.length, 20, "the Scenering catalogue has exactly twenty profiles");
   const maleVoices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === "male");
   const femaleVoices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === "female");
-  h.eq(maleVoices.length, 10, "the Speechify catalogue has ten male profiles");
-  h.eq(femaleVoices.length, 10, "the Speechify catalogue has ten female profiles");
-  h.eq(FREE_SPEECHIFY_VOICE_IDS[0], "speechify_male_01", "the free male Speechify profile is first");
-  h.eq(FREE_SPEECHIFY_VOICE_IDS[1], "speechify_female_01", "the free female Speechify profile is first in its group");
-  h.eq(maleVoices[0]?.id, FREE_SPEECHIFY_VOICE_IDS[0], "the free male profile is first in the male group");
-  h.eq(femaleVoices[0]?.id, FREE_SPEECHIFY_VOICE_IDS[1], "the free female profile is first in the female group");
-  ok(speechifyClient.includes('https://api.speechify.ai/v1'), "Speechify API requests go directly to the provider host");
-  ok(speechifyClient.includes('Authorization: `Bearer ${apiKey}`'), "the customer key is sent only in the direct Speechify authorization header");
-  ok(speechifyClient.includes('const SPEECHIFY_MODEL = "simba-3.2"'), "the browser uses the selected Speechify model");
-  ok(speechifyClient.includes("synthesizeSpeechify"), "Speechify is the only generated-narration provider");
-  ok(speechifyClient.includes("parseSpeechifySpeechMarks"), "direct Speechify speech marks are used when available");
-  ok(speechifyClient.includes("SPEECHIFY_KEY_REQUIRED"), "a missing key returns an actionable error");
-  ok(!server.includes("X-Speechify-Key") && !server.includes("/api/tts"), "the Cloudflare Worker has no Speechify key or synthesis route");
-  ok(!apiKeys.includes("X-Speechify-Key"), "the shared key helper cannot attach Speechify credentials to Scenering requests");
-  ok(apiKeysModal.includes("verifySpeechifyApiKey") && !apiKeysModal.includes("speechifyKey: keysToSave.speechifyKey"), "the existing modal validates Speechify directly without sending it in the Worker verification payload");
+  h.eq(maleVoices.length, 10, "the catalogue has ten male profiles");
+  h.eq(femaleVoices.length, 10, "the catalogue has ten female profiles");
+  h.eq(FREE_SCENERING_VOICE_IDS[0], "scenering_male_01", "the free male profile is first");
+  h.eq(FREE_SCENERING_VOICE_IDS[1], "scenering_female_01", "the free female profile is first");
+  h.ok(STUDIO_VOICE_PRESETS.every((voice) => voice.id.startsWith("scenering_")), "profile IDs are provider-independent");
+  ok(ttsCache.includes('import("./piper-tts")'), "narration loads the Piper runtime");
+  ok(!ttsCache.includes("synthesizeSpeechify"), "Speechify synthesis is removed from the narration cache");
+  ok(!apiKeys.includes("speechifyKey") && !apiKeysModal.includes("Speechify"), "the Speechify key is removed from app settings");
   ok(preview.includes("fetchSceneAudioWithTimeline") && !preview.includes("createFallbackSceneAudio"), "preview synthesis has no tone or provider fallback");
   ok(render.includes("fetchSceneAudioWithTimeline") && !render.includes("audioCtx.createBuffer(1, numSamples"), "export has no silent-buffer fallback");
-  ok(NO_METER.caveat.includes("your Speechify API key"), "the page discloses the customer key requirement");
-  ok(NO_METER.caveat.includes("does not receive or store the key"), "the page discloses that Scenering never receives the Speechify key");
-  ok(NO_METER.caveat.includes("usage and billing"), "the page discloses provider-account usage");
+  ok(!main.includes("PiperVoiceLab") && !main.includes("/piper-lab"), "there is no separate test page in app routing");
+  ok(NO_METER.caveat.includes("first use"), "the page discloses the first model download");
+  ok(NO_METER.caveat.includes("license"), "the page discloses model-license requirements");
   ok(!/generateContent\(|GEMINI_API_KEY|msedge-tts|parseEdgeWordBoundaries/.test(server + apiKeys + preview + render), "legacy TTS providers are absent from synthesis paths");
 
   const noMeterSource = JSON.stringify(NO_METER);
-  ok(noMeterSource.includes("Speechify"), "the narration provider is named accurately");
-  ok(!/free speech synthesis|never hard-fails/i.test(noMeterSource), "narration copy does not promise free or fallback audio");
+  ok(noMeterSource.includes("Piper"), "the narration engine is named accurately");
+  ok(!/Speechify|customer-provided key/i.test(noMeterSource), "narration copy no longer describes Speechify keys");
   ok(read("src/marketing/sections/NoMeter.tsx").includes('<Section id="no-meter"'), "the answer has a section of its own to jump to");
 }
 

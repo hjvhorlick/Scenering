@@ -51,6 +51,10 @@ for (const file of srcFiles) {
   if (file.path.endsWith(constantsFile)) continue;
   for (const match of file.text.matchAll(/["'`](scenering_[A-Za-z0-9_]*)["'`]/g)) {
     const key = match[1];
+    // Scenering narrator profile IDs share the `scenering_` brand prefix, but
+    // are values rather than storage namespaces. A template-concatenated ID
+    // prefix is likewise not a literal storage key.
+    if (/^scenering_(?:male|female)_\d+$/.test(key) || key === "scenering_") continue;
     if (isSyncedWorkspaceKey(key) || isLocalOnlyKey(key)) continue;
     if (NOT_LOCAL_STORAGE_NAMES.some((name) => key === name)) continue;
     unclassified.push(`${key} (${file.path})`);
@@ -99,10 +103,6 @@ const registerSource = read("server/platform.ts");
 h.ok(
   /isDevelopmentRuntime\(env\(\)\) \? \{ developmentVerificationUrl/.test(registerSource),
   "the verification link is only returned by a development server",
-);
-h.ok(
-  !/includeDevUrl = \(!isProduction\(\) \|\| fastspringEnvironment\(\) === "test"/.test(registerSource),
-  "a test storefront no longer causes reset links to be returned in production",
 );
 h.ok(
   /const includeDevUrl = !isProduction\(\) && Boolean\(developmentResetUrl\);/.test(registerSource),
@@ -241,7 +241,7 @@ h.ok(freshRevision >= 1, "documents carry a revision");
 /* --- credentials never travel ----------------------------------------- */
 const secretWrite = await call("/api/workspace/sync", {
   cookie: secondDevice.sessionCookie,
-  body: { documents: [{ key: "scenering_customer_api_keys", body: JSON.stringify({ speechify: "sk-secret" }), baseRevision: 0 }] },
+  body: { documents: [{ key: "scenering_customer_api_keys", body: JSON.stringify({ pexels: "secret-key" }), baseRevision: 0 }] },
 });
 h.eq(secretWrite.body?.accepted?.length, 0, "provider API keys are refused by the workspace");
 const afterSecret = await call("/api/workspace", { cookie: secondDevice.sessionCookie });
@@ -289,7 +289,7 @@ h.eq((await db.listActiveSessionsForUser(paid.id)).length, 5, "and one of the ol
 const allowanceEmail = `allowance-${Date.now()}@scenering.test`;
 await newAccount(allowanceEmail);
 const allowanceLogin = await login(allowanceEmail, "device-allow-aaaa-1111");
-const manifest = { features: ["scene_creation"], voice: "speechify_male_01", captionStyle: "newsroom_clean", backgroundMusic: [], audioVisualisers: [], callsToAction: [] };
+const manifest = { features: ["scene_creation"], voice: "scenering_male_01", captionStyle: "newsroom_clean", backgroundMusic: [], audioVisualisers: [], callsToAction: [] };
 const allowanceReservation = await call("/api/usage/final-export/reserve", {
   cookie: allowanceLogin.sessionCookie,
   body: { projectId: "9", durationMinutes: 4, format: "long", creativeManifest: manifest },

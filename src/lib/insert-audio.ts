@@ -23,37 +23,6 @@ export interface InsertAudioPlan {
  * Computes when every insert's sound should play on the absolute video
  * timeline (intro + script scenes + outro).
  */
-/**
- * The project's background music bed, resolved to an address this browser can
- * actually read.
- *
- * A music video built from stills has no footage soundtrack to listen to, so
- * the music track is the only place its words and their timings can come from.
- * The rule for WHICH track that is matches `buildInsertAudioPlan` exactly — the
- * last music selection wins — so the captions are always transcribed from the
- * same audio the finished video plays.
- */
-export function projectMusicBed(
-  inserts: TimelineInsert[] | undefined
-): { url: string; seconds: number; name: string } | null {
-  if (!inserts || inserts.length === 0) return null;
-  let lastMusicIndex = -1;
-  for (let i = 0; i < inserts.length; i++) {
-    if (inserts[i].category === "background_music") lastMusicIndex = i;
-  }
-  if (lastMusicIndex < 0) return null;
-  const ins = inserts[lastMusicIndex];
-  const as = ins.audioSettings;
-  if (!as || !as.soundUrl || as.muted) return null;
-  const url = resolveAudioUrl(as.soundUrl);
-  if (!url) return null;
-  /* The stored track knows its own length; the insert's `duration` is how much
-     of the video it covers, which is a different number for a looping bed. */
-  const track = getCustomMusicTrack(as.soundUrl);
-  const seconds = track?.duration || Math.max(0, ins.duration || 0);
-  return { url, seconds, name: track?.name || "the music track" };
-}
-
 export function buildInsertAudioPlan(
   inserts: TimelineInsert[] | undefined,
   totalDuration: number

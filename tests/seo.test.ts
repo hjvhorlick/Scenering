@@ -163,7 +163,7 @@ for (const path of PUBLIC_PAGES.map((page) => page.path)) {
   h.ok(!/aggregateRating|"review"/.test(html), `${path}: no ratings or reviews are claimed`);
 }
 const application = (structuredData("/pricing")?.["@graph"] as any[]).find((node) => node["@type"] === "SoftwareApplication");
-h.ok(application.featureList.includes("Word-synced captions"), "schema describes caption timing accurately");
+h.ok(application.featureList.includes("Script captions and karaoke timing"), "schema describes caption timing without promising Piper speech marks");
 for (const slug of PLAN_ORDER) {
   const plan = PLAN_CONFIG[slug];
   if (plan.prices.monthly === 0) {

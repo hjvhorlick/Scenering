@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getStoredApiKeys } from "../lib/api-keys";
 
 /**
- * Whether this browser has its own provider keys (Pexels, Pixabay, Speechify)
+ * Whether this browser has its own stock-image provider keys (Pexels, Pixabay)
  * saved.
  *
  * The keys live in localStorage, per browser, and never reach the server except
@@ -18,7 +18,7 @@ import { getStoredApiKeys } from "../lib/api-keys";
  */
 export function apiKeysConfigured(): boolean {
   const keys = getStoredApiKeys();
-  return Boolean(keys.pexelsKey || keys.pixabayKey || keys.speechifyKey);
+  return Boolean(keys.pexelsKey || keys.pixabayKey);
 }
 
 export function useApiKeysConfigured(): boolean {

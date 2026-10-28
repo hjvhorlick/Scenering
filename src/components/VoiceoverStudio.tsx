@@ -5,15 +5,18 @@ import { ttsPlayer } from "../lib/tts-player";
 import {
   getSharedAudioContext,
   fetchSceneAudioWithTimeline,
+  preloadLocalPiperVoice,
+  stopLocalPiperSynthesis,
   resolveSceneAudioBuffer,
   findCachedNarration,
   replaceSceneNarration,
   clearSceneNarration,
   type CachedAudioItem,
 } from "../lib/tts-cache";
-import { downloadSceneVoiceover, downloadVoiceSample } from "../lib/voice-download";
+import { downloadSceneVoiceover, saveBlob, safeFileName } from "../lib/voice-download";
 import PhoneticDictionaryTab from "./PhoneticDictionaryTab";
-import { STUDIO_VOICE_PRESETS, type VoicePreset, resolveVoicePreset, sameSpeechifySpeaker } from "../data/voice-presets";
+import { STUDIO_VOICE_PRESETS, type VoicePreset, resolveVoicePreset } from "../data/voice-presets";
+import { resolvePiperProfileVoice } from "../lib/piper-profile-bindings";
 import {
   VoiceEchoConfig,
   VOICE_ECHO_PRESETS,
@@ -83,6 +86,8 @@ export type { VoicePreset } from "../data/voice-presets";
 /** Voice B's dropdown lists the styles, so only a style can be restored into it. */
 const isStudioVoiceId = (value: unknown): value is string =>
   typeof value === "string" && STUDIO_VOICE_PRESETS.some((preset) => preset.id === value);
+const samePiperModel = (a: string, b: string) =>
+  resolvePiperProfileVoice(`piper:${a}`)?.voice.id === resolvePiperProfileVoice(`piper:${b}`)?.voice.id;
 
 export default function VoiceoverStudio({
   projectId = null,
@@ -104,11 +109,18 @@ export default function VoiceoverStudio({
 }: VoiceoverStudioProps) {
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
-  const [internalSelectedVoice, setInternalSelectedVoice] = useState("speechify_male_01");
+  const [internalSelectedVoice, setInternalSelectedVoice] = useState("scenering_male_01");
   const selectedVoice = propSelectedVoice || internalSelectedVoice;
+  // Piper is the sole generated-speech engine. The legacy profile IDs remain
+  // stable so existing projects keep their chosen Scenering voice style.
+  const engineVoiceId = (profileId: string) => {
+    const cleanProfileId = profileId.startsWith("piper:") ? profileId.slice("piper:".length) : profileId;
+    if (cleanProfileId.startsWith("custom:") || cleanProfileId.startsWith("import:")) return cleanProfileId;
+    return `piper:${cleanProfileId}`;
+  };
 
   const handleSelectVoice = (vId: string) => {
-    const isVip = !isPlanVoiceIncluded(currentPlan, vId);
+    const isVip = !import.meta.env.DEV && !isPlanVoiceIncluded(currentPlan, vId);
     setInternalSelectedVoice(vId);
     if (onSelectVoice) {
       onSelectVoice(vId);
@@ -128,14 +140,16 @@ export default function VoiceoverStudio({
   // Remembered per project, so leaving Voiceover and coming back (or
   // reloading) finds rotation and Voice B as they were left.
   const [rotateVoices, setRotateVoices] = useRememberedChoice(projectId, "voiceover", "rotateVoices", false, isBoolean);
-  const [secondVoice, setSecondVoice] = useRememberedChoice(projectId, "voiceover", "secondVoice", "speechify_female_01", isStudioVoiceId);
+  const [secondVoice, setSecondVoice] = useRememberedChoice(projectId, "voiceover", "secondVoice", "scenering_female_01", isStudioVoiceId);
+  const effectivePrimaryVoice = engineVoiceId(selectedVoice);
+  const effectiveSecondVoice = engineVoiceId(secondVoice);
 
   /**
    * Which voice a given scene should be narrated in.
    * Falls back to the primary voice whenever rotation is off.
    */
   const voiceForSceneIndex = (index: number): string =>
-    expectedVoiceForSceneIndex(index, selectedVoice, rotateVoices, secondVoice);
+    expectedVoiceForSceneIndex(index, effectivePrimaryVoice, rotateVoices, effectiveSecondVoice);
 
   const [globalSpeed, setGlobalSpeed] = useRememberedChoice(projectId, "voiceover", "sampleSpeed", 1.0, numberBetween(0.75, 1.5));
   const [echoConfig, setEchoConfig] = useState<VoiceEchoConfig>(
@@ -143,6 +157,7 @@ export default function VoiceoverStudio({
   );
   const [playingId, setPlayingId] = useState<string | number | null>(null);
   const [loadingId, setLoadingId] = useState<string | number | null>(null);
+  const previewRequestRef = useRef(0);
   const [activeTab, setActiveTab] = useRememberedChoice<"natural_voices" | "import_tts" | "phonetic_dictionary">(
     projectId, "voiceover", "tab", "natural_voices", oneOf(["natural_voices", "import_tts", "phonetic_dictionary"] as const)
   );
@@ -166,6 +181,7 @@ export default function VoiceoverStudio({
   useEffect(() => {
     return () => {
       ttsPlayer.stop();
+      void stopLocalPiperSynthesis().catch(() => {});
     };
   }, []);
 
@@ -202,6 +218,7 @@ export default function VoiceoverStudio({
   // --- Voice download / error notices ---
   const [downloadingId, setDownloadingId] = useState<string | number | null>(null);
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
+  const [isPiperPreloading, setIsPiperPreloading] = useState(false);
 
   const VOICE_COLUMNS = useMemo(() => {
     const column = (gender: "male" | "female", label: string) => {
@@ -219,27 +236,51 @@ export default function VoiceoverStudio({
     voiceId: string = selectedVoice,
     speed: number = globalSpeed
   ) => {
+    const requestToken = ++previewRequestRef.current;
     if (playingId === id) {
+      if (loadingId === id) void stopLocalPiperSynthesis().catch(() => {});
       ttsPlayer.stop();
       setPlayingId(null);
       setLoadingId(null);
       return;
     }
 
+    const cancelPreviousPiperRequest = loadingId !== null;
     ttsPlayer.stop();
     setLoadingId(id);
     setPlayingId(id);
 
     try {
-      await ttsPlayer.play(text, voiceId, speed, 0.9, id, () => {
+      const onEnded = () => {
         setPlayingId((curr) => (curr === id ? null : curr));
         setLoadingId((curr) => (curr === id ? null : curr));
-      });
-      setLoadingId(null);
+      };
+      const engineVoice = engineVoiceId(voiceId);
+      if (engineVoice.startsWith("piper:")) {
+        // The worker serializes model loads. Cancel a stuck previous voice
+        // before queuing another, otherwise one stalled transfer can make every
+        // later voice appear to spin forever.
+        if (cancelPreviousPiperRequest) await stopLocalPiperSynthesis();
+        if (previewRequestRef.current !== requestToken) return;
+        const audio = await fetchSceneAudioWithTimeline(text, engineVoice, {
+          onProgress: ({ message }) => {
+            if (previewRequestRef.current === requestToken) setDownloadNotice(`Piper · ${message}`);
+          },
+        });
+        if (!audio) throw new Error("Piper returned no audio for this voice sample.");
+        if (previewRequestRef.current !== requestToken) return;
+        setDownloadNotice(null);
+        await ttsPlayer.playBlob(new Blob([audio.rawBuffer], { type: audio.mimeType }), `${engineVoice}::${text}`, speed, 0.9, id, onEnded);
+      } else {
+        await ttsPlayer.play(text, engineVoice, speed, 0.9, id, onEnded);
+      }
+      if (previewRequestRef.current === requestToken) setLoadingId(null);
     } catch (error: any) {
+      if (previewRequestRef.current !== requestToken) return;
       setPlayingId(null);
       setLoadingId(null);
-      setDownloadNotice(error?.message || "Speechify voice preview failed. Check the key in API Keys.");
+      if (String(error?.message || "").toLowerCase().includes("was stopped")) return;
+      setDownloadNotice(error?.message || "Piper voice preview failed. Check the model download and try again.");
     }
   };
 
@@ -288,7 +329,7 @@ export default function VoiceoverStudio({
   const handleDownloadScene = async (scene: Scene) => {
     setDownloadingId(scene.id);
     try {
-      await downloadSceneVoiceover(scene, selectedVoice, "scene");
+      await downloadSceneVoiceover(scene, effectivePrimaryVoice, "scene");
       announce(`Downloaded narration for scene ${(scene.order_index ?? 0) + 1}.`);
     } catch (err: any) {
       announce(err?.message || "Could not download that narration.");
@@ -300,12 +341,41 @@ export default function VoiceoverStudio({
   const handleDownloadSample = async (preset: VoicePreset) => {
     setDownloadingId(`sample-${preset.id}`);
     try {
-      await downloadVoiceSample(preset.sampleText, preset.id, `${preset.name}_sample`);
+      const audio = await fetchSceneAudioWithTimeline(preset.sampleText, engineVoiceId(preset.id), {
+        onProgress: ({ message }) => setDownloadNotice(`Piper · ${message}`),
+      });
+      if (!audio) throw new Error("Piper returned no audio for this voice sample.");
+      setDownloadNotice(null);
+      saveBlob(new Blob([audio.rawBuffer], { type: audio.mimeType }), `${safeFileName(preset.name)}_sample.wav`);
       announce(`Saved a sample of ${preset.name}.`);
     } catch (err: any) {
       announce(err?.message || "Could not download that sample.");
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  const handlePreloadCurrentPiperVoice = async () => {
+    if (isPiperPreloading) {
+      setDownloadNotice("Stopping the Piper preload…");
+      void stopLocalPiperSynthesis().catch(() => {});
+      return;
+    }
+    setIsPiperPreloading(true);
+    const profileName = resolveVoicePreset(selectedVoice)?.name || selectedVoice;
+    try {
+      await preloadLocalPiperVoice(engineVoiceId(selectedVoice), ({ message }) => {
+        setDownloadNotice(`Preloading ${profileName} · ${message}`);
+      });
+      setDownloadNotice(`${profileName} is ready in this tab. Its first synthesis should now start without downloading the model.`);
+    } catch (error: any) {
+      if (String(error?.message || "").toLowerCase().includes("was stopped")) {
+        setDownloadNotice("Piper preload cancelled.");
+      } else {
+        setDownloadNotice(error?.message || "Piper could not preload this voice. Check the network and try again.");
+      }
+    } finally {
+      setIsPiperPreloading(false);
     }
   };
 
@@ -321,9 +391,9 @@ export default function VoiceoverStudio({
     isVoiceoverAudioSnapshot
   );
   const generationPlan = planVoiceoverGeneration(scenes, {
-    primaryVoice: selectedVoice,
+    primaryVoice: effectivePrimaryVoice,
     rotateVoices,
-    secondVoice,
+    secondVoice: effectiveSecondVoice,
     musicFingerprint,
     snapshot: voiceoverAudioSnapshot,
   });
@@ -331,9 +401,9 @@ export default function VoiceoverStudio({
   const hasNarrationText = scenes.some((scene) => (scene.text || "").trim().length > 0);
 
   const snapshotOptions = {
-    primaryVoice: selectedVoice,
+    primaryVoice: effectivePrimaryVoice,
     rotateVoices,
-    secondVoice,
+    secondVoice: effectiveSecondVoice,
     musicFingerprint,
   };
   const readAudioSnapshot = () =>
@@ -354,7 +424,7 @@ export default function VoiceoverStudio({
     const saved = readAudioSnapshot();
     const seeded = recordCurrentVoiceoverAudio(saved, scenes, snapshotOptions);
     if (JSON.stringify(saved) !== JSON.stringify(seeded)) saveAudioSnapshot(seeded);
-  }, [projectId, scenes, selectedVoice, rotateVoices, secondVoice, musicFingerprint, isGeneratingAll]);
+  }, [projectId, scenes, effectivePrimaryVoice, rotateVoices, effectiveSecondVoice, musicFingerprint, isGeneratingAll]);
 
   /**
    * A different narrator retires the narration made with the old one.
@@ -375,9 +445,9 @@ export default function VoiceoverStudio({
   useEffect(() => {
     if (!voiceoverEnabled || isGeneratingAll) return;
     const retirements = planNarrationRetirement(scenes, {
-      primaryVoice: selectedVoice,
+      primaryVoice: effectivePrimaryVoice,
       rotateVoices,
-      secondVoice,
+      secondVoice: effectiveSecondVoice,
     });
     for (const { scene, voiceId } of retirements) {
       onUpdateScene(scene.id, {
@@ -387,13 +457,14 @@ export default function VoiceoverStudio({
         audio_duration: undefined,
       });
     }
-  }, [scenes, selectedVoice, rotateVoices, secondVoice, voiceoverEnabled, isGeneratingAll]);
+  }, [scenes, effectivePrimaryVoice, rotateVoices, effectiveSecondVoice, voiceoverEnabled, isGeneratingAll]);
 
   const generateVoiceoverForScene = async (scene: Scene, voiceToUse: string): Promise<string | null> => {
     const text = (scene.text || "").trim();
     if (!text) return null;
-    const voicePreset = resolveVoicePreset(voiceToUse);
-    const voiceName = voicePreset?.name || voiceToUse;
+    const voiceProfileId = voiceToUse.startsWith("piper:") ? voiceToUse.slice("piper:".length) : voiceToUse;
+    const voicePreset = resolveVoicePreset(voiceProfileId);
+    const voiceName = voicePreset?.name || voiceProfileId;
 
     try {
       if (isPreparedVoiceoverId(voiceToUse)) {
@@ -410,8 +481,12 @@ export default function VoiceoverStudio({
       if (cached) {
         item = cached;
       } else {
-        const withTimeline = await fetchSceneAudioWithTimeline(text, voiceToUse, { timeoutMs: 20000 });
-        if (!withTimeline) throw new Error("Speechify returned no audio for this scene.");
+        const withTimeline = await fetchSceneAudioWithTimeline(text, voiceToUse, {
+          timeoutMs: 20000,
+          onProgress: ({ message }) => setDownloadNotice(`Piper · ${message}`),
+        });
+        if (!withTimeline) throw new Error("Piper returned no audio for this scene.");
+        setDownloadNotice(null);
         const arrayBuf = withTimeline.rawBuffer;
         const blob = new Blob([arrayBuf], { type: withTimeline.mimeType });
         const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
@@ -492,7 +567,7 @@ export default function VoiceoverStudio({
     if (failedScenes.length > 0) {
       const shown = failedScenes.slice(0, 5).join(", ");
       const more = failedScenes.length > 5 ? ` and ${failedScenes.length - 5} more` : "";
-      announce(`Speechify could not generate scene${failedScenes.length === 1 ? "" : "s"} ${shown}${more}. Check the Speechify key in API Keys and retry.`);
+      announce(`Piper could not generate scene${failedScenes.length === 1 ? "" : "s"} ${shown}${more}. Check the model download message and retry.`);
       return false;
     }
     return true;
@@ -502,9 +577,9 @@ export default function VoiceoverStudio({
     if (voiceoverEnabled) {
       const savedSnapshot = readAudioSnapshot();
       const targets = planVoiceoverGeneration(scenes, {
-        primaryVoice: selectedVoice,
+        primaryVoice: effectivePrimaryVoice,
         rotateVoices,
-        secondVoice,
+        secondVoice: effectiveSecondVoice,
         musicFingerprint,
         snapshot: savedSnapshot,
       });
@@ -525,7 +600,7 @@ export default function VoiceoverStudio({
       const voiceId = voiceForSceneIndex(Math.max(0, index));
       const audioUrl = await generateVoiceoverForScene(scene, voiceId);
       if ((scene.text || "").trim() && !audioUrl) {
-        announce(`Speechify could not generate scene ${(scene.order_index ?? 0) + 1}. Check the key in API Keys and retry.`);
+        announce(`Piper could not generate scene ${(scene.order_index ?? 0) + 1}. Check the model download message and retry.`);
       }
       if (audioUrl) {
         const saved = recordCurrentVoiceoverAudio(readAudioSnapshot(), scenes, {
@@ -555,7 +630,7 @@ export default function VoiceoverStudio({
     const isMale = preset ? preset.gender === "male" : true;
     return {
       name: preset?.name || selectedVoice,
-      type: "Natural Speaking Voice",
+      type: "Piper Neural Voice",
       gender: isMale ? "Male Narrator" : "Female Narrator",
       isMale,
       badge: `${iconify(isMale ? "👨 Male" : "👩 Female")} • ${preset?.accent || "Natural Voice"}`,
@@ -671,6 +746,24 @@ export default function VoiceoverStudio({
         />
       )}
 
+      <div className="flex flex-col gap-3 rounded-2xl border border-emerald-700/50 bg-emerald-950/30 p-4 text-sm text-emerald-100" role="status" aria-live="polite">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold">Piper Neural Voice · on-device synthesis</p>
+            <p className="mt-1 text-xs leading-relaxed text-emerald-100/75">
+              All generated previews and narration use Piper. Your existing 10 male and 10 female Scenering profiles and descriptions are retained; some currently share a smaller set of Piper base voices. The runtime (about 30 MB uncompressed) and selected model download on first use, are cached where browser storage allows, and are reused for previews, scene narration and WAV exports.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handlePreloadCurrentPiperVoice}
+            className="shrink-0 rounded-lg border border-emerald-500/50 bg-emerald-900/40 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-800/60 disabled:cursor-wait disabled:opacity-60"
+          >
+            {isPiperPreloading ? "Cancel preload" : "Prepare selected voice"}
+          </button>
+        </div>
+      </div>
+
       {/* Narration on/off — the first decision in this step, because with it
           off everything below about voices is noise. Music and captions stay
           available either way. */}
@@ -706,11 +799,11 @@ export default function VoiceoverStudio({
               <span className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-xl" aria-hidden="true"><Icon glyph="🎙️" /></span>
               <h2 className="text-xl font-bold text-white">Voiceover Studio</h2>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/80 border border-emerald-700/60 text-emerald-300">
-                2 Free Speechify Voice Styles
+                Piper Neural TTS
               </span>
             </div>
             <p className="text-xs text-gray-300 max-w-xl">
-              Choose from 20 Speechify-backed male and female style profiles, or import your own prepared audio.
+              Choose a Scenering voice profile for Piper narration, or import your own prepared audio.
             </p>
           </div>
 
@@ -996,7 +1089,7 @@ export default function VoiceoverStudio({
         )}
       </div>
 
-      {/* TAB 1: 20 SPEECHIFY-BASED STYLE PROFILES (10 MALE AND 10 FEMALE) */}
+      {/* PIPER PROFILE CATALOGUE: THE EXISTING 20 SCENERING VOICES */}
       {activeTab === "natural_voices" && (
         <div className="space-y-4">
           <div className="bg-gray-900/90 border border-hairline rounded-2xl p-5 shadow-xl space-y-4">
@@ -1004,10 +1097,10 @@ export default function VoiceoverStudio({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-hairline pb-3">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Icon glyph="🎭" /> 20 Speechify Style Profiles
+                  <Icon glyph="🎭" /> 20 Piper Voice Profiles
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  10 male and 10 female profiles preserve Scenering’s familiar narrator archetypes, each bound to a voice in your Speechify catalogue.
+                  10 male and 10 female Scenering narrator profiles, each routed to its mapped Piper neural voice.
                 </p>
               </div>
 
@@ -1054,7 +1147,7 @@ export default function VoiceoverStudio({
                   type="button"
                   role="switch"
                   aria-checked={rotateVoices}
-                  onClick={() => { setRotateVoices((v) => !v); if (currentPlan === "free") openMembershipPlans(); }}
+                  onClick={() => { setRotateVoices((v) => !v); if (!import.meta.env.DEV && currentPlan === "free") openMembershipPlans(); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors shrink-0 ${
                     rotateVoices
                       ? "bg-indigo-600 border-indigo-500 text-white"
@@ -1091,7 +1184,7 @@ export default function VoiceoverStudio({
                       </span>
                       <select
                         value={secondVoice}
-                        onChange={(e) => { setSecondVoice(e.target.value); if (!isPlanVoiceIncluded(currentPlan, e.target.value)) openMembershipPlans(); }}
+                        onChange={(e) => { setSecondVoice(e.target.value); if (!import.meta.env.DEV && !isPlanVoiceIncluded(currentPlan, e.target.value)) openMembershipPlans(); }}
                         className="px-2.5 py-2 bg-gray-900 border border-hairline rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       >
                         {STUDIO_VOICE_PRESETS.map((v) => (
@@ -1103,7 +1196,7 @@ export default function VoiceoverStudio({
                       </select>
                     </label>
                   </div>
-                  {sameSpeechifySpeaker(selectedVoice, secondVoice) && (
+                  {samePiperModel(selectedVoice, secondVoice) && (
                     <p className="text-[11px] text-amber-300">
                       Both sides are the same voice — rotation will sound like a single
                       narrator. Pick a different voice for B.
@@ -1244,7 +1337,7 @@ export default function VoiceoverStudio({
                             {isCurrentLoading ? (
                               <>
                                 <span className="animate-spin text-xs"><Icon glyph="⏳" /></span>
-                                <span>Loading...</span>
+                                <span>Cancel loading</span>
                               </>
                             ) : isCurrentPlaying ? (
                               <>

@@ -23,7 +23,7 @@ import {
   voiceEchoIsActive,
   voiceEchoPresetConfig,
 } from "../src/lib/voice-echo";
-import { FREE_SPEECHIFY_VOICE_IDS, STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
+import { FREE_SCENERING_VOICE_IDS, STUDIO_VOICE_PRESETS } from "../src/data/voice-presets";
 import { isPlanVoiceIncluded } from "../src/config/plans";
 
 const h = createHarness();
@@ -299,22 +299,22 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
 }
 
 // ---------------------------------------------------------------------------
-// Speechify narrator profiles — twenty style archetypes bound to Speechify IDs.
+// Piper narrator profiles — existing Scenering styles remain available.
 {
   const studio = read("src/components/VoiceoverStudio.tsx");
   const importModal = read("src/components/VoiceImportModal.tsx");
-  const speechifyClient = read("src/lib/speechify-client.ts");
-  const server = read("server.ts");
+  const ttsCache = read("src/lib/tts-cache.ts");
+  const main = read("src/main.tsx");
   const maleVoices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === "male");
   const femaleVoices = STUDIO_VOICE_PRESETS.filter((voice) => voice.gender === "female");
 
   h.eq(STUDIO_VOICE_PRESETS.length, 20, "the voice tab holds exactly 20 profiles");
-  h.eq(new Set(STUDIO_VOICE_PRESETS.map((voice) => voice.id)).size, 20, "Speechify profile IDs are unique");
-  h.eq(maleVoices.length, 10, "the Speechify list has 10 male profiles");
-  h.eq(femaleVoices.length, 10, "the Speechify list has 10 female profiles");
-  h.eq(maleVoices[0]?.id, FREE_SPEECHIFY_VOICE_IDS[0], "the free male voice is first in its group");
-  h.eq(femaleVoices[0]?.id, FREE_SPEECHIFY_VOICE_IDS[1], "the free female voice is first in its group");
-  h.ok(STUDIO_VOICE_PRESETS.every((voice) => voice.id.startsWith("speechify_")), "all displayed profiles use new Speechify IDs");
+  h.eq(new Set(STUDIO_VOICE_PRESETS.map((voice) => voice.id)).size, 20, "Scenering profile IDs are unique");
+  h.eq(maleVoices.length, 10, "the voice list has 10 male profiles");
+  h.eq(femaleVoices.length, 10, "the voice list has 10 female profiles");
+  h.eq(maleVoices[0]?.id, FREE_SCENERING_VOICE_IDS[0], "the free male voice is first in its group");
+  h.eq(femaleVoices[0]?.id, FREE_SCENERING_VOICE_IDS[1], "the free female voice is first in its group");
+  h.ok(STUDIO_VOICE_PRESETS.every((voice) => voice.id.startsWith("scenering_")), "all profiles use provider-independent Scenering IDs");
 
   const archetypes = [
     "Warm Conversational", "Deep Cinematic", "British Distinguished", "Australian Charismatic",
@@ -323,24 +323,17 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
     "British Elegant Narrator", "Australian Calm", "Peaceful Guide", "Warm Articulate",
     "Stately Narrator", "Velvet Sophisticate", "Documentary Authority", "Radiant Storyteller",
   ];
-  for (const name of archetypes) {
-    h.ok(STUDIO_VOICE_PRESETS.some((voice) => voice.name === name), `${name} style archetype is preserved`);
-  }
+  for (const name of archetypes) h.ok(STUDIO_VOICE_PRESETS.some((voice) => voice.name === name), `${name} style archetype is preserved`);
   h.ok(studio.includes('export { STUDIO_VOICE_PRESETS } from "../data/voice-presets"'), "VoiceoverStudio re-exports the shared catalogue");
-  h.ok(importModal.includes("STUDIO_VOICE_PRESETS"), "the import modal uses the same Speechify profiles");
-  h.ok(speechifyClient.includes("buildSpeechifyVoiceProfiles"), "the browser binds style profiles to the customer's real voices");
-  h.ok(speechifyClient.includes("resolveSpeechifyVoiceId"), "the browser resolves profile and provider voice IDs directly");
-  h.ok(!server.includes("/api/tts") && !server.includes("X-Speechify-Key"), "no Speechify key proxy remains in the Worker");
-  h.ok(!/en-US-[A-Za-z]+Neural|en-GB-[A-Za-z]+Neural|synthesizeGeminiTTS|browser:/i.test(server), "legacy provider bindings are absent from synthesis");
-  h.ok(isPlanVoiceIncluded("free", FREE_SPEECHIFY_VOICE_IDS[0]), "free male profile is plan-included");
-  h.ok(isPlanVoiceIncluded("free", FREE_SPEECHIFY_VOICE_IDS[1]), "free female profile is plan-included");
-  h.ok(!isPlanVoiceIncluded("free", "speechify_female_02"), "other voice profiles remain plan-gated");
+  h.ok(importModal.includes("STUDIO_VOICE_PRESETS"), "the scene voice modal uses the same 20 profiles");
+  h.ok(ttsCache.includes('import("./piper-tts")'), "all generated narration routes through the Piper runtime");
+  h.ok(!main.includes("PiperVoiceLab") && !main.includes("/piper-lab"), "the separate Piper test page is removed from app routing");
+  h.ok(isPlanVoiceIncluded("free", FREE_SCENERING_VOICE_IDS[0]), "free male profile is plan-included");
+  h.ok(isPlanVoiceIncluded("free", FREE_SCENERING_VOICE_IDS[1]), "free female profile is plan-included");
+  h.ok(!isPlanVoiceIncluded("free", "scenering_female_02"), "other voice profiles remain plan-gated");
 
-  // The app uses a two-column grid and derives ordering from the plan catalogue.
   h.ok(studio.includes("const VOICE_COLUMNS = useMemo("), "the voice list is grouped into columns");
   h.ok(studio.includes("return [column(\"male\", \"Male voices\"), column(\"female\", \"Female voices\")]"), "the male column is first");
   h.ok(studio.includes("isPlanVoiceIncluded(\"free\", voice.id)"), "the free voice is pinned to the top of each column");
   h.ok(!studio.includes("filteredVoices"), "the old ungrouped voice grid is gone");
 }
-
-h.done("voice-echo");

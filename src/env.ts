@@ -39,41 +39,15 @@ export type Env = {
   SCENERING_OWNER_EMAIL: string;
   PEXELS_API_KEY?: string;
   PIXABAY_API_KEY?: string;
-  /* FastSpring Billing — Scenering's Merchant of Record. Server-side secrets
-     (FASTSPRING_API_PASSWORD, FASTSPRING_WEBHOOK_SECRET) never leave the
-     server; nothing here is VITE_-prefixed or baked into the browser bundle.
-     The storefront path is public (it is the `data-storefront` of
-     FastSpring's own snippet) and is served at runtime by
-     /api/billing/public-config and /api/billing/checkout. See FASTSPRING.md
-     for what each value is and where to get it. */
-  /** Storefront path from FastSpring → Checkouts → Popup Checkouts →
-   *  "Place on your Website" (`data-storefront`), e.g.
-   *  `scenering.onfastspring.com/popup-scenering` or
-   *  `scenering.test.onfastspring.com/popup-scenering`. The `.test.` in the
-   *  host selects FastSpring's test environment. */
-  FASTSPRING_STOREFRONT?: string;
-  /** API username and password from FastSpring → Developer Tools → API.
-   *  Used server to server to create checkout sessions and mint
-   *  pre-authenticated Account Management links. */
-  FASTSPRING_API_USERNAME?: string;
-  FASTSPRING_API_PASSWORD?: string;
-  /** The webhook's HMAC SHA256 Secret (FastSpring → Developer Tools →
-   *  Webhooks). `X-FS-Signature` is HMAC-SHA256 over the raw request body,
-   *  base64-encoded, keyed with this secret. */
-  FASTSPRING_WEBHOOK_SECRET?: string;
-  /** "popup" to open the Store Builder popup, "session" to redirect to a
-   *  server-created session URL. Unset means session when the API keys are
-   *  configured and popup otherwise. */
-  FASTSPRING_CHECKOUT_MODE?: string;
-  /** Product paths for the four paid subscription products, per plan and
-   *  interval. Unset means `sceneflow-monthly`, `sceneflow-yearly`,
-   *  `sceneforge-monthly`, `sceneforge-yearly`. */
-  FASTSPRING_SCENEFLOW_MONTHLY_PATH?: string;
-  FASTSPRING_SCENEFLOW_YEARLY_PATH?: string;
-  FASTSPRING_SCENEFORGE_MONTHLY_PATH?: string;
-  FASTSPRING_SCENEFORGE_YEARLY_PATH?: string;
-  // server/platform.ts also looks these env names up dynamically
-  // (`env()[PLAN_CONFIG[slug].priceEnv[interval]]`) — keep the type
-  // indexable so that keeps working without per-field plumbing.
+  /** PayPal subscription development is restricted to the Sandbox API host. */
+  PAYPAL_ENVIRONMENT?: "sandbox";
+  PAYPAL_CLIENT_ID?: string;
+  PAYPAL_CLIENT_SECRET?: string;
+  PAYPAL_WEBHOOK_ID?: string;
+  PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID?: string;
+  PAYPAL_SCENEFLOW_YEARLY_PLAN_ID?: string;
+  PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID?: string;
+  PAYPAL_SCENEFORGE_YEARLY_PLAN_ID?: string;
+  // Plan IDs are selected from PLAN_CONFIG by the server.
   [key: string]: unknown;
 };
