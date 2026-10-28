@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    GENERATED FILE — do not edit by hand.
    Rebuild with: node scripts/generate-theme-css.mjs  (npm run theme:css)
-   Colour matrix for every non-classic theme. 629 utility
+   Colour matrix for every non-classic theme. 626 utility
    tokens were discovered in src/ + index.html and remapped per theme.
 ------------------------------------------------------------------ */
 
@@ -185,9 +185,6 @@ html[data-theme="apple"] .bg-emerald-700 {
 }
 html[data-theme="apple"] .bg-emerald-900 {
   background-color: rgb(206 248 229 / 1);
-}
-html[data-theme="apple"] .bg-emerald-900\/40 {
-  background-color: rgb(206 248 229 / 0.4);
 }
 html[data-theme="apple"] .bg-emerald-900\/50 {
   background-color: rgb(206 248 229 / 0.5);
@@ -726,9 +723,6 @@ html[data-theme="apple"] .border-emerald-600\/80 {
 html[data-theme="apple"] .border-emerald-700 {
   border-color: rgb(4 120 87 / 1);
 }
-html[data-theme="apple"] .border-emerald-700\/50 {
-  border-color: rgb(4 120 87 / 0.5);
-}
 html[data-theme="apple"] .border-emerald-700\/60 {
   border-color: rgb(4 120 87 / 0.6);
 }
@@ -1233,9 +1227,6 @@ html[data-theme="apple"] .hover\:bg-emerald-600:hover {
 }
 html[data-theme="apple"] .hover\:bg-emerald-800:hover {
   background-color: rgb(183 243 219 / 1);
-}
-html[data-theme="apple"] .hover\:bg-emerald-800\/60:hover {
-  background-color: rgb(183 243 219 / 0.6);
 }
 html[data-theme="apple"] .hover\:bg-emerald-900:hover {
   background-color: rgb(206 248 229 / 1);
@@ -2126,9 +2117,6 @@ html[data-theme="windows"] .bg-emerald-700 {
 html[data-theme="windows"] .bg-emerald-900 {
   background-color: rgb(10 74 57 / 1);
 }
-html[data-theme="windows"] .bg-emerald-900\/40 {
-  background-color: rgb(10 74 57 / 0.4);
-}
 html[data-theme="windows"] .bg-emerald-900\/50 {
   background-color: rgb(10 74 57 / 0.5);
 }
@@ -2666,9 +2654,6 @@ html[data-theme="windows"] .border-emerald-600\/80 {
 html[data-theme="windows"] .border-emerald-700 {
   border-color: rgb(11 113 84 / 1);
 }
-html[data-theme="windows"] .border-emerald-700\/50 {
-  border-color: rgb(11 113 84 / 0.5);
-}
 html[data-theme="windows"] .border-emerald-700\/60 {
   border-color: rgb(11 113 84 / 0.6);
 }
@@ -3173,9 +3158,6 @@ html[data-theme="windows"] .hover\:bg-emerald-600:hover {
 }
 html[data-theme="windows"] .hover\:bg-emerald-800:hover {
   background-color: rgb(11 90 68 / 1);
-}
-html[data-theme="windows"] .hover\:bg-emerald-800\/60:hover {
-  background-color: rgb(11 90 68 / 0.6);
 }
 html[data-theme="windows"] .hover\:bg-emerald-900:hover {
   background-color: rgb(10 74 57 / 1);
@@ -4066,9 +4048,6 @@ html[data-theme="playful"] .bg-emerald-700 {
 html[data-theme="playful"] .bg-emerald-900 {
   background-color: rgb(0 86 63 / 1);
 }
-html[data-theme="playful"] .bg-emerald-900\/40 {
-  background-color: rgb(0 86 63 / 0.4);
-}
 html[data-theme="playful"] .bg-emerald-900\/50 {
   background-color: rgb(0 86 63 / 0.5);
 }
@@ -4606,9 +4585,6 @@ html[data-theme="playful"] .border-emerald-600\/80 {
 html[data-theme="playful"] .border-emerald-700 {
   border-color: rgb(0 126 90 / 1);
 }
-html[data-theme="playful"] .border-emerald-700\/50 {
-  border-color: rgb(0 126 90 / 0.5);
-}
 html[data-theme="playful"] .border-emerald-700\/60 {
   border-color: rgb(0 126 90 / 0.6);
 }
@@ -5113,9 +5089,6 @@ html[data-theme="playful"] .hover\:bg-emerald-600:hover {
 }
 html[data-theme="playful"] .hover\:bg-emerald-800:hover {
   background-color: rgb(0 103 74 / 1);
-}
-html[data-theme="playful"] .hover\:bg-emerald-800\/60:hover {
-  background-color: rgb(0 103 74 / 0.6);
 }
 html[data-theme="playful"] .hover\:bg-emerald-900:hover {
   background-color: rgb(0 86 63 / 1);
@@ -6006,9 +5979,6 @@ html[data-theme="glass"] .bg-emerald-700 {
 html[data-theme="glass"] .bg-emerald-900 {
   background-color: rgb(219 250 236 / 1);
 }
-html[data-theme="glass"] .bg-emerald-900\/40 {
-  background-color: rgb(219 250 236 / 0.4);
-}
 html[data-theme="glass"] .bg-emerald-900\/50 {
   background-color: rgb(219 250 236 / 0.5);
 }
@@ -6546,9 +6516,6 @@ html[data-theme="glass"] .border-emerald-600\/80 {
 html[data-theme="glass"] .border-emerald-700 {
   border-color: rgb(27 113 99 / 1);
 }
-html[data-theme="glass"] .border-emerald-700\/50 {
-  border-color: rgb(27 113 99 / 0.5);
-}
 html[data-theme="glass"] .border-emerald-700\/60 {
   border-color: rgb(27 113 99 / 0.6);
 }
@@ -7053,9 +7020,6 @@ html[data-theme="glass"] .hover\:bg-emerald-600:hover {
 }
 html[data-theme="glass"] .hover\:bg-emerald-800:hover {
   background-color: rgb(202 246 228 / 1);
-}
-html[data-theme="glass"] .hover\:bg-emerald-800\/60:hover {
-  background-color: rgb(202 246 228 / 0.6);
 }
 html[data-theme="glass"] .hover\:bg-emerald-900:hover {
   background-color: rgb(219 250 236 / 1);
@@ -7946,9 +7910,6 @@ html[data-theme="porcelain"] .bg-emerald-700 {
 html[data-theme="porcelain"] .bg-emerald-900 {
   background-color: rgb(202 248 227 / 1);
 }
-html[data-theme="porcelain"] .bg-emerald-900\/40 {
-  background-color: rgb(202 248 227 / 0.4);
-}
 html[data-theme="porcelain"] .bg-emerald-900\/50 {
   background-color: rgb(202 248 227 / 0.5);
 }
@@ -8486,9 +8447,6 @@ html[data-theme="porcelain"] .border-emerald-600\/80 {
 html[data-theme="porcelain"] .border-emerald-700 {
   border-color: rgb(4 120 87 / 1);
 }
-html[data-theme="porcelain"] .border-emerald-700\/50 {
-  border-color: rgb(4 120 87 / 0.5);
-}
 html[data-theme="porcelain"] .border-emerald-700\/60 {
   border-color: rgb(4 120 87 / 0.6);
 }
@@ -8993,9 +8951,6 @@ html[data-theme="porcelain"] .hover\:bg-emerald-600:hover {
 }
 html[data-theme="porcelain"] .hover\:bg-emerald-800:hover {
   background-color: rgb(175 242 215 / 1);
-}
-html[data-theme="porcelain"] .hover\:bg-emerald-800\/60:hover {
-  background-color: rgb(175 242 215 / 0.6);
 }
 html[data-theme="porcelain"] .hover\:bg-emerald-900:hover {
   background-color: rgb(202 248 227 / 1);

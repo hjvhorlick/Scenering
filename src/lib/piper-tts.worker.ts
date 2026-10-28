@@ -11,7 +11,6 @@ interface PiperRequest {
   speakerId: number;
   text: string;
   speed?: number;
-  action?: "synthesize" | "preload";
 }
 
 interface VoiceConfig {
@@ -28,7 +27,7 @@ ort.env.wasm.wasmPaths = { wasm: ortWasmUrl, mjs: ortMjsUrl };
 ort.env.wasm.numThreads = 1;
 const MODEL_CACHE_NAME = "scenering-piper-models-v1";
 const MAX_WARM_VOICE_SESSIONS = 2;
-const cachedVoices = new Map<string, { id: string; config: VoiceConfig; session: ort.InferenceSession }>();
+const cachedVoices = new Map<string, { id: string; config: VoiceConfig; session: ort.InferenceSession; modelSaved: boolean }>();
 let phonemizerPromise: Promise<any> | null = null;
 let phonemizeResolve: ((value: any) => void) | null = null;
 let phonemizeReject: ((error: Error) => void) | null = null;
@@ -50,6 +49,18 @@ function voiceBasePath(voiceId: string): string {
 const retryDelay = (attempt: number) => new Promise((resolve) => setTimeout(resolve, Math.min(2500, 350 * 2 ** (attempt - 1))));
 
 async function fetchVoiceConfig(id: number, url: string): Promise<VoiceConfig> {
+  try {
+    if (typeof caches !== "undefined") {
+      const cache = await caches.open(MODEL_CACHE_NAME);
+      const saved = await cache.match(url);
+      if (saved) {
+        const config = await saved.json() as VoiceConfig;
+        if (config.audio?.sample_rate && Array.isArray(config.phoneme_id_map?.a)) return config;
+        await cache.delete(url);
+      }
+    }
+  } catch { /* fall through to the network if cache storage is unavailable */ }
+
   let lastError: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
@@ -65,7 +76,16 @@ async function fetchVoiceConfig(id: number, url: string): Promise<VoiceConfig> {
         }
         throw new Error(`Temporary voice configuration response (${response.status}).`);
       }
-      return await response.json() as VoiceConfig;
+      const config = await response.json() as VoiceConfig;
+      if (typeof caches !== "undefined") {
+        try {
+          const cache = await caches.open(MODEL_CACHE_NAME);
+          await cache.put(url, new Response(JSON.stringify(config), {
+            headers: { "Content-Type": "application/json" },
+          }));
+        } catch { /* use the live config even if storage is unavailable */ }
+      }
+      return config;
     } catch (error) {
       lastError = error;
       if (attempt === 3) break;
@@ -90,6 +110,7 @@ async function downloadVoiceModel(id: number, url: string): Promise<ArrayBuffer>
   let received = 0;
   let expected = 0;
   let lastError: unknown;
+  let lastProgressAt = 0;
 
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
@@ -152,13 +173,17 @@ async function downloadVoiceModel(id: number, url: string): Promise<ArrayBuffer>
         if (!value) continue;
         chunks.push(value);
         received += value.byteLength;
-        post(id, "progress", {
-          stage: "model",
-          message: expected
-            ? `Downloading the voice model… ${Math.min(100, Math.round(received / expected * 100))}%`
-            : `Downloading the voice model… ${Math.round(received / 1_048_576)} MB received`,
-          fraction: expected ? Math.min(0.99, received / expected) : 0,
-        });
+        const now = Date.now();
+        if (now - lastProgressAt >= 120 || (expected && received >= expected)) {
+          lastProgressAt = now;
+          post(id, "progress", {
+            stage: "model",
+            message: expected
+              ? `Downloading the voice model… ${Math.min(100, Math.round(received / expected * 100))}%`
+              : `Downloading the voice model… ${Math.round(received / 1_048_576)} MB received`,
+            fraction: expected ? Math.min(0.99, received / expected) : 0,
+          });
+        }
       }
       if (!expected || received >= expected) return joinChunks(chunks, received);
       lastError = new Error("The model transfer ended early.");
@@ -196,16 +221,31 @@ async function readCachedVoiceModel(id: number, modelUrl: string): Promise<Array
   }
 }
 
-async function persistVoiceModel(modelUrl: string, modelBuffer: ArrayBuffer): Promise<void> {
+async function persistVoiceModel(id: number, modelUrl: string, modelBuffer: ArrayBuffer): Promise<boolean> {
   try {
-    if (typeof caches === "undefined") return;
+    if (typeof caches === "undefined") throw new Error("CacheStorage is unavailable");
+    post(id, "progress", {
+      stage: "model-save",
+      message: "Saving this Piper voice on this device for faster reuse…",
+      fraction: 1,
+    });
     const cache = await caches.open(MODEL_CACHE_NAME);
-    await cache.put(modelUrl, new Response(modelBuffer.slice(0), {
+    // Cache API persists a local copy under this origin. Avoid an explicit
+    // ArrayBuffer.slice here: voice weights can be large, and duplicating the
+    // whole model in memory makes first use slower and more likely to OOM.
+    await cache.put(modelUrl, new Response(modelBuffer, {
       headers: { "Content-Type": "application/octet-stream" },
     }));
+    return Boolean(await cache.match(modelUrl));
   } catch {
-    // Optional optimization only: never fail first-use synthesis because the
-    // browser refuses persistent model storage.
+    // Synthesis still works if the browser rejects storage, but tell the user
+    // that a later visit may need another download.
+    post(id, "progress", {
+      stage: "model-storage-warning",
+      message: "This browser could not keep the Piper voice file; it may need to download again next time.",
+      fraction: 1,
+    });
+    return false;
   }
 }
 
@@ -233,7 +273,7 @@ async function fetchVoiceModel(id: number, voiceId: string) {
   post(id, "progress", { stage: "model-cache", message: "Checking this browser for a previously downloaded voice model…", fraction: 0 });
   const savedModel = await readCachedVoiceModel(id, modelUrl);
   const modelBuffer = savedModel || await downloadVoiceModel(id, modelUrl);
-  const persistPromise = savedModel ? Promise.resolve() : persistVoiceModel(modelUrl, modelBuffer);
+  const persistPromise = savedModel ? Promise.resolve(true) : persistVoiceModel(id, modelUrl, modelBuffer);
   if (!config.audio?.sample_rate || !Array.isArray(config.phoneme_id_map?.a)) {
     throw new Error("The downloaded file is not a valid Piper voice model.");
   }
@@ -264,7 +304,18 @@ async function fetchVoiceModel(id: number, voiceId: string) {
   } finally {
     clearTimeout(preparationNotice);
   }
-  const result = { id: voiceId, config, session };
+  // Don't finish the first synthesis until the disk-cache write has settled.
+  // That way the user's very next preview cannot race the initial save and
+  // trigger another network transfer for the same model.
+  const modelSaved = await persistPromise;
+  if (!modelSaved) {
+    post(id, "progress", {
+      stage: "model-storage-warning",
+      message: "This browser could not keep the Piper voice file; it may need to download again next time.",
+      fraction: 1,
+    });
+  }
+  const result = { id: voiceId, config, session, modelSaved };
   cachedVoices.set(voiceId, result);
   while (cachedVoices.size > MAX_WARM_VOICE_SESSIONS) {
     const oldestId = cachedVoices.keys().next().value as string | undefined;
@@ -424,20 +475,7 @@ async function processQueue() {
   while (requestQueue.length > 0) {
     const request = requestQueue.shift()!;
     try {
-      if (request.action === "preload") {
-        post(request.id, "progress", {
-          stage: "runtime",
-          message: "Loading the voice model and phonemizer together…",
-          fraction: 0,
-        });
-        await Promise.all([
-          fetchVoiceModel(request.id, request.voiceId),
-          loadPhonemizer(),
-        ]);
-        post(request.id, "result", { voiceId: request.voiceId, preloaded: true });
-      } else {
-        await synthesize(request);
-      }
+      await synthesize(request);
     } catch (error) {
       post(request.id, "error", { message: error instanceof Error ? error.message : "Local Piper synthesis failed." });
     }
