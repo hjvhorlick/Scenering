@@ -254,6 +254,28 @@ for (const [name, report] of [
   t.ok(report.technical.length > 0, `the ${name} failure keeps the raw log for support`);
 }
 
+/**
+ * A finished file that fails Scenering's own check must not be dressed up as
+ * something to retry: the check runs on the bytes after encoding, so a retry
+ * repeats the work and reaches the same verdict. It is Scenering's problem,
+ * and the support code is what identifies it.
+ */
+const verifyFail = describeRenderFailure(
+  "Export validation failed: Encoder emitted 2894 video frames instead of 2893."
+);
+t.eq(verifyFail.code, "SC-VERIFY", "a verification refusal gets its own support code");
+t.eq(verifyFail.canAutoRetry, false, "…and is never offered as an automatic retry");
+t.ok(
+  !/try again|retry/i.test(verifyFail.retryHint),
+  "…and the creator is not told to retry something that fails identically"
+);
+t.ok(/our side/i.test(verifyFail.explanation), "…the explanation owns it as Scenering's problem");
+{
+  const auditRefusal = describeRenderFailure("The finished MP4 failed its own check: sample count 2893/2894");
+  t.eq(auditRefusal.code, "SC-VERIFY", "the container audit's refusal lands in the same category");
+  t.ok(/check/i.test(auditRefusal.title), "…and is described as a failed check, not a failed render");
+  t.eq(auditRefusal.canAutoRetry, false, "…with no misleading retry");
+}
 const fb = buildCompatibilityFallback({ format: "webm", fps: 60, quality: "custom", resolution: "1080p" });
 t.eq(fb.patch.format, "mp4", "fallback returns to MP4");
 t.eq(fb.patch.fps, 30, "fallback returns to 30 fps");
@@ -279,6 +301,27 @@ t.eq(queueStatusForProgress(0.98), "finalizing", "final progress reads Finalizin
 t.eq(queueStatusForProgress(1), "ready", "completion reads Ready");
 t.eq(totalFrameCount(20, 30), 600, "20 seconds × 30 FPS = 600 frames (the spec's example)");
 t.eq(totalFrameCount(8 + 13 + 15, 30), 1080, "varying scene durations sum into the exact frame count");
+
+/* A narration scene's length is stored to one decimal place, so at the usual
+ * frame rates duration × fps is always whole and both roundings agree. A
+ * single-scene music video takes its length from the uploaded clip's own
+ * duration — 96.44s, 87.419s — and there they do not. The encoder rounded up
+ * while the post-encode check rounded to nearest, so the check refused a
+ * finished file with "the encoder emitted 2894 frames instead of 2893" and
+ * told the creator to retry something that fails identically every time. */
+for (const [duration, fps] of [[96.44, 30], [87.42, 30], [61.3, 30], [12.345, 25], [7.7, 24]] as const) {
+  t.eq(
+    totalFrameCount(duration, fps),
+    Math.ceil(duration * fps),
+    `${duration}s at ${fps} fps counts every frame it will encode (${duration}×${fps} = ${duration * fps})`
+  );
+}
+t.ok(
+  totalFrameCount(96.44, 30) === 2894,
+  "the fractional-duration case that refused a finished music video now keeps all its frames"
+);
+t.eq(totalFrameCount(0, 30), 0, "an empty timeline has no frames");
+t.eq(totalFrameCount(Number.NaN, 30), 0, "a non-finite duration never produces NaN frames");
 
 /* ---------------- quality ladder shape ---------------- */
 t.eq(QUALITY_LEVELS.map((q) => q.id).join(","), "draft,standard,high,maximum", "ladder order");
@@ -362,6 +405,18 @@ t.ok(
  *      no `<pre>` of the browser's error);
  *   3. the phrases from the complaint are gone.
  */
+t.ok(
+  !/Math\.ceil\(estimatedTotalDuration \* fpsUsed\)/.test(renderViewSrc),
+  "the encode loop never rounds the frame count differently from the validator"
+);
+t.ok(
+  /const totalFrames = totalFrameCount\(estimatedTotalDuration, fpsUsed\)/.test(renderViewSrc),
+  "…it asks the shared helper for THE frame count instead"
+);
+t.ok(
+  /totalFrameCount\(estimatedTotalDuration, fpsUsed\)/.test(renderViewSrc),
+  "the same number is handed to the post-encode verification"
+);
 t.ok(
   /resolveEncodableFormat\(offlineConfig\)/.test(renderViewSrc),
   "the render preflight falls back to a container this device can actually encode"

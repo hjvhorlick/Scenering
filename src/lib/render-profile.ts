@@ -727,6 +727,27 @@ export function describeRenderFailure(rawMessage: string): RenderFailureReport {
       canAutoRetry: true,
     };
   }
+  /**
+   * The finished file failed Scenering's own post-encode check.
+   *
+   * This is the one failure that must NOT say "try again": the check runs on
+   * the bytes after encoding, so a headless retry repeats the same work and
+   * reaches the same verdict. (It is also how a frame-count mismatch surfaced
+   * as the generic card, telling the creator to retry something deterministic
+   * and unfixable from their side.) The code is what support needs.
+   */
+  if (lower.includes("export validation failed") || lower.includes("failed its own check")) {
+    return {
+      title: "The finished video did not pass its own check",
+      explanation:
+        "Scenering reads the finished file back before offering it, and this one did not match the timeline it was made from — so it was not offered, and nothing was counted against your plan. This is a problem on our side, not in your project.",
+      retryHint:
+        "Send us the support code below with the project name and we will find the exact check that refused it. Rendering at 1080p is a safe way to keep working in the meantime.",
+      technical: raw,
+      code: "SC-VERIFY",
+      canAutoRetry: false,
+    };
+  }
   if (lower.includes("notsupported") || lower.includes("istypesupported") || lower.includes("mime") || lower.includes("codec")) {
     return {
       title: "This device could not finish the video",
@@ -926,7 +947,28 @@ export function destinationFileToken(destination: PublishDestinationType): strin
   return getPlatformProfile(destination)?.shortName || "Master";
 }
 
-/** Exact frame count of an export — duration × FPS, per the master timeline. */
+/**
+ * Exact frame count of an export — duration × FPS, rounded UP.
+ *
+ * There is one frame count in a render, and this function is it. It used to
+ * round to nearest while the encoder loop rounded up, and the two disagreed by
+ * one frame whenever `duration × fps` had a fractional part below 0.5 — then
+ * the post-encode check refused a perfectly good file with "the encoder
+ * emitted 2894 frames instead of 2893" and offered no way forward, because a
+ * retry repeats the same arithmetic.
+ *
+ * Narration scenes never hit it: their length is stored to one decimal place,
+ * so at 30/50/60 fps `duration × fps` is always whole. A single-scene music
+ * video whose length comes from the uploaded clip's own duration (96.44s,
+ * 87.419s, …) hits it about half the time.
+ *
+ * Rounding up is also the correct choice on its own: coverage of the timeline
+ * is what matters, so the last, possibly partial, frame is kept. Every caller
+ * must use this — the encode loop, the container audit and the validator all
+ * receive the same number.
+ */
 export function totalFrameCount(durationSec: number, fps: number): number {
-  return Math.max(0, Math.round(durationSec * fps));
+  const frames = durationSec * fps;
+  if (!Number.isFinite(frames)) return 0;
+  return Math.max(0, Math.ceil(frames));
 }
