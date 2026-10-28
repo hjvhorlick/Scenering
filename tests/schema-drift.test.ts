@@ -162,7 +162,7 @@ const SQL_KEYWORDS = new Set([
   "exists", "distinct", "like", "json_set", "json_extract", "datetime", "now", "active",
   "archived", "pending", "sent", "delivered", "bounced", "failed", "unsubscribed",
   "reserved", "completed", "cancelled", "expired", "revoked", "redeemed", "on_trial",
-  "short", "long", "admin", "free", "fastspring", "verify", "reset", "new",
+  "short", "long", "admin", "free", "verify", "reset", "new",
 ]);
 
 interface ColumnReference {

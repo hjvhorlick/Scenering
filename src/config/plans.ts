@@ -19,12 +19,8 @@ export interface PlanConfig {
   prices: Record<BillingInterval, number>;
   annualMonthlyEquivalent: number;
   annualSaving: number;
-  /** Default FastSpring product path (`sceneflow-monthly`, etc.) for this
-   *  plan and interval. */
-  checkoutEnv: Record<BillingInterval, string>;
-  /** Environment variable holding the FastSpring product path override for
-   *  this plan and interval (`FASTSPRING_*_PATH`). */
-  priceEnv: Record<BillingInterval, string>;
+  /** PayPal Sandbox subscription plan IDs, server-selected for each interval. */
+  paypalPlanEnv: Record<BillingInterval, string>;
   limits: {
     /** Null means no Scenering-imposed weekly export-count ceiling. */
     finalExportsPerWeek: number | null;
@@ -68,7 +64,7 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
   free: {
     id: "free", name: "Free", description: "Test real creative tools and export two Shorts plus one long video every week — no payment required.",
     prices: { monthly: 0, yearly: 0 }, annualMonthlyEquivalent: 0, annualSaving: 0,
-    checkoutEnv: { monthly: "", yearly: "" }, priceEnv: { monthly: "", yearly: "" },
+    paypalPlanEnv: { monthly: "", yearly: "" },
     limits: { finalExportsPerWeek: 3, shortExportsPerWeek: 2, longExportsPerWeek: 1,
       maxShortMinutes: 1, maxLongMinutes: 5, maxConcurrentDevices: 1, projectCapacity: null, visualResearchCapacity: "standard",
       voicePresets: 2, captionStyles: 2, backgroundMusicTracks: 2, audioVisualiserStyles: 2 },
@@ -77,8 +73,7 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
   sceneflow: {
     id: "sceneflow", name: "SceneFlow", description: "All creative features with 15 final video downloads every week.",
     prices: { monthly: 19, yearly: 180 }, annualMonthlyEquivalent: 15, annualSaving: 48,
-    checkoutEnv: { monthly: "sceneflow-monthly", yearly: "sceneflow-yearly" },
-    priceEnv: { monthly: "FASTSPRING_SCENEFLOW_MONTHLY_PATH", yearly: "FASTSPRING_SCENEFLOW_YEARLY_PATH" },
+    paypalPlanEnv: { monthly: "PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID", yearly: "PAYPAL_SCENEFLOW_YEARLY_PLAN_ID" },
     limits: { finalExportsPerWeek: 15, shortExportsPerWeek: null, longExportsPerWeek: null,
       maxShortMinutes: null, maxLongMinutes: null, maxConcurrentDevices: 2, projectCapacity: null, visualResearchCapacity: "expanded",
       voicePresets: null, captionStyles: null, backgroundMusicTracks: null, audioVisualiserStyles: null },
@@ -87,8 +82,7 @@ export const PLAN_CONFIG: Readonly<Record<PlanSlug, PlanConfig>> = {
   sceneforge: {
     id: "sceneforge", name: "SceneForge", description: "All creative features with unlimited final downloads, subject to fetched/upstream API service limits.",
     prices: { monthly: 39, yearly: 372 }, annualMonthlyEquivalent: 31, annualSaving: 96,
-    checkoutEnv: { monthly: "sceneforge-monthly", yearly: "sceneforge-yearly" },
-    priceEnv: { monthly: "FASTSPRING_SCENEFORGE_MONTHLY_PATH", yearly: "FASTSPRING_SCENEFORGE_YEARLY_PATH" },
+    paypalPlanEnv: { monthly: "PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID", yearly: "PAYPAL_SCENEFORGE_YEARLY_PLAN_ID" },
     limits: { finalExportsPerWeek: null, shortExportsPerWeek: null, longExportsPerWeek: null,
       maxShortMinutes: null, maxLongMinutes: null, maxConcurrentDevices: 5, projectCapacity: null, visualResearchCapacity: "high",
       voicePresets: null, captionStyles: null, backgroundMusicTracks: null, audioVisualiserStyles: null },
@@ -128,7 +122,7 @@ export type ExportCreativeManifest = {
 export const CUSTOMISED_CTA_SUFFIX = ":custom";
 
 const FREE_CATALOG = {
-  voices: ["speechify_male_01", "speechify_female_01"],
+  voices: ["scenering_male_01", "scenering_female_01"],
   captionStyles: ["newsroom_clean", "cinema_classic"],
   backgroundMusic: ["bgm_divider", "bgm_candlepower"],
   audioVisualisers: ["fine_radial_bars", "fine_radial_bars_3d"],
@@ -165,7 +159,7 @@ export function validateExportCreativeManifest(slug: PlanSlug, manifest: ExportC
   if (deniedFeature) return `${deniedFeature.replace(/_/g, " ")} is not included in ${plan.name}`;
   if (slug !== "free") return null;
   const allowed = (value: string, values: readonly string[]) => values.includes(value.toLowerCase());
-  if (!isPlanVoiceIncluded("free", manifest.voice || "speechify_male_01")) return "This voice is outside the Free sample selection";
+  if (!isPlanVoiceIncluded("free", manifest.voice || "scenering_male_01")) return "This voice is outside the Free sample selection";
   if (!allowed(manifest.captionStyle || "newsroom_clean", FREE_CATALOG.captionStyles)) return "This caption style is outside the Free sample selection";
   if (manifest.backgroundMusic.some((value) => !allowed(value, FREE_CATALOG.backgroundMusic))) return "This music track is outside the Free two-track selection";
   if (manifest.audioVisualisers.some((value) => !allowed(value, FREE_CATALOG.audioVisualisers))) return "This audio visualiser is outside the Free sample selection";

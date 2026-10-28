@@ -46,15 +46,15 @@ export default function SignIn() {
     }
     const intended = localStorage.getItem("scenering_intended_checkout");
     if (intended) {
-      const choice = JSON.parse(intended) as { plan: string; interval: string };
-      const response = await fetch(`/api/billing/checkout/${choice.plan}/${choice.interval}`);
-      const checkout = await response.json();
-      if (response.ok && checkout.url) {
+      try {
+        const choice = JSON.parse(intended) as { plan?: string; interval?: string };
         localStorage.removeItem("scenering_intended_checkout");
-        window.location.href = checkout.url;
-        return;
-      } else if (checkout.code === "BILLING_NOT_CONFIGURED") {
-        setMessage("Your account is ready. Paid checkout has not been configured yet, so you are continuing on Free.");
+        if (choice.plan === "sceneflow" || choice.plan === "sceneforge") {
+          navigate(`/pricing?provider=paypal&plan=${choice.plan}&interval=${choice.interval === "yearly" ? "yearly" : "monthly"}`);
+          return;
+        }
+      } catch {
+        localStorage.removeItem("scenering_intended_checkout");
       }
     }
     const nextPath = new URLSearchParams(window.location.search).get("next");
@@ -81,7 +81,7 @@ export default function SignIn() {
         if (accessCode) localStorage.setItem("scenering_intended_access_code", accessCode);
         const intendedPlan = params.get("plan");
         if (intendedPlan === "sceneflow" || intendedPlan === "sceneforge") {
-          localStorage.setItem("scenering_intended_checkout", JSON.stringify({ plan: intendedPlan, interval: params.get("interval") === "yearly" ? "yearly" : "monthly" }));
+          localStorage.setItem("scenering_intended_checkout", JSON.stringify({ provider: "paypal", plan: intendedPlan, interval: params.get("interval") === "yearly" ? "yearly" : "monthly" }));
         }
         const result = await registerAccount(displayName, email, password, marketingConsent);
         if (result.developmentVerificationUrl) {

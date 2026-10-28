@@ -12,7 +12,7 @@ const license = readFileSync("LICENSE", "utf8");
 h.ok(platform.includes("SESSION_SECRET must be a unique production secret"), "production rejects missing or weak session secrets");
 h.ok(platform.includes("timingSafeEqual"), "secret comparisons use timing-safe equality");
 h.ok(platform.includes("HttpOnly; SameSite=Lax"), "session cookie is HttpOnly and SameSite protected");
-h.ok(platform.includes("fastspringCheckoutTags(user.id, user.email)"), "checkout binds provider custom data to the authenticated user, server side");
+h.ok(platform.includes("intentHash") && platform.includes("paypalPlanId"), "PayPal checkout binds a short-lived provider intent to the authenticated user and selected plan");
 h.ok(platform.includes("SCENERING_OWNER_EMAIL") && platform.includes("requireAdmin") && platform.includes("isConfiguredOwner(auth.user)"), "owner administration is bound to a server-configured email and protected role");
 h.ok(platform.includes("if (!user.isVerified) return user") && platform.includes("await ensureOwnerPrivileges({ ...user, isVerified: true })"), "owner elevation requires verified mailbox control");
 h.ok(platform.includes('"/api/admin/overview"'), "owner has a protected operational overview endpoint");
@@ -31,7 +31,7 @@ h.ok(
   "access codes are stored hashed and become single-use after redemption"
 );
 h.ok(platform.includes('const period = "year" as const'), "access codes always grant one year rather than a selectable month");
-h.ok(platform.includes("unknown_price"), "unknown billing price ids grant no membership");
+h.ok(platform.includes('planValue === "sceneflow" || planValue === "sceneforge"') && platform.includes('intervalValue === "monthly" || intervalValue === "yearly"'), "only the four configured PayPal plan and interval combinations can start checkout");
 h.ok(server.includes("Cross-origin request rejected"), "state-changing browser requests have origin enforcement");
 h.ok(server.includes("origin !== configured && !sameHost"), "origin enforcement accepts the host the request actually arrived on, so preview and alias domains keep working");
 h.ok(server.includes('env().TRUST_PROXY === "1"') && server.includes("x-forwarded-host"), "origin enforcement derives the public host behind a trusted proxy, so proxied previews match too");
@@ -40,8 +40,9 @@ for (const header of ["Content-Security-Policy", "Strict-Transport-Security", "X
 h.ok(server.includes("allowedImageHost"), "image proxy has an explicit host allowlist");
 h.ok(server.includes('parsed.protocol !== "https:"'), "image proxy accepts only HTTPS upstreams");
 h.ok(server.includes("Unsafe image redirect"), "image proxy revalidates redirects");
-const speechifyClient = readFileSync("src/lib/speechify-client.ts", "utf8");
-h.ok(!server.includes("/api/tts") && !server.includes("X-Speechify-Key") && speechifyClient.includes("https://api.speechify.ai/v1"), "Speechify BYOK requests bypass the Worker and go directly from the browser to the provider");
+const ttsCache = readFileSync("src/lib/tts-cache.ts", "utf8");
+h.ok(ttsCache.includes('import("./piper-tts")') && !ttsCache.includes("synthesizeSpeechify"), "generated narration uses the browser-local Piper runtime with no Speechify provider call");
+h.ok(!server.includes("/api/tts") && !server.includes("X-Speechify-Key"), "the server has no Speechify key proxy or synthesis route");
 h.ok(server.includes("ownerId") && server.includes("randomBytes(18)"), "uploaded audio uses account ownership and cryptographic ids");
 const supabaseClient = readFileSync("src/lib/supabase.ts", "utf8");
 h.ok(supabaseClient.includes('EDGE_FUNCTION_BASE = "/api"'), "client cannot bypass the authenticated server through legacy Edge Functions");

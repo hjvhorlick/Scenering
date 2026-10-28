@@ -1,15 +1,9 @@
 /**
- * Reading a caption file into the same word clock a transcript produces.
+ * Read timed captions from an SRT or VTT file.
  *
- * On-device transcription is the normal route to captions for uploaded
- * footage, but it needs a browser that can run it and a clip with speech in it.
- * A creator who already has an `.srt` or `.vtt` — from a phone, an editor, or
- * a service they paid for elsewhere — should not have to retype it, so the same
- * fields (`scene.text` plus per-word timings) are filled from a file instead.
- *
- * The output is deliberately identical in shape to `speech-to-text.ts`, so
- * everything downstream is one code path: the Captions Studio styles it, the
- * scene text editor corrects it and the renderer burns it in.
+ * A creator can bring subtitles from a phone, an editor, or another service
+ * without retyping them. The resulting scene text and per-word timings use the
+ * same rendering path as script-based captions.
  */
 
 import type { WordTiming } from "./word-sync";

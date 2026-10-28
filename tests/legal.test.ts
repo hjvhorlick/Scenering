@@ -36,10 +36,10 @@ for (const key of ["scenering_projects_v1", "scenering_scenes_v1", "scenering_pr
   h.ok(content.includes(key), `legal copy names ${key}`);
   h.ok(sourceAll.includes(key.replace("_<id>", "")), `${key} is backed by an app storage reference`);
 }
-for (const provider of ["Speechify", "your Speechify API key", "Wikimedia Commons", "Pexels", "Pixabay", "Google Translate", "Google Fonts", "FastSpring"]) {
+for (const provider of ["Piper", "model file", "Wikimedia Commons", "Pexels", "Pixabay", "Google Translate", "Google Fonts", "PayPal Sandbox"]) {
   h.ok(content.includes(provider), `legal copy names ${provider}`);
 }
-for (const source of ["speechify", "wikimedia", "pexels", "pixabay", "translate", "fonts.googleapis.com", "fastspring"]) {
+for (const source of ["piper", "wikimedia", "pexels", "pixabay", "translate", "fonts.googleapis.com", "paypal"]) {
   h.ok((sourceAll + serverAll).toLowerCase().includes(source), `code contains a call path for ${source}`);
 }
 h.ok(!serverAll.toLowerCase().includes("gemini") && !serverAll.toLowerCase().includes("msedge"), "no Gemini or Edge TTS synthesis remains in the application");
@@ -47,11 +47,11 @@ h.ok(content.includes("20 MB") && content.includes("5 files") && content.include
 h.ok(content.includes("scenering_session") && content.includes("30 days") && content.includes("HttpOnly") && content.includes("SameSite=Lax") && content.includes("Path=/") && content.includes("Secure"), "cookie properties are stated");
 h.ok(platform.includes("scenering_session") && platform.includes("Max-Age=2592000") && platform.includes("HttpOnly; SameSite=Lax"), "cookie page matches setSessionCookie");
 h.ok(platform.includes("scryptSync") && platform.includes('createHmac("sha256"'), "security primitives are present in platform");
-h.ok(platform.includes('["active", "on_trial", "past_due"].includes(status)'), "access follows FastSpring's status semantics: active, trialing and past_due are paid, paused and expired are not");
-h.ok(platform.includes("deactivationDate"), "a cancellation scheduled for the end of the period is read from FastSpring's deactivation date");
-h.ok(platform.includes('record("stale")'), "a late redelivery of an older event cannot overwrite newer subscription state");
-h.ok(content.includes("FastSpring is the merchant of record") && content.includes("card numbers never reach us"), "payment processor language is exact");
-h.ok(content.includes("Store Builder Library") && content.includes("Account Management portal") && content.includes("card brand and last four digits"), "legal documents disclose FastSpring Store Builder Library, Account Management portal, and stored card summary fields");
+h.ok(platform.includes('["active", "on_trial", "past_due"].includes(status)'), "access follows verified subscription status semantics: active, trialing and past_due are paid");
+h.ok(platform.includes("billing_info?.next_billing_time") && platform.includes("providerEventOccurredAt"), "PayPal billing period and provider event time are stored");
+h.ok(platform.includes("Date.parse(eventTimestamp) < Date.parse(existing.providerEventOccurredAt)"), "an older PayPal update cannot overwrite newer subscription state");
+h.ok(content.includes("PayPal Sandbox") && content.includes("production billing is disabled") && content.includes("does not receive card numbers"), "payment copy accurately limits billing to Sandbox and discloses card-data handling");
+h.ok(content.includes("PayPal Sandbox pages may use their own cookies") && content.includes("PayPal Sandbox subscriptions"), "legal documents describe PayPal Sandbox test checkout and account controls");
 h.ok(content.includes("created and owned by ${LEGAL_OWNER}"), "ownership phrase is sourced from the owner constant");
 h.ok(content.includes("South Africa") && content.includes("12 months"), "terms include governing law and liability cap");
 
@@ -60,7 +60,7 @@ for (const allowance of ["3/week", "two up to 1 minute", "one up to 5 minutes", 
 h.ok(plans.includes('monthly: 19') && plans.includes('monthly: 39'), "terms prices have plan source values");
 h.ok(plans.includes("finalExportsPerWeek: 3") && plans.includes("finalExportsPerWeek: 15"), "terms allowances have plan source values");
 const freeCatalog = plans.match(/const FREE_CATALOG = \{[\s\S]*?\n\} as const;/)?.[0] || "";
-for (const voice of ["speechify_male_01", "speechify_female_01"]) h.ok(freeCatalog.includes(`"${voice}"`), `free Speechify voice ${voice} is catalogued`);
+for (const voice of ["scenering_male_01", "scenering_female_01"]) h.ok(freeCatalog.includes(`"${voice}"`), `free Scenering voice ${voice} is catalogued`);
 h.ok(content.includes("Warm Conversational (male)") && content.includes("Clear Conversational (female)"), "the free male and female profile names are documented");
 for (const item of ["newsroom_clean", "cinema_classic", "bgm_divider", "bgm_candlepower", "fine_radial_bars", "fine_radial_bars_3d", "cta_youtube_subscribe"]) h.ok(freeCatalog.includes(item), `free catalogue contains ${item}`);
 
@@ -69,18 +69,15 @@ h.ok(page.includes("pub-legal-summary") && page.includes("In short"), "page rend
 h.ok(page.includes("pub-table-wrap") && page.includes('scope="row"'), "page renders accessible legal tables");
 h.ok(page.includes("pub-legal-note") && page.includes("/privacy") && page.includes("/terms") && page.includes("/cookies") && page.includes("/refunds"), "page renders legal cross-links");
 
-/* The refund and cancellation policy. The Terms already carried one sentence on
-   refunds ("considered case by case"), but there was no page a reviewer — or a
-   customer — could be sent to that explained how to cancel, how to ask, and who
-   returns the money. FastSpring is the merchant of record, so that last part is
-   not obvious and is worth publishing. */
+/* The refund and cancellation policy explains the current Sandbox-only billing
+   state without implying that Scenering accepts live payments. */
 const refunds = LEGAL_DOCUMENTS.refunds;
 h.eq(refunds.title, "Refunds and cancellation", "the refund policy has its own public title");
 h.ok(content.includes("Refunds and cancellation"), "and is published from the legal content module");
 h.ok(refunds.sections.some((s) => /Cancelling a subscription/.test(s.heading)), "it explains how to cancel");
 h.ok(refunds.sections.some((s) => /Requesting a refund/.test(s.heading)), "it explains how to request a refund");
 h.ok(refunds.sections.some((s) => /statutory rights/i.test(s.heading)), "it preserves statutory rights");
-h.ok(JSON.stringify(refunds).includes("FastSpring"), "it names FastSpring as the merchant of record that returns the money");
+h.ok(JSON.stringify(refunds).includes("PayPal Sandbox") && JSON.stringify(refunds).includes("no live purchase"), "it discloses that Sandbox testing is not live billing");
 h.ok(JSON.stringify(refunds).includes("case by case"), "and states the same case-by-case rule the Terms and the owner manual give");
 h.ok(JSON.stringify(refunds).includes("end of the period"), "cancellation runs to the end of the paid period, matching the access rules");
 const home = read("src/marketing/MarketingSite.tsx");

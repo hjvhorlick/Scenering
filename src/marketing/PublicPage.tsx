@@ -2,8 +2,8 @@ import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } f
 import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type FeatureKey } from "../config/plans";
 import { isFeatureTourPath, navigate, STUDIO_PATH } from "../lib/route";
 import { useSession } from "../lib/session";
-import { openFastSpringPopup } from "../lib/fastspring";
 import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
+import PayPalSubscriptionDialog from "../components/PayPalSubscriptionDialog";
 import { buildPricingTiers, TIER_FEATURES, type Tier } from "../config/pricing-tiers";
 import { BrandMark } from "./components/primitives";
 import HeaderLegalMenu from "./components/HeaderLegalMenu";
@@ -150,125 +150,61 @@ function HowPage() {
   );
 }
 
-/**
- * The pricing page: three tiers, monthly/yearly, country-localized
- * prices and a popup or session checkout — all served by FastSpring.
- *
- * Prices come back from the FastSpring Store Builder Library (`sbl.min.js`)
- * already formatted for the visitor's country and currency and are
- * displayed as returned. Checkout opens as a FastSpring popup storefront
- * (or redirects to a FastSpring session) for the selected product path,
- * prefills the signed-in account's email, and redirects to /welcome on
- * completion.
- *
- * The loading and previewing itself lives in
- * useLocalizedPlanPrices (src/lib/use-localized-prices.ts), shared
- * with the home-page pricing section and the in-app plan cards so
- * every surface shows the same localized total this page does.
- * Only the checkout stays here, where the Subscribe buttons are.
- */
+/** Pricing and checkout stay USD; paid checkout is Sandbox-only during review. */
 function PricingPage() {
   const initialParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const initialInterval: BillingInterval = initialParams?.get("interval") === "yearly" ? "yearly" : "monthly";
   const [interval, setInterval] = useState<BillingInterval>(initialInterval);
   const [compare, setCompare] = useState(false);
-  const { config, configError, pricesError, setPricesError, displayPrice, annualSavingLine } = useLocalizedPlanPrices();
+  const { config, displayPrice, annualSavingLine } = useLocalizedPlanPrices();
   const [opening, setOpening] = useState("");
-  const [autoOpened, setAutoOpened] = useState(false);
+  const [paypalChoice, setPaypalChoice] = useState<{ plan: "sceneflow" | "sceneforge"; interval: BillingInterval } | null>(null);
   const { account } = useSession();
 
   useEffect(() => {
-    if (autoOpened || !config || typeof window === "undefined") return;
-    const requestedPlan = new URLSearchParams(window.location.search).get("plan");
-    if (requestedPlan !== "sceneflow" && requestedPlan !== "sceneforge") return;
-    const tier = config.tiers.find((t) => t.id === requestedPlan);
-    if (!tier) return;
-    setAutoOpened(true);
-    void subscribe(tier);
-  }, [autoOpened, config, interval]);
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const plan = params.get("plan");
+    if ((plan === "sceneflow" || plan === "sceneforge") && params.get("provider") === "paypal" && account) {
+      setPaypalChoice({ plan, interval: params.get("interval") === "yearly" ? "yearly" : "monthly" });
+      params.delete("provider"); params.delete("plan"); params.delete("interval");
+      const query = params.toString();
+      history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    }
+  }, [account]);
 
-  async function subscribe(tier: Tier) {
-    if (configError) {
-      setPricesError(configError);
+  function subscribe(tier: Tier) {
+    if (tier.id === "free") return;
+    const plan = tier.id as "sceneflow" | "sceneforge";
+    if (!account) {
+      localStorage.setItem("scenering_intended_checkout", JSON.stringify({ provider: "paypal", plan, interval }));
+      navigate("/login");
       return;
     }
-    const priceId = interval === "monthly" ? tier.priceId.month : tier.priceId.year;
-    if (!priceId) {
-      const envName = PLAN_CONFIG[tier.id].priceEnv[interval];
-      setPricesError(`FastSpring product path is not set for ${tier.name} (${interval}). Set ${envName} in your environment variables.`);
-      return;
-    }
-    setPricesError(null);
     setOpening(tier.id);
-    try {
-      const res = await fetch(`/api/billing/checkout/${tier.id}/${interval}`, { credentials: "same-origin" });
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data.mode === "popup" && data.storefront && data.productPath) {
-          await openFastSpringPopup({
-            storefront: String(data.storefront),
-            productPath: String(data.productPath),
-            tags: data.tags && typeof data.tags === "object" ? data.tags : {},
-            email: typeof data.email === "string" ? data.email : undefined,
-            onClosed: (orderRef) => {
-              if (orderRef) navigate("/welcome");
-            },
-          });
-          return;
-        }
-        if (typeof data.url === "string" && data.url) {
-          window.location.href = data.url;
-          return;
-        }
-      } else if (res.status !== 401) {
-        const data = await res.json().catch(() => ({}));
-        setPricesError(data.detail ? `${data.error} (${data.detail})` : data.error || "FastSpring checkout is not configured in this environment.");
-        return;
-      }
-
-      if (!config?.storefront) {
-        setPricesError("FastSpring checkout is still loading or FASTSPRING_STOREFRONT is not configured in this environment.");
-        return;
-      }
-      const email = account?.user.email;
-      const userId = account?.user.id;
-      await openFastSpringPopup({
-        storefront: config.storefront,
-        productPath: priceId,
-        tags: {
-          ...(userId ? { user_id: userId } : {}),
-          ...(email ? { email } : {}),
-        },
-        ...(email ? { email } : {}),
-        onClosed: (orderRef) => {
-          if (orderRef) navigate("/welcome");
-        },
-      });
-    } catch (error) {
-      setPricesError((error as Error)?.message || "FastSpring checkout could not be opened.");
-    } finally {
-      setOpening("");
-    }
+    setPaypalChoice({ plan, interval });
+    setOpening("");
   }
 
-  const displayedTiers = config ? config.tiers : buildPricingTiers(() => "");
+  const displayedTiers = config?.tiers || buildPricingTiers(() => "");
 
-  return <><PageHero eyebrow="Pricing" title="Start free. Add capability when you need it." lead="Exactly three plans. Monthly and yearly are billing choices—not extra plans. Preview renders never consume final-export allowance. Prices are shown in your local currency, with tax, exactly as FastSpring calculates them." />
-    {configError && <section className="mkt-container pub-callout"><div><h2>Pricing is unavailable right now</h2><p>{configError}</p></div></section>}
+  return <><PageHero eyebrow="Pricing" title="Start free. Add capability when you need it." lead="Exactly three plans. Monthly and yearly are billing choices—not extra plans. Preview renders never consume final-export allowance. Subscription prices are listed in USD." />
     <section className="mkt-container">
       <div className="pub-toggle" role="group" aria-label="Billing interval"><button className={interval === "monthly" ? "is-on" : ""} onClick={() => setInterval("monthly")}>Monthly</button><button className={interval === "yearly" ? "is-on" : ""} onClick={() => setInterval("yearly")}>Yearly</button></div>
-      {pricesError && <p role="alert" className="pub-callout" style={{ marginBottom: 18 }}>{pricesError}</p>}
-      <div className="pub-plans">{displayedTiers.map((tier) => { return <article className={`pub-plan${tier.id === "sceneflow" ? " is-featured" : ""}`} key={tier.id}>{tier.id === "sceneflow" && <span className="pub-ribbon">Regular creators</span>}<h2>{tier.name}</h2><p>{tier.description}</p>
+      <div className="pub-plans">{displayedTiers.map((tier) => <article className={`pub-plan${tier.id === "sceneflow" ? " is-featured" : ""}`} key={tier.id}>{tier.id === "sceneflow" && <span className="pub-ribbon">Regular creators</span>}<h2>{tier.name}</h2><p>{tier.description}</p>
         <div className="pub-price">{tier.id !== "free" ? <><b>{displayPrice(tier.id, interval)}</b><span>/{interval === "monthly" ? "month" : "year"}</span></> : <><b>Free</b><span>forever</span></>}</div>
         {interval === "yearly" && tier.id !== "free" && <p className="pub-saving">{annualSavingLine(tier.id)}</p>}
         <PlanHighlights slug={tier.id} features={tier.features} />
         {tier.id !== "free"
-          ? <button className="mkt-btn mkt-btn-primary" disabled={opening === tier.id} onClick={() => subscribe(tier)}>{opening === tier.id ? "Opening checkout…" : `Subscribe to ${tier.name}${account?.user.email ? "" : " (sign in to prefill)"}`}</button>
+          ? import.meta.env.DEV
+            ? <button className="mkt-btn mkt-btn-primary" disabled={opening === tier.id} onClick={() => subscribe(tier)}>{opening === tier.id ? "Opening PayPal Sandbox…" : `Subscribe to ${tier.name} · PayPal Sandbox`}</button>
+            : <button className="mkt-btn mkt-btn-primary" type="button" disabled title="Subscription checkout is Sandbox-only during review">PayPal Sandbox checkout is available in development only</button>
           : <a href="/register" className="mkt-btn mkt-btn-primary">Get Started Free</a>}
-      </article>; })}</div>
+      </article>)}</div>
       <button className="pub-compare-btn" onClick={() => setCompare(!compare)} aria-expanded={compare}>{compare ? "Hide" : "Show"} complete feature comparison</button>
       {compare && <Comparison />}
-    </section></>;
+      <p className="pub-legal-note">PayPal Sandbox transactions are for testing only; production billing remains disabled. By subscribing you agree to the <a href="/terms">Terms of Service</a>, <a href="/privacy">Privacy Policy</a> and <a href="/refunds">Refund &amp; Cancellation Policy</a>.</p>
+    </section><PayPalSubscriptionDialog plan={paypalChoice?.plan || null} interval={paypalChoice?.interval || interval} onClose={() => setPaypalChoice(null)} /></>;
 }
 function PlanHighlights({ slug, features }: { slug: typeof PLAN_ORDER[number]; features?: string[] }) { const lines = features?.length ? features : TIER_FEATURES[slug]; return <ul className="pub-checks">{lines.map((x) => <li key={x}>✓ {x}</li>)}</ul>; }
 function Comparison() { return <div className="pub-table-wrap"><table className="pub-table"><thead><tr><th>Capability</th>{PLAN_ORDER.map((s) => <th key={s}>{PLAN_CONFIG[s].name}</th>)}</tr></thead><tbody><tr><td>Final-download capacity</td><td data-label={PLAN_CONFIG.free.name}>2 Shorts + 1 long video/week</td><td data-label={PLAN_CONFIG.sceneflow.name}>15 videos/week</td><td data-label={PLAN_CONFIG.sceneforge.name}>Unlimited, subject to fetched/upstream API service limits</td></tr><tr><td>Creative catalog</td><td data-label={PLAN_CONFIG.free.name}>Sample visualisers, animated Subscribe CTA, 2 music tracks, 2 caption styles</td><td data-label={PLAN_CONFIG.sceneforge.name}>All creative features</td><td>All creative features</td></tr>{Object.entries(FEATURE_LABELS).map(([feature, label]) => <tr key={feature}><td>{label}</td>{PLAN_ORDER.map((slug) => <td key={slug} data-label={PLAN_CONFIG[slug].name}>{PLAN_CONFIG[slug].features[feature as FeatureKey] ? "✓ Included" : <span title={`Available in ${feature === "bulk_workflow" ? "SceneForge" : "SceneFlow"}`}>🔒 Unlock on paid</span>}</td>)}</tr>)}<tr><td>Image sources</td><td colSpan={3}>Configured Pexels and Pixabay, Wikimedia Commons, and bundled fallbacks</td></tr><tr><td>Devices at once</td><td data-label={PLAN_CONFIG.free.name}>1 device</td><td data-label={PLAN_CONFIG.sceneflow.name}>Up to 2 devices</td><td data-label={PLAN_CONFIG.sceneforge.name}>Up to 5 devices</td></tr><tr><td>Project storage</td><td data-label={PLAN_CONFIG.free.name}>Projects preserved</td><td data-label={PLAN_CONFIG.sceneflow.name}>Expanded capacity</td><td data-label={PLAN_CONFIG.sceneforge.name}>High-volume capacity</td></tr></tbody></table></div>; }
@@ -276,11 +212,7 @@ function Comparison() { return <div className="pub-table-wrap"><table className=
 function AboutPage() { return <><PageHero eyebrow="About" title="Video creation with meaningful control." lead="Scenering was created for people who have ideas and stories to share but do not want filming—and do not want an opaque generator making every decision." /><section className="mkt-container pub-prose"><h2>What Scenering is</h2><p>A web application that turns scripts and prepared audio into scene-based faceless videos. It combines visual research, narration, captions, creative finishing and export in one guided workflow.</p><h2>Who it is for</h2><p>YouTube and Shorts creators, educators, churches and organizations, training teams, information channels, storytellers, travel and business creators, and anyone creating social content without appearing on camera.</p><h2>What we believe</h2><p>Automation should remove repetitive work without removing judgment. Scenering therefore keeps scenes, sources, narration, captions and finishing choices visible. It does not promise views, growth or income—the work and audience remain yours.</p></section></>; }
 function ContactPage() { const [status, setStatus] = useState(""); const [busy, setBusy] = useState(false); async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); setBusy(true); setStatus(""); const form = new FormData(e.currentTarget); const response = await fetch("/api/contact", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(form)) }); const data = await response.json(); setStatus(data.message || data.error); if (response.ok) e.currentTarget.reset(); setBusy(false); } return <><PageHero eyebrow="Contact" title="How can we help?" lead="Send a product, technical, billing or account question. Messages are validated, rate-limited and stored for review." /><form className="mkt-container pub-form" onSubmit={submit}><div><label>Name<input name="name" required minLength={2} /></label><label>Email<input name="email" type="email" required /></label></div><div><label>Category<select name="category" required>{["General", "Technical", "Billing", "Account", "Feature Request", "Business", "Other"].map((c) => <option key={c}>{c}</option>)}</select></label><label>Subject<input name="subject" required minLength={3} /></label></div><label>Message<textarea name="message" rows={7} required minLength={10} /></label><label className="pub-honeypot" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off" /></label><button className="mkt-btn mkt-btn-primary" disabled={busy}>{busy ? "Sending…" : "Send message"}</button>{status && <p role="status">{status}</p>}</form></>; }
 function LegalPage({ kind }: { kind: LegalKind }) { const document = LEGAL_DOCUMENTS[kind]; return <><PageHero eyebrow="Legal" title={document.title} lead={document.lead} /><section className="mkt-container pub-prose"><p className="pub-legal-date">Effective {LEGAL_EFFECTIVE_DATE} — {LEGAL_OWNER}, {LEGAL_ORGANISATION}</p><div className="pub-legal-summary"><h2>In short</h2><ul>{document.summary.map((item) => <li key={item}>{item}</li>)}</ul></div>{document.sections.map((section) => <section key={section.heading}><h2>{section.heading}</h2>{section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}{section.bullets && <ul>{section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}{section.table && <div className="pub-table-wrap"><table className="pub-table"><thead><tr>{section.table.headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{section.table.rows.map((row) => <tr key={row.join("|")}>{row.map((cell, index) => index === 0 ? <th scope="row" key={cell}>{cell}</th> : <td key={cell} data-label={section.table!.headers[index]}>{cell}</td>)}</tr>)}</tbody></table></div>}</section>)}<section><h2>Questions</h2><p>Use the <a href={LEGAL_CONTACT_PATH}>Contact page</a> for privacy, legal or account questions.</p></section><p className="pub-legal-note">See also <a href="/privacy">Privacy</a>, <a href="/terms">Terms</a>, <a href="/cookies">Cookie information</a> and <a href="/refunds">Refunds and cancellation</a>.</p></section></>; }
-/** The page FastSpring's checkout redirects to after a successful
-    subscription. Confirmation is UX only — the webhook is what
-    actually grants the plan, so this page says to wait a minute
-    rather than promising instant access. */
-function WelcomePage() { return <><PageHero eyebrow="Welcome" title="Welcome to Scenering." lead="Checkout completed. Your plan activates as soon as FastSpring confirms the payment — usually seconds — and your account syncs automatically." /><div className="mkt-container pub-center"><a className="mkt-btn mkt-btn-primary" href="/app">Open the studio</a><p className="pub-legal-note">Your new plan may take a minute to appear. If it does not, the payment is still recorded on your FastSpring receipt — ask at the <a href="/contact">Contact page</a>.</p></div></>; }
+function WelcomePage() { return <><PageHero eyebrow="Welcome" title="Welcome to Scenering." lead="PayPal approval was returned. Your subscription activates only after Scenering verifies its status with PayPal; webhook confirmation may take a moment." /><div className="mkt-container pub-center"><a className="mkt-btn mkt-btn-primary" href="/app">Open the studio</a><p className="pub-legal-note">Your plan may take a minute to appear. PayPal Sandbox approval alone does not grant access. If it does not appear, contact us from the <a href="/contact">Contact page</a>.</p></div></>; }
 const verifyRequests = new Map<string, Promise<string>>();
 function VerifyPage() {
   const [status, setStatus] = useState("Verifying your email…");

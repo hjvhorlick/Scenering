@@ -7,7 +7,6 @@ import { audioStore } from "./src/audio-store.ts";
 import {
   assertSecurePlatformConfiguration,
   platformRateLimit,
-  registerFastSpringWebhook,
   registerPlatformRoutes,
   requirePlatformUser,
 } from "./server/platform.ts";
@@ -308,27 +307,12 @@ export function createApp(): express.Express {
     }
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
-    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+    // PayPal's approval popup needs an opener relationship; this preserves cross-origin isolation for normal pages while allowing trusted checkout popups.
+    res.setHeader("Cross-Origin-Opener-Policy", req.path === "/pricing" || req.path === "/app" ? "same-origin-allow-popups" : "same-origin");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     if (isProductionRuntime(env())) {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-      /* Three hosts and one keyword exist for on-device captions
-         (src/lib/speech-to-text.ts), and each is narrower than it looks:
-           • cdn.jsdelivr.net — the Transformers.js engine module, loaded only
-             when a creator asks for captions from their own footage. Pinned to
-             one version there, so a new release cannot arrive by itself.
-           • huggingface.co — Whisper model WEIGHTS only. Data, not script:
-             no code from that host is ever evaluated.
-           • 'wasm-unsafe-eval' — lets the engine's ONNX runtime compile its
-             own WebAssembly. It permits WASM compilation and nothing else; it
-             is not 'unsafe-eval', so no string of JS can still be run.
-         jsDelivr is also in worker-src because the ONNX runtime runs inference
-         in a Web Worker it creates from its own bundle. That host is already
-         trusted with script, so this grants it nothing new — but leaving it out
-         would fail only as a console error, on the customer's machine, minutes
-         into a transcription.
-         The audio itself never leaves the browser. */
-      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://*.onfastspring.com https://*.fastspring.com; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://sbl.onfastspring.com https://*.onfastspring.com https://*.fastspring.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.onfastspring.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co https://api.fastspring.com https://*.onfastspring.com https://*.fastspring.com https://cdn.jsdelivr.net https://huggingface.co; frame-src 'self' https://*.onfastspring.com https://*.fastspring.com; worker-src 'self' blob: https://cdn.jsdelivr.net");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self' https://www.paypal.com https://*.paypal.com; script-src 'self' 'unsafe-inline' https://www.paypal.com https://www.paypalobjects.com https://*.paypal.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com ; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://api.pexels.com https://pixabay.com https://commons.wikimedia.org https://*.supabase.co https://api-m.sandbox.paypal.com https://www.paypal.com https://www.paypalobjects.com https://*.paypal.com; frame-src 'self' https://www.paypal.com https://www.paypalobjects.com https://*.paypal.com https://*.paypalobjects.com; worker-src 'self' blob:");
     }
     next();
   });
@@ -336,10 +320,10 @@ export function createApp(): express.Express {
   // Origin must be the configured application origin, or the host the request
   // actually arrived on — which is what a deployment reached through an alias
   // looks like (a preview host, a staging domain, www. against the apex), and
-  // a page served from anywhere else can never claim it. The FastSpring signed
-  // webhook has no browser Origin and remains independently verified.
+  // a page served from anywhere else can never claim it. Payment-provider
+  // webhooks have no browser Origin and are verified independently.
   app.use((req, res, next) => {
-    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path === "/api/webhooks/fastspring") return next();
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path === "/api/webhooks/paypal") return next();
     const origin = req.get("origin");
     if (!origin) return next();
     let supplied: URL;
@@ -358,10 +342,10 @@ export function createApp(): express.Express {
     next();
   });
 
-  // Billing signatures must be verified against the untouched request bytes,
-  // so the webhook is registered before the general JSON parser. The Resend
-  // delivery webhook is signed the same way (raw-body Svix HMAC).
-  registerFastSpringWebhook(app);
+  // Resend's delivery webhook verifies a Svix HMAC over the untouched request
+  // bytes, so it is registered before the general JSON parser. PayPal's
+  // subscription webhook is verified by PayPal's verification API after JSON
+  // parsing and is registered with the platform routes below.
   registerResendWebhook(app);
   const standardJson = express.json({ limit: "2mb" });
   const inboxAttachmentJson = express.json({ limit: "36mb" });

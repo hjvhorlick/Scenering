@@ -52,7 +52,6 @@ import { WORKSPACE_UPDATED_EVENT } from "./lib/workspace-sync";
 
 import { loadCustomVideos } from "./lib/custom-video";
 import { TRANSCRIPT_KEYS, projectHasNarration } from "./lib/clip-transcript";
-import { projectMusicBed } from "./lib/insert-audio";
 import { loadCustomImages } from "./lib/custom-image";
 import {
   createMusicVideoInsert,
@@ -103,15 +102,10 @@ export interface NewProjectOptions {
     duration: number;
     /**
      * True when the creator chose to take the original sound out of the final
-     * render. Captions are still transcribed from it first — see
-     * `src/lib/speech-to-text.ts`.
+     * render. Caption text can be supplied by the script or imported from a
+     * timed subtitle file.
      */
     mute?: boolean;
-    /**
-     * A transcript made in Setup before the project existed, installed on the
-     * first scene as it is created.
-     */
-    transcript?: Partial<Scene>;
   };
   /** An uploaded song plus the first still for a voiceover-free music video. */
   audio?: {
@@ -167,7 +161,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   scene_animation_enabled: false,
   single_scene: false,
   voiceover_enabled: true,
-  selected_voice: "speechify_male_01",
+  selected_voice: "scenering_male_01",
   transition: "crossfade",
   customer_logo: {
     enabled: false,
@@ -1314,11 +1308,6 @@ export default function App() {
           video_mute: clip.mute ?? false,
           video_volume: 1,
           video_fit_mode: "trim",
-          /* A transcript made in Setup rides along, so the first scene is born
-             with its captions already on it — words in `text`, timings in
-             `caption_words`, which is exactly what the Captions step and the
-             renderer read. */
-          ...(clip.transcript || {}),
         };
         createdScenes = createdScenes.map((sc, i) => (i === 0 ? { ...sc, ...clipFields } : sc));
         try {
@@ -1428,7 +1417,7 @@ export default function App() {
        old one, and flushing it would put the old rows back. */
     const rows = phase === "setup" ? [] : sceneRowsForCommit(scenes);
     let saved = true;
-    if (rows.length) {
+    if (rows.length && currentProject.id > 0) {
       try {
         const { error } = await supabase.from("scenes").upsert(rows);
         if (error) throw error;
@@ -1539,6 +1528,65 @@ export default function App() {
     setVideoTransition(DEFAULT_PROJECT_SETTINGS.transition);
     setRenderProfile(DEFAULT_PROJECT_SETTINGS.render_profile);
     setView("create");
+  };
+
+  /** A no-backend starter workspace so the local Piper application is usable
+   * immediately from the preview, without requiring a project database setup. */
+  const openPiperDemoWorkspace = () => {
+    const id = -20261028;
+    const script = [
+      "A clear voice brings an idea to life. This sample project is ready for narration, captions, and playback.",
+      "Choose any Scenering voice profile, generate the scene audio, then move through Captions and Studio to test the real application flow.",
+    ].join("\n\n");
+    const now = new Date().toISOString();
+    const project: Project = {
+      id,
+      title: "Piper Voiceover Demo",
+      script,
+      status: "draft",
+      default_duration: 20,
+      created_at: now,
+      updated_at: now,
+    };
+    const demoScenes: Scene[] = parseScript(script, 20).map((item, index) => ({
+      id: id - index - 1,
+      project_id: id,
+      order_index: index,
+      text: item.text,
+      image_query: item.imageQuery,
+      image_url: null,
+      blank_color: index === 0 ? "#172554" : "#312e81",
+      duration: 20,
+      motion_effect: "slow_zoom",
+      transition: DEFAULT_PROJECT_SETTINGS.transition,
+    }));
+    setCurrentProject(project);
+    setScenes(demoScenes);
+    setInserts([]);
+    setSelectedInsert(null);
+    setEditingInsert(null);
+    setCurrentPlayheadTime(0);
+    setCustomerLogo(DEFAULT_PROJECT_SETTINGS.customer_logo);
+    setCaptionsConfig(DEFAULT_PROJECT_SETTINGS.captions_config);
+    setSelectedVoice(DEFAULT_PROJECT_SETTINGS.selected_voice);
+    setVoiceEcho(resolveVoiceEcho(DEFAULT_PROJECT_SETTINGS.voice_echo));
+    setAspectRatio(DEFAULT_PROJECT_SETTINGS.aspect_ratio);
+    setResolution(DEFAULT_PROJECT_SETTINGS.resolution);
+    setPacingMode(DEFAULT_PROJECT_SETTINGS.pacing_mode);
+    setSceneDuration(20);
+    setMotionStyle(DEFAULT_PROJECT_SETTINGS.motion_style);
+    setSceneAnimationEnabled(false);
+    setSingleScene(false);
+    setVoiceoverEnabled(true);
+    setVideoTransition(DEFAULT_PROJECT_SETTINGS.transition);
+    setRenderProfile(DEFAULT_PROJECT_SETTINGS.render_profile);
+    setNavNotice(null);
+    try {
+      localStorage.setItem(`scenering_project_settings_${id}`, JSON.stringify({ ...DEFAULT_PROJECT_SETTINGS, scene_duration: 20, voiceover_enabled: true }));
+      localStorage.setItem(`scenering_inserts_${id}`, "[]");
+    } catch { /* demo still works in memory when storage is unavailable */ }
+    setEditorStep("voiceover");
+    setView("editor");
   };
 
   const handleSelectProject = async (project: Project) => {
@@ -1819,8 +1867,8 @@ export default function App() {
       };
       // Image framing (crop, fit, blurred fill, zoom, rotation...) is persisted
       // here too, so a reloaded project renders exactly as it was framed — and
-      // with them the transcript of a clip's own audio, whose word timings are
-      // what the captions of an uploaded video are locked to.
+      // with them imported subtitle timings, so captions stay aligned when
+      // the source clip is edited.
       for (const key of [...FRAMING_KEYS, ...CLIP_KEYS, ...TRANSCRIPT_KEYS]) {
         const v = (updates as Record<string, unknown>)[key];
         if (v !== undefined) newMeta[key] = v;
@@ -1828,6 +1876,9 @@ export default function App() {
       }
       localStorage.setItem(`scenering_scene_meta_${sceneId}`, JSON.stringify(newMeta));
     } catch {}
+
+    // The local Piper demo uses negative IDs and intentionally has no backend row.
+    if (currentProject?.id && currentProject.id < 0) return;
 
     // 3. Persist standard fields to Supabase
     try {
@@ -1861,24 +1912,6 @@ export default function App() {
     void handleUpdateScene(target.id, { video_mute: !keepOriginalAudio });
   };
 
-  /**
-   * Installs a transcript on the project's scene: the words become the scene's
-   * caption text, and their timings are what the karaoke highlight follows.
-   *
-   * From here it is the ordinary caption path — the Captions step styles it,
-   * the scene text editor corrects it, the renderer burns it in.
-   */
-  const handleApplySingleSceneCaptions = (updates: Partial<Scene>) => {
-    const target = scenes.find((scene) => scene.video_url) || scenes[0];
-    if (!target) return;
-    // "Generate captions" is an affirmative request to show them. Do not
-    // install valid words behind either a scene-level or project-level switch
-    // that happened to be off from an earlier edit.
-    void handleUpdateScene(target.id, { ...updates, burn_caption: true });
-    if (captionsConfig.enabled === false) {
-      handleUpdateCaptionsConfig({ ...captionsConfig, enabled: true });
-    }
-  };
 
   const handleImageSearch = async (
     sceneId: number,
@@ -2166,19 +2199,13 @@ export default function App() {
        visualiser disappear two seconds before the end of its own video —
        `renderTimelineInsert` stops drawing once time passes startTime +
        duration. Same rule, same arguments as RenderView, so the two agree. */
-    /* The hold only happens when there are first words to wait for. A scene
-       whose text is a transcript of its own soundtrack has nothing spoken over
-       it, so the render starts straight away — same rule as RenderView. */
+    /* The hold only happens when there are first words to wait for. Imported
+       subtitles are not a narration script, so they do not trigger a speech
+       lead-in — same rule as RenderView. */
     const speaks = voiceoverEnabled && projectHasNarration(scenes);
     const leadIn = narrationLeadIn(intro > 0, speaks);
     return Math.max(1, Math.round((intro + leadIn + script + outro) * 10) / 10);
   }, [scenes, introSection, outroSection, voiceoverEnabled]);
-
-  /* A music video built from stills has no footage soundtrack, so the music
-     track is the only thing its captions can be transcribed from. Derived from
-     the same insert list the renderer plays, so the words always come from the
-     audio the finished video actually uses. */
-  const captionsMusicBed = useMemo(() => projectMusicBed(inserts), [inserts]);
 
   // Visualisers and music added for the entire video stay pinned to its full
   // length, even after scenes are re-timed or the voiceover changes.
@@ -2470,6 +2497,7 @@ export default function App() {
                   <button
                     key={phase.id}
                     onClick={() => navigateToPhase(phase.id)}
+                    disabled={isLocked}
                     aria-disabled={isLocked || undefined}
                     title={isLocked ? "Create a project on the Setup screen first" : phase.purpose}
                     className={`t-tab opt-btn ${isActive
@@ -2529,6 +2557,19 @@ export default function App() {
                     ✕
                   </button>
                 </div>
+              )}
+              {import.meta.env.DEV && !currentProject && (
+                <section className="max-w-4xl mx-auto mb-4 rounded-2xl border border-emerald-700/60 bg-emerald-950/40 p-4 sm:p-5 text-emerald-50">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <h2 className="font-bold text-sm">Test the Piper-powered Scenering app now</h2>
+                      <p className="mt-1 text-xs text-emerald-100/75">Opens a ready-made, local demo project directly in Voiceover. No account or database setup needed.</p>
+                    </div>
+                    <button type="button" onClick={openPiperDemoWorkspace} className="shrink-0 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 text-xs font-bold text-white shadow">
+                      Open Piper demo project →
+                    </button>
+                  </div>
+                </section>
               )}
               <SetupStudio
                 project={currentProject}
@@ -2895,7 +2936,6 @@ export default function App() {
                   onUpdateScene={handleUpdateScene}
                   onApplyStyleToAll={handleApplyCaptionStyleToAll}
                   onNavigateToStep={handleStepRequest}
-                  musicBed={captionsMusicBed}
                 />
               ) : (
                 /* Step 4: Video Studio & Timeline View */

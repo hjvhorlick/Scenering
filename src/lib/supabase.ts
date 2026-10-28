@@ -5,8 +5,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Platform media/API requests use Scenering's own cookie-authenticated
-// server. Speechify synthesis is intentionally different: the user's key and
-// request go directly from their browser to Speechify, never through this API.
+// server. Piper synthesis runs locally in the browser and does not use this API.
 // Legacy public Supabase Edge Functions remain disabled.
 export const EDGE_FUNCTION_BASE = "/api";
 

@@ -18,7 +18,7 @@ SESSION_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 # Register and verify this exact local address to access /admin.
 SCENERING_OWNER_EMAIL=owner@example.test
 EMAIL_PROVIDER=console
-FASTSPRING_STOREFRONT=
+PAYPAL_ENVIRONMENT=sandbox
 EOF
 fi
 

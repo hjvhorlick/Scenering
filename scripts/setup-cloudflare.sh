@@ -129,10 +129,7 @@ fi
 say "🔐 Step 6/6: optional secrets (Enter to skip each)"
 # Names must match what src/env.ts and server/platform.ts actually read — a
 # secret set under any other name is silently ignored by the app.
-for SECRET in PEXELS_API_KEY PIXABAY_API_KEY \
-  FASTSPRING_WEBHOOK_SECRET FASTSPRING_API_USERNAME FASTSPRING_API_PASSWORD \
-  FASTSPRING_SCENEFLOW_MONTHLY_PATH FASTSPRING_SCENEFLOW_YEARLY_PATH \
-  FASTSPRING_SCENEFORGE_MONTHLY_PATH FASTSPRING_SCENEFORGE_YEARLY_PATH; do
+for SECRET in PEXELS_API_KEY PIXABAY_API_KEY PAYPAL_CLIENT_SECRET PAYPAL_WEBHOOK_ID; do
   read -r -p "$SECRET: " VAL
   if [ -n "$VAL" ]; then
     printf '%s' "$VAL" | npx wrangler secret put "$SECRET"

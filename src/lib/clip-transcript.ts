@@ -1,26 +1,11 @@
 /**
- * A transcript of the audio INSIDE an uploaded video, and how it becomes
- * captions.
+ * Timed subtitle words imported for a scene, and how they reach the caption
+ * renderer.
  *
- * Scenering's captions are drawn from a scene's text with a karaoke highlight
- * driven by per-word timings (`src/lib/render-captions.ts` + `word-sync.ts`).
- * Narration gets those timings from the TTS engine; footage has no TTS, so it
- * gets them from a transcription of its own soundtrack instead. Once they are
- * on the scene, everything downstream is unchanged: the Captions Studio styles
- * them, the scene text editor corrects them, the SRT export writes them and
- * the renderer burns them in — the same code path a narrated scene uses.
- *
- * Two conventions matter:
- *
- * 1. Timings are stored in SOURCE-FILE seconds, exactly as the transcriber
- *    reported them. A scene can be re-trimmed later, and re-deriving the
- *    offset at draw time (`sceneCaptionWords`) keeps the highlight locked to
- *    the picture instead of drifting by the trim.
- * 2. The transcript text lives in `scene.text`, because that is the field the
- *    caption renderer reads. `caption_source` records that the words came from
- *    the footage rather than from the creator, so the UI can say so — and so
- *    re-transcribing never has to guess whether it is about to overwrite
- *    somebody's script.
+ * Narrated scenes normally use the script and speech timing data. A scene with
+ * its own footage can instead import an SRT/VTT file. Its per-word timings are
+ * kept in source-file seconds and shifted into scene time when drawn, so later
+ * clip trims do not desynchronise the imported captions.
  */
 
 import type { Scene } from "../types";
@@ -67,11 +52,10 @@ export function sceneCaptionWords(scene: Scene | null | undefined): WordTiming[]
 }
 
 /**
- * Caption text from transcribed words.
+ * Caption text from imported timed words.
  *
- * Sentence-ending punctuation is kept as typed by the transcriber; the caption
- * renderer does its own upper-casing and wrapping. A trailing space is trimmed
- * so the word count the studio shows is the word count that gets drawn.
+ * Sentence-ending punctuation is kept as supplied in the subtitle file; the
+ * caption renderer does its own upper-casing and wrapping.
  */
 export function transcriptToCaptionText(words: readonly WordTiming[]): string {
   return words
@@ -90,20 +74,15 @@ export function sceneHasTranscript(scene: Scene | null | undefined): boolean {
 }
 
 /**
- * The scene updates that install a transcript.
- *
- * Kept as one function because three places install one (Setup, the Captions
- * step and the clip panel) and they must all produce the same scene.
+ * The scene updates that install timed captions imported from a subtitle file.
  */
 /**
  * The words a scene should be SPOKEN as narration — which is not the same as
  * the words it shows.
  *
- * A transcript writes the words it heard into `scene.text`, because that is the
- * field the caption renderer reads. Those words came OUT of the video's own
- * soundtrack, so reading them back would put a synthesised voice over the song
- * they were transcribed from. `caption_source` records where the words came
- * from, and text that came from the picture is captions, never a script.
+ * Imported caption text is not a narration script. Speaking it back over the
+ * same footage could duplicate the dialogue or music, so `caption_source`
+ * records the distinction.
  */
 export function narratableText(scene: {
   text?: string;
@@ -140,11 +119,10 @@ export function sceneUpdatesForTranscript(
 }
 
 /**
- * Whether a stored transcript still describes the footage on the scene.
+ * Whether imported timed captions still fit the footage on the scene.
  *
- * Swapping the video under a transcript leaves captions that no longer match
- * anything. Rather than delete the words silently, the callers ask this and
- * offer to transcribe again.
+ * Swapping the video can leave stale timings, so the UI warns instead of
+ * silently treating the old timings as a match.
  */
 export function transcriptMatchesClip(
   scene: Scene | null | undefined,

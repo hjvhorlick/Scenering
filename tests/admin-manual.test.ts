@@ -200,7 +200,7 @@ const allText = (item: { q: string; a: string; steps: readonly string[]; points?
   /* Prose only for the spelling and wording rules: `Words between backticks`
      are identifiers to type or copy exactly (event names such as
      `subscription.canceled`, environment variables, paths) and must be shown
-     as FastSpring spells them, not translated into British prose. */
+     exactly as the provider documentation spells them, not translated into British prose. */
   const prose = words.replace(/`[^`\n]*`/g, "X");
   const american = prose.match(/\b(color|colors|organize|organized|organization|center|favorite|canceled|canceling|behavior|catalog|analyze|license|enroll|enrolled)\b/gi) || [];
   same(american, [], "British spelling throughout");
@@ -254,44 +254,25 @@ const allText = (item: { q: string; a: string; steps: readonly string[]; points?
   h.ok(tab.includes("opt-btn"), "topic buttons use the app's option buttons");
 }
 
-/* ---- 8. FastSpring --------------------------------------------------------------- */
+/* ---- 8. PayPal Sandbox subscriptions -------------------------------------------- */
 {
   const platformSource = read("server/platform.ts");
-  const fastspring = await import("../src/config/fastspring.ts");
-  const setup = entry("fastspring-setup")!;
-  const webhook = entry("fastspring-webhook")!;
-  const productsEntry = entry("fastspring-products")!;
-  const setupAndWebhookText = [...allText(setup), ...allText(webhook)].join(" ");
-
-  /* The webhook address the manual gives is the one the server serves. */
-  const webhookPath = platformSource.match(/FASTSPRING_WEBHOOK_PATH = "([^"]+)"/)?.[1] || "";
-  h.eq(webhookPath, "/api/webhooks/fastspring", "the webhook path is the one the manual names");
-  h.ok(setupAndWebhookText.includes(webhookPath), "the setup steps give the exact webhook address to paste");
-
-  /* Every event the code acts on is one the manual tells the owner to tick. */
-  const eventBlock = platformSource.match(/FASTSPRING_SUBSCRIPTION_EVENTS = \[([\s\S]*?)\] as const/)?.[1] || "";
+  const setup = entry("paypal-configuration")!;
+  const webhook = entry("paypal-webhook")!;
+  const setupText = [...allText(setup), ...allText(webhook)].join(" ");
+  const webhookPath = platformSource.match(/PAYPAL_WEBHOOK_PATH = "([^"]+)"/)?.[1] || "";
+  h.eq(webhookPath, "/api/webhooks/paypal", "the callback path matches the backend");
+  h.ok(allText(webhook).some((text) => text.includes(webhookPath)), "the manual gives the verified callback path");
+  const eventBlock = platformSource.match(/PAYPAL_LIFECYCLE_EVENTS = new Set\(\[([\s\S]*?)\]\)/)?.[1] || "";
   const codeEvents = [...eventBlock.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-  h.eq(codeEvents.length, 6, "the code handles six FastSpring subscription events");
-  for (const eventName of codeEvents) {
-    h.ok(
-      (webhook.points || []).some((point) => point.includes(`\`${eventName}\``)),
-      `the manual explains ${eventName}`,
-    );
+  h.eq(codeEvents.length, 8, "the PayPal webhook handles its eight supported lifecycle events");
+  const sandboxDoc = read("PAYPAL_SANDBOX.md");
+  for (const eventName of codeEvents) h.ok(sandboxDoc.includes(eventName), `Sandbox setup docs name ${eventName}`);
+  for (const name of ["PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID", "PAYPAL_SCENEFLOW_YEARLY_PLAN_ID", "PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID", "PAYPAL_SCENEFORGE_YEARLY_PLAN_ID", "PAYPAL_CLIENT_SECRET", "PAYPAL_WEBHOOK_ID"]) {
+    h.ok(setupText.includes(name) || sandboxDoc.includes(name), `Sandbox setup documents ${name}`);
   }
-
-  /* The product paths in the manual are the ones the webhook maps by. */
-  const defaultPaths = fastspring.fastspringProductMappings(() => undefined).map((row) => row.path);
-  same(defaultPaths, ["sceneflow-monthly", "sceneflow-yearly", "sceneforge-monthly", "sceneforge-yearly"], "the four default product paths");
-  const productsText = productsEntry.steps.join(" ");
-  for (const path of defaultPaths) {
-    h.ok(productsText.includes(`\`${path}\``), `the manual names the product path ${path}`);
-  }
-
-  /* The setup steps name every environment variable the checklist needs. */
-  for (const name of ["FASTSPRING_STOREFRONT", "FASTSPRING_WEBHOOK_SECRET", "FASTSPRING_API_USERNAME", "FASTSPRING_API_PASSWORD", "FASTSPRING_SCENEFLOW_MONTHLY_PATH"]) {
-    h.ok(setupAndWebhookText.includes(name), `the setup steps name ${name}`);
-  }
-  h.ok(read(".env.example").includes("FASTSPRING_WEBHOOK_SECRET="), ".env.example lists the FastSpring settings the manual describes");
+  h.ok(setupText.includes("do not guess") || setupText.includes("Do not guess"), "the manual forbids guessing a webhook URL");
+  h.ok(setupText.includes("Live") && setupText.includes("disabled"), "the manual keeps Live billing disabled");
 }
 
 h.done("Admin manual");

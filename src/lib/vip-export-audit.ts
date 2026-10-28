@@ -218,7 +218,7 @@ export function auditVipForExport(plan: PlanSlug, input: VipExportInput): VipFin
 
   // The two that cannot simply be left out.
   const outOfPlanSceneVoice = (input.sceneVoices || []).find((voiceId) => !isPlanVoiceIncluded(plan, voiceId));
-  const voice = outOfPlanSceneVoice || input.selectedVoice || "speechify_male_01";
+  const voice = outOfPlanSceneVoice || input.selectedVoice || "scenering_male_01";
   if (!isPlanVoiceIncluded(plan, voice)) {
     findings.push({
       id: "voice",

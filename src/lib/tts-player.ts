@@ -1,4 +1,4 @@
-// Audio Player & Speechify TTS client for Scenering Studio
+// Audio player for Piper-generated speech and imported narration.
 import {
   type VoiceEchoConfig,
   type ElementEchoRoute,
@@ -7,7 +7,6 @@ import {
   getEchoAudioContext,
 } from "./voice-echo";
 import { sanitizeTextForSpeech } from "./speech-sanitizer";
-import { synthesizeSpeechify } from "./speechify-client";
 
 class TTSAudioPlayer {
   private activeAudio: HTMLAudioElement | null = null;
@@ -80,7 +79,7 @@ class TTSAudioPlayer {
 
   public async play(
     text: string,
-    voice: string = "speechify_male_01",
+    voice: string = "scenering_male_01",
     speed: number = 1.0,
     volume: number = 1.0,
     playingId: string | number = "test",
@@ -119,8 +118,10 @@ class TTSAudioPlayer {
 
     try {
       if (!audioUrl) {
-        const synthesized = await synthesizeSpeechify(cleanText, voice);
-        audioUrl = URL.createObjectURL(synthesized.blob);
+        const { fetchSceneAudioWithTimeline } = await import("./tts-cache");
+        const synthesized = await fetchSceneAudioWithTimeline(cleanText, voice);
+        if (!synthesized) throw new Error("Piper did not return audio for this text.");
+        audioUrl = URL.createObjectURL(new Blob([synthesized.rawBuffer], { type: synthesized.mimeType }));
         this.rememberAudio(cacheKey, audioUrl);
       }
 
@@ -142,6 +143,31 @@ class TTSAudioPlayer {
       if (this.currentPlayingId === playingId) this.stop();
       throw error;
     }
+  }
+
+  /** Play a locally synthesized blob, with the same echo and stop lifecycle. */
+  public async playBlob(
+    blob: Blob,
+    cacheKey: string,
+    speed: number,
+    volume: number,
+    playingId: string | number,
+    onEnded?: () => void
+  ): Promise<void> {
+    if (this.currentPlayingId === playingId) {
+      this.stop();
+      return;
+    }
+    this.stop();
+    this.currentPlayingId = playingId;
+    if (onEnded) this.onEndCallbacks.add(onEnded);
+    const key = `local:${cacheKey}`;
+    let audioUrl = this.audioCache.get(key);
+    if (!audioUrl) {
+      audioUrl = URL.createObjectURL(blob);
+      this.rememberAudio(key, audioUrl);
+    }
+    await this.playDirectUrl(audioUrl, speed, volume, playingId);
   }
 
   /** Play an uploaded, imported, or otherwise user-provided audio URL. */

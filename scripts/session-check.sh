@@ -158,7 +158,7 @@ note "OPEN (needs the owner's ears and eyes, not more code):"
 note "   • Voice crackle — confirm by playing a preview; the fix is the 12/18 ms envelopes."
 note "   • Render speed — the stopwatch table now prints the audio-pass share; compare on a long render."
 note "   • Preview visual pass: section-Next gating, API-keys dialog from the corner menu."
-note "RULES: nothing is committed or pushed until the owner says so. Voice TTS is Speechify."
+note "RULES: nothing is committed or pushed until the owner says so. Voice TTS is browser-local Piper."
 note "   Never substitute another vendor. Configure the production owner through SCENERING_OWNER_EMAIL; never place credentials in this script."
 note "   X/TikTok marks must stay black/adaptive. Social strips sit right of the logo at wordmark height."
 

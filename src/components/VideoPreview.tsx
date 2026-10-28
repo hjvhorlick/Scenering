@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import type { Scene, TimelineInsert, CustomerLogoConfig, CaptionsConfig, AspectRatioType, PacingModeType } from "../types";
-import { fetchSpeechifyStudioVoices } from "../lib/speechify-client";
+import { STUDIO_VOICE_PRESETS } from "../data/voice-presets";
 import {
   getInsertBounds,
   getPresetCoords,
@@ -265,8 +265,8 @@ export default function VideoPreview({
   const [progress, setProgress] = useState(0);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [audioStatus, setAudioStatus] = useState("");
-  const [selectedVoice, setSelectedVoice] = useState(propSelectedVoice || "speechify_male_01");
-  const [voices, setVoices] = useState<{ id: string; name: string; gender?: "male" | "female"; accent?: string; locale?: string }[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState(propSelectedVoice || "scenering_male_01");
+
   const currentPlayheadTimeRef = useRef(currentPlayheadTime);
 
   const aspectConfig = {
@@ -414,19 +414,16 @@ export default function VideoPreview({
   const speaks = voiceoverEnabled && projectHasNarration(scenesWithImages);
 
 
-  // Bind local Scenering styles to the customer's Speechify catalogue directly.
+  // Piper uses Scenering's built-in profile catalogue; it needs no provider
+  // account or remote voice-directory request.
   useEffect(() => {
-    let active = true;
-    fetchSpeechifyStudioVoices()
-      .then((voiceList) => {
-        if (!active) return;
-        setVoices(voiceList);
-        onVoicesLoaded?.(voiceList);
-      })
-      .catch((error) => {
-        if (active) console.warn("Could not load Speechify voices directly:", error);
-      });
-    return () => { active = false; };
+    onVoicesLoaded?.(STUDIO_VOICE_PRESETS.map((voice) => ({
+      id: voice.id,
+      name: voice.name,
+      gender: voice.gender,
+      accent: voice.accent,
+      locale: voice.locale,
+    })));
   }, [onVoicesLoaded]);
 
   // Invalidate any cached scene audio whose voice_id or text has changed
@@ -540,11 +537,11 @@ export default function VideoPreview({
         throw new Error(`The saved audio for scene ${(scene.order_index ?? 0) + 1} could not be loaded.`);
       }
 
-      // Speechify is the only synthesis provider. Surface failures rather than
-      // substituting a browser voice, tone, silence, or another TTS service.
+      // Piper is the generated-speech provider. Surface failures rather than
+      // substituting a browser voice, tone, or fabricated silence.
       try {
         const withTimeline = await fetchSceneAudioWithTimeline(text, voiceToUse, { timeoutMs: 15000 });
-        if (!withTimeline) throw new Error("Speechify returned no audio for this scene.");
+        if (!withTimeline) throw new Error("Piper returned no audio for this scene.");
         const audioBuffer = await audioCtx.decodeAudioData(withTimeline.rawBuffer.slice(0));
         const blob = new Blob([withTimeline.rawBuffer], { type: withTimeline.mimeType });
         const url = URL.createObjectURL(blob);
@@ -562,7 +559,7 @@ export default function VideoPreview({
         });
         return { buffer: audioBuffer, url, voiceKey, words: withTimeline.words };
       } catch (error) {
-        console.warn(`Speechify synthesis failed for scene ${scene.id}:`, error);
+        console.warn(`Piper synthesis failed for scene ${scene.id}:`, error);
         throw error;
       }
     },
@@ -1453,7 +1450,7 @@ export default function VideoPreview({
     const missingScenes = voiceoverEnabled
       ? scenesWithImages.filter((s) => {
           const spokenText = narratableText(s);
-          // Caption text transcribed from the soundtrack is deliberately not a
+          // Caption text imported for the footage is deliberately not a
           // missing voice, even if an obsolete saved narration URL remains.
           if (s.caption_source === "transcript") return false;
           if (!s.audio_url && !spokenText) return false;
@@ -1485,7 +1482,7 @@ export default function VideoPreview({
 
       // Only synthesize over the network if voiceover was never generated at all
       if (!allResolvedLocally) {
-        setAudioStatus("Syncing Speechify voice dialogue...");
+        setAudioStatus("Preparing Piper voice dialogue...");
         try {
           const result = await generateAllAudio();
           if (result) {
@@ -1494,7 +1491,7 @@ export default function VideoPreview({
           }
         } catch (error: any) {
           if (!stale()) {
-            setAudioStatus(error?.message || "Speechify could not prepare the narration. Check the Speechify key in API Keys.");
+            setAudioStatus(error?.message || "Piper could not prepare the narration. Check the model download status and retry.");
             setLoadingAudio(false);
             setIsPlaying(false);
             playingRef.current = false;

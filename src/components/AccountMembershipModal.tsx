@@ -8,12 +8,12 @@ import Icon from "./icons/Icon";
 import ApiKeysModal from "./ApiKeysModal";
 import { useApiKeysConfigured } from "../shared/api-key-status";
 import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
-import { openFastSpringPopup } from "../lib/fastspring";
+import PayPalSubscriptionDialog from "./PayPalSubscriptionDialog";
 
 type AccountPayload = {
   user: { email: string; displayName: string; emailVerified: boolean; role: "user" | "admin" };
   membership: { plan_id: PlanSlug; status: string; source?: string; complimentary_ends_at?: string | null; complimentary_period?: "month" | "year" | null };
-  subscription?: { subscription_id?: string | null; customer_id?: string | null; subscription_status?: string; price_id?: string | null; product_id?: string | null; status: string; billing_interval: BillingInterval; current_period_end?: string; expires_at?: string; cancel_at_period_end?: boolean; customer_portal_url?: string; update_payment_url?: string; card_brand?: string; card_last_four?: string } | null;
+  subscription?: { provider?: string; subscription_id?: string | null; customer_id?: string | null; subscription_status?: string; price_id?: string | null; product_id?: string | null; status: string; billing_interval: BillingInterval; current_period_end?: string; expires_at?: string; cancel_at_period_end?: boolean; customer_portal_url?: string; update_payment_url?: string; card_brand?: string; card_last_four?: string } | null;
   has_billing_customer?: boolean;
   usage?: { finalExports: number; finalExportMinutes: number };
   /** Where this membership is signed in. The plan sets the limit; a phone
@@ -30,6 +30,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
   const [interval, setInterval] = useState<BillingInterval>("monthly");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [paypalChoice, setPaypalChoice] = useState<{ plan: "sceneflow" | "sceneforge"; interval: BillingInterval } | null>(null);
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [adminData, setAdminData] = useState<any>(null);
   const [grantEmail, setGrantEmail] = useState("");
@@ -47,8 +48,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
      menu; both entries lead to the same dialog and the same stored keys. */
   const [keysOpen, setKeysOpen] = useState(false);
   const hasOwnKeys = useApiKeysConfigured();
-  /* The same FastSpring-localized prices as the website and /pricing — loaded
-     only while this window is open, never just for mounting the studio. */
+  /* Load public billing configuration only while this window is open. */
   const { displayPrice, annualSavingLine } = useLocalizedPlanPrices(isOpen);
 
   async function refreshAdmin() {
@@ -140,40 +140,30 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
   const isPreviewingPlan = isOwnerAdmin && currentPlan !== authoritativePlan;
   const enterStudio = () => { if (window.location.pathname === "/app" && window.location.search) history.replaceState({}, "", "/app"); onClose(); };
 
-  async function choosePlan(plan: PlanSlug) {
+  function choosePlan(plan: PlanSlug) {
     if (plan === "free") { setNotice("Free is always available. Paid subscriptions return to Free when verified paid access ends."); return; }
-    setBusy(plan); setNotice("");
+    if (!import.meta.env.DEV) {
+      setNotice("Paid checkout is disabled while PayPal is Sandbox-only. Production billing has not been enabled.");
+      return;
+    }
+    setNotice("");
+    setPaypalChoice({ plan, interval });
+  }
+
+  async function cancelPayPalSubscription() {
+    if (!window.confirm("Cancel this PayPal subscription? Paid access will continue until the current billing period ends.")) return;
+    setBusy("paypal-cancel"); setNotice("");
     try {
-      const response = await fetch(`/api/billing/checkout/${plan}/${interval}`);
-      const data = await response.json();
-      if (response.ok && data.url) { window.location.href = data.url; return; }
-      /* FastSpring popup checkout: the server answered with the storefront,
-         the product and the account tags, and the popup opens here — the
-         buyer never leaves the page. A session checkout above simply
-         redirects to its `url`. */
-      if (response.ok && data.provider === "fastspring" && data.mode === "popup" && data.storefront && data.productPath) {
-        await openFastSpringPopup({ storefront: data.storefront, productPath: data.productPath, tags: data.tags || {}, email: data.email });
-        return;
-      }
-      if (data?.code === "BILLING_NOT_CONFIGURED") {
-        window.location.href = `/pricing?plan=${plan}&interval=${interval}`;
-        return;
-      }
-      throw new Error(data.error || "Checkout could not be opened.");
-    } catch (error: any) { setNotice(error.message); }
+      const response = await fetch("/api/billing/paypal/cancel-subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "The PayPal subscription could not be cancelled.");
+      const refreshed = await fetch("/api/account").then((result) => result.ok ? result.json() : null);
+      if (refreshed) setAccount(refreshed);
+      setNotice("PayPal cancellation was requested. Access remains until the current paid period ends.");
+    } catch (error: any) { setNotice(error.message || "The PayPal subscription could not be cancelled."); }
     finally { setBusy(null); }
   }
 
-  async function openCustomerPortal() {
-    setBusy("portal"); setNotice("");
-    try {
-      const response = await fetch("/api/billing/portal", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const data = await response.json().catch(() => ({}));
-      if (response.ok && data.url) { window.location.href = data.url; return; }
-      throw new Error(data.error || "Customer portal could not be opened.");
-    } catch (error: any) { setNotice(error.message); }
-    finally { setBusy(null); }
-  }
 
   async function copyGiftText(value: string, label: string) {
     try {
@@ -249,24 +239,19 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
           <div className="rounded-xl border border-hairline bg-gray-900/70 p-4">
             <div className="text-xs text-gray-400">Subscription</div>
             <div className="text-xl font-bold mt-1 capitalize">{(account?.subscription?.status || "No paid subscription").replace(/_/g, " ")}</div>
-            {/* Everything a paying customer needs to stay in control of the
-                charge: when it renews or ends, and a way out that does not
-                involve emailing us. The links are FastSpring's own Account
-                Management URLs, recorded from the subscription webhook or
-                minted fresh via the FastSpring API. */}
+            {/* Provider self-service, renewal timing and cancellation controls for the stored subscription. */}
             {account?.subscription?.cancel_at_period_end && <div className="text-xs text-amber-300 mt-1">Cancelled — access continues until the paid period ends</div>}
-            {/* FastSpring retries a failed card (dunning) and keeps access
-                while it does, telling the customer plainly that the payment
-                did not go through so they can update their payment method. */}
-            {account?.subscription?.status === "past_due" && <div className="text-xs text-amber-300 mt-1">Payment failed — your plan continues while your payment provider retries the card. Update your payment card below to avoid an interruption.</div>}
-            {account?.subscription?.status === "paused" && <div className="text-xs text-amber-300 mt-1">Paused — billing and access are both stopped until you resume.</div>}
+            {/* A verified failed recurring payment is surfaced while the server applies the provider's retry/access policy. */}
+            {account?.subscription?.provider === "paypal" && account.subscription.status === "past_due" && <div className="text-xs text-amber-300 mt-1">Payment failed — your plan continues while PayPal retries the payment. Review your Sandbox subscription in PayPal.</div>}
+            {account?.subscription?.provider === "paypal" && account.subscription.status === "suspended" && <div className="text-xs text-amber-300 mt-1">Suspended — review the subscription in PayPal Sandbox.</div>}
             {(account?.subscription?.expires_at || account?.subscription?.current_period_end) && <div className="text-xs text-gray-400 mt-1">{account?.subscription?.cancel_at_period_end ? "Ends" : "Renews"} {new Date(account.subscription.expires_at || account.subscription.current_period_end!).toLocaleDateString()}</div>}
-            {account?.subscription?.card_last_four && <div className="text-xs text-gray-500 mt-1 capitalize">{account.subscription.card_brand || "Card"} ending {account.subscription.card_last_four}</div>}
+            {account?.subscription?.provider === "paypal" && account.subscription.card_last_four && <div className="text-xs text-gray-500 mt-1 capitalize">{account.subscription.card_brand || "Payment method"} ending {account.subscription.card_last_four}</div>}
+            {account?.subscription?.provider && account.subscription.provider !== "paypal" && <div className="text-xs text-gray-400 mt-2">Historical subscription details are retained. Billing management for this record is unavailable in Scenering; contact support if you need help.</div>}
             {account?.subscription || account?.has_billing_customer ? <div className="flex flex-wrap gap-2 mt-3">
-              <button type="button" className="opt-btn text-xs" disabled={busy === "portal"} onClick={() => void openCustomerPortal()}>{busy === "portal" ? "Opening portal…" : "Customer portal"}</button>
-              {account?.subscription?.customer_portal_url && <a className="opt-btn text-xs" href={account.subscription.customer_portal_url} target="_blank" rel="noopener noreferrer">Manage or cancel</a>}
-              {account?.subscription?.update_payment_url && <a className="opt-btn text-xs" href={account.subscription.update_payment_url} target="_blank" rel="noopener noreferrer">Update payment card</a>}
-            </div> : <div className="text-xs text-gray-400 mt-1">Verified billing webhooks control paid access</div>}
+              {account?.subscription?.provider === "paypal" && account.subscription.customer_portal_url && <a className="opt-btn text-xs" href={account.subscription.customer_portal_url} target="_blank" rel="noopener noreferrer">Manage in PayPal</a>}
+              {account?.subscription?.provider === "paypal" && account.subscription.update_payment_url && <a className="opt-btn text-xs" href={account.subscription.update_payment_url} target="_blank" rel="noopener noreferrer">Update payment method in PayPal</a>}
+              {account?.subscription?.provider === "paypal" && !account.subscription.cancel_at_period_end && !["cancelled", "expired"].includes(account.subscription.status) && <button type="button" className="opt-btn text-xs" disabled={busy === "paypal-cancel"} onClick={() => void cancelPayPalSubscription()}>{busy === "paypal-cancel" ? "Cancelling…" : "Cancel PayPal subscription"}</button>}
+            </div> : <div className="text-xs text-gray-400 mt-1">Verified PayPal subscription state controls paid access</div>}
           </div>
         </section>
 
@@ -302,8 +287,8 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
           <div className="flex items-start gap-3">
             <span className="text-xl"><Icon glyph="🔑" /></span>
             <div>
-              <h3 className="text-sm font-bold">Pexels, Pixabay and Speechify keys</h3>
-              <p className="text-xs text-gray-400 mt-1">Optional personal keys for live HD stock search and Speechify voiceover. They are stored in this browser, and server-configured keys are used wherever yours are absent.</p>
+              <h3 className="text-sm font-bold">Pexels and Pixabay search keys</h3>
+              <p className="text-xs text-gray-400 mt-1">Optional personal stock-image keys. They are stored in this browser, and server-configured keys are used wherever yours are absent.</p>
             </div>
           </div>
           <div className="flex items-center gap-3 md:flex-shrink-0">
@@ -416,46 +401,16 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
           </form>
           {adminData ? <>
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">{Object.entries(adminData.configuration || {}).map(([key, value]) => <div key={key} className="rounded-lg border border-white/10 bg-gray-950/60 p-3"><div className="text-[10px] text-gray-500 break-words">{key.replace(/([A-Z])/g, " $1")}</div><b className={value ? "text-emerald-300" : "text-amber-300"}>{value ? "Yes" : "No"}</b></div>)}</div>
-            {/* FastSpring go-live checklist: a missing webhook secret or
-                storefront path is a payment that cannot be taken or verified,
-                and naming each environment variable makes that visible before
-                a customer finds it. */}
-            {adminData.fastspring && <div className="rounded-lg border border-white/10 bg-gray-950/60 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 className="text-sm font-bold">FastSpring billing</h4>
-                <b className={adminData.fastspring.ready ? "text-emerald-300 text-xs" : "text-amber-300 text-xs"}>{adminData.fastspring.ready ? "Ready to take payments" : "Not ready — finish the items below"}</b>
-              </div>
-              {adminData.fastspring.testInProduction && <p role="alert" className="mt-2 rounded-md border border-amber-500/40 bg-amber-950/40 p-2 text-[11px] font-bold text-amber-200">FASTSPRING_STOREFRONT points at a <code>.test.</code> storefront on a production deployment — no real payment can be taken. Create the live storefront and update FASTSPRING_STOREFRONT and FASTSPRING_WEBHOOK_SECRET when you are ready.</p>}
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-3 text-xs">
-                {[["Storefront path", adminData.fastspring.storefrontSet, "FASTSPRING_STOREFRONT"], ["Webhook secret key", adminData.fastspring.webhookSecretSet, "FASTSPRING_WEBHOOK_SECRET"], ["API username", adminData.fastspring.apiUsernameSet, "FASTSPRING_API_USERNAME"], ["API password", adminData.fastspring.apiPasswordSet, "FASTSPRING_API_PASSWORD"], ["Public app URL", adminData.fastspring.publicAppUrlSet, "PUBLIC_APP_URL"]].map(([label, done, env]: any) => (
-                  <div key={env} className="rounded-md border border-white/10 bg-gray-900/60 p-2"><div className="text-[10px] text-gray-500 break-all">{env}</div><b className={done ? "text-emerald-300" : "text-amber-300"}>{done ? "Set" : "Missing"}</b><span className="block text-[10px] text-gray-500">{label}</span></div>
-                ))}
-              </div>
-              <div className="grid sm:grid-cols-2 gap-2 mt-2 text-xs">
-                {adminData.fastspring.products.map((product: any) => (
-                  <div key={`${product.plan}-${product.interval}`} className="rounded-md border border-white/10 bg-gray-900/60 p-2">
-                    <b>{product.name}</b>
-                    <div className="mt-1 capitalize">
-                      <span className="text-gray-400">{product.interval}:</span>{" "}
-                      <code className="text-gray-200">{product.productPath}</code>
-                      <span className={`block text-[10px] ${product.fromEnvironment ? "text-emerald-300" : "text-gray-500"}`}>{product.fromEnvironment ? `set in ${product.productPathEnv}` : `default — rename in ${product.productPathEnv}`}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 text-[11px] text-gray-400">
-                <div>Webhook URL to register in FastSpring: <code className="text-gray-200 break-all">{adminData.fastspring.webhookUrl || `your site${adminData.fastspring.webhookPath}`}</code></div>
-                <div className="mt-1">Events to subscribe to: <span className="text-gray-300">{adminData.fastspring.requiredEvents.join(", ")}</span></div>
-                <div className="mt-1">Checkout: <span className="text-gray-300">{adminData.fastspring.checkoutMode === "popup" ? "popup storefront (sbl.min.js)" : "server-created session checkout"}</span>{adminData.fastspring.environment ? ` · ${adminData.fastspring.environment} storefront` : ""}</div>
-              </div>
-              {adminData.webhookEvents?.length > 0 && <div className="mt-3">
-                <h5 className="text-xs font-bold mb-1">Last webhooks received</h5>
-                <div className="flex flex-wrap gap-1.5">{adminData.webhookEvents.map((event: any) => <span key={event.id} className={`rounded-md border px-2 py-1 text-[10px] ${event.status === "processed" ? "border-emerald-500/40 text-emerald-200" : event.status === "ignored" || event.status === "duplicate" ? "border-white/15 text-gray-400" : "border-amber-500/40 text-amber-200"}`}>{event.event_name} · {event.status}</span>)}</div>
-              </div>}
+            {adminData.paypal && <div className="rounded-lg border border-white/10 bg-gray-950/60 p-4">
+              <h4 className="text-sm font-bold">PayPal subscription Sandbox — no Live cutover</h4>
+              <p className="mt-2 text-[11px] text-amber-200">Verify the callback is publicly reachable before registering it in PayPal Sandbox. This dashboard does not register webhooks; Live billing remains disabled.</p>
+              <div className="mt-2 text-[11px] text-gray-400">Callback path: <code>{adminData.paypal.webhookPath}</code> · Candidate: <code className="break-all">{adminData.paypal.webhookUrl || "Set PUBLIC_APP_URL and verify reachability"}</code></div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-3 text-xs">{[["PAYPAL_CLIENT_ID", adminData.paypal.clientIdSet], ["PAYPAL_CLIENT_SECRET", adminData.paypal.clientSecretSet], ["PAYPAL_WEBHOOK_ID", adminData.paypal.webhookIdSet], ["PUBLIC_APP_URL", adminData.paypal.publicAppUrlSet]].map(([name, done]: any) => <div key={name} className="rounded-md border border-white/10 bg-gray-900/60 p-2"><code className="text-[10px] text-gray-500">{name}</code><b className={`block ${done ? "text-emerald-300" : "text-amber-300"}`}>{done ? "Set" : "Missing"}</b></div>)}</div>
+              <div className="grid sm:grid-cols-2 gap-2 mt-3 text-xs">{adminData.paypal.plans.map((item: any) => <div key={`${item.plan}-${item.interval}`} className="rounded-md border border-white/10 bg-gray-900/60 p-2"><b>{item.planName} · {item.interval}</b><code className="block break-all text-gray-300">{item.planId || "Sandbox plan ID missing"}</code></div>)}</div>
             </div>}
             {adminData.complimentaryCodes?.length > 0 && <div><h4 className="text-sm font-bold mb-2">Access codes</h4><div className="flex flex-wrap gap-2">{adminData.complimentaryCodes.map((code: any) => <div key={code.id} className="rounded-lg border border-white/10 bg-gray-950/60 p-3 text-xs"><b>{code.code_prefix}</b><span className="block text-gray-400 capitalize">{code.plan_id} · {code.period} · {code.status}</span><span className="block text-gray-500">expires {new Date(code.expires_at).toLocaleDateString()}</span>{code.status === "active" && <button disabled={busy === `code-${code.id}`} type="button" onClick={() => void revokeAccessCode(code.id)} className="mt-2 rounded-md border border-white/15 px-2 py-1 hover:bg-gray-800">Revoke unused code</button>}</div>)}</div></div>}
-            <form className="rounded-lg border border-blue-500/30 bg-gray-950/60 p-4" onSubmit={(event) => { event.preventDefault(); void grantComplimentary(null, grantPlan, grantPeriod, grantEmail); }}><h4 className="text-sm font-bold">Grant complimentary membership</h4><p className="text-[11px] text-gray-400 mt-1 mb-3">The customer must already have a verified Scenering account. No charge or FastSpring subscription is created.</p><div className="grid sm:grid-cols-[minmax(180px,1fr)_auto_auto_auto] gap-2"><input type="email" required value={grantEmail} onChange={(event) => setGrantEmail(event.target.value)} placeholder="Customer account email" className="min-w-0 rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs text-white" /><select value={grantPlan} onChange={(event) => setGrantPlan(event.target.value as "sceneflow" | "sceneforge")} className="rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs"><option value="sceneflow">SceneFlow</option><option value="sceneforge">SceneForge</option></select><select value={grantPeriod} onChange={(event) => setGrantPeriod(event.target.value as "month" | "year")} className="rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs"><option value="month">1 month</option><option value="year">1 year</option></select><button type="submit" disabled={busy === "grant-email"} className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50 disabled:opacity-60">{busy === "grant-email" ? "Granting…" : "Grant access"}</button></div></form>
-            <div><h4 className="text-sm font-bold mb-2">Accounts, email consent and complimentary access</h4><div className="overflow-x-auto rounded-lg border border-white/10"><table className="w-full text-xs"><thead className="bg-gray-950"><tr><th className="text-left p-2">Customer</th><th className="text-left p-2">Role</th><th className="text-left p-2">Effective plan</th><th className="text-left p-2">Marketing</th><th className="text-left p-2">Complimentary membership</th></tr></thead><tbody>{adminData.users.map((user: any) => <tr key={user.id} className="border-t border-white/10 align-top"><td className="p-2"><b className="block">{user.displayName}</b><span className="text-gray-400">{user.email}</span></td><td className="p-2 capitalize">{user.role}</td><td className="p-2 capitalize"><b>{user.membership?.plan_id || "free"}</b>{user.membership?.source && <span className="block text-[10px] text-gray-500">{String(user.membership.source).replace(/_/g, " ")}</span>}{user.complimentaryGrant && <span className="block text-[10px] text-blue-300">until {new Date(user.complimentaryGrant.ends_at).toLocaleDateString()}</span>}</td><td className="p-2">{user.marketingConsent ? "Consented" : "No consent"}</td><td className="p-2 min-w-64">{user.role === "admin" ? <span className="text-gray-500">Owner access does not expire</span> : user.complimentaryGrant ? <div className="flex flex-wrap items-center gap-2"><span className="text-blue-200">{PLAN_CONFIG[user.complimentaryGrant.plan_id as PlanSlug].name} · {user.complimentaryGrant.period}</span><button disabled={busy === `revoke-${user.complimentaryGrant.id}`} onClick={() => void revokeComplimentary(user.complimentaryGrant.id)} className="rounded-md border border-white/15 px-2 py-1 hover:bg-gray-800">{busy === `revoke-${user.complimentaryGrant.id}` ? "Revoking…" : "Revoke"}</button></div> : <div className="flex flex-wrap gap-1"><button disabled={busy === `grant-${user.id}`} onClick={() => void grantComplimentary(user.id, "sceneflow", "month")} className="rounded-md bg-blue-700 px-2 py-1 hover:bg-blue-600">Flow · 1 month</button><button disabled={busy === `grant-${user.id}`} onClick={() => void grantComplimentary(user.id, "sceneflow", "year")} className="rounded-md bg-blue-700 px-2 py-1 hover:bg-blue-600">Flow · 1 year</button><button disabled={busy === `grant-${user.id}`} onClick={() => void grantComplimentary(user.id, "sceneforge", "month")} className="rounded-md bg-white text-blue-950 px-2 py-1 hover:bg-blue-50">Forge · 1 month</button><button disabled={busy === `grant-${user.id}`} onClick={() => void grantComplimentary(user.id, "sceneforge", "year")} className="rounded-md bg-white text-blue-950 px-2 py-1 hover:bg-blue-50">Forge · 1 year</button></div>}</td></tr>)}</tbody></table></div><p className="text-[11px] text-gray-500 mt-2">A complimentary grant changes access only; it does not create a charge or alter a verified FastSpring subscription. A new grant replaces any active complimentary grant for that account.</p></div>
+            <form className="rounded-lg border border-blue-500/30 bg-gray-950/60 p-4" onSubmit={(event) => { event.preventDefault(); void grantComplimentary(null, grantPlan, grantPeriod, grantEmail); }}><h4 className="text-sm font-bold">Grant complimentary membership</h4><p className="text-[11px] text-gray-400 mt-1 mb-3">The customer must already have a verified Scenering account. No payment is created.</p><div className="grid sm:grid-cols-[minmax(180px,1fr)_auto_auto_auto] gap-2"><input type="email" required value={grantEmail} onChange={(event) => setGrantEmail(event.target.value)} placeholder="Customer account email" className="min-w-0 rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs text-white" /><select value={grantPlan} onChange={(event) => setGrantPlan(event.target.value as "sceneflow" | "sceneforge")} className="rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs"><option value="sceneflow">SceneFlow</option><option value="sceneforge">SceneForge</option></select><select value={grantPeriod} onChange={(event) => setGrantPeriod(event.target.value as "month" | "year")} className="rounded-lg border border-white/15 bg-gray-900 px-3 py-2 text-xs"><option value="month">1 month</option><option value="year">1 year</option></select><button type="submit" disabled={busy === "grant-email"} className="rounded-lg bg-white text-blue-950 px-4 py-2 text-xs font-extrabold hover:bg-blue-50 disabled:opacity-60">{busy === "grant-email" ? "Granting…" : "Grant access"}</button></div></form>
+            <div><h4 className="text-sm font-bold mb-2">Accounts, email consent and complimentary access</h4><div className="overflow-x-auto rounded-lg border border-white/10"><table className="w-full text-xs"><thead className="bg-gray-950"><tr><th className="text-left p-2">Customer</th><th className="text-left p-2">Role</th><th className="text-left p-2">Effective plan</th><th className="text-left p-2">Marketing</th><th className="text-left p-2">Complimentary membership</th></tr></thead><tbody>{adminData.users.map((user: any) => <tr key={user.id} className="border-t border-white/10 align-top"><td className="p-2"><b className="block">{user.displayName}</b><span className="text-gray-400">{user.email}</span></td><td className="p-2 capitalize">{user.role}</td><td className="p-2 capitalize"><b>{user.membership?.plan_id || "free"}</b>{user.membership?.source && <span className="block text-[10px] text-gray-500">{String(user.membership.source).replace(/_/g, " ")}</span>}{user.complimentaryGrant && <span className="block text-[10px] text-blue-300">until {new Date(user.complimentaryGrant.ends_at).toLocaleDateString()}</span>}</td><td className="p-2">{user.marketingConsent ? "Consented" : "No consent"}</td><td className="p-2 min-w-64">{user.role === "admin" ? <span className="text-gray-500">Owner access does not expire</span> : user.complimentaryGrant ? <div className="flex flex-wrap items-center gap-2"><span className="text-blue-200">{PLAN_CONFIG[user.complimentaryGrant.plan_id as PlanSlug].name} · {user.complimentaryGrant.period}</span><button disabled={busy === `revoke-${user.complimentaryGrant.id}`} onClick={() => void revokeComplimentary(user.complimentaryGrant.id)} className="rounded-md border border-white/15 px-2 py-1 hover:bg-gray-800">{busy === `revoke-${user.complimentaryGrant.id}` ? "Revoking…" : "Revoke"}</button></div> : <div className="flex flex-wrap gap-1"><button disabled={busy === `grant-${user.id}`} onClick={() => void grantComplimentary(user.id, "sceneflow", "month")} className="rounded-md bg-blue-700 px-2 py-1 hover:bg-blue-600">Flow · 1 month</button><button disabled={busy === `grant-${user.id}`} onClick={() => void grantComplimentary(user.id, "sceneflow", "year")} className="rounded-md bg-blue-700 px-2 py-1 hover:bg-blue-600">Flow · 1 year</button><button disabled={busy === `grant-${user.id}`} onClick={() => void grantComplimentary(user.id, "sceneforge", "month")} className="rounded-md bg-white text-blue-950 px-2 py-1 hover:bg-blue-50">Forge · 1 month</button><button disabled={busy === `grant-${user.id}`} onClick={() => void grantComplimentary(user.id, "sceneforge", "year")} className="rounded-md bg-white text-blue-950 px-2 py-1 hover:bg-blue-50">Forge · 1 year</button></div>}</td></tr>)}</tbody></table></div><p className="text-[11px] text-gray-500 mt-2">A complimentary grant changes access only; it does not create a charge or alter a verified provider subscription. A new grant replaces any active complimentary grant for that account.</p></div>
             <div><h4 className="text-sm font-bold mb-2">Contact inbox</h4>{adminData.inbox && adminData.inbox.total > 0 ? <p className="text-xs text-gray-300">{adminData.inbox.needsReply > 0 ? `${adminData.inbox.needsReply} ${adminData.inbox.needsReply === 1 ? "conversation is" : "conversations are"} waiting for your reply.` : "Every conversation has been answered."} <a href="/admin?tab=inbox" className="font-bold text-indigo-300 underline">Open the Inbox in the Email Centre</a>, where contact messages and email to your address are answered.</p> : adminData.contacts.length ? <p className="text-xs text-gray-300"><a href="/admin?tab=inbox" className="font-bold text-indigo-300 underline">Open the Inbox in the Email Centre</a> to read and answer your contact messages.</p> : <p className="text-xs text-gray-400">No contact messages have been received.</p>}</div>
           </> : <p className="text-sm text-gray-400">Loading secure administration data…</p>}
         </section>}
@@ -467,9 +422,9 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
           <div className="grid lg:grid-cols-3 gap-4">{PLAN_ORDER.map((slug) => { const plan = PLAN_CONFIG[slug]; const active = currentPlan === slug; const price = plan.prices[interval]; return <article key={slug} className={`rounded-xl border p-5 flex flex-col ${active ? "border-indigo-500 bg-indigo-950/30" : "border-hairline bg-gray-900/60"}`}>
             <div className="flex items-center justify-between"><h4 className="text-lg font-bold">{plan.name}</h4>{active && <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full bg-indigo-600">Current</span>}</div><p className="text-sm text-gray-400 mt-2 min-h-10">{plan.description}</p><div className="mt-4"><b className="text-3xl">{price === 0 ? "$0" : displayPrice(slug, interval)}</b><span className="text-gray-400 text-sm">{price === 0 ? " forever" : `/${interval === "monthly" ? "month" : "year"}`}</span></div>{interval === "yearly" && price > 0 && <p className="text-xs text-emerald-400 mt-1">{annualSavingLine(slug)}</p>}
             <ul className="text-sm text-gray-300 space-y-2 my-5 flex-1"><li>✓ 16:9 and 9:16 video</li><li>✓ Unlimited preview corrections</li><li>✓ Projects preserved if your plan changes</li><li>✓ {slug === "free" ? "2 Shorts + 1 long-video download weekly" : slug === "sceneflow" ? "15 final video downloads weekly" : "Unlimited final downloads, subject to fetched/upstream API service limits"}</li><li>✓ {slug === "free" ? "Sample visualisers, animated Subscribe CTA, 2 music tracks and 2 caption styles" : "All voices, captions and creative tools"}</li></ul>
-            <button disabled={(!isOwnerAdmin && active) || busy === slug} onClick={() => isOwnerAdmin ? setAdminPlanPreview(slug) : void choosePlan(slug)} className={`w-full rounded-lg px-4 py-2.5 text-sm font-bold ${active ? "bg-gray-800 text-gray-300" : "bg-indigo-600 hover:bg-indigo-500"}`}>{isOwnerAdmin ? active ? "Previewing this plan" : `Preview as ${plan.name}` : active ? "Current plan" : busy === slug ? "Opening checkout…" : slug === "free" ? "Free membership" : `Choose ${plan.name}`}</button>
+            <button disabled={(!isOwnerAdmin && active) || busy === slug || (!isOwnerAdmin && !import.meta.env.DEV && slug !== "free")} onClick={() => isOwnerAdmin ? setAdminPlanPreview(slug) : void choosePlan(slug)} className={`w-full rounded-lg px-4 py-2.5 text-sm font-bold ${active ? "bg-gray-800 text-gray-300" : "bg-indigo-600 hover:bg-indigo-500"}`}>{isOwnerAdmin ? active ? "Previewing this plan" : `Preview as ${plan.name}` : active ? "Current plan" : busy === slug ? "Opening checkout…" : slug === "free" ? "Free membership" : import.meta.env.DEV ? `Choose ${plan.name} · PayPal Sandbox` : "Sandbox checkout only"}</button>
           </article>; })}</div>
-          <p className="text-xs text-gray-500 mt-3">Paid prices are shown in your local currency, with tax, exactly as FastSpring calculates them — the same total you will see at checkout.</p>
+          <p className="text-xs text-gray-500 mt-3">Paid plan prices are listed in USD. PayPal Sandbox checkout is available only in development while production billing remains disabled.</p>
         </section>
 
         {notice && <div className="rounded-lg border border-amber-600/50 bg-amber-950/30 text-amber-200 px-4 py-3 text-sm" role="status">{notice}</div>}
@@ -482,5 +437,6 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
     </div>
 
     <ApiKeysModal isOpen={keysOpen} onClose={() => setKeysOpen(false)} />
+    <PayPalSubscriptionDialog plan={paypalChoice?.plan || null} interval={paypalChoice?.interval || interval} onClose={() => setPaypalChoice(null)} />
   </div>;
 }

@@ -197,8 +197,7 @@ export default function SetupStudio({
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
   const isExistingProject = Boolean(project?.id);
-  /* The same FastSpring-localized prices as the website and /pricing —
-     the visitor's own currency, tax included, not USD base numbers. */
+  /* The same fixed-USD subscription prices used on the website and /pricing. */
   const { displayPrice, annualSavingLine } = useLocalizedPlanPrices();
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
   const openMembership = () => window.dispatchEvent(new Event("scenering-open-account"));
@@ -1448,7 +1447,7 @@ export default function SetupStudio({
         </div>
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1 text-[11px] text-gray-400">
-          <p>Paid prices are shown in your local currency, with tax, exactly as FastSpring calculates them. Paid checkout is available only when FastSpring has been configured. Paid access begins after verified subscription confirmation.</p>
+          <p>Paid prices are listed in USD. PayPal Sandbox checkout is for development testing only; production billing remains disabled. Paid access begins only after verified PayPal subscription confirmation.</p>
           <button type="button" onClick={() => { window.location.href = "/pricing"; }} className="shrink-0 text-blue-300 hover:text-white font-bold underline underline-offset-4">Open complete plan comparison</button>
         </div>
       </section>

@@ -36,8 +36,8 @@ export default function SiteCornerMenu() {
    * Where the provider-key dialog is offered: the studio and the owner's admin
    * pages — never the public website.
    *
-   * The dialog stores keys for the studio's own tools (stock search, voiceover)
-   * and is only wired into a surface that can save them. On the marketing pages
+   * The dialog stores customer keys for the studio's stock-image search and
+   * is only wired into a surface that can save them. On the marketing pages
    * it was an entry that could be clicked and do nothing, which is exactly what
    * the owner reported: "it does not work when I am in the website sections,
    * but it works in the app". The website now offers navigation only; inside
@@ -111,13 +111,10 @@ export default function SiteCornerMenu() {
         {account?.user.role === "admin" && <button onClick={() => go("/admin/email-centre")}>Email Centre</button>}
         {account?.user.role === "admin" && <button onClick={() => openAccount("admin")}>Owner administration</button>}
         <button onClick={() => openAccount()}>Account, membership & billing</button>
-        {/* Personal Pexels, Pixabay and Speechify keys — optional, stored in
-            this browser only. The label says whether any are saved, so the menu
-            doubles as the status the studio's old key button showed with a dot.
-            Offered in the app only: see inAppArea above. */}
+        {/* Optional stock-image search keys, stored in this browser only. */}
         {inAppArea && <button
           onClick={() => { setOpen(false); setKeysOpen(true); }}
-          title="Pexels, Pixabay and Speechify keys, stored in this browser"
+          title="Pexels and Pixabay stock-image keys, stored in this browser"
         >
           API keys
           <small>{hasOwnKeys ? "Set" : "Not set"}</small>

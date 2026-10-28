@@ -33,7 +33,7 @@ const scene = (id: number, text: string, extra: Partial<Scene> = {}): Scene => (
   image_crop: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 } as never,
   image_backdrop: "blur",
   blank_color: "#123456",
-  voice_id: "speechify_female_03",
+  voice_id: "scenering_female_03",
   animation: [{ id: "anim-1" }] as never,
   ...extra,
 });
@@ -77,7 +77,7 @@ h.ok(retimed.scenes.every((s) => s.duration === timing(s.text)), "a new target l
 h.ok(retimed.scenes.every((s, i) => s.transition === prev[i].transition && s.burn_caption === false), "…and still keeps their settings");
 
 const legacyVoice = rebuildScenesFromScript([scene(301, "Hi.", { voice_id: "en-US-GuyNeural" })], parts("Hi."), options);
-h.eq(legacyVoice.scenes[0].voice_id, "speechify_male_01", "a historical voice id is migrated on the way through");
+h.eq(legacyVoice.scenes[0].voice_id, "scenering_male_01", "a historical voice id is migrated on the way through");
 
 /* ---- 3. more or fewer paragraphs ---------------------------------------- */
 

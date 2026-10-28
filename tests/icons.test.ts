@@ -304,8 +304,8 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     // 2026-10-16, owner: the front page's pricing section promised
     // "Narration with your own free Google key" on every plan card, with a
     // line about a free Google AI Studio key under them, while the rest of the
-    // page (and the product) uses the customer's own Speechify key. The cards
-    // now say "Narration with your own Speechify key" and the Google line is
+    // page (and the product) uses browser-local Piper narration. The cards
+    // describe local Piper synthesis and the Google line is
     // gone. The developer note under it — "Paid checkout requires configured
     // Lemon Squeezy credentials. Verified subscription status—not a checkout
     // return page—controls paid access." — was never meant for visitors, and
@@ -319,7 +319,7 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     ]),
   ],
   [
-    // 2026-10-16: every voice style is spoken by one of Speechify's eight
+    // 2026-10-16: every voice style is bound to a Piper model profile
     // Simba 3.2 voices, none of them Australian or Irish. The four styles
     // that had those accents are spoken by British voices, so their accent
     // labels say "British English"; the style names themselves are unchanged.
@@ -439,7 +439,7 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     new Set(["question"]),
   ],
   [
-    // The manual intentionally documents the merged Speechify, watermark and
+    // The manual intentionally documents the merged Piper, watermark and
     // device-performance integrations; marketing and legal suites exercise it
     // directly, so do not treat its structured data as icon-adjacent copy.
     "src/marketing/manual-data.ts",
@@ -467,59 +467,44 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     new Set([
       "new", "open", "resolved", "closed", "Contact", "status", "could", "not", "be", "updated",
       "text-", "px", "px-", "text-xs", "text-gray-", "bg-gray-", "border", "border-white", "rounded-md",
-      // 2026-10-16: FastSpring replaced Lemon Squeezy as the payment provider,
-      // so the old provider's name left the billing panel. Three tiles changed
-      // with it: "Webhook signing secret" reads "Webhook secret key", "Store id"
-      // became "Storefront path", and "variant id" became the FastSpring
-      // product paths. The events line reads "Events to subscribe to" rather
-      // than "Events to tick".
+      // Billing administration now describes the PayPal Sandbox settings.
+      // Several provider-specific tile labels from the old panel are no longer
+      // rendered; the event line remains explicit about subscriptions.
       "Lemon", "Squeezy", "tick", "signing", "Store", "id",
     ]),
   ],
   [
-    // 2026-10-16: FastSpring replaced Lemon Squeezy as the payment provider.
-    // The owner manual's billing answers name the provider a customer is sent
-    // to, so the name changed across the manual; three ordinary words went
-    // with the sentences that were rewritten around it.
+    // The owner manual now documents PayPal Sandbox testing, verified callback
+    // reachability and the production/Live restrictions.
     "src/admin/admin-manual.ts",
     new Set(["Lemon", "Squeezy", "tick", "order", "payment"]),
   ],
   [
-    // Same replacement, one sentence: paid checkout is available only when the
-    // provider has been configured. Only the provider's name changed.
+    // The in-app plan note now states USD pricing and Sandbox-only availability.
     "src/components/SetupStudio.tsx",
     new Set(["Lemon", "Squeezy"]),
   ],
   [
     // Not a copy change — nothing here is rendered. `prose()` harvests the text
-    // between one `<` and the next, which in a TypeScript interface means the
-    // type annotations too. `variantEnv` became `priceEnv`, and documenting
-    // both members with a comment each split the span that used to run from
-    // `Record<BillingInterval, number>` down to `Record<BillingInterval,
-    // string>`, so the identifiers inside it stopped being counted as prose.
-    // Every member is still there: prices, annualMonthlyEquivalent,
-    // annualSaving, checkoutEnv, priceEnv, limits, features.
+    // between one `<` and the next, which in a TypeScript interface means type
+    // annotations too. Provider checkout-path fields were removed; prices,
+    // annual equivalents, savings, limits and benefits remain.
     "src/config/plans.ts",
     new Set(["annualMonthlyEquivalent", "number", "annualSaving", "checkoutEnv", "Record", "variantEnv"]),
   ],
   [
-    // Same replacement in the public FAQ. "configured" lost one occurrence
-    // because "complete configured Lemon Squeezy checkout" was not a sentence
-    // a visitor should have to parse, and now reads "complete the secure
-    // FastSpring checkout".
+    // Public billing answers now accurately describe PayPal Sandbox as a
+    // development-only test path.
     "src/marketing/faq-data.ts",
     new Set(["Lemon", "Squeezy", "configured"]),
   ],
   [
-    // Same replacement in the legal copy, where FastSpring is named as the
-    // merchant of record.
+    // Legal copy now discloses Sandbox-only checkout and disabled production billing.
     "src/marketing/legal-content.ts",
     new Set(["Lemon", "Squeezy", "card", "brand", "last", "four", "digits", "portal"]),
   ],
   [
-    // The developer note about which provider's credentials checkout needs. It
-    // is not shown to visitors (tests/marketing-render.test.ts asserts that),
-    // but the fact is part of the product data, so it names FastSpring now.
+    // The product-data note about payment readiness is not rendered to visitors.
     "src/marketing/product-facts.ts",
     new Set(["Lemon", "Squeezy"]),
   ],

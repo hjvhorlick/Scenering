@@ -11,7 +11,7 @@ import { PLAN_CONFIG, isPlanVoiceIncluded } from "../../config/plans";
  * The studio window this section used to draw (tabs, a narrator rail, a
  * visualiser canvas, a preview button and three scene rows) is gone. What
  * remains is what a visitor decides on: how narration is produced, who
- * narrates, what Free includes, and that a key is required.
+ * narrates, what Free includes, and how model downloads work.
  */
 const freeVoiceCount = PLAN_CONFIG.free.limits.voicePresets ?? LIVE_COUNTS.voices;
 
@@ -29,10 +29,10 @@ export default function VoiceSection() {
 
       <Facts
         items={[
-          { term: "Your key, your voice.", text: `Narration is generated with your Speechify key using the selected narrator.` },
-          { term: "Timed to the word.", text: "Each scene is fitted to its own audio." },
-          { term: "Two speakers.", text: "Any single scene can use a different narrator." },
-          { term: "No silent fallback.", text: "A failing key shows the real error." },
+          { term: "Runs in your browser.", text: "Piper creates narration locally; scene text is not sent to a speech provider." },
+          { term: "Captions stay attached.", text: "Narration timing is carried into the caption and karaoke workflow; Piper word timing is currently estimated." },
+          { term: "Twenty Scenering profiles.", text: "Ten male and ten female profile styles route through the Piper model catalogue." },
+          { term: "Clear download errors.", text: "A missing or failed model download is reported instead of replaced with silence." },
         ]}
       />
 

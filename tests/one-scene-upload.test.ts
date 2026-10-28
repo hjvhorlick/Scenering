@@ -18,21 +18,6 @@ import { clipAudioPlanFor } from "../src/lib/clip-audio";
 import { stretchFullVideoMedia } from "../src/lib/render-visualizers";
 import type { TimelineInsert } from "../src/types";
 import {
-  chunksToWordTimings,
-  defaultTranscriptionModels,
-  runWithTranscriptionTimeout,
-  TranscriptionError,
-  TranscriptionTimeoutError,
-  wordsToText,
-  STT_AUDIO_TIMEOUT_MS,
-  STT_ENGINE_URL,
-  STT_ENGINE_TIMEOUT_MS,
-  STT_INFERENCE_MIN_TIMEOUT_MS,
-  STT_LOW_MEMORY_CLIP_SECONDS,
-  STT_MODEL_CANDIDATES,
-  STT_MODEL_TIMEOUT_MS,
-} from "../src/lib/speech-to-text";
-import {
   narratableText,
   projectHasNarration,
   sceneCaptionWords,
@@ -411,14 +396,6 @@ const footageScene = {
     "existing scene/video tools still preserve and edit the clip's soundtrack state"
   );
 
-  /* Cancelling a transcription is the creator's decision, not a failure. The
-     engine reports it by throwing, so it must be told apart here. */
-  const hook = read("src/lib/use-clip-transcription.ts");
-  h.ok(
-    /if \(cancelledRef\.current\) \{\s*setError\(null\);/.test(hook),
-    "pressing Cancel clears the error instead of reporting the cancellation as one"
-  );
-
   const nativeVideoSize = { videoWidth: 1920, videoHeight: 1080 };
   h.eq(sourcePixelWidth(nativeVideoSize), 1920, "native videoWidth is accepted as a canvas source width");
   h.eq(sourcePixelHeight(nativeVideoSize), 1080, "native videoHeight is accepted as a canvas source height");
@@ -501,57 +478,22 @@ const footageScene = {
  * 5. captions from the footage's own audio
  * ------------------------------------------------------------------ */
 {
-  // Word-level timings pass straight through.
-  const wordLevel = chunksToWordTimings(
-    [
-      { text: " Hello", timestamp: [0.2, 0.6] },
-      { text: " there", timestamp: [0.6, 1.1] },
-      { text: " world", timestamp: [1.1, null] },
-    ],
-    2
-  );
-  h.ok(wordLevel.wordLevel, "one word per chunk is recognised as word-level timing");
-  h.eq(wordLevel.words.length, 3, "every word is kept");
-  h.eq(wordLevel.words[0].text, "Hello", "leading spaces are trimmed");
-  h.near(wordLevel.words[0].start, 0.2, 0.001, "and its spoken moment is kept exactly");
-  h.ok(
-    wordLevel.words[2].end > wordLevel.words[2].start,
-    "a word with no end (the audio stopped there) still gets one, so the highlight leaves it"
-  );
-
-  // Segment timings are spread over the words, weighted by length.
-  const segments = chunksToWordTimings(
-    [{ text: "The quick brown fox", timestamp: [1, 3] }],
-    3
-  );
-  h.ok(!segments.wordLevel, "several words in one span is recognised as segment timing");
-  h.eq(segments.words.length, 4, "and every word in the span is timed");
-  h.near(segments.words[0].start, 1, 0.001, "starting where the phrase starts");
-  h.near(segments.words[3].end, 3, 0.001, "and ending where it ends");
-  h.ok(
-    segments.words[2].end - segments.words[2].start > segments.words[0].end - segments.words[0].start,
-    "the longer words hold the highlight longer, because they are the slower ones"
-  );
-  for (let i = 1; i < segments.words.length; i++) {
-    h.ok(
-      segments.words[i].start >= segments.words[i - 1].end - 0.0001,
-      `word ${i + 1} never starts before the one before it finishes`
-    );
-  }
-
-  h.eq(chunksToWordTimings([], 0).words.length, 0, "an empty transcript stays empty");
-  h.eq(wordsToText(wordLevel.words), "Hello there world", "the words read back as a sentence");
+  const wordLevel = { words: [
+    { text: "Hello", start: 0.2, end: 0.6 },
+    { text: "there", start: 0.6, end: 1.1 },
+    { text: "world", start: 1.1, end: 2 },
+  ] };
 
   // What lands on the scene, and what the caption clock reads back.
   const fields = sceneUpdatesForTranscript(wordLevel.words, 2);
   h.eq(fields.text, "Hello there world", "the transcript becomes the scene's caption text");
-  h.eq(fields.caption_source, "transcript", "and is marked as transcribed, not typed");
+  h.eq(fields.caption_source, "transcript", "and is marked as imported, not typed");
   h.eq(fields.caption_audio_duration, 2, "with the length of audio it covers, so a stale one can be spotted");
   h.ok(
     sceneHasTranscript({ ...footageScene, ...fields }),
-    "a scene carrying those fields is a transcribed scene"
+    "a scene carrying those fields has imported timed captions"
   );
-  h.ok(!sceneHasTranscript(footageScene), "and an ordinary scene is not");
+  h.ok(!sceneHasTranscript(footageScene), "and an ordinary script scene is not");
 
   const untrimmed = sceneCaptionWords({ ...footageScene, ...fields });
   h.near(untrimmed?.[0].start ?? -1, 0.2, 0.001, "an untrimmed clip's words are already in scene time");
@@ -562,11 +504,11 @@ const footageScene = {
 
   h.ok(
     transcriptMatchesClip({ ...footageScene, ...fields, video_duration: 2 }),
-    "a transcript covering this footage matches it"
+    "imported caption timing matching the footage is current"
   );
   h.ok(
     !transcriptMatchesClip({ ...footageScene, ...fields, video_duration: 187.4 }),
-    "and one made from a different clip is reported as stale rather than trusted"
+    "timings for footage of a different length are reported as stale"
   );
   h.eq(
     transcriptToCaptionText([
@@ -703,233 +645,35 @@ const footageScene = {
 }
 
 /* ------------------------------------------------------------------ *
- * 7. where the captions are made, and what it costs
+ * 7. captions use the script/narration path or imported timed files
  * ------------------------------------------------------------------ */
 {
+  const captions = read("src/components/CaptionsStudio.tsx");
   h.ok(
-    /Generate captions from \$\{source\?\.label \?\? "the audio"\}/.test(captions),
-    "the Captions step offers to transcribe a scene's footage, and names the audio it will read"
+    captions.includes("Import SRT / VTT") && captions.includes("parseCaptionFile(await file.text(), file.name)"),
+    "footage captions can still be supplied from an SRT or VTT file"
   );
-  h.ok(!setup.includes("Generate captions") && !setup.includes("Free and on this device"),
-    "Setup no longer contains the experimental video-audio transcription controls");
   h.ok(
-    captions.includes("sceneHasClip(scene)") && captions.includes("<SceneTranscriptControls"),
-    "the controls appear on scenes that have footage, and only on those"
+    !captions.includes("useClipTranscription") && !captions.includes("Generate captions from") &&
+      !captions.includes("Whisper"),
+    "the Captions step no longer offers speech-recognition generation"
+  );
+  h.ok(
+    !server.includes("https://huggingface.co") && !server.includes("https://cdn.jsdelivr.net") &&
+      !server.includes("wasm-unsafe-eval"),
+    "the security policy no longer grants access for the removed local transcription engine"
   );
   h.ok(
     render.includes("const spokenWords = audioBuffers.get(currentScene.id)?.words;") &&
-      render.includes("const footageWords = spokenWords ? null : sceneCaptionWords(currentScene);") &&
-      render.includes("wordTimings: spokenWords ?? footageWords,"),
-    "the export drives captions from the narration when there is one, and from the transcript when there is not"
+      render.includes("wordTimings: spokenWords ?? footageWords,") &&
+      preview.includes("wordTimings: sa?.words ?? footageWords"),
+    "script narration still supplies synchronized caption words in export and preview"
   );
   h.ok(
-    preview.includes("wordTimings: sa?.words ?? footageWords"),
-    "and the preview highlights the same words at the same moments"
+    app.includes("const speaks = voiceoverEnabled && projectHasNarration(scenes);") &&
+      app.includes("const leadIn = narrationLeadIn(intro > 0, speaks);"),
+    "removing transcription does not change script narration or its timeline timing"
   );
-
-  /* The two clocks are not the same clock. A provider's word timings start
-     when the speech starts, which is after the opening hold; a transcript's
-     are the footage's own, which start with the scene. Feeding the transcript
-     the speech clock would put every caption two seconds late. */
-  h.ok(
-    /audioTimeSec: footageWords \? elapsedInScene : speechElapsed/.test(render),
-    "the export reads the footage's clock for transcribed captions"
-  );
-  h.ok(
-    /audioTimeSec: footageWords \? Math\.max\(0, elapsedInScene \?\? 0\) : speechElapsed \?\? 0/.test(preview),
-    "and so does the preview, so the two can never disagree about where a word lands"
-  );
-  h.ok(
-    NARRATION_LEAD_IN_SECONDS > 0,
-    "which matters: the opening hold is long enough to see a caption drift"
-  );
-
-  // The engine: free, on-device, pinned, and out of the main/UI bundle.
-  const stt = read("src/lib/speech-to-text.ts");
-  const sttWorker = read("src/lib/speech-to-text.worker.ts");
-  const progressUi = read("src/components/TranscriptionProgressStatus.tsx");
-  h.ok(STT_ENGINE_URL.startsWith("https://cdn.jsdelivr.net/npm/@huggingface/transformers@"), "the engine comes from one pinned version");
-  h.ok(
-    /transformers@\d+\.\d+\.\d+/.test(STT_ENGINE_URL),
-    "pinned to an exact version, so a new release cannot arrive by itself"
-  );
-  h.ok(STT_MODEL_CANDIDATES.every((m) => m.startsWith("onnx-community/whisper")), "the models are Whisper");
-  h.ok(
-    sttWorker.includes("import(/* @vite-ignore */ url)") &&
-      stt.includes('new URL("./speech-to-text.worker.ts", import.meta.url)'),
-    "loaded on demand inside a dedicated module worker, not the main/UI bundle"
-  );
-  h.ok(!read("package.json").includes("transformers"), "and it is not an install-time dependency, so the install cannot fail because of it");
-  h.ok(sttWorker.includes("allowLocalModels = false"), "weights come from the hub, never a local folder");
-  h.ok(
-    server.includes("https://cdn.jsdelivr.net") && server.includes("https://huggingface.co"),
-    "the policy allows exactly the two hosts the engine needs"
-  );
-  h.ok(
-    server.includes("'wasm-unsafe-eval'") && !/script-src[^;]*'unsafe-eval'/.test(server),
-    "and permits WASM compilation without permitting arbitrary eval"
-  );
-
-  // These are the canonical timestamped ids used in upstream examples/tests;
-  // the old base_en spellings did not match that published model family.
-  h.eq(
-    STT_MODEL_CANDIDATES.join("|"),
-    [
-      "onnx-community/whisper-tiny.en_timestamped",
-      "onnx-community/whisper-base.en_timestamped",
-      "onnx-community/whisper-base_timestamped",
-    ].join("|"),
-    "every fallback uses a published timestamped Whisper model id, with the low-memory model first"
-  );
-  h.eq(
-    defaultTranscriptionModels(STT_LOW_MEMORY_CLIP_SECONDS - 1).length,
-    STT_MODEL_CANDIDATES.length,
-    "short clips retain the published model-load fallback list"
-  );
-  h.eq(
-    defaultTranscriptionModels(STT_LOW_MEMORY_CLIP_SECONDS).length,
-    1,
-    "five-minute and longer clips stay on Tiny instead of loading a larger model into an already full browser"
-  );
-  h.eq(
-    defaultTranscriptionModels(STT_LOW_MEMORY_CLIP_SECONDS)[0],
-    STT_MODEL_CANDIDATES[0],
-    "the long-clip model is the low-memory Tiny candidate"
-  );
-  h.ok(
-    STT_AUDIO_TIMEOUT_MS > 0 &&
-      STT_ENGINE_TIMEOUT_MS > 0 &&
-      STT_MODEL_TIMEOUT_MS > 0 &&
-      STT_INFERENCE_MIN_TIMEOUT_MS > 0,
-    "audio decode, engine, model download and inference all have finite timeout budgets"
-  );
-  h.ok(
-    (stt.match(/armTimeout\(/g) || []).length >= 3 &&
-      stt.includes("terminateTranscriptionWorker(worker)") &&
-      stt.includes("worker.terminate()") &&
-      sttWorker.includes('engine.pipeline("automatic-speech-recognition"') &&
-      sttWorker.includes("transcriber(audio.subarray(start, end)"),
-    "UI-thread timers can terminate stalled engine, model and windowed-inference work"
-  );
-  h.ok(
-    stt.includes("finish(() => resolve(message), true)") &&
-      stt.includes("finish(() => reject(workerFailure(message)), true)") &&
-      read("src/lib/use-clip-transcription.ts").includes("useEffect(() => () =>") &&
-      read("src/lib/use-clip-transcription.ts").includes("abortRef.current?.abort()"),
-    "success, failure and section exit all terminate Whisper so model memory cannot freeze the next screen"
-  );
-  h.ok(
-    sttWorker.includes("decoded.duration >= STT_LOW_MEMORY_CLIP_SECONDS") &&
-      sttWorker.includes("request.models.slice(0, 1)") &&
-      sttWorker.includes('failure(id, "inference", detail);') &&
-      !sttWorker.includes("That model could not finish the transcription. Trying fallback"),
-    "measured long audio and late inference failures cannot load a larger model and repeat the recording"
-  );
-  h.ok(
-    app.includes("{ ...updates, burn_caption: true }") &&
-      app.includes("handleUpdateCaptionsConfig({ ...captionsConfig, enabled: true })") &&
-      captions.includes("onEnableCaptions={enableGeneratedCaptions}"),
-    "a successful transcript turns project and scene captions on rather than hiding the generated words"
-  );
-  h.ok(
-    stt.includes("The transcription engine failed to load") &&
-      stt.includes("The Whisper transcription models failed to load") &&
-      stt.includes("Whisper loaded, but transcription failed while listening"),
-    "engine-load, model-load and inference failures have distinct user-facing messages"
-  );
-  h.ok(
-    stt.includes("response.blob()") &&
-      !stt.includes("decodeAudioData(") &&
-      sttWorker.includes("new BlobSource(source)") &&
-      sttWorker.includes("new AudioSampleSink(track)") &&
-      read("src/lib/speech-to-text-protocol.ts").includes("source: Blob") &&
-      read("package.json").includes('"mediabunny": "1.62.0"'),
-    "the page clones only a Blob handle while worker-side demuxing, decoding and resampling avoid a giant UI-thread ArrayBuffer"
-  );
-  h.ok(
-    sttWorker.includes("numThreads = 1") &&
-      stt.includes("setInterval(() =>") &&
-      stt.includes("first 30-second section in the background"),
-    "Whisper cannot occupy the UI thread or every CPU core, and a heartbeat remains visible during inference"
-  );
-  h.ok(
-    sttWorker.includes('event: "inference-progress"') &&
-      sttWorker.includes("completedSeconds / duration") &&
-      sttWorker.includes("audio.subarray(start, end)"),
-    "transcription percentage comes from completed audio windows rather than an invented timer"
-  );
-  h.ok(
-    sttWorker.includes('return_timestamps: useWordTimestamps ? "word" : true') &&
-      sttWorker.includes('encoder_model: decoded.duration >= STT_LOW_MEMORY_CLIP_SECONDS ? "q4" : "q8"'),
-    "long recordings use lower-memory segment timing and q4 encoding while still yielding timed caption words"
-  );
-  h.ok(
-    sttWorker.includes("midpoint < trustedStart || midpoint >= trustedEnd") &&
-      sttWorker.includes("Math.min(duration, absoluteEnd)") &&
-      sttWorker.includes('"no-speech"'),
-    "overlap merging keeps one bounded timestamp per word and preserves the distinct no-speech result"
-  );
-  h.ok(
-    progressUi.includes('role="dialog"') &&
-      progressUi.includes('role="progressbar"') &&
-      progressUi.includes('aria-live="polite"') &&
-      progressUi.includes("Large on-device process") &&
-      progressUi.includes("Audio completed") &&
-      progressUi.includes("waitingForFirstWindow") &&
-      progressUi.includes("Cancel transcription") &&
-      read("src/components/CaptionsStudio.tsx").includes("<TranscriptionProgressStatus") &&
-      read("src/components/CaptionsStudio.tsx").includes("sourceSeconds={source?.seconds || 0}") &&
-      read("src/components/CaptionsStudio.tsx").includes("transcriptionButtonLabel(transcription.progress)") &&
-      !read("src/components/SetupStudio.tsx").includes('"Listening…"') &&
-      !read("src/components/CaptionsStudio.tsx").includes('"Listening…"'),
-    "Captions opens an accessible process window with elapsed time, real audio progress and cancellation"
-  );
-  const transcriptionHook = read("src/lib/use-clip-transcription.ts");
-  h.ok(
-    (transcriptionHook.match(/abortRef\.current\?\.abort\(\)/g) || []).length >= 3 &&
-      transcriptionHook.includes("runRef.current += 1") &&
-      transcriptionHook.includes("signal: abortController.signal"),
-    "cancel, reset and a superseding run abort in-flight work instead of waiting for its timeout"
-  );
-
-  let timeoutError: unknown = null;
-  let operationWasAborted = false;
-  try {
-    await runWithTranscriptionTimeout(
-      (signal) => new Promise<never>(() => {
-        signal.addEventListener("abort", () => { operationWasAborted = true; }, { once: true });
-      }),
-      5,
-      "Whisper test operation stalled."
-    );
-  } catch (error) {
-    timeoutError = error;
-  }
-  h.ok(timeoutError instanceof TranscriptionTimeoutError, "a stalled operation rejects instead of hanging forever");
-  h.eq((timeoutError as Error)?.message, "Whisper test operation stalled.", "the timeout reason is fit to show in the UI");
-  h.ok(operationWasAborted, "the timed-out operation receives an AbortSignal as well as a rejected race");
-
-  const parentAbort = new AbortController();
-  let cancelledOperationStarted = false;
-  let cancellationError: unknown = null;
-  const cancelledRun = runWithTranscriptionTimeout(
-    async () => {
-      cancelledOperationStarted = true;
-      return "too late";
-    },
-    1_000,
-    "unused timeout",
-    parentAbort.signal
-  );
-  parentAbort.abort();
-  try {
-    await cancelledRun;
-  } catch (error) {
-    cancellationError = error;
-  }
-  h.ok(cancellationError instanceof TranscriptionError, "caller cancellation rejects with the distinct cancellation error");
-  h.eq((cancellationError as Error)?.message, "Transcription cancelled.", "cancellation never masquerades as an engine timeout");
-  h.eq(cancelledOperationStarted, false, "an immediately superseded run never starts its expensive operation");
 }
 
 /* ------------------------------------------------------------------ *
@@ -1033,11 +777,11 @@ const footageScene = {
     187.4
   );
 
-  h.eq(transcript.caption_source, "transcript", "a transcript records where its words came from");
+  h.eq(transcript.caption_source, "transcript", "imported caption timing records its source");
   h.eq(transcript.text, "Never gonna give you up", "and those words still become the captions");
 
   // The point of the change: captions are shown, never spoken.
-  h.eq(narratableText(transcript), "", "words transcribed from the soundtrack are never narrated");
+  h.eq(narratableText(transcript), "", "imported subtitle words are never treated as narration");
   h.eq(
     narratableText({ text: "Welcome to the show" }),
     "Welcome to the show",

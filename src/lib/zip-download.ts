@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import type { Scene } from "../types";
 import { sceneHasVisual } from "../lib/scene-framing";
-import { synthesizeSpeechify } from "./speechify-client";
+import { fetchSceneAudioWithTimeline } from "./tts-cache";
 
 interface ZipOptions {
   title: string;
@@ -60,7 +60,7 @@ export async function createProjectZip(options: ZipOptions): Promise<Blob> {
       imageUrl: s.image_url,
       duration: s.duration,
       imageFile: `images/scene_${String(i + 1).padStart(2, "0")}.jpg`,
-      audioFile: `audio/scene_${String(i + 1).padStart(2, "0")}_narration.mp3`,
+      audioFile: `audio/scene_${String(i + 1).padStart(2, "0")}_narration.wav`,
     })),
   };
   zip.file(`${safeName}_scenes.json`, JSON.stringify(metadata, null, 2));
@@ -97,17 +97,18 @@ export async function createProjectZip(options: ZipOptions): Promise<Blob> {
   // --- Generate and add audio ---
   for (let i = 0; i < scenesWithImages.length; i++) {
     const scene = scenesWithImages[i];
-    const fileName = `scene_${String(i + 1).padStart(2, "0")}_narration.mp3`;
+    const fileName = `scene_${String(i + 1).padStart(2, "0")}_narration.wav`;
 
     if (onProgress) onProgress(`Generating narration ${i + 1}/${scenesWithImages.length}...`, fileCount / totalFiles);
 
     const text = (scene.text || "").trim();
     if (text) {
       try {
-        const audio = await synthesizeSpeechify(text, scene.voice_id || voice);
-        audioFolder.file(fileName, audio.blob);
+        const audio = await fetchSceneAudioWithTimeline(text, scene.voice_id || voice);
+        if (!audio) throw new Error("Piper returned no audio.");
+        audioFolder.file(fileName, new Blob([audio.rawBuffer], { type: audio.mimeType }));
       } catch (error: any) {
-        throw new Error(`Speechify synthesis failed for scene ${i + 1}: ${error?.message || "Unknown provider error."}`);
+        throw new Error(`Piper synthesis failed for scene ${i + 1}: ${error?.message || "Unknown local synthesis error."}`);
       }
     }
     reportProgress();

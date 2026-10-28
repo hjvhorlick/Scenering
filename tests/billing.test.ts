@@ -1,133 +1,81 @@
 /**
- * Billing integration contract (FastSpring merchant of record):
- *
- * Verifies the public billing configuration endpoint, pricing & welcome page
- * checkout wiring, admin billing overview, and that Paddle has been completely
- * removed from runtime billing routes, client modules, and configuration.
+ * Billing contract: PayPal Sandbox is the only active subscription provider,
+ * remains disabled in production, and has no Live-mode or legacy checkout path.
  */
-import { createHmac } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync } from "node:fs";
 import { createHarness } from "./harness";
 
 const h = createHarness();
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const root = process.cwd();
+const platformSource = readFileSync(`${root}/server/platform.ts`, "utf8");
+const serverSource = readFileSync(`${root}/server.ts`, "utf8");
+const paypalSource = readFileSync(`${root}/server/paypal-api.ts`, "utf8");
+const modal = readFileSync(`${root}/src/components/AccountMembershipModal.tsx`, "utf8");
+const paypalDialog = readFileSync(`${root}/src/components/PayPalSubscriptionDialog.tsx`, "utf8");
+const publicPage = readFileSync(`${root}/src/marketing/PublicPage.tsx`, "utf8");
+const appHtml = readFileSync(`${root}/index.html`, "utf8");
 
-const platformSource = readFileSync(join(repoRoot, "server/platform.ts"), "utf8");
-const serverSource = readFileSync(join(repoRoot, "server.ts"), "utf8");
-const envExample = readFileSync(join(repoRoot, ".env.example"), "utf8");
-const readme = readFileSync(join(repoRoot, "README.md"), "utf8");
-const fastspringDoc = readFileSync(join(repoRoot, "FASTSPRING.md"), "utf8");
-const modal = readFileSync(join(repoRoot, "src/components/AccountMembershipModal.tsx"), "utf8");
-const publicPage = readFileSync(join(repoRoot, "src/marketing/PublicPage.tsx"), "utf8");
-const fastspringClient = readFileSync(join(repoRoot, "src/lib/fastspring.ts"), "utf8");
-const appHtml = readFileSync(join(repoRoot, "index.html"), "utf8");
-const packageJson = readFileSync(join(repoRoot, "package.json"), "utf8");
-
-const WEBHOOK_SECRET = "fastspring_billing_test_secret";
-process.chdir(mkdtempSync(join(tmpdir(), "scenering-billing-")));
 process.env.NODE_ENV = "test";
 process.env.SESSION_SECRET = "a-test-session-secret-of-sufficient-length";
 process.env.PUBLIC_APP_URL = "https://scenering.test";
-process.env.FASTSPRING_STOREFRONT = "scenering.test.onfastspring.com/popup-scenering";
-process.env.FASTSPRING_WEBHOOK_SECRET = WEBHOOK_SECRET;
+process.env.PAYPAL_ENVIRONMENT = "sandbox";
+process.env.PAYPAL_CLIENT_ID = "sandbox-public-client-id";
+process.env.PAYPAL_CLIENT_SECRET = "server-only-test-secret";
+process.env.PAYPAL_WEBHOOK_ID = "";
+process.env.PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID = "P-SF-MONTH";
+process.env.PAYPAL_SCENEFLOW_YEARLY_PLAN_ID = "P-SF-YEAR";
+process.env.PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID = "P-SG-MONTH";
+process.env.PAYPAL_SCENEFORGE_YEARLY_PLAN_ID = "P-SG-YEAR";
 
 const express = (await import("express")).default;
 const { installTestPlatformEnv } = await import("./platform-env.ts");
 installTestPlatformEnv();
 const platform = await import("../server/platform.ts");
-
 const app = express();
-app.use((req, res, next) => (req.path === "/api/webhooks/fastspring" ? next() : express.json()(req, res, next)));
-platform.registerFastSpringWebhook(app);
+app.use(express.json());
 platform.registerPlatformRoutes(app);
 const server = app.listen(0);
 await new Promise((resolve) => server.once("listening", resolve));
 const base = `http://127.0.0.1:${(server.address() as any).port}`;
 
-/* ------------------------------------------------------------------ */
-/* 1. Public billing config endpoint (/api/billing/public-config).    */
-/* ------------------------------------------------------------------ */
-{
-  const res = await fetch(`${base}/api/billing/public-config`, { headers: { "CF-IPCountry": "ZA" } });
-  const body = (await res.json()) as any;
-  h.eq(res.status, 200, "public billing config is readable without authentication");
-  h.eq(body.provider, "fastspring", "FastSpring is the sole billing provider");
-  h.eq(body.storefront, "scenering.test.onfastspring.com/popup-scenering", "public config exposes the FastSpring storefront path");
-  h.eq(body.environment, "test", "public config detects test storefront environment");
-  h.eq(body.checkoutMode, "popup", "public config reports popup checkout mode");
-  h.eq(body.country, "ZA", "public config passes through the visitor's edge country");
-  h.eq(Array.isArray(body.tiers), true, "public config exposes the pricing tiers array");
-  h.eq(body.tiers.find((t: any) => t.id === "sceneflow")?.priceId?.month, "sceneflow-monthly", "SceneFlow monthly tier carries its FastSpring product path");
-  h.eq(body.tiers.find((t: any) => t.id === "sceneflow")?.priceId?.year, "sceneflow-yearly", "SceneFlow annual tier carries its FastSpring product path");
-  h.eq(body.tiers.find((t: any) => t.id === "sceneforge")?.priceId?.month, "sceneforge-monthly", "SceneForge monthly tier carries its FastSpring product path");
-  h.eq(body.tiers.find((t: any) => t.id === "sceneforge")?.priceId?.year, "sceneforge-yearly", "SceneForge annual tier carries its FastSpring product path");
+const configResponse = await fetch(`${base}/api/billing/public-config`);
+const config = await configResponse.json() as any;
+h.eq(configResponse.status, 200, "public plan configuration is readable without authentication");
+h.eq(config.provider, "paypal", "PayPal is the subscription provider");
+h.eq(config.environment, "sandbox", "public config is explicitly Sandbox-only");
+h.eq(config.currency, "USD", "subscription prices use the unchanged USD catalogue");
+h.eq(config.tiers.find((tier: any) => tier.id === "sceneflow")?.planId.monthly, "P-SF-MONTH", "public catalogue exposes the configured SceneFlow Sandbox plan ID");
+h.eq(config.tiers.find((tier: any) => tier.id === "sceneforge")?.planId.yearly, "P-SG-YEAR", "public catalogue exposes the configured SceneForge Sandbox plan ID");
+h.eq(JSON.stringify(config).includes("server-only-test-secret"), false, "the public config never exposes the PayPal Client Secret");
 
-  /* Without FASTSPRING_STOREFRONT, public-config returns 503 FASTSPRING_NOT_CONFIGURED. */
-  const savedStorefront = process.env.FASTSPRING_STOREFRONT;
-  delete process.env.FASTSPRING_STOREFRONT;
-  const unconfiguredRes = await fetch(`${base}/api/billing/public-config`);
-  const unconfigured = await unconfiguredRes.json() as any;
-  h.eq(unconfiguredRes.status, 503, "without FASTSPRING_STOREFRONT public config returns 503");
-  h.eq(unconfigured.code, "FASTSPRING_NOT_CONFIGURED", "and names FASTSPRING_NOT_CONFIGURED");
-  process.env.FASTSPRING_STOREFRONT = savedStorefront;
+const webhookResponse = await fetch(`${base}/api/webhooks/paypal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "evt-unconfigured" }) });
+h.eq(webhookResponse.status, 503, "unconfigured Sandbox webhook fails closed");
+const staleCheckout = await fetch(`${base}/api/billing/checkout/sceneflow/monthly`);
+h.eq(staleCheckout.status, 404, "the former generic checkout route is no longer registered");
+
+const configuration = platform.billingConfiguration();
+h.eq(configuration.provider, "paypal", "admin billing configuration reports PayPal only");
+h.eq(configuration.webhookPath, "/api/webhooks/paypal", "admin configuration reports the PayPal callback path");
+h.eq(configuration.webhookUrl, "https://scenering.test/api/webhooks/paypal", "callback candidate is formed from the configured app origin");
+h.eq(configuration.ready, false, "missing webhook ID keeps checkout unready");
+h.ok(paypalDialog.includes("/api/billing/public-config"), "the PayPal dialog reads the sole public billing configuration endpoint");
+h.eq(platform.billingProvider(), "paypal", "the billing-provider selector is PayPal-only");
+
+const paypalMigration = readFileSync(`${root}/migrations/0008_paypal_billing.sql`, "utf8");
+h.eq(existsSync(`${root}/migrations/0006_billing.sql`), true, "historical billing migration remains for existing databases");
+h.eq(/\bDROP\s+TABLE\b|\bDELETE\s+FROM\s+subscriptions\b/i.test(paypalMigration), false, "PayPal migration does not destructively clean historical subscription rows");
+
+for (const retiredFile of ["FASTSPRING.md", "src/lib/fastspring.ts", "src/config/fastspring.ts", "tests/fastspring.test.ts"]) {
+  h.eq(existsSync(`${root}/${retiredFile}`), false, `${retiredFile} has been removed`);
 }
-
-/* ------------------------------------------------------------------ */
-/* 2. FastSpring webhook & checkout wiring.                           */
-/* ------------------------------------------------------------------ */
-{
-  const cfg = platform.billingConfiguration();
-  h.eq(cfg.provider, "fastspring", "billingConfiguration returns FastSpring configuration");
-  h.eq(cfg.webhookPath, "/api/webhooks/fastspring", "webhookPath is /api/webhooks/fastspring");
-  h.eq(cfg.webhookUrl, "https://scenering.test/api/webhooks/fastspring", "webhookUrl uses PUBLIC_APP_URL");
-  h.eq(cfg.ready, true, "billingConfiguration is ready");
-
-  const payload = JSON.stringify({
-    events: [
-      {
-        id: "evt-billing-1",
-        live: false,
-        processed: false,
-        type: "order.completed",
-        created: Date.now(),
-        data: { id: "ord_1" },
-      },
-    ],
-  });
-  const sig = createHmac("sha256", WEBHOOK_SECRET).update(Buffer.from(payload, "utf8")).digest("base64");
-  const wh = await fetch(`${base}/api/webhooks/fastspring`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-FS-Signature": sig },
-    body: payload,
-  });
-  h.eq(wh.status, 200, "signed FastSpring webhook delivery is accepted");
-}
-
-/* ------------------------------------------------------------------ */
-/* 3. Paddle removal & FastSpring-only architecture invariants.       */
-/* ------------------------------------------------------------------ */
-{
-  h.eq(existsSync(join(repoRoot, "src/lib/paddle.ts")), false, "src/lib/paddle.ts has been removed");
-  h.eq(existsSync(join(repoRoot, "PADDLE.md")), false, "PADDLE.md has been removed");
-  h.eq(existsSync(join(repoRoot, "LIVE_MIGRATION.md")), false, "LIVE_MIGRATION.md has been removed");
-  h.eq(existsSync(join(repoRoot, "migrations/0006_paddle.sql")), false, "0006_paddle.sql was renamed to 0006_billing.sql");
-  h.eq(existsSync(join(repoRoot, "migrations/0006_billing.sql")), true, "0006_billing.sql exists");
-  h.eq(packageJson.includes("@paddle/paddle-js"), false, "@paddle/paddle-js dependency has been removed from package.json");
-  h.eq(/paddle/i.test(serverSource), false, "server.ts has zero Paddle references");
-  h.eq(/paddle/i.test(platformSource), false, "server/platform.ts has zero Paddle references");
-  h.eq(/paddle/i.test(envExample), false, ".env.example has zero Paddle references");
-  h.eq(/paddle/i.test(readme), false, "README.md has zero Paddle references");
-  h.eq(/paddle/i.test(fastspringDoc), false, "FASTSPRING.md has zero Paddle references");
-  h.eq(/paddle/i.test(modal), false, "AccountMembershipModal.tsx has zero Paddle references");
-  h.eq(/paddle/i.test(publicPage), false, "PublicPage.tsx has zero Paddle references");
-  h.ok(publicPage.includes("openFastSpringPopup"), "PublicPage.tsx opens FastSpring popup checkout");
-  h.ok(modal.includes("openFastSpringPopup"), "AccountMembershipModal.tsx opens FastSpring popup checkout");
-  h.ok(appHtml.includes('id="fsc-api"') && appHtml.includes('data-storefront="scenering.test.onfastspring.com/popup-plans"'), "index.html includes the requested FastSpring test storefront snippet in the document head");
-  h.ok(fastspringClient.includes("sbl.onfastspring.com/sbl/1.0.9/fastspring-builder.min.js"), "src/lib/fastspring.ts uses the Store Builder Library version from the header snippet");
-}
+h.eq(platformSource.includes("/api/webhooks/fastspring"), false, "the server has no retired provider webhook route");
+h.eq(platformSource.includes("/api/billing/fastspring/checkout"), false, "the server has no retired provider checkout alias");
+h.eq(serverSource.includes("sbl.onfastspring.com"), false, "the document security policy no longer trusts the retired checkout SDK");
+h.eq(publicPage.includes("openFastSpringPopup"), false, "the public pricing flow no longer opens a retired provider popup");
+h.eq(modal.includes("openFastSpringPopup"), false, "the account window no longer opens a retired provider popup");
+h.eq(appHtml.includes("fsc-api"), false, "the document no longer loads the retired checkout script");
+h.ok(publicPage.includes("PayPal Sandbox") && modal.includes("PayPal Sandbox"), "customer pricing and account controls clearly identify Sandbox checkout");
+h.ok(paypalSource.includes("PAYPAL_LIVE_DISABLED") && paypalSource.includes("api-m.sandbox.paypal.com"), "PayPal Live checkout is rejected and the API client is pinned to Sandbox");
 
 server.close();
 h.done("billing");

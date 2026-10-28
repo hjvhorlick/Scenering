@@ -457,7 +457,7 @@ await (async () => {
     isVerified: true,
   });
 
-  // Zero-DDL billing customer fast path on migrated DB
+  // Zero-DDL PayPal checkout-intent lookup on a migrated DB.
   let ddlCount = 0;
   const origPrepare = testD1().prepare.bind(testD1());
   testD1().prepare = ((sql: string) => {
@@ -465,9 +465,8 @@ await (async () => {
     return origPrepare(sql);
   }) as any;
   try {
-    await db.findBillingCustomerByUser(user.id, user.email);
-    await db.findBillingCustomer("acct_none");
-    h.eq(ddlCount, 0, "migrated DB runs zero CREATE TABLE/INDEX round-trips on billing customer reads");
+    await db.findPayPalCheckoutIntentByHash("missing-intent-hash");
+    h.eq(ddlCount, 0, "migrated DB runs zero CREATE TABLE/INDEX round-trips on intent reads");
   } finally {
     testD1().prepare = origPrepare;
   }

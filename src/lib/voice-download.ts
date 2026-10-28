@@ -1,22 +1,22 @@
 import JSZip from "jszip";
 import type { Scene } from "../types";
-import { synthesizeSpeechify } from "./speechify-client";
-import { getCachedSceneAudio, getSharedAudioContext, resolveSceneAudioBuffer } from "./tts-cache";
+import { fetchSceneAudioWithTimeline, getCachedSceneAudio, getSharedAudioContext, resolveSceneAudioBuffer } from "./tts-cache";
 
-/** Downloading Speechify narration and user-provided prepared audio. */
+/** Downloading Piper narration and user-provided prepared audio. */
 export interface SynthesisResult {
   blob: Blob;
-  source: "speechify" | "imported";
-  extension: "mp3" | "wav";
+  source: "piper" | "imported";
+  extension: "wav";
 }
 
-/** Fetch one Speechify synthesis result directly from Speechify. */
+/** Generate narration with the browser-local Piper engine. */
 export async function synthesizeToBlob(text: string, voice: string): Promise<SynthesisResult> {
-  const result = await synthesizeSpeechify(text, voice);
+  const result = await fetchSceneAudioWithTimeline(text, voice);
+  if (!result) throw new Error("Piper returned no audio for this text.");
   return {
-    blob: result.blob,
-    source: "speechify",
-    extension: result.mimeType.includes("wav") ? "wav" : "mp3",
+    blob: new Blob([result.rawBuffer], { type: result.mimeType }),
+    source: "piper",
+    extension: "wav",
   };
 }
 
@@ -79,7 +79,7 @@ export async function downloadSceneVoiceover(
   return source;
 }
 
-/** Download a standalone Speechify sample clip. */
+/** Download a standalone Piper sample clip. */
 export async function downloadVoiceSample(
   text: string,
   voice: string,
@@ -96,7 +96,7 @@ export interface BulkDownloadProgress {
   label: string;
 }
 
-/** Download every scene's Speechify narration as a ZIP plus a manifest. */
+/** Download every scene's Piper narration as a ZIP plus a manifest. */
 export async function downloadAllVoiceovers(
   scenes: Scene[],
   voice: string,

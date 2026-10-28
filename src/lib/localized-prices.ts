@@ -1,31 +1,14 @@
 import { PLAN_CONFIG, type PlanSlug } from "../config/plans";
 
-/**
- * Currency maths for plan prices — the pure half of localized pricing.
- *
- * The FastSpring catalogue prices are set in US Dollars (see PLAN_CONFIG in
- * src/config/plans.ts). With FastSpring's automatic currency conversion
- * enabled, FastSpring converts that USD base price into the visitor's own
- * currency for both display and checkout, so every surface in the website and
- * the app shows — and charges — the same localized figure the /pricing page
- * shows. This module holds the small pieces of arithmetic that display needs;
- * the network half lives in use-localized-prices.ts.
- *
- * The rule everywhere these helpers are used: a localized FastSpring price
- * is displayed exactly as FastSpring formatted it. Only where FastSpring has
- * not (or cannot) answer does the USD base price appear, and then it is
- * labelled "USD" so it is never mistaken for a local-currency total in some
- * other currency that also uses a "$".
- */
+/** Pure currency helpers for formatted monetary amounts. Scenering subscription
+ * prices themselves remain fixed in USD; no provider conversion is used. */
 
-/** The currency the FastSpring catalogue (and PLAN_CONFIG) prices are set in. */
+/** The currency plan prices are stored in. */
 export const PLAN_BASE_CURRENCY = "USD";
 
 /**
- * The USD base price, explicitly labelled: `$19 USD`. Used only as the
- * fallback before FastSpring's localized preview arrives (or when FastSpring
- * is not configured), so a visitor in Johannesburg or Berlin never reads it
- * as Rand or Euros.
+ * The USD subscription price, explicitly labelled: `$19 USD`, so a visitor
+ * in Johannesburg or Berlin never mistakes dollars for Rand or Euros.
  */
 export function formatBasePrice(amount: number): string {
   return `$${amount} ${PLAN_BASE_CURRENCY}`;
@@ -34,7 +17,7 @@ export function formatBasePrice(amount: number): string {
 /**
  * How many fraction digits a currency works in — 2 for USD/ZAR/EUR,
  * 0 for JPY, 3 for KWD. Read from Intl rather than a hand-kept table so every
- * currency FastSpring supports is covered.
+ * currency supported by Intl is covered.
  */
 export function currencyFractionDigits(currencyCode: string): number {
   try {

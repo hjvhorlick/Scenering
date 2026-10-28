@@ -3,11 +3,10 @@ import StepNav from "./StepNav";
 import type { Scene, CaptionsConfig } from "../types";
 import { formatDuration } from "../lib/duration-utils";
 import { renderCanvasCaptions, captionBandCenterY } from "../lib/render-captions";
-import { useClipTranscription } from "../lib/use-clip-transcription";
 import {
   sceneHasTranscript,
-  sceneUpdatesForTranscript,
   transcriptMatchesClip,
+  sceneUpdatesForTranscript,
 } from "../lib/clip-transcript";
 import { CAPTION_FILE_ACCEPT, CaptionFileError, parseCaptionFile } from "../lib/caption-file";
 import { resolveVideoUrl } from "../lib/custom-video";
@@ -29,9 +28,6 @@ import {
   type MetalFinish,
 } from "../data/caption-styles";
 import CaptionsSwitch from "./CaptionsSwitch";
-import TranscriptionProgressStatus, {
-  transcriptionButtonLabel,
-} from "./TranscriptionProgressStatus";
 import Icon, { iconify } from "./icons/Icon";
 import { getInterfacePlan, useSession } from "../lib/session";
 import { isPlanCaptionIncluded, type PlanSlug } from "../config/plans";
@@ -39,66 +35,21 @@ import VipFeatureBadge, { openMembershipPlans } from "./VipFeatureBadge";
 import { oneOf, useRememberedChoice } from "../lib/section-memory";
 
 /**
- * Captions for a scene whose picture is the creator's own footage.
- *
- * A narrated scene gets its words and their timings from the TTS engine. This
- * one has no narration to time, so the words come from the soundtrack instead —
- * transcribed here on this device, or read from an SRT/VTT the creator already
- * has. Either way they land in the same two places the rest of this step and
- * the renderer already read: the scene's text, and its per-word timings. From
- * there the styling controls on this screen work on them exactly as they do on
- * any other scene.
+ * Captions for each scene. Script narration supplies the normal caption text
+ * and timing; scenes using the creator's own footage can import timed subtitles
+ * from an SRT/VTT file. Both use the same styling and rendering controls.
  */
-function SceneTranscriptControls({
+function CaptionFileControls({
   scene,
   onUpdateScene,
-  onEnableCaptions,
-  musicBed,
 }: {
   scene: Scene;
   onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
-  /** A successful generation is an explicit request for captions to be on. */
-  onEnableCaptions: () => void;
-  /** The project's music track, for a video built from stills. Such a scene has
-   *  no footage soundtrack of its own, so the music is the only place its words
-   *  — and their timings — can come from. */
-  musicBed?: { url: string; seconds: number; name: string } | null;
 }) {
-  const transcription = useClipTranscription();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const hasWords = sceneHasTranscript(scene);
   const stale = hasWords && !transcriptMatchesClip(scene);
-
-  /* Where the words come from: this scene's own footage when it has one,
-     otherwise the music track the video is built on. */
-  const clipSource = resolveVideoUrl(scene.video_url);
-  const source = clipSource
-    ? { url: clipSource, seconds: scene.video_duration || scene.duration || 0, label: "this video's audio" }
-    : musicBed
-      ? { url: musicBed.url, seconds: musicBed.seconds, label: musicBed.name }
-      : null;
-
-  const generate = async () => {
-    if (!source) {
-      setFileError(
-        "That video is not in this browser's storage any more, so its audio cannot be read. Re-upload it in its scene."
-      );
-      return;
-    }
-    setFileError(null);
-    const done = await transcription.generate(source.url, source.seconds);
-    if (done) {
-      onEnableCaptions();
-      onUpdateScene(
-        scene.id,
-        {
-          ...sceneUpdatesForTranscript(done.words, done.audioSeconds || source.seconds || 0),
-          burn_caption: true,
-        }
-      );
-    }
-  };
 
   const importFile = async (file: File | null | undefined) => {
     if (!file) return;
@@ -118,29 +69,6 @@ function SceneTranscriptControls({
   return (
     <div className="w-full mt-2.5 pt-2.5 border-t border-hairline space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => void generate()}
-          disabled={transcription.busy}
-          className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white transition-colors disabled:opacity-60 flex items-center gap-1.5"
-          title={`Whisper listens to ${source?.label ?? "the audio"} and times every word. Free, on this device, nothing uploaded.`}
-        >
-          <Icon glyph={transcription.busy ? "⏳" : "✨"} />
-          {transcription.busy
-            ? transcriptionButtonLabel(transcription.progress)
-            : hasWords
-              ? "Transcribe again"
-              : `Generate captions from ${source?.label ?? "the audio"}`}
-        </button>
-        {transcription.busy && (
-          <button
-            type="button"
-            onClick={transcription.cancel}
-            className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 transition-colors"
-          >
-            Cancel
-          </button>
-        )}
         <input
           ref={fileRef}
           type="file"
@@ -152,32 +80,24 @@ function SceneTranscriptControls({
           type="button"
           onClick={() => fileRef.current?.click()}
           className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-gray-800 hover:bg-gray-700 border border-hairline text-gray-300 transition-colors"
-          title="Already have the words? An SRT or VTT file brings its own timings."
+          title="Import timed captions from an SRT or VTT file."
         >
           Import SRT / VTT
         </button>
         {hasWords && !stale && (
           <span className="text-[10px] text-emerald-300">
-            {(scene.caption_words || []).length} words timed to this footage
+            {(scene.caption_words || []).length} imported words with timings
           </span>
         )}
         {stale && (
           <span className="text-[10px] text-amber-300">
-            These captions were made from a different length of footage — transcribe again to line
-            them up.
+            These imported captions were made for footage of a different length.
           </span>
         )}
       </div>
-      {transcription.progress && transcription.busy && (
-        <TranscriptionProgressStatus
-          progress={transcription.progress}
-          sourceSeconds={source?.seconds || 0}
-          onCancel={transcription.cancel}
-        />
-      )}
-      {(transcription.error || fileError) && (
+      {fileError && (
         <p className="text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800/60 rounded-lg px-3 py-2">
-          {transcription.error || fileError}
+          {fileError}
         </p>
       )}
     </div>
@@ -193,9 +113,6 @@ interface CaptionsStudioProps {
   onUpdateScene: (sceneId: number, updates: Partial<Scene>) => void;
   onApplyStyleToAll: (burn: boolean) => void;
   onNavigateToStep?: (step: any) => void;
-  /** The project's music track, so a video built from stills can still get its
-   *  captions transcribed — it has no footage soundtrack to listen to. */
-  musicBed?: { url: string; seconds: number; name: string } | null;
 }
 
 export type CaptionPresetType = string;
@@ -208,7 +125,6 @@ export default function CaptionsStudio({
   onUpdateScene,
   onApplyStyleToAll,
   onNavigateToStep,
-  musicBed = null,
 }: CaptionsStudioProps) {
   const { account } = useSession();
   const currentPlan = getInterfacePlan(account);
@@ -392,10 +308,7 @@ export default function CaptionsStudio({
   /** Scenes switched off one at a time, which the master switch reports. */
   const mutedSceneCount = scenes.filter((s) => (s.burn_caption ?? true) === false).length;
 
-  const enableGeneratedCaptions = () => {
-    setBurnCaptionsGlobal(true);
-    emitConfigUpdate({ enabled: true });
-  };
+
 
   const turnOnEveryScene = () => {
     scenes.forEach((s) => {
@@ -1282,23 +1195,14 @@ export default function CaptionsStudio({
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-medium line-clamp-2 leading-relaxed">
-                    {scene.text ? `"${scene.text}"` : "No caption text yet — transcribe the video's audio below."}
+                    {scene.text ? `"${scene.text}"` : "No caption text yet — edit the script or import timed captions."}
                   </p>
                   <span className="text-[10px] text-gray-400">
                     Duration: {formatDuration(scene.duration)} • {scene.text.split(/\s+/).filter(Boolean).length} words
-                    {sceneHasTranscript(scene) ? " • transcribed from this footage" : ""}
+                    {sceneHasTranscript(scene) ? " • timed captions imported" : ""}
                   </span>
-                  {/* Footage has no narration to time captions to, so this scene
-                      gets its words — and their timings — from its own
-                      soundtrack. Every style control on this screen then
-                      applies to them unchanged. */}
-                  {(sceneHasClip(scene) || musicBed) && (
-                    <SceneTranscriptControls
-                      scene={scene}
-                      onUpdateScene={onUpdateScene}
-                      onEnableCaptions={enableGeneratedCaptions}
-                      musicBed={musicBed}
-                    />
+                  {sceneHasClip(scene) && (
+                    <CaptionFileControls scene={scene} onUpdateScene={onUpdateScene} />
                   )}
                 </div>
               </div>

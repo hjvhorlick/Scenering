@@ -10,7 +10,7 @@
  *     computer, which is the bug this whole feature exists to fix.
  *   • A secret key pulled into the synced set would be copied to the server
  *     and back down to every device. API keys belong to the person's browser
- *     (they are theirs, and Speechify/stock accounts are theirs too); the
+ *     (they are theirs, and stock accounts are theirs too); the
  *     session cookie identifies the browser and must never be mirrored.
  *
  * `tests/workspace-sync.test.ts` reads every `scenering_*` literal in `src/`
@@ -40,7 +40,7 @@ export const LOCAL_ONLY_KEY_PREFIXES = [
   "scenering_embedded_preview_session_token", // dev iframe bridge only
   "scenering_device_id",          // this browser's identity
   "scenering_device_label",       // …and its name
-  "scenering_customer_api_keys",  // the member's own Speechify/stock keys
+  "scenering_customer_api_keys",  // the member's own stock-image keys
   "scenering_theme",              // screen preference, not craft work
   "scenering_timeline_expanded",  // the timeline's height, per browser
   "scenering_timeline_zoom",      // …and its zoom level
