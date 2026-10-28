@@ -536,20 +536,6 @@ export async function fetchSceneAudioWithTimeline(
   };
 }
 
-/** Explicitly warm one mapped Piper profile and its runtime in the browser worker. */
-export async function preloadLocalPiperVoice(
-  voice: string,
-  onProgress?: (update: { stage: string; message: string; fraction?: number }) => void
-): Promise<void> {
-  const [{ resolvePiperProfileVoice }, { preloadPiperVoice }] = await Promise.all([
-    import("./piper-profile-bindings"),
-    import("./piper-tts"),
-  ]);
-  const profile = resolvePiperProfileVoice(voice);
-  if (!profile) throw new Error("This Scenering voice profile has no Piper model mapping yet.");
-  await preloadPiperVoice(profile.voice, onProgress);
-}
-
 /** Stop an in-flight development Piper download/synthesis and release its worker. */
 export async function stopLocalPiperSynthesis(): Promise<void> {
   const module = await import("./piper-tts");

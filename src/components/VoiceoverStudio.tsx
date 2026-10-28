@@ -2,10 +2,10 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import StepNav from "./StepNav";
 import type { CaptionsConfig, CustomerLogoConfig, Scene, TimelineInsert } from "../types";
 import { ttsPlayer } from "../lib/tts-player";
+import { requestPiperStoragePersistence } from "../lib/piper-storage";
 import {
   getSharedAudioContext,
   fetchSceneAudioWithTimeline,
-  preloadLocalPiperVoice,
   stopLocalPiperSynthesis,
   resolveSceneAudioBuffer,
   findCachedNarration,
@@ -218,7 +218,6 @@ export default function VoiceoverStudio({
   // --- Voice download / error notices ---
   const [downloadingId, setDownloadingId] = useState<string | number | null>(null);
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
-  const [isPiperPreloading, setIsPiperPreloading] = useState(false);
 
   const VOICE_COLUMNS = useMemo(() => {
     const column = (gender: "male" | "female", label: string) => {
@@ -236,6 +235,9 @@ export default function VoiceoverStudio({
     voiceId: string = selectedVoice,
     speed: number = globalSpeed
   ) => {
+    // Ask for durable origin storage immediately within the sample-button
+    // gesture; the worker also awaits this before writing downloaded weights.
+    void requestPiperStoragePersistence(true);
     const requestToken = ++previewRequestRef.current;
     if (playingId === id) {
       if (loadingId === id) void stopLocalPiperSynthesis().catch(() => {});
@@ -339,6 +341,7 @@ export default function VoiceoverStudio({
   };
 
   const handleDownloadSample = async (preset: VoicePreset) => {
+    void requestPiperStoragePersistence(true);
     setDownloadingId(`sample-${preset.id}`);
     try {
       const audio = await fetchSceneAudioWithTimeline(preset.sampleText, engineVoiceId(preset.id), {
@@ -352,30 +355,6 @@ export default function VoiceoverStudio({
       announce(err?.message || "Could not download that sample.");
     } finally {
       setDownloadingId(null);
-    }
-  };
-
-  const handlePreloadCurrentPiperVoice = async () => {
-    if (isPiperPreloading) {
-      setDownloadNotice("Stopping the Piper preload…");
-      void stopLocalPiperSynthesis().catch(() => {});
-      return;
-    }
-    setIsPiperPreloading(true);
-    const profileName = resolveVoicePreset(selectedVoice)?.name || selectedVoice;
-    try {
-      await preloadLocalPiperVoice(engineVoiceId(selectedVoice), ({ message }) => {
-        setDownloadNotice(`Preloading ${profileName} · ${message}`);
-      });
-      setDownloadNotice(`${profileName} is ready in this tab. Its first synthesis should now start without downloading the model.`);
-    } catch (error: any) {
-      if (String(error?.message || "").toLowerCase().includes("was stopped")) {
-        setDownloadNotice("Piper preload cancelled.");
-      } else {
-        setDownloadNotice(error?.message || "Piper could not preload this voice. Check the network and try again.");
-      }
-    } finally {
-      setIsPiperPreloading(false);
     }
   };
 
@@ -574,6 +553,7 @@ export default function VoiceoverStudio({
   };
 
   const handleProceedNext = async (targetStep: string = "captions") => {
+    void requestPiperStoragePersistence(true);
     if (voiceoverEnabled) {
       const savedSnapshot = readAudioSnapshot();
       const targets = planVoiceoverGeneration(scenes, {
@@ -594,6 +574,7 @@ export default function VoiceoverStudio({
   };
 
   const handleGenerateSingleScene = async (scene: Scene) => {
+    void requestPiperStoragePersistence(true);
     setSingleGeneratingId(scene.id);
     try {
       const index = scenes.findIndex((item) => item.id === scene.id);
@@ -745,24 +726,6 @@ export default function VoiceoverStudio({
           }
         />
       )}
-
-      <div className="flex flex-col gap-3 rounded-2xl border border-emerald-700/50 bg-emerald-950/30 p-4 text-sm text-emerald-100" role="status" aria-live="polite">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold">Piper Neural Voice · on-device synthesis</p>
-            <p className="mt-1 text-xs leading-relaxed text-emerald-100/75">
-              All generated previews and narration use Piper. Your existing 10 male and 10 female Scenering profiles and descriptions are retained; some currently share a smaller set of Piper base voices. The runtime (about 30 MB uncompressed) and selected model download on first use, are cached where browser storage allows, and are reused for previews, scene narration and WAV exports.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handlePreloadCurrentPiperVoice}
-            className="shrink-0 rounded-lg border border-emerald-500/50 bg-emerald-900/40 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-800/60 disabled:cursor-wait disabled:opacity-60"
-          >
-            {isPiperPreloading ? "Cancel preload" : "Prepare selected voice"}
-          </button>
-        </div>
-      </div>
 
       {/* Narration on/off — the first decision in this step, because with it
           off everything below about voices is noise. Music and captions stay
@@ -1100,7 +1063,7 @@ export default function VoiceoverStudio({
                   <Icon glyph="🎭" /> 20 Piper Voice Profiles
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  10 male and 10 female Scenering narrator profiles, each routed to its mapped Piper neural voice.
+                  10 male and 10 female Scenering styles (some share a Piper base voice). Listen from any card; the model is saved on this device for faster reuse when browser storage allows.
                 </p>
               </div>
 
@@ -1320,6 +1283,8 @@ export default function VoiceoverStudio({
                         <div className="pt-2.5 border-t border-hairline flex items-center justify-between">
                           <button
                             type="button"
+                            aria-label={`Listen to ${voice.name} sample; first use saves its Piper model on this device for reuse`}
+                            title="First use downloads and saves the model in this browser when storage allows; later previews reuse the saved copy."
                             onClick={(e) => {
                               e.stopPropagation();
                               handlePlayVoicePreview(voice.sampleText, voice.id, voice.id, globalSpeed);

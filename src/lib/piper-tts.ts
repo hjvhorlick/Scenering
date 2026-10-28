@@ -1,4 +1,5 @@
 import type { PiperCandidateVoice } from "./piper-candidate-voices";
+import { requestPiperStoragePersistence } from "./piper-storage";
 
 type ProgressUpdate = { stage: string; message: string; fraction?: number };
 type PendingRequest = {
@@ -72,10 +73,14 @@ function failAllPending(error: Error, terminateWorker: boolean) {
   pending.clear();
 }
 
-function requestWorker(
+async function requestWorker(
   message: Record<string, unknown>,
   onProgress?: (update: ProgressUpdate) => void,
 ): Promise<PiperSynthesisResult> {
+  // Try to mark this origin's CacheStorage/IndexedDB as persistent before the
+  // worker commits a newly downloaded ONNX model. User gestures also call this
+  // helper directly before any awaited work begins.
+  await requestPiperStoragePersistence();
   const id = Number(message.id);
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -93,14 +98,6 @@ function requestWorker(
       reject(error instanceof Error ? error : new Error("The Piper worker could not accept the request."));
     }
   });
-}
-
-export function preloadPiperVoice(
-  voice: PiperCandidateVoice,
-  onProgress?: (update: ProgressUpdate) => void,
-): Promise<void> {
-  const id = nextId++;
-  return requestWorker({ id, action: "preload", voiceId: voice.id, speakerId: voice.speakerId ?? 0, text: "" }, onProgress).then(() => undefined);
 }
 
 export function synthesizePiper(
