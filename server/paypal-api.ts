@@ -1,6 +1,7 @@
 import { env } from "../src/env.ts";
 import { PLAN_CONFIG, type BillingInterval, type PlanSlug } from "../src/config/plans.ts";
 import { buildPricingTiers } from "../src/config/pricing-tiers.ts";
+import { isProductionRuntime } from "../src/runtime-mode.ts";
 
 const SANDBOX_API = "https://api-m.sandbox.paypal.com";
 let cachedToken: { token: string; expiresAt: number } | null = null;
@@ -21,16 +22,38 @@ export function paypalPlanId(slug: Exclude<PlanSlug, "free">, interval: BillingI
   return String(env()[name] || "").trim();
 }
 
+/** A deliberately narrow, Preview-only path for testing one real Sandbox plan.
+ *  It cannot activate in production, and it is enabled only when exactly the
+ *  SceneFlow monthly Plan ID is configured. */
+export function paypalPreviewSinglePlanMode(): boolean {
+  const e = env();
+  if (isProductionRuntime(e) || !paypalIsSandbox() || String(e.PAYPAL_PREVIEW_SINGLE_PLAN_MODE || "").trim().toLowerCase() !== "true") return false;
+  const selected = String(e.PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID || "").trim();
+  const unusedPlanIds = [
+    e.PAYPAL_SCENEFLOW_YEARLY_PLAN_ID,
+    e.PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID,
+    e.PAYPAL_SCENEFORGE_YEARLY_PLAN_ID,
+  ];
+  return Boolean(selected) && unusedPlanIds.every((id) => !String(id || "").trim());
+}
+
 export function paypalPublicConfig() {
-  const clientId = String(env().PAYPAL_CLIENT_ID || "").trim();
-  const tiers = buildPricingTiers((name) => String(env()[name] || ""));
+  const e = env();
+  const clientId = String(e.PAYPAL_CLIENT_ID || "").trim();
+  const tiers = buildPricingTiers((name) => String(e[name] || ""));
   const idsReady = tiers.filter((tier) => tier.id !== "free").every((tier) => tier.planId.monthly && tier.planId.yearly);
+  const previewSinglePlan = paypalPreviewSinglePlanMode();
+  const configured = !isProductionRuntime(e) && paypalIsSandbox() && Boolean(clientId)
+    && Boolean(String(e.PAYPAL_CLIENT_SECRET || "").trim())
+    && Boolean(String(e.PUBLIC_APP_URL || "").trim())
+    && (idsReady || previewSinglePlan);
   return {
     provider: "paypal" as const,
     environment: "sandbox" as const,
     clientId,
     currency: "USD" as const,
-    configured: paypalIsSandbox() && Boolean(clientId) && Boolean(String(env().PAYPAL_CLIENT_SECRET || "").trim()) && Boolean(String(env().PAYPAL_WEBHOOK_ID || "").trim()) && Boolean(String(env().PUBLIC_APP_URL || "").trim()) && idsReady,
+    configured,
+    previewTestPlan: previewSinglePlan ? { plan: "sceneflow" as const, interval: "monthly" as const } : null,
     tiers,
   };
 }

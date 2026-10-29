@@ -6,6 +6,7 @@ export interface PublicBillingConfig {
   clientId: string;
   currency: "USD";
   configured: boolean;
+  previewTestPlan?: { plan: "sceneflow" | "sceneforge"; interval: "monthly" | "yearly" } | null;
   tiers: Tier[];
 }
 

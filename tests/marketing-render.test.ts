@@ -173,10 +173,11 @@ ok(html.includes("Interface shown with example project data"), "interfaces are l
 ok(html.includes("Example created for demonstration"), "examples are labelled");
 ok(html.includes("Coming soon"), "planned features are labelled on the page");
 // The developer note about billing configuration is for administrators, not
-// public visitors. The plan cards identify browser-local Piper narration.
+// public visitors. The home page describes voice narration without naming its engine.
 ok(!html.includes("Paid checkout requires configured"), "no payment-setup note is shown to visitors");
 ok(!html.includes("Google Studio") && !html.includes("free Google key"), "the pricing section no longer promises a Google narration key");
-ok(html.includes("with local Piper TTS narration"), "the plans identify Piper TTS as the narration engine");
+ok(home.includes("with voice narration"), "the home page describes voice narration without naming the engine");
+ok(!home.includes("Piper"), "the home page does not name the narration engine");
 ok(html.includes("Preview renders do not use final-export allowance"), "preview usage is stated");
 ok(html.includes("2-core Celeron with 4 GB RAM"), "the tested low-spec Celeron configuration is visible on the marketing page");
 ok(html.includes("persistent render engine"), "the marketing page explains persistent rendering for modest hardware");

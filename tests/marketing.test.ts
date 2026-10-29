@@ -536,13 +536,14 @@ ok(
   ok(preview.includes("fetchSceneAudioWithTimeline") && !preview.includes("createFallbackSceneAudio"), "preview synthesis has no tone or provider fallback");
   ok(render.includes("fetchSceneAudioWithTimeline") && !render.includes("audioCtx.createBuffer(1, numSamples"), "export has no silent-buffer fallback");
   ok(!main.includes("PiperVoiceLab") && !main.includes("/piper-lab"), "there is no separate test page in app routing");
-  ok(NO_METER.caveat.includes("first use"), "the page discloses the first model download");
-  ok(NO_METER.caveat.includes("license"), "the page discloses model-license requirements");
+  ok(NO_METER.caveat.includes("First use"), "the homepage explains first-use speech downloads");
+  ok(NO_METER.caveat.includes("license"), "the page discloses voice-data license requirements");
   ok(!/generateContent\(|GEMINI_API_KEY|msedge-tts|parseEdgeWordBoundaries/.test(server + apiKeys + preview + render), "legacy TTS providers are absent from synthesis paths");
 
   const noMeterSource = JSON.stringify(NO_METER);
-  ok(noMeterSource.includes("Piper"), "the narration engine is named accurately");
-  ok(!/Speechify|customer-provided key/i.test(noMeterSource), "narration copy no longer describes Speechify keys");
+  ok(noMeterSource.includes("voice narration") && noMeterSource.includes("Voice generation"), "homepage copy describes voice narration and generation without naming its engine");
+  ok(!noMeterSource.includes("Piper"), "homepage narration copy does not name the synthesis engine");
+  ok(!/Speechify|customer-provided key/i.test(noMeterSource), "narration copy no longer describes retired provider keys");
   ok(read("src/marketing/sections/NoMeter.tsx").includes('<Section id="no-meter"'), "the answer has a section of its own to jump to");
 }
 

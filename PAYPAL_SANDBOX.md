@@ -26,7 +26,7 @@ The server chooses the plan ID from the authenticated checkout request. Never ac
 
 Set `PAYPAL_ENVIRONMENT=sandbox`, the Sandbox REST app `PAYPAL_CLIENT_ID`, the corresponding `PAYPAL_CLIENT_SECRET`, all four plan IDs, and `PUBLIC_APP_URL`. The Client ID is published at runtime only to load PayPal's official JavaScript SDK. Keep the Client Secret and `PAYPAL_WEBHOOK_ID` in server-side secrets; do not add credentials to Vite variables, source control, browser code, screenshots, or chat. `.dev.vars.example` contains empty placeholders only.
 
-Checkout stays disabled until the Sandbox Client ID, Client Secret, all plan IDs, Webhook ID, and public app URL are configured. Apply `migrations/0008_paypal_billing.sql` only to the non-production D1 database used for Sandbox testing; do not apply it to production as part of this implementation. Production runtime is always rejected for PayPal Sandbox checkout.
+The normal four-plan checkout stays disabled until the Sandbox Client ID, Client Secret, all plan IDs, Webhook ID, and public app URL are configured. This branch Preview also has a narrowly scoped single-plan test mode for SceneFlow monthly. It requires the Preview-only `PAYPAL_PREVIEW_SINGLE_PLAN_MODE=true` flag and `PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID`; it allows the first Sandbox checkout to be verified directly with PayPal before a webhook is registered. It does not enable other plans or webhook lifecycle processing. Production runtime is always rejected for PayPal Sandbox checkout. Apply `migrations/0008_paypal_billing.sql` only to the non-production D1 database used for Sandbox testing; do not apply it to production.
 
 ## Webhook — verify the deployment before registering
 

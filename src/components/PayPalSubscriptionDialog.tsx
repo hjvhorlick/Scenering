@@ -42,6 +42,9 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
       if (!response.ok || !config.configured || config.environment !== "sandbox" || !config.clientId) {
         throw new Error(config.error || "PayPal Sandbox is not fully configured yet.");
       }
+      if (config.previewTestPlan && (config.previewTestPlan.plan !== plan || config.previewTestPlan.interval !== interval)) {
+        throw new Error("This Preview is configured for the SceneFlow monthly Sandbox test plan only.");
+      }
       await loadPayPalSdk(String(config.clientId));
       if (!active || !mountRef.current || !window.paypal?.Buttons) return;
       setMessage("Choose PayPal to approve your subscription.");

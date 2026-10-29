@@ -103,11 +103,11 @@ const PAGE_TYPES: Readonly<Record<string, string>> = { "/about": "AboutPage", "/
  * number the product cannot back up.
  */
 const APP_DESCRIPTION =
-  "Create scene-based faceless videos from scripts or prepared audio. Research visuals, add narration and synced captions, edit the video, and export for social platforms.";
+  "Create faceless videos in your browser from scripts or prepared audio. Plan scenes, research visuals, add voice narration and synced captions, edit, and export for social platforms.";
 const APP_FEATURES = [
   "Script-to-scene planning",
   "Visual research and selection",
-  "Browser-local Piper TTS narration",
+  "Voice narration and generation",
   "Script captions and karaoke timing",
   "Video Studio editing and effects",
   "MP4 and WebM export",

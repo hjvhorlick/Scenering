@@ -43,6 +43,8 @@ const titles = listed.map(([, page]) => page.title);
 h.eq(new Set(titles).size, titles.length, "each listed page has a distinct SEO title");
 const descriptions = listed.map(([, page]) => page.description);
 h.eq(new Set(descriptions).size, descriptions.length, "each listed page has a distinct description");
+h.ok(SEO_PAGES["/"].description.startsWith("Browser-based script-to-video workflow"), "homepage meta description states the browser-based video workflow plainly");
+h.ok(!/\bAI\b|artificial intelligence|Piper/i.test(SEO_PAGES["/"].description), "homepage meta description has no AI or engine-brand reference");
 for (const [path, page] of Object.entries(SEO_PAGES)) {
   h.ok(page.title.includes("Scenering"), `${path} title carries the brand`);
   h.ok(page.title.length <= 60, `${path} title fits a search result (${page.title.length} characters)`);
@@ -164,8 +166,10 @@ for (const path of PUBLIC_PAGES.map((page) => page.path)) {
   h.ok(!/aggregateRating|"review"/.test(html), `${path}: no ratings or reviews are claimed`);
 }
 const application = (structuredData("/pricing")?.["@graph"] as any[]).find((node) => node["@type"] === "SoftwareApplication");
-h.ok(application.featureList.includes("Script captions and karaoke timing"), "schema describes caption timing without promising Piper speech marks");
-h.ok(application.featureList.includes("Browser-local Piper TTS narration"), "application schema describes narration with TTS terminology");
+h.ok(application.featureList.includes("Script captions and karaoke timing"), "schema describes caption timing without promising speech marks");
+h.ok(application.description.includes("voice narration"), "application schema describes voice narration");
+h.ok(application.featureList.includes("Voice narration and generation"), "application schema describes voice generation generically");
+h.ok(!JSON.stringify(application).includes("Piper"), "application schema does not name the speech engine");
 for (const slug of PLAN_ORDER) {
   const plan = PLAN_CONFIG[slug];
   if (plan.prices.monthly === 0) {

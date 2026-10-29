@@ -56,6 +56,9 @@ if (preview.r2_buckets?.length) {
 // Previews inherit no vars, so the preview-safe ones must be repeated here.
 check(preview.vars.EMAIL_PROVIDER === "console", "previews do not send live email");
 check(preview.vars.PAYPAL_ENVIRONMENT === "sandbox", "previews are explicitly pinned to PayPal Sandbox");
+check(preview.vars.PAYPAL_PREVIEW_SINGLE_PLAN_MODE === "true", "the branch Preview explicitly opts into the one-plan Sandbox test mode");
+check(preview.vars.PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID === "P-6J340466VT137933ENLRWTEI", "the Preview test mode uses the mapped SceneFlow monthly Plan ID");
+check(!preview.vars.PAYPAL_SCENEFLOW_YEARLY_PLAN_ID && !preview.vars.PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID && !preview.vars.PAYPAL_SCENEFORGE_YEARLY_PLAN_ID, "the single-plan Preview does not reuse its Plan ID for other prices");
 
 // Production deploys read the same file: they must be unaffected and keep
 // passing their own guard.

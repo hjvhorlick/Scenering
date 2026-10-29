@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExportCreativeManifest, type BillingInterval, type ExportCreativeManifest, type FeatureKey, type PlanSlug } from "../src/config/plans.ts";
 import { buildPricingTiers } from "../src/config/pricing-tiers.ts";
-import { paypalIsSandbox, paypalPlanId, paypalPublicConfig, createPayPalSubscription, getPayPalSubscription, cancelPayPalSubscription, verifyPayPalWebhook, PayPalApiError } from "./paypal-api.ts";
+import { paypalIsSandbox, paypalPlanId, paypalPublicConfig, paypalPreviewSinglePlanMode, createPayPalSubscription, getPayPalSubscription, cancelPayPalSubscription, verifyPayPalWebhook, PayPalApiError } from "./paypal-api.ts";
 
 import { DEFAULT_STORE_NOTICE, STORE_NOTICE_SETTING_KEY, parseStoredStoreNotice, sanitizeStoreNotice, type StoreNotice } from "../src/config/store-notice.ts";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
@@ -980,6 +980,9 @@ function paypalConfiguration() {
   const webhookUrl = e.PUBLIC_APP_URL
     ? `${String(e.PUBLIC_APP_URL).replace(/\/$/, "")}${PAYPAL_WEBHOOK_PATH}`
     : null;
+  const previewSinglePlan = paypalPreviewSinglePlanMode();
+  const plansReady = planConfiguration.every((item) => item.configured) || previewSinglePlan;
+  const commonReady = !isProduction() && paypalIsSandbox() && Boolean(publicConfig.clientId) && secretSet && Boolean(e.PUBLIC_APP_URL) && plansReady;
   return {
     provider: "paypal" as const,
     environment: paypalIsSandbox() ? "sandbox" as const : "disabled" as const,
@@ -991,7 +994,12 @@ function paypalConfiguration() {
     webhookPath: PAYPAL_WEBHOOK_PATH,
     webhookUrl,
     plans: planConfiguration,
-    ready: !isProduction() && paypalIsSandbox() && Boolean(publicConfig.clientId) && secretSet && webhookIdSet && Boolean(e.PUBLIC_APP_URL) && planConfiguration.every((item) => item.configured),
+    previewTestPlan: previewSinglePlan ? { plan: "sceneflow" as const, interval: "monthly" as const } : null,
+    ready: commonReady && webhookIdSet,
+    // A Sandbox-only first checkout may be exercised before webhook registration.
+    // Approval is verified by a direct PayPal API lookup; lifecycle events stay
+    // unavailable until the separately verified webhook ID is configured.
+    checkoutReady: commonReady && (webhookIdSet || previewSinglePlan),
   };
 }
 
@@ -1100,7 +1108,12 @@ async function createPayPalCheckout(req: Request, res: Response) {
   const plan: Exclude<PlanSlug, "free"> = planValue as Exclude<PlanSlug, "free">;
   const interval: BillingInterval = intervalValue as BillingInterval;
   const configuration = paypalConfiguration();
-  if (!configuration.ready) return res.status(503).json({ error: "PayPal Sandbox subscriptions are not fully configured.", code: "PAYPAL_NOT_CONFIGURED" });
+  if (configuration.previewTestPlan && (plan !== configuration.previewTestPlan.plan || interval !== configuration.previewTestPlan.interval)) {
+    return res.status(400).json({ error: "This Sandbox Preview supports only the SceneFlow monthly test plan.", code: "PREVIEW_TEST_PLAN_ONLY" });
+  }
+  if (!configuration.checkoutReady) return res.status(503).json({ error: "PayPal Sandbox subscriptions are not fully configured.", code: "PAYPAL_NOT_CONFIGURED" });
+  const paypalPlan = paypalPlanId(plan, interval);
+  if (!paypalPlan) return res.status(503).json({ error: "The selected PayPal Sandbox Plan ID is not configured.", code: "PAYPAL_PLAN_NOT_CONFIGURED" });
 
   const current = await db.findActiveSubscriptionByUserId(user.id);
   if (current && current.status !== "expired") {
@@ -1110,7 +1123,6 @@ async function createPayPalCheckout(req: Request, res: Response) {
     }
   }
 
-  const paypalPlan = paypalPlanId(plan, interval);
   const intentToken = randomBytes(24).toString("base64url");
   await db.expirePayPalCheckoutIntents();
   let intent: Awaited<ReturnType<typeof db.createPayPalCheckoutIntent>>;

@@ -627,11 +627,11 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
 
 /* ------------------------------------------------------------- no metering */
 
-/** Clear disclosure of the browser-local Piper narration workflow. */
+/** Clear disclosure of the browser-local voice narration workflow. */
 export const NO_METER = {
-  message: "Local Piper narration. No per-voice API key.",
+  message: "Voice narration, with no per-request charge.",
   lead:
-    "Scenering generates narration in your browser with Piper TTS. There is no per-request voice API charge from Scenering.",
+    "Scenering generates voice narration in your browser. There is no per-request voice API charge from Scenering.",
   points: [
     {
       label: "Your script stays your script",
@@ -646,7 +646,7 @@ export const NO_METER = {
     {
       label: "Narration runs in your browser",
       detail:
-        "Piper processes the selected scene text locally. Its runtime assets and selected voice model load on first use and are cached when browser storage allows.",
+        "Voice generation processes the selected scene text locally. Required speech files load on first use and may be cached by the browser.",
     },
     {
       label: "The video is made on your machine",
@@ -655,7 +655,7 @@ export const NO_METER = {
     },
   ],
   caveat:
-    "The first use needs an internet connection to load Piper's runtime assets (about 30 MB uncompressed in the current build) and the selected voice model. The model and voice-data license/attribution terms apply; browser storage can be cleared or evicted. Piper currently estimates word timing for karaoke rather than receiving verified speech marks.",
+    "First use needs an internet connection to load the speech runtime and selected voice files. Voice-data license and attribution terms apply; browser storage can be cleared or evicted. Word timing for karaoke is currently estimated.",
 } as const;
 
 /** Honest, repeated everywhere it matters. */
