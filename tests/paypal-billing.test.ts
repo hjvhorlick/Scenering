@@ -84,9 +84,16 @@ try {
     h.eq(singlePlanConfig.configured, true, "explicit Preview mode permits a single Sandbox plan for checkout");
     h.eq(singlePlanConfig.previewTestPlan?.plan, "sceneflow", "single-plan Preview identifies the only enabled tier");
     h.eq(singlePlanConfig.previewTestPlan?.interval, "monthly", "single-plan Preview identifies the only enabled billing interval");
-    h.eq(platform.paypalBillingConfiguration().ready, false, "full billing readiness remains false until a webhook is configured");
+    h.eq(platform.paypalBillingConfiguration().ready, true, "Preview checkout readiness does not require webhook registration");
+    h.eq(platform.paypalBillingConfiguration().fullBillingReady, false, "full billing lifecycle remains unready until a webhook exists");
     h.eq(platform.paypalBillingConfiguration().checkoutReady, true, "single-plan Preview can test initial checkout before webhook registration");
     h.eq(paypalApi.paypalPlanId("sceneforge", "monthly"), "", "single-plan Preview does not reuse its plan ID for another tier");
+    process.env.PAYPAL_SCENEFLOW_YEARLY_PLAN_ID = "P-SF-YEARLY-TEST";
+    process.env.PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID = "P-SG-MONTHLY-TEST";
+    process.env.PAYPAL_SCENEFORGE_YEARLY_PLAN_ID = "P-SG-YEARLY-TEST";
+    h.eq(paypalApi.paypalPreviewSinglePlanMode(), true, "Preview's explicit test mode stays single-plan even if other plan IDs exist");
+    h.eq(paypalApi.paypalPublicConfig().previewTestPlan?.plan, "sceneflow", "single-plan mode remains pinned to SceneFlow monthly with a full catalog present");
+    h.eq(platform.paypalBillingConfiguration().checkoutReady, true, "one selected plan remains checkout-ready without a webhook when all other IDs are present");
     const savedClientSecret = process.env.PAYPAL_CLIENT_SECRET;
     delete process.env.PAYPAL_CLIENT_SECRET;
     const missingSecretConfig = paypalApi.paypalPublicConfig();

@@ -23,18 +23,14 @@ export function paypalPlanId(slug: Exclude<PlanSlug, "free">, interval: BillingI
 }
 
 /** A deliberately narrow, Preview-only path for testing one real Sandbox plan.
- *  It cannot activate in production, and it is enabled only when exactly the
- *  SceneFlow monthly Plan ID is configured. */
+ *  It cannot activate in production; an explicit flag selects SceneFlow monthly
+ *  even when other plan IDs are present, and those other plans remain hidden. */
 export function paypalPreviewSinglePlanMode(): boolean {
   const e = env();
   if (isProductionRuntime(e) || !paypalIsSandbox() || String(e.PAYPAL_PREVIEW_SINGLE_PLAN_MODE || "").trim().toLowerCase() !== "true") return false;
-  const selected = String(e.PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID || "").trim();
-  const unusedPlanIds = [
-    e.PAYPAL_SCENEFLOW_YEARLY_PLAN_ID,
-    e.PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID,
-    e.PAYPAL_SCENEFORGE_YEARLY_PLAN_ID,
-  ];
-  return Boolean(selected) && unusedPlanIds.every((id) => !String(id || "").trim());
+  // Even if the other three plans are present, this explicit Preview flag
+  // exposes only the selected SceneFlow monthly plan for the smoke checkout.
+  return Boolean(String(e.PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID || "").trim());
 }
 
 export function paypalPublicConfig() {

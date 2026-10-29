@@ -995,10 +995,11 @@ function paypalConfiguration() {
     webhookUrl,
     plans: planConfiguration,
     previewTestPlan: previewSinglePlan ? { plan: "sceneflow" as const, interval: "monthly" as const } : null,
-    ready: commonReady && webhookIdSet,
-    // A Sandbox-only first checkout may be exercised before webhook registration.
-    // Approval is verified by a direct PayPal API lookup; lifecycle events stay
-    // unavailable until the separately verified webhook ID is configured.
+    // The explicit Preview test mode can perform an initial checkout without a
+    // webhook; approval is checked directly with PayPal. Full lifecycle billing
+    // remains unready until all plans and the separately verified webhook exist.
+    ready: commonReady && (webhookIdSet || previewSinglePlan),
+    fullBillingReady: commonReady && webhookIdSet && planConfiguration.every((item) => item.configured),
     checkoutReady: commonReady && (webhookIdSet || previewSinglePlan),
   };
 }
