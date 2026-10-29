@@ -317,9 +317,14 @@ export function createApp(): express.Express {
      * opens itself. It was previously allowed on just /pricing and /app,
      * which missed every other page that can start a checkout: the account
      * modal is reachable from any marketing page and from /app alike.
-     * Production stays on `same-origin` — PayPal checkout is refused there
-     * anyway, so nothing there needs to open one. */
-    res.setHeader("Cross-Origin-Opener-Policy", isProductionRuntime(env()) ? "same-origin" : "same-origin-allow-popups");
+     *
+     * It used to be withheld on production, on the reasoning that PayPal
+     * checkout was refused there. That reasoning made the refusal permanent:
+     * the moment Sandbox checkout is allowed on the customer-facing host, the
+     * approval window opens and then hangs, because the severed `window.opener`
+     * is exactly what the SDK posts the approval back through. Sandbox and
+     * Live need the same header. */
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     if (isProductionRuntime(env())) {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");

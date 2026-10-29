@@ -20,6 +20,23 @@
 # rule is what a static server that keeps the extension (a bare `dist/`, a
 # local preview) needs. tests/seo.test.ts holds both to the files on disk.
 
+# PayPal's approval window is a popup that reports the result back through
+# `window.opener`. Without this header the browser severs that relationship as
+# soon as the window opens: the window appears, the checkout never completes,
+# and it is indistinguishable from a dead button.
+#
+# `same-origin-allow-popups` keeps every isolation `same-origin` gives a page
+# from a cross-origin *opener*, and only preserves the link to windows the page
+# opens itself. It is set on every path, not just the checkout pages, because a
+# checkout can be started from the account modal on any marketing page.
+#
+# This covers the pages the asset layer serves. A response the Worker builds
+# itself sets the same header in server.ts; without this rule the static
+# documents — every marketing page, the app shell — carried none at all.
+
+/*
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+
 /brand-check
   X-Robots-Tag: noindex, nofollow
 

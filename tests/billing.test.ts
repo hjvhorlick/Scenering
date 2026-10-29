@@ -1,6 +1,8 @@
 /**
- * Billing contract: PayPal Sandbox is the only active subscription provider,
- * remains disabled in production, and has no Live-mode or legacy checkout path.
+ * Billing contract: PayPal Sandbox is the only active subscription provider.
+ * Sandbox runs on any runtime that holds the Sandbox keys, production
+ * included, because the live host is the only one with a fixed public URL and
+ * PayPal needs one. Live mode has no path at all, on any runtime.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { createHarness } from "./harness";

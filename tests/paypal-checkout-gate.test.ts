@@ -95,12 +95,26 @@ try {
     h.eq(JSON.stringify(config).includes("sandbox-webhook-id-test-only"), false, "the webhook id is never published");
   }
 
-  /* ---- 2. Production is still refused, whatever is configured ------------ */
+  /* ---- 2. Production runs Sandbox checkout; Live is refused everywhere --- */
   {
+    // Refusing Sandbox on production looked like a safety measure and was not
+    // one: a Sandbox checkout can only ever be completed by a Sandbox test
+    // account, so no visitor can be charged. What the refusal actually did was
+    // remove the only host with a fixed public URL, and PayPal needs one — the
+    // return URL and the webhook URL are registered in the PayPal dashboard
+    // and have to name the host the browser really came from. Live is the mode
+    // that must never run, and it is refused on every runtime, not just here.
     process.env.NODE_ENV = "production";
     const config = await publicConfig();
-    h.eq(config.checkoutEnabled, false, "production never offers PayPal Sandbox checkout");
+    h.eq(config.checkoutEnabled, true, "production offers PayPal Sandbox checkout once the Sandbox keys are set there");
     h.eq(config.production, true, "the browser is told which runtime it is talking to");
+    h.eq(config.sandbox, true, "and that the checkout it is offering is Sandbox");
+
+    process.env.PAYPAL_ENVIRONMENT = "live";
+    const live = await publicConfig();
+    h.eq(live.checkoutEnabled, false, "Live mode is refused on production, the same as on every other runtime");
+    h.eq(live.sandbox, false, "a runtime that is not pinned to Sandbox says so to the browser");
+    process.env.PAYPAL_ENVIRONMENT = "sandbox";
     process.env.NODE_ENV = "development";
   }
 
@@ -169,7 +183,7 @@ try {
       headers: { "Content-Type": "application/json", Cookie: cookie, "x-forwarded-host": "preview.example.test" },
       body: JSON.stringify({ plan: "sceneforge", interval: "yearly" }),
     });
-    h.eq(refused.status, 503, "production refuses to open a Sandbox checkout even with credentials configured");
+    h.eq(refused.status, 503, "production never invents a link origin from the request — PUBLIC_APP_URL must name the host");
     process.env.NODE_ENV = "development";
     process.env.PUBLIC_APP_URL = FULL.PUBLIC_APP_URL;
   }

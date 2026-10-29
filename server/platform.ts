@@ -998,7 +998,7 @@ function paypalConfiguration(requestOriginValue = "") {
   return {
     provider: "paypal" as const,
     environment: paypalIsSandbox() ? "sandbox" as const : "disabled" as const,
-    active: !isProduction() && paypalIsSandbox(),
+    active: paypalIsSandbox(),
     clientIdSet: Boolean(publicConfig.clientId),
     clientSecretSet: secretSet,
     webhookIdSet,
@@ -1022,7 +1022,7 @@ function paypalConfiguration(requestOriginValue = "") {
        reading the subscription back from PayPal, so the button can be tested
        before any webhook is registered. `webhookIdSet` is still reported, so
        the dashboard can say what is outstanding. */
-    ready: !isProduction() && paypalIsSandbox() && Boolean(publicConfig.clientId) && secretSet && Boolean(appUrl) && plansReady > 0,
+    ready: paypalIsSandbox() && Boolean(publicConfig.clientId) && secretSet && Boolean(appUrl) && plansReady > 0,
   };
 }
 
@@ -1294,7 +1294,11 @@ async function handlePayPalWebhookEvent(event: any): Promise<string> {
 
 export function registerPayPalWebhook(app: Express) {
   app.post(PAYPAL_WEBHOOK_PATH, asyncHandlerVoid(async (req, res) => {
-    if (isProduction() || !paypalIsSandbox()) return res.status(503).json({ error: "PayPal webhooks are disabled on production and Live environments." });
+    /* Live mode stays refused everywhere, including production — that is a
+     * separate approved cutover. Sandbox webhooks are accepted on any runtime
+     * so that a Sandbox checkout running on the customer-facing host can still
+     * be activated by BILLING.SUBSCRIPTION.ACTIVATED. */
+    if (!paypalIsSandbox()) return res.status(503).json({ error: "PayPal webhooks are disabled unless PAYPAL_ENVIRONMENT is \"sandbox\"." });
     if (!String(env().PAYPAL_WEBHOOK_ID || "").trim()) return res.status(503).json({ error: "PayPal Sandbox webhook verification is not configured." });
     if (!await verifyPayPalWebhook(req.headers as Record<string, string | string[] | undefined>, req.body)) {
       return res.status(401).json({ error: "PayPal webhook signature could not be verified." });
@@ -1647,7 +1651,7 @@ export function registerPlatformRoutes(app: Express) {
   app.get("/api/billing/public-config", rateLimit("billing-public-config", 60, 60000), asyncHandlerVoid(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const config = paypalPublicConfig(requestOrigin(req));
-    const enabled = config.configured && !isProduction() && paypalIsSandbox();
+    const enabled = config.configured && paypalIsSandbox();
     res.json({
       ...config,
       configured: enabled,
