@@ -209,7 +209,7 @@ export const SEARCH_POLICY: { step: string; detail: string }[] = [
 
 /** Browser-local Piper narration; model assets are fetched only when selected. */
 export const NARRATION_CHAIN: { name: string; detail: string }[] = [
-  { name: "Piper neural TTS", detail: "The selected Piper voice model runs locally in your browser; scene text is not sent to a speech provider." },
+  { name: "Piper TTS", detail: "The selected Piper voice model runs locally in your browser; scene text is not sent to a speech provider." },
   { name: "Runtime and model download", detail: "The Piper runtime and selected voice model load on first use and are cached by the browser where storage allows. The current build has about 30 MB of uncompressed WASM/runtime data before the chosen voice model." }
 ];
 
@@ -631,7 +631,7 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
 export const NO_METER = {
   message: "Local Piper narration. No per-voice API key.",
   lead:
-    "Scenering generates narration in your browser with Piper neural text-to-speech. There is no per-request voice API charge from Scenering.",
+    "Scenering generates narration in your browser with Piper TTS. There is no per-request voice API charge from Scenering.",
   points: [
     {
       label: "Your script stays your script",

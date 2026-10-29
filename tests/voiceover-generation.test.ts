@@ -165,6 +165,9 @@ const downloads = read("src/lib/voice-download.ts");
 h.ok(!studio.includes("Generate & Save Voiceover for All Scenes"), "the duplicate whole-project Generate button is removed");
 h.ok(studio.includes('onNext={() => handleProceedNext("captions")}'), "Next remains the whole-project generation action");
 h.ok(studio.includes("planVoiceoverGeneration(scenes"), "Next uses the input-aware generation plan");
+h.ok(studio.includes("if (!generationInFlightRef.current) void stopLocalPiperSynthesis()"), "navigating away does not kill an in-flight narration batch");
+h.ok(studio.includes("if (componentMountedRef.current && onNavigateToStep)"), "a finished background batch saves without pulling the user away from another step");
+h.ok(studio.includes("You can visit another step; this batch keeps running"), "the progress notice tells creators they can inspect another step while audio finishes");
 h.ok(
   studio.includes("await replaceSceneNarration("),
   "new audio replaces the old file outright (and is durably written) before Next leaves the section"

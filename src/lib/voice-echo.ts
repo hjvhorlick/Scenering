@@ -1,36 +1,29 @@
 /**
- * Voice echo / ambience for the narration.
+ * Natural room ambience for narration.
  *
- * The voiceover is played through the Web Audio graph everywhere it is heard —
- * the voice previews in the Voiceover step, the live video preview and the
- * final render — so one small echo chain gives all three the same sound. The
- * chain is deliberately simple and sample-accurate:
- *
- *     input ─┬──────────────────────────────► dry ──► output
- *            └─► delay ─► damping ─┬────────► wet ──► output
- *                                  └─► feedback ─► back into the delay
- *
- * plus an optional second, longer tap panned the other way so big spaces feel
- * wide instead of like a single slap. Everything is driven from a plain config
- * object, so the UI, the preview and the render can never disagree.
+ * The same convolution-reverb graph is used by card audition, the voiceover
+ * preview, the video preview and offline render. Each room has a generated,
+ * deterministic stereo impulse response (early reflections + a diffuse decay),
+ * rather than a long feedback delay that sounds like a hollow repeated word.
  */
 
-export type VoiceEchoMode = "off" | "studio" | "room" | "plate" | "hall" | "cathedral" | "canyon" | "doubler";
+export type VoiceEchoMode =
+  | "off" | "studio" | "bedroom" | "room" | "hall"
+  // Legacy ids stay readable so old projects migrate to a similar real space.
+  | "plate" | "cathedral" | "canyon" | "doubler";
 
 export interface VoiceEchoConfig {
-  /** true = the echo is part of the voice on the video */
   enabled: boolean;
-  /** id from VOICE_ECHO_PRESETS */
   preset: VoiceEchoMode;
-  /** how loud the echo is compared with the dry voice (0 - 1) */
+  /** Wet room signal relative to the unchanged dry voice (0..1). */
   amount: number;
-  /** gap before the echo arrives, in milliseconds */
+  /** Short pre-delay before the room reflections, in milliseconds. */
   delay: number;
-  /** how long the tail keeps bouncing (0 - 0.85) */
+  /** Controls the room's decay time (legacy field name retained for saved projects). */
   feedback: number;
-  /** how dark the echo is (0 = bright/tiled, 1 = soft and far away) */
+  /** High-frequency damping: 0 = bright, 1 = dark. */
   tone: number;
-  /** stereo spread of the tail (0 = mono, 1 = wide) */
+  /** Stereo width of the room response. */
   width: number;
 }
 
@@ -44,126 +37,62 @@ export interface VoiceEchoPreset {
   amount: number;
   tone: number;
   width: number;
+  decaySeconds: number;
 }
 
-/**
- * The spaces a narrator can be placed in. The numbers are the actual settings
- * the audio graph uses (not labels), so what the slider shows is what the video
- * plays.
- */
+/** A deliberately curated set: no artificial double-voice preset. */
 export const VOICE_ECHO_PRESETS: VoiceEchoPreset[] = [
   {
-    id: "off",
-    name: "No Echo",
-    icon: "🚫",
-    blurb: "Dry studio voice, exactly as recorded",
-    delay: 0,
-    feedback: 0,
-    amount: 0,
-    tone: 0.5,
-    width: 0,
+    id: "off", name: "Off", icon: "🔇", blurb: "Clean, close narration with no room tail",
+    delay: 0, feedback: 0, amount: 0, tone: 0.4, width: 0, decaySeconds: 0,
   },
   {
-    id: "studio",
-    name: "Studio Slap",
-    icon: "🎙️",
-    blurb: "Tight single repeat — presence without mud",
-    delay: 88,
-    feedback: 0.16,
-    amount: 0.26,
-    tone: 0.3,
-    width: 0,
+    id: "studio", name: "Studio", icon: "🎙️", blurb: "A little air around the voice; still crisp and close",
+    delay: 7, feedback: 0.16, amount: 0.14, tone: 0.28, width: 0.18, decaySeconds: 0.28,
   },
   {
-    id: "plate",
-    name: "Plate",
-    icon: "💽",
-    blurb: "Smooth studio plate — vocals sit back a step",
-    delay: 110,
-    feedback: 0.46,
-    amount: 0.34,
-    tone: 0.45,
-    width: 0.55,
+    id: "bedroom", name: "Bedroom", icon: "🛏️", blurb: "Soft, very short reflections — like a quiet bedroom",
+    delay: 9, feedback: 0.2, amount: 0.16, tone: 0.62, width: 0.24, decaySeconds: 0.34,
   },
   {
-    id: "room",
-    name: "Warm Room",
-    icon: "🛋️",
-    blurb: "Small, cosy room — a natural live feel",
-    delay: 150,
-    feedback: 0.3,
-    amount: 0.3,
-    tone: 0.5,
-    width: 0.25,
+    id: "room", name: "Warm Room", icon: "🛋️", blurb: "Natural early reflections from a comfortable room",
+    delay: 13, feedback: 0.28, amount: 0.2, tone: 0.48, width: 0.48, decaySeconds: 0.72,
   },
   {
-    id: "hall",
-    name: "Concert Hall",
-    icon: "🎻",
-    blurb: "Grand hall tail — cinematic narration",
-    delay: 250,
-    feedback: 0.5,
-    amount: 0.36,
-    tone: 0.45,
-    width: 0.7,
-  },
-  {
-    id: "cathedral",
-    name: "Cathedral",
-    icon: "⛪",
-    blurb: "Vast stone space — long, lush repeats",
-    delay: 420,
-    feedback: 0.62,
-    amount: 0.4,
-    tone: 0.55,
-    width: 0.8,
-  },
-  {
-    id: "canyon",
-    name: "Canyon",
-    icon: "🏜️",
-    blurb: "Huge distance — the voice calls back to you",
-    delay: 540,
-    feedback: 0.66,
-    amount: 0.42,
-    tone: 0.35,
-    width: 0.9,
-  },
-  {
-    id: "doubler",
-    name: "Double Voice",
-    icon: "👥",
-    blurb: "Tiny delay underneath — a doubled, thicker voice",
-    delay: 42,
-    feedback: 0.1,
-    amount: 0.3,
-    tone: 0.25,
-    width: 0.35,
+    id: "hall", name: "Hall", icon: "🏛️", blurb: "A spacious, smooth tail for cinematic narration",
+    delay: 22, feedback: 0.46, amount: 0.22, tone: 0.58, width: 0.82, decaySeconds: 1.9,
   },
 ];
+
+const LEGACY_PRESET: Partial<Record<VoiceEchoMode, VoiceEchoMode>> = {
+  plate: "studio",
+  cathedral: "hall",
+  canyon: "hall",
+  doubler: "room",
+};
 
 export const DEFAULT_VOICE_ECHO: VoiceEchoConfig = {
   enabled: false,
   preset: "room",
-  amount: VOICE_ECHO_PRESETS[2].amount,
-  delay: VOICE_ECHO_PRESETS[2].delay,
-  feedback: VOICE_ECHO_PRESETS[2].feedback,
-  tone: VOICE_ECHO_PRESETS[2].tone,
-  width: VOICE_ECHO_PRESETS[2].width,
+  amount: 0.2,
+  delay: 13,
+  feedback: 0.28,
+  tone: 0.48,
+  width: 0.48,
 };
 
 export function getVoiceEchoPreset(id: string | undefined): VoiceEchoPreset {
-  return VOICE_ECHO_PRESETS.find((p) => p.id === id) || VOICE_ECHO_PRESETS[0];
+  const canonical = (id && LEGACY_PRESET[id as VoiceEchoMode]) || id;
+  return VOICE_ECHO_PRESETS.find((preset) => preset.id === canonical) || VOICE_ECHO_PRESETS[0];
 }
 
-/** Config carrying one preset's own numbers (used when a chip is tapped). */
 export function voiceEchoPresetConfig(id: VoiceEchoMode, base?: Partial<VoiceEchoConfig>): VoiceEchoConfig {
   const preset = getVoiceEchoPreset(id);
   return {
     ...DEFAULT_VOICE_ECHO,
     ...base,
-    enabled: id !== "off",
-    preset: id,
+    enabled: preset.id !== "off",
+    preset: preset.id,
     amount: preset.amount,
     delay: preset.delay,
     feedback: preset.feedback,
@@ -172,45 +101,38 @@ export function voiceEchoPresetConfig(id: VoiceEchoMode, base?: Partial<VoiceEch
   };
 }
 
-/** Clamps a value, falling back to `fallback` when it is not a real number —
- *  a corrupted project setting must never reach the audio graph as NaN. */
 const clamp = (v: number | undefined, lo: number, hi: number, fallback: number) => {
   const n = typeof v === "number" && Number.isFinite(v) ? v : fallback;
   return Math.max(lo, Math.min(hi, n));
 };
 
-/** Every value clamped into the range the audio graph can safely take. */
 export function resolveVoiceEcho(config: VoiceEchoConfig | undefined | null): VoiceEchoConfig {
   const preset = getVoiceEchoPreset(config?.preset);
   return {
     enabled: Boolean(config?.enabled) && preset.id !== "off",
     preset: preset.id,
-    amount: clamp(config?.amount, 0, 1, preset.amount),
-    delay: clamp(config?.delay, 0, 1000, preset.delay),
+    amount: clamp(config?.amount, 0, 0.55, preset.amount),
+    delay: clamp(config?.delay, 0, 80, preset.delay),
     feedback: clamp(config?.feedback, 0, 0.85, preset.feedback),
     tone: clamp(config?.tone, 0, 1, preset.tone),
     width: clamp(config?.width, 0, 1, preset.width),
   };
 }
 
-/** Short human sentence for the summaries ("Concert Hall · 36% echo"). */
 export function describeVoiceEcho(config: VoiceEchoConfig | undefined | null): string {
-  const r = resolveVoiceEcho(config);
-  if (!r.enabled) return "Off — dry studio voice";
-  const preset = getVoiceEchoPreset(r.preset);
-  return `${preset.name} · ${Math.round(r.amount * 100)}% echo · ${Math.round(r.delay)}ms`;
+  const resolved = resolveVoiceEcho(config);
+  if (!resolved.enabled) return "Off · clean voice";
+  return `${getVoiceEchoPreset(resolved.preset).name} · ${Math.round(resolved.amount * 100)}% room`;
 }
 
-/** Is this config actually going to change anything? */
 export function voiceEchoIsActive(config: VoiceEchoConfig | undefined | null): boolean {
-  const r = resolveVoiceEcho(config);
-  return r.enabled && r.amount > 0.005 && r.delay > 2;
+  const resolved = resolveVoiceEcho(config);
+  return resolved.enabled && resolved.amount > 0.005;
 }
 
 export interface VoiceEchoGraph {
   input: GainNode;
   output: GainNode;
-  /** Applies a new config to the live graph (no re-wiring, so nothing clicks). */
   update(config: VoiceEchoConfig): void;
   dispose(): void;
   readonly config: VoiceEchoConfig;
@@ -218,129 +140,122 @@ export interface VoiceEchoGraph {
 
 type AnyCtx = BaseAudioContext;
 
-/**
- * Builds the echo chain. The graph never changes shape: switching the echo off
- * just moves the wet mix to zero, so toggling it during playback cannot click or
- * drop the voice.
- */
+/** Generates a repeatable room response for a ConvolverNode. */
+export function createRoomImpulse(ctx: BaseAudioContext, config: VoiceEchoConfig): AudioBuffer {
+  const resolved = resolveVoiceEcho(config);
+  const preset = getVoiceEchoPreset(resolved.preset);
+  const tailScale = Math.max(0.45, Math.min(1.8, 0.55 + resolved.feedback * 1.2));
+  const decay = Math.max(0.12, preset.decaySeconds * tailScale);
+  const duration = Math.min(3.2, Math.max(0.18, decay * 1.25));
+  const sampleRate = ctx.sampleRate || 48_000;
+  const length = Math.max(1, Math.ceil(sampleRate * duration));
+  const channels = resolved.width < 0.12 ? 1 : 2;
+  const buffer = ctx.createBuffer(channels, length, sampleRate);
+  const reflections = [
+    [0.004, 0.34], [0.009, 0.24], [0.016, 0.17], [0.027, 0.11],
+    [0.043, 0.075], [0.061, 0.048],
+  ] as const;
+  let seed = 0x5f3759df ^ Math.round(decay * 10_000) ^ Math.round(resolved.width * 1000);
+  const random = () => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    return (seed >>> 0) / 0x1_0000_0000;
+  };
+
+  for (let channel = 0; channel < channels; channel += 1) {
+    const samples = buffer.getChannelData(channel);
+    const channelScale = channel === 0 || channels === 1 ? 1 : 0.94;
+    for (const [seconds, gain] of reflections) {
+      const index = Math.round((seconds + (channel ? 0.0017 : 0)) * sampleRate);
+      if (index < samples.length) samples[index] += gain * channelScale;
+    }
+    for (let index = Math.round(0.075 * sampleRate); index < samples.length; index += 1) {
+      const seconds = index / sampleRate;
+      const envelope = Math.exp((-6.91 * seconds) / decay);
+      // Noise density fills the tail into a diffuse room decay, unlike discrete
+      // repeats. Web Audio normalizes the impulse and the wet mix stays subtle.
+      samples[index] += (random() * 2 - 1) * envelope * 0.035 * channelScale;
+    }
+  }
+  return buffer;
+}
+
+/** The damping curve used by the room's late reflections. */
+export function echoDampingFrequency(tone: number): number {
+  const t = clamp(tone, 0, 1, 0.5);
+  return 2000 + (1 - t) * 6800;
+}
+
+/** Dry voice plus a short pre-delay, convolver, damping and subtle wet return. */
 export function createVoiceEchoGraph(ctx: AnyCtx, config: VoiceEchoConfig): VoiceEchoGraph {
   const resolved = resolveVoiceEcho(config);
-
   const input = ctx.createGain();
   const output = ctx.createGain();
   const dry = ctx.createGain();
-  const delay = ctx.createDelay(2);
+  const preDelay = ctx.createDelay(0.12);
+  const convolver = ctx.createConvolver();
   const damp = ctx.createBiquadFilter();
-  damp.type = "lowpass";
-  const feedback = ctx.createGain();
   const wet = ctx.createGain();
-
-  // second, longer tap gives the big spaces their width
-  const delayB = ctx.createDelay(2);
-  const dampB = ctx.createBiquadFilter();
-  dampB.type = "lowpass";
-  const wetB = ctx.createGain();
-  const panB = typeof ctx.createStereoPanner === "function" ? ctx.createStereoPanner() : null;
+  convolver.normalize = true;
 
   input.connect(dry);
   dry.connect(output);
-  input.connect(delay);
-  delay.connect(damp);
+  input.connect(preDelay);
+  preDelay.connect(convolver);
+  convolver.connect(damp);
   damp.connect(wet);
   wet.connect(output);
-  damp.connect(feedback);
-  feedback.connect(delay);
 
-  if (panB) {
-    delay.connect(delayB);
-    delayB.connect(dampB);
-    dampB.connect(wetB);
-    wetB.connect(panB);
-    panB.connect(output);
-  }
-
+  let currentConfig = resolved;
+  let currentImpulseKey = "";
   const apply = (cfg: VoiceEchoConfig) => {
     const r = resolveVoiceEcho(cfg);
+    const preset = getVoiceEchoPreset(r.preset);
     const now = typeof ctx.currentTime === "number" ? ctx.currentTime : 0;
-    const on = r.enabled;
     const set = (param: AudioParam, value: number) => {
-      try {
-        param.setTargetAtTime(value, now, 0.02);
-      } catch {
-        param.value = value;
-      }
+      try { param.setTargetAtTime(value, now, 0.02); }
+      catch { param.value = value; }
     };
-
-    set(dry.gain, 1); // the voice itself is never thinned out
-    set(wet.gain, on ? r.amount : 0);
-    set(delay.delayTime, Math.max(0.005, r.delay / 1000));
-    // darker presets roll the repeats off sooner, which is what makes them read
-    // as distance rather than a machine repeat
-    set(damp.frequency, 1800 + (1 - r.tone) * 7200);
-    set(feedback.gain, on ? r.feedback : 0);
-
-    const secondTap = on && r.width > 0.15;
-    set(wetB.gain, secondTap ? r.amount * 0.55 * r.width : 0);
-    set(delayB.delayTime, Math.max(0.005, (r.delay * 1.55) / 1000));
-    set(dampB.frequency, 1200 + (1 - r.tone) * 5200);
-    if (panB) set(panB.pan, secondTap ? 0.75 * r.width : 0);
+    set(dry.gain, 1);
+    set(wet.gain, r.enabled ? r.amount : 0);
+    set(preDelay.delayTime, r.delay / 1000);
+    set(damp.frequency, echoDampingFrequency(r.tone));
+    if (r.enabled) {
+      const impulseKey = `${preset.id}:${r.feedback}:${r.width}:${ctx.sampleRate}`;
+      if (impulseKey !== currentImpulseKey) {
+        convolver.buffer = createRoomImpulse(ctx, r);
+        currentImpulseKey = impulseKey;
+      }
+    } else if (currentImpulseKey) {
+      convolver.buffer = null;
+      currentImpulseKey = "";
+    }
+    // Keep the graph object aligned with legacy-config migration.
+    currentConfig = { ...r, preset: preset.id };
   };
 
   apply(resolved);
-  output.gain.value = 1;
 
   return {
     input,
     output,
-    config: resolved,
-    update: (next: VoiceEchoConfig) => apply(next),
+    get config() { return currentConfig; },
+    update: (next) => apply(next),
     dispose: () => {
-      try {
-        input.disconnect();
-        dry.disconnect();
-        delay.disconnect();
-        damp.disconnect();
-        feedback.disconnect();
-        wet.disconnect();
-        delayB.disconnect();
-        dampB.disconnect();
-        wetB.disconnect();
-        panB?.disconnect();
-        output.disconnect();
-      } catch {}
+      for (const node of [input, dry, preDelay, convolver, damp, wet, output]) {
+        try { node.disconnect(); } catch { /* best-effort cleanup */ }
+      }
     },
   };
 }
 
-/**
- * Routes an audio element through the echo chain. `<audio>` elements cannot be
- * processed directly, so the element is tapped with a MediaElementSource node —
- * it still plays through the element itself (volume / playback-rate keep
- * working), it is simply heard through the graph instead.
- *
- * Returns null when the browser cannot process the element; the caller then
- * leaves the element alone and the voice simply plays dry.
- */
-/**
- * A small shared AudioContext for element-based playback (voice previews).
- * Voice processing is completely independent of the app's data layer, so this
- * module stays free of those imports — that keeps the catalogue and the tests
- * free of browser-only dependencies too.
- */
 let sharedPlaybackCtx: AudioContext | null = null;
-
 export function getEchoAudioContext(): AudioContext {
-  const Ctor =
-    typeof window !== "undefined"
-      ? window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-      : undefined;
+  const Ctor = typeof window !== "undefined"
+    ? window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    : undefined;
   if (!Ctor) throw new Error("Web Audio is not available");
-  if (!sharedPlaybackCtx || sharedPlaybackCtx.state === "closed") {
-    sharedPlaybackCtx = new Ctor();
-  }
-  if (sharedPlaybackCtx.state === "suspended") {
-    sharedPlaybackCtx.resume().catch(() => {});
-  }
+  if (!sharedPlaybackCtx || sharedPlaybackCtx.state === "closed") sharedPlaybackCtx = new Ctor();
+  if (sharedPlaybackCtx.state === "suspended") sharedPlaybackCtx.resume().catch(() => {});
   return sharedPlaybackCtx;
 }
 
@@ -350,16 +265,11 @@ export interface ElementEchoRoute {
   dispose(): void;
 }
 
+/** Routes an audio element through the shared room graph; dry fallback on failure. */
 export function routeElementThroughEcho(
   element: HTMLAudioElement,
   config: VoiceEchoConfig,
   ctxFactory: () => AudioContext,
-  /**
-   * Optional listening post. When the Voiceover step is drawing the voice, the
-   * echoed signal is sent through this node on its way to the speakers so the
-   * visualiser sees exactly what the ear hears — reverb tail included. The node
-   * is expected to be connected to the destination by whoever owns it.
-   */
   tap?: AnalyserNode | null
 ): ElementEchoRoute | null {
   try {
@@ -370,21 +280,13 @@ export function routeElementThroughEcho(
     graph.output.connect(tap ?? ctx.destination);
     return {
       graph,
-      update: (next: VoiceEchoConfig) => graph.update(next),
+      update: (next) => graph.update(next),
       dispose: () => {
-        try {
-          source.disconnect();
-        } catch {}
+        try { source.disconnect(); } catch {}
         graph.dispose();
       },
     };
   } catch {
     return null;
   }
-}
-
-/** Frequency curve used by the tests: the delay tail gets darker as tone rises. */
-export function echoDampingFrequency(tone: number): number {
-  const t = clamp(tone, 0, 1, 0.5);
-  return 1800 + (1 - t) * 7200;
 }

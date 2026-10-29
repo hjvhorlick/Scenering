@@ -157,6 +157,8 @@ export default function VoiceoverStudio({
   );
   const [playingId, setPlayingId] = useState<string | number | null>(null);
   const [loadingId, setLoadingId] = useState<string | number | null>(null);
+  const generationInFlightRef = useRef(false);
+  const componentMountedRef = useRef(true);
   const previewRequestRef = useRef(0);
   const [activeTab, setActiveTab] = useRememberedChoice<"natural_voices" | "import_tts" | "phonetic_dictionary">(
     projectId, "voiceover", "tab", "natural_voices", oneOf(["natural_voices", "import_tts", "phonetic_dictionary"] as const)
@@ -179,9 +181,17 @@ export default function VoiceoverStudio({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    componentMountedRef.current = true;
+    // Warm the shared worker/phonemizer while the voice cards are visible. The
+    // selected voice model is still fetched only when its card is auditioned.
+    void import("../lib/piper-tts").then(({ prewarmPiperRuntime }) => prewarmPiperRuntime()).catch(() => {});
     return () => {
+      componentMountedRef.current = false;
       ttsPlayer.stop();
-      void stopLocalPiperSynthesis().catch(() => {});
+      // A user's voiceover batch is background work: navigating to inspect
+      // another step must not terminate synthesis before its generated audio and
+      // snapshot have been saved. Auditions with no render in flight may stop.
+      if (!generationInFlightRef.current) void stopLocalPiperSynthesis().catch(() => {});
     };
   }, []);
 
@@ -259,20 +269,14 @@ export default function VoiceoverStudio({
       };
       const engineVoice = engineVoiceId(voiceId);
       if (engineVoice.startsWith("piper:")) {
-        // The worker serializes model loads. Cancel a stuck previous voice
-        // before queuing another, otherwise one stalled transfer can make every
-        // later voice appear to spin forever.
+        // Cancel a superseded/stalled request, but keep this preview's audio in
+        // TTSAudioPlayer's voice+text cache so replaying the same card is quick.
         if (cancelPreviousPiperRequest) await stopLocalPiperSynthesis();
         if (previewRequestRef.current !== requestToken) return;
-        const audio = await fetchSceneAudioWithTimeline(text, engineVoice, {
-          onProgress: ({ message }) => {
-            if (previewRequestRef.current === requestToken) setDownloadNotice(`Piper · ${message}`);
-          },
+        await ttsPlayer.play(text, engineVoice, speed, 0.9, id, onEnded, ({ message }) => {
+          if (previewRequestRef.current === requestToken) setDownloadNotice(`Piper · ${message}`);
         });
-        if (!audio) throw new Error("Piper returned no audio for this voice sample.");
-        if (previewRequestRef.current !== requestToken) return;
-        setDownloadNotice(null);
-        await ttsPlayer.playBlob(new Blob([audio.rawBuffer], { type: audio.mimeType }), `${engineVoice}::${text}`, speed, 0.9, id, onEnded);
+        if (previewRequestRef.current === requestToken) setDownloadNotice(null);
       } else {
         await ttsPlayer.play(text, engineVoice, speed, 0.9, id, onEnded);
       }
@@ -517,6 +521,7 @@ export default function VoiceoverStudio({
     if (isGeneratingAll) return false;
     if (targets.length === 0) return true;
 
+    generationInFlightRef.current = true;
     setIsGeneratingAll(true);
     const targetIds = new Set(targets.map(({ scene }) => scene.id));
     let nextSnapshot = recordCurrentVoiceoverAudio(savedSnapshot, scenes, {
@@ -538,6 +543,7 @@ export default function VoiceoverStudio({
         }
       }
     } finally {
+      generationInFlightRef.current = false;
       setIsGeneratingAll(false);
       setGenerationProgress(null);
     }
@@ -570,11 +576,15 @@ export default function VoiceoverStudio({
         saveAudioSnapshot(recordCurrentVoiceoverAudio(savedSnapshot, scenes, snapshotOptions));
       }
     }
-    if (onNavigateToStep) onNavigateToStep(targetStep);
+    // If the creator left this step during a still-running batch, leave them
+    // where they went after the background synthesis has saved its results.
+    if (componentMountedRef.current && onNavigateToStep) onNavigateToStep(targetStep);
   };
 
   const handleGenerateSingleScene = async (scene: Scene) => {
+    if (generationInFlightRef.current) return;
     void requestPiperStoragePersistence(true);
+    generationInFlightRef.current = true;
     setSingleGeneratingId(scene.id);
     try {
       const index = scenes.findIndex((item) => item.id === scene.id);
@@ -591,6 +601,7 @@ export default function VoiceoverStudio({
         saveAudioSnapshot(recordGeneratedVoiceover(saved, scene, voiceId, musicFingerprint));
       }
     } finally {
+      generationInFlightRef.current = false;
       setSingleGeneratingId(null);
     }
   };
@@ -611,7 +622,7 @@ export default function VoiceoverStudio({
     const isMale = preset ? preset.gender === "male" : true;
     return {
       name: preset?.name || selectedVoice,
-      type: "Piper Neural Voice",
+      type: "Piper TTS Voice",
       gender: isMale ? "Male Narrator" : "Female Narrator",
       isMale,
       badge: `${iconify(isMale ? "👨 Male" : "👩 Female")} • ${preset?.accent || "Natural Voice"}`,
@@ -762,7 +773,7 @@ export default function VoiceoverStudio({
               <span className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-xl" aria-hidden="true"><Icon glyph="🎙️" /></span>
               <h2 className="text-xl font-bold text-white">Voiceover Studio</h2>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/80 border border-emerald-700/60 text-emerald-300">
-                Piper Neural TTS
+                Piper TTS
               </span>
             </div>
             <p className="text-xs text-gray-300 max-w-xl">
@@ -822,7 +833,7 @@ export default function VoiceoverStudio({
           <div className="mt-3 p-3 bg-indigo-950/90 border border-indigo-500/80 rounded-xl text-indigo-200 text-xs flex items-center justify-between animate-pulse shadow-lg">
             <span className="flex items-center gap-2 font-medium">
               <span className="animate-spin"><Icon glyph="⏳" /></span>
-              <span>Synthesizing and saving narration for Scene {generationProgress?.current} of {generationProgress?.total}... Please wait.</span>
+              <span>Synthesizing and saving narration for Scene {generationProgress?.current} of {generationProgress?.total}… You can visit another step; this batch keeps running and saves as it finishes.</span>
             </span>
             <span className="font-mono text-xs bg-indigo-900 px-2 py-0.5 rounded text-indigo-200">
               {Math.round(((generationProgress?.current || 1) / (generationProgress?.total || 1)) * 100)}%
@@ -927,15 +938,15 @@ export default function VoiceoverStudio({
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Icon glyph="🔊" /> Voice Echo &amp; Ambience
+              <Icon glyph="🔊" /> Voice Space &amp; Room Reverb
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-700/60 bg-indigo-950/60 text-indigo-300">
                 {echoConfig.enabled ? "ON" : "OFF"}
               </span>
               {echoIsVip && <VipFeatureBadge compact />}
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              Put the narrator in a space — a tight studio slap, a warm room, a concert hall or a
-              canyon. You hear it in every voice preview and it is written into the rendered video.
+              Add natural room reflections to the narration. The dry voice stays clear; the same
+              room sound is heard in auditions, video preview and the finished render.
             </p>
             {echoIsVip && (
               <p className="text-[11px] text-amber-300/90 mt-1">
@@ -952,7 +963,7 @@ export default function VoiceoverStudio({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5">
           {VOICE_ECHO_PRESETS.map((preset) => {
             const active = (echoConfig.enabled ? echoConfig.preset : "off") === preset.id;
             return (
@@ -980,14 +991,14 @@ export default function VoiceoverStudio({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-800/40 border border-hairline rounded-xl p-3">
             <div>
               <div className="flex justify-between text-[11px] text-gray-300 mb-1">
-                <span className="font-medium text-white">Echo strength</span>
+                <span className="font-medium text-white">Room mix</span>
                 <span className="font-mono text-indigo-400">{Math.round(echoConfig.amount * 100)}%</span>
               </div>
               <input
                 type="range"
                 min={0}
-                max={1}
-                step={0.02}
+                max={0.55}
+                step={0.01}
                 value={echoConfig.amount}
                 onChange={(e) => updateEcho({ ...echoConfig, amount: parseFloat(e.target.value) })}
                 className="w-full accent-indigo-500 cursor-pointer"
@@ -995,14 +1006,14 @@ export default function VoiceoverStudio({
             </div>
             <div>
               <div className="flex justify-between text-[11px] text-gray-300 mb-1">
-                <span className="font-medium text-white">Delay (space size)</span>
+                <span className="font-medium text-white">Pre-delay</span>
                 <span className="font-mono text-indigo-400">{Math.round(echoConfig.delay)}ms</span>
               </div>
               <input
                 type="range"
-                min={20}
-                max={700}
-                step={5}
+                min={0}
+                max={80}
+                step={1}
                 value={echoConfig.delay}
                 onChange={(e) => updateEcho({ ...echoConfig, delay: parseFloat(e.target.value) })}
                 className="w-full accent-indigo-500 cursor-pointer"
@@ -1010,7 +1021,7 @@ export default function VoiceoverStudio({
             </div>
             <div>
               <div className="flex justify-between text-[11px] text-gray-300 mb-1">
-                <span className="font-medium text-white">Tail length</span>
+                <span className="font-medium text-white">Room decay</span>
                 <span className="font-mono text-indigo-400">{Math.round(echoConfig.feedback * 100)}%</span>
               </div>
               <input
@@ -1025,8 +1036,7 @@ export default function VoiceoverStudio({
             </div>
             <div className="sm:col-span-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-hairline">
               <span className="text-[11px] text-gray-400">
-                Tip: big spaces (Hall, Cathedral, Canyon) suit trailers and storytelling; Studio Slap
-                keeps explainers crisp.
+                Tip: Bedroom and Warm Room are subtle for speech; choose Hall for a more spacious cinematic tail.
               </span>
               <button
                 type="button"

@@ -43,36 +43,36 @@ As darkness settles across the silent wilderness, millions of luminous stars ign
     },
   },
   {
-    title: "Futuristic Metropolis & AI",
+    title: "Futuristic Metropolis & Technology",
     category: "Sci-Fi & Tech",
     scripts: {
       10: `Towering megastructures pierce the neon skyline as autonomous transport pods glide along elevated magnetic conduits in the cybernetic core.
 
-Quantum supercomputers synthesize vast oceans of global telemetry, orchestrating city infrastructure and energy grids with instantaneous predictive precision.
+Advanced computing centres process large streams of city data, helping coordinate infrastructure and energy grids with precision.
 
 Bioluminescent sky-gardens cascade down glass facades, purifying atmosphere and sustaining millions within vertical self-contained futuristic carbon-neutral ecosystems.
 
-Holographic information displays shimmer across bustling pedestrian concourses, connecting human citizens with intelligent synthetic companions in harmonious coexistence.
+Holographic information displays shimmer across bustling pedestrian concourses, offering clear directions and public service updates to residents.
 
 Dusk transforms the cyber metropolis into a vibrant symphony of electric violet, pulsing with the limitless promise of human technological evolution.`,
 
       20: `Towering megastructures pierce the neon-drenched skyline as autonomous aerial transport pods glide silently along elevated magnetic conduits. Below, the bustling cybernetic metropolis pulses with electric vitality, illuminated by cascading digital billboards that reflect off gleaming titanium facades in the heart of our world's first true smart city.
 
-Quantum supercomputers synthesize vast oceans of planetary telemetry, optimizing traffic flow, energy distribution, and public safety in real time with flawless precision. Deep learning neural networks work harmoniously behind the scenes, anticipating urban needs and resolving civic challenges before citizens even notice a single disruption.
+City networks gather traffic, energy and public-safety information, helping teams coordinate services in real time. Clear dashboards make changing conditions easier to spot, so operators can respond quickly and keep city systems working smoothly.
 
 Bioluminescent vertical sky-gardens wrap around glass towers, naturally filtering urban air while providing fresh organic produce to residential sectors. Automated robotic tenders nurture lush flora hanging hundreds of meters above street level, creating a striking harmony between advanced synthetic engineering and thriving biological nature.
 
-Holographic communication hubs illuminate pedestrian plazas where diverse communities interact with artificial intelligence guides and digital concierges. Augmented reality interfaces blend smoothly into daily living, allowing people to work, collaborate, and exchange ideas across physical boundaries with fluid, effortless technological immersion.
+Holographic information hubs illuminate pedestrian plazas, where residents use interactive displays to find public services and directions. Augmented reality interfaces blend smoothly into daily living, allowing people to work, collaborate, and exchange ideas across physical boundaries with fluid, effortless technological immersion.
 
 As twilight falls over the cybernetic metropolis, thousands of architectural accent lights ignite in vibrant amber and sapphire hues. The futuristic cityscape glows with the collective ambition of humanity, standing as an enduring beacon of progress, creativity, and the infinite promise of tomorrow.`,
 
       30: `Towering megastructures pierce the neon-drenched skyline as autonomous aerial transport pods glide silently along elevated magnetic conduits. Below, the bustling cybernetic metropolis pulses with electric vitality, illuminated by cascading digital billboards that reflect off gleaming titanium facades in the heart of our world's first true smart city. Automated freight corridors hum efficiently underground, ensuring seamless commerce without congesting the sleek skyways above.
 
-Quantum supercomputers synthesize vast oceans of planetary telemetry, optimizing traffic flow, energy distribution, and public safety in real time with flawless precision. Deep learning neural networks work harmoniously behind the scenes, anticipating urban needs and resolving civic challenges before citizens even notice a single disruption. The city operates like a living, breathing sentient organism, perfectly balanced between technological efficiency and human well-being.
+City networks gather traffic, energy and public-safety information, helping teams coordinate services in real time. Clear dashboards make changing conditions easier to spot, so operators can respond quickly and keep city systems working smoothly. The city brings together efficient transport, reliable services and welcoming public spaces, balancing practical design with human well-being.
 
 Bioluminescent vertical sky-gardens wrap around glass towers, naturally filtering urban air while providing fresh organic produce to residential sectors. Automated robotic tenders nurture lush flora hanging hundreds of meters above street level, creating a striking harmony between advanced synthetic engineering and thriving biological nature. Residents stroll through suspended botanical walkways, enjoying serene natural green spaces perched high above the metropolitan hum.
 
-Holographic communication hubs illuminate pedestrian plazas where diverse communities interact with artificial intelligence guides and digital concierges. Augmented reality interfaces blend smoothly into daily living, allowing people to work, collaborate, and exchange ideas across physical boundaries with fluid, effortless technological immersion. Innovation sparks at every corner as creative minds gather in open civic labs to design the next generation of transformative tools.
+Holographic information hubs illuminate pedestrian plazas, where residents use interactive displays to find public services and directions. Augmented reality interfaces blend smoothly into daily living, allowing people to work, collaborate, and exchange ideas across physical boundaries with fluid, effortless technological immersion. Innovation sparks at every corner as creative minds gather in open civic labs to design the next generation of transformative tools.
 
 As twilight falls over the cybernetic metropolis, thousands of architectural accent lights ignite in vibrant amber and sapphire hues. The futuristic cityscape glows with the collective ambition of humanity, standing as an enduring beacon of progress, creativity, and the infinite promise of tomorrow. Looking down from the orbital skybridges, one sees a civilization fully united in purpose, courage, and technological wonder.`,
     },

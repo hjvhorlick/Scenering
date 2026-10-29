@@ -16,6 +16,7 @@ import {
   DEFAULT_VOICE_ECHO,
   VOICE_ECHO_PRESETS,
   createVoiceEchoGraph,
+  createRoomImpulse,
   describeVoiceEcho,
   echoDampingFrequency,
   getVoiceEchoPreset,
@@ -41,8 +42,6 @@ function makeAudioRecorder() {
       this.value = v;
     },
   });
-
-  let delaySeconds = 1;
   const ctx = {
     currentTime: 0,
     sampleRate: 48000,
@@ -54,33 +53,41 @@ function makeAudioRecorder() {
       connect: (to: unknown) => calls.push(`gain->${(to as { name?: string })?.name ?? "node"}`),
       disconnect: () => calls.push("gain.disconnect"),
     }),
-    createDelay: (max: number) => {
-      delaySeconds = max;
-      return {
-        delayTime: param("delayTime", 0),
-        connect: (to: unknown) => calls.push(`delay->${(to as { name?: string })?.name ?? "node"}`),
-        disconnect: () => calls.push("delay.disconnect"),
-      };
-    },
+    createDelay: (max: number) => ({
+      delayTime: param("delayTime", 0),
+      connect: (to: unknown) => calls.push(`predelay->${(to as { name?: string })?.name ?? "node"}`),
+      disconnect: () => calls.push("predelay.disconnect"),
+      maxDelaySeconds: max,
+    }),
+    createConvolver: () => ({
+      normalize: true,
+      buffer: null as AudioBuffer | null,
+      connect: (to: unknown) => calls.push(`convolver->${(to as { name?: string })?.name ?? "node"}`),
+      disconnect: () => calls.push("convolver.disconnect"),
+    }),
     createBiquadFilter: () => ({
       type: "lowpass",
       frequency: param("frequency", 350),
       connect: (to: unknown) => calls.push(`filter->${(to as { name?: string })?.name ?? "node"}`),
       disconnect: () => calls.push("filter.disconnect"),
     }),
-    createStereoPanner: () => ({
-      pan: param("pan", 0),
-      connect: (to: unknown) => calls.push(`panner->${(to as { name?: string })?.name ?? "node"}`),
-      disconnect: () => calls.push("panner.disconnect"),
-    }),
-    maxDelaySeconds: () => delaySeconds,
+    createBuffer: (channels: number, length: number, sampleRate: number) => {
+      calls.push(`impulse=${channels}x${length}@${sampleRate}`);
+      const data = Array.from({ length: channels }, () => new Float32Array(length));
+      return {
+        numberOfChannels: channels,
+        length,
+        sampleRate,
+        duration: length / sampleRate,
+        getChannelData: (channel: number) => data[channel],
+      } as unknown as AudioBuffer;
+    },
   };
-
   return { ctx, calls };
 }
 
 // ---------------------------------------------------------------- presets
-h.ok(VOICE_ECHO_PRESETS.length >= 6, `expected 6+ spaces, got ${VOICE_ECHO_PRESETS.length}`);
+h.eq(VOICE_ECHO_PRESETS.length, 5, `the picker has five focused spaces, got ${VOICE_ECHO_PRESETS.length}`);
 const seen = new Set<string>();
 for (const preset of VOICE_ECHO_PRESETS) {
   h.ok(!seen.has(preset.id), `duplicate echo preset id ${preset.id}`);
@@ -93,10 +100,12 @@ for (const preset of VOICE_ECHO_PRESETS) {
   h.ok(preset.width >= 0 && preset.width <= 1, `${preset.id} width is in range (${preset.width})`);
 }
 
-h.eq(getVoiceEchoPreset("off").name, "No Echo", "the off preset is the dry voice");
+h.eq(getVoiceEchoPreset("off").name, "Off", "the off preset is the dry voice");
 h.eq(getVoiceEchoPreset("nonsense").id, "off", "an unknown preset falls back to dry");
 h.eq(DEFAULT_VOICE_ECHO.enabled, false, "echo is off until the user turns it on");
 h.eq(DEFAULT_VOICE_ECHO.preset, "room", "the default space is a warm room");
+h.ok(!VOICE_ECHO_PRESETS.some((preset) => preset.id === "doubler"), "the hollow double-voice effect is no longer offered");
+h.eq(getVoiceEchoPreset("doubler").id, "room", "legacy double-voice settings migrate to a natural room");
 
 // picking a space carries that space's own numbers
 for (const preset of VOICE_ECHO_PRESETS) {
@@ -138,7 +147,7 @@ for (let i = 1; i < ordered.length; i++) {
     tone: -3,
     width: 7,
   });
-  h.eq(wild.amount, 1, "echo mix clamps at 100%");
+  h.eq(wild.amount, 0.55, "room mix is capped so the dry narration stays intelligible");
   h.eq(wild.delay, 0, "echo delay never goes negative");
   h.eq(wild.feedback, 0.85, "echo decay clamps below runaway feedback");
   h.eq(wild.tone, 0, "echo tone clamps at 0");
@@ -158,12 +167,12 @@ for (let i = 1; i < ordered.length; i++) {
 }
 
 // ---------------------------------------------------------------- description
-h.ok(describeVoiceEcho(undefined).toLowerCase().includes("dry"), "off is described as dry");
+h.ok(describeVoiceEcho(undefined).toLowerCase().includes("clean"), "off is described as a clean voice");
 {
-  const text = describeVoiceEcho(voiceEchoPresetConfig("cathedral"));
-  h.ok(text.includes("Cathedral"), `the description names the space (${text})`);
-  h.ok(text.includes("%"), `the description shows the mix (${text})`);
-  h.ok(text.includes("ms"), `the description shows the delay (${text})`);
+  const text = describeVoiceEcho(voiceEchoPresetConfig("hall"));
+  h.ok(text.includes("Hall"), `the description names the space (${text})`);
+  h.ok(text.includes("%"), `the description shows the wet mix (${text})`);
+  h.ok(text.includes("room"), `the description describes room ambience (${text})`);
 }
 h.eq(voiceEchoIsActive(voiceEchoPresetConfig("off")), false, "off is not active");
 h.eq(voiceEchoIsActive(voiceEchoPresetConfig("hall")), true, "a hall is active");
@@ -176,57 +185,49 @@ h.eq(
 // ---------------------------------------------------------------- damping curve
 h.ok(
   echoDampingFrequency(0) > echoDampingFrequency(1),
-  "a brighter echo keeps more high end than a distant one"
+  "a brighter room keeps more high end than a distant one"
 );
 for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
   const f = echoDampingFrequency(tone);
   h.finite(f, `damping frequency is finite at tone ${tone}`);
-  h.ok(f >= 1800 && f <= 9000, `damping frequency stays in the audible band (${f})`);
+  h.ok(f >= 2000 && f <= 8800, `damping frequency stays in the audible band (${f})`);
 }
 
-// ---------------------------------------------------------------- the graph
+// ---------------------------------------------------------------- room impulse and graph
 {
   const { ctx, calls } = makeAudioRecorder();
   const cfg = voiceEchoPresetConfig("hall");
+  const impulse = createRoomImpulse(ctx as unknown as BaseAudioContext, cfg);
+  h.ok(impulse.duration > 1 && impulse.duration < 3.2, "hall uses a long but bounded diffuse room response");
+  h.eq(impulse.numberOfChannels, 2, "wide spaces use a stereo room impulse");
+  const left = impulse.getChannelData(0);
+  h.ok(left.some((sample) => Math.abs(sample) > 0.01), "the generated impulse contains audible early reflections and a diffuse tail");
+  h.ok(left.some((sample, index) => index > 4000 && Math.abs(sample) > 0.0001), "the room response decays over time rather than repeating one slap");
+
   const graph = createVoiceEchoGraph(ctx as unknown as BaseAudioContext, cfg);
-
   const values = calls.join(" ");
-  h.ok(values.includes(`delayTime=${(cfg.delay / 1000).toFixed(4)}`), "the graph applies the preset delay");
-  h.ok(values.includes(`gain=${cfg.amount.toFixed(4)}`), "the graph applies the wet mix");
-  h.ok(values.includes(`gain=${cfg.feedback.toFixed(4)}`), "the graph applies the decay");
-  h.ok(
-    values.includes(`frequency=${echoDampingFrequency(cfg.tone).toFixed(4)}`),
-    "the graph rolls the repeats off at the tone setting"
-  );
-  h.ok(
-    values.includes("delay->") && values.includes("filter->") && values.includes("gain->"),
-    "the delay chain is connected"
-  );
-  h.ok(values.includes("pan"), "the wide spaces use the second, panned tap");
+  h.ok(values.includes(`delayTime=${(cfg.delay / 1000).toFixed(4)}`), "the graph applies a short pre-delay");
+  h.ok(values.includes(`gain=${cfg.amount.toFixed(4)}`), "the graph applies a subtle wet mix");
+  h.ok(values.includes(`frequency=${echoDampingFrequency(cfg.tone).toFixed(4)}`), "the graph damps room reflections at the chosen tone");
+  h.ok(values.includes("predelay->") && values.includes("convolver->") && values.includes("filter->"), "the actual signal passes through a convolution room response");
+  h.ok(values.includes("gain=1.0000"), "the dry voice remains at full level beneath the reverb");
 
-  // turning the echo down mid-playback only moves gains — nothing is re-wired
+  const beforeMixOnly = calls.filter((call) => call.startsWith("impulse=")).length;
+  graph.update({ ...cfg, amount: 0.12 });
+  h.eq(calls.filter((call) => call.startsWith("impulse=")).length, beforeMixOnly, "moving the wet-mix slider reuses the generated room impulse");
   const before = calls.length;
   graph.update({ ...cfg, amount: 0.1, preset: "studio" });
-  h.ok(calls.length > before, "update() re-applies the settings");
-  h.ok(values.includes("gain=1.0000"), "the dry voice is always passed through at full level");
-
-  // switching it off silences the tail (no runaway repeats)
+  h.ok(calls.length > before, "update() re-applies settings without rebuilding the signal wiring");
   const beforeOff = calls.length;
   graph.update({ ...cfg, enabled: false });
   const after = calls.slice(beforeOff).join(" ");
-  h.ok(after.includes("gain=0.0000"), "switching the echo off mutes the wet path");
-  h.ok(
-    !after.includes(`gain=${cfg.feedback.toFixed(4)}`),
-    "switching the echo off also drops the feedback to zero"
-  );
-
+  h.ok(after.includes("gain=0.0000"), "switching the ambience off mutes the wet path");
   graph.dispose();
-  h.ok(calls.join(" ").includes("disconnect"), "dispose() tears the chain down");
+  h.ok(calls.join(" ").includes("convolver.disconnect"), "dispose() tears down the convolution graph");
 
-  // the off preset builds a silent chain rather than a broken one
   const dry = makeAudioRecorder();
   const dryGraph = createVoiceEchoGraph(dry.ctx as unknown as BaseAudioContext, voiceEchoPresetConfig("off"));
-  h.ok(dry.calls.join(" ").includes("gain=0.0000"), "the off preset builds a silent (not broken) chain");
+  h.ok(dry.calls.join(" ").includes("gain=0.0000"), "the off preset builds a silent (not broken) wet path");
   dryGraph.dispose();
 }
 
@@ -245,7 +246,8 @@ for (const tone of [0, 0.25, 0.5, 0.75, 1]) {
   h.ok(studio.includes("VOICE_ECHO_PRESETS.map"), "the Voiceover step offers every space");
   h.ok(studio.includes("ttsPlayer.setVoiceEcho"), "voice previews play through the echo");
   h.ok(studio.includes("onUpdateVoiceEcho"), "the choice is saved on the project");
-  h.ok(studio.includes("Listen with echo"), "there is a button to hear the echo");
+  h.ok(studio.includes("Listen with echo"), "there is a button to hear the room reverb");
+  h.ok(studio.includes("Voice Space &amp; Room Reverb"), "the picker is presented as room ambience rather than repeated-voice effects");
 
   // the player that speaks the previews
   const player = read("src/lib/tts-player.ts");

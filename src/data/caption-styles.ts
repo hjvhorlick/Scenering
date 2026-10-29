@@ -608,7 +608,7 @@ export const CAPTION_STYLES: CaptionStyleDef[] = [
     shadowStrength: 0.78,
     shadowOffset: 3,
     shadowBlur: 18,
-    description: "Wide techno lettering with a cold glow — AI, data and future-facing topics.",
+    description: "Wide techno lettering with a cold glow — futuristic technology, data and digital topics.",
   },
 
   /* -------------------------------------------- ARTSY, second wave ---- */

@@ -7,6 +7,7 @@ import ortMjsUrl from "../../node_modules/onnxruntime-web/dist/ort-wasm-simd-thr
 
 interface PiperRequest {
   id: number;
+  type?: "warm" | "synthesize";
   voiceId: string;
   speakerId: number;
   text: string;
@@ -486,6 +487,12 @@ async function processQueue() {
 self.onmessage = (event: MessageEvent<PiperRequest>) => {
   const request = event.data;
   if (!request || request.id === undefined) return;
+  if (request.type === "warm") {
+    // The model is deliberately not downloaded here; only initialize shared
+    // phonemizer assets so a first card audition has less cold-start work.
+    void loadPhonemizer().catch(() => {});
+    return;
+  }
   requestQueue.push(request);
   void processQueue();
 };

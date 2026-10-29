@@ -681,9 +681,13 @@ export async function handleInboundEmail(message: InboundEmail): Promise<Inbound
 // Replies and new conversations
 // ---------------------------------------------------------------------------
 
+const OUTBOUND_DISPLAY_NAME = "Vincent Horlick";
+const OUTBOUND_BRAND_EMAIL = "vincent@scenering.com";
+
 function senderLine(identity: InboxIdentity): string {
-  const name = headerSafe(identity.displayName, 80).replace(/[,;:]/g, " ").trim();
-  return name ? `${name} <${identity.address}>` : identity.address;
+  // Keep the personal display identity intentionally short; the legal name,
+  // phone number and mailing address must not leak into 1:1 correspondence.
+  return `${OUTBOUND_DISPLAY_NAME} <${identity.address}>`;
 }
 
 /**
@@ -719,21 +723,36 @@ function quoteFor(message: InboxMessage | undefined): { header: string; text: st
   return { header: `On ${stamp}, ${who} wrote:`, text };
 }
 
-export function conversationText(body: string, signature: string, quote: { header: string; text: string } | null): string {
+export function conversationText(body: string, _legacySignature: string, quote: { header: string; text: string } | null): string {
   const parts = [body];
-  if (signature.trim()) parts.push(signature.trim());
   if (quote) parts.push(`${quote.header}\n${quote.text.split("\n").map((line) => `> ${line}`).join("\n")}`);
+  parts.push(`— ${OUTBOUND_DISPLAY_NAME}\nScenering\n${OUTBOUND_BRAND_EMAIL}`);
   return parts.join("\n\n");
 }
 
-export function conversationHtml(body: string, signature: string, quote: { header: string; text: string } | null): string {
+/** Bright, email-client-safe brand frame for one-to-one replies and messages. */
+export function conversationHtml(body: string, _legacySignature: string, quote: { header: string; text: string } | null): string {
   const lines = (value: string) => escapeEmailHtml(value).replace(/\n/g, "<br>");
   const paragraphs = body.split(/\n{2,}/).map((paragraph) => `<p style="margin:0 0 14px">${lines(paragraph)}</p>`).join("");
-  const signed = signature.trim() ? `<p style="margin:18px 0 0;color:#4b5563">${lines(signature.trim())}</p>` : "";
   const quoted = quote
-    ? `<div style="margin:24px 0 0;padding:0 0 0 12px;border-left:3px solid #d1d5db;color:#6b7280"><p style="margin:0 0 8px">${escapeEmailHtml(quote.header)}</p><p style="margin:0">${lines(quote.text)}</p></div>`
+    ? `<div style="margin:24px 0 0;padding:0 0 0 14px;border-left:3px solid #a78bfa;color:#64748b"><p style="margin:0 0 8px">${escapeEmailHtml(quote.header)}</p><p style="margin:0">${lines(quote.text)}</p></div>`
     : "";
-  return `<!doctype html><html><body style="margin:0;padding:16px;background:#ffffff"><div style="max-width:640px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1f2937">${paragraphs}${signed}${quoted}</div></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;padding:24px 12px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#172033">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9"><tr><td align="center">
+    <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:640px;background:#ffffff;border:1px solid #dbe3f0;border-radius:18px;overflow:hidden">
+      <tr><td style="height:6px;background:linear-gradient(90deg,#06b6d4 0%,#6366f1 48%,#d946ef 78%,#fb923c 100%);font-size:0;line-height:0">&nbsp;</td></tr>
+      <tr><td style="padding:26px 32px 22px;background:#111827;color:#ffffff">
+        <div style="font-size:24px;font-weight:900;letter-spacing:.08em"><span style="color:#67e8f9">SCENE</span><span style="color:#c4b5fd">RING</span></div>
+        <div style="margin-top:5px;font-size:11px;font-weight:700;letter-spacing:.18em;color:#cbd5e1">A LITTLE MORE COLOUR IN EVERY IDEA</div>
+      </td></tr>
+      <tr><td style="padding:30px 32px 26px;font-size:15px;line-height:1.7;color:#1f2937">${paragraphs}${quoted}</td></tr>
+      <tr><td style="padding:20px 32px 24px;background:#f8fafc;border-top:1px solid #e2e8f0">
+        <div style="font-size:14px;font-weight:800;color:#1e293b">${OUTBOUND_DISPLAY_NAME}</div>
+        <div style="font-size:12px;color:#475569;margin-top:3px">Scenering</div>
+        <a href="mailto:${OUTBOUND_BRAND_EMAIL}" style="display:inline-block;margin-top:5px;font-size:12px;font-weight:700;color:#4f46e5;text-decoration:underline">${OUTBOUND_BRAND_EMAIL}</a>
+      </td></tr>
+    </table>
+  </td></tr></table></body></html>`;
 }
 
 function cleanBody(value: unknown, hasAttachments = false): string {
@@ -853,7 +872,7 @@ export async function sendInboxReply(input: { threadId: string; body: unknown; s
   const messageId = inboxDb.newId("msg");
   const { stored: storedAttachments, providerAttachments } = await prepareOutboundAttachments(messageId, input.attachments);
   const outbound = await inboxDb.createMessage({
-    id: messageId, threadId: thread.id, direction: "out", fromEmail: identity.address, fromName: identity.displayName, toEmail: thread.contactEmail,
+    id: messageId, threadId: thread.id, direction: "out", fromEmail: identity.address, fromName: OUTBOUND_DISPLAY_NAME, toEmail: thread.contactEmail,
     subject, textBody: body, messageId: null, inReplyTo: lastInbound?.messageId || null, referencesHeader: knownIds.slice(-20).join(" ") || null,
     providerMessageId: null, deliveryStatus: "sending", failureReason: null, attachments: storedAttachments, authSummary: "", automated: false, sentBy: input.sentBy,
   });
@@ -893,7 +912,7 @@ export async function startInboxConversation(input: { to: unknown; subject: unkn
     mailbox: identity.address, source: "outbound", category: "", status: "open", unread: false,
   });
   const outbound = await inboxDb.createMessage({
-    id: messageId, threadId: thread.id, direction: "out", fromEmail: identity.address, fromName: identity.displayName, toEmail: to,
+    id: messageId, threadId: thread.id, direction: "out", fromEmail: identity.address, fromName: OUTBOUND_DISPLAY_NAME, toEmail: to,
     subject, textBody: body, messageId: null, inReplyTo: null, referencesHeader: null, providerMessageId: null, deliveryStatus: "sending",
     failureReason: null, attachments: storedAttachments, authSummary: "", automated: false, sentBy: input.sentBy,
   });

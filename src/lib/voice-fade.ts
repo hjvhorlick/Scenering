@@ -34,15 +34,23 @@ export interface GainParam {
 }
 
 /** Open a voice gain from silence, starting now. */
-export function scheduleVoiceFadeIn(param: GainParam, startTime: number, seconds = VOICE_FADE_IN_SECONDS): void {
+export const VOICE_NARRATION_GAIN = 1.3;
+
+export function scheduleVoiceFadeIn(
+  param: GainParam,
+  startTime: number,
+  seconds = VOICE_FADE_IN_SECONDS,
+  targetGain = 1,
+): void {
   const fade = Math.max(0.004, seconds);
+  const gain = Math.max(0, Math.min(2, Number.isFinite(targetGain) ? targetGain : 1));
   if (typeof param.setValueAtTime === "function" && typeof param.linearRampToValueAtTime === "function") {
     param.setValueAtTime(0, startTime);
-    param.linearRampToValueAtTime(1, startTime + fade);
+    param.linearRampToValueAtTime(gain, startTime + fade);
     return;
   }
   // No automation available: at least do not start at full gain.
-  param.value = 1;
+  param.value = gain;
 }
 
 /**
@@ -55,10 +63,13 @@ export function scheduleVoiceFadeIn(param: GainParam, startTime: number, seconds
 export function scheduleVoiceFadeOut(
   param: GainParam,
   startTime: number,
-  seconds = VOICE_FADE_OUT_SECONDS
+  seconds = VOICE_FADE_OUT_SECONDS,
+  startGain?: number,
 ): number {
   const fade = Math.max(0.006, seconds);
-  const from = typeof param.value === "number" && Number.isFinite(param.value) ? param.value : 1;
+  const from = typeof startGain === "number" && Number.isFinite(startGain)
+    ? Math.max(0, Math.min(2, startGain))
+    : typeof param.value === "number" && Number.isFinite(param.value) ? param.value : 1;
   if (typeof param.cancelScheduledValues === "function") param.cancelScheduledValues(startTime);
   if (typeof param.setValueAtTime === "function" && typeof param.linearRampToValueAtTime === "function") {
     param.setValueAtTime(from, startTime);
@@ -100,6 +111,8 @@ export interface StartVoiceOptions {
   durationSeconds?: number;
   fadeInSeconds?: number;
   fadeOutSeconds?: number;
+  /** Linear narration gain (1.3 is +30%; compressor/mastering manages peaks). */
+  gainScale?: number;
 }
 
 /**
@@ -119,7 +132,8 @@ export function startVoiceSource(
   const gain = ctx.createGain();
   const param = gain.gain as unknown as GainParam;
   const startAt = options.whenSeconds ?? ctx.currentTime;
-  scheduleVoiceFadeIn(param, startAt, options.fadeInSeconds);
+  const gainScale = Math.max(0, Math.min(2, Number.isFinite(options.gainScale) ? Number(options.gainScale) : 1));
+  scheduleVoiceFadeIn(param, startAt, options.fadeInSeconds, gainScale);
 
   source.connect(gain);
   gain.connect(destination);
@@ -138,7 +152,7 @@ export function startVoiceSource(
     const fadeOut = Math.max(0.006, options.fadeOutSeconds ?? VOICE_FADE_OUT_SECONDS);
     const endAt = startAt + Math.max(0.02, allowed);
     const fadeFrom = Math.max(startAt, endAt - fadeOut);
-    scheduleVoiceFadeOut(param, fadeFrom, fadeOut);
+    scheduleVoiceFadeOut(param, fadeFrom, fadeOut, gainScale);
     clippedUntil = endAt;
   }
 

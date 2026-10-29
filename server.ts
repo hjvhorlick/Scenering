@@ -195,7 +195,7 @@ async function searchWikimedia(query: string, count: number): Promise<ImageResul
   try {
     const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&list=search&srnamespace=6&srlimit=${srlimit}&srsearch=${encodeURIComponent(query + " filetype:bitmap")}&origin=*`;
     const searchRes = await fetch(searchUrl, {
-      headers: { "User-Agent": "SceneringApp/1.0 (https://ai.studio)" },
+      headers: { "User-Agent": "SceneringApp/1.0 (https://scenering.com)" },
       signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     });
     if (!searchRes.ok) {
@@ -216,7 +216,7 @@ async function searchWikimedia(query: string, count: number): Promise<ImageResul
       titleBatches.map(async (titles): Promise<ImageResult[]> => {
         const imageInfoUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1920&titles=${encodeURIComponent(titles)}&origin=*`;
         const imageRes = await fetch(imageInfoUrl, {
-          headers: { "User-Agent": "SceneringApp/1.0 (https://ai.studio)" },
+          headers: { "User-Agent": "SceneringApp/1.0 (https://scenering.com)" },
           signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
         });
         if (!imageRes.ok) {
