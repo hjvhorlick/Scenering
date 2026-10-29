@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExportCreativeManifest, type BillingInterval, type ExportCreativeManifest, type FeatureKey, type PlanSlug } from "../src/config/plans.ts";
 import { buildPricingTiers } from "../src/config/pricing-tiers.ts";
-import { paypalIsSandbox, paypalAppUrl, paypalPlanGaps, paypalPlanId, paypalPlanLabel, paypalPublicConfig, createPayPalSubscription, getPayPalSubscription, cancelPayPalSubscription, verifyPayPalWebhook, PayPalApiError } from "./paypal-api.ts";
+import { paypalIsSandbox, paypalAppUrl, paypalPlanGaps, paypalPlanId, paypalPlanLabel, paypalPublicConfig, paypalApi, PAYPAL_PLAN_SLOTS, createPayPalSubscription, getPayPalSubscription, cancelPayPalSubscription, verifyPayPalWebhook, PayPalApiError } from "./paypal-api.ts";
 
 import { DEFAULT_STORE_NOTICE, STORE_NOTICE_SETTING_KEY, parseStoredStoreNotice, sanitizeStoreNotice, type StoreNotice } from "../src/config/store-notice.ts";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
@@ -1664,6 +1664,65 @@ export function registerPlatformRoutes(app: Express) {
   app.post("/api/billing/paypal/create-subscription", requireUser, rateLimit("paypal-checkout", 20, 3600000), asyncHandlerVoid(createPayPalCheckout));
   app.post("/api/billing/paypal/confirm-subscription", requireUser, rateLimit("paypal-confirm", 30, 3600000), asyncHandlerVoid(confirmPayPalSubscription));
   app.post("/api/billing/paypal/cancel-subscription", requireUser, rateLimit("paypal-cancel", 20, 3600000), asyncHandlerVoid(cancelPayPalSubscriptionForUser));
+
+  /* One click — or one address-bar visit — that asks PayPal itself whether
+   * the integration is sound. This exists because the failure it separates is
+   * invisible from either side alone: a member's browser can report "email or
+   * password is incorrect" from inside PayPal's own login window, and nothing
+   * in Scenering can see why. Calling PayPal's API from the server splits the
+   * question in two.
+   *
+   * If the credentials authenticate and every configured plan id comes back
+   * from PayPal's own plan list, the integration is finished and whatever is
+   * failing is PayPal's sandbox login — which is PayPal's to fix, not ours.
+   * If authentication fails, the Client ID and Secret are wrong and we
+   * replace them. Neither answer is guessable from the browser.
+   *
+   * Only variable names and plan statuses are reported. The Client Secret is
+   * never echoed, in any branch, including the error paths. */
+  app.get("/api/admin/paypal/self-test", requireAdmin, rateLimit("admin-paypal-self-test", 30, 3600000), asyncHandlerVoid(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const e = env();
+    const slots = PAYPAL_PLAN_SLOTS.map(({ slug, interval }) => ({
+      plan: paypalPlanLabel(slug, interval),
+      variable: PLAN_CONFIG[slug].paypalPlanEnv[interval],
+      planId: paypalPlanId(slug, interval),
+    }));
+    const report: Record<string, unknown> = {
+      environment: paypalIsSandbox() ? "sandbox" : "disabled",
+      production: isProduction(),
+      clientIdSet: Boolean(String(e.PAYPAL_CLIENT_ID || "").trim()),
+      clientSecretSet: Boolean(String(e.PAYPAL_CLIENT_SECRET || "").trim()),
+      appUrl: paypalAppUrl(requestOrigin(req)),
+      plans: slots.map((slot) => ({ ...slot, foundInPayPal: false, status: null as string | null })),
+    };
+    try {
+      const listing = await paypalApi<{ plans?: Array<{ id: string; status: string }> }>("/v1/billing/plans?page_size=20&total_required=true");
+      const remote = new Map((listing.plans || []).map((plan) => [plan.id, String(plan.status || "")]));
+      report.paypalAcceptedCredentials = true;
+      report.plansListedByPayPal = (listing.plans || []).length;
+      report.plans = slots.map((slot) => ({
+        ...slot,
+        foundInPayPal: Boolean(slot.planId) && remote.has(slot.planId),
+        status: slot.planId ? (remote.get(slot.planId) ?? null) : null,
+      }));
+      const missingInPayPal = (report.plans as Array<{ plan: string; planId: string; foundInPayPal: boolean }>)
+        .filter((slot) => slot.planId && !slot.foundInPayPal)
+        .map((slot) => slot.plan);
+      report.verdict = missingInPayPal.length
+        ? `Credentials work, but PayPal does not list the plan(s): ${missingInPayPal.join(", ")}. The plan ids belong to a different PayPal account than the Client ID.`
+        : "PayPal accepted the credentials and every configured plan id is listed. The integration is sound — a failure now can only be inside PayPal's own sandbox login.";
+    } catch (error) {
+      const apiError = error instanceof PayPalApiError ? error : null;
+      report.paypalAcceptedCredentials = false;
+      report.error = apiError?.code || "PAYPAL_UNREACHABLE";
+      report.httpStatus = apiError?.status ?? 502;
+      report.verdict = apiError?.code === "PAYPAL_AUTH_FAILED"
+        ? "PayPal rejected the Client ID and Client Secret. Replace them in Cloudflare with the ones from the same PayPal app."
+        : "PayPal Sandbox could not be reached from this server, or refused the request. See the error code above.";
+    }
+    res.json(report);
+  }));
 
   app.get("/api/admin/overview", requireAdmin, rateLimit("admin-overview", 120, 3600000), asyncHandlerVoid(async (req, res) => {
     /* Bulk reads, not per-user queries. The first version of this endpoint
