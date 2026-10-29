@@ -11,7 +11,10 @@ NODE_ENV=development
 # preview host/protocol for same-origin checks and secure cookies.
 TRUST_PROXY=1
 DEV_EMBEDDED_PREVIEW=1
-# Let the current local/preview request host define its own link origin.
+# The production origin. Outside production it may stay empty: the host a
+# request arrives on (localhost, a preview address, a tunnel) is then used as
+# the link origin for checkout return links. A webhook still needs a stable,
+# publicly reachable URL, so set it before registering one in PayPal Sandbox.
 PUBLIC_APP_URL=
 
 # Required in production (≥ 32 chars — e.g. `openssl rand -hex 32`).

@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExportCreativeManifest, type BillingInterval, type ExportCreativeManifest, type FeatureKey, type PlanSlug } from "../src/config/plans.ts";
 import { buildPricingTiers } from "../src/config/pricing-tiers.ts";
-import { paypalIsSandbox, paypalPlanId, paypalPublicConfig, createPayPalSubscription, getPayPalSubscription, cancelPayPalSubscription, verifyPayPalWebhook, PayPalApiError } from "./paypal-api.ts";
+import { paypalIsSandbox, paypalAppUrl, paypalPlanId, paypalPublicConfig, createPayPalSubscription, getPayPalSubscription, cancelPayPalSubscription, verifyPayPalWebhook, PayPalApiError } from "./paypal-api.ts";
 
 import { DEFAULT_STORE_NOTICE, STORE_NOTICE_SETTING_KEY, parseStoredStoreNotice, sanitizeStoreNotice, type StoreNotice } from "../src/config/store-notice.ts";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
@@ -965,11 +965,26 @@ function paypalText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function paypalConfiguration() {
+/**
+ * The origin this request arrived on. Only the trusted single reverse proxy
+ * may say it was something else (server.ts's origin guard applies exactly the
+ * same rule), so a preview or tunnel host is trusted and a spoofed header on
+ * a direct connection is not.
+ */
+function requestOrigin(req: Request): string {
+  const trusted = env().TRUST_PROXY === "1";
+  const host = (trusted ? String(req.get("x-forwarded-host") || "").split(",")[0].trim() : "") || String(req.get("host") || "").trim();
+  if (!host) return "";
+  const proto = (trusted ? String(req.get("x-forwarded-proto") || "").split(",")[0].trim() : "") || req.protocol || "https";
+  return `${proto}://${host}`;
+}
+
+function paypalConfiguration(requestOriginValue = "") {
   const e = env();
-  const publicConfig = paypalPublicConfig();
+  const publicConfig = paypalPublicConfig(requestOriginValue);
   const webhookIdSet = Boolean(String(e.PAYPAL_WEBHOOK_ID || "").trim());
   const secretSet = Boolean(String(e.PAYPAL_CLIENT_SECRET || "").trim());
+  const appUrlConfigured = Boolean(String(e.PUBLIC_APP_URL || "").trim());
   const planConfiguration = (["sceneflow", "sceneforge"] as const).flatMap((plan) => (["monthly", "yearly"] as const).map((interval) => ({
     plan,
     planName: PLAN_CONFIG[plan].name,
@@ -977,9 +992,8 @@ function paypalConfiguration() {
     planId: paypalPlanId(plan, interval),
     configured: Boolean(paypalPlanId(plan, interval)),
   })));
-  const webhookUrl = e.PUBLIC_APP_URL
-    ? `${String(e.PUBLIC_APP_URL).replace(/\/$/, "")}${PAYPAL_WEBHOOK_PATH}`
-    : null;
+  const appUrl = paypalAppUrl(requestOriginValue);
+  const webhookUrl = appUrl ? `${appUrl}${PAYPAL_WEBHOOK_PATH}` : null;
   return {
     provider: "paypal" as const,
     environment: paypalIsSandbox() ? "sandbox" as const : "disabled" as const,
@@ -987,11 +1001,16 @@ function paypalConfiguration() {
     clientIdSet: Boolean(publicConfig.clientId),
     clientSecretSet: secretSet,
     webhookIdSet,
-    publicAppUrlSet: Boolean(e.PUBLIC_APP_URL),
+    publicAppUrlSet: Boolean(appUrl),
+    /** PUBLIC_APP_URL itself is unset and the value came from this request's
+     *  own host — usable for checkout, but not a stable address to register a
+     *  webhook against. */
+    publicAppUrlDerived: !appUrlConfigured && Boolean(appUrl),
     webhookPath: PAYPAL_WEBHOOK_PATH,
     webhookUrl,
     plans: planConfiguration,
-    ready: !isProduction() && paypalIsSandbox() && Boolean(publicConfig.clientId) && secretSet && webhookIdSet && Boolean(e.PUBLIC_APP_URL) && planConfiguration.every((item) => item.configured),
+    missing: publicConfig.missing,
+    ready: !isProduction() && paypalIsSandbox() && Boolean(publicConfig.clientId) && secretSet && webhookIdSet && Boolean(appUrl) && planConfiguration.every((item) => item.configured),
   };
 }
 
@@ -1099,8 +1118,8 @@ async function createPayPalCheckout(req: Request, res: Response) {
   }
   const plan: Exclude<PlanSlug, "free"> = planValue as Exclude<PlanSlug, "free">;
   const interval: BillingInterval = intervalValue as BillingInterval;
-  const configuration = paypalConfiguration();
-  if (!configuration.ready) return res.status(503).json({ error: "PayPal Sandbox subscriptions are not fully configured.", code: "PAYPAL_NOT_CONFIGURED" });
+  const configuration = paypalConfiguration(requestOrigin(req));
+  if (!configuration.ready) return res.status(503).json({ error: "PayPal Sandbox subscriptions are not fully configured.", code: "PAYPAL_NOT_CONFIGURED", missing: configuration.missing });
 
   const current = await db.findActiveSubscriptionByUserId(user.id);
   if (current && current.status !== "expired") {
@@ -1127,7 +1146,7 @@ async function createPayPalCheckout(req: Request, res: Response) {
     throw error;
   }
 
-  const base = String(env().PUBLIC_APP_URL || "").replace(/\/$/, "");
+  const base = paypalAppUrl(requestOrigin(req));
   try {
     const created = await createPayPalSubscription({
       planId: paypalPlan, userId: user.id, email: user.email, intentToken,
@@ -1592,10 +1611,29 @@ export function registerPlatformRoutes(app: Express) {
     return res.status(201).json({ recorded: true, remaining: await remainingUsage(user.id, plan) });
   }));
 
-  app.get("/api/billing/public-config", rateLimit("billing-public-config", 60, 60000), asyncHandlerVoid(async (_req, res) => {
+  /**
+   * What the browser needs before it can offer a Sandbox checkout — and, when
+   * it cannot, exactly which variable is missing.
+   *
+   * `checkoutEnabled` is the server's own answer, not a build-time guess. The
+   * bundle served to a development machine, a preview and production is the
+   * same production build, so `import.meta.env.DEV` is false everywhere the
+   * app actually runs and can never be the gate: it disabled paid checkout on
+   * every Sandbox host while the server was perfectly willing to run it. The
+   * runtime knows whether it is production; ask it.
+   */
+  app.get("/api/billing/public-config", rateLimit("billing-public-config", 60, 60000), asyncHandlerVoid(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
-    const config = paypalPublicConfig();
-    res.json({ ...config, configured: config.configured && !isProduction() });
+    const config = paypalPublicConfig(requestOrigin(req));
+    const enabled = config.configured && !isProduction() && paypalIsSandbox();
+    res.json({
+      ...config,
+      configured: enabled,
+      checkoutEnabled: enabled,
+      sandbox: paypalIsSandbox(),
+      production: isProduction(),
+      appUrl: paypalAppUrl(requestOrigin(req)),
+    });
   }));
   app.post("/api/billing/paypal/create-subscription", requireUser, rateLimit("paypal-checkout", 20, 3600000), asyncHandlerVoid(createPayPalCheckout));
   app.post("/api/billing/paypal/confirm-subscription", requireUser, rateLimit("paypal-confirm", 30, 3600000), asyncHandlerVoid(confirmPayPalSubscription));
@@ -1709,7 +1747,10 @@ export function registerPlatformRoutes(app: Express) {
       contacts, plans: PLAN_ORDER.map((slug) => PLAN_CONFIG[slug]),
       configuration: { emailProviderConfigured: Boolean(e.EMAIL_PROVIDER && e.EMAIL_PROVIDER !== "console"), paypalConfigured: paypalBillingConfiguration().ready, publicAppUrlConfigured: Boolean(e.PUBLIC_APP_URL), production: isProduction() },
 
-      billing: billingConfiguration(), paypal: paypalBillingConfiguration(), webhookEvents: webhookEvents.reverse(),
+      /* The request origin is passed through so the dashboard's webhook
+         candidate and readiness reflect the host the owner is actually
+         looking at, not only the configured variable. */
+      billing: billingConfiguration(requestOrigin(req)), paypal: paypalBillingConfiguration(requestOrigin(req)), webhookEvents: webhookEvents.reverse(),
       inbox: await inboxSummarySafe(),
     });
   }));

@@ -1,5 +1,6 @@
 import { env } from "../src/env.ts";
-import { PLAN_CONFIG, type BillingInterval, type PlanSlug } from "../src/config/plans.ts";
+import { isProductionRuntime } from "../src/runtime-mode.ts";
+import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "../src/config/plans.ts";
 import { buildPricingTiers } from "../src/config/pricing-tiers.ts";
 
 const SANDBOX_API = "https://api-m.sandbox.paypal.com";
@@ -21,17 +22,65 @@ export function paypalPlanId(slug: Exclude<PlanSlug, "free">, interval: BillingI
   return String(env()[name] || "").trim();
 }
 
-export function paypalPublicConfig() {
+/**
+ * The origin PayPal sends a member back to after approval or cancellation.
+ *
+ * Production must name it: `PUBLIC_APP_URL` is the address the customer
+ * actually types, and a checkout that invents its own origin sends paying
+ * members somewhere unverified. A development machine, a preview deployment
+ * or a tunnel has no such fixed name — the host a request arrived on *is*
+ * the only origin it can honestly claim — so outside production the caller
+ * may pass the request's own origin and have it used whenever the variable
+ * is unset. That is what keeps Sandbox checkout testable on a preview host
+ * without a configuration file edit.
+ */
+export function paypalAppUrl(requestOrigin = ""): string {
+  const configured = String(env().PUBLIC_APP_URL || "").trim().replace(/\/+$/, "");
+  if (configured) return configured;
+  if (isProductionRuntime(env())) return "";
+  return String(requestOrigin || "").trim().replace(/\/+$/, "");
+}
+
+/**
+ * What is still missing before Sandbox checkout can run, named as the
+ * variable that must be set. Values are never included — only names — so
+ * this is safe to render in a browser or log.
+ */
+export function paypalSetupGaps(appUrl = paypalAppUrl()): string[] {
+  const gaps: string[] = [];
+  if (!paypalIsSandbox()) gaps.push("PAYPAL_ENVIRONMENT must be \"sandbox\"");
+  if (!String(env().PAYPAL_CLIENT_ID || "").trim()) gaps.push("PAYPAL_CLIENT_ID is not set (Sandbox REST app client id)");
+  if (!String(env().PAYPAL_CLIENT_SECRET || "").trim()) gaps.push("PAYPAL_CLIENT_SECRET is not set (Sandbox REST app secret)");
+  if (!String(env().PAYPAL_WEBHOOK_ID || "").trim()) gaps.push("PAYPAL_WEBHOOK_ID is not set (Sandbox webhook id)");
+  if (!appUrl) gaps.push("PUBLIC_APP_URL is not set (the host PayPal returns the member to)");
+  for (const slug of PLAN_ORDER) {
+    if (slug === "free") continue;
+    for (const interval of ["monthly", "yearly"] as const) {
+      if (!paypalPlanId(slug, interval)) gaps.push(`${PLAN_CONFIG[slug].paypalPlanEnv[interval]} is not set (${PLAN_CONFIG[slug].name} ${interval} Sandbox plan id)`);
+    }
+  }
+  return gaps;
+}
+
+export function paypalPublicConfig(requestOrigin = "") {
   const clientId = String(env().PAYPAL_CLIENT_ID || "").trim();
   const tiers = buildPricingTiers((name) => String(env()[name] || ""));
   const idsReady = tiers.filter((tier) => tier.id !== "free").every((tier) => tier.planId.monthly && tier.planId.yearly);
+  const appUrl = paypalAppUrl(requestOrigin);
+  const configured = paypalIsSandbox() && Boolean(clientId) && Boolean(String(env().PAYPAL_CLIENT_SECRET || "").trim()) && Boolean(String(env().PAYPAL_WEBHOOK_ID || "").trim()) && Boolean(appUrl) && idsReady;
   return {
     provider: "paypal" as const,
     environment: "sandbox" as const,
     clientId,
     currency: "USD" as const,
-    configured: paypalIsSandbox() && Boolean(clientId) && Boolean(String(env().PAYPAL_CLIENT_SECRET || "").trim()) && Boolean(String(env().PAYPAL_WEBHOOK_ID || "").trim()) && Boolean(String(env().PUBLIC_APP_URL || "").trim()) && idsReady,
+    configured,
     tiers,
+    /**
+     * Why checkout is unavailable, in plain variable names. The browser shows
+     * this instead of a dead button, which is the difference between "the
+     * PayPal buttons do not work" and a two-minute configuration fix.
+     */
+    missing: paypalSetupGaps(appUrl),
   };
 }
 

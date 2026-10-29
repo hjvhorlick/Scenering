@@ -1,14 +1,5 @@
 import type { Tier } from "../config/pricing-tiers";
 
-export interface PublicBillingConfig {
-  provider: "paypal";
-  environment: "sandbox";
-  clientId: string;
-  currency: "USD";
-  configured: boolean;
-  tiers: Tier[];
-}
-
 type PayPalButtonResult = {
   render: (container: HTMLElement | string) => Promise<void>;
   close?: () => Promise<void> | void;
@@ -27,8 +18,37 @@ declare global {
   }
 }
 
+export interface PublicBillingConfig {
+  provider: "paypal";
+  environment: "sandbox";
+  clientId: string;
+  currency: "USD";
+  /** True only when this runtime can actually run a Sandbox checkout. */
+  configured: boolean;
+  /** The same answer, named for what the browser does with it. */
+  checkoutEnabled?: boolean;
+  sandbox?: boolean;
+  production?: boolean;
+  /** Variable names only — never values — describing what is still missing. */
+  missing?: string[];
+  tiers: Tier[];
+}
+
 let sdkPromise: Promise<void> | null = null;
 let sdkClientId = "";
+
+/**
+ * Drop the cached SDK load so the next call injects the script again.
+ *
+ * The loader used to keep a rejected promise forever: one blocked or dropped
+ * request to paypal.com (an offline tab, a corporate filter, an ad blocker)
+ * left every later "Try again" showing the *first* failure without ever
+ * retrying, which reads as "the PayPal buttons are broken".
+ */
+export function resetPayPalSdk() {
+  sdkPromise = null;
+  if (typeof document !== "undefined") document.getElementById("scenering-paypal-sdk")?.remove();
+}
 
 /** Load PayPal's official browser SDK at runtime; never bake a client id into the app bundle. */
 export function loadPayPalSdk(clientId: string): Promise<void> {
@@ -36,21 +56,27 @@ export function loadPayPalSdk(clientId: string): Promise<void> {
   if (window.paypal?.Buttons && sdkClientId === clientId) return Promise.resolve();
   if (sdkPromise && sdkClientId === clientId) return sdkPromise;
   sdkClientId = clientId;
-  sdkPromise = new Promise<void>((resolve, reject) => {
+  const loading = new Promise<void>((resolve, reject) => {
     const existing = document.getElementById("scenering-paypal-sdk") as HTMLScriptElement | null;
     if (existing) existing.remove();
     const script = document.createElement("script");
     script.id = "scenering-paypal-sdk";
     script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&vault=true&intent=subscription&currency=USD`;
     script.async = true;
-    script.onload = () => window.paypal?.Buttons ? resolve() : reject(new Error("PayPal checkout did not initialize."));
-    script.onerror = () => {
-      sdkPromise = null;
-      reject(new Error("PayPal Sandbox could not load. Check your connection and try again."));
-    };
+    script.onload = () => window.paypal?.Buttons
+      ? resolve()
+      : reject(new Error("PayPal loaded, but its checkout buttons did not initialize. Reload the page and try again."));
+    script.onerror = () => reject(new Error("PayPal Sandbox could not load. Check your connection, ad-blocker or VPN and try again."));
     document.head.appendChild(script);
   });
-  return sdkPromise;
+  sdkPromise = loading;
+  // Failure must not be sticky: clear the cache and the half-loaded script so
+  // the next attempt really is a fresh one.
+  loading.catch(() => {
+    if (sdkPromise === loading) sdkPromise = null;
+    document.getElementById("scenering-paypal-sdk")?.remove();
+  });
+  return loading;
 }
 
 export type { PayPalButtonOptions, PayPalButtonResult };

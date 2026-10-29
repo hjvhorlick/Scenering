@@ -49,6 +49,17 @@ Store the Sandbox webhook ID in `PAYPAL_WEBHOOK_ID`. Scenering asks PayPal's ver
 
 Checkout requires the existing authenticated Scenering session. The Worker creates a random, short-lived checkout intent bound to the session user, selected plan, interval, and server-configured Sandbox plan ID. Only a hash of the random intent token is stored. On approval, the Worker fetches the subscription from PayPal and verifies its ID, plan, intent token, and Scenering user association. Paid access is granted only after verified server state/webhooks; a browser callback never grants entitlements. The account area provides PayPal Sandbox self-service and cancellation controls. Existing historical subscription rows and migration history are retained; no database cleanup or destructive migration is part of this change.
 
+## If the Sandbox buttons do nothing
+
+The gate is the **runtime**, not the build. Paid checkout used to be switched on by Vite's `DEV` flag in the browser, which is false in the bundle that is actually served (`npm run dev` runs `vite build --watch`, and every other host serves a production build), so the buttons were dead on the very Sandbox hosts meant for testing them. The browser now asks the server: `GET /api/billing/public-config` reports `checkoutEnabled`, `sandbox`, `production` and a `missing` list naming every variable that is still unset (names only — never values).
+
+- **Buttons disabled, with a line underneath naming variables** — set them in `.dev.vars` (local) or in the Worker's secrets (a preview deployment), then reload the page. The pricing page and the account modal show the same list.
+- **`checkoutEnabled: true` but the dialog says it could not load PayPal** — the browser could not fetch `https://www.paypal.com/sdk/js`. Check the connection, an ad blocker or a VPN. Press **Try again**; the loader no longer caches a failed load.
+- **The approval window opens and then hangs** — the page's opener relationship was severed. Outside production the server now sends `Cross-Origin-Opener-Policy: same-origin-allow-popups` so PayPal's popup can report back; production stays on `same-origin` and refuses Sandbox checkout anyway.
+- **The dialog opens behind the account modal or off-screen** — it is rendered into `document.body` through a portal, because the account modal's `backdrop-filter` makes it the containing block for `position: fixed` descendants.
+- **A 503 on `POST /api/billing/paypal/create-subscription`** — the response now carries the same `missing` list. Production always answers 503 here.
+- **`PUBLIC_APP_URL`** — required in production. Outside production it may be left unset and the host the request arrived on is used as the link origin, which is what makes a preview address testable; the admin dashboard marks such a value *Derived*, because a derived host is not a stable address to register a webhook against.
+
 ## Validation before any rollout
 
 Run `npm run typecheck`, `npm run worker:typecheck`, `npm test`, and `npm run build`. Exercise Sandbox cases for successful approval, wrong plan, another user's subscription ID, invalid webhook signature, duplicate and concurrent event delivery, payment failure, suspension, cancellation, expiry, and retry after transient PayPal errors. Do not use Live credentials or deploy a production cutover as part of this work.
