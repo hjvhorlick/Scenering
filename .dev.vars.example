@@ -42,6 +42,13 @@ EMAIL_REPLY_TO=support@scenering.com
 
 # PayPal subscriptions are Sandbox-only and must remain disabled in production.
 # Keep Client Secret and Webhook ID in server-side secrets, never VITE_* vars.
+#
+# One set-up Sandbox plan is enough to test with: each plan is gated on its
+# own id, so an unset plan id only takes that plan off sale — the plans that
+# exist stay purchasable. Credentials and PUBLIC_APP_URL must be set either
+# way, because those block every plan. PAYPAL_WEBHOOK_ID can wait: approval is
+# verified by fetching the subscription from PayPal, so the webhook is only
+# needed later, for renewals, cancellations and failed payments.
 PAYPAL_ENVIRONMENT=sandbox
 PAYPAL_CLIENT_ID=
 PAYPAL_CLIENT_SECRET=

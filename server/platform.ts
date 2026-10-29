@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { PLAN_CONFIG, PLAN_ORDER, canPlanUseFeature, getPlanConfig, validateExportCreativeManifest, type BillingInterval, type ExportCreativeManifest, type FeatureKey, type PlanSlug } from "../src/config/plans.ts";
 import { buildPricingTiers } from "../src/config/pricing-tiers.ts";
-import { paypalIsSandbox, paypalAppUrl, paypalPlanId, paypalPublicConfig, createPayPalSubscription, getPayPalSubscription, cancelPayPalSubscription, verifyPayPalWebhook, PayPalApiError } from "./paypal-api.ts";
+import { paypalIsSandbox, paypalAppUrl, paypalPlanGaps, paypalPlanId, paypalPlanLabel, paypalPublicConfig, createPayPalSubscription, getPayPalSubscription, cancelPayPalSubscription, verifyPayPalWebhook, PayPalApiError } from "./paypal-api.ts";
 
 import { DEFAULT_STORE_NOTICE, STORE_NOTICE_SETTING_KEY, parseStoredStoreNotice, sanitizeStoreNotice, type StoreNotice } from "../src/config/store-notice.ts";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./email.ts";
@@ -994,6 +994,7 @@ function paypalConfiguration(requestOriginValue = "") {
   })));
   const appUrl = paypalAppUrl(requestOriginValue);
   const webhookUrl = appUrl ? `${appUrl}${PAYPAL_WEBHOOK_PATH}` : null;
+  const plansReady = planConfiguration.filter((item) => item.configured).length;
   return {
     provider: "paypal" as const,
     environment: paypalIsSandbox() ? "sandbox" as const : "disabled" as const,
@@ -1009,8 +1010,19 @@ function paypalConfiguration(requestOriginValue = "") {
     webhookPath: PAYPAL_WEBHOOK_PATH,
     webhookUrl,
     plans: planConfiguration,
+    /** How many of the four plan ids exist. One is enough to test with. */
+    plansReady,
     missing: publicConfig.missing,
-    ready: !isProduction() && paypalIsSandbox() && Boolean(publicConfig.clientId) && secretSet && webhookIdSet && Boolean(appUrl) && planConfiguration.every((item) => item.configured),
+    unconfiguredPlans: publicConfig.unconfiguredPlans,
+    warnings: publicConfig.warnings,
+    /* Credentials plus at least one Sandbox plan ready. Requiring all four
+       meant a Sandbox with a single product could not sell that product
+       either, which is the usual way a Sandbox is brought up.
+       The webhook id is deliberately not required: approval is verified by
+       reading the subscription back from PayPal, so the button can be tested
+       before any webhook is registered. `webhookIdSet` is still reported, so
+       the dashboard can say what is outstanding. */
+    ready: !isProduction() && paypalIsSandbox() && Boolean(publicConfig.clientId) && secretSet && Boolean(appUrl) && plansReady > 0,
   };
 }
 
@@ -1130,6 +1142,16 @@ async function createPayPalCheckout(req: Request, res: Response) {
   }
 
   const paypalPlan = paypalPlanId(plan, interval);
+  /* Refuse only the plan that has no Sandbox id, before any D1 intent row is
+     written. The credentials are shared, so one missing product must never
+     take the products that do exist off sale. */
+  if (!paypalPlan) {
+    return res.status(503).json({
+      error: `${paypalPlanLabel(plan, interval)} has no PayPal Sandbox plan yet. Set ${PLAN_CONFIG[plan].paypalPlanEnv[interval]} to sell this plan.`,
+      code: "PAYPAL_PLAN_NOT_CONFIGURED",
+      missing: paypalPlanGaps({ slug: plan, interval }),
+    });
+  }
   const intentToken = randomBytes(24).toString("base64url");
   await db.expirePayPalCheckoutIntents();
   let intent: Awaited<ReturnType<typeof db.createPayPalCheckoutIntent>>;

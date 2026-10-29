@@ -1,3 +1,4 @@
+import { PLAN_CONFIG, type BillingInterval, type PlanSlug } from "../config/plans";
 import type { Tier } from "../config/pricing-tiers";
 
 type PayPalButtonResult = {
@@ -31,7 +32,33 @@ export interface PublicBillingConfig {
   production?: boolean;
   /** Variable names only — never values — describing what is still missing. */
   missing?: string[];
+  /** Plans with no Sandbox plan id yet: "SceneFlow monthly — PAYPAL_… is not set". */
+  unconfiguredPlans?: string[];
+  /** What is still outstanding without blocking checkout — the webhook, mainly. */
+  warnings?: string[];
   tiers: Tier[];
+}
+
+/** The plan as a person reads it: "SceneFlow monthly". */
+export function paypalPlanLabel(slug: Exclude<PlanSlug, "free">, interval: BillingInterval): string {
+  return `${PLAN_CONFIG[slug].name} ${interval}`;
+}
+
+/** The server variable that holds this plan's Sandbox id — safe to show, it names no value. */
+export function paypalPlanVariable(slug: Exclude<PlanSlug, "free">, interval: BillingInterval): string {
+  return PLAN_CONFIG[slug].paypalPlanEnv[interval];
+}
+
+/**
+ * Whether this one plan and interval can actually be bought.
+ *
+ * A Sandbox is normally brought up one product at a time, so a missing plan
+ * id only takes that plan off sale — the plans that are set up stay
+ * purchasable instead of all four waiting for the last one.
+ */
+export function paypalPlanReady(config: PublicBillingConfig | null, slug: PlanSlug, interval: BillingInterval): boolean {
+  if (slug === "free") return true;
+  return Boolean(config?.tiers.find((tier) => tier.id === slug)?.planId?.[interval]);
 }
 
 let sdkPromise: Promise<void> | null = null;

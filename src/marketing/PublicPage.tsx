@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type FeatureKey } from "../config/plans";
+import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type FeatureKey, type PlanSlug } from "../config/plans";
 import { isFeatureTourPath, navigate, STUDIO_PATH } from "../lib/route";
 import { useSession } from "../lib/session";
 import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
 import PayPalSubscriptionDialog from "../components/PayPalSubscriptionDialog";
+import { paypalPlanLabel, paypalPlanReady, paypalPlanVariable } from "../lib/paypal-sdk";
 import { buildPricingTiers, TIER_FEATURES, type Tier } from "../config/pricing-tiers";
 import { BrandMark } from "./components/primitives";
 import HeaderLegalMenu from "./components/HeaderLegalMenu";
@@ -189,6 +190,12 @@ function PricingPage() {
    * server already answers this question with the production gate applied;
    * ask it instead of guessing from the bundle. */
   const checkoutEnabled = Boolean(config?.configured);
+  const paidSlots = (config?.tiers.filter((tier) => tier.id !== "free").length ?? 0) * 2;
+  /* A Sandbox is usually brought up one product at a time, so each plan is
+   * offered only when its own Sandbox plan id exists. */
+  const planReady = (slug: PlanSlug) => paypalPlanReady(config, slug, interval);
+  const planBlockedReason = (slug: Exclude<PlanSlug, "free">) =>
+    `${paypalPlanLabel(slug, interval)} has no PayPal Sandbox plan yet — set ${paypalPlanVariable(slug, interval)} to sell this plan.`;
   const checkoutBlockedReason = config?.production
     ? "PayPal Sandbox checkout runs on a development or preview host, not on the live site."
     : !config
@@ -223,16 +230,23 @@ function PricingPage() {
           ? <button
               className="mkt-btn mkt-btn-primary"
               type="button"
-              disabled={opening === tier.id || !checkoutEnabled}
-              title={checkoutEnabled ? undefined : checkoutBlockedReason}
+              disabled={opening === tier.id || !checkoutEnabled || !planReady(tier.id)}
+              title={!checkoutEnabled ? checkoutBlockedReason : !planReady(tier.id) ? planBlockedReason(tier.id as Exclude<PlanSlug, "free">) : undefined}
               onClick={() => subscribe(tier)}
-            >{opening === tier.id ? "Opening PayPal Sandbox…" : checkoutEnabled ? `Subscribe to ${tier.name} · PayPal Sandbox` : `Subscribe to ${tier.name}`}</button>
+            >{opening === tier.id ? "Opening PayPal Sandbox…" : checkoutEnabled && planReady(tier.id) ? `Subscribe to ${tier.name} · PayPal Sandbox` : `Subscribe to ${tier.name}`}</button>
           : <a href="/register" className="mkt-btn mkt-btn-primary">Get Started Free</a>}
+        {tier.id !== "free" && checkoutEnabled && !planReady(tier.id) && <p className="mt-2 text-[11px] text-amber-300">{planBlockedReason(tier.id as Exclude<PlanSlug, "free">)}</p>}
       </article>)}</div>
       {/* When Sandbox checkout cannot run, say so — and name what is missing.
           A disabled button with no explanation is what "the PayPal buttons
           are broken" looks like from the outside. */}
       {!checkoutEnabled && <p className="pub-legal-note" role="status">{checkoutBlockedReason}</p>}
+      {/* Say which plans are actually testable: one Sandbox product is enough
+          to work with, and the rest are named so nobody wonders why their
+          button is greyed out. */}
+      {checkoutEnabled && (config?.unconfiguredPlans?.length ?? 0) > 0 && <p className="pub-legal-note" role="status">PayPal Sandbox has {paidSlots - (config?.unconfiguredPlans?.length ?? 0)} of {paidSlots} plans set up. Not set up yet: {config?.unconfiguredPlans?.join("; ")}.</p>}
+      {/* Outstanding, but not blocking: checkout can be tested without it. */}
+      {checkoutEnabled && config?.warnings?.map((warning) => <p key={warning} className="pub-legal-note" role="status">{warning}</p>)}
       <button className="pub-compare-btn" onClick={() => setCompare(!compare)} aria-expanded={compare}>{compare ? "Hide" : "Show"} complete feature comparison</button>
       {compare && <Comparison />}
       <p className="pub-legal-note">PayPal Sandbox transactions are for testing only; production billing remains disabled. By subscribing you agree to the <a href="/terms">Terms of Service</a>, <a href="/privacy">Privacy Policy</a> and <a href="/refunds">Refund &amp; Cancellation Policy</a>.</p>
