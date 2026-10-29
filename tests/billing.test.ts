@@ -1,6 +1,8 @@
 /**
- * Billing contract: PayPal Sandbox is the only active subscription provider,
- * remains disabled in production, and has no Live-mode or legacy checkout path.
+ * Billing contract: PayPal Sandbox is the only active subscription provider.
+ * Sandbox runs on any runtime that holds the Sandbox keys, production
+ * included, because the live host is the only one with a fixed public URL and
+ * PayPal needs one. Live mode has no path at all, on any runtime.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { createHarness } from "./harness";
@@ -57,7 +59,28 @@ const configuration = platform.billingConfiguration();
 h.eq(configuration.provider, "paypal", "admin billing configuration reports PayPal only");
 h.eq(configuration.webhookPath, "/api/webhooks/paypal", "admin configuration reports the PayPal callback path");
 h.eq(configuration.webhookUrl, "https://scenering.test/api/webhooks/paypal", "callback candidate is formed from the configured app origin");
-h.eq(configuration.ready, false, "missing webhook ID keeps checkout unready");
+/* The webhook is deliberately not required for checkout: approval is verified
+ * by reading the subscription back from PayPal, so the Sandbox can be tested
+ * before any webhook is registered. A missing Credential still closes it. */
+h.eq(configuration.webhookIdSet, false, "admin configuration reports the unset Sandbox webhook id");
+/* The webhook is deliberately not required: approval is verified by reading
+ * the subscription back from PayPal, so a checkout can be tested before any
+ * Sandbox webhook is registered. */
+h.eq(configuration.ready, true, "credentials and plan ids are enough — an unregistered webhook does not block checkout");
+h.ok(configuration.warnings.some((item: string) => item.includes("PAYPAL_WEBHOOK_ID")), "the unregistered webhook is still reported as outstanding");
+{
+  const clientId = process.env.PAYPAL_CLIENT_ID;
+  process.env.PAYPAL_CLIENT_ID = "";
+  h.eq(platform.billingConfiguration().ready, false, "missing Sandbox credentials keep checkout unready");
+  process.env.PAYPAL_CLIENT_ID = clientId;
+  const plans = ["PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID", "PAYPAL_SCENEFLOW_YEARLY_PLAN_ID", "PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID", "PAYPAL_SCENEFORGE_YEARLY_PLAN_ID"]
+    .map((name) => [name, process.env[name]] as const);
+  for (const [name] of plans) process.env[name] = "";
+  h.eq(platform.billingConfiguration().ready, false, "no Sandbox plan at all keeps checkout unready");
+  h.eq(platform.billingConfiguration().plansReady, 0, "no plan slots are counted as ready");
+  for (const [name, value] of plans) process.env[name] = value;
+  h.eq(platform.billingConfiguration().ready, true, "restoring the configuration restores checkout");
+}
 h.ok(paypalDialog.includes("/api/billing/public-config"), "the PayPal dialog reads the sole public billing configuration endpoint");
 h.eq(platform.billingProvider(), "paypal", "the billing-provider selector is PayPal-only");
 

@@ -9,6 +9,7 @@ import ApiKeysModal from "./ApiKeysModal";
 import { useApiKeysConfigured } from "../shared/api-key-status";
 import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
 import PayPalSubscriptionDialog from "./PayPalSubscriptionDialog";
+import { paypalPlanLabel, paypalPlanReady, paypalPlanVariable } from "../lib/paypal-sdk";
 
 type AccountPayload = {
   user: { email: string; displayName: string; emailVerified: boolean; role: "user" | "admin" };
@@ -49,7 +50,7 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
   const [keysOpen, setKeysOpen] = useState(false);
   const hasOwnKeys = useApiKeysConfigured();
   /* Load public billing configuration only while this window is open. */
-  const { displayPrice, annualSavingLine } = useLocalizedPlanPrices(isOpen);
+  const { config: billingConfig, displayPrice, annualSavingLine } = useLocalizedPlanPrices(isOpen);
 
   async function refreshAdmin() {
     const response = await fetch("/api/admin/overview");
@@ -140,10 +141,31 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
   const isPreviewingPlan = isOwnerAdmin && currentPlan !== authoritativePlan;
   const enterStudio = () => { if (window.location.pathname === "/app" && window.location.search) history.replaceState({}, "", "/app"); onClose(); };
 
+  /* Whether this runtime can run a Sandbox checkout, answered by the server.
+   * Vite's DEV build flag was the gate before, and it is false in the build
+   * the app is actually served from — `npm run dev` builds with
+   * `vite build --watch`, and every other host serves a production bundle —
+   * so paid checkout was refused on the very Sandbox hosts meant for
+   * testing it. */
+  const checkoutEnabled = Boolean(billingConfig?.configured);
+  const checkoutBlockedReason = billingConfig?.production
+    ? "Paid checkout is disabled while PayPal is Sandbox-only. Production billing has not been enabled."
+    : !billingConfig
+      ? "Checking PayPal Sandbox configuration…"
+      : billingConfig.missing?.length
+        ? `PayPal Sandbox is not ready. Still to set: ${billingConfig.missing.join("; ")}.`
+        : "Paid checkout is disabled while PayPal is Sandbox-only. Production billing has not been enabled.";
+
   function choosePlan(plan: PlanSlug) {
     if (plan === "free") { setNotice("Free is always available. Paid subscriptions return to Free when verified paid access ends."); return; }
-    if (!import.meta.env.DEV) {
-      setNotice("Paid checkout is disabled while PayPal is Sandbox-only. Production billing has not been enabled.");
+    if (!checkoutEnabled) {
+      setNotice(checkoutBlockedReason);
+      return;
+    }
+    /* Only the plan that has no Sandbox id is refused — a Sandbox with one
+       product still sells that product. */
+    if (!paypalPlanReady(billingConfig, plan, interval)) {
+      setNotice(`${paypalPlanLabel(plan, interval)} has no PayPal Sandbox plan yet. Set ${paypalPlanVariable(plan, interval)} to test this plan.`);
       return;
     }
     setNotice("");
@@ -404,8 +426,13 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
             {adminData.paypal && <div className="rounded-lg border border-white/10 bg-gray-950/60 p-4">
               <h4 className="text-sm font-bold">PayPal subscription Sandbox — no Live cutover</h4>
               <p className="mt-2 text-[11px] text-amber-200">Verify the callback is publicly reachable before registering it in PayPal Sandbox. This dashboard does not register webhooks; Live billing remains disabled.</p>
-              <div className="mt-2 text-[11px] text-gray-400">Callback path: <code>{adminData.paypal.webhookPath}</code> · Candidate: <code className="break-all">{adminData.paypal.webhookUrl || "Set PUBLIC_APP_URL and verify reachability"}</code></div>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-3 text-xs">{[["PAYPAL_CLIENT_ID", adminData.paypal.clientIdSet], ["PAYPAL_CLIENT_SECRET", adminData.paypal.clientSecretSet], ["PAYPAL_WEBHOOK_ID", adminData.paypal.webhookIdSet], ["PUBLIC_APP_URL", adminData.paypal.publicAppUrlSet]].map(([name, done]: any) => <div key={name} className="rounded-md border border-white/10 bg-gray-900/60 p-2"><code className="text-[10px] text-gray-500">{name}</code><b className={`block ${done ? "text-emerald-300" : "text-amber-300"}`}>{done ? "Set" : "Missing"}</b></div>)}</div>
+              <div className="mt-2 text-[11px] text-gray-400">Callback path: <code>{adminData.paypal.webhookPath}</code> · Candidate: <code className="break-all">{adminData.paypal.webhookUrl || "Set PUBLIC_APP_URL and verify reachability"}{adminData.paypal.publicAppUrlDerived && <span className="ml-1 text-amber-200">· derived from this request's host, so it is not a stable address to register</span>}</code></div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-3 text-xs">{[["PAYPAL_CLIENT_ID", adminData.paypal.clientIdSet, null], ["PAYPAL_CLIENT_SECRET", adminData.paypal.clientSecretSet, null], ["PAYPAL_WEBHOOK_ID", adminData.paypal.webhookIdSet, null], ["PUBLIC_APP_URL", adminData.paypal.publicAppUrlSet, adminData.paypal.publicAppUrlDerived ? "Derived" : null]].map(([name, done, note]: any) => <div key={name} className="rounded-md border border-white/10 bg-gray-900/60 p-2"><code className="text-[10px] text-gray-500">{name}</code><b className={`block ${done ? "text-emerald-300" : "text-amber-300"}`}>{done ? note || "Set" : "Missing"}</b></div>)}</div>
+              {/* What is still stopping Sandbox checkout, named rather than guessed. */}
+              {adminData.paypal.missing?.length > 0 && <ul className="mt-3 space-y-1 text-[11px] text-amber-200">{adminData.paypal.missing.map((item: string) => <li key={item}>• {item}</li>)}</ul>}
+              {adminData.paypal.unconfiguredPlans?.length > 0 && <ul className="mt-2 space-y-1 text-[11px] text-gray-400">{adminData.paypal.unconfiguredPlans.map((item: string) => <li key={item}>• {item}</li>)}</ul>}
+              {/* Outstanding, not blocking: the webhook can be registered later. */}
+              {adminData.paypal.warnings?.map((warning: string) => <p key={warning} className="mt-2 text-[11px] text-amber-200">{warning}</p>)}
               <div className="grid sm:grid-cols-2 gap-2 mt-3 text-xs">{adminData.paypal.plans.map((item: any) => <div key={`${item.plan}-${item.interval}`} className="rounded-md border border-white/10 bg-gray-900/60 p-2"><b>{item.planName} · {item.interval}</b><code className="block break-all text-gray-300">{item.planId || "Sandbox plan ID missing"}</code></div>)}</div>
             </div>}
             {adminData.complimentaryCodes?.length > 0 && <div><h4 className="text-sm font-bold mb-2">Access codes</h4><div className="flex flex-wrap gap-2">{adminData.complimentaryCodes.map((code: any) => <div key={code.id} className="rounded-lg border border-white/10 bg-gray-950/60 p-3 text-xs"><b>{code.code_prefix}</b><span className="block text-gray-400 capitalize">{code.plan_id} · {code.period} · {code.status}</span><span className="block text-gray-500">expires {new Date(code.expires_at).toLocaleDateString()}</span>{code.status === "active" && <button disabled={busy === `code-${code.id}`} type="button" onClick={() => void revokeAccessCode(code.id)} className="mt-2 rounded-md border border-white/15 px-2 py-1 hover:bg-gray-800">Revoke unused code</button>}</div>)}</div></div>}
@@ -422,9 +449,9 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
           <div className="grid lg:grid-cols-3 gap-4">{PLAN_ORDER.map((slug) => { const plan = PLAN_CONFIG[slug]; const active = currentPlan === slug; const price = plan.prices[interval]; return <article key={slug} className={`rounded-xl border p-5 flex flex-col ${active ? "border-indigo-500 bg-indigo-950/30" : "border-hairline bg-gray-900/60"}`}>
             <div className="flex items-center justify-between"><h4 className="text-lg font-bold">{plan.name}</h4>{active && <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full bg-indigo-600">Current</span>}</div><p className="text-sm text-gray-400 mt-2 min-h-10">{plan.description}</p><div className="mt-4"><b className="text-3xl">{price === 0 ? "$0" : displayPrice(slug, interval)}</b><span className="text-gray-400 text-sm">{price === 0 ? " forever" : `/${interval === "monthly" ? "month" : "year"}`}</span></div>{interval === "yearly" && price > 0 && <p className="text-xs text-emerald-400 mt-1">{annualSavingLine(slug)}</p>}
             <ul className="text-sm text-gray-300 space-y-2 my-5 flex-1"><li>✓ 16:9 and 9:16 video</li><li>✓ Unlimited preview corrections</li><li>✓ Projects preserved if your plan changes</li><li>✓ {slug === "free" ? "2 Shorts + 1 long-video download weekly" : slug === "sceneflow" ? "15 final video downloads weekly" : "Unlimited final downloads, subject to fetched/upstream API service limits"}</li><li>✓ {slug === "free" ? "Sample visualisers, animated Subscribe CTA, 2 music tracks and 2 caption styles" : "All voices, captions and creative tools"}</li></ul>
-            <button disabled={(!isOwnerAdmin && active) || busy === slug || (!isOwnerAdmin && !import.meta.env.DEV && slug !== "free")} onClick={() => isOwnerAdmin ? setAdminPlanPreview(slug) : void choosePlan(slug)} className={`w-full rounded-lg px-4 py-2.5 text-sm font-bold ${active ? "bg-gray-800 text-gray-300" : "bg-indigo-600 hover:bg-indigo-500"}`}>{isOwnerAdmin ? active ? "Previewing this plan" : `Preview as ${plan.name}` : active ? "Current plan" : busy === slug ? "Opening checkout…" : slug === "free" ? "Free membership" : import.meta.env.DEV ? `Choose ${plan.name} · PayPal Sandbox` : "Sandbox checkout only"}</button>
+            <button disabled={(!isOwnerAdmin && active) || busy === slug || (!isOwnerAdmin && slug !== "free" && !(checkoutEnabled && paypalPlanReady(billingConfig, slug, interval)))} title={!isOwnerAdmin && slug !== "free" && !(checkoutEnabled && paypalPlanReady(billingConfig, slug, interval)) ? !checkoutEnabled ? checkoutBlockedReason : `${paypalPlanLabel(slug, interval)} has no PayPal Sandbox plan yet — set ${paypalPlanVariable(slug, interval)}.` : undefined} onClick={() => isOwnerAdmin ? setAdminPlanPreview(slug) : void choosePlan(slug)} className={`w-full rounded-lg px-4 py-2.5 text-sm font-bold ${active ? "bg-gray-800 text-gray-300" : "bg-indigo-600 hover:bg-indigo-500"}`}>{isOwnerAdmin ? active ? "Previewing this plan" : `Preview as ${plan.name}` : active ? "Current plan" : busy === slug ? "Opening checkout…" : slug === "free" ? "Free membership" : checkoutEnabled && paypalPlanReady(billingConfig, slug, interval) ? `Choose ${plan.name} · PayPal Sandbox` : `Choose ${plan.name}`}</button>
           </article>; })}</div>
-          <p className="text-xs text-gray-500 mt-3">Paid plan prices are listed in USD. PayPal Sandbox checkout is available only in development while production billing remains disabled.</p>
+          <p className="text-xs text-gray-500 mt-3">Paid plan prices are listed in USD. {checkoutEnabled ? "PayPal Sandbox checkout is available on this server; production billing remains disabled." : checkoutBlockedReason}{checkoutEnabled && (billingConfig?.unconfiguredPlans?.length ?? 0) > 0 && <> Set up in Sandbox so far: {billingConfig!.tiers.filter((tier) => tier.id !== "free").flatMap((tier) => (["monthly", "yearly"] as const).filter((when) => tier.planId[when]).map((when) => `${tier.name} ${when}`)).join(", ") || "none"}.</>}</p>
         </section>
 
         {notice && <div className="rounded-lg border border-amber-600/50 bg-amber-950/30 text-amber-200 px-4 py-3 text-sm" role="status">{notice}</div>}

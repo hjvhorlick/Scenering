@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { BillingInterval, PlanSlug } from "../config/plans";
-import { loadPayPalSdk } from "../lib/paypal-sdk";
+import { loadPayPalSdk, resetPayPalSdk, type PublicBillingConfig } from "../lib/paypal-sdk";
+import { refreshSession } from "../lib/session";
 
 interface Props {
   plan: Exclude<PlanSlug, "free"> | null;
   interval: BillingInterval;
   onClose: () => void;
 }
+
+type Kind = "loading" | "error" | "cancelled" | "pending" | "success";
 
 async function postJson(path: string, body: unknown) {
   const response = await fetch(path, {
@@ -16,7 +20,13 @@ async function postJson(path: string, body: unknown) {
     body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "PayPal could not complete this request.");
+  if (!response.ok) {
+    const missing = Array.isArray(data.missing) ? data.missing : [];
+    // A 503 used to arrive as one flat sentence, so an operator could not tell
+    // a missing webhook id from a missing plan id. Say which variable.
+    const detail = missing.length ? ` Still to set: ${missing.join("; ")}.` : "";
+    throw new Error(`${data.error || "PayPal could not complete this request."}${detail}`);
+  }
   return data;
 }
 
@@ -24,8 +34,10 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
   const mountRef = useRef<HTMLDivElement>(null);
   const pendingSubscriptionId = useRef<string | null>(null);
   const approvedRef = useRef(false);
+  const [attempt, setAttempt] = useState(0);
   const [message, setMessage] = useState("Loading secure PayPal checkout…");
-  const [kind, setKind] = useState<"loading" | "error" | "cancelled" | "pending" | "success">("loading");
+  const [missing, setMissing] = useState<string[]>([]);
+  const [kind, setKind] = useState<Kind>("loading");
 
   useEffect(() => {
     if (!plan) return;
@@ -34,13 +46,24 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
     approvedRef.current = false;
     let buttons: { render: (container: HTMLElement | string) => Promise<void>; close?: () => Promise<void> | void } | null = null;
     setKind("loading");
+    setMissing([]);
     setMessage("Loading secure PayPal checkout…");
 
     (async () => {
       const response = await fetch("/api/billing/public-config", { credentials: "same-origin" });
-      const config = await response.json().catch(() => ({}));
+      const config = (await response.json().catch(() => ({}))) as PublicBillingConfig & { error?: string };
+      if (!active) return;
       if (!response.ok || !config.configured || config.environment !== "sandbox" || !config.clientId) {
-        throw new Error(config.error || "PayPal Sandbox is not fully configured yet.");
+        const gaps = config.missing || [];
+        setMissing(gaps);
+        if (config.production) {
+          throw new Error("Paid checkout is disabled on production while PayPal is Sandbox-only. Sandbox checkout runs on a development or preview host.");
+        }
+        throw new Error(
+          gaps.length
+            ? `PayPal Sandbox is not ready. Still to set: ${gaps.join("; ")}.`
+            : config.error || "PayPal Sandbox is not fully configured yet.",
+        );
       }
       await loadPayPalSdk(String(config.clientId));
       if (!active || !mountRef.current || !window.paypal?.Buttons) return;
@@ -58,6 +81,10 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
           approvedRef.current = true;
           pendingSubscriptionId.current = null;
           const verified = await postJson("/api/billing/paypal/confirm-subscription", { subscriptionId: data.subscriptionID });
+          // Read the account back so the plan is current in the page behind
+          // this dialog — the account modal would otherwise keep showing the
+          // old plan until a reload, which looks like a checkout that failed.
+          await refreshSession().catch(() => null);
           if (verified.active) {
             setKind("success");
             setMessage("PayPal confirmed your subscription. Your Scenering plan is active.");
@@ -76,6 +103,7 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
           setMessage("Checkout was cancelled. No paid features were added.");
         },
         onError: (error) => {
+          if (!active) return;
           setKind("error");
           setMessage(error instanceof Error ? error.message : "PayPal checkout failed. Please try again.");
         },
@@ -95,11 +123,27 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
       }
       try { void buttons?.close?.(); } catch { /* PayPal may already have closed the dialog. */ }
     };
-  }, [plan, interval]);
+  }, [plan, interval, attempt]);
 
   if (!plan) return null;
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+
+  const retry = () => {
+    resetPayPalSdk();
+    setAttempt((value) => value + 1);
+  };
+
+  /* Rendered into `document.body`, not into the React tree.
+   *
+   * The account modal is a `backdrop-blur` element, and a backdrop-filter —
+   * like a transform — becomes the containing block for `position: fixed`
+   * descendants. A dialog rendered inside it was therefore laid out against
+   * the modal's box and its own scroll position instead of the viewport: open
+   * it from the plans section, which the modal scrolls to, and it appeared
+   * off-screen above the fold — "the checkout does not open". Portalling also
+   * lifts it out of the modal's `z-[210]` stacking context, where its
+   * `z-[100]` was painting behind the modal it was meant to sit on. */
+  return createPortal(
+    <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/75 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="w-full max-w-md rounded-2xl border border-white/15 bg-gray-950 p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="paypal-checkout-title">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -108,15 +152,22 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
           </div>
           <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-gray-300 hover:bg-white/10" aria-label="Close PayPal checkout">✕</button>
         </div>
-        <div ref={mountRef} className="mt-5 min-h-12" />
+        {/* Keyed on the attempt so a retry always renders into an empty node
+            instead of stacking a second set of buttons under the first. */}
+        <div key={attempt} ref={mountRef} className="mt-5 min-h-12" />
         <p role="status" aria-live="polite" className={`mt-3 text-sm ${kind === "error" || kind === "cancelled" ? "text-amber-300" : kind === "success" ? "text-emerald-300" : "text-gray-300"}`}>{message}</p>
-        {(kind === "success" || kind === "pending" || kind === "cancelled" || kind === "error") && (
-          <div className="mt-4 flex justify-end gap-2">
-            {kind === "success" && <a href="/welcome?payment=paypal" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500">Continue</a>}
-            {kind !== "success" && <button type="button" onClick={onClose} className="rounded-lg border border-white/15 px-4 py-2 text-sm text-white hover:bg-white/10">Close</button>}
-          </div>
+        {missing.length > 0 && kind === "error" && (
+          <ul className="mt-3 space-y-1 text-xs text-gray-400">
+            {missing.map((item) => <li key={item}>• {item}</li>)}
+          </ul>
         )}
+        <div className="mt-4 flex justify-end gap-2">
+          {kind === "error" && <button type="button" onClick={retry} className="rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10">Try again</button>}
+          {kind === "success" && <a href="/welcome?payment=paypal" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500">Continue</a>}
+          {kind !== "success" && <button type="button" onClick={onClose} className="rounded-lg border border-white/15 px-4 py-2 text-sm text-white hover:bg-white/10">Close</button>}
+        </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }

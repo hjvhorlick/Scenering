@@ -18,7 +18,27 @@ SESSION_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 # Register and verify this exact local address to access /admin.
 SCENERING_OWNER_EMAIL=owner@example.test
 EMAIL_PROVIDER=console
+# The local Vite reverse proxy is the only trusted proxy; it forwards the
+# preview host so same-origin checks and cookies work behind it.
+TRUST_PROXY=1
+# PayPal Sandbox checkout. Set the credentials and at least one plan id — one
+# Sandbox product is enough to test with, since each plan is gated on its own
+# id. Leave a value empty and the pricing page and the account modal name it
+# as the reason, so an unset variable never looks like a broken button.
+# PAYPAL_WEBHOOK_ID can stay empty for now: approval is verified by reading
+# the subscription back from PayPal, so the webhook is only needed later, for
+# renewals, cancellations and failed payments.
+# PUBLIC_APP_URL may stay empty outside production: the host a request
+# arrives on is then used as the link origin. Never put real credentials in chat, in a screenshot or in Git —
+# .dev.vars is gitignored on purpose.
 PAYPAL_ENVIRONMENT=sandbox
+PAYPAL_CLIENT_ID=
+PAYPAL_CLIENT_SECRET=
+PAYPAL_WEBHOOK_ID=
+PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID=
+PAYPAL_SCENEFLOW_YEARLY_PLAN_ID=
+PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID=
+PAYPAL_SCENEFORGE_YEARLY_PLAN_ID=
 EOF
 fi
 

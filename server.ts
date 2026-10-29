@@ -307,8 +307,24 @@ export function createApp(): express.Express {
     }
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
-    // PayPal's approval popup needs an opener relationship; this preserves cross-origin isolation for normal pages while allowing trusted checkout popups.
-    res.setHeader("Cross-Origin-Opener-Policy", req.path === "/pricing" || req.path === "/app" ? "same-origin-allow-popups" : "same-origin");
+    /* PayPal's approval window is a popup that posts the result back through
+     * `window.opener`. Under `same-origin` the browser severs that
+     * relationship on open, so the popup loads and the checkout then hangs
+     * forever — it looks exactly like "the buttons do nothing".
+     *
+     * `same-origin-allow-popups` keeps the isolation this page has from any
+     * cross-origin *opener* and only preserves the link to windows the page
+     * opens itself. It was previously allowed on just /pricing and /app,
+     * which missed every other page that can start a checkout: the account
+     * modal is reachable from any marketing page and from /app alike.
+     *
+     * It used to be withheld on production, on the reasoning that PayPal
+     * checkout was refused there. That reasoning made the refusal permanent:
+     * the moment Sandbox checkout is allowed on the customer-facing host, the
+     * approval window opens and then hangs, because the severed `window.opener`
+     * is exactly what the SDK posts the approval back through. Sandbox and
+     * Live need the same header. */
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     if (isProductionRuntime(env())) {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");

@@ -1,5 +1,6 @@
 import { env } from "../src/env.ts";
-import { PLAN_CONFIG, type BillingInterval, type PlanSlug } from "../src/config/plans.ts";
+import { isProductionRuntime } from "../src/runtime-mode.ts";
+import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type PlanSlug } from "../src/config/plans.ts";
 import { buildPricingTiers } from "../src/config/pricing-tiers.ts";
 
 const SANDBOX_API = "https://api-m.sandbox.paypal.com";
@@ -21,17 +22,112 @@ export function paypalPlanId(slug: Exclude<PlanSlug, "free">, interval: BillingI
   return String(env()[name] || "").trim();
 }
 
-export function paypalPublicConfig() {
+/**
+ * The origin PayPal sends a member back to after approval or cancellation.
+ *
+ * Production must name it: `PUBLIC_APP_URL` is the address the customer
+ * actually types, and a checkout that invents its own origin sends paying
+ * members somewhere unverified. A development machine, a preview deployment
+ * or a tunnel has no such fixed name — the host a request arrived on *is*
+ * the only origin it can honestly claim — so outside production the caller
+ * may pass the request's own origin and have it used whenever the variable
+ * is unset. That is what keeps Sandbox checkout testable on a preview host
+ * without a configuration file edit.
+ */
+export function paypalAppUrl(requestOrigin = ""): string {
+  const configured = String(env().PUBLIC_APP_URL || "").trim().replace(/\/+$/, "");
+  if (configured) return configured;
+  if (isProductionRuntime(env())) return "";
+  return String(requestOrigin || "").trim().replace(/\/+$/, "");
+}
+
+/** Every paid plan Scenering can sell: one plan id per plan and interval. */
+export const PAYPAL_PLAN_SLOTS = (["sceneflow", "sceneforge"] as const).flatMap(
+  (slug) => (["monthly", "yearly"] as const).map((interval) => ({ slug, interval })),
+) as Array<{ slug: Exclude<PlanSlug, "free">; interval: BillingInterval }>;
+
+/** The plan as a person reads it: "SceneFlow monthly". */
+export function paypalPlanLabel(slug: Exclude<PlanSlug, "free">, interval: BillingInterval): string {
+  return `${PLAN_CONFIG[slug].name} ${interval}`;
+}
+
+/**
+ * What stops Sandbox checkout from running *at all*, named as the variable
+ * that must be set. Values are never included — only names — so this is safe
+ * to render in a browser or log.
+ *
+ * Plan ids are deliberately not in here. A Sandbox account usually has one
+ * product set up while the others are still being built, and refusing the
+ * one plan that exists until all four arrive is what made checkout look
+ * broken. Missing plan ids are reported per plan instead (paypalPlanGaps).
+ *
+ * The webhook id is not in here either. Approval is verified by reading the
+ * subscription straight back from PayPal, so a checkout can be tested end to
+ * end before any webhook is registered; the webhook is what later carries
+ * renewals, cancellations and payment failures, and it is reported as a
+ * warning (paypalWebhookWarning) rather than as something that closes the
+ * till.
+ */
+export function paypalSetupGaps(appUrl = paypalAppUrl()): string[] {
+  const gaps: string[] = [];
+  if (!paypalIsSandbox()) gaps.push("PAYPAL_ENVIRONMENT must be \"sandbox\"");
+  if (!String(env().PAYPAL_CLIENT_ID || "").trim()) gaps.push("PAYPAL_CLIENT_ID is not set (Sandbox REST app client id)");
+  if (!String(env().PAYPAL_CLIENT_SECRET || "").trim()) gaps.push("PAYPAL_CLIENT_SECRET is not set (Sandbox REST app secret)");
+  if (!appUrl) gaps.push("PUBLIC_APP_URL is not set (the host PayPal returns the member to)");
+  return gaps;
+}
+
+/**
+ * The one thing that can wait: without the Sandbox webhook, Scenering still
+ * verifies an approval by fetching the subscription from PayPal, but no
+ * renewal, cancellation, suspension or failed payment will ever arrive.
+ */
+export function paypalWebhookWarning(): string | null {
+  if (String(env().PAYPAL_WEBHOOK_ID || "").trim()) return null;
+  return "PAYPAL_WEBHOOK_ID is not set — checkout can be tested without it, but renewal, cancellation and payment-failure events will not reach Scenering until the Sandbox webhook is registered.";
+}
+
+/**
+ * The plans that have no Sandbox plan id yet, one line each.
+ *
+ * These do not block the plans that *are* set up: a Sandbox is normally
+ * brought up one product at a time, so a missing plan id only takes that
+ * plan off sale. `setupOnly` limits the list to the plans a caller actually
+ * offers — the pricing page shows the interval the visitor is looking at
+ * rather than every combination at once.
+ */
+export function paypalPlanGaps(setupOnly?: { slug: Exclude<PlanSlug, "free">; interval: BillingInterval }): string[] {
+  return PAYPAL_PLAN_SLOTS
+    .filter((slot) => !setupOnly || (setupOnly.slug === slot.slug && setupOnly.interval === slot.interval))
+    .filter((slot) => !paypalPlanId(slot.slug, slot.interval))
+    .map((slot) => `${paypalPlanLabel(slot.slug, slot.interval)} — ${PLAN_CONFIG[slot.slug].paypalPlanEnv[slot.interval]} is not set`);
+}
+
+export function paypalPublicConfig(requestOrigin = "") {
   const clientId = String(env().PAYPAL_CLIENT_ID || "").trim();
   const tiers = buildPricingTiers((name) => String(env()[name] || ""));
-  const idsReady = tiers.filter((tier) => tier.id !== "free").every((tier) => tier.planId.monthly && tier.planId.yearly);
+  const appUrl = paypalAppUrl(requestOrigin);
+  const blocking = paypalSetupGaps(appUrl);
+  const planGaps = paypalPlanGaps();
+  // One set-up plan is enough to test with; the rest simply stay off sale.
+  const configured = blocking.length === 0 && planGaps.length < PAYPAL_PLAN_SLOTS.length;
   return {
     provider: "paypal" as const,
     environment: "sandbox" as const,
     clientId,
     currency: "USD" as const,
-    configured: paypalIsSandbox() && Boolean(clientId) && Boolean(String(env().PAYPAL_CLIENT_SECRET || "").trim()) && Boolean(String(env().PAYPAL_WEBHOOK_ID || "").trim()) && Boolean(String(env().PUBLIC_APP_URL || "").trim()) && idsReady,
+    configured,
     tiers,
+    /**
+     * Why checkout is unavailable, in plain variable names. The browser shows
+     * this instead of a dead button, which is the difference between "the
+     * PayPal buttons do not work" and a two-minute configuration fix.
+     */
+    missing: configured ? [] : [...blocking, ...planGaps],
+    /** Plans with no Sandbox plan id yet, so the UI can keep them off sale. */
+    unconfiguredPlans: planGaps,
+    /** What still has to be done, without blocking the checkout itself. */
+    warnings: [paypalWebhookWarning()].filter((item): item is string => Boolean(item)),
   };
 }
 

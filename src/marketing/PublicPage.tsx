@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type FeatureKey } from "../config/plans";
+import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval, type FeatureKey, type PlanSlug } from "../config/plans";
 import { isFeatureTourPath, navigate, STUDIO_PATH } from "../lib/route";
 import { useSession } from "../lib/session";
 import { useLocalizedPlanPrices } from "../lib/use-localized-prices";
 import PayPalSubscriptionDialog from "../components/PayPalSubscriptionDialog";
+import { paypalPlanLabel, paypalPlanReady, paypalPlanVariable } from "../lib/paypal-sdk";
 import { buildPricingTiers, TIER_FEATURES, type Tier } from "../config/pricing-tiers";
 import { BrandMark } from "./components/primitives";
 import HeaderLegalMenu from "./components/HeaderLegalMenu";
@@ -161,17 +162,47 @@ function PricingPage() {
   const [paypalChoice, setPaypalChoice] = useState<{ plan: "sceneflow" | "sceneforge"; interval: BillingInterval } | null>(null);
   const { account } = useSession();
 
+  /* A sign-in that was interrupted by logging in comes back here with
+   * ?provider=paypal&plan=… and the checkout reopens on its own. It waits for
+   * the server's answer first: opening a "Pay with PayPal" dialog on a host
+   * that cannot run one would show a gateway that looks broken. When it
+   * cannot run, the note under the plans already says why, and the URL is
+   * cleaned so a reload does not retry a checkout that cannot open. */
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !account || !config) return;
     const params = new URLSearchParams(window.location.search);
     const plan = params.get("plan");
-    if ((plan === "sceneflow" || plan === "sceneforge") && params.get("provider") === "paypal" && account) {
-      setPaypalChoice({ plan, interval: params.get("interval") === "yearly" ? "yearly" : "monthly" });
+    if ((plan === "sceneflow" || plan === "sceneforge") && params.get("provider") === "paypal") {
+      if (config.configured) setPaypalChoice({ plan, interval: params.get("interval") === "yearly" ? "yearly" : "monthly" });
       params.delete("provider"); params.delete("plan"); params.delete("interval");
       const query = params.toString();
       history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
     }
-  }, [account]);
+  }, [account, config]);
+
+  /* Whether this *runtime* can run a Sandbox checkout.
+   *
+   * This used to be Vite's DEV build flag, which is false in the bundle that
+   * is actually served: `npm run dev` runs `vite build --watch`, and every
+   * other environment (a preview, the deployed site) is a production build
+   * too. So the paid buttons were disabled on every Sandbox host while the
+   * server was willing to run the checkout — the gateway looked broken. The
+   * server already answers this question with the production gate applied;
+   * ask it instead of guessing from the bundle. */
+  const checkoutEnabled = Boolean(config?.configured);
+  const paidSlots = (config?.tiers.filter((tier) => tier.id !== "free").length ?? 0) * 2;
+  /* A Sandbox is usually brought up one product at a time, so each plan is
+   * offered only when its own Sandbox plan id exists. */
+  const planReady = (slug: PlanSlug) => paypalPlanReady(config, slug, interval);
+  const planBlockedReason = (slug: Exclude<PlanSlug, "free">) =>
+    `${paypalPlanLabel(slug, interval)} has no PayPal Sandbox plan yet — set ${paypalPlanVariable(slug, interval)} to sell this plan.`;
+  const checkoutBlockedReason = config?.production
+    ? "PayPal Sandbox checkout runs on a development or preview host, not on the live site."
+    : !config
+      ? "Checking PayPal Sandbox configuration…"
+      : config.missing?.length
+        ? `PayPal Sandbox is not ready. Still to set: ${config.missing.join("; ")}.`
+        : "PayPal Sandbox is not available on this server.";
 
   function subscribe(tier: Tier) {
     if (tier.id === "free") return;
@@ -196,11 +227,26 @@ function PricingPage() {
         {interval === "yearly" && tier.id !== "free" && <p className="pub-saving">{annualSavingLine(tier.id)}</p>}
         <PlanHighlights slug={tier.id} features={tier.features} />
         {tier.id !== "free"
-          ? import.meta.env.DEV
-            ? <button className="mkt-btn mkt-btn-primary" disabled={opening === tier.id} onClick={() => subscribe(tier)}>{opening === tier.id ? "Opening PayPal Sandbox…" : `Subscribe to ${tier.name} · PayPal Sandbox`}</button>
-            : <button className="mkt-btn mkt-btn-primary" type="button" disabled title="Subscription checkout is Sandbox-only during review">PayPal Sandbox checkout is available in development only</button>
+          ? <button
+              className="mkt-btn mkt-btn-primary"
+              type="button"
+              disabled={opening === tier.id || !checkoutEnabled || !planReady(tier.id)}
+              title={!checkoutEnabled ? checkoutBlockedReason : !planReady(tier.id) ? planBlockedReason(tier.id as Exclude<PlanSlug, "free">) : undefined}
+              onClick={() => subscribe(tier)}
+            >{opening === tier.id ? "Opening PayPal Sandbox…" : checkoutEnabled && planReady(tier.id) ? `Subscribe to ${tier.name} · PayPal Sandbox` : `Subscribe to ${tier.name}`}</button>
           : <a href="/register" className="mkt-btn mkt-btn-primary">Get Started Free</a>}
+        {tier.id !== "free" && checkoutEnabled && !planReady(tier.id) && <p className="mt-2 text-[11px] text-amber-300">{planBlockedReason(tier.id as Exclude<PlanSlug, "free">)}</p>}
       </article>)}</div>
+      {/* When Sandbox checkout cannot run, say so — and name what is missing.
+          A disabled button with no explanation is what "the PayPal buttons
+          are broken" looks like from the outside. */}
+      {!checkoutEnabled && <p className="pub-legal-note" role="status">{checkoutBlockedReason}</p>}
+      {/* Say which plans are actually testable: one Sandbox product is enough
+          to work with, and the rest are named so nobody wonders why their
+          button is greyed out. */}
+      {checkoutEnabled && (config?.unconfiguredPlans?.length ?? 0) > 0 && <p className="pub-legal-note" role="status">PayPal Sandbox has {paidSlots - (config?.unconfiguredPlans?.length ?? 0)} of {paidSlots} plans set up. Not set up yet: {config?.unconfiguredPlans?.join("; ")}.</p>}
+      {/* Outstanding, but not blocking: checkout can be tested without it. */}
+      {checkoutEnabled && config?.warnings?.map((warning) => <p key={warning} className="pub-legal-note" role="status">{warning}</p>)}
       <button className="pub-compare-btn" onClick={() => setCompare(!compare)} aria-expanded={compare}>{compare ? "Hide" : "Show"} complete feature comparison</button>
       {compare && <Comparison />}
       <p className="pub-legal-note">PayPal Sandbox transactions are for testing only; production billing remains disabled. By subscribing you agree to the <a href="/terms">Terms of Service</a>, <a href="/privacy">Privacy Policy</a> and <a href="/refunds">Refund &amp; Cancellation Policy</a>.</p>

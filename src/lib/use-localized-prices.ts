@@ -1,16 +1,10 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { annualSavingFromBasePrices, formatBasePrice } from "./localized-prices";
 import { PLAN_CONFIG, type BillingInterval, type PlanSlug } from "../config/plans";
-import type { Tier } from "../config/pricing-tiers";
+import type { PublicBillingConfig } from "./paypal-sdk";
 
-export interface PublicBillingConfig {
-  provider: "paypal";
-  environment: "sandbox";
-  clientId: string;
-  currency: "USD";
-  configured: boolean;
-  tiers: Tier[];
-}
+/** One shape for the public billing payload; the checkout surfaces share it. */
+export type { PublicBillingConfig };
 
 let configPromise: Promise<PublicBillingConfig> | null = null;
 

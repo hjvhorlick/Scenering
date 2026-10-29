@@ -70,9 +70,20 @@ try {
     h.eq(JSON.stringify(config).includes("sandbox-client-secret-test-only"), false, "the PayPal Client Secret is never returned to the browser");
     const priorMode = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
-    h.eq(platform.paypalBillingConfiguration().ready, false, "production runtime can never mark PayPal Sandbox checkout ready");
+    // Sandbox on production is how the real PayPal return and webhook URLs
+    // get tested, and it carries no payment risk: a Sandbox checkout can only
+    // be completed by a PayPal Sandbox test account. Live is the mode that has
+    // to stay impossible, and it stays impossible on every runtime.
+    h.eq(platform.paypalBillingConfiguration().ready, true, "production marks PayPal Sandbox checkout ready when the Sandbox keys are set there");
     const productionWebhook = await fetch(`${base}/api/webhooks/paypal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "evt-production", event_type: "BILLING.SUBSCRIPTION.ACTIVATED" }) });
-    h.eq(productionWebhook.status, 503, "production rejects PayPal Sandbox webhook processing");
+    h.eq(productionWebhook.status === 503, false, "production no longer refuses the Sandbox webhook at the runtime gate");
+    h.eq(productionWebhook.status, 401, "an unverifiable webhook signature is still rejected on production");
+
+    process.env.PAYPAL_ENVIRONMENT = "live";
+    h.eq(platform.paypalBillingConfiguration().ready, false, "Live mode can never mark checkout ready, on production or anywhere else");
+    const liveWebhook = await fetch(`${base}/api/webhooks/paypal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "evt-live", event_type: "BILLING.SUBSCRIPTION.ACTIVATED" }) });
+    h.eq(liveWebhook.status, 503, "Live mode webhooks are refused on every runtime");
+    process.env.PAYPAL_ENVIRONMENT = "sandbox";
     process.env.NODE_ENV = priorMode;
   }
   {
