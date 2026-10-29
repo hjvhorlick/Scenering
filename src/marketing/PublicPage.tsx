@@ -175,30 +175,37 @@ function PricingPage() {
 
   function subscribe(tier: Tier) {
     if (tier.id === "free") return;
-    const plan = tier.id as "sceneflow" | "sceneforge";
+    const plan = config?.previewTestPlan?.plan || (tier.id as "sceneflow" | "sceneforge");
+    const checkoutInterval = config?.previewTestPlan?.interval || interval;
     if (!account) {
-      localStorage.setItem("scenering_intended_checkout", JSON.stringify({ provider: "paypal", plan, interval }));
+      localStorage.setItem("scenering_intended_checkout", JSON.stringify({ provider: "paypal", plan, interval: checkoutInterval }));
       navigate("/login");
       return;
     }
     setOpening(tier.id);
-    setPaypalChoice({ plan, interval });
+    setPaypalChoice({ plan, interval: checkoutInterval });
     setOpening("");
   }
 
-  const displayedTiers = config?.tiers || buildPricingTiers(() => "");
+  const previewTestPlan = config?.previewTestPlan || null;
+  const allTiers = config?.tiers || buildPricingTiers(() => "");
+  const displayedTiers = previewTestPlan
+    ? allTiers.filter((tier) => tier.id === "free" || tier.id === previewTestPlan.plan)
+    : allTiers;
+  const displayedInterval = previewTestPlan?.interval || interval;
+  const checkoutAvailable = import.meta.env.DEV || Boolean(config?.configured);
 
   return <><PageHero eyebrow="Pricing" title="Start free. Add capability when you need it." lead="Exactly three plans. Monthly and yearly are billing choices—not extra plans. Preview renders never consume final-export allowance. Subscription prices are listed in USD." />
     <section className="mkt-container">
-      <div className="pub-toggle" role="group" aria-label="Billing interval"><button className={interval === "monthly" ? "is-on" : ""} onClick={() => setInterval("monthly")}>Monthly</button><button className={interval === "yearly" ? "is-on" : ""} onClick={() => setInterval("yearly")}>Yearly</button></div>
+      {previewTestPlan ? <p className="pub-legal-note">This branch Preview is set up for one PayPal Sandbox test plan: SceneFlow monthly. Production checkout remains disabled.</p> : <div className="pub-toggle" role="group" aria-label="Billing interval"><button className={interval === "monthly" ? "is-on" : ""} onClick={() => setInterval("monthly")}>Monthly</button><button className={interval === "yearly" ? "is-on" : ""} onClick={() => setInterval("yearly")}>Yearly</button></div>}
       <div className="pub-plans">{displayedTiers.map((tier) => <article className={`pub-plan${tier.id === "sceneflow" ? " is-featured" : ""}`} key={tier.id}>{tier.id === "sceneflow" && <span className="pub-ribbon">Regular creators</span>}<h2>{tier.name}</h2><p>{tier.description}</p>
-        <div className="pub-price">{tier.id !== "free" ? <><b>{displayPrice(tier.id, interval)}</b><span>/{interval === "monthly" ? "month" : "year"}</span></> : <><b>Free</b><span>forever</span></>}</div>
-        {interval === "yearly" && tier.id !== "free" && <p className="pub-saving">{annualSavingLine(tier.id)}</p>}
+        <div className="pub-price">{tier.id !== "free" ? <><b>{displayPrice(tier.id, displayedInterval)}</b><span>/{displayedInterval === "monthly" ? "month" : "year"}</span></> : <><b>Free</b><span>forever</span></>}</div>
+        {displayedInterval === "yearly" && tier.id !== "free" && <p className="pub-saving">{annualSavingLine(tier.id)}</p>}
         <PlanHighlights slug={tier.id} features={tier.features} />
         {tier.id !== "free"
-          ? import.meta.env.DEV
-            ? <button className="mkt-btn mkt-btn-primary" disabled={opening === tier.id} onClick={() => subscribe(tier)}>{opening === tier.id ? "Opening PayPal Sandbox…" : `Subscribe to ${tier.name} · PayPal Sandbox`}</button>
-            : <button className="mkt-btn mkt-btn-primary" type="button" disabled title="Subscription checkout is Sandbox-only during review">PayPal Sandbox checkout is available in development only</button>
+          ? checkoutAvailable
+            ? <button className="mkt-btn mkt-btn-primary" disabled={opening === tier.id} onClick={() => subscribe(tier)}>{opening === tier.id ? "Opening PayPal Sandbox…" : previewTestPlan ? "Test SceneFlow monthly · PayPal Sandbox" : `Subscribe to ${tier.name} · PayPal Sandbox`}</button>
+            : <button className="mkt-btn mkt-btn-primary" type="button" disabled title="Sandbox checkout is not configured for this environment">PayPal Sandbox checkout is not configured</button>
           : <a href="/register" className="mkt-btn mkt-btn-primary">Get Started Free</a>}
       </article>)}</div>
       <button className="pub-compare-btn" onClick={() => setCompare(!compare)} aria-expanded={compare}>{compare ? "Hide" : "Show"} complete feature comparison</button>

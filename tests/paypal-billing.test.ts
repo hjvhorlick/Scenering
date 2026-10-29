@@ -68,9 +68,39 @@ try {
     h.eq(config.configured, true, "complete test Sandbox configuration enables the development checkout");
     h.eq(config.tiers.find((tier: any) => tier.id === "sceneflow")?.planId.monthly, "P-SF-MONTHLY-TEST", "public tiers include the monthly PayPal plan identifier");
     h.eq(JSON.stringify(config).includes("sandbox-client-secret-test-only"), false, "the PayPal Client Secret is never returned to the browser");
+    const savedSingleTest = {
+      flag: process.env.PAYPAL_PREVIEW_SINGLE_PLAN_MODE,
+      secret: process.env.PAYPAL_WEBHOOK_ID,
+      yearly: process.env.PAYPAL_SCENEFLOW_YEARLY_PLAN_ID,
+      forgeMonthly: process.env.PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID,
+      forgeYearly: process.env.PAYPAL_SCENEFORGE_YEARLY_PLAN_ID,
+    };
+    process.env.PAYPAL_PREVIEW_SINGLE_PLAN_MODE = "true";
+    delete process.env.PAYPAL_WEBHOOK_ID;
+    delete process.env.PAYPAL_SCENEFLOW_YEARLY_PLAN_ID;
+    delete process.env.PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID;
+    delete process.env.PAYPAL_SCENEFORGE_YEARLY_PLAN_ID;
+    const singlePlanConfig = paypalApi.paypalPublicConfig();
+    h.eq(singlePlanConfig.configured, true, "explicit Preview mode permits a single Sandbox plan for checkout");
+    h.eq(singlePlanConfig.previewTestPlan?.plan, "sceneflow", "single-plan Preview identifies the only enabled tier");
+    h.eq(singlePlanConfig.previewTestPlan?.interval, "monthly", "single-plan Preview identifies the only enabled billing interval");
+    h.eq(platform.paypalBillingConfiguration().ready, false, "full billing readiness remains false until a webhook is configured");
+    h.eq(platform.paypalBillingConfiguration().checkoutReady, true, "single-plan Preview can test initial checkout before webhook registration");
+    h.eq(paypalApi.paypalPlanId("sceneforge", "monthly"), "", "single-plan Preview does not reuse its plan ID for another tier");
+    process.env.PAYPAL_PREVIEW_SINGLE_PLAN_MODE = savedSingleTest.flag || "";
+    if (savedSingleTest.secret) process.env.PAYPAL_WEBHOOK_ID = savedSingleTest.secret;
+    else delete process.env.PAYPAL_WEBHOOK_ID;
+    if (savedSingleTest.yearly) process.env.PAYPAL_SCENEFLOW_YEARLY_PLAN_ID = savedSingleTest.yearly;
+    else delete process.env.PAYPAL_SCENEFLOW_YEARLY_PLAN_ID;
+    if (savedSingleTest.forgeMonthly) process.env.PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID = savedSingleTest.forgeMonthly;
+    else delete process.env.PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID;
+    if (savedSingleTest.forgeYearly) process.env.PAYPAL_SCENEFORGE_YEARLY_PLAN_ID = savedSingleTest.forgeYearly;
+    else delete process.env.PAYPAL_SCENEFORGE_YEARLY_PLAN_ID;
     const priorMode = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     h.eq(platform.paypalBillingConfiguration().ready, false, "production runtime can never mark PayPal Sandbox checkout ready");
+    h.eq(platform.paypalBillingConfiguration().checkoutReady, false, "production runtime cannot use the single-plan Preview checkout exception");
+    h.eq(paypalApi.paypalPublicConfig().configured, false, "production never exposes Sandbox checkout as configured");
     const productionWebhook = await fetch(`${base}/api/webhooks/paypal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "evt-production", event_type: "BILLING.SUBSCRIPTION.ACTIVATED" }) });
     h.eq(productionWebhook.status, 503, "production rejects PayPal Sandbox webhook processing");
     process.env.NODE_ENV = priorMode;

@@ -9,6 +9,7 @@ export interface PublicBillingConfig {
   clientId: string;
   currency: "USD";
   configured: boolean;
+  previewTestPlan?: { plan: "sceneflow" | "sceneforge"; interval: BillingInterval } | null;
   tiers: Tier[];
 }
 

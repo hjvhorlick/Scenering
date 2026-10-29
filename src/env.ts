@@ -44,6 +44,8 @@ export type Env = {
   PAYPAL_CLIENT_ID?: string;
   PAYPAL_CLIENT_SECRET?: string;
   PAYPAL_WEBHOOK_ID?: string;
+  /** Preview-only opt-in for a single Sandbox checkout plan; ignored in production. */
+  PAYPAL_PREVIEW_SINGLE_PLAN_MODE?: string;
   PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID?: string;
   PAYPAL_SCENEFLOW_YEARLY_PLAN_ID?: string;
   PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID?: string;
