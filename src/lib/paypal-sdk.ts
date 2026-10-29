@@ -7,6 +7,7 @@ export interface PublicBillingConfig {
   currency: "USD";
   configured: boolean;
   previewTestPlan?: { plan: "sceneflow" | "sceneforge"; interval: "monthly" | "yearly" } | null;
+  previewConfigurationMissing?: string[];
   tiers: Tier[];
 }
 

@@ -87,6 +87,12 @@ try {
     h.eq(platform.paypalBillingConfiguration().ready, false, "full billing readiness remains false until a webhook is configured");
     h.eq(platform.paypalBillingConfiguration().checkoutReady, true, "single-plan Preview can test initial checkout before webhook registration");
     h.eq(paypalApi.paypalPlanId("sceneforge", "monthly"), "", "single-plan Preview does not reuse its plan ID for another tier");
+    const savedClientSecret = process.env.PAYPAL_CLIENT_SECRET;
+    delete process.env.PAYPAL_CLIENT_SECRET;
+    const missingSecretConfig = paypalApi.paypalPublicConfig();
+    h.eq(missingSecretConfig.configured, false, "Preview checkout is disabled when its server-side secret is unavailable");
+    h.ok(missingSecretConfig.previewConfigurationMissing?.includes("PAYPAL_CLIENT_SECRET"), "Preview diagnostics name a missing secret without exposing its value");
+    process.env.PAYPAL_CLIENT_SECRET = savedClientSecret;
     process.env.PAYPAL_PREVIEW_SINGLE_PLAN_MODE = savedSingleTest.flag || "";
     if (savedSingleTest.secret) process.env.PAYPAL_WEBHOOK_ID = savedSingleTest.secret;
     else delete process.env.PAYPAL_WEBHOOK_ID;

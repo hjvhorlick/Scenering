@@ -10,6 +10,7 @@ export interface PublicBillingConfig {
   currency: "USD";
   configured: boolean;
   previewTestPlan?: { plan: "sceneflow" | "sceneforge"; interval: BillingInterval } | null;
+  previewConfigurationMissing?: string[];
   tiers: Tier[];
 }
 

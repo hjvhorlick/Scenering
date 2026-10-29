@@ -43,10 +43,20 @@ export function paypalPublicConfig() {
   const tiers = buildPricingTiers((name) => String(e[name] || ""));
   const idsReady = tiers.filter((tier) => tier.id !== "free").every((tier) => tier.planId.monthly && tier.planId.yearly);
   const previewSinglePlan = paypalPreviewSinglePlanMode();
-  const configured = !isProductionRuntime(e) && paypalIsSandbox() && Boolean(clientId)
-    && Boolean(String(e.PAYPAL_CLIENT_SECRET || "").trim())
-    && Boolean(String(e.PUBLIC_APP_URL || "").trim())
-    && (idsReady || previewSinglePlan);
+  const clientSecretSet = Boolean(String(e.PAYPAL_CLIENT_SECRET || "").trim());
+  const publicAppUrlSet = Boolean(String(e.PUBLIC_APP_URL || "").trim());
+  const production = isProductionRuntime(e);
+  const configured = !production && paypalIsSandbox() && Boolean(clientId)
+    && clientSecretSet && publicAppUrlSet && (idsReady || previewSinglePlan);
+  // In the branch-only single-plan Preview, disclose missing setting names
+  // (never values) so a disabled checkout has a useful, safe explanation.
+  const previewConfigurationMissing = previewSinglePlan ? [
+    ...(production ? ["NODE_ENV=development"] : []),
+    ...(!paypalIsSandbox() ? ["PAYPAL_ENVIRONMENT=sandbox"] : []),
+    ...(!clientId ? ["PAYPAL_CLIENT_ID"] : []),
+    ...(!clientSecretSet ? ["PAYPAL_CLIENT_SECRET"] : []),
+    ...(!publicAppUrlSet ? ["PUBLIC_APP_URL"] : []),
+  ] : undefined;
   return {
     provider: "paypal" as const,
     environment: "sandbox" as const,
@@ -54,6 +64,7 @@ export function paypalPublicConfig() {
     currency: "USD" as const,
     configured,
     previewTestPlan: previewSinglePlan ? { plan: "sceneflow" as const, interval: "monthly" as const } : null,
+    previewConfigurationMissing,
     tiers,
   };
 }
