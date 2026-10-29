@@ -109,7 +109,7 @@
     // setup-preview-resources:bindings-end
     "vars": {
       "NODE_ENV": "development",
-      "PUBLIC_APP_URL": "",
+      "PUBLIC_APP_URL": "https://arena-bbec8b11-scenering-scenering.sceneweaver.workers.dev",
       "SCENERING_OWNER_EMAIL": "",
       "EMAIL_PROVIDER": "console",
       "PAYPAL_ENVIRONMENT": "sandbox",
