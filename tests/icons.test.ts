@@ -232,7 +232,7 @@ let compared = 0;
  * The guard's whole job is to prove copy was not edited by accident, so an
  * intentional change has to be declared here rather than weakening the check.
  *
- * The ten narrator personas were named after actors. They are ordinary neural
+ * The ten narrator personas were named after actors. They are ordinary TTS
  * voices and do not sound like those actors, so the names promised something
  * the product does not deliver and were replaced with ones that describe the
  * delivery. Their surnames double as the old preset ids, which is why the
@@ -303,7 +303,7 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
   [
     // 2026-10-16, owner: the front page's pricing section promised
     // "Narration with your own free Google key" on every plan card, with a
-    // line about a free Google AI Studio key under them, while the rest of the
+    // line about a free Google service key under them, while the rest of the
     // page (and the product) uses browser-local Piper narration. The cards
     // describe local Piper synthesis and the Google line is
     // gone. The developer note under it — "Paid checkout requires configured
@@ -312,7 +312,7 @@ const RETIRED_IN_FILE = new Map<string, Set<string>>([
     // Lemon Squeezy is being replaced; it is gone too.
     "src/marketing/sections/Pricing.tsx",
     new Set([
-      "return", "and", "Narration", "your", "own", "free", "Google", "key", "uses", "AI", "Studio", "on",
+      "return", "and", "Narration", "your", "own", "free", "Google", "key", "uses", "Studio", "on",
       "every", "plan", "including", "Free", "takes", "about", "minute", "to", "create", "costs", "nothing",
       "Scenering", "never", "meters", "it", "Paid", "checkout", "requires", "configured", "Lemon", "Squeezy",
       "credentials", "Verified", "subscription", "status", "not", "page", "controls", "paid", "access",

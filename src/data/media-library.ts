@@ -863,7 +863,7 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
     doc += `🎙️ VOICEOVER & SPEECH SYNTHESIS (TTS):
 • Voice Profile: ${voiceName}
   Profile Type: ${voiceGender ? `${voiceGender.toUpperCase()} • ` : ""}${voiceAccent || "Studio Narration"}
-  Technology: ${voiceEngine || "Piper local neural text-to-speech"}
+  Technology: ${voiceEngine || "Piper local TTS"}
   License: ${!voiceEngine || /piper/i.test(voiceEngine) ? "Subject to the selected Piper model's license and attribution terms" : "The creator is responsible for the rights to imported audio"}
 
 `;

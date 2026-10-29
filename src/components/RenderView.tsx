@@ -16,7 +16,7 @@ import {
   type VipFinding,
 } from "../lib/vip-export-audit";
 import { isCtaCustomised, isFreeCtaInsert } from "../data/cta-library";
-import { startVoiceSource } from "../lib/voice-fade";
+import { startVoiceSource, VOICE_NARRATION_GAIN } from "../lib/voice-fade";
 import {
   drawSceneImage,
   sceneHasVisual,
@@ -2261,6 +2261,7 @@ export default function RenderView({
             startVoiceSource(offlineCtx, item.buffer, offlineEcho ? offlineEcho.input : voiceAnalyser, {
               whenSeconds: speechStart,
               durationSeconds: Math.max(0.05, entry.duration - entry.speechOffset),
+              gainScale: VOICE_NARRATION_GAIN,
             });
           }
 
@@ -2965,12 +2966,12 @@ export default function RenderView({
       voiceGender: isCustomImport ? "User Prepared Voice" : voiceGender,
       voiceAccent: isCustomImport
         ? "Custom Imported Audio File"
-        : currentVoice?.accent || currentVoice?.locale || (isSceneringProfile ? "Scenering Piper profile" : "Piper neural voice"),
+        : currentVoice?.accent || currentVoice?.locale || (isSceneringProfile ? "Scenering Piper profile" : "Piper TTS voice"),
       voiceEngine: isCustomImport
         ? "User-Prepared Audio File (Imported Track)"
         : isSceneringProfile
-          ? "Piper local neural text-to-speech, Scenering style profile"
-          : "Piper local neural voice",
+          ? "Piper local TTS, Scenering style profile"
+          : "Piper local TTS",
     });
   };
 
@@ -3145,7 +3146,7 @@ export default function RenderView({
     none: "Static (no motion)",
   };
   const voiceDisplayName =
-    availableVoices.find((v) => v.id === selectedVoice)?.name || selectedVoice || "Studio AI Voice";
+    availableVoices.find((v) => v.id === selectedVoice)?.name || selectedVoice || "Studio TTS Voice";
 
   const insertHasSound = (ins: TimelineInsert) =>
     Boolean(ins.audioSettings?.soundUrl || ins.content?.soundUrl);

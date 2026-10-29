@@ -108,6 +108,7 @@ const metaContent = (html: string, attribute: string, key: string) =>
   html.match(new RegExp(`<meta ${attribute}="${key}" content="([^"]*)"`))?.[1];
 for (const path of shellPaths) {
   const html = applyPageShell(source, path);
+  h.ok(!/\bAI\b|artificial intelligence|\bneural\b|machine learning/i.test(html), `${path}: SEO metadata and structured-data copy use TTS language`);
   const seo = seoForPath(path);
   const indexable = seo.indexable !== false;
   h.eq(count(html, "<title>"), 1, `${path}: one title`);
@@ -164,6 +165,7 @@ for (const path of PUBLIC_PAGES.map((page) => page.path)) {
 }
 const application = (structuredData("/pricing")?.["@graph"] as any[]).find((node) => node["@type"] === "SoftwareApplication");
 h.ok(application.featureList.includes("Script captions and karaoke timing"), "schema describes caption timing without promising Piper speech marks");
+h.ok(application.featureList.includes("Browser-local Piper TTS narration"), "application schema describes narration with TTS terminology");
 for (const slug of PLAN_ORDER) {
   const plan = PLAN_CONFIG[slug];
   if (plan.prices.monthly === 0) {

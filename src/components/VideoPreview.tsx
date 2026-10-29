@@ -42,7 +42,7 @@ import { getFilterCanvas, type VideoFilterConfig } from "../data/video-filters";
 import { paintVideoFilter } from "../lib/video-filter-render";
 import { renderSection } from "../lib/render-section";
 import type { SectionConfig } from "../data/intro-outro";
-import { startVoiceSource, type VoiceSourceHandle } from "../lib/voice-fade";
+import { startVoiceSource, VOICE_NARRATION_GAIN, type VoiceSourceHandle } from "../lib/voice-fade";
 import {
   VoiceEchoConfig,
   VoiceEchoGraph,
@@ -1666,6 +1666,7 @@ export default function VideoPreview({
         const handle = startVoiceSource(audioCtx, sceneAudio.buffer, destination, {
           offsetSeconds: offset,
           durationSeconds: Math.max(0.05, windowDur - speechStartsAt - offset),
+          gainScale: VOICE_NARRATION_GAIN,
         });
         currentAudioSource = handle;
         currentSourceRef.current = handle;

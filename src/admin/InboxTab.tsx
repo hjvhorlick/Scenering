@@ -362,7 +362,7 @@ function ThreadView({ id, settings, connection, savedReplies, onBack, onChanged 
   if (!thread) {
     return (
       <div className="space-y-3">
-        <button type="button" className="opt-btn" onClick={onBack}>Back to inbox</button>
+        <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-cyan-300/50 bg-gradient-to-r from-cyan-600 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg hover:from-cyan-500 hover:to-violet-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300" onClick={onBack} title="Return to the email list">← Back to email list</button>
         {error ? <Notice tone="error">{error}</Notice> : <div className={`${cardClass} p-8 text-center text-sm text-gray-400`}>Opening conversation…</div>}
       </div>
     );
@@ -371,7 +371,7 @@ function ThreadView({ id, settings, connection, savedReplies, onBack, onChanged 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="opt-btn" onClick={onBack}>Back to inbox</button>
+        <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-cyan-300/50 bg-gradient-to-r from-cyan-600 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg hover:from-cyan-500 hover:to-violet-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300" onClick={onBack} title="Return to the email list">← Back to email list</button>
         <span className="flex-1" />
         <button type="button" className="opt-btn" onClick={markUnread}>Mark unread</button>
         <button type="button" className="opt-btn" onClick={remove}>Delete</button>
@@ -776,7 +776,7 @@ function ReplyBox({ thread, settings, connection, savedReplies, replyFrom, onSen
         onChange={setAttachments}
         onError={(text) => setNotice({ tone: "error", text })}
       />
-      {chosen?.signature && <p className="text-[11px] text-gray-500">The signature for {chosen.address} and their message are added below your reply.</p>}
+      <p className="text-[11px] text-gray-500">Replies use Scenering’s colourful brand footer with Vincent Horlick and vincent@scenering.com. No phone number or business address is included.</p>
       {connection && !connection.receiving && (
         <p className="text-[11px] text-amber-300">Your reply will be delivered, but their answer cannot reach {connection.address} until the address is connected.</p>
       )}
@@ -912,16 +912,15 @@ function SettingsDialog({ initial, onClose, onSaved }: { initial: InboxSettings 
       {!draft ? <p className="text-sm text-gray-400">Loading…</p> : (
         <>
           <Label text="Your personal address" hint="Customers write to this address, and your replies come from it unless you choose another of your addresses."><input type="email" value={draft.address} onChange={(event) => set("address", event.target.value)} className={inputClass} /></Label>
-          <Label text="Name on your replies"><input type="text" value={draft.displayName} onChange={(event) => set("displayName", event.target.value)} maxLength={80} className={inputClass} /></Label>
-          <Label text="Signature"><textarea value={draft.signature} onChange={(event) => set("signature", event.target.value)} rows={3} className={inputClass} /></Label>
+          <Label text="Address label (internal)" hint="Recipients see Vincent Horlick as the sender, regardless of this internal label."><input type="text" value={draft.displayName} onChange={(event) => set("displayName", event.target.value)} maxLength={80} className={inputClass} /></Label>
+          <div className="rounded-xl border border-cyan-500/30 bg-gradient-to-r from-cyan-950/50 via-indigo-950/50 to-fuchsia-950/50 p-4 text-sm text-gray-200"><strong className="text-white">Branded email signature</strong><p className="mt-1 text-xs text-gray-300">Messages show Vincent Horlick, Scenering and vincent@scenering.com. Your phone number and business address are not added.</p></div>
           <div className="space-y-3 rounded-lg border border-hairline p-3">
             <div className="text-[11px] uppercase tracking-[.14em] text-gray-400 font-bold">Other addresses</div>
             <p className="text-[11px] text-gray-500">Customers can write to these as well, and you can choose any of them when you reply or write a new message. A reply starts on the address the customer wrote to. Each address needs its own routing rule in Cloudflare before email to it can arrive (see Connect address).</p>
             {others.map((entry, index) => (
               <div key={index} className="space-y-2 rounded-lg border border-hairline p-3">
                 <Label text="Address"><input type="email" value={entry.address} onChange={(event) => setOther(index, { address: event.target.value })} placeholder="support@scenering.com" className={inputClass} /></Label>
-                <Label text="Name on replies from this address"><input type="text" value={entry.displayName} onChange={(event) => setOther(index, { displayName: event.target.value })} maxLength={80} className={inputClass} /></Label>
-                <Label text="Signature"><textarea value={entry.signature} onChange={(event) => setOther(index, { signature: event.target.value })} rows={2} className={inputClass} /></Label>
+                <Label text="Internal address label" hint="Recipients still see Vincent Horlick with the fixed Scenering footer."><input type="text" value={entry.displayName} onChange={(event) => setOther(index, { displayName: event.target.value })} maxLength={80} className={inputClass} /></Label>
                 <button type="button" className="opt-btn" onClick={() => removeOther(index)}>Remove {entry.address || "this address"}</button>
               </div>
             ))}

@@ -50,6 +50,7 @@ const allText = (item: { q: string; a: string; steps: readonly string[]; points?
 /* ---- 1. Shape ------------------------------------------------------------------ */
 {
   h.ok(ADMIN_MANUAL.length >= 12, `the manual covers every area (${ADMIN_MANUAL.length} topics)`);
+  h.ok(!/\bAI\b|artificial intelligence|\bneural\b|machine learning/i.test(JSON.stringify(ADMIN_MANUAL)), "admin Q&A uses TTS terminology and contains no AI references");
   h.eq(new Set(ADMIN_MANUAL.map((topic) => topic.id)).size, ADMIN_MANUAL.length, "topic ids are unique");
   h.eq(new Set(ADMIN_MANUAL.map((topic) => topic.short)).size, ADMIN_MANUAL.length, "topic buttons are unique");
   h.eq(manual.MANUAL_QUESTION_COUNT, ADMIN_MANUAL.reduce((sum, topic) => sum + topic.entries.length, 0), "the question count is the sum of the topics");

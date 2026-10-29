@@ -75,7 +75,7 @@ import {
   splitScriptIntoScenes,
   audioSceneDurations,
 } from "./lib/duration-utils";
-import { TRANSITION_GROUPS, transitionsInGroup } from "./lib/scene-transition";
+import { TRANSITION_GROUPS, TRANSITION_OPTIONS, transitionsInGroup, type TransitionGroup } from "./lib/scene-transition";
 import type { Project, Scene, TimelineInsert, SceneMotionType, SceneTransitionType, EditorStep, CustomerLogoConfig, CaptionsConfig, AspectRatioType, ResolutionType, PacingModeType, RenderProfileSettings } from "./types";
 import { DEFAULT_RENDER_PROFILE_SETTINGS, resolveRenderProfileSettings } from "./lib/render-profile";
 import type { VideoFilterConfig } from "./data/video-filters";
@@ -339,6 +339,11 @@ export default function App() {
   const [outroSection, setOutroSection] = useState<SectionConfig | null>(DEFAULT_PROJECT_SETTINGS.outro_section);
   const [voiceEcho, setVoiceEcho] = useState<VoiceEchoConfig>(DEFAULT_PROJECT_SETTINGS.voice_echo);
   const [videoTransition, setVideoTransition] = useState<SceneTransitionType>(DEFAULT_PROJECT_SETTINGS.transition);
+  const [transitionPickerGroup, setTransitionPickerGroup] = useState<TransitionGroup>("Dissolve");
+  useEffect(() => {
+    const group = TRANSITION_OPTIONS.find((option) => option.id === videoTransition)?.group;
+    if (group) setTransitionPickerGroup(group);
+  }, [videoTransition]);
   const [renderProfile, setRenderProfile] = useState<RenderProfileSettings>(DEFAULT_PROJECT_SETTINGS.render_profile);
 
   // Helper to save per-project settings so each project maintains isolated configuration
@@ -1819,6 +1824,8 @@ export default function App() {
   /** Sets transition effect across the entire video (all scenes + project settings) */
   const handleUpdateVideoTransition = (transition: SceneTransitionType) => {
     setVideoTransition(transition);
+    const selected = TRANSITION_OPTIONS.find((option) => option.id === transition);
+    if (selected) setTransitionPickerGroup(selected.group);
     saveCurrentProjectSettings({ transition });
     setScenes((prev) => prev.map((s) => ({ ...s, transition })));
     try {
@@ -2728,62 +2735,85 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Global Video Transition Selector: applies to the complete video */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900/80 p-3 sm:px-4 sm:py-3 rounded-xl border border-hairline shadow-sm">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-950/80 border border-indigo-700/60 flex items-center justify-center text-sm shadow-inner">
-                        🔀
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-gray-200">Video Transitions</span>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800/60 font-medium">
-                            Applies to entire video
-                          </span>
+                  {/* Global transition picker: organized by family, with one clear selected state */}
+                  <section className="overflow-hidden rounded-2xl border border-violet-500/30 bg-gray-950/90 shadow-xl" aria-label="Scene transitions">
+                    <div className="flex flex-col gap-4 border-b border-white/10 bg-gradient-to-r from-cyan-950/80 via-indigo-950/80 to-fuchsia-950/70 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-cyan-300/30 bg-gradient-to-br from-cyan-500/20 via-indigo-500/20 to-fuchsia-500/20 text-xl shadow-inner" aria-hidden="true">
+                          <Icon glyph="🎞️" />
+                        </span>
+                        <div className="min-w-0">
+                          <h3 className="text-sm font-extrabold text-white">Scene transitions</h3>
+                          <p className="mt-0.5 text-xs text-indigo-100/75">Choose the visual hand-off between scenes. One choice applies throughout this video.</p>
                         </div>
-                        <p className="text-[11px] text-gray-400">
-                          Choose the transition effect between scenes across your entire video
-                        </p>
                       </div>
-                    </div>
-
-                    {/* Grouped by family (dissolves, pushes, covers, wipes,
-                        reveals, dynamics). A flat row of twenty-one chips was
-                        unreadable; the family labels make the one you want
-                        findable at a glance. */}
-                    <div className="flex flex-col gap-2 w-full sm:w-auto">
-                      {TRANSITION_GROUPS.map((group) => {
-                        const options = transitionsInGroup(group);
-                        if (options.length === 0) return null;
+                      {(() => {
+                        const selected = TRANSITION_OPTIONS.find((option) => option.id === videoTransition) || TRANSITION_OPTIONS[0];
                         return (
-                          <div key={group} className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[10px] uppercase tracking-wide text-gray-500 w-16 flex-shrink-0">
-                              {group}
-                            </span>
-                            {options.map((opt) => {
-                              const isSelected = videoTransition === opt.id;
-                              return (
-                                <button
-                                  key={opt.id}
-                                  type="button"
-                                  onClick={() => handleUpdateVideoTransition(opt.id)}
-                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all flex items-center gap-1.5 ${
-                                    isSelected
-                                      ? "bg-indigo-600 border-indigo-400 text-white shadow-md font-semibold ring-1 ring-indigo-400/50"
-                                      : "bg-gray-800/90 hover:bg-gray-700/90 border-hairline text-gray-300"
-                                  }`}
-                                  title={opt.description}
-                                >
-                                  <span><Icon glyph={opt.icon} /></span>
-                                  <span>{opt.label}</span>
-                                </button>
-                              );
-                            })}
+                          <div className="flex shrink-0 items-center gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                            <span className="text-[10px] font-bold uppercase tracking-[.16em] text-indigo-200/70">Selected</span>
+                            <span className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-lg"><Icon glyph={selected.icon} /></span>
+                            <span className="text-sm font-bold text-white">{selected.label}</span>
                           </div>
                         );
-                      })}
+                      })()}
                     </div>
-                  </div>
+
+                    <div className="space-y-4 p-4 sm:p-5">
+                      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Transition families">
+                        {TRANSITION_GROUPS.map((group) => {
+                          const count = transitionsInGroup(group).length;
+                          const active = transitionPickerGroup === group;
+                          return (
+                            <button
+                              key={group}
+                              type="button"
+                              role="tab"
+                              aria-selected={active}
+                              onClick={() => setTransitionPickerGroup(group)}
+                              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-all ${active
+                                ? "border-cyan-300/60 bg-gradient-to-r from-cyan-600/30 to-violet-600/30 text-white shadow-md ring-1 ring-cyan-300/20"
+                                : "border-white/10 bg-gray-900/70 text-gray-400 hover:border-violet-400/40 hover:bg-gray-800 hover:text-gray-100"
+                              }`}
+                            >
+                              <span>{group}</span>
+                              <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${active ? "bg-white/15 text-cyan-100" : "bg-black/20 text-gray-500"}`}>{count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3" role="tabpanel" aria-label={`${transitionPickerGroup} transitions`}>
+                        {transitionsInGroup(transitionPickerGroup).map((option) => {
+                          const selected = videoTransition === option.id;
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              aria-pressed={selected}
+                              onClick={() => handleUpdateVideoTransition(option.id)}
+                              className={`group relative flex min-h-[76px] items-start gap-3 rounded-xl border p-3 text-left transition-all ${selected
+                                ? "border-cyan-300/70 bg-gradient-to-br from-cyan-950/80 via-indigo-950/70 to-fuchsia-950/50 shadow-lg ring-1 ring-cyan-300/30"
+                                : "border-white/10 bg-gray-900/60 hover:border-violet-400/50 hover:bg-gray-800/90"
+                              }`}
+                              title={option.description}
+                            >
+                              <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border text-xl ${selected ? "border-cyan-300/30 bg-cyan-400/10 text-cyan-100" : "border-white/10 bg-black/20 text-gray-200 group-hover:border-violet-300/30"}`}>
+                                <Icon glyph={option.icon} />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-2">
+                                  <span className="text-xs font-extrabold text-white">{option.label}</span>
+                                  {selected && <span className="rounded-full bg-cyan-300/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-cyan-200">On</span>}
+                                </span>
+                                <span className="mt-1 block text-[10px] leading-relaxed text-gray-400">{option.description}</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </section>
 
                   {/* Scene List */}
                   <div className="space-y-4">

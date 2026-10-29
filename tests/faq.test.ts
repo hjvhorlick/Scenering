@@ -11,6 +11,7 @@ for (const entry of FAQ_LIBRARY) {
   h.ok(entry.answer.length >= 45, `${entry.id}: answer gives useful detail`);
   h.ok(entry.category.length > 2, `${entry.id}: category is present`);
   h.ok(!/guarantee|go viral|instant success/i.test(entry.answer), `${entry.id}: answer makes no exaggerated claim`);
+  h.ok(!/\bAI\b|artificial intelligence|\bneural\b|machine learning/i.test(`${entry.question} ${entry.answer} ${entry.keywords}`), `${entry.id}: Q&A copy describes the feature as TTS rather than AI`);
 }
 for (const term of ["panning", "cropping", "audio visualiser", "bitrate", "codec", "aspect ratio", "ducking", "keyframes", "rendering", "captions"]) {
   h.ok(FAQ_LIBRARY.some((entry) => `${entry.question} ${entry.answer}`.toLowerCase().includes(term)), `terminology includes ${term}`);

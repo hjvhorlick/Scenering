@@ -110,6 +110,15 @@ export function synthesizePiper(
   return requestWorker({ id, voiceId: voice.id, speakerId: voice.speakerId ?? 0, text, speed }, onProgress);
 }
 
+/** Start the shared worker and phonemizer assets while the creator is browsing voices. */
+export function prewarmPiperRuntime(): void {
+  try {
+    getWorker().postMessage({ id: 0, type: "warm" });
+  } catch {
+    // The real synthesis request will surface any worker/runtime startup error.
+  }
+}
+
 export function stopPiperWorker(): void {
   failAllPending(new Error("Local Piper audition was stopped."), true);
 }

@@ -15,14 +15,20 @@ h.eq(migrateLegacyVoiceId("speechify_female_10"), "scenering_female_10", "saved 
 const studioSource = readFileSync("src/components/VoiceoverStudio.tsx", "utf8");
 h.ok(studioSource.includes("handlePlayVoicePreview(voice.sampleText, voice.id, voice.id, globalSpeed)"), "every profile card has its own audition action");
 h.ok(studioSource.includes("<span>Listen Sample</span>"), "audition controls are visible without a bulk-test gate");
-h.ok(!studioSource.includes("Piper Neural Voice · on-device synthesis") && !studioSource.includes("Prepare selected voice"), "the separate Piper info/preload panel is removed");
+h.ok(!studioSource.includes("Piper TTS · on-device synthesis") && !studioSource.includes("Prepare selected voice"), "the separate Piper info/preload panel is removed");
 h.ok(studioSource.includes("aria-label={`Listen to ${voice.name} sample") && studioSource.includes("handlePlayVoicePreview(voice.sampleText, voice.id, voice.id, globalSpeed)"), "each individual voice card has its own accessible sample audition");
+h.ok(studioSource.includes("ttsPlayer.play(text, engineVoice, speed") && !studioSource.includes("ttsPlayer.playBlob(new Blob([audio.rawBuffer]"), "voice samples use the shared player cache so replaying a card skips Piper synthesis");
+const playerSource = readFileSync("src/lib/tts-player.ts", "utf8");
+h.ok(playerSource.includes("const cacheKey = `${voice}\\u0000${cleanText}`") && playerSource.includes("this.rememberAudio(cacheKey, audioUrl)"), "synthesized previews are memoized by voice and sample text");
+h.ok(playerSource.includes("onProgress"), "cold first use surfaces Piper preparation progress instead of appearing unresponsive");
 const piperStorage = readFileSync("src/lib/piper-storage.ts", "utf8");
 const piperWorker = readFileSync("src/lib/piper-tts.worker.ts", "utf8");
 h.ok(piperStorage.includes("storage.persist()") && studioSource.includes("void requestPiperStoragePersistence(true)"), "user-initiated audition gestures request persistent browser storage for downloaded voice models");
 h.ok(piperWorker.includes("cache.match(modelUrl)") && piperWorker.includes("await cache.put(modelUrl") && piperWorker.includes("await persistPromise"), "voice model downloads are saved and verified in CacheStorage before the first synthesis completes");
 h.ok(piperWorker.includes("cache.match(url)") && piperWorker.includes("cache.put(url"), "voice configuration JSON is cached with the model to avoid repeated small network requests");
 h.ok(piperWorker.includes("now - lastProgressAt >= 120"), "model-download progress updates are throttled to keep the UI responsive");
+const piperClient = readFileSync("src/lib/piper-tts.ts", "utf8");
+h.ok(studioSource.includes("prewarmPiperRuntime") && studioSource.includes('import("../lib/piper-tts")') && piperClient.includes('type: "warm"') && piperWorker.includes('request.type === "warm"') && piperWorker.includes("void loadPhonemizer().catch(() => {})"), "the voice screen warms shared phonemizer assets before audition without downloading every model");
 const appSource = readFileSync("src/App.tsx", "utf8");
 h.ok(appSource.includes("onClick={openPiperDemoWorkspace}") && appSource.includes("Open Piper demo project") && appSource.includes('setEditorStep("voiceover")'), "the demo CTA handler opens the real Voiceover step");
 for (const profile of STUDIO_VOICE_PRESETS) {

@@ -3,6 +3,7 @@ import { createHarness } from "./harness";
 import {
   VOICE_FADE_IN_SECONDS,
   VOICE_FADE_OUT_SECONDS,
+  VOICE_NARRATION_GAIN,
   scheduleVoiceFadeIn,
   scheduleVoiceFadeOut,
   startVoiceSource,
@@ -55,6 +56,13 @@ function fakeParam() {
   h.eq(calls[1], `ramp:1@${10 + VOICE_FADE_IN_SECONDS}`, "…and opens over the fade time");
   h.ok(VOICE_FADE_IN_SECONDS <= 0.02, "the fade-in is short enough to sound immediate");
   h.ok(VOICE_FADE_IN_SECONDS >= 0.008, "…and long enough to remove the click");
+}
+
+{
+  const { param, calls } = fakeParam();
+  scheduleVoiceFadeIn(param, 3, VOICE_FADE_IN_SECONDS, VOICE_NARRATION_GAIN);
+  h.eq(calls[1], `ramp:${VOICE_NARRATION_GAIN}@${3 + VOICE_FADE_IN_SECONDS}`, "narration fades up to the requested +30% gain");
+  h.eq(VOICE_NARRATION_GAIN, 1.3, "voice loudness uses a 30% linear lift");
 }
 
 /* ---- a fade-out starts from wherever the gain is now ------------------- */
@@ -141,6 +149,7 @@ function fakeContext() {
 
 const preview = read("src/components/VideoPreview.tsx");
 h.ok(preview.includes("startVoiceSource"), "the preview plays narration through the faded source");
+h.ok(preview.includes("gainScale: VOICE_NARRATION_GAIN"), "live narration is 30% louder in the video preview");
 h.ok(!/currentAudioSource\) try \{ currentAudioSource\.stop\(\)/.test(preview), "no scene change cuts a line mid-waveform");
 h.ok(!/source\.start\(0, safeOffset\)/.test(preview), "no preview source starts at full gain");
 h.ok(preview.includes("currentAudioSource.stop();\n        currentAudioSource = null;"), "the outgoing line is faded, not cut");
@@ -148,6 +157,7 @@ h.ok(preview.includes("currentAudioSource.stop();\n        currentAudioSource = 
 const render = read("src/components/RenderView.tsx");
 h.ok(render.includes("startVoiceSource(offlineCtx"), "the exported soundtrack opens each line from silence too");
 h.ok(render.includes('from "../lib/voice-fade"'), "…through the same helper as the preview");
+h.ok(render.includes("gainScale: VOICE_NARRATION_GAIN"), "the exported video carries the same 30% voice lift");
 
 /* ------------------------------------------------------------------ *
  * Render sampling

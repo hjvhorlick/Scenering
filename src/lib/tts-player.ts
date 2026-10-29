@@ -6,6 +6,7 @@ import {
   voiceEchoIsActive,
   getEchoAudioContext,
 } from "./voice-echo";
+import { VOICE_NARRATION_GAIN } from "./voice-fade";
 import { sanitizeTextForSpeech } from "./speech-sanitizer";
 
 class TTSAudioPlayer {
@@ -16,6 +17,7 @@ class TTSAudioPlayer {
   /** Echo/ambience the voice is played through (set from the Voiceover step). */
   private voiceEcho: VoiceEchoConfig | null = null;
   private activeEchoRoute: ElementEchoRoute | null = null;
+  private activeVoiceGainRoute: { source: MediaElementAudioSourceNode; gain: GainNode } | null = null;
 
   /** Every synthesized preview is heard through the same echo as the render. */
   public setVoiceEcho(config: VoiceEchoConfig | null) {
@@ -28,16 +30,37 @@ class TTSAudioPlayer {
   private attachEcho(audio: HTMLAudioElement) {
     this.disposeEchoRoute();
     const echoOn = !!this.voiceEcho && voiceEchoIsActive(this.voiceEcho);
-    if (!echoOn) return;
-    const route = routeElementThroughEcho(audio, this.voiceEcho!, getEchoAudioContext, null);
-    if (route) this.activeEchoRoute = route;
+    if (echoOn) {
+      const route = routeElementThroughEcho(audio, this.voiceEcho!, getEchoAudioContext, null);
+      if (route) {
+        this.activeEchoRoute = route;
+        try {
+          const ctx = getEchoAudioContext();
+          route.graph.output.gain.setTargetAtTime(VOICE_NARRATION_GAIN, ctx.currentTime, 0.02);
+        } catch {}
+        return;
+      }
+    }
+    // Apply the requested +30% narration lift through Web Audio, which can go
+    // above the HTMLAudioElement's 1.0 volume ceiling. If the browser refuses
+    // MediaElementSource routing, normal element playback remains the fallback.
+    try {
+      const ctx = getEchoAudioContext();
+      const source = ctx.createMediaElementSource(audio);
+      const gain = ctx.createGain();
+      gain.gain.value = VOICE_NARRATION_GAIN;
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      this.activeVoiceGainRoute = { source, gain };
+    } catch {}
   }
 
   private disposeEchoRoute() {
-    try {
-      this.activeEchoRoute?.dispose();
-    } catch {}
+    try { this.activeEchoRoute?.dispose(); } catch {}
+    try { this.activeVoiceGainRoute?.source.disconnect(); } catch {}
+    try { this.activeVoiceGainRoute?.gain.disconnect(); } catch {}
     this.activeEchoRoute = null;
+    this.activeVoiceGainRoute = null;
   }
 
   public getCurrentPlayingId(): string | number | null {
@@ -83,7 +106,8 @@ class TTSAudioPlayer {
     speed: number = 1.0,
     volume: number = 1.0,
     playingId: string | number = "test",
-    onEnded?: () => void
+    onEnded?: () => void,
+    onProgress?: (update: { stage: string; message: string; fraction?: number }) => void
   ): Promise<void> {
     if (this.currentPlayingId === playingId) {
       this.stop();
@@ -119,7 +143,7 @@ class TTSAudioPlayer {
     try {
       if (!audioUrl) {
         const { fetchSceneAudioWithTimeline } = await import("./tts-cache");
-        const synthesized = await fetchSceneAudioWithTimeline(cleanText, voice);
+        const synthesized = await fetchSceneAudioWithTimeline(cleanText, voice, { onProgress });
         if (!synthesized) throw new Error("Piper did not return audio for this text.");
         audioUrl = URL.createObjectURL(new Blob([synthesized.rawBuffer], { type: synthesized.mimeType }));
         this.rememberAudio(cacheKey, audioUrl);

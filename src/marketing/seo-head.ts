@@ -107,7 +107,7 @@ const APP_DESCRIPTION =
 const APP_FEATURES = [
   "Script-to-scene planning",
   "Visual research and selection",
-  "Browser-local Piper neural voiceover",
+  "Browser-local Piper TTS narration",
   "Script captions and karaoke timing",
   "Video Studio editing and effects",
   "MP4 and WebM export",

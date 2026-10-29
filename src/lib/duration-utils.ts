@@ -628,7 +628,6 @@ function getContextualContinuations(
   }
 
   if (
-    lower.includes("ai") ||
     lower.includes("tech") ||
     lower.includes("future") ||
     lower.includes("cyber") ||
@@ -639,10 +638,10 @@ function getContextualContinuations(
     lower.includes("data")
   ) {
     return [
-      "Intelligent neural networks synthesize complex streams of telemetry in real time, unlocking unprecedented clarity and seamless digital precision.",
-      "Sleek interfaces and glowing data conduits converge to empower modern workflows and accelerate creative breakthroughs.",
-      "This harmonious fusion of cutting-edge technology and human intuition paves the way for a transformative new era of discovery.",
-      "Every algorithm works quietly behind the scenes, anticipating demands and shaping the future with effortless fluidity.",
+      "City networks carry a steady stream of information in real time, bringing clarity to connected systems.",
+      "Sleek interfaces and glowing data displays help people organize work and move ideas forward.",
+      "New technology and human creativity combine to open practical paths for discovery.",
+      "Each component works quietly in the background, keeping information flowing smoothly.",
     ];
   }
 

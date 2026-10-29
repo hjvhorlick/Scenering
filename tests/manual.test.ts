@@ -18,7 +18,9 @@ for (const chapter of MANUAL_CHAPTERS) {
     h.ok(!/guaranteed views|go viral|customer story|testimonial/i.test(section.paragraphs.join(" ")), `${section.id}: no stories or unsupported marketing claims`);
   }
 }
-const all = JSON.stringify(MANUAL_CHAPTERS).toLowerCase();
+const manualCopy = JSON.stringify(MANUAL_CHAPTERS);
+h.ok(!/\bAI\b|artificial intelligence|\bneural\b|machine learning/i.test(manualCopy), "public handbook uses TTS terminology and contains no AI references");
+const all = manualCopy.toLowerCase();
 for (const term of ["registration", "setup", "scenes", "visual research", "cropping", "voiceover", "captions", "timeline", "audio visualisers", "rendering", "vault", "download", "attribution"]) h.ok(all.includes(term), `manual covers ${term}`);
 const performance = MANUAL_SECTIONS.find((section) => section.id === "working-method");
 h.ok(Boolean(performance), "manual includes the working-method performance guidance");

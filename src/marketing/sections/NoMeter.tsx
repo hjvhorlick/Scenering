@@ -28,7 +28,7 @@ export default function NoMeter() {
 
       <div className="mkt-panel mkt-pad mkt-nometer-note">
         <p className="mkt-small">
-          <b>Stated plainly.</b> Piper generates the selected narration in your browser. First use loads the Piper runtime (about 30 MB uncompressed in this build) and the chosen voice model; the browser cache may avoid repeated downloads.
+          <b>Stated plainly.</b> Piper TTS generates the selected narration in your browser. First use loads the Piper runtime (about 30 MB uncompressed in this build) and the chosen voice model; the browser cache may avoid repeated downloads.
         </p>
         <p className="mkt-small">
           Photos come from free libraries:{" "}

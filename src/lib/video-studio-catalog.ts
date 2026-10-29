@@ -1111,7 +1111,7 @@ export const CATALOG_ITEMS: Record<string, CatalogItem[]> = {
       subCategory: "speech",
       name: "Minimal Talking Dots — 20-Band Wave",
       icon: "🗣️",
-      description: "Four became twenty: modern colour-blended talking AI dots become glossy 3D spheres with varied widths and heights that bounce in a shallow wave; every frequency makes its dot stretch into different-length glowing pills while the voice speaks",
+      description: "Four became twenty: modern colour-blended audio-reactive dots become glossy 3D spheres with varied widths and heights that bounce in a shallow wave; every frequency makes its dot stretch into different-length glowing pills while the voice speaks",
       defaultDuration: 6.0,
       defaultPosition: "bottom",
       defaultSize: 0.9,

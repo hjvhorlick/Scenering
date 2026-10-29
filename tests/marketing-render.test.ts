@@ -75,6 +75,7 @@ try {
 // Most checks below read both pages at once: between them they carry the
 // whole product story, just split into the pitch and the proof.
 const html = home + tour;
+ok(!/\bAI\b|artificial intelligence|\bneural\b|machine learning/i.test(html), "the rendered marketing pages use TTS language, not AI references");
 
 ok(home.length > 20_000, `the front page has substance (${home.length} chars of markup)`);
 ok(tour.length > 25_000, `the features tour has substance (${tour.length} chars of markup)`);
@@ -174,8 +175,8 @@ ok(html.includes("Coming soon"), "planned features are labelled on the page");
 // The developer note about billing configuration is for administrators, not
 // public visitors. The plan cards identify browser-local Piper narration.
 ok(!html.includes("Paid checkout requires configured"), "no payment-setup note is shown to visitors");
-ok(!html.includes("Google AI Studio") && !html.includes("free Google key"), "the pricing section no longer promises a Google narration key");
-ok(html.includes("with local Piper narration"), "the plans identify Piper as the narration engine");
+ok(!html.includes("Google Studio") && !html.includes("free Google key"), "the pricing section no longer promises a Google narration key");
+ok(html.includes("with local Piper TTS narration"), "the plans identify Piper TTS as the narration engine");
 ok(html.includes("Preview renders do not use final-export allowance"), "preview usage is stated");
 ok(html.includes("2-core Celeron with 4 GB RAM"), "the tested low-spec Celeron configuration is visible on the marketing page");
 ok(html.includes("persistent render engine"), "the marketing page explains persistent rendering for modest hardware");
