@@ -84,7 +84,21 @@
     "PUBLIC_APP_URL": "https://scenering.com",
     "SCENERING_OWNER_EMAIL": "hjvhorlick@gmail.com",
     "EMAIL_PROVIDER": "resend",
-    "PAYPAL_ENVIRONMENT": "sandbox"
+    "PAYPAL_ENVIRONMENT": "sandbox",
+    // The Sandbox Client ID and the four Sandbox plan ids are plain vars, not
+    // secrets: all five are already published to the browser. The Client ID
+    // is what the PayPal JavaScript SDK is initialised with, and the plan ids
+    // are returned by GET /api/billing/public-config so the pricing page can
+    // render them. Nothing here is confidential.
+    //
+    // PAYPAL_CLIENT_SECRET is deliberately absent. It stays a Cloudflare
+    // secret (`npx wrangler secret put PAYPAL_CLIENT_SECRET`, or the
+    // dashboard) and never enters source control.
+    "PAYPAL_CLIENT_ID": "Ad9rjMaQ9CsPbXPSKt-EjYTcaYVyoAlPSKrKgVx7SjF-otxi9DJ_0L9PIiUFbRoEPs2AvWnkNvQ9KL8m",
+    "PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID": "P-6J340466VT137933ENLRWTEI",
+    "PAYPAL_SCENEFLOW_YEARLY_PLAN_ID": "P-5HJ76233H8349625ANLRWRBI",
+    "PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID": "P-0DN02794T7398641GNLRWYCY",
+    "PAYPAL_SCENEFORGE_YEARLY_PLAN_ID": "P-2M642482GJ2465016NLRWUYA"
   },
   // Worker Previews: what Workers Builds deploys for every branch other than
   // main (`npx wrangler preview`). Wrangler 4.147+ refuses to run that command

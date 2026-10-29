@@ -36,6 +36,18 @@ Only one thing decides whether checkout runs: the runtime, not the keys and not 
 
 **Test on `scenering.com`.** It is the only host with a fixed public address, and PayPal needs a fixed address: the return URL and the webhook URL are registered in the PayPal dashboard and must match the host the browser actually came from. A Preview gets a new address every build, so a webhook registered against one is stale the moment the next commit lands.
 
+### What is set where on production
+
+Only one value has to be typed into Cloudflare by hand.
+
+| Value | Where it lives | Why |
+| --- | --- | --- |
+| `PAYPAL_CLIENT_ID` | `wrangler.jsonc` → `vars` | Published to the browser by design: it initialises the PayPal JS SDK |
+| The four `PAYPAL_*_PLAN_ID`s | `wrangler.jsonc` → `vars` | Published by `GET /api/billing/public-config` to render the pricing page |
+| `PAYPAL_CLIENT_SECRET` | **Cloudflare secret only** | Server-side only. Never in source control, never in a Vite var, never in the browser |
+
+Set the secret with `npx wrangler secret put PAYPAL_CLIENT_SECRET`, or on the dashboard under **Settings → Variables and Secrets → Production → Type: Secret**.
+
 Production secrets and preview secrets are separate stores. `npx wrangler secret put` configures production only; Worker Previews read the shared Previews base config, so the Sandbox keys have to be set there as well:
 
 ```bash
