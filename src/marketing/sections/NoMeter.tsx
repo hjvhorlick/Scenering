@@ -2,8 +2,8 @@ import { Section, SectionHead } from "../components/primitives";
 import { NO_METER, VISUAL_SOURCES } from "../product-facts";
 
 /**
- * Piper's browser-local narration model, first-download requirements and
- * model-license caveat are stated here rather than hidden in a help page.
+ * Browser-local voice narration, first-use requirements and voice-data terms
+ * are stated here rather than hidden in a help page.
  */
 export default function NoMeter() {
   const openSources = VISUAL_SOURCES.filter((source) => source.access !== "bundled");
@@ -28,7 +28,7 @@ export default function NoMeter() {
 
       <div className="mkt-panel mkt-pad mkt-nometer-note">
         <p className="mkt-small">
-          <b>Stated plainly.</b> Piper TTS generates the selected narration in your browser. First use loads the Piper runtime (about 30 MB uncompressed in this build) and the chosen voice model; the browser cache may avoid repeated downloads.
+          <b>Stated plainly.</b> Voice narration is generated in your browser. First use loads the speech runtime and selected voice files; your browser may cache them for reuse.
         </p>
         <p className="mkt-small">
           Photos come from free libraries:{" "}

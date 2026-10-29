@@ -112,7 +112,8 @@
       "PUBLIC_APP_URL": "",
       "SCENERING_OWNER_EMAIL": "",
       "EMAIL_PROVIDER": "console",
-      "PAYPAL_ENVIRONMENT": "sandbox"
+      "PAYPAL_ENVIRONMENT": "sandbox",
+      "PAYPAL_CLIENT_ID": "Ad9rjMaQ9CsPbXPSKt-EjYTcaYVyoAlPSKrKgVx7SjF-otxi9DJ_0L9PIiUFbRoEPs2AvWnkNvQ9KL8m"
     }
   }
 }
