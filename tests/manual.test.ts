@@ -19,7 +19,7 @@ for (const chapter of MANUAL_CHAPTERS) {
   }
 }
 const manualCopy = JSON.stringify(MANUAL_CHAPTERS);
-h.ok(!/\bAI\b|artificial intelligence|\bneural\b|machine learning/i.test(manualCopy), "public handbook uses TTS terminology and contains no AI references");
+h.ok(manualCopy.includes("Neural text-to-speech models generate narration locally"), "manual accurately describes local neural narration");
 const all = manualCopy.toLowerCase();
 for (const term of ["registration", "setup", "scenes", "visual research", "cropping", "voiceover", "captions", "timeline", "audio visualisers", "rendering", "vault", "download", "attribution"]) h.ok(all.includes(term), `manual covers ${term}`);
 const performance = MANUAL_SECTIONS.find((section) => section.id === "working-method");

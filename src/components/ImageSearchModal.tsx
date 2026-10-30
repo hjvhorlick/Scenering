@@ -16,7 +16,7 @@ interface ImageSearchModalProps {
    * choice and is pinned to the scene, so re-deriving the query from the
    * narration can never silently undo it.
    */
-  onSelect: (url: string, query: string) => void;
+  onSelect: (url: string, query: string, candidate: ImageCandidate) => void;
 }
 
 export default function ImageSearchModal({
@@ -274,7 +274,7 @@ export default function ImageSearchModal({
               {images.map((img, i) => (
                 <button
                   key={i}
-                  onClick={() => onSelect(proxyUrl(img.url), effectiveQuery)}
+                  onClick={() => onSelect(proxyUrl(img.url), effectiveQuery, img)}
                   className="group relative aspect-video rounded-lg overflow-hidden border border-transparent hover:border-indigo-500 transition-all bg-gray-800"
                 >
                   <img

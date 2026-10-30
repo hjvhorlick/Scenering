@@ -82,6 +82,8 @@ export interface VaultRender {
    *  authorised, rather than a number retyped by the browser later. */
   projectId?: string | number | null;
   reservationId?: string | null;
+  /** Credits captured for this render, not the currently open project. */
+  attributionText?: string;
   blob: Blob;
 }
 
@@ -285,6 +287,7 @@ export interface SaveRenderInput {
   label: string;
   projectId?: string | number | null;
   reservationId?: string | null;
+  attributionText?: string;
 }
 
 /**
@@ -304,6 +307,7 @@ export async function saveRenderToVault(input: SaveRenderInput): Promise<VaultRe
     label: input.label,
     projectId: input.projectId ?? null,
     reservationId: input.reservationId ?? null,
+    attributionText: input.attributionText,
     blob: input.blob,
   };
 
@@ -456,8 +460,10 @@ export async function saveBlobToDisk(blob: Blob, filename: string): Promise<Save
         suggestedName: filename,
         types: [
           {
-            description: "Video",
-            accept: { [blob.type || "video/webm"]: filename.endsWith(".mp4") ? [".mp4"] : [".webm", ".mp4"] },
+            description: filename.endsWith(".txt") ? "Credits document" : "Video",
+            accept: filename.endsWith(".txt")
+              ? { "text/plain": [".txt"] }
+              : { [blob.type || "video/webm"]: filename.endsWith(".mp4") ? [".mp4"] : [".webm", ".mp4"] },
           },
         ],
       });

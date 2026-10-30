@@ -1,4 +1,5 @@
 import { createHarness } from "./harness";
+import { formatImageAttribution } from "../src/lib/image-attribution";
 import {
   is16x9Aspect,
   meetsFullHd,
@@ -108,6 +109,24 @@ h.eq(wm!.url, "https://upload.wikimedia.org/w/commons/a/ab/F.jpg/1920px-F.jpg", 
 h.ok(wm!.thumbnail.endsWith("/320px-F.jpg"), "small thumb derived for the grid");
 h.ok(wikimediaInfoToCandidate({ width: 1200, height: 675, thumburl: "t" }) === null, "small wikimedia image rejected");
 h.ok(wikimediaInfoToCandidate({ width: 3840, height: 2160 }) === null, "wikimedia entry without URLs rejected");
+
+// Provider attribution follows each candidate and remains plain text.
+const pxCredits = pexelsPhotoToCandidate({ ...pexelsPhoto(3000, 2000), photographer: "Ada", url: "https://www.pexels.com/photo/123/", alt: "Coast" });
+h.eq(pxCredits?.attribution?.creator, "Ada", "Pexels photographer captured");
+h.eq(pxCredits?.attribution?.sourceUrl, "https://www.pexels.com/photo/123/", "Pexels asset page captured");
+const pbCredits = pixabayHitToCandidate(pixabayHit({ fullHDURL: "https://pixabay.com/get/gabc_1920.jpg", user: "Pat", pageURL: "https://pixabay.com/photos/123/" }));
+h.eq(pbCredits?.attribution?.creator, "Pat", "Pixabay author captured");
+h.eq(pbCredits?.attribution?.sourceUrl, "https://pixabay.com/photos/123/", "Pixabay asset page captured");
+const wmCredits = wikimediaInfoToCandidate({ width: 3840, height: 2160, url: "https://upload.wikimedia.org/test.jpg", descriptionurl: "https://commons.wikimedia.org/wiki/File:Test.jpg", extmetadata: { Artist: { value: '<a href="https://example.com">Sam &amp; Lee</a>' }, LicenseShortName: { value: "CC BY 4.0" }, LicenseUrl: { value: "https://creativecommons.org/licenses/by/4.0/" } } });
+h.eq(wmCredits?.attribution?.creator, "Sam & Lee", "Wikimedia artist markup converted to plain text");
+h.eq(wmCredits?.attribution?.license, "CC BY 4.0", "Wikimedia individual license captured");
+h.eq(wmCredits?.attribution?.sourceUrl, "https://commons.wikimedia.org/wiki/File:Test.jpg", "Wikimedia file page captured");
+h.eq(wmCredits?.attribution?.licenseUrl, "https://creativecommons.org/licenses/by/4.0/", "Wikimedia license link captured");
+
+const linked = { imageUrl: "image-a", provider: "Pexels", creator: "Ada", sourceUrl: "https://example.com/asset" };
+h.ok(formatImageAttribution(1, "image-a", "image-a", linked).includes("Creator: Ada"), "matching image credits are included");
+h.ok(!formatImageAttribution(1, "image-b", "image-b", linked).includes("Ada"), "replacement images never inherit stale credits");
+h.ok(formatImageAttribution(1, "image-b", "image-b", linked).includes("identify the individual creator"), "missing credits require review");
 
 // ---------------------------------------------------- photo classification
 /**

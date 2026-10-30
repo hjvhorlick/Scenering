@@ -1,3 +1,5 @@
+import type { ImageAttribution } from "./lib/image-attribution";
+
 export type AspectRatioType = "16:9" | "9:16" | "1:1" | "4:3";
 export type ResolutionType = "720p" | "1080p" | "2k" | "4k";
 export type PacingModeType = "fixed" | "auto_speech";
@@ -173,6 +175,8 @@ export interface Scene {
   image_query: string;
   image_query_locked?: boolean;
   image_url: string | null;
+  /** Local project credit record; not embedded in rendered media. */
+  image_attribution?: ImageAttribution | null;
   duration: number;
   created_at?: string;
   // Scene-level settings

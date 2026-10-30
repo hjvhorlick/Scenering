@@ -458,7 +458,7 @@ export default function SceneEditor({
     try {
       const fresh = await replaceImage(query, searchOptions());
       if (fresh) {
-        adoptImage(proxyImageUrl(fresh.url));
+        adoptImage(proxyImageUrl(fresh.url), fresh);
         onUpdate(scene.id, { image_query: query });
         // Keep an open research block in step with what the scene shows now.
         if (showCandidates) void loadCandidates(query);
@@ -540,7 +540,7 @@ export default function SceneEditor({
   };
 
   const handleSelectCandidate = (candidate: ImageCandidate) => {
-    adoptImage(proxyImageUrl(candidate.url));
+    adoptImage(proxyImageUrl(candidate.url), candidate);
     onUpdate(scene.id, { image_query: deriveImageQuery(textValue, scene.image_query) });
     setImgError(false);
   };
@@ -558,10 +558,11 @@ export default function SceneEditor({
    * {0,0,1,1}: cropping only ever happens if the user asks for it in
    * Crop & Fit.
    */
-  const adoptImage = (url: string) => {
+  const adoptImage = (url: string, candidate?: ImageCandidate) => {
     const frame = frameSizeFor(aspectRatio);
     const base: Partial<Scene> = {
       image_url: url,
+      image_attribution: candidate?.attribution ? { ...candidate.attribution, imageUrl: url } : null,
       // Choosing a photo supersedes a plain colour — otherwise the two would
       // fight and the colour would silently win in the renderer.
       blank_color: null,
@@ -599,8 +600,8 @@ export default function SceneEditor({
    * it. That query is pinned to the scene (image_query_locked) so later edits
    * to the narration cannot overwrite a deliberate choice.
    */
-  const handleSelectFromModal = (url: string, query: string) => {
-    adoptImage(url);
+  const handleSelectFromModal = (url: string, query: string, candidate: ImageCandidate) => {
+    adoptImage(url, candidate);
     const chosen = (query || "").trim();
     if (chosen) {
       onUpdate(scene.id, { image_query: chosen, image_query_locked: true });

@@ -823,11 +823,14 @@ export function generateAttributionDocument(options: {
   soundsUsed?: string[];
   includeBackgroundMusic?: boolean;
   musicType?: string;
+  musicTypes?: string[];
   imageSources?: string[];
   voiceName?: string;
   voiceGender?: string;
   voiceAccent?: string;
   voiceEngine?: string;
+  voiceModel?: string;
+  voiceModelUrl?: string;
   graphicsUsed?: string[];
 }): string {
   const {
@@ -835,11 +838,14 @@ export function generateAttributionDocument(options: {
     soundsUsed = [],
     includeBackgroundMusic = true,
     musicType = "Gymnopédie No. 1 (Erik Satie / Kevin MacLeod)",
+    musicTypes,
     imageSources = ["Pexels (CC0 / Free to use)", "Pixabay (Content License)"],
     voiceName,
     voiceGender,
     voiceAccent,
     voiceEngine,
+    voiceModel,
+    voiceModelUrl,
     graphicsUsed = [],
   } = options;
 
@@ -848,7 +854,8 @@ export function generateAttributionDocument(options: {
   let doc = `======================================================================
 VIDEO CREDITS & MEDIA ATTRIBUTIONS
 Project: ${projectTitle}
-Generated with: Scenering Video Studio
+Created and rendered with: Scenering Video Studio
+Website: https://scenering.com
 Date: ${dateStr}
 ======================================================================
 
@@ -864,16 +871,19 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
 • Voice Profile: ${voiceName}
   Profile Type: ${voiceGender ? `${voiceGender.toUpperCase()} • ` : ""}${voiceAccent || "Studio Narration"}
   Technology: ${voiceEngine || "Piper local TTS"}
+${voiceModel ? `  Voice model: ${voiceModel}\n` : ""}${voiceModelUrl ? `  Model source and terms: ${voiceModelUrl}\n` : ""}  Creator / license: Verify the individual model documentation and add required credit before publishing.
   License: ${!voiceEngine || /piper/i.test(voiceEngine) ? "Subject to the selected Piper model's license and attribution terms" : "The creator is responsible for the rights to imported audio"}
 
 `;
   }
 
   // 2. Music Attribution
-  if (includeBackgroundMusic && musicType && musicType !== "none") {
-    const track = getBackgroundMusicTrack(musicType);
+  const selectedMusic = [...new Set((musicTypes ?? [musicType]).filter((item) => item && item !== "none"))];
+  if (includeBackgroundMusic && selectedMusic.length) {
     doc += `🎵 BACKGROUND MUSIC:
 `;
+    for (const musicType of selectedMusic) {
+    const track = getBackgroundMusicTrack(musicType);
     if (track) {
       doc += `• "${track.name}"
   Author / Performer: ${track.author}
@@ -889,16 +899,16 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
       const uploaded = getCustomMusicTrack(musicType);
       doc += `• "${uploaded?.name || "Your uploaded track"}" (uploaded by you)
   Source: your own file — not from the Scenering library
-  License: you hold the rights to this music. If its licence asks for a
+  License: verify that you hold the rights to this music. If its licence asks for a
   credit, add that credit here before publishing.
 
 `;
     } else {
       doc += `• "${musicType}"
-  License: Royalty-Free Commercial / Creative Commons License
-  Attribution Cleared via Scenering Studio Audio Engine
+  Creator and license: Not available. Verify the source and add required credit before publishing.
 
 `;
+    }
     }
   }
 
@@ -920,6 +930,11 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
     });
   }
 
+  const unknownSounds = soundsUsed.filter((url) => !SOUND_LIBRARY.some((sound) => sound.id === url || sound.url === url));
+  if (unknownSounds.length) {
+    doc += `🔊 OTHER AUDIO: ${unknownSounds.length} item(s). Identify the creator, source and license of each uploaded or unrecognised sound before publishing.\n\n`;
+  }
+
   // 3. 3D Graphics & Visual Overlays — only the assets actually used
   if (graphicsUsed.length > 0) {
     doc += `🎨 3D GRAPHICS & VISUAL ELEMENTS:
@@ -938,12 +953,12 @@ COPY & PASTE INTO YOUR VIDEO DESCRIPTION (YouTube, TikTok, Vimeo, etc.):
       doc += `• Sourced via ${src}
 `;
     });
-    doc += `  All imagery utilized complies with respective free licensing provisions.\n\n`;
+    doc += `  Creator and license details may be missing. Check each original asset, add its creator, title, source and license, and follow its terms.\n\n`;
   }
 
   doc += `----------------------------------------------------------------------
-All audio and media assets used in this video have been legally sourced 
-from royalty-free or Creative Commons licensed repositories.
+Review every asset and add missing creator, source and license details before publishing.
+This document is a starting point, not a guarantee of rights or license compliance.
 ======================================================================`;
 
   return doc;

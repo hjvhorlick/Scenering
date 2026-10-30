@@ -862,7 +862,7 @@ export default function VoiceoverStudio({
                 </span>
               </div>
               <p className="text-[11px] text-gray-400 mt-0.5">
-                📢 <span className="text-indigo-300 font-medium">Attribution Cleared:</span> Included in video description & export credits document.
+                📢 <span className="text-indigo-300 font-medium">Voice credits:</span> Review the credits document and the selected voice model’s license before publishing.
               </p>
             </div>
           </div>
@@ -1655,7 +1655,7 @@ export default function VoiceoverStudio({
           <div className="p-3 bg-gray-950/60 rounded-xl border border-hairline text-xs text-gray-400 flex items-start gap-2">
             <span className="text-base"><Icon glyph="📢" /></span>
             <p>
-              <strong className="text-gray-200">Full Video Attribution:</strong> When exporting your video, the attribution document in the Export/Render tab will automatically credit your voice narration with the specified voice profile and licensing terms.
+              <strong className="text-gray-200">Full Video Attribution:</strong> The credits document identifies the selected voice profile and, where available, its model. Check the model’s individual license and add any required creator credit before publishing.
             </p>
           </div>
         </div>

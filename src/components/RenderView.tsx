@@ -32,6 +32,7 @@ import { clipAudioPlanFor, loadClipAudio, scheduleClipAudio } from "../lib/clip-
 import { narratableText, projectHasNarration, sceneCaptionWords } from "../lib/clip-transcript";
 import { isPreparedVoiceoverId } from "../lib/voiceover-generation";
 import { resolveVoicePreset } from "../data/voice-presets";
+import { resolvePiperProfileVoice } from "../lib/piper-profile-bindings";
 import {
   renderTimelineInsert,
 } from "../lib/render-effects";
@@ -50,6 +51,7 @@ import type { WordTiming } from "../lib/word-sync";
 import { createFrameTicker, type FrameTicker } from "../lib/frame-ticker";
 import { loadSceneImage } from "../lib/scene-image-loader";
 import { resolveLegacyLocalImage } from "../lib/nature-library-compat";
+import { formatImageAttribution } from "../lib/image-attribution";
 import { STICKER_LIBRARY } from "../lib/sticker-3d";
 import {
   formatDuration,
@@ -515,6 +517,7 @@ export default function RenderView({
   const [vaultPreviewId, setVaultPreviewId] = useState<string | null>(null);
   const [vaultPreviewUrl, setVaultPreviewUrl] = useState<string | null>(null);
   const [vaultBusyId, setVaultBusyId] = useState<string | null>(null);
+  const [creditsSaved, setCreditsSaved] = useState<Set<string>>(() => new Set());
   /** Why the last download did not start (plan allowance used up, offline…). */
   const [vaultError, setVaultError] = useState<string>("");
   /** Synchronous guard: a fast double-click must not count two downloads. */
@@ -1015,6 +1018,7 @@ export default function RenderView({
     // runs out of memory *between* renders, so a live job is never doubled —
     // however this screen was reached.
     if (getRenderStatus().active) return null;
+    const renderAttributionText = getAttributionText();
     renderStartPendingRef.current = true;
     setIsPreparingRender(true);
     const renderToken = renderTokenRef.current + 1;
@@ -1537,6 +1541,7 @@ export default function RenderView({
               // was actually rendered instead of trusting a retyped number.
               projectId: project?.id ?? null,
               reservationId: exportReservationId,
+              attributionText: renderAttributionText,
             }),
             commitBudget,
             "the finished video was committed to the Vault",
@@ -2871,6 +2876,10 @@ export default function RenderView({
    * again (DOWNLOADS_COUNTED_NOT_SAVED); a successful save frees the slot.
    */
   const downloadVaultRender = async (row: VaultRender) => {
+    if (!creditsSaved.has(row.id)) {
+      setVaultError("Save the credits document for this video before downloading it. Review and complete missing creator and license details before publishing.");
+      return;
+    }
     if (vaultDownloadInFlightRef.current) return;
     vaultDownloadInFlightRef.current = true;
     setVaultError("");
@@ -2895,6 +2904,31 @@ export default function RenderView({
     }
   };
 
+  // A separate user gesture lets browsers show the save dialog reliably. The
+  // video remains in the Vault until this specific render's credits are saved.
+  const saveVaultCredits = async (row: VaultRender) => {
+    if (vaultDownloadInFlightRef.current) return;
+    vaultDownloadInFlightRef.current = true;
+    setVaultBusyId(row.id);
+    setVaultError("");
+    const text = row.attributionText || `VIDEO CREDITS & MEDIA ATTRIBUTIONS\nProject: ${row.title}\nCreated and rendered with: Scenering Video Studio\nWebsite: https://scenering.com\n\nThis older render was saved before credits were recorded with the video. Its asset details are unavailable. Identify every image, voice, sound, music track and other asset used, and add each creator, source and license before publishing.\n`;
+    const filename = `${(row.title || "video").replace(/[^a-zA-Z0-9]/g, "_")}_attribution_credits.txt`;
+    try {
+      const result = await saveBlobToDisk(new Blob([text], { type: "text/plain;charset=utf-8" }), filename);
+      if (result === "cancelled" || result === "failed") {
+        setVaultError("Credits were not saved. Save the credits document before downloading the video.");
+        return;
+      }
+      setCreditsSaved((previous) => new Set(previous).add(row.id));
+      setVaultMessage(result === "downloaded"
+        ? "Credits download started. Check your browser downloads, then download your video. Review and complete any missing credits before publishing."
+        : "Credits saved. You can now download your video. Review and complete any missing credits before publishing.");
+    } finally {
+      setVaultBusyId(null);
+      vaultDownloadInFlightRef.current = false;
+    }
+  };
+
   const removeVaultRender = async (row: VaultRender) => {
     if (vaultPreviewId === row.id) setVaultPreviewId(null);
     await deleteVaultRender(row.id);
@@ -2905,6 +2939,7 @@ export default function RenderView({
 
   const getAttributionText = () => {
     const soundUrlsUsed = inserts
+      .filter((ins) => ins.category !== "background_music")
       .map((ins) => ins.audioSettings?.soundUrl)
       .filter((u): u is string => Boolean(u));
 
@@ -2920,17 +2955,12 @@ export default function RenderView({
 
     // Only the image sources this project's scenes actually use are credited;
     // anything unused stays out of the document.
-    const usedImageSources = new Set<string>();
-    for (const s of scenes) {
-      const url = resolveLegacyLocalImage((s.image_url || "").trim());
+    const usedImageSources: string[] = [];
+    for (const [index, scene] of scenesWithImages.entries()) {
+      const url = resolveLegacyLocalImage((scene.image_url || "").trim());
+      if (sceneHasClip(scene)) usedImageSources.push(`Scene ${index + 1}: uploaded video — identify creator, source and license`);
       if (!url) continue;
-      // `custom-image:` is an upload from this device, same as data:/blob:.
-      if (/^data:|^blob:|^custom-image:/i.test(url)) usedImageSources.add("Creator's own uploaded imagery");
-      else if (url.includes("images.unsplash.com")) usedImageSources.add("Unsplash (Unsplash License)");
-      else if (url.includes("pexels.com")) usedImageSources.add("Pexels (CC0 / Free License)");
-      else if (url.includes("pixabay")) usedImageSources.add("Pixabay (Content License)");
-      else if (url.includes("wikimedia.org")) usedImageSources.add("Wikimedia Commons (Creative Commons)");
-      else if (/^https?:/i.test(url)) usedImageSources.add("Third-party image URL (credited to its source)");
+      usedImageSources.push(formatImageAttribution(index + 1, scene.image_url, url, scene.image_attribution));
     }
 
     // Only the 3D stickers actually placed on the timeline are credited.
@@ -2946,23 +2976,30 @@ export default function RenderView({
     // Most of the library is Creative Commons BY, where crediting the track is
     // a condition of the licence — leaving it out of the document would leave
     // the creator publishing without the attribution they owe.
-    let timelineMusicUrl: string | undefined;
-    for (const ins of inserts) {
-      if (ins.category === "background_music" && ins.audioSettings?.soundUrl) {
-        timelineMusicUrl = ins.audioSettings.soundUrl;
-      }
-    }
+    const timelineMusicUrls = inserts
+      .filter((ins) => ins.category === "background_music" && ins.audioSettings?.soundUrl)
+      .map((ins) => ins.audioSettings!.soundUrl!);
+
+    const voiceModel = !isCustomImport && selectedVoice
+      ? resolvePiperProfileVoice(selectedVoice.startsWith("piper:") ? selectedVoice : `piper:${selectedVoice}`)?.voice
+      : undefined;
+    const modelParts = voiceModel?.id.split("-");
+    const modelUrl = voiceModel && modelParts?.length === 3
+      ? `https://huggingface.co/rhasspy/piper-voices/tree/main/${modelParts[0].split("_")[0]}/${modelParts[0]}/${modelParts[1]}/${modelParts[2]}`
+      : undefined;
 
     return generateAttributionDocument({
       projectTitle: project?.title || "My Video Project",
       soundsUsed: soundUrlsUsed,
-      includeBackgroundMusic: Boolean(timelineMusicUrl) || settings.backgroundMusic !== "none",
+      includeBackgroundMusic: timelineMusicUrls.length > 0 || settings.backgroundMusic !== "none",
       // report the REAL track used for the chosen style in the credits doc
-      musicType:
-        timelineMusicUrl || AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic] || settings.backgroundMusic,
-      imageSources: [...usedImageSources],
+      musicTypes: [...timelineMusicUrls, ...(settings.backgroundMusic !== "none"
+        ? [AMBIENT_STYLE_TO_TRACK[settings.backgroundMusic] || settings.backgroundMusic] : [])],
+      imageSources: usedImageSources,
       graphicsUsed: [...usedGraphics],
-      voiceName: voiceDisplay,
+      voiceName: voiceoverEnabled && projectHasNarration(scenesWithImages) ? voiceDisplay : undefined,
+      voiceModel: voiceModel?.id,
+      voiceModelUrl: modelUrl,
       voiceGender: isCustomImport ? "User Prepared Voice" : voiceGender,
       voiceAccent: isCustomImport
         ? "Custom Imported Audio File"
@@ -3552,11 +3589,18 @@ export default function RenderView({
                           {iconify(vaultPreviewId === row.id ? "▾ Hide" : "▶ Preview")}
                         </button>
                         <button
-                          onClick={() => void downloadVaultRender(row)}
+                          onClick={() => void saveVaultCredits(row)}
                           disabled={vaultBusyId !== null}
+                          className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-indigo-700 hover:bg-indigo-600 disabled:bg-gray-700 text-white transition-colors"
+                        >
+                          {creditsSaved.has(row.id) ? "Save credits again" : "1. Save credits"}
+                        </button>
+                        <button
+                          onClick={() => void downloadVaultRender(row)}
+                          disabled={vaultBusyId !== null || !creditsSaved.has(row.id)}
                           className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 text-white transition-colors"
                         >
-                          {iconify(vaultBusyId === row.id ? "Saving…" : "⬇ Download")}
+                          {iconify(vaultBusyId === row.id ? "Saving…" : "2. Download video")}
                         </button>
                         <button
                           onClick={() => void removeVaultRender(row)}
@@ -3567,6 +3611,7 @@ export default function RenderView({
                         </button>
                       </div>
                     </div>
+                    <p className="mt-2 text-[10px] text-gray-300">Save this video’s credits first. Before publishing, review each asset’s creator and license, complete missing details, and include any required attribution. {!row.attributionText && "This older video has no saved asset details; identify and add them manually."}</p>
                     {vaultPreviewId === row.id && vaultPreviewUrl && (
                       <video
                         src={vaultPreviewUrl}
@@ -4189,7 +4234,7 @@ export default function RenderView({
               </span>
             </div>
             <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
-              Copy or download this attribution document to paste into your YouTube, TikTok, Vimeo, or Instagram video description to credit the free audio sounds and 3D graphics.
+              Credits help you acknowledge individual image, voice, music and other asset creators. Each video requires a credits document before download. Review the document, add any missing creator and license details, and include required attribution when publishing.
             </p>
           </div>
 

@@ -152,11 +152,11 @@ h.ok(
   "a pinned query survives a script regeneration"
 );
 h.ok(
-  modal.includes("onSelect: (url: string, query: string) => void"),
+  modal.includes("onSelect: (url: string, query: string, candidate: ImageCandidate) => void"),
   "the modal hands back the query that found the photo, not just the URL"
 );
 h.ok(
-  modal.includes("onSelect(proxyUrl(img.url), effectiveQuery)"),
+  modal.includes("onSelect(proxyUrl(img.url), effectiveQuery, img)"),
   "the query handed back is the one the photos actually answer"
 );
 

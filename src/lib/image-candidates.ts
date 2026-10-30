@@ -1,3 +1,5 @@
+import { attributionText, attributionUrl, type ImageAttribution } from "./image-attribution";
+
 /**
  * Stock-photo candidate mapping — the quality gate for image search.
  *
@@ -33,6 +35,7 @@ export interface StockCandidate {
   nativeHeight?: number;
   /** Optional higher-resolution master URL when available (e.g. >1080p export). */
   highResUrl?: string;
+  attribution?: Omit<ImageAttribution, "imageUrl">;
 }
 
 /** Every delivered image must be at least Full HD. */
@@ -141,6 +144,11 @@ export function pexelsPhotoToCandidate(p: any): StockCandidate | null {
     url: `${base}?auto=compress&cs=tinysrgb&w=1920&h=1080&fit=crop`,
     thumbnail: `${base}?auto=compress&cs=tinysrgb&w=480&h=270&fit=crop`,
     source: "pexels",
+    attribution: {
+      provider: "Pexels", creator: attributionText(p?.photographer),
+      sourceUrl: attributionUrl(p?.url), title: attributionText(p?.alt),
+      licenseUrl: "https://www.pexels.com/license/",
+    },
     width: 1920,
     height: 1080,
     nativeWidth: w,
@@ -177,6 +185,11 @@ export function pixabayHitToCandidate(h: any): StockCandidate | null {
     url,
     thumbnail: String(h?.previewURL || url),
     source: "pixabay",
+    attribution: {
+      provider: "Pixabay", creator: attributionText(h?.user),
+      sourceUrl: attributionUrl(h?.pageURL), title: attributionText(h?.tags),
+      licenseUrl: "https://pixabay.com/service/license-summary/",
+    },
     width: servedW,
     height: servedH,
     nativeWidth: w,
@@ -231,6 +244,15 @@ export function wikimediaInfoToCandidate(info: any): StockCandidate | null {
     url,
     thumbnail: thumb ? wikimediaThumbAtWidth(thumb, 320) : url,
     source: "wikimedia",
+    attribution: {
+      provider: "Wikimedia Commons",
+      creator: attributionText(info?.extmetadata?.Artist?.value),
+      title: attributionText(info?.extmetadata?.ObjectName?.value),
+      sourceUrl: attributionUrl(info?.descriptionurl),
+      license: attributionText(info?.extmetadata?.LicenseShortName?.value),
+      licenseUrl: attributionUrl(info?.extmetadata?.LicenseUrl?.value),
+      credit: attributionText(info?.extmetadata?.Credit?.value),
+    },
     width: servedW,
     height: servedH,
     nativeWidth: w,

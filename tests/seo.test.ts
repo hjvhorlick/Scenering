@@ -165,7 +165,10 @@ for (const path of PUBLIC_PAGES.map((page) => page.path)) {
 }
 const application = (structuredData("/pricing")?.["@graph"] as any[]).find((node) => node["@type"] === "SoftwareApplication");
 h.ok(application.featureList.includes("Script captions and karaoke timing"), "schema describes caption timing without promising Piper speech marks");
-h.ok(application.featureList.includes("Browser-local Piper TTS narration"), "application schema describes narration with TTS terminology");
+h.ok(application.featureList.includes("Browser-local narration without recording your own voice"), "application schema describes the narration benefit");
+h.ok(application.featureList.includes("No token or credit purchases required"), "application schema describes token-free pricing");
+h.ok(!JSON.stringify(application).includes("Piper"), "application schema focuses on benefits rather than engine names");
+h.ok(SEO_PAGES["/"].description.includes("faceless") && SEO_PAGES["/"].description.includes("token"), "home metadata emphasizes faceless creation and no token purchases");
 for (const slug of PLAN_ORDER) {
   const plan = PLAN_CONFIG[slug];
   if (plan.prices.monthly === 0) {

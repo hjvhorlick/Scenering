@@ -214,7 +214,7 @@ async function searchWikimedia(query: string, count: number): Promise<ImageResul
 
     const batchResults = await Promise.all(
       titleBatches.map(async (titles): Promise<ImageResult[]> => {
-        const imageInfoUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1920&titles=${encodeURIComponent(titles)}&origin=*`;
+        const imageInfoUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1920&titles=${encodeURIComponent(titles)}&origin=*`;
         const imageRes = await fetch(imageInfoUrl, {
           headers: { "User-Agent": "SceneringApp/1.0 (https://scenering.com)" },
           signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
