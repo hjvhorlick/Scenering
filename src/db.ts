@@ -898,6 +898,21 @@ export const db = {
     await env().DB.prepare("UPDATE paypal_checkout_intents SET status = 'expired', updated_at = ? WHERE status IN ('created', 'approved') AND expires_at <= ?")
       .bind(nowIso(), nowIso()).run();
   },
+  /**
+   * Release this account's open checkout intents, whatever their remaining
+   * lifetime.
+   *
+   * `idx_paypal_checkout_intents_one_create_per_user` is a unique index over
+   * `status IN ('created', 'approved')`, so an intent written for a checkout
+   * the member then abandoned holds the account's only slot until its 45
+   * minutes run out. Superseding that checkout has to release the slot too,
+   * not just the subscription row, or the next attempt is still refused as
+   * "already in progress".
+   */
+  async expirePayPalCheckoutIntentsForUser(userId: string): Promise<void> {
+    await env().DB.prepare("UPDATE paypal_checkout_intents SET status = 'expired', updated_at = ? WHERE user_id = ? AND status IN ('created', 'approved')")
+      .bind(nowIso(), userId).run();
+  },
   async findPayPalCheckoutIntentByHash(intentHash: string): Promise<PayPalCheckoutIntent | null> {
     const row = await env().DB.prepare("SELECT * FROM paypal_checkout_intents WHERE intent_hash = ? AND expires_at > ?")
       .bind(intentHash, nowIso()).first();

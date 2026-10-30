@@ -11,10 +11,11 @@
 # checkout, and doing it by hand is eight prompts with eight chances to paste a
 # value into the wrong name.
 #
-# Production stays production: the deployed site runs NODE_ENV=production and
-# refuses PayPal Sandbox checkout no matter what is configured. A Preview runs
-# the `previews` block, where NODE_ENV is "development", so this is the only
-# Cloudflare target where Sandbox checkout is meant to run.
+# This script only touches the Previews base config. Production keeps its own
+# variables and secrets, and `scenering.com` runs Sandbox checkout from those
+# (see PAYPAL_SANDBOX.md): a Preview gets a new address on every build, so it
+# cannot hold a webhook URL for long, but it is still the fastest place to see
+# a Sandbox button open. Live mode is what stays refused, on every runtime.
 #
 # Requires an authenticated Wrangler session (`npx wrangler login`, or
 # CLOUDFLARE_API_TOKEN with Workers scope). Safe to re-run.

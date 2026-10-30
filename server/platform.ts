@@ -1121,6 +1121,34 @@ async function applyVerifiedPayPalSubscription(details: any, intent: Awaited<Ret
   return sub;
 }
 
+/**
+ * Close a checkout the member opened and never approved.
+ *
+ * The `pending` row is written the moment PayPal hands back a subscription id,
+ * before anything is approved. Closing the approval window therefore leaves a
+ * row that was never paid, is not `cancelled`, and — because it carries no
+ * period end — is never expired by the subscription sweep. It then refused
+ * every later checkout with "an existing subscription is already active",
+ * which made one abandoned Sandbox dialog enough to lock an account out of
+ * testing for good. The intent blocks the same way through the
+ * one-open-checkout-per-account unique index, so both have to be released.
+ *
+ * Nothing is lost by doing this: `pending` grants no entitlement, and an
+ * approval completed afterwards in a still-open window is recovered by
+ * confirmation or the webhook, which look the row up by PayPal subscription id
+ * and revive it.
+ */
+async function abandonUnapprovedPayPalCheckout(sub: Subscription): Promise<void> {
+  if (sub.providerSubscriptionId) {
+    // Best effort: PayPal rejects /cancel for a subscription nobody approved
+    // (422 SUBSCRIPTION_STATUS_INVALID), and that refusal must not stop us
+    // closing the row on this side.
+    await cancelPayPalSubscription(sub.providerSubscriptionId, "Abandoned before approval.").catch(() => {});
+  }
+  await db.updateSubscription(sub.id, { status: "expired", cancelAtPeriodEnd: true, cancelledAt: sub.cancelledAt || now() });
+  await db.expirePayPalCheckoutIntentsForUser(sub.userId);
+}
+
 async function createPayPalCheckout(req: Request, res: Response) {
   const { user } = (req as any).auth as Auth;
   const planValue = String(req.body?.plan || "");
@@ -1133,7 +1161,15 @@ async function createPayPalCheckout(req: Request, res: Response) {
   const configuration = paypalConfiguration(requestOrigin(req));
   if (!configuration.ready) return res.status(503).json({ error: "PayPal Sandbox subscriptions are not fully configured.", code: "PAYPAL_NOT_CONFIGURED", missing: configuration.missing });
 
-  const current = await db.findActiveSubscriptionByUserId(user.id);
+  let current = await db.findActiveSubscriptionByUserId(user.id);
+  if (current?.status === "pending") {
+    /* An abandoned checkout, from this account's point of view. Clear it
+       before deciding whether a new one may start, and look again at whatever
+       row is left, so a genuinely paid subscription further down the history
+       still blocks a second purchase. */
+    await abandonUnapprovedPayPalCheckout(current);
+    current = await db.findActiveSubscriptionByUserId(user.id);
+  }
   if (current && current.status !== "expired") {
     const expires = Date.parse(String(current.expiresAt || current.currentPeriodEnd || ""));
     if (current.status !== "cancelled" || !Number.isFinite(expires) || expires > Date.now()) {
@@ -1225,6 +1261,14 @@ async function cancelPayPalSubscriptionForUser(req: Request, res: Response) {
   if (requestedId && (!requested || requested.provider !== "paypal" || requested.userId !== user.id)) return res.status(404).json({ error: "This PayPal subscription is not linked to your Scenering account." });
   const sub = requested || await db.findActiveSubscriptionByUserId(user.id);
   if (!sub || sub.provider !== "paypal" || !sub.providerSubscriptionId) return res.status(404).json({ error: "No active PayPal subscription was found." });
+  /* Nothing has been approved, so nothing can be charged. PayPal answers a
+     cancellation of an unapproved subscription with 422, which used to surface
+     as an error while leaving the row in place; the dialog's own cleanup on
+     close goes through here. Close it on this side instead. */
+  if (sub.status === "pending") {
+    await abandonUnapprovedPayPalCheckout(sub);
+    return res.json({ cancelled: true, subscription: apiSubscription(await subscriptionForUser(user.id)) });
+  }
   try {
     await cancelPayPalSubscription(sub.providerSubscriptionId, "Cancelled by the Scenering account holder.");
     const details = await getPayPalSubscription(sub.providerSubscriptionId);

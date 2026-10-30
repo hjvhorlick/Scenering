@@ -317,6 +317,78 @@ try {
     h.eq(/req\.path === "\/pricing"/.test(serverSource), false, "the popup opener policy is not limited to two hard-coded paths");
   }
 
+  /* ---- 9. An abandoned approval does not lock the account out ------------- */
+  {
+    /* A checkout writes a `pending` subscription before the member approves
+     * anything. That row has no period end, so the expiry sweep never touches
+     * it, and it used to refuse every later checkout with "a subscription is
+     * already active" — one closed dialog was enough to end Sandbox testing for
+     * that account. PayPal also answers 422 when asked to cancel a subscription
+     * nobody approved, which is what the mock's 404 for /cancel stands in for. */
+    const signIn = async (id: string, email: string) => {
+      const user = await db.createUser({
+        id, email, passwordHash: "not-used-in-this-suite", displayName: "Abandoned Checkout Member", role: "user", isVerified: true,
+      });
+      await db.createMembership(user.id, "free");
+      const raw = `gate-session-${randomUUID()}`;
+      const hash = createHmac("sha256", process.env.SESSION_SECRET!).update(raw).digest("hex");
+      testD1().sqlite
+        .prepare("INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
+        .run(`sess_${id}`, user.id, hash, new Date(Date.now() + 86_400_000).toISOString(), new Date().toISOString());
+      return { user, cookie: `scenering_session=${encodeURIComponent(raw)}` };
+    };
+    const startCheckout = (cookie: string) => fetch(`${base}/api/billing/paypal/create-subscription`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ plan: "sceneflow", interval: "monthly" }),
+    });
+    const { user, cookie } = await signIn("paypal-gate-abandoned", "abandoned@example.test");
+    paypalApi.resetPayPalTokenCacheForTests();
+
+    const opened = await startCheckout(cookie);
+    const openedBody = (await opened.json()) as any;
+    h.eq(opened.status, 201, "a first Sandbox checkout opens");
+    const pendingRow = await db.findSubscriptionByProviderId(openedBody.subscriptionId);
+    h.eq(pendingRow?.status, "pending", "the subscription exists locally as pending until PayPal is verified");
+
+    // 9a. The dialog's own cleanup path, which PayPal refuses to cancel.
+    const closed = await fetch(`${base}/api/billing/paypal/cancel-subscription`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ subscriptionId: openedBody.subscriptionId }),
+    });
+    h.eq(closed.status, 200, "closing an unapproved checkout succeeds even though PayPal rejects the cancel");
+    h.eq(((await closed.json()) as any).cancelled, true, "the account is told the checkout is closed");
+    h.eq((await db.findSubscriptionByProviderId(openedBody.subscriptionId))?.status, "expired", "the unapproved row is closed instead of left blocking");
+
+    paypalApi.resetPayPalTokenCacheForTests();
+    const retried = await startCheckout(cookie);
+    h.eq(retried.status, 201, "a checkout can be started again after an abandoned one");
+
+    // 9b. Abandonment without any cleanup request at all — the member just
+    // closed the tab, so no cancel ever reached the server.
+    paypalApi.resetPayPalTokenCacheForTests();
+    const abandoned = await startCheckout(cookie);
+    h.eq(abandoned.status, 201, "the abandoned checkout is superseded rather than reported as active");
+    const abandonedBody = (await abandoned.json()) as any;
+    h.eq((await db.findSubscriptionByProviderId(abandonedBody.subscriptionId))?.status, "pending", "the new checkout is pending");
+    const liveIntents = testD1().sqlite
+      .prepare("SELECT status FROM paypal_checkout_intents WHERE user_id = ? AND status IN ('created', 'approved')")
+      .all(user.id);
+    h.eq(liveIntents.length, 1, "only the newest checkout holds the one-checkout-per-account slot");
+
+    // 9c. The guard that matters is unchanged: a verified, active subscription
+    // still refuses a second purchase.
+    const newest = await db.findSubscriptionByProviderId(abandonedBody.subscriptionId);
+    await db.updateSubscription(newest!.id, {
+      status: "active",
+      currentPeriodStart: new Date().toISOString(),
+      currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    });
+    paypalApi.resetPayPalTokenCacheForTests();
+    const blocked = await startCheckout(cookie);
+    h.eq(blocked.status, 409, "an account that is really subscribed still cannot buy a second subscription");
+    h.eq(((await blocked.json()) as any).code, "SUBSCRIPTION_ALREADY_EXISTS", "and says why");
+  }
+
   h.done("PayPal Sandbox checkout gate");
 } finally {
   globalThis.fetch = realFetch;

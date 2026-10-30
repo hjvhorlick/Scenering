@@ -1502,7 +1502,7 @@ export const ADMIN_MANUAL: readonly ManualTopic[] = [
         a: "PayPal Sandbox is available only for development testing. Scenering changes a member's plan only after it verifies the subscription with PayPal.",
         steps: [
           "To see a member's subscription, open *Members* and select them. *Plan* shows whether they pay monthly or yearly, and when it renews.",
-          "Sandbox subscriptions can renew until cancelled; production checkout is disabled.",
+          "Sandbox subscriptions can renew until cancelled; PayPal Live checkout is disabled.",
           "After a verified cancellation, access continues to the provider-confirmed end of the paid period, then returns to Free.",
           "Only provider-verified subscription state changes membership access."
         ],
@@ -1652,18 +1652,18 @@ export const ADMIN_MANUAL: readonly ManualTopic[] = [
     id: "payments",
     title: "PayPal Sandbox subscriptions",
     short: "Subscriptions",
-    intro: "How Sandbox subscriptions are configured and tested. Production billing and PayPal Live remain disabled.",
+    intro: "How Sandbox subscriptions are configured and tested. PayPal Live billing remains disabled; Sandbox checkout runs on any host with the Sandbox keys.",
     entries: [
       {
         id: "paypal-subscriptions",
         q: "How do Scenering subscriptions work?",
-        a: "PayPal Sandbox is the only subscription checkout, and it is available in development for testing only. Production checkout is disabled.",
+        a: "PayPal Sandbox is the only subscription checkout. It runs wherever the Sandbox keys are set, including the deployed site, because a Sandbox checkout can only be completed by a PayPal Sandbox test account. PayPal Live checkout is disabled everywhere.",
         steps: [
           "SceneFlow and SceneForge keep their existing monthly and yearly prices.",
           "A signed-in customer chooses a plan and approves a PayPal Sandbox subscription.",
           "Scenering verifies the subscription with PayPal before paid access is granted; the approval page alone does not grant access.",
         ],
-        tips: ["Do not use PayPal Live credentials or enable production checkout without a separate review."],
+        tips: ["Do not use PayPal Live credentials or cut over to Live billing without a separate review."],
         related: ["paypal-configuration", "paypal-cancellation"],
       },
       {
@@ -1674,7 +1674,7 @@ export const ADMIN_MANUAL: readonly ManualTopic[] = [
           "Create one PayPal Sandbox recurring plan for each paid plan and billing period, keeping Scenering prices unchanged.",
           "Set `PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID`, `PAYPAL_SCENEFLOW_YEARLY_PLAN_ID`, `PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID` and `PAYPAL_SCENEFORGE_YEARLY_PLAN_ID`, plus `PAYPAL_ENVIRONMENT=sandbox`, in the non-production environment.",
           "Keep `PAYPAL_CLIENT_SECRET` and `PAYPAL_WEBHOOK_ID` in server-side secrets; never add them to Vite variables or the browser bundle.",
-          "Use the development checkout only. Production billing and PayPal Live are disabled.",
+          "Sandbox checkout runs once the Sandbox credentials and at least one plan id are set; PayPal Live billing is disabled.",
         ],
         related: ["paypal-webhook", "paypal-live-disabled"],
       },

@@ -56,9 +56,11 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
       if (!response.ok || !config.configured || config.environment !== "sandbox" || !config.clientId) {
         const gaps = config.missing || [];
         setMissing(gaps);
-        if (config.production) {
-          throw new Error("Paid checkout is disabled on production while PayPal is Sandbox-only. Sandbox checkout runs on a development or preview host.");
-        }
+        /* No runtime special-case here. Production runs Sandbox checkout too
+           (a Sandbox checkout can only be completed by a Sandbox test
+           account), so a production host that cannot open one is reporting
+           unset variables, exactly like any other host — and naming them is
+           the only useful answer. */
         throw new Error(
           gaps.length
             ? `PayPal Sandbox is not ready. Still to set: ${gaps.join("; ")}.`
