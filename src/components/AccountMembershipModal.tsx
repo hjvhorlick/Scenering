@@ -148,13 +148,16 @@ export default function AccountMembershipModal({ isOpen, onClose, focusPlans = f
    * so paid checkout was refused on the very Sandbox hosts meant for
    * testing it. */
   const checkoutEnabled = Boolean(billingConfig?.configured);
-  const checkoutBlockedReason = billingConfig?.production
-    ? "Paid checkout is disabled while PayPal is Sandbox-only. Production billing has not been enabled."
-    : !billingConfig
-      ? "Checking PayPal Sandbox configuration…"
-      : billingConfig.missing?.length
-        ? `PayPal Sandbox is not ready. Still to set: ${billingConfig.missing.join("; ")}.`
-        : "Paid checkout is disabled while PayPal is Sandbox-only. Production billing has not been enabled.";
+  /* Same ordering as the pricing page: the server's reasons first. A
+     `production` special case used to come first and answer every failure
+     with "production billing has not been enabled" — which is not the reason
+     checkout was refused (the reasons are always named in `missing`), and
+     which is untrue on a host where the Sandbox checkout is enabled. */
+  const checkoutBlockedReason = !billingConfig
+    ? "Checking PayPal Sandbox configuration…"
+    : billingConfig.missing?.length
+      ? `PayPal Sandbox is not ready. Still to set: ${billingConfig.missing.join("; ")}.`
+      : "PayPal Sandbox checkout is not available on this server.";
 
   function choosePlan(plan: PlanSlug) {
     if (plan === "free") { setNotice("Free is always available. Paid subscriptions return to Free when verified paid access ends."); return; }

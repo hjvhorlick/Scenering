@@ -3,6 +3,11 @@ import { createPortal } from "react-dom";
 import type { BillingInterval, PlanSlug } from "../config/plans";
 import { loadPayPalSdk, resetPayPalSdk, type PublicBillingConfig } from "../lib/paypal-sdk";
 import { refreshSession } from "../lib/session";
+/* This dialog is portalled into `document.body`, so it can be opened from the
+   studio (which carries the Tailwind build) or from the public website (which
+   carries only marketing.css and never loads it). It therefore ships its own
+   stylesheet — see the note at the top of paypal-checkout.css. */
+import "./paypal-checkout.css";
 
 interface Props {
   plan: Exclude<PlanSlug, "free"> | null;
@@ -56,9 +61,9 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
       if (!response.ok || !config.configured || config.environment !== "sandbox" || !config.clientId) {
         const gaps = config.missing || [];
         setMissing(gaps);
-        if (config.production) {
-          throw new Error("Paid checkout is disabled on production while PayPal is Sandbox-only. Sandbox checkout runs on a development or preview host.");
-        }
+        /* No production special case: `gaps` names the variable at fault on
+           every host, production included, and a sentence about which host
+           the Sandbox runs on tells an operator nothing to fix. */
         throw new Error(
           gaps.length
             ? `PayPal Sandbox is not ready. Still to set: ${gaps.join("; ")}.`
@@ -141,30 +146,38 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
    * it from the plans section, which the modal scrolls to, and it appeared
    * off-screen above the fold — "the checkout does not open". Portalling also
    * lifts it out of the modal's `z-[210]` stacking context, where its
-   * `z-[100]` was painting behind the modal it was meant to sit on. */
+   * `z-[100]` was painting behind the modal it was meant to sit on.
+   *
+   * Leaving the React tree also means leaving the host page's stylesheet
+   * behind, so the classes below come from paypal-checkout.css and not from
+   * the studio's utilities. */
   return createPortal(
-    <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/75 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="w-full max-w-md rounded-2xl border border-white/15 bg-gray-950 p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="paypal-checkout-title">
-        <div className="flex items-start justify-between gap-3">
+    <div className="ppc-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="ppc-panel" role="dialog" aria-modal="true" aria-labelledby="paypal-checkout-title">
+        <div className="ppc-head">
           <div>
-            <h2 id="paypal-checkout-title" className="text-lg font-bold text-white">Pay with PayPal</h2>
-            <p className="mt-1 text-sm text-gray-300">{plan === "sceneflow" ? "SceneFlow" : "SceneForge"} · {interval === "monthly" ? "monthly" : "yearly"}</p>
+            <h2 id="paypal-checkout-title" className="ppc-title">Pay with PayPal</h2>
+            <p className="ppc-sub">{plan === "sceneflow" ? "SceneFlow" : "SceneForge"} · {interval === "monthly" ? "monthly" : "yearly"}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-gray-300 hover:bg-white/10" aria-label="Close PayPal checkout">✕</button>
+          <button type="button" onClick={onClose} className="ppc-close" aria-label="Close PayPal checkout">✕</button>
         </div>
         {/* Keyed on the attempt so a retry always renders into an empty node
             instead of stacking a second set of buttons under the first. */}
-        <div key={attempt} ref={mountRef} className="mt-5 min-h-12" />
-        <p role="status" aria-live="polite" className={`mt-3 text-sm ${kind === "error" || kind === "cancelled" ? "text-amber-300" : kind === "success" ? "text-emerald-300" : "text-gray-300"}`}>{message}</p>
+        <div key={attempt} ref={mountRef} className="ppc-buttons" />
+        <p
+          role="status"
+          aria-live="polite"
+          className={`ppc-status ${kind === "error" || kind === "cancelled" ? "is-warn" : kind === "success" ? "is-good" : ""}`}
+        >{message}</p>
         {missing.length > 0 && kind === "error" && (
-          <ul className="mt-3 space-y-1 text-xs text-gray-400">
+          <ul className="ppc-missing">
             {missing.map((item) => <li key={item}>• {item}</li>)}
           </ul>
         )}
-        <div className="mt-4 flex justify-end gap-2">
-          {kind === "error" && <button type="button" onClick={retry} className="rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10">Try again</button>}
-          {kind === "success" && <a href="/welcome?payment=paypal" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500">Continue</a>}
-          {kind !== "success" && <button type="button" onClick={onClose} className="rounded-lg border border-white/15 px-4 py-2 text-sm text-white hover:bg-white/10">Close</button>}
+        <div className="ppc-actions">
+          {kind === "error" && <button type="button" onClick={retry} className="ppc-btn is-bold">Try again</button>}
+          {kind === "success" && <a href="/welcome?payment=paypal" className="ppc-btn is-bold is-primary">Continue</a>}
+          {kind !== "success" && <button type="button" onClick={onClose} className="ppc-btn">Close</button>}
         </div>
       </section>
     </div>,

@@ -196,13 +196,24 @@ function PricingPage() {
   const planReady = (slug: PlanSlug) => paypalPlanReady(config, slug, interval);
   const planBlockedReason = (slug: Exclude<PlanSlug, "free">) =>
     `${paypalPlanLabel(slug, interval)} has no PayPal Sandbox plan yet — set ${paypalPlanVariable(slug, interval)} to sell this plan.`;
-  const checkoutBlockedReason = config?.production
-    ? "PayPal Sandbox checkout runs on a development or preview host, not on the live site."
-    : !config
-      ? "Checking PayPal Sandbox configuration…"
-      : config.missing?.length
-        ? `PayPal Sandbox is not ready. Still to set: ${config.missing.join("; ")}.`
-        : "PayPal Sandbox is not available on this server.";
+  /* Why checkout is unavailable, in the server's own words.
+   *
+   * This used to open with a production special case — "PayPal Sandbox
+   * checkout runs on a development or preview host, not on the live site" —
+   * and checking `production` first was wrong twice over. Production *does*
+   * run the Sandbox checkout, so the sentence was simply false on the live
+   * site; and when checkout really was unavailable, `missing` already named
+   * the variable at fault, which the special case then talked over. A
+   * missing PAYPAL_CLIENT_SECRET was reported to a visitor as a statement
+   * about which host checkout runs on, and the thing to fix was never named.
+   * Every case where the server reports checkout unavailable arrives with its
+   * reasons, so the reasons come first and the generic line is only a
+   * fallback. */
+  const checkoutBlockedReason = !config
+    ? "Checking PayPal Sandbox configuration…"
+    : config.missing?.length
+      ? `PayPal Sandbox checkout is not available here. Still to set: ${config.missing.join("; ")}.`
+      : "PayPal Sandbox checkout is not available on this server.";
 
   function subscribe(tier: Tier) {
     if (tier.id === "free") return;

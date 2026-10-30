@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased — the PayPal checkout that opened invisibly
+
+- **Reported:** on `scenering.com/pricing`, clicking "Subscribe to SceneFlow ·
+  PayPal Sandbox" did nothing. No dialog, no PayPal window, no message.
+- **The cause was a stylesheet that never loaded.** The dialog is portalled
+  into `document.body`, so it is mounted by whichever surface opened it — and
+  the two surfaces ship different CSS. The studio's `App.tsx` imports
+  `src/index.css`, so the Tailwind build is in the document; the website's
+  `MarketingSite.tsx` imports only `marketing.css`, and the Tailwind stylesheet
+  rides with the App and admin chunks, which a marketing page never loads.
+  Every one of the dialog's 44 classes was a Tailwind utility, so on `/pricing`
+  it rendered with no styling at all: the backdrop was not fixed or
+  full-screen, the card had no background, and the whole thing was appended
+  after the footer — below the fold, on a white page. Verified against the
+  built bundle: the Tailwind CSS is dependency index 7 of the App/AdminEntry
+  groups and is absent from MarketingSite's.
+- **Why nobody saw it.** The same markup opened from the account modal in the
+  studio, where the utilities do exist, and looked correct there.
+- **The fix is the rule, not a patch.** A component that portals out of the
+  React tree cannot know which page opened it, so it now carries its own
+  stylesheet: `src/components/paypal-checkout.css`, prefixed `ppc-`, with its
+  own box model because Tailwind's preflight is likewise missing from the
+  website. Vite emits it with the shared chunk that contains the dialog, so
+  `/pricing` loads it (verified: it is now in MarketingSite's dependency list)
+  and the studio's checkout looks exactly as before.
+- **Added `tests/paypal-checkout-style.test.ts`** (42 checks): every class the
+  dialog uses must be defined in its own stylesheet, that stylesheet must
+  import itself into the component and use no `@apply`/`@tailwind`/`--tw-`
+  dependencies, and the backdrop must still be fixed, full-viewport and
+  stacked. Run against the pre-fix source it fails on all 44 classes.
+- **Fixed three messages that named a false reason.** The pricing page, the
+  account modal and the dialog each opened their "checkout unavailable" copy
+  with a `production` special case, so on the live site every failure was
+  reported as "Sandbox checkout runs on a development or preview host, not on
+  the live site" / "production billing has not been enabled" — untrue there,
+  and it talked over the `missing` list that already names the variable at
+  fault. The server's own reasons now come first everywhere.
+- Validation: both TypeScript checks, the full test suite and the production
+  Vite build pass. The stylesheet shipping with `/pricing` was confirmed from
+  the emitted bundle; an end-to-end Sandbox purchase in a real browser has not
+  been re-run here.
+
 ## Unreleased — Piper voiceover migration
 
 - Replaced Speechify synthesis and its API-key settings with browser-local Piper, routed through preview, per-scene/batch narration, render preparation, WAV downloads and voiceover ZIP exports.
