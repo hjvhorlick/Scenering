@@ -1061,7 +1061,17 @@ function paypalDate(value: unknown): string | null {
 
 async function applyVerifiedPayPalSubscription(details: any, intent: Awaited<ReturnType<typeof db.findPayPalCheckoutIntentByHash>>, eventName = "", occurredAt: string | null = null) {
   if (!intent || details?.id !== intent.paypalSubscriptionId || details?.plan_id !== intent.paypalPlanId) return null;
-  if (paypalText(details?.custom_id) === null || hashToken(String(details.custom_id)) !== intent.intentHash) return null;
+  /* The checkout token, when PayPal returns one.
+   *
+   * A `custom_id` that is present must match — a subscription carrying somebody
+   * else's token is refused. An absent one is not a failure. The authoritative
+   * binding is the intent row checked on the line above: its subscription id,
+   * plan id and member all had to match, and the row itself was written
+   * server-side at create time, so the association never rested on this field.
+   * Requiring it unconditionally made every confirmation unverifiable whenever
+   * PayPal omitted it, which is the same mistake that broke the create path. */
+  const returnedCustomId = paypalText(details?.custom_id);
+  if (returnedCustomId !== null && hashToken(returnedCustomId) !== intent.intentHash) return null;
 
   const existing = await db.findSubscriptionByProviderId(String(details.id));
   if (existing && (existing.provider !== "paypal" || existing.userId !== intent.userId)) return null;
@@ -1175,10 +1185,28 @@ async function createPayPalCheckout(req: Request, res: Response) {
       returnUrl: `${base}/welcome?payment=paypal`,
       cancelUrl: `${base}/pricing?checkout=cancelled`,
     });
+    /* Bind on the subscription id alone.
+     *
+     * This also required `created.custom_id` to equal the intent token, and
+     * PayPal's create response does not carry `custom_id` at all — it returns
+     * status, id, create_time and links. The condition could therefore never
+     * be satisfied: every checkout ended here with a 502, on every host, and
+     * both PayPal suites stayed green because their stub echoed the field back
+     * (see the note in tests/paypal-billing.test.ts). The token is still sent
+     * to PayPal and still stored on the subscription; it just cannot be read
+     * back out of this response.
+     *
+     * Nothing is lost by binding on the id. The intent row was written for
+     * this authenticated member *before* the PayPal call and is now bound to
+     * the id PayPal returned for that call, so the member ↔ subscription
+     * association is established server-side and never depends on a value
+     * PayPal echoes or on anything the browser supplies. The confirm step
+     * re-checks ownership of that row, and a returned custom_id is still
+     * required to match whenever PayPal does supply one. */
     const subscriptionId = paypalText(created?.id);
-    if (!subscriptionId || paypalText(created?.custom_id) !== intentToken) {
+    if (!subscriptionId) {
       await db.updatePayPalCheckoutIntent(intent.id, "expired");
-      return res.status(502).json({ error: "PayPal did not return a verifiable subscription." });
+      return res.status(502).json({ error: "PayPal accepted the subscription but returned no subscription id." });
     }
     await db.bindPayPalCheckoutIntent(intent.id, subscriptionId, "approved");
     const startedAt = paypalDate(created?.create_time);
@@ -1280,7 +1308,13 @@ async function handlePayPalWebhookEvent(event: any): Promise<string> {
   if (!intent) return record("unmatched");
   try {
     const details = await getPayPalSubscription(subscriptionId);
-    if (details?.id !== subscriptionId || details?.plan_id !== intent.paypalPlanId || hashToken(String(details?.custom_id || "")) !== intent.intentHash) {
+    /* The same rule as applyVerifiedPayPalSubscription: a `custom_id` PayPal
+       returns must match, one it omits does not disqualify. The intent was
+       already matched by subscription id (or by the event's own custom_id),
+       and the plan is re-checked here, so a webhook cannot activate a
+       different plan than the one that was sold. */
+    const webhookCustomId = paypalText(details?.custom_id);
+    if (details?.id !== subscriptionId || details?.plan_id !== intent.paypalPlanId || (webhookCustomId !== null && hashToken(webhookCustomId) !== intent.intentHash)) {
       return record("rejected");
     }
     const sub = await applyVerifiedPayPalSubscription(details, intent, eventName, paypalText(event?.create_time));

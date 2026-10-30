@@ -57,9 +57,14 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.endsWith("/v1/oauth2/token")) return Response.json({ access_token: "test-access-token", expires_in: 300 });
   if (url.endsWith("/v1/billing/subscriptions")) {
     const id = `I-SANDBOX-SUB-GATE-${++created}`;
+    /* Deliberately no `custom_id`. This stub used to echo the request's
+       `custom_id` straight back, which is not what PayPal does: the real
+       Sandbox response is status, id, create_time and links (verified against
+       api-m.sandbox.paypal.com). Because the create path required the echoed
+       token, the generous stub was the only reason a checkout that could never
+       succeed looked tested. Keep this response as poor as the real one. */
     return Response.json({
       id,
-      custom_id: body.custom_id,
       plan_id: body.plan_id,
       status: "APPROVAL_PENDING",
       create_time: "2026-10-29T10:00:00Z",

@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased — the PayPal checkout could never complete
+
+- **Reported:** approving a Sandbox subscription on `scenering.com` ended with
+  "PayPal did not return a verifiable subscription." every time.
+- **The create response was checked for a field PayPal does not send.**
+  `createPayPalCheckout` required `created.custom_id` to equal the single-use
+  checkout token before binding the subscription. PayPal's
+  `POST /v1/billing/subscriptions` response is `status`, `id`, `create_time`
+  and `links` — there is no `custom_id` (verified directly against
+  `api-m.sandbox.paypal.com`). The condition was unsatisfiable, so every
+  checkout returned a 502 at that line.
+- **Why the suite was green.** Both PayPal stubs answered that call with
+  `custom_id: body.custom_id`, echoing back a field the real API omits. The
+  fake PayPal was more generous than the real one, so 99 checks passed against
+  a response shape that never occurs. Both stubs now return what PayPal
+  actually returns, and restoring the old condition against them fails 4
+  checks with the same 502 — the bug is now reproducible from the suite.
+- **The token is still sent and still checked where it can be.** Binding now
+  uses the `id` PayPal does return. That is not a weaker association: the
+  intent row is written for the authenticated member *before* the PayPal call
+  and bound to the id returned for that call, so the member ↔ subscription
+  link is established server-side and never depends on a value PayPal echoes
+  or on anything the browser supplies. Where PayPal does return a `custom_id`
+  — the subscription read, a webhook payload — a mismatch is still refused;
+  an omitted one no longer makes verification impossible. Three places shared
+  that mistake (create, `applyVerifiedPayPalSubscription`, the webhook
+  handler) and all three are fixed.
+- **Refusals now name PayPal's own reason.** "PayPal Sandbox authentication
+  failed." and "…could not complete the billing request." discarded the
+  `error_description` / `PERMISSION_DENIED` detail PayPal already sends, so a
+  secret that does not match the client id was indistinguishable from an app
+  that was never granted the scope. Both now append PayPal's text, capped and
+  credential-free.
+- Validation: both TypeScript checks, the production build, and 86 of 87
+  suites pass; `paypal-billing` grew 38 → 42 checks. The one failing suite is
+  `tests/icons.test.ts`, which fails identically on `main` (59 checks) — its
+  copy guard reads only `src/`, which this change does not touch.
+
 ## Unreleased — the PayPal checkout that opened invisibly
 
 - **Reported:** on `scenering.com/pricing`, clicking "Subscribe to SceneFlow ·

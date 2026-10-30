@@ -37,9 +37,13 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const body = typeof init?.body === "string" && headers.get("content-type")?.includes("application/json") ? JSON.parse(init.body) : init?.body;
   calls.push({ url, method: init?.method || "GET", headers, body });
   if (url.endsWith("/v1/oauth2/token")) return Response.json({ access_token: "test-access-token", expires_in: 300 });
+  /* No `custom_id` here, on purpose. The real Sandbox create response is
+     status, id, create_time and links — PayPal does not echo `custom_id` back
+     (verified against api-m.sandbox.paypal.com on 2026-10-30). This stub used
+     to echo it, which is exactly why a create path that could never succeed
+     passed 38 checks. The token is still asserted on the *request* below. */
   if (url.endsWith("/v1/billing/subscriptions")) return Response.json({
     id: "I-SANDBOX-SUB-123456",
-    custom_id: body.custom_id,
     plan_id: body.plan_id,
     status: "APPROVAL_PENDING",
     create_time: "2026-10-28T10:00:00Z",
@@ -190,6 +194,44 @@ try {
     const mismatch = await fetch(`${base}/api/webhooks/paypal`, { method: "POST", headers: signedHeaders, body: JSON.stringify(mismatchEvent) });
     h.eq((await mismatch.json() as any).status, "rejected", "subscription plan mismatches are rejected by the verified webhook handler");
     h.eq((await db.findMembershipByUserId(webhookUser.id))?.plan, "sceneflow", "a mismatched PayPal plan cannot grant a different Scenering entitlement");
+
+    /* PayPal does not always return `custom_id` — its create response never
+       does. Verification must not depend on the field, because the intent row
+       already ties this subscription id, plan and member together server-side.
+       A token PayPal *does* return still has to match. */
+    /* The rejected intent above is still status 'created', and the schema
+       allows one 'created'/'approved' intent per member
+       (idx_paypal_checkout_intents_one_create_per_user). Retire it first, or
+       the next insert trips that index. */
+    await db.updatePayPalCheckoutIntent("ppi-webhook-mismatch", "expired");
+    const noTokenId = "I-WEBHOOK-NO-CUSTOM-ID";
+    const noTokenIntent = await db.createPayPalCheckoutIntent({
+      id: "ppi-webhook-no-custom-id", userId: webhookUser.id, intentHash: createHmac("sha256", process.env.SESSION_SECRET!).update("no-custom-id-token").digest("hex"),
+      planId: "sceneforge", billingInterval: "monthly", paypalPlanId: "P-SG-MONTHLY-TEST", paypalSubscriptionId: null, status: "created",
+      expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    });
+    await db.bindPayPalCheckoutIntent(noTokenIntent.id, noTokenId);
+    subscriptionFixtures.set(noTokenId, {
+      id: noTokenId, plan_id: "P-SG-MONTHLY-TEST", status: "ACTIVE",
+      billing_info: { next_billing_time: "2026-11-28T10:00:00Z" }, subscriber: { payer_id: "sandbox-payer" },
+    });
+    const noTokenEvent = { ...event, id: "WH-SANDBOX-NO-CUSTOM-ID", resource: { id: noTokenId, custom_id: "no-custom-id-token" } };
+    const noToken = await fetch(`${base}/api/webhooks/paypal`, { method: "POST", headers: signedHeaders, body: JSON.stringify(noTokenEvent) });
+    h.eq((await noToken.json() as any).status, "processed", "a subscription PayPal returns without custom_id still verifies against the stored checkout intent");
+    h.eq((await db.findMembershipByUserId(webhookUser.id))?.plan, "sceneforge", "the verified activation grants the plan that was actually sold");
+
+    const wrongTokenId = "I-WEBHOOK-WRONG-CUSTOM-ID";
+    const wrongTokenIntent = await db.createPayPalCheckoutIntent({
+      id: "ppi-webhook-wrong-custom-id", userId: webhookUser.id, intentHash: createHmac("sha256", process.env.SESSION_SECRET!).update("expected-token").digest("hex"),
+      planId: "sceneflow", billingInterval: "monthly", paypalPlanId: "P-SF-MONTHLY-TEST", paypalSubscriptionId: null, status: "created",
+      expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    });
+    await db.bindPayPalCheckoutIntent(wrongTokenIntent.id, wrongTokenId);
+    subscriptionFixtures.set(wrongTokenId, { id: wrongTokenId, plan_id: "P-SF-MONTHLY-TEST", custom_id: "somebody-elses-token", status: "ACTIVE" });
+    const wrongTokenEvent = { ...event, id: "WH-SANDBOX-WRONG-CUSTOM-ID", resource: { id: wrongTokenId, custom_id: "expected-token" } };
+    const wrongToken = await fetch(`${base}/api/webhooks/paypal`, { method: "POST", headers: signedHeaders, body: JSON.stringify(wrongTokenEvent) });
+    h.eq((await wrongToken.json() as any).status, "rejected", "a custom_id PayPal does return that fails to match the checkout token is still refused");
+    h.eq((await db.findMembershipByUserId(webhookUser.id))?.plan, "sceneforge", "a refused verification changes no entitlement");
   }
   {
     const event = { providerEventId: "paypal:evt-idempotency-test", eventName: "BILLING.SUBSCRIPTION.ACTIVATED", status: "processing", payload: { provider: "paypal" } };

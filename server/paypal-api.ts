@@ -131,6 +131,28 @@ export function paypalPublicConfig(requestOrigin = "") {
   };
 }
 
+/**
+ * PayPal's own explanation of a refusal, shortened for a member-facing line.
+ *
+ * Every PayPal error body carries the reason — `error_description` on the token
+ * endpoint, `message` plus `details[0].description` on the billing APIs — and
+ * none of it is a credential. It is written for developers, so it is appended
+ * to Scenering's sentence and capped rather than replacing it: the person
+ * reading the dialog needs to know which of two very different problems they
+ * have (a secret that does not match the client id, or an app that was never
+ * granted the scope), and only PayPal's text says which.
+ */
+export function paypalErrorDetail(data: any): string {
+  const first = data?.details?.[0];
+  const description = typeof first?.description === "string" ? first.description.trim() : "";
+  const issue = typeof first?.issue === "string" ? first.issue.trim() : "";
+  const text = String(
+    data?.error_description || data?.message || [issue, description].filter(Boolean).join(": ") || data?.error || "",
+  ).trim();
+  if (!text) return "";
+  return ` — PayPal said: ${text.length > 160 ? `${text.slice(0, 157)}…` : text}`;
+}
+
 function credentials(): { clientId: string; clientSecret: string } {
   if (!paypalIsSandbox()) throw new PayPalApiError("PayPal Live mode is disabled until a separate approved cutover.", 503, "PAYPAL_LIVE_DISABLED");
   const clientId = String(env().PAYPAL_CLIENT_ID || "").trim();
@@ -160,7 +182,14 @@ async function accessToken(): Promise<string> {
   }
   const data = await response.json().catch(() => ({})) as any;
   if (!response.ok || typeof data.access_token !== "string") {
-    throw new PayPalApiError("PayPal Sandbox authentication failed.", 502, "PAYPAL_AUTH_FAILED");
+    /* PayPal already says why — `invalid_client`, "Client Authentication
+       failed" — and this used to throw that away, so "PayPal Sandbox
+       authentication failed." was the whole story. That left no way to
+       distinguish a secret that does not pair with the committed client id
+       from an app that was never granted the scope, which are fixed in
+       completely different places. PayPal's reason is appended, not swapped
+       in, and it carries no credential. */
+    throw new PayPalApiError(`PayPal Sandbox authentication failed${paypalErrorDetail(data)}.`, 502, "PAYPAL_AUTH_FAILED");
   }
   cachedToken = {
     token: data.access_token,
@@ -189,7 +218,11 @@ export async function paypalApi<T = any>(path: string, init: { method?: string; 
   const data = await response.json().catch(() => ({})) as any;
   if (!response.ok) {
     const status = response.status === 401 || response.status === 403 ? 502 : response.status;
-    throw new PayPalApiError("PayPal Sandbox could not complete the billing request.", status, "PAYPAL_PROVIDER_ERROR");
+    /* A 403 from PayPal is usually PERMISSION_DENIED — the app can create a
+       subscription but not read one, which is a dashboard/scope problem and
+       not something anybody can diagnose from "could not complete the billing
+       request". PayPal's own issue and description go in the message. */
+    throw new PayPalApiError(`PayPal Sandbox could not complete the billing request${paypalErrorDetail(data)}.`, status, "PAYPAL_PROVIDER_ERROR");
   }
   return data as T;
 }
