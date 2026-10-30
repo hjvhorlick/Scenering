@@ -1,0 +1,207 @@
+/**
+ * The PayPal checkout dialog's own stylesheet.
+ *
+ * Why this file exists at all — and why the dialog does not use the studio's
+ * utility classes:
+ *
+ * This dialog is rendered into `document.body`, so it lands on whichever page
+ * opened it. Two surfaces do that, and they ship different stylesheets:
+ *
+ *   the studio    src/App.tsx imports src/index.css, so the Tailwind build is
+ *                 in the document;
+ *   the website   src/marketing/MarketingSite.tsx imports only marketing.css,
+ *                 and the Tailwind stylesheet rides with the App and admin
+ *                 chunks, which a marketing page never loads.
+ *
+ * The dialog was written with the studio's utility classes, so on /pricing it
+ * rendered with no CSS at all: the overlay was not fixed or full-screen, the
+ * panel had no background, and the whole thing was appended after the footer —
+ * below the fold, on a white page, as a few lines of unstyled text. Clicking
+ * "Subscribe to SceneFlow · PayPal Sandbox" therefore did nothing visible.
+ * From the account modal, where the utilities do exist, the identical markup
+ * looked correct — which is why it was never noticed.
+ *
+ * A component that portals itself out of the React tree cannot know which
+ * surface opened it, so it carries its own rules. Everything below is prefixed
+ * `ppc-` (PayPal Checkout) and sets its own box model, because Tailwind's
+ * preflight is likewise absent on the website — margins, font sizes and list
+ * bullets are all browser defaults there and must not be assumed.
+ *
+ * Values mirror the utilities this replaced (rounded-2xl, p-5, bg-gray-950,
+ * border-white/15, shadow-2xl, text-gray-300, amber-300, emerald-300,
+ * blue-600) so the studio's checkout looks the same as before.
+ */
+
+/**
+ * The dimmed full-viewport backdrop.
+ *
+ * z-index is deliberately far above everything either surface stacks: the
+ * studio's account modal sits at 210 and the website's corner menu at 170, and
+ * because this is portalled to `document.body` it competes with both rather
+ * than nesting inside either. A checkout that paints underneath the modal it
+ * was opened from is the same "nothing happened" as an invisible one.
+ */
+.ppc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+/** The dialog card. */
+.ppc-panel {
+  width: 100%;
+  max-width: 28rem;
+  padding: 20px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  background: #030712;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  color: #d1d5db;
+  /* Named rather than inherited: the website's body font is a serif-leaning
+     marketing stack, and this is an application dialog. */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+/** Heading row: title block beside the close button. */
+.ppc-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ppc-title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: 700;
+  color: #fff;
+}
+
+/** "SceneFlow · monthly" — the plan actually being bought. */
+.ppc-sub {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: #d1d5db;
+}
+
+.ppc-close {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: #d1d5db;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ppc-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/**
+ * Where the PayPal SDK draws its buttons.
+ *
+ * The minimum height is reserved up front so the card does not jump when the
+ * gold button appears. PayPal styles its own contents; nothing here reaches
+ * inside.
+ */
+.ppc-buttons {
+  margin-top: 20px;
+  min-height: 48px;
+}
+
+/** The one-line status under the buttons, read out by screen readers. */
+.ppc-status {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: #d1d5db;
+}
+
+/* Amber for a refusal or a cancellation, green for a confirmed plan — the
+   same two colours the studio uses for those two states. */
+.ppc-status.is-warn {
+  color: #fcd34d;
+}
+
+.ppc-status.is-good {
+  color: #6ee7b7;
+}
+
+/** The named variables still to set, listed under a configuration failure. */
+.ppc-missing {
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  list-style: none;
+  font-size: 12px;
+  line-height: 16px;
+  color: #9ca3af;
+}
+
+/** Action row: Try again / Continue / Close, right-aligned. */
+.ppc-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ppc-btn {
+  display: inline-block;
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: none;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ppc-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ppc-btn.is-bold {
+  font-weight: 600;
+}
+
+/* Continue after a confirmed subscription. */
+.ppc-btn.is-primary {
+  border-color: #2563eb;
+  background: #2563eb;
+}
+
+.ppc-btn.is-primary:hover {
+  border-color: #3b82f6;
+  background: #3b82f6;
+}
+
+/* Narrow phones: the reserved button area and the card padding are the only
+   things worth loosening, so the card keeps its shape. */
+@media (max-width: 420px) {
+  .ppc-overlay {
+    padding: 12px;
+  }
+
+  .ppc-panel {
+    padding: 16px;
+  }
+}
