@@ -66,7 +66,7 @@ export default function Pricing() {
       </div>
 
       <p className="mkt-small" style={{ textAlign: "center", marginTop: 14 }}>
-        Every plan renders 16:9 and 9:16, with local Piper TTS narration.{" "}
+        Every plan renders 16:9 and 9:16, with browser-local narration.{" "}
         <a href="/pricing">Compare every feature →</a>
       </p>
 

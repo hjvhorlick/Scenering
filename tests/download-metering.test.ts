@@ -194,6 +194,8 @@ h.ok(!render.includes("right-click the preview and pick Save video as"), "the sc
 const saveCalls = render.match(/\bsaveRenderBlob\(/g) || [];
 h.eq(saveCalls.length, 1, "saving a finished video happens in exactly one place (the Vault download)");
 const vaultHandler = render.slice(render.indexOf("const downloadVaultRender = async"), render.indexOf("const removeVaultRender = async"));
+h.ok(vaultHandler.includes("!creditsSaved.has(row.id)") && vaultHandler.indexOf("!creditsSaved.has(row.id)") < vaultHandler.indexOf("recordVideoDownload("), "credits are required before metering or saving the video");
+h.ok(render.includes("attributionText: renderAttributionText") && render.includes("row.attributionText ||"), "credits stay with the render and older renders disclose missing metadata");
 h.ok(vaultHandler.length > 0 && vaultHandler.includes("saveRenderBlob(row.blob"), "the one save is the Vault's Download button");
 h.ok(vaultHandler.indexOf("recordVideoDownload(") > 0 && vaultHandler.indexOf("recordVideoDownload(") < vaultHandler.indexOf("saveRenderBlob("), "the Vault asks the server to count the download BEFORE it saves the file");
 h.ok(/catch \(err\)[\s\S]{0,260}setVaultError\([\s\S]{0,160}return;/.test(vaultHandler), "a refused download shows the reason and saves nothing");

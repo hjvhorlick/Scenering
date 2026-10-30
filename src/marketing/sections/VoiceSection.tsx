@@ -29,9 +29,9 @@ export default function VoiceSection() {
 
       <Facts
         items={[
-          { term: "Runs in your browser.", text: "Piper creates narration locally; scene text is not sent to a speech provider." },
-          { term: "Captions stay attached.", text: "Narration timing is carried into the caption and karaoke workflow; Piper word timing is currently estimated." },
-          { term: "Twenty Scenering profiles.", text: "Ten male and ten female profile styles route through the Piper model catalogue." },
+          { term: "Runs in your browser.", text: "Neural text-to-speech models generate narration on your computer; scene text is not sent to a speech provider." },
+          { term: "Captions stay attached.", text: "Narration timing is carried into the caption and karaoke workflow; Word timing is currently estimated." },
+          { term: "Twenty Scenering profiles.", text: "Choose from ten male and ten female narrator profiles." },
           { term: "Clear download errors.", text: "A missing or failed model download is reported instead of replaced with silence." },
         ]}
       />

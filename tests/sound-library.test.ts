@@ -79,6 +79,7 @@ for (const item of foley) {
 
   // Nothing used -> no sound, graphic, image or voice sections at all.
   const empty = generateAttributionDocument(base);
+  h.ok(empty.includes("Website: https://scenering.com"), "credits include Scenering website near the top");
   h.ok(!empty.includes("SOUND EFFECTS"), "no sound effects are credited when none are used");
   h.ok(!empty.includes("3D GRAPHICS"), "no 3D graphics are credited when none are used");
   h.ok(!empty.includes("STOCK IMAGES"), "no image sources are credited when none are used");
@@ -101,6 +102,12 @@ for (const item of foley) {
   h.ok(img.includes("STOCK IMAGES"), "used image sources are credited");
   h.ok(img.includes("Sourced via Unsplash (Unsplash License)"), "the used image source is listed");
   h.ok(!img.includes("Pexels"), "unused image sources stay out of the document");
+
+  const detailed = generateAttributionDocument({ ...base, imageSources: ["Scene 1: https://example.com/photo — identify creator", "Scene 2: uploaded image — identify creator"], voiceName: "Narrator", voiceModel: "en_US-amy-medium", voiceModelUrl: "https://example.com/model", soundsUsed: ["unknown-sound"] });
+  h.ok(detailed.includes("Scene 1:") && detailed.includes("Scene 2:"), "individual scenes have separate image credit entries");
+  h.ok(detailed.includes("Voice model: en_US-amy-medium") && detailed.includes("https://example.com/model"), "voice model and source are included when known");
+  h.ok(detailed.includes("OTHER AUDIO") && detailed.includes("Identify the creator"), "unrecognized audio is flagged for review");
+  h.ok(!detailed.includes("All imagery utilized complies") && !detailed.includes("legally sourced"), "credits do not claim unknown assets are cleared");
 
   // A voice used -> the voice section names it.
   const voiced = generateAttributionDocument({ ...base, voiceName: "The Storyteller (Male • American (US))" });

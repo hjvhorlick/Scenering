@@ -46,12 +46,12 @@ export const NOINDEX_ROBOTS = "noindex, nofollow";
 
 export const SEO_PAGES: Readonly<Record<string, PageSeo>> = {
   "/": {
-    title: "Scenering | Faceless Video Maker from Script to Video",
-    description: "Make faceless videos from scripts or audio with Scenering. Plan scenes, research visuals, add voiceover and synced captions, then edit and export.",
+    title: "Scenering | Faceless Video Maker with No Token Fees",
+    description: "Create faceless videos from your script or audio. Add narration without recording your own voice, edit and export—with no token or credit purchases.",
   },
   "/features": {
     title: "Faceless Video Maker Features | Scenering",
-    description: "Explore Scenering's script-to-video tools: scene planning, visual research, voiceover, synced captions, timeline editing, effects and MP4 or WebM export.",
+    description: "Make faceless videos without recording your own voice. Explore narration, captions, scene editing and export, without buying tokens or credits.",
   },
   "/how-it-works": {
     title: "How to Make a Faceless Video | Scenering",
@@ -71,7 +71,7 @@ export const SEO_PAGES: Readonly<Record<string, PageSeo>> = {
   },
   "/manual": {
     title: "Scenering Manual | Editing and Export Guide",
-    description: "Use the Scenering guide for setup, scenes, visual research, Piper voiceover, caption timing, Video Studio, final exports and troubleshooting.",
+    description: "Explore the Scenering guide to faceless videos, narration, captions, editing, exports and troubleshooting.",
   },
   "/contact": {
     title: "Contact Scenering | Product Support",

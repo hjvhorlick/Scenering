@@ -227,7 +227,7 @@ function parseScript(
 async function quickImageSearch(
   query: string,
   usedUrls?: ReadonlySet<string>
-): Promise<{ proxyUrl: string; rawUrl: string } | null> {
+): Promise<{ proxyUrl: string; rawUrl: string; attribution?: import("./lib/image-picker").ImageCandidate["attribution"] } | null> {
   try {
     const headers = getApiKeysHeaders();
     const queryParams = getApiKeysQueryParams();
@@ -237,6 +237,7 @@ async function quickImageSearch(
     return {
       proxyUrl: proxyImageUrl(chosen),
       rawUrl: chosen,
+      attribution: pool.find((candidate) => candidate.url === chosen)?.attribution,
     };
   } catch {
     return null;
@@ -1841,6 +1842,11 @@ export default function App() {
   };
 
   const handleUpdateScene = async (sceneId: number, updates: Partial<Scene>) => {
+    // Credits always follow the chosen asset; never carry a previous image's
+    // attribution over to a replacement or upload.
+    if (updates.image_url !== undefined && updates.image_attribution === undefined) {
+      updates = { ...updates, image_attribution: null };
+    }
     // 1. Immediately update local state
     setScenes((prev) =>
       prev.map((s) => (s.id === sceneId ? { ...s, ...updates } : s))
@@ -1866,6 +1872,7 @@ export default function App() {
         // A hand-picked search term and its lock live here too. Supabase is
         // optional in this app, so without the local copy a reload dropped
         // the lock and the next edit re-derived the query from the script.
+        image_attribution: updates.image_attribution !== undefined ? updates.image_attribution : parsed.image_attribution,
         image_query: updates.image_query !== undefined ? updates.image_query : parsed.image_query,
         image_query_locked:
           updates.image_query_locked !== undefined
@@ -1943,6 +1950,7 @@ export default function App() {
 
       await handleUpdateScene(sceneId, {
         image_url: hit.proxyUrl,
+        image_attribution: hit.attribution ? { ...hit.attribution, imageUrl: hit.proxyUrl } : null,
         image_query: query,
       });
 

@@ -109,8 +109,8 @@ const STAGE_COPY: Record<string, Omit<WorkflowStage, "id" | "number" | "appTab">
   scenes: {
     name: "Scenes & visuals",
     message: "Turn your script into scenes.",
-    body: "The script is divided into scenes that follow the narration, so each one lasts as long as its own line takes to say. Every scene then gets a search built from its own words — and any picture you do not like can be replaced.",
-    thought: "Scenering understands the structure, and finds the pictures.",
+    body: "Turn your script into editable scenes, search for visuals for your story and replace any picture that does not feel right.",
+    thought: "My story is taking shape.",
   },
   voiceover: {
     name: "Voice Over",
@@ -201,15 +201,15 @@ export const VISUAL_SOURCES: VisualSource[] = [
 
 /** How a search becomes one downloaded picture (spec §20). */
 export const SEARCH_POLICY: { step: string; detail: string }[] = [
-  { step: "Search", detail: "A query is built from the words of that scene." },
-  { step: "Evaluate", detail: "Results are checked: photographic, 16:9, at least 1920×1080." },
-  { step: "Select", detail: "One suitable result is chosen; the rest stay as alternatives." },
-  { step: "Use", detail: "Only the selected visual is downloaded into the project." },
+  { step: "Search", detail: "Find relevant visuals for each scene." },
+  { step: "Evaluate", detail: "Review suitable photographs for your video." },
+  { step: "Select", detail: "Select a visual or explore alternatives." },
+  { step: "Use", detail: "Add your chosen visual to the project." },
 ];
 
 /** Browser-local Piper narration; model assets are fetched only when selected. */
 export const NARRATION_CHAIN: { name: string; detail: string }[] = [
-  { name: "Piper TTS", detail: "The selected Piper voice model runs locally in your browser; scene text is not sent to a speech provider." },
+  { name: "Piper TTS", detail: "Neural text-to-speech models generate narration locally in your browser; scene text is not sent to a speech provider." },
   { name: "Runtime and model download", detail: "The Piper runtime and selected voice model load on first use and are cached by the browser where storage allows. The current build has about 30 MB of uncompressed WASM/runtime data before the chosen voice model." }
 ];
 
@@ -544,7 +544,7 @@ export const CONTROL_POINTS: { label: string; detail: string }[] = [
 export const MESSAGES = {
   hero: "Create videos from your ideas.",
   heroSub:
-    "A script or an audio file becomes scenes, researched visuals, narration, captions and a finished file \u2014 and every step stays yours to change.",
+    "Create faceless videos with your own script, real photographs and locally generated narration — no personal voice recording or token purchases required.",
   scenes: "Turn your script into scenes.",
   visuals: "Find visuals that fit the story.",
   voice: "Give every scene a voice.",
@@ -582,7 +582,7 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
     id: "credits",
     question: "Will this cost me credits or tokens?",
     answer:
-      "No. Nothing in Scenering is metered — there is no balance to top up, no cost per video and no word count.",
+      "No token or credit purchases are required. Plans have different final-download allowances and subscription prices.",
     section: "no-meter",
     cue: "Why there is no meter",
   },
@@ -590,7 +590,7 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
     id: "face",
     question: "Do I have to show my face?",
     answer:
-      "No. Every video Scenering makes is faceless: real footage, a narrator and captions. You are never on camera.",
+      "No. You can create videos with visuals, narration and captions without appearing on camera.",
     section: "examples",
     cue: "See the examples",
   },
@@ -605,7 +605,7 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
     id: "pictures",
     question: "Where do the pictures come from — may I use them?",
     answer:
-      "From free photo libraries: Pexels, Pixabay and Wikimedia Commons. Every library your video used is listed in an attribution document that downloads with it.",
+      "Available sources include photo libraries such as Pexels, Pixabay and Wikimedia Commons. Save the credits document before your video, then check each creator and license and add missing details before publishing.",
     section: "sources",
     cue: "See the sources",
   },
@@ -629,29 +629,29 @@ export const COMMON_QUESTIONS: CommonQuestion[] = [
 
 /** Clear disclosure of the browser-local Piper narration workflow. */
 export const NO_METER = {
-  message: "Local Piper narration. No per-voice API key.",
+  message: "Create without tokens, cameras or recording your voice.",
   lead:
-    "Scenering generates narration in your browser with Piper TTS. There is no per-request voice API charge from Scenering.",
+    "Make your story your way: use built-in narration, work with your own visuals and create without buying credits or tokens. Plan download limits apply.",
   points: [
     {
       label: "Your script stays your script",
       detail:
-        "It is divided into scenes by counting words and respecting sentence endings. Nothing rewrites it.",
+        "Turn your script into editable scenes while keeping your words your own.",
     },
     {
       label: "The pictures are photographs",
       detail:
-        "Search terms come from the scene's own nouns and names, and real photographs are fetched from free libraries.",
+        "Find photographs for your story from free visual libraries, and choose what works for your project.",
     },
     {
       label: "Narration runs in your browser",
       detail:
-        "Piper processes the selected scene text locally. Its runtime assets and selected voice model load on first use and are cached when browser storage allows.",
+        "Narration runs locally. First use requires a download, which may be cached for later use.",
     },
     {
       label: "The video is made on your machine",
       detail:
-        "The render runs in your browser, frame by frame — no queue and no upload of your project video.",
+        "Create your finished video in your browser, without uploading the project video for rendering.",
     },
   ],
   caveat:

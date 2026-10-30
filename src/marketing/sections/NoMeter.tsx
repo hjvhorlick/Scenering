@@ -28,7 +28,7 @@ export default function NoMeter() {
 
       <div className="mkt-panel mkt-pad mkt-nometer-note">
         <p className="mkt-small">
-          <b>Stated plainly.</b> Piper TTS generates the selected narration in your browser. First use loads the Piper runtime (about 30 MB uncompressed in this build) and the chosen voice model; the browser cache may avoid repeated downloads.
+          <b>Stated plainly.</b> Neural text-to-speech models generate narration locally in your browser, without a cloud speech service or per-request voice charge. First use requires an internet download; the browser may cache it for later. Voice model license and attribution terms apply.
         </p>
         <p className="mkt-small">
           Photos come from free libraries:{" "}

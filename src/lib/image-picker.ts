@@ -1,3 +1,4 @@
+import type { ImageAttribution } from "./image-attribution";
 /**
  * Random image selection — single source of truth for "don't always show
  * the same photo".
@@ -87,6 +88,7 @@ export interface ImageCandidate {
   nativeWidth?: number;
   nativeHeight?: number;
   highResUrl?: string;
+  attribution?: Omit<ImageAttribution, "imageUrl">;
 }
 
 /**
