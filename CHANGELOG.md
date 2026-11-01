@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — a paid member could never be activated while the read is refused
+
+- **The cause.** `handlePayPalWebhookEvent` read the subscription back from
+  PayPal before applying anything. This Sandbox app is answered
+  `PERMISSION_DENIED` on that read, so the handler recorded `retryable_error`
+  on every delivery and a member who had really paid was never activated by
+  anything. `PAYPAL_SANDBOX.md` says the webhook is what covers renewals,
+  cancellations and failed payments, so with both the read and the webhook
+  blocked there was no path to activation at all.
+- **The fix.** When the read is refused, a subscription lifecycle event is
+  applied from its own signed `resource`. That is not a browser callback:
+  `registerPayPalWebhook` refuses any delivery PayPal will not vouch for, and
+  for `BILLING.SUBSCRIPTION.*` the signed resource *is* the subscription
+  object — verified server state, which is what the policy requires paid access
+  to rest on. Every existing check still runs on it: the subscription id, the
+  plan sold, and a `custom_id` PayPal does return. A payment event, whose
+  resource is a sale and not a subscription, stays retryable rather than being
+  guessed at.
+- Validation: `paypal-billing` 47 → 53 checks, including a signed event for a
+  plan other than the one sold still being refused. Reverting the fallback
+  fails 6 of them and reproduces the failure exactly — 503, `retryable_error`,
+  no subscription row, membership still `free`. Both TypeScript checks and the
+  production build pass; `paypal-checkout-gate` holds at 65; 86 of 87 suites
+  pass, the one failure being the pre-existing `tests/icons.test.ts` baseline of
+  59, unchanged.
+
 ## Unreleased — "Manage or cancel it" named the one action that could not work
 
 - **Reported:** a member whose Sandbox payment went through was still refused

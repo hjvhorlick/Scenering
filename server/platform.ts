@@ -1354,7 +1354,28 @@ async function handlePayPalWebhookEvent(event: any): Promise<string> {
   }
   if (!intent) return record("unmatched");
   try {
-    const details = await getPayPalSubscription(subscriptionId);
+    /* Read the subscription back — unless PayPal refuses to let this app do so.
+     *
+     * This Sandbox app can create a subscription and is answered
+     * PERMISSION_DENIED when reading one, which left the handler recording
+     * `retryable_error` forever and meant a member who really had paid was
+     * never activated by anything. The event that just arrived is not a
+     * browser callback: registerPayPalWebhook refuses any delivery PayPal will
+     * not vouch for, and for a subscription lifecycle event the signed
+     * `resource` *is* the subscription object. That is verified server state,
+     * which is what PAYPAL_SANDBOX.md requires paid access to rest on, so it is
+     * accepted here. Anything that is not a subscription resource — a payment
+     * event carries a sale — stays retryable rather than being guessed at. */
+    let details: any = null;
+    try {
+      details = await getPayPalSubscription(subscriptionId);
+    } catch (error) {
+      if (!(error instanceof PayPalApiError)) throw error;
+      if (!eventName.startsWith("BILLING.SUBSCRIPTION.") || paypalText(event?.resource?.id) !== subscriptionId) {
+        return record("retryable_error", { code: error.code });
+      }
+      details = event.resource;
+    }
     /* The same rule as applyVerifiedPayPalSubscription: a `custom_id` PayPal
        returns must match, one it omits does not disqualify. The intent was
        already matched by subscription id (or by the event's own custom_id),

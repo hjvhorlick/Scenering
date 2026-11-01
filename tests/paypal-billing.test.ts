@@ -241,6 +241,54 @@ try {
     h.eq((await db.findMembershipByUserId(webhookUser.id))?.plan, "sceneforge", "a refused verification changes no entitlement");
   }
   {
+    /* PayPal refuses to let this app read a subscription back, but the event
+       that arrives is still verified server state — the route rejects any
+       delivery PayPal will not vouch for. A member who really paid has to be
+       activated by it rather than left waiting on a read that will never be
+       answered. */
+    const readDeniedUser = await db.createUser({
+      id: "paypal-read-denied-user", email: "read-denied@example.test", passwordHash: "not-used-in-this-suite",
+      displayName: "Read Denied Member", role: "user", isVerified: true,
+    });
+    await db.createMembership(readDeniedUser.id, "free");
+    const readDeniedId = "I-WEBHOOK-READ-DENIED";
+    const readDeniedIntent = await db.createPayPalCheckoutIntent({
+      id: "ppi-webhook-read-denied", userId: readDeniedUser.id, intentHash: createHmac("sha256", process.env.SESSION_SECRET!).update("read-denied-token").digest("hex"),
+      planId: "sceneflow", billingInterval: "monthly", paypalPlanId: "P-SF-MONTHLY-TEST", paypalSubscriptionId: null, status: "created",
+      expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    });
+    await db.bindPayPalCheckoutIntent(readDeniedIntent.id, readDeniedId);
+    const deniedHeaders = {
+      "Content-Type": "application/json", "PayPal-Auth-Algo": "SHA256withRSA", "PayPal-Cert-Url": "https://api-m.sandbox.paypal.com/certs/test",
+      "PayPal-Transmission-Id": "transmission-read-denied", "PayPal-Transmission-Sig": "test-signature", "PayPal-Transmission-Time": "2026-10-28T11:00:01Z",
+    };
+    subscriptionReadRefused = true;
+    const deniedEvent = {
+      id: "WH-SANDBOX-READ-DENIED", event_type: "BILLING.SUBSCRIPTION.ACTIVATED", create_time: "2026-10-28T11:00:01Z",
+      resource: { id: readDeniedId, plan_id: "P-SF-MONTHLY-TEST", status: "ACTIVE", start_time: "2026-10-28T11:00:00Z", billing_info: { next_billing_time: "2026-11-28T11:00:00Z" } },
+    };
+    const delivered = await fetch(`${base}/api/webhooks/paypal`, { method: "POST", headers: deniedHeaders, body: JSON.stringify(deniedEvent) });
+    h.eq(delivered.status, 200, "a signed lifecycle event is still acknowledged when the read-back is refused");
+    h.eq((await delivered.json() as any).status, "processed", "a signed activation activates the member when PayPal refuses to read the subscription back");
+    h.eq((await db.findSubscriptionByProviderId(readDeniedId))?.status, "active", "the subscription is recorded as active from the signed event");
+    h.eq((await db.findMembershipByUserId(readDeniedUser.id))?.plan, "sceneflow", "the member is granted the plan that was actually sold");
+
+    /* Falling back to the signed resource must not weaken the checks on it. */
+    await db.updatePayPalCheckoutIntent("ppi-webhook-read-denied", "completed");
+    const mismatchedId = "I-WEBHOOK-READ-DENIED-MISMATCH";
+    const mismatchedIntent = await db.createPayPalCheckoutIntent({
+      id: "ppi-webhook-read-denied-mismatch", userId: readDeniedUser.id, intentHash: createHmac("sha256", process.env.SESSION_SECRET!).update("read-denied-mismatch-token").digest("hex"),
+      planId: "sceneforge", billingInterval: "yearly", paypalPlanId: "P-SG-YEARLY-TEST", paypalSubscriptionId: null, status: "created",
+      expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    });
+    await db.bindPayPalCheckoutIntent(mismatchedIntent.id, mismatchedId);
+    const mismatchedEvent = { ...deniedEvent, id: "WH-SANDBOX-READ-DENIED-MISMATCH", resource: { ...deniedEvent.resource, id: mismatchedId, plan_id: "P-SF-MONTHLY-TEST" } };
+    const mismatched = await fetch(`${base}/api/webhooks/paypal`, { method: "POST", headers: deniedHeaders, body: JSON.stringify(mismatchedEvent) });
+    h.eq((await mismatched.json() as any).status, "rejected", "a signed event for a plan other than the one sold is still refused without the read");
+    h.eq((await db.findMembershipByUserId(readDeniedUser.id))?.plan, "sceneflow", "the refused event changes no entitlement");
+    subscriptionReadRefused = false;
+  }
+  {
     const event = { providerEventId: "paypal:evt-idempotency-test", eventName: "BILLING.SUBSCRIPTION.ACTIVATED", status: "processing", payload: { provider: "paypal" } };
     h.eq(await db.claimWebhookEvent(event), true, "the first PayPal event atomically claims its D1 event ID");
     h.eq(await db.claimWebhookEvent(event), false, "a concurrent/replayed PayPal event cannot claim the same D1 event ID twice");
