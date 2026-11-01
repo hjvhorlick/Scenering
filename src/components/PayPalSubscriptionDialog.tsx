@@ -123,7 +123,11 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
     return () => {
       active = false;
       if (pendingSubscriptionId.current && !approvedRef.current) {
-        void postJson("/api/billing/paypal/cancel-subscription", { subscriptionId: pendingSubscriptionId.current }).catch(() => {});
+        /* Release the checkout, not cancel the subscription. Nothing was
+           approved, so there is nothing for PayPal to cancel — the cancel route
+           could not succeed here and the pending row stayed standing, which
+           locked this account out of a new checkout for the whole window. */
+        void postJson("/api/billing/paypal/abandon-checkout", { subscriptionId: pendingSubscriptionId.current }).catch(() => {});
         pendingSubscriptionId.current = null;
       }
       try { void buttons?.close?.(); } catch { /* PayPal may already have closed the dialog. */ }

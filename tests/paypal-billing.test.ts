@@ -45,13 +45,21 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
      (verified against api-m.sandbox.paypal.com on 2026-10-30). This stub used
      to echo it, which is exactly why a create path that could never succeed
      passed 38 checks. The token is still asserted on the *request* below. */
-  if (url.endsWith("/v1/billing/subscriptions")) return Response.json({
-    id: "I-SANDBOX-SUB-123456",
-    plan_id: body.plan_id,
-    status: "APPROVAL_PENDING",
-    create_time: "2026-10-28T10:00:00Z",
-    links: [{ rel: "approve", href: "https://www.sandbox.paypal.com/checkoutnow?token=I-SANDBOX-SUB-123456" }],
-  }, { status: 201 });
+  if (url.endsWith("/v1/billing/subscriptions")) {
+    /* A distinct id for every create, the way PayPal really answers. Returning
+       one fixed id made a second checkout collide on
+       paypal_checkout_intents.paypal_subscription_id, which is unique — the
+       schema was right and the stub was wrong, and it only surfaced once a
+       test performed two creates. */
+    const newId = `I-SANDBOX-SUB-${String(calls.length).padStart(6, "0")}`;
+    return Response.json({
+      id: newId,
+      plan_id: body.plan_id,
+      status: "APPROVAL_PENDING",
+      create_time: "2026-10-28T10:00:00Z",
+      links: [{ rel: "approve", href: `https://www.sandbox.paypal.com/checkoutnow?token=${newId}` }],
+    }, { status: 201 });
+  }
   if (url.endsWith("/v1/notifications/verify-webhook-signature")) return Response.json({ verification_status: "SUCCESS" });
   if (url.endsWith("/cancel")) return new Response(null, { status: 204 });
   const subscriptionMatch = url.match(/\/v1\/billing\/subscriptions\/([^/]+)$/);
@@ -118,7 +126,7 @@ try {
       returnUrl: "https://scenering-sandbox.test/welcome?payment=paypal",
       cancelUrl: "https://scenering-sandbox.test/pricing?checkout=cancelled",
     });
-    h.eq(created.id, "I-SANDBOX-SUB-123456", "the server creates a Sandbox subscription through PayPal's REST API");
+    h.ok(String(created.id).startsWith("I-SANDBOX-SUB-"), "the server creates a Sandbox subscription through PayPal's REST API");
     const creation = calls.find((call) => call.url.endsWith("/v1/billing/subscriptions"));
     h.eq(new URL(creation!.url).host, "api-m.sandbox.paypal.com", "all REST subscription requests use PayPal Sandbox host");
     h.eq(creation!.body.plan_id, "P-SF-MONTHLY-TEST", "server-provided plan ID is sent to PayPal");
@@ -436,6 +444,72 @@ try {
     h.eq((await db.findSubscriptionByProviderId("I-RENEWING"))?.status, "active", "an active subscription past its period end is left to renewals and payment failures");
     h.eq((await db.findMembershipByUserId(renewingUser.id))?.plan, "sceneflow", "a member whose renewal is in flight is not downgraded by the clock");
     h.eq((await db.findSubscriptionByProviderId("I-UNAPPROVED"))?.status, "pending", "a subscription with no recorded end is not expired by the clock");
+  }
+  {
+    /* An unapproved checkout must not lock the account for the whole window.
+       Nothing was approved, so there is nothing for PayPal to cancel — the
+       dialog used to call the cancel route on cleanup, it could not succeed,
+       and the `pending` row stayed standing, refusing every later attempt with
+       no action available to the member that could clear it. */
+    const user = await db.createUser({
+      id: "paypal-abandon-user", email: "abandon-checkout@example.test", passwordHash: "not-used-in-this-suite",
+      displayName: "Abandon Checkout", role: "user", isVerified: true,
+    });
+    await db.createMembership(user.id, "free");
+    const raw = "abandon-checkout-session-token";
+    const hash = createHmac("sha256", process.env.SESSION_SECRET!).update(raw).digest("hex");
+    testD1().sqlite
+      .prepare("INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("sess_abandon_checkout", user.id, hash, new Date(Date.now() + 86_400_000).toISOString(), new Date().toISOString());
+    const cookie = `scenering_session=${encodeURIComponent(raw)}`;
+    const subscriptionId = "I-ABANDON-CHECKOUT";
+    const intent = await db.createPayPalCheckoutIntent({
+      id: "ppi-abandon-checkout", userId: user.id, intentHash: createHmac("sha256", process.env.SESSION_SECRET!).update("abandon-checkout-token").digest("hex"),
+      planId: "sceneflow", billingInterval: "monthly", paypalPlanId: "P-SF-MONTHLY-TEST", paypalSubscriptionId: null, status: "created",
+      expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    });
+    await db.bindPayPalCheckoutIntent(intent.id, subscriptionId, "approved");
+    await db.createSubscription({
+      id: "sub-abandon-checkout", userId: user.id, provider: "paypal", providerCustomerId: null,
+      providerSubscriptionId: subscriptionId, providerProductId: "P-SF-MONTHLY-TEST", providerPriceId: "P-SF-MONTHLY-TEST",
+      planId: "sceneflow", billingInterval: "monthly", status: "pending", currentPeriodStart: null,
+      currentPeriodEnd: null, cancelAtPeriodEnd: false, cancelledAt: null, expiresAt: null,
+      customerPortalUrl: null, updatePaymentUrl: null, cardBrand: null, cardLastFour: null,
+      renewalPrice: "19 USD", providerEventOccurredAt: null,
+    });
+
+    const blocked = await fetch(`${base}/api/billing/paypal/create-subscription`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ plan: "sceneflow", interval: "monthly" }),
+    });
+    h.eq(blocked.status, 409, "an unapproved checkout blocks a new one until it is released");
+
+    const abandoned = await fetch(`${base}/api/billing/paypal/abandon-checkout`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ subscriptionId }),
+    });
+    h.eq(abandoned.status, 200, "walking away from an unapproved checkout is accepted");
+    h.eq((await abandoned.json() as any).released, true, "the abandoned checkout is released");
+    h.eq((await db.findSubscriptionByProviderId(subscriptionId))?.status, "expired", "the never-approved subscription is expired rather than left to block the account");
+
+    const retried = await fetch(`${base}/api/billing/paypal/create-subscription`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ plan: "sceneflow", interval: "monthly" }),
+    });
+    h.eq(retried.status, 201, "the member can start a new checkout immediately after abandoning one");
+
+    /* Releasing must not touch anything that reached a paid state. */
+    const paid = await db.createSubscription({
+      id: "sub-abandon-protected", userId: user.id, provider: "paypal", providerCustomerId: null,
+      providerSubscriptionId: "I-ABANDON-PROTECTED", providerProductId: "P-SF-MONTHLY-TEST", providerPriceId: "P-SF-MONTHLY-TEST",
+      planId: "sceneflow", billingInterval: "monthly", status: "active", currentPeriodStart: "2026-10-28T10:00:00Z",
+      currentPeriodEnd: new Date(Date.now() + 20 * 86_400_000).toISOString(), cancelAtPeriodEnd: false, cancelledAt: null, expiresAt: null,
+      customerPortalUrl: null, updatePaymentUrl: null, cardBrand: null, cardLastFour: null,
+      renewalPrice: "19 USD", providerEventOccurredAt: null,
+    });
+    const protectedCall = await fetch(`${base}/api/billing/paypal/abandon-checkout`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ subscriptionId: "I-ABANDON-PROTECTED" }),
+    });
+    h.eq((await protectedCall.json() as any).released, false, "a subscription that reached a paid state is not released by abandoning a checkout");
+    h.eq((await db.findSubscriptionByProviderId("I-ABANDON-PROTECTED"))?.status, "active", "the paid subscription is untouched");
+    h.ok(Boolean(paid.id), "the protected row is the one that was checked");
   }
   h.done("PayPal Sandbox billing");
 } finally {

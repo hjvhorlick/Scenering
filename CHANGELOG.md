@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased — a failed approval locked the account for the whole checkout window
+
+- **Seen in production data.** A member's `subscriptions` row sat at status
+  `pending` with `membership_plan = free`: the checkout had opened, PayPal had
+  returned a subscription id, the card was then declined, and every later
+  attempt was refused with "An existing subscription is already active for this
+  account." Nothing the member could do cleared it.
+- **The cause.** The dialog's cleanup called the *cancel* route when the buyer
+  walked away. An unapproved subscription has nothing on PayPal's side to
+  cancel, so that call could not succeed, and the `pending` row stayed. The
+  sweep added earlier only retires such a row once it is older than the checkout
+  window, so the account was locked out for 45 minutes by a subscription the
+  member had never approved.
+- **The fix.** `POST /api/billing/paypal/abandon-checkout` releases a checkout
+  the buyer did not approve: it expires the intent and the `pending` row, and
+  touches nothing that reached a paid state. The dialog calls it instead of
+  cancel. Expiring locally is safe because the intent stays findable by
+  subscription id — that lookup filters on neither status nor expiry — so an
+  approval that really did go through is still applied by the signed webhook.
+- **A test stub was also wrong.** It returned one fixed subscription id for
+  every create, so two creates in a run collided on
+  `paypal_checkout_intents.paypal_subscription_id`, which is unique. The schema
+  was right; the stub now returns a distinct id per create, as PayPal does.
+- Validation: `paypal-billing` 63 → 71 checks. Making the new route a no-op
+  fails 3 of them and reproduces the production state exactly — the row still
+  `pending`, the next checkout refused with 409. Both TypeScript checks and the
+  production build pass; `paypal-checkout-gate` holds at 65; 86 of 87 suites
+  pass, the one failure being the pre-existing `tests/icons.test.ts` baseline of
+  59, unchanged.
+
 ## Unreleased — two more ways the billing flow was wrong, found by auditing it
 
 - **A member who paid was told their checkout failed.** `confirmPayPalSubscription`

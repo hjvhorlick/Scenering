@@ -1354,6 +1354,37 @@ export async function expireLapsedSubscriptions(): Promise<number> {
   return expired;
 }
 
+/**
+ * Release a checkout the buyer walked away from.
+ *
+ * An unapproved subscription has nothing on PayPal's side to cancel yet, so the
+ * dialog's cleanup called the cancel route, which could not succeed, and the
+ * `pending` row was left standing. The member was then refused by
+ * `createPayPalCheckout` for the whole checkout window on account of a
+ * subscription they had never approved — and no action available to them could
+ * clear it, because cancelling it fails for exactly the same reason.
+ *
+ * Expiring the row locally is safe. The intent stays findable by subscription
+ * id — that lookup filters on neither status nor expiry — so if the approval
+ * really did go through after all, the signed webhook still matches it and
+ * applies the subscription rather than losing it.
+ */
+async function abandonPayPalCheckout(req: Request, res: Response) {
+  const { user } = (req as any).auth as Auth;
+  const subscriptionId = String(req.body?.subscriptionId || "").trim();
+  if (!/^[A-Z0-9-]{8,80}$/i.test(subscriptionId)) return res.status(400).json({ error: "A valid PayPal subscription is required." });
+  const row = await db.findSubscriptionByProviderId(subscriptionId);
+  if (!row || row.provider !== "paypal" || row.userId !== user.id) return res.status(404).json({ error: "This subscription is not linked to your Scenering account." });
+  /* Anything that reached a paid state is left alone: this releases checkouts
+     that were never approved, not subscriptions that were. */
+  if (row.status !== "pending") return res.json({ released: false, reason: row.status });
+  const stamp = new Date().toISOString();
+  const intent = await db.findPayPalCheckoutIntentBySubscriptionId(subscriptionId);
+  if (intent) await db.updatePayPalCheckoutIntent(intent.id, "expired");
+  await db.updateSubscription(row.id, { status: "expired", expiresAt: stamp, providerEventOccurredAt: stamp });
+  return res.json({ released: true });
+}
+
 function paypalSubscriptionIdFromEvent(event: any): string | null {
   const resource = event?.resource || {};
   const related = paypalText(resource.supplementary_data?.related_ids?.subscription_id)
@@ -1806,6 +1837,7 @@ export function registerPlatformRoutes(app: Express) {
   app.post("/api/billing/paypal/create-subscription", requireUser, rateLimit("paypal-checkout", 20, 3600000), asyncHandlerVoid(createPayPalCheckout));
   app.post("/api/billing/paypal/confirm-subscription", requireUser, rateLimit("paypal-confirm", 30, 3600000), asyncHandlerVoid(confirmPayPalSubscription));
   app.post("/api/billing/paypal/cancel-subscription", requireUser, rateLimit("paypal-cancel", 20, 3600000), asyncHandlerVoid(cancelPayPalSubscriptionForUser));
+  app.post("/api/billing/paypal/abandon-checkout", requireUser, rateLimit("paypal-abandon", 40, 3600000), asyncHandlerVoid(abandonPayPalCheckout));
 
   app.get("/api/admin/overview", requireAdmin, rateLimit("admin-overview", 120, 3600000), asyncHandlerVoid(async (req, res) => {
     /* Bulk reads, not per-user queries. The first version of this endpoint
