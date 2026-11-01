@@ -29,6 +29,9 @@ const platform = await import("../server/platform.ts");
 
 const calls: Array<{ url: string; method: string; headers: Headers; body: any }> = [];
 const subscriptionFixtures = new Map<string, any>();
+/* Set to reproduce what the real Sandbox app does to this integration: it is
+   allowed to create a subscription and refused when reading one back. */
+let subscriptionReadRefused = false;
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
@@ -50,8 +53,12 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     links: [{ rel: "approve", href: "https://www.sandbox.paypal.com/checkoutnow?token=I-SANDBOX-SUB-123456" }],
   }, { status: 201 });
   if (url.endsWith("/v1/notifications/verify-webhook-signature")) return Response.json({ verification_status: "SUCCESS" });
+  if (url.endsWith("/cancel")) return new Response(null, { status: 204 });
   const subscriptionMatch = url.match(/\/v1\/billing\/subscriptions\/([^/]+)$/);
-  if (subscriptionMatch) return Response.json(subscriptionFixtures.get(decodeURIComponent(subscriptionMatch[1])) || { id: decodeURIComponent(subscriptionMatch[1]), status: "ACTIVE" });
+  if (subscriptionMatch) {
+    if (subscriptionReadRefused) return Response.json({ name: "PERMISSION_DENIED", message: "You do not have permission to access or perform operations on this resource.", debug_id: "stub-debug-id" }, { status: 403 });
+    return Response.json(subscriptionFixtures.get(decodeURIComponent(subscriptionMatch[1])) || { id: decodeURIComponent(subscriptionMatch[1]), status: "ACTIVE" });
+  }
   return Response.json({}, { status: 404 });
 }) as typeof fetch;
 
@@ -250,6 +257,54 @@ try {
     h.eq(await db.reclaimStaleWebhookEvent(crashedId, staleBefore), true, "a worker crash leaves a processing event reclaimable after the stale window");
     h.eq(await db.reclaimStaleWebhookEvent(crashedId, staleBefore), false, "stale recovery itself remains an atomic single claim");
     h.ok(Boolean(testD1().sqlite), "the idempotency checks use the real SQLite-backed D1 test shim");
+  }
+  {
+    /* A cancellation PayPal has accepted must not be undone by the read that
+       follows it. This Sandbox app is refused GET /v1/billing/subscriptions/{id}
+       while being allowed to create and cancel, and letting that refusal throw
+       meant an accepted cancellation changed nothing locally: the member stayed
+       blocked on a subscription PayPal had already closed, and the message
+       telling them to "manage or cancel" it named the one action that could not
+       work. */
+    const user = await db.createUser({
+      id: "paypal-cancel-user", email: "cancel-member@example.test", passwordHash: "not-used-in-this-suite",
+      displayName: "Cancel Member", role: "user", isVerified: true,
+    });
+    await db.createMembership(user.id, "sceneflow");
+    const raw = "cancel-session-token";
+    const hash = createHmac("sha256", process.env.SESSION_SECRET!).update(raw).digest("hex");
+    testD1().sqlite
+      .prepare("INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("sess_cancel_test", user.id, hash, new Date(Date.now() + 86_400_000).toISOString(), new Date().toISOString());
+    const cookie = `scenering_session=${encodeURIComponent(raw)}`;
+    await db.createSubscription({
+      id: "sub-cancel-test", userId: user.id, provider: "paypal", providerCustomerId: "PAYER-CANCEL-TEST",
+      providerSubscriptionId: "I-CANCEL-TEST", providerProductId: "P-SF-MONTHLY-TEST", providerPriceId: "P-SF-MONTHLY-TEST",
+      planId: "sceneflow", billingInterval: "monthly", status: "active", currentPeriodStart: "2026-10-28T10:00:00Z",
+      currentPeriodEnd: null, cancelAtPeriodEnd: false, cancelledAt: null, expiresAt: null,
+      customerPortalUrl: null, updatePaymentUrl: null, cardBrand: null, cardLastFour: null,
+      renewalPrice: "19 USD", providerEventOccurredAt: null,
+    });
+
+    subscriptionReadRefused = true;
+    paypalApi.resetPayPalTokenCacheForTests();
+    calls.length = 0;
+    const cancelled = await fetch(`${base}/api/billing/paypal/cancel-subscription`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ subscriptionId: "I-CANCEL-TEST" }),
+    });
+    h.eq(cancelled.status, 200, "an accepted cancellation succeeds even though PayPal refuses to read the subscription back");
+    h.ok(calls.some((call) => call.url.endsWith("/v1/billing/subscriptions/I-CANCEL-TEST/cancel")), "the cancellation really was sent to PayPal");
+    h.eq((await db.findSubscriptionByProviderId("I-CANCEL-TEST"))?.status, "cancelled", "the accepted cancellation is recorded rather than discarded with the failed read");
+    h.eq((await db.findMembershipByUserId(user.id))?.plan, "free", "cancelling with no period left drops the member to free");
+
+    /* Which is the whole point: the account can check out again. */
+    const retried = await fetch(`${base}/api/billing/paypal/create-subscription`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ plan: "sceneflow", interval: "monthly" }),
+    });
+    h.eq(retried.status, 201, "a cancelled subscription no longer refuses the next checkout");
+    subscriptionReadRefused = false;
   }
   h.done("PayPal Sandbox billing");
 } finally {

@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased — "Manage or cancel it" named the one action that could not work
+
+- **Reported:** a member whose Sandbox payment went through was still refused
+  with "An existing subscription is already active for this account. Manage or
+  cancel it before starting another." — and cancelling did not clear it.
+- **The cause.** `cancelPayPalSubscriptionForUser` sends the cancellation, then
+  reads the subscription back to confirm it. That read is refused for this
+  Sandbox app, the `PayPalApiError` propagated out of the handler, and the whole
+  request failed with a 502 *after* PayPal had already accepted the
+  cancellation. Nothing was recorded locally, so the row that triggered the
+  warning was still there, and the advice in the warning pointed at the single
+  action that was guaranteed to fail.
+- **The fix.** The accepted cancellation is the authority, not the read that
+  follows it. A refused read is caught; the subscription is then recorded as
+  cancelled from what is already known — the same shape as the verified path,
+  keeping the member on the plan until a period already paid for ends and
+  dropping to free at once when there was no period. The read still runs and is
+  still preferred whenever PayPal answers it.
+- **Correction to an earlier plan:** verifying activation from the signed
+  webhook event does *not* by itself avoid the read — `handlePayPalWebhookEvent`
+  calls `getPayPalSubscription` too (`server/platform.ts`), so registering
+  `PAYPAL_WEBHOOK_ID` alone would leave the handler recording
+  `retryable_error`. Trusting `event.resource` is a separate change.
+- Validation: `paypal-billing` 42 → 47 checks. Reverting to the old
+  abort-on-refused-read behaviour fails 4 of them and reproduces the reported
+  state exactly — 502 on cancel, the row still `active`, the membership still
+  `sceneflow`, and the next checkout refused with 409. Both TypeScript checks
+  and the production build pass; `paypal-checkout-gate` holds at 65; 86 of 87
+  suites pass, the one failure being the pre-existing `tests/icons.test.ts`
+  baseline of 59, unchanged.
+
 ## Unreleased — an abandoned PayPal checkout locked the account
 
 - **Reported:** after one Sandbox approval window hung, every later attempt on

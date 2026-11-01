@@ -1271,11 +1271,41 @@ async function cancelPayPalSubscriptionForUser(req: Request, res: Response) {
   const sub = requested || await db.findActiveSubscriptionByUserId(user.id);
   if (!sub || sub.provider !== "paypal" || !sub.providerSubscriptionId) return res.status(404).json({ error: "No active PayPal subscription was found." });
   try {
+    /* The accepted cancellation is the authority, not the read that follows.
+     *
+     * PayPal has already taken the POST, so this subscription will not bill
+     * again — but the confirmation read is refused for this Sandbox app, and
+     * letting that throw turned an accepted cancellation into a failure that
+     * changed nothing locally. The member was then told to "manage or cancel"
+     * the subscription by the very check that had just refused to cancel it,
+     * and no action available to them could clear it. When the read is refused,
+     * record the cancellation from what we already know instead. */
     await cancelPayPalSubscription(sub.providerSubscriptionId, "Cancelled by the Scenering account holder.");
-    const details = await getPayPalSubscription(sub.providerSubscriptionId);
     const intent = await db.findPayPalCheckoutIntentBySubscriptionId(sub.providerSubscriptionId);
-    if (!intent || !await applyVerifiedPayPalSubscription(details, intent, "BILLING.SUBSCRIPTION.CANCELLED")) {
-      return res.status(502).json({ error: "PayPal accepted the cancellation but the updated status could not yet be verified." });
+    let details: Awaited<ReturnType<typeof getPayPalSubscription>> | null = null;
+    try {
+      details = await getPayPalSubscription(sub.providerSubscriptionId);
+    } catch (error) {
+      if (!(error instanceof PayPalApiError)) throw error;
+    }
+    const applied = details && intent ? await applyVerifiedPayPalSubscription(details, intent, "BILLING.SUBSCRIPTION.CANCELLED") : null;
+    if (!applied) {
+      /* Same shape as the verified path: a cancellation keeps the member on the
+         plan until the period already paid for ends, and drops to free at once
+         when there was no period — which is the case for a subscription that
+         was never activated in the first place. */
+      const cancelledAt = new Date().toISOString();
+      const expiresAt = sub.currentPeriodEnd && Date.parse(sub.currentPeriodEnd) > Date.now() ? sub.currentPeriodEnd : cancelledAt;
+      await db.updateSubscription(sub.id, { status: "cancelled", cancelAtPeriodEnd: true, cancelledAt, expiresAt, providerEventOccurredAt: cancelledAt });
+      if (intent) await db.updatePayPalCheckoutIntent(intent.id, "cancelled");
+      await updatePaypalMembership(sub.userId, sub.planId, "cancelled", expiresAt);
+      await db.recordBillingEvent({
+        userId: sub.userId,
+        subscriptionId: sub.id,
+        eventName: "BILLING.SUBSCRIPTION.CANCELLED",
+        fromProvider: false,
+        extra: { provider: "paypal", plan_id: sub.planId, billing_interval: sub.billingInterval, status: "cancelled", recorded_from: "accepted cancellation, status not read back" },
+      });
     }
     return res.json({ cancelled: true, subscription: apiSubscription(await subscriptionForUser(user.id)) });
   } catch (error) {
