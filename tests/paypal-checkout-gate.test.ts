@@ -312,6 +312,14 @@ try {
     h.ok(accountModal.includes("billingConfig?.configured"), "the account modal enables its buttons from the server's public billing configuration");
     h.ok(publicPage.includes("checkoutBlockedReason"), "a disabled subscribe button says why, instead of looking broken");
     h.ok(dialog.includes("createPortal("), "the checkout dialog renders into document.body, clear of the account modal's backdrop-filter containing block");
+    /* The Smart Buttons popup is an iframe the member cannot inspect: when it
+       hangs there is a blank box, no error and nothing to click, and a payment
+       that had already been started could not be finished at all. PayPal
+       returns an approval link with the create response, so the dialog keeps it
+       and offers the same approval in an ordinary tab. */
+    h.ok(dialog.includes("checkout.approveUrl"), "the dialog keeps the approval link PayPal returns, so a hung popup is not a dead end");
+    h.ok(dialog.includes("Open it in a new tab"), "a blank approval popup can be finished from an ordinary browser tab");
+    h.ok(dialog.includes("confirm-subscription"), "approving in a separate tab still asks the server to verify, rather than trusting the browser");
     h.ok(dialog.includes("Try again"), "a failed checkout can be retried without reloading the page");
     h.ok(dialog.includes("missing"), "the checkout dialog shows which variable is missing");
     h.ok(/account && !config/.test(publicPage) || publicPage.includes("!account || !config"), "the sign-in return waits for the server's answer before reopening a checkout");

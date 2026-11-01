@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased — a blank PayPal popup no longer ends the payment
+
+- **Reported:** the approval window opens, shows the PayPal mark, and stays
+  blank. Nothing to click, no error, and a payment that had already been started
+  could not be finished at all.
+- **The cause.** The only route offered was the Smart Buttons popup, which
+  renders inside an iframe the member cannot inspect or work around. When it
+  hangs there is nothing the member can do.
+- **The fix.** `createPayPalCheckout` already returned PayPal's own `approveUrl`
+  and the dialog threw it away. It now keeps the link and offers it: "PayPal
+  window blank? Open it in a new tab", then "I approved it — check my plan",
+  which asks the server to verify — the same question the popup would have
+  triggered, so approving in a separate tab is not a way to claim a plan without
+  PayPal confirming it. Both routes now go through one `confirmApproval`.
+- Validation: `paypal-checkout-gate` 68 → 71 checks, and the dialog styling suite
+  still passes at 42 — the fallback reuses existing classes rather than adding
+  unstyled ones. Removing the link fails the new check. Both TypeScript checks
+  and the production build pass; 86 of 87 suites pass, the one failure being the
+  pre-existing `tests/icons.test.ts` baseline of 59, unchanged.
+
 ## Unreleased — the card button stays; the earlier removal was wrong
 
 - **What was wrong.** `87fd828` removed `vault=true` from the PayPal SDK URL,

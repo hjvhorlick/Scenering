@@ -43,6 +43,43 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
   const [message, setMessage] = useState("Loading secure PayPal checkout…");
   const [missing, setMissing] = useState<string[]>([]);
   const [kind, setKind] = useState<Kind>("loading");
+  /* PayPal's own approval link, straight from the create response. The Smart
+     Buttons popup is the normal route, but it renders inside an iframe and can
+     hang — blank content, no error, nothing to click — in which case the member
+     has no way to finish a payment they have already started. The very same
+     subscription can be approved from an ordinary browser tab, so the dialog
+     keeps the link and offers it as a way through. */
+  const [approveUrl, setApproveUrl] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  /* Approval can arrive from the popup or from an ordinary browser tab. Either
+     way the server decides whether the subscription is real, so both routes ask
+     it the same question rather than trusting whichever window happened to
+     work. */
+  const confirmApproval = async (subscriptionId: string) => {
+    approvedRef.current = true;
+    pendingSubscriptionId.current = null;
+    setChecking(true);
+    try {
+      const verified = await postJson("/api/billing/paypal/confirm-subscription", { subscriptionId });
+      // Read the account back so the plan is current in the page behind this
+      // dialog — the account modal would otherwise keep showing the old plan
+      // until a reload, which looks like a checkout that failed.
+      await refreshSession().catch(() => null);
+      if (verified.active) {
+        setKind("success");
+        setMessage("PayPal confirmed your subscription. Your Scenering plan is active.");
+      } else {
+        setKind("pending");
+        setMessage("PayPal approved the subscription. We are waiting for its verified activation; your plan will unlock as soon as PayPal confirms it.");
+      }
+    } catch (error: any) {
+      setKind("error");
+      setMessage(error?.message || "PayPal could not confirm the subscription.");
+    } finally {
+      setChecking(false);
+    }
+  };
 
   useEffect(() => {
     if (!plan) return;
@@ -52,6 +89,7 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
     let buttons: { render: (container: HTMLElement | string) => Promise<void>; close?: () => Promise<void> | void } | null = null;
     setKind("loading");
     setMissing([]);
+    setApproveUrl(null);
     setMessage("Loading secure PayPal checkout…");
 
     (async () => {
@@ -79,24 +117,12 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
           const checkout = await postJson("/api/billing/paypal/create-subscription", { plan, interval });
           if (typeof checkout.subscriptionId !== "string" || !checkout.subscriptionId) throw new Error("PayPal did not return a subscription id.");
           pendingSubscriptionId.current = checkout.subscriptionId;
+          if (typeof checkout.approveUrl === "string" && checkout.approveUrl) setApproveUrl(checkout.approveUrl);
           return checkout.subscriptionId;
         },
         onApprove: async (data) => {
           if (!data.subscriptionID) throw new Error("PayPal returned no subscription id.");
-          approvedRef.current = true;
-          pendingSubscriptionId.current = null;
-          const verified = await postJson("/api/billing/paypal/confirm-subscription", { subscriptionId: data.subscriptionID });
-          // Read the account back so the plan is current in the page behind
-          // this dialog — the account modal would otherwise keep showing the
-          // old plan until a reload, which looks like a checkout that failed.
-          await refreshSession().catch(() => null);
-          if (verified.active) {
-            setKind("success");
-            setMessage("PayPal confirmed your subscription. Your Scenering plan is active.");
-          } else {
-            setKind("pending");
-            setMessage("PayPal approved the subscription. We are waiting for its verified activation; your plan will unlock as soon as PayPal confirms it.");
-          }
+          await confirmApproval(data.subscriptionID);
         },
         onCancel: async (data) => {
           approvedRef.current = true;
@@ -177,6 +203,21 @@ export default function PayPalSubscriptionDialog({ plan, interval, onClose }: Pr
           <ul className="ppc-missing">
             {missing.map((item) => <li key={item}>• {item}</li>)}
           </ul>
+        )}
+        {approveUrl && kind !== "success" && (
+          /* The popup is an iframe the member cannot inspect, so when it hangs
+             there is nothing to click and no error to read. This is the same
+             approval on PayPal's own site, in a real tab, and afterwards the
+             server is asked the same question the popup would have triggered. */
+          <div className="ppc-actions">
+            <a href={approveUrl} target="_blank" rel="noopener noreferrer" className="ppc-btn">PayPal window blank? Open it in a new tab</a>
+            <button
+              type="button"
+              className="ppc-btn is-bold"
+              disabled={checking}
+              onClick={() => { if (pendingSubscriptionId.current) void confirmApproval(pendingSubscriptionId.current); }}
+            >{checking ? "Checking with PayPal…" : "I approved it — check my plan"}</button>
+          </div>
         )}
         <div className="ppc-actions">
           {kind === "error" && <button type="button" onClick={retry} className="ppc-btn is-bold">Try again</button>}
