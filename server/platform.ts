@@ -1258,7 +1258,17 @@ async function confirmPayPalSubscription(req: Request, res: Response) {
     if (!sub) return res.status(403).json({ error: "PayPal subscription details do not match this account and plan." });
     return res.json({ verified: true, status: sub.status, active: subscriptionGrantsPaidAccess(sub.status), membership: await effectiveMembership(user, await getUserPlan(user)) });
   } catch (error) {
-    if (error instanceof PayPalApiError) return res.status(error.status).json({ error: error.message, code: error.code });
+    /* PayPal refuses to let this app read the subscription back, so this
+       approval cannot be verified from here. That is not a failure of the
+       member's payment and must not be presented as one: nothing is granted by
+       this response, and the signed activation event applies the subscription
+       when it arrives. The dialog already has a waiting state for exactly this
+       — but an error thrown here surfaces through the SDK's onError instead,
+       telling somebody who has just paid that their checkout failed, which is
+       what was happening. */
+    if (error instanceof PayPalApiError) {
+      return res.json({ verified: false, active: false, status: "pending", awaiting: "verification", reason: error.message, membership: await effectiveMembership(user, await getUserPlan(user)) });
+    }
     throw error;
   }
 }
@@ -1312,6 +1322,36 @@ async function cancelPayPalSubscriptionForUser(req: Request, res: Response) {
     if (error instanceof PayPalApiError) return res.status(error.status).json({ error: error.message, code: error.code });
     throw error;
   }
+}
+
+/**
+ * Expire subscriptions whose paid period has ended, and drop the member back to
+ * free.
+ *
+ * Nothing did this. `db.listExpirableSubscriptions` — the query written for it —
+ * had no caller anywhere in the codebase, and the hourly cron only cleaned up
+ * voice-import audio and drained the email queue. So a subscription that was
+ * cancelled or suspended, or that simply ran out, kept its member on the paid
+ * plan indefinitely once the period they had paid for was over. Webhooks cover
+ * the events PayPal sends; this covers the clock, which PayPal does not send
+ * anything for.
+ *
+ * Only rows already out of a paying state are considered, and only ones past
+ * their own recorded end. `active` and `on_trial` are left to renewals and
+ * payment failures: PayPal reports both, and pre-empting them here would
+ * downgrade a member whose renewal is simply in flight.
+ */
+export async function expireLapsedSubscriptions(): Promise<number> {
+  const now = Date.now();
+  let expired = 0;
+  for (const sub of await db.listExpirableSubscriptions()) {
+    const ends = sub.expiresAt || sub.currentPeriodEnd;
+    if (!ends || Date.parse(ends) > now) continue;
+    await db.updateSubscription(sub.id, { status: "expired", expiresAt: ends });
+    await updatePaypalMembership(sub.userId, sub.planId, "expired", ends);
+    expired += 1;
+  }
+  return expired;
 }
 
 function paypalSubscriptionIdFromEvent(event: any): string | null {

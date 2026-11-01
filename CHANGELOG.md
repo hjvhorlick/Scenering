@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased — two more ways the billing flow was wrong, found by auditing it
+
+- **A member who paid was told their checkout failed.** `confirmPayPalSubscription`
+  read the subscription back from PayPal to verify the approval; this Sandbox
+  app is refused that read, so the request returned a 502 and the PayPal SDK
+  surfaced it through `onError`. The dialog already had a "waiting for verified
+  activation" state for exactly this situation and the server never let it be
+  reached. An unverifiable approval is now answered `200` with
+  `verified: false, active: false` — nothing granted, PayPal's reason included
+  — which is what that state was written for.
+- **Nothing ever ended a paid period.** `db.listExpirableSubscriptions` — the
+  query written for it — had no caller anywhere in the codebase, and the hourly
+  cron only swept voice-import audio and drained the email queue. A cancelled,
+  suspended or simply finished subscription kept its member on the paid plan
+  indefinitely once the period they had paid for was over. PayPal sends events
+  for renewals, cancellations and failed payments; it sends nothing for a period
+  quietly running out. `expireLapsedSubscriptions` now runs in the hourly tick
+  and expires only rows already out of a paying state and past their own
+  recorded end, so a renewal in flight is never pre-empted.
+- Validation: `paypal-billing` 53 → 63 checks. Reverting either fix fails its own
+  three checks and reproduces the reported behaviour — 502 shown to a member who
+  has just paid, and a member still on `sceneflow` an hour after their paid
+  period ended. Both TypeScript checks (including `worker:typecheck`, which
+  covers the cron change) and the production build pass;
+  `paypal-checkout-gate` holds at 65; 86 of 87 suites pass, the one failure
+  being the pre-existing `tests/icons.test.ts` baseline of 59, unchanged.
+
 ## Unreleased — a paid member could never be activated while the read is refused
 
 - **The cause.** `handlePayPalWebhookEvent` read the subscription back from

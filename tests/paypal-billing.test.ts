@@ -354,6 +354,89 @@ try {
     h.eq(retried.status, 201, "a cancelled subscription no longer refuses the next checkout");
     subscriptionReadRefused = false;
   }
+  {
+    /* The buyer approved in PayPal's window; PayPal then refuses to let the
+       subscription be read back, so the approval cannot be verified from here.
+       Throwing turned that into a checkout failure shown to somebody who had
+       just paid. The dialog already has a waiting state for exactly this and
+       the server never let it be reached. */
+    const user = await db.createUser({
+      id: "paypal-confirm-pending-user", email: "confirm-pending@example.test", passwordHash: "not-used-in-this-suite",
+      displayName: "Confirm Pending", role: "user", isVerified: true,
+    });
+    await db.createMembership(user.id, "free");
+    const raw = "confirm-pending-session-token";
+    const hash = createHmac("sha256", process.env.SESSION_SECRET!).update(raw).digest("hex");
+    testD1().sqlite
+      .prepare("INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("sess_confirm_pending", user.id, hash, new Date(Date.now() + 86_400_000).toISOString(), new Date().toISOString());
+    const cookie = `scenering_session=${encodeURIComponent(raw)}`;
+    const subscriptionId = "I-CONFIRM-READ-DENIED";
+    const intent = await db.createPayPalCheckoutIntent({
+      id: "ppi-confirm-read-denied", userId: user.id, intentHash: createHmac("sha256", process.env.SESSION_SECRET!).update("confirm-pending-token").digest("hex"),
+      planId: "sceneflow", billingInterval: "monthly", paypalPlanId: "P-SF-MONTHLY-TEST", paypalSubscriptionId: null, status: "created",
+      expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    });
+    await db.bindPayPalCheckoutIntent(intent.id, subscriptionId, "approved");
+    await db.createSubscription({
+      id: "sub-confirm-read-denied", userId: user.id, provider: "paypal", providerCustomerId: null,
+      providerSubscriptionId: subscriptionId, providerProductId: "P-SF-MONTHLY-TEST", providerPriceId: "P-SF-MONTHLY-TEST",
+      planId: "sceneflow", billingInterval: "monthly", status: "pending", currentPeriodStart: null,
+      currentPeriodEnd: null, cancelAtPeriodEnd: false, cancelledAt: null, expiresAt: null,
+      customerPortalUrl: null, updatePaymentUrl: null, cardBrand: null, cardLastFour: null,
+      renewalPrice: "19 USD", providerEventOccurredAt: null,
+    });
+
+    subscriptionReadRefused = true;
+    const confirmed = await fetch(`${base}/api/billing/paypal/confirm-subscription`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ subscriptionId }),
+    });
+    const outcome = await confirmed.json() as any;
+    h.eq(confirmed.status, 200, "an approval that cannot be read back is not reported to the buyer as a failed checkout");
+    h.eq(outcome.verified, false, "the answer says plainly that nothing has been verified yet");
+    h.eq(outcome.active, false, "no paid access is granted by an unverified approval");
+    h.eq((await db.findMembershipByUserId(user.id))?.plan, "free", "the member stays on free until the activation really is verified");
+    subscriptionReadRefused = false;
+  }
+  {
+    /* Nothing expired a lapsed subscription. db.listExpirableSubscriptions —
+       the query written for it — had no caller anywhere in the codebase, and
+       the hourly cron only cleaned up voice-import audio and drained the email
+       queue, so a cancelled subscription kept its member on the paid plan after
+       the period they had paid for was over. */
+    const lapsedUser = await db.createUser({
+      id: "paypal-lapsed-user", email: "lapsed@example.test", passwordHash: "not-used-in-this-suite",
+      displayName: "Lapsed Member", role: "user", isVerified: true,
+    });
+    await db.createMembership(lapsedUser.id, "sceneflow");
+    const renewingUser = await db.createUser({
+      id: "paypal-renewing-user", email: "renewing@example.test", passwordHash: "not-used-in-this-suite",
+      displayName: "Renewing Member", role: "user", isVerified: true,
+    });
+    await db.createMembership(renewingUser.id, "sceneflow");
+    const unapprovedUser = await db.createUser({
+      id: "paypal-unapproved-user", email: "unapproved@example.test", passwordHash: "not-used-in-this-suite",
+      displayName: "Unapproved Member", role: "user", isVerified: true,
+    });
+    await db.createMembership(unapprovedUser.id, "free");
+    const past = new Date(Date.now() - 60 * 60_000).toISOString();
+    const subBase = {
+      provider: "paypal", providerCustomerId: null, providerProductId: "P-SF-MONTHLY-TEST", providerPriceId: "P-SF-MONTHLY-TEST",
+      planId: "sceneflow" as const, billingInterval: "monthly" as const, cancelAtPeriodEnd: false, customerPortalUrl: null,
+      updatePaymentUrl: null, cardBrand: null, cardLastFour: null, renewalPrice: "19 USD", providerEventOccurredAt: null,
+    };
+    await db.createSubscription({ ...subBase, id: "sub-lapsed", userId: lapsedUser.id, providerSubscriptionId: "I-LAPSED", status: "cancelled", currentPeriodStart: null, currentPeriodEnd: past, cancelledAt: past, expiresAt: past });
+    await db.createSubscription({ ...subBase, id: "sub-renewing", userId: renewingUser.id, providerSubscriptionId: "I-RENEWING", status: "active", currentPeriodStart: null, currentPeriodEnd: past, cancelledAt: null, expiresAt: null });
+    await db.createSubscription({ ...subBase, id: "sub-unapproved", userId: unapprovedUser.id, providerSubscriptionId: "I-UNAPPROVED", status: "pending", currentPeriodStart: null, currentPeriodEnd: null, cancelledAt: null, expiresAt: null });
+
+    const expired = await platform.expireLapsedSubscriptions();
+    h.ok(expired >= 1, "the hourly sweep finds subscriptions whose paid period has ended");
+    h.eq((await db.findSubscriptionByProviderId("I-LAPSED"))?.status, "expired", "a cancelled subscription past its recorded end is expired");
+    h.eq((await db.findMembershipByUserId(lapsedUser.id))?.plan, "free", "the member whose paid period ended is returned to free");
+    h.eq((await db.findSubscriptionByProviderId("I-RENEWING"))?.status, "active", "an active subscription past its period end is left to renewals and payment failures");
+    h.eq((await db.findMembershipByUserId(renewingUser.id))?.plan, "sceneflow", "a member whose renewal is in flight is not downgraded by the clock");
+    h.eq((await db.findSubscriptionByProviderId("I-UNAPPROVED"))?.status, "pending", "a subscription with no recorded end is not expired by the clock");
+  }
   h.done("PayPal Sandbox billing");
 } finally {
   globalThis.fetch = realFetch;
