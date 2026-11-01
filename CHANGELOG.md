@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased — the card button beside Subscribe could never work
+
+- **Reported:** the PayPal approval window spun and went blank after the buyer
+  entered their details.
+- **The cause, read out of the approval window's own state.** Its URL carried
+  `flow: "one-time-checkout"`, `task: "select_one_time_checkout"`,
+  `intent: "click_payment_card_button"`, `mode=guest` and `fundingSource=card`.
+  The buyer had pressed the **"Debit or Credit Card"** button, which starts
+  PayPal's *guest* one-time checkout. A guest cannot approve a subscription —
+  it needs a PayPal account — so the flow had no way to finish.
+- **That button was there because of the app.** The SDK was loaded with
+  `vault=true`, which is what puts the card button beside Subscribe, and a card
+  payment through the Smart Buttons has to be vaulted. Nothing in this codebase
+  vaults anything: every "vault" in `src/` and `server/` is Scenering's own
+  Render Vault for finished videos. So the app advertised a payment method it
+  could not complete, and the buyer had no way to know the button was a dead
+  end.
+- **The fix.** `vault=true` is gone from the SDK URL in `src/lib/paypal-sdk.ts`.
+  Subscribe is left with the PayPal-account flow, which is the only one that can
+  approve a subscription.
+- Validation: `paypal-checkout-gate` 65 → 68 checks, asserted against the line
+  that builds the URL rather than anywhere in the file, because the explanation
+  has to name the parameter it argues against. Putting `vault=true` back on that
+  line fails the check. Both TypeScript checks and the production build pass;
+  `paypal-billing` holds at 71; 86 of 87 suites pass, the one failure being the
+  pre-existing `tests/icons.test.ts` baseline of 59, unchanged.
+
 ## Unreleased — a failed approval locked the account for the whole checkout window
 
 - **Seen in production data.** A member's `subscriptions` row sat at status

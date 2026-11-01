@@ -318,6 +318,17 @@ try {
     h.ok(publicPage.includes("paypalPlanReady("), "the pricing page offers each Sandbox plan on its own, not all four at once");
     h.ok(accountModal.includes("paypalPlanReady("), "the account modal offers each Sandbox plan on its own");
     h.ok(/sdkPromise = null/.test(sdk), "a failed PayPal SDK load is not cached, so a retry really reloads it");
+    /* `vault=true` made the "Debit or Credit Card" button appear beside
+       Subscribe, and nothing in the codebase vaults a card — so the button was
+       offered and could never work. It dropped the buyer into PayPal's guest
+       one-time-checkout flow, which cannot approve a subscription, and the
+       window spun until it went blank. Checked on the line that builds the URL
+       rather than anywhere in the file, because the explanation above has to
+       name the parameter it is arguing against. */
+    const sdkSrcLine = sdk.split("\n").find((line) => line.includes("script.src =")) || "";
+    h.ok(sdkSrcLine.length > 0, "the SDK loader builds its script URL on one identifiable line");
+    h.eq(sdkSrcLine.includes("vault=true"), false, "the SDK does not request vaulting nothing in the app implements, and which only produces a card button that cannot approve a subscription");
+    h.ok(sdkSrcLine.includes("intent=subscription"), "the SDK is still loaded for subscriptions");
     h.ok(serverSource.includes("same-origin-allow-popups"), "the approval popup keeps its opener relationship");
     h.eq(/req\.path === "\/pricing"/.test(serverSource), false, "the popup opener policy is not limited to two hard-coded paths");
   }

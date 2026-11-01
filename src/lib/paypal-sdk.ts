@@ -88,7 +88,20 @@ export function loadPayPalSdk(clientId: string): Promise<void> {
     if (existing) existing.remove();
     const script = document.createElement("script");
     script.id = "scenering-paypal-sdk";
-    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&vault=true&intent=subscription&currency=USD`;
+    /* No `vault=true`.
+     *
+     * That parameter is what makes the "Debit or Credit Card" button appear
+     * beside Subscribe, and a card payment through the Smart Buttons has to be
+     * vaulted — but nothing in this codebase vaults anything. Every "vault" in
+     * src/ and server/ is Scenering's own Render Vault for finished videos.
+     *
+     * So the button was offered and could never work. Clicking it put PayPal
+     * into its guest one-time-checkout flow (`flow: "one-time-checkout"`,
+     * `mode=guest`, `task: "select_one_time_checkout"` in the approval window's
+     * own state), which cannot approve a subscription at all: the window spun
+     * and went blank, and the member had no way to know the button they were
+     * offered was a dead end. A subscription needs a PayPal account. */
+    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&intent=subscription&currency=USD`;
     script.async = true;
     script.onload = () => window.paypal?.Buttons
       ? resolve()
