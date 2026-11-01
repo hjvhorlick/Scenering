@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased — an abandoned PayPal checkout locked the account
+
+- **Reported:** after one Sandbox approval window hung, every later attempt on
+  that account was refused with "An existing subscription is already active for
+  this account. Manage or cancel it before starting another."
+- **The cause.** `createPayPalCheckout` writes the subscription row with status
+  `pending` *before* the buyer approves anything, and the one-active-subscription
+  check treats any non-expired row as busy. Nothing ever cleared an unapproved
+  one: `db.listExpirableSubscriptions` — the only query that could — has no
+  caller anywhere in the codebase. A closed popup or a hung approval window
+  therefore blocked that account permanently.
+- **The fix.** `db.expireAbandonedPayPalSubscriptions(cutoff)` retires PayPal
+  subscriptions still `pending` past the checkout window, and
+  `createPayPalCheckout` runs it before deciding whether the account is busy —
+  the same way it already expired stale checkout intents. The window is now one
+  shared constant, `PAYPAL_CHECKOUT_WINDOW_MS`, used by the intent, the
+  subscription and the sweep, so an abandoned attempt cannot outlive its own
+  session.
+- **Rows are expired, never deleted**, and only `pending` ones are touched. A
+  subscription that really was approved after the sweep is found by its provider
+  subscription id and updated in place, so a late activation still lands.
+- Validation: `paypal-checkout-gate` 61 → 65 checks, both TypeScript checks and
+  the production build pass, and 86 of 87 suites pass. Commenting the sweep back
+  out reproduces the reported 409 exactly (`expected 201, got 409`) and leaves
+  the row `pending`. The one failing suite is `tests/icons.test.ts`, unchanged
+  from `main` at 59 failures, including an identical entry for `src/db.ts`.
+
 ## Unreleased — the PayPal checkout could never complete
 
 - **Reported:** approving a Sandbox subscription on `scenering.com` ended with

@@ -322,6 +322,61 @@ try {
     h.eq(/req\.path === "\/pricing"/.test(serverSource), false, "the popup opener policy is not limited to two hard-coded paths");
   }
 
+  /* ---- 9. An abandoned checkout must not lock the account --------------- */
+  {
+    /* The `pending` subscription row is written before the buyer approves
+       anything, so a closed popup or a hung Sandbox approval window used to
+       leave the account holding a non-expired subscription forever — every
+       later attempt was refused with "An existing subscription is already
+       active for this account", with nothing able to clear it. */
+    const user = await db.createUser({
+      id: "paypal-abandoned-user", email: "abandoned-member@example.test", passwordHash: "not-used-in-this-suite",
+      displayName: "Abandoned Checkout", role: "user", isVerified: true,
+    });
+    await db.createMembership(user.id, "free");
+    const raw = `abandoned-session-${randomUUID()}`;
+    const hash = createHmac("sha256", process.env.SESSION_SECRET!).update(raw).digest("hex");
+    testD1().sqlite
+      .prepare("INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("sess_abandoned_test", user.id, hash, new Date(Date.now() + 86_400_000).toISOString(), new Date().toISOString());
+    const cookie = `scenering_session=${encodeURIComponent(raw)}`;
+    process.env.NODE_ENV = "development";
+    process.env.PUBLIC_APP_URL = FULL.PUBLIC_APP_URL;
+    paypalApi.resetPayPalTokenCacheForTests();
+
+    const abandoned = {
+      id: "sub-abandoned-test", userId: user.id, provider: "paypal", providerCustomerId: null,
+      providerSubscriptionId: "I-ABANDONED-SUB", providerProductId: "P-SF-MONTHLY-TEST", providerPriceId: "P-SF-MONTHLY-TEST",
+      planId: "sceneflow" as const, billingInterval: "monthly" as const, status: "pending", currentPeriodStart: null,
+      currentPeriodEnd: null, cancelAtPeriodEnd: false, cancelledAt: null, expiresAt: null,
+      customerPortalUrl: null, updatePaymentUrl: null, cardBrand: null, cardLastFour: null,
+      renewalPrice: "19 USD", providerEventOccurredAt: null,
+    };
+    await db.createSubscription(abandoned);
+    // Backdate it past the checkout window: this is a session nobody finished.
+    testD1().sqlite
+      .prepare("UPDATE subscriptions SET created_at = ? WHERE id = ?")
+      .run(new Date(Date.now() - 3 * 60 * 60_000).toISOString(), abandoned.id);
+
+    const retried = await fetch(`${base}/api/billing/paypal/create-subscription`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ plan: "sceneflow", interval: "monthly" }),
+    });
+    h.eq(retried.status, 201, "an abandoned checkout no longer blocks the account that started it");
+    h.eq((await db.findSubscriptionByProviderId("I-ABANDONED-SUB"))?.status, "expired", "the abandoned subscription is retired rather than deleted, so a late approval can still find and revive it");
+
+    /* The successful retry above wrote its own `pending` row, seconds old — a
+       checkout that is genuinely still open must continue to block. */
+    const blocked = await fetch(`${base}/api/billing/paypal/create-subscription`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ plan: "sceneforge", interval: "monthly" }),
+    });
+    h.eq(blocked.status, 409, "a checkout still inside its window is not treated as abandoned");
+    h.eq((await blocked.json() as any).code, "SUBSCRIPTION_ALREADY_EXISTS", "the refusal still names the real reason");
+  }
+
   h.done("PayPal Sandbox checkout gate");
 } finally {
   globalThis.fetch = realFetch;

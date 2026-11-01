@@ -1131,6 +1131,14 @@ async function applyVerifiedPayPalSubscription(details: any, intent: Awaited<Ret
   return sub;
 }
 
+/**
+ * How long a checkout stays open, and therefore how long an unapproved
+ * subscription may block the account that started it. One value on purpose: the
+ * intent, the subscription it creates and the sweep that retires it all have to
+ * agree, or an abandoned attempt outlives its own session.
+ */
+const PAYPAL_CHECKOUT_WINDOW_MS = 45 * 60_000;
+
 async function createPayPalCheckout(req: Request, res: Response) {
   const { user } = (req as any).auth as Auth;
   const planValue = String(req.body?.plan || "");
@@ -1143,6 +1151,15 @@ async function createPayPalCheckout(req: Request, res: Response) {
   const configuration = paypalConfiguration(requestOrigin(req));
   if (!configuration.ready) return res.status(503).json({ error: "PayPal Sandbox subscriptions are not fully configured.", code: "PAYPAL_NOT_CONFIGURED", missing: configuration.missing });
 
+  /* An abandoned checkout must not lock the account.
+   *
+   * The `pending` row below is written before the buyer approves anything, so a
+   * closed popup or a hung Sandbox approval window left the account holding a
+   * non-expired subscription and every later attempt was refused as "an
+   * existing subscription is already active". Retire the ones older than the
+   * checkout window — the same window the intent beside them lives for — before
+   * deciding whether this account is genuinely busy. */
+  await db.expireAbandonedPayPalSubscriptions(new Date(Date.now() - PAYPAL_CHECKOUT_WINDOW_MS).toISOString());
   const current = await db.findActiveSubscriptionByUserId(user.id);
   if (current && current.status !== "expired") {
     const expires = Date.parse(String(current.expiresAt || current.currentPeriodEnd || ""));
@@ -1169,7 +1186,7 @@ async function createPayPalCheckout(req: Request, res: Response) {
     intent = await db.createPayPalCheckoutIntent({
       id: db.newId("ppi"), userId: user.id, intentHash: hashToken(intentToken), planId: plan, billingInterval: interval,
       paypalPlanId: paypalPlan, paypalSubscriptionId: null, status: "created",
-      expiresAt: new Date(Date.now() + 45 * 60_000).toISOString(),
+      expiresAt: new Date(Date.now() + PAYPAL_CHECKOUT_WINDOW_MS).toISOString(),
     });
   } catch (error) {
     if (/unique|constraint/i.test(String((error as Error)?.message || error))) {
