@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased — the card button stays; the earlier removal was wrong
+
+- **What was wrong.** `87fd828` removed `vault=true` from the PayPal SDK URL,
+  on the reasoning that a subscription cannot be paid for by card without a
+  PayPal account. That reasoning was drawn from one failed attempt by one South
+  African sandbox buyer and then applied to everybody.
+- **Why it was wrong.** Scenering is sold worldwide, and PayPal supports paying
+  for a subscription by card without an account in the regions it allows — the
+  US and Canada are the documented ones. Removing the parameter took a payment
+  method away from customers who are entitled to it, which is a product decision
+  the SDK loader has no business making.
+- **The reasoning about vaulting was also overstated.** No vaulting code is
+  needed in this app for the card button to work: PayPal creates the vaulted
+  token as part of approving the subscription, and `onApprove` still returns the
+  subscription id, which is the only thing the server verifies.
+- **What is actually true, and unchanged.** Where PayPal does not support the
+  guest card flow, the button leads to a signup flow that never completes — the
+  window spins and blanks, as seen from a `buyerCountry=ZA` sandbox buyer with
+  `mode=guest` and `fromSignupLite=true`. That is PayPal's regional limit. The
+  PayPal-account button beside it works everywhere.
+- The `script.src` line is now byte-identical to what it was before `87fd828`;
+  only the comment differs, and it now records why the parameter stays so the
+  same mistake is not made twice.
+- Validation: the checkout-gate check is inverted and now *requires* the
+  parameter, so removing the card button fails the suite — the product
+  requirement is guarded rather than merely restored. `paypal-checkout-gate`
+  holds at 68 checks; both TypeScript checks and the production build pass; 86 of
+  87 suites pass, the one failure being the pre-existing `tests/icons.test.ts`
+  baseline of 59, unchanged.
+
 ## Unreleased — the card button beside Subscribe could never work
 
 - **Reported:** the PayPal approval window spun and went blank after the buyer

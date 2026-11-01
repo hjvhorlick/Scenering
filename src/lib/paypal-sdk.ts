@@ -88,20 +88,26 @@ export function loadPayPalSdk(clientId: string): Promise<void> {
     if (existing) existing.remove();
     const script = document.createElement("script");
     script.id = "scenering-paypal-sdk";
-    /* No `vault=true`.
+    /* `vault=true` is what offers the "Debit or Credit Card" button beside
+     * Subscribe, and it stays.
      *
-     * That parameter is what makes the "Debit or Credit Card" button appear
-     * beside Subscribe, and a card payment through the Smart Buttons has to be
-     * vaulted — but nothing in this codebase vaults anything. Every "vault" in
-     * src/ and server/ is Scenering's own Render Vault for finished videos.
+     * Scenering is sold worldwide, and PayPal supports paying for a subscription
+     * by card without a PayPal account in the regions it allows — the US and
+     * Canada are the documented ones. Taking the parameter out would remove a
+     * payment method those customers are entitled to use, which is a product
+     * decision this file has no business making on its own.
      *
-     * So the button was offered and could never work. Clicking it put PayPal
-     * into its guest one-time-checkout flow (`flow: "one-time-checkout"`,
-     * `mode=guest`, `task: "select_one_time_checkout"` in the approval window's
-     * own state), which cannot approve a subscription at all: the window spun
-     * and went blank, and the member had no way to know the button they were
-     * offered was a dead end. A subscription needs a PayPal account. */
-    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&intent=subscription&currency=USD`;
+     * No vaulting code is needed here for it to work: PayPal creates the vaulted
+     * token as part of approving the subscription, and `onApprove` still hands
+     * back the subscription id, which is the only thing the server verifies.
+     *
+     * What the app cannot fix is the region. Where PayPal does not support the
+     * guest card flow, clicking the button drops the buyer into a signup flow
+     * that never completes — the window spins and goes blank, which is what was
+     * seen from a South African sandbox buyer (`mode=guest`,
+     * `fromSignupLite=true`, `buyerCountry=ZA`). That is PayPal's limit, and the
+     * PayPal-account button beside it is the path that works everywhere. */
+    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&vault=true&intent=subscription&currency=USD`;
     script.async = true;
     script.onload = () => window.paypal?.Buttons
       ? resolve()
