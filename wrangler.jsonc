@@ -94,7 +94,7 @@
     // PAYPAL_CLIENT_SECRET is deliberately absent. It stays a Cloudflare
     // secret (`npx wrangler secret put PAYPAL_CLIENT_SECRET`, or the
     // dashboard) and never enters source control.
-    "PAYPAL_CLIENT_ID": "Ad9rjMaQ9CsPbXPSKt-EjYTcaYVyoAlPSKrKgVx7SjF-otxi9DJ_0L9PIiUFbRoEPs2AvWnkNvQ9KL8m",
+    "PAYPAL_CLIENT_ID": "BAAkVyWo3hG-Vcwyx982CaU60K8MHUIoH-Rmy2tL6HUCcGBOsFx0dpjOdj-uihWhk4GiB9qA9pb4iz0sFI",
     "PAYPAL_SCENEFLOW_MONTHLY_PLAN_ID": "P-6J340466VT137933ENLRWTEI",
     "PAYPAL_SCENEFLOW_YEARLY_PLAN_ID": "P-5HJ76233H8349625ANLRWRBI",
     "PAYPAL_SCENEFORGE_MONTHLY_PLAN_ID": "P-0DN02794T7398641GNLRWYCY",
