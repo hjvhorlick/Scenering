@@ -1,4 +1,3 @@
-import { scrollToSection } from "../../lib/route";
 import { MarketingImage, Pill } from "../components/primitives";
 import CaptionLine from "../components/CaptionLine";
 import {
@@ -44,21 +43,15 @@ export default function Hero() {
 
             {/* No shortcut into the studio here — signing in is a decision
                 for the top of the page, not something to trip over. The
-                second button goes to the plans further down this page: the
-                price is part of the pitch, not a secret for the footer. */}
+                second button goes to the pricing page rather than scrolling
+                to the plans on this one: the price is part of the pitch, and
+                scrolling left the visitor one click short of the page where a
+                subscription can actually begin. */}
             <div className="mkt-hero-cta">
               <a className="mkt-btn mkt-btn-primary mkt-btn-lg" href="/register">
                 Start Free
               </a>
-              <a
-                className="mkt-btn mkt-btn-lg"
-                href="#pricing"
-                onClick={(event) => {
-                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-                  event.preventDefault();
-                  scrollToSection("pricing");
-                }}
-              >
+              <a className="mkt-btn mkt-btn-lg" href="/pricing">
                 See Plans &amp; Pricing
               </a>
             </div>

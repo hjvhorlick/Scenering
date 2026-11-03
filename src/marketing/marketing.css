@@ -2831,6 +2831,43 @@ html[data-mkt="1"][data-theme] body {
   letter-spacing: -0.03em;
 }
 
+/*
+ * The front page's plan overview.
+ *
+ * Columns of text rather than the pricing page's cards: no border, no lift,
+ * no oversized price. This section tells the visitor what each plan gives them
+ * and sends them to /pricing to choose one, so nothing here should look like a
+ * card waiting to be bought — and no button here starts a checkout.
+ */
+.mkt-planrow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mkt-planrow h3 {
+  font-size: 19px;
+  margin: 0;
+}
+
+.mkt-planrow-price {
+  margin: 0;
+  color: var(--mkt-ink);
+  font-size: 15px;
+  font-weight: 740;
+  letter-spacing: -0.01em;
+}
+
+/* One obvious way forward, under the columns and centred, instead of a
+   subscribe button underneath every plan. */
+.mkt-planrow-cta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 26px;
+}
+
 /* example card */
 .mkt-example {
   display: flex;
