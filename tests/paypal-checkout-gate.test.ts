@@ -320,6 +320,27 @@ try {
     h.ok(dialog.includes("checkout.approveUrl"), "the dialog keeps the approval link PayPal returns, so a hung popup is not a dead end");
     h.ok(dialog.includes("Open it in a new tab"), "a blank approval popup can be finished from an ordinary browser tab");
     h.ok(dialog.includes("confirm-subscription"), "approving in a separate tab still asks the server to verify, rather than trusting the browser");
+    /* The rescue must not pre-empt the popup. It was first rendered whenever
+       PayPal had returned an approval link — which is the moment of the click —
+       so a second pair of buttons appeared above Close before the window had
+       any chance to open, on every checkout whether it needed them or not.
+       Reached now only by a failure that has actually happened, and placed
+       below the primary actions. */
+    h.ok(dialog.includes("popupStalled"), "the new-tab rescue waits for the popup to fail or go silent instead of appearing on the click");
+    h.ok(/POPUP_STALL_MS\s*=\s*\d+/.test(dialog), "the silence that counts as a stalled popup is a named duration, not a number buried in a setTimeout");
+    /* Compared by button label, not by the shared `ppc-actions` class: both
+       rows carry that class, so its first occurrence precedes the rescue link
+       in either order and would prove nothing. "Try again" only exists in the
+       primary row, so it is a real discriminator. */
+    h.ok(
+      dialog.indexOf("Try again") > -1 && dialog.indexOf("Try again") < dialog.indexOf("Open it in a new tab"),
+      "the primary actions render above the rescue, so the buttons the member is meant to use come first",
+    );
+    h.ok(
+      /kind === "error" \|\| kind === "cancelled" \|\| popupStalled/.test(dialog),
+      "the rescue is gated on an error, a cancellation or a stalled popup, never on the approval link merely existing",
+    );
+    h.ok(dialog.includes("setApproveUrl(null)"), "a retry drops the previous attempt's approval link, so the rescue cannot offer a subscription this attempt never created");
     h.ok(dialog.includes("Try again"), "a failed checkout can be retried without reloading the page");
     h.ok(dialog.includes("missing"), "the checkout dialog shows which variable is missing");
     h.ok(/account && !config/.test(publicPage) || publicPage.includes("!account || !config"), "the sign-in return waits for the server's answer before reopening a checkout");
