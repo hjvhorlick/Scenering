@@ -9,6 +9,8 @@ import {
   planVoiceoverGeneration,
   recordCurrentVoiceoverAudio,
   recordGeneratedVoiceover,
+  sceneNeedsVoiceoverGeneration,
+  voiceoverGenerationReason,
   type VoiceoverAudioSnapshot,
 } from "../src/lib/voiceover-generation";
 
@@ -78,6 +80,91 @@ const missingAudio = [savedScenes[0], scene(2, { voice_id: secondVoice })];
 const missingPlan = planVoiceoverGeneration(missingAudio, { ...baseOptions, snapshot: initialSnapshot });
 h.eq(missingPlan.length, 1, "only a scene with no saved audio is generated");
 h.eq(missingPlan[0]?.scene.id, 2, "the generation plan identifies the missing scene");
+
+/* ---- why a scene is queued, not merely that it is ---------------------- *
+ *
+ * A creator reported finished narration being synthesized again on pressing
+ * Next, and the decision behind that was a bare boolean: every branch that can
+ * cause it looked identical from the outside. The reason is now returned
+ * beside the decision and reported when a batch starts, so the next report
+ * carries the cause instead of inviting a guess. */
+
+h.eq(
+  voiceoverGenerationReason(scene(2, { voice_id: secondVoice }), secondVoice, musicKey, initialSnapshot["2"]),
+  "no narration is attached to the scene",
+  "a scene with nothing attached says so plainly"
+);
+
+const wrongVoiceReason = voiceoverGenerationReason(
+  scene(1, { audio_url: "blob:session/one", voice_id: voiceB }),
+  primaryVoice,
+  musicKey,
+  initialSnapshot["1"]
+);
+h.ok(
+  Boolean(wrongVoiceReason && wrongVoiceReason.includes(voiceB) && wrongVoiceReason.includes(primaryVoice)),
+  "a narrator mismatch names the narrator on the scene and the one expected"
+);
+
+h.eq(
+  voiceoverGenerationReason(
+    scene(1, { audio_url: "blob:session/one", voice_id: primaryVoice, text: "Rewritten line." }),
+    primaryVoice,
+    musicKey,
+    initialSnapshot["1"]
+  ),
+  "the recorded words or narrator no longer match the scene",
+  "an edited line is reported as the words having changed"
+);
+
+h.eq(
+  voiceoverGenerationReason(savedScenes[0], primaryVoice, "a-different-music-bed", initialSnapshot["1"]),
+  "the background music bed changed",
+  "a new music bed is named as the cause"
+);
+
+h.eq(
+  voiceoverGenerationReason(savedScenes[0], primaryVoice, musicKey, initialSnapshot["1"]),
+  null,
+  "a scene that is current gives no reason at all"
+);
+
+h.eq(
+  voiceoverGenerationReason(
+    scene(1, { audio_url: "blob:session/one", voice_id: primaryVoice, text: "" }),
+    primaryVoice,
+    musicKey,
+    initialSnapshot["1"]
+  ),
+  null,
+  "a scene with no words is never queued, so it has no reason either"
+);
+
+/* The decision and the explanation must not be able to drift apart: the
+   boolean is the reason being present, so a scene is queued exactly when there
+   is something to say about it. */
+for (const candidate of [
+  savedScenes[0],
+  scene(2, { voice_id: secondVoice }),
+  scene(1, { audio_url: "blob:session/one", voice_id: voiceB }),
+  scene(1, { audio_url: "blob:session/one", voice_id: primaryVoice, text: "Rewritten line." }),
+]) {
+  h.eq(
+    sceneNeedsVoiceoverGeneration(candidate, primaryVoice, musicKey, initialSnapshot["1"]),
+    voiceoverGenerationReason(candidate, primaryVoice, musicKey, initialSnapshot["1"]) !== null,
+    `scene ${candidate.id} is queued exactly when a reason exists`
+  );
+}
+
+const studioReasons = read("src/components/VoiceoverStudio.tsx");
+h.ok(
+  studioReasons.includes("voiceoverGenerationReason(scene, voiceId, musicFingerprint, savedSnapshot[String(scene.id)])"),
+  "Next writes down why each scene is queued before the batch costs the creator any time"
+);
+h.ok(
+  studioReasons.includes("title={generationReasons.get(scene.id) || undefined}"),
+  "and the review list carries the same reason on the badge it already shows"
+);
 
 const changedVoicePlan = planVoiceoverGeneration(savedScenes, {
   ...baseOptions,

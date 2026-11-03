@@ -39,6 +39,7 @@ import {
   planVoiceoverGeneration,
   recordCurrentVoiceoverAudio,
   recordGeneratedVoiceover,
+  voiceoverGenerationReason,
   type VoiceoverAudioSnapshot,
   type VoiceoverGenerationTarget,
 } from "../lib/voiceover-generation";
@@ -381,6 +382,15 @@ export default function VoiceoverStudio({
     snapshot: voiceoverAudioSnapshot,
   });
   const generationTargetIds = new Set(generationPlan.map(({ scene }) => scene.id));
+  /* Why each queued scene is queued, so the review list can say so instead of
+     only marking it. A creator who is told a finished narration is being made
+     again deserves the reason at the moment it happens. */
+  const generationReasons = new Map<number, string>(
+    generationPlan.map(({ scene, voiceId }) => [
+      scene.id,
+      voiceoverGenerationReason(scene, voiceId, musicFingerprint, voiceoverAudioSnapshot[String(scene.id)]) ?? "",
+    ])
+  );
   const hasNarrationText = scenes.some((scene) => (scene.text || "").trim().length > 0);
 
   const snapshotOptions = {
@@ -593,6 +603,21 @@ export default function VoiceoverStudio({
         snapshot: savedSnapshot,
       });
       if (targets.length > 0) {
+        /* Name every reason before the batch costs the creator any time.
+           Re-narrating a scene that already had narration is only ever one of
+           a small number of causes, and none of them is visible from the
+           buttons — so this is written down at the moment it happens rather
+           than reconstructed afterwards from a report. */
+        console.info(
+          `Voiceover: ${targets.length} scene(s) queued for narration on Next.`,
+          targets.map(({ scene, voiceId }) => ({
+            sceneId: scene.id,
+            reason: voiceoverGenerationReason(scene, voiceId, musicFingerprint, savedSnapshot[String(scene.id)]),
+            sceneVoiceId: scene.voice_id ?? null,
+            expectedVoice: voiceId,
+            hasAudioUrl: Boolean(scene.audio_url),
+          }))
+        );
         const saved = await generateRequiredVoiceovers(targets, savedSnapshot, musicFingerprint);
         if (!saved) return;
       } else {
@@ -1421,7 +1446,10 @@ export default function VoiceoverStudio({
                               No narration text
                             </span>
                           ) : needsVoiceoverUpdate ? (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/70 text-amber-300 border border-amber-800 font-semibold flex items-center gap-1">
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/70 text-amber-300 border border-amber-800 font-semibold flex items-center gap-1"
+                              title={generationReasons.get(scene.id) || undefined}
+                            >
                               <Icon glyph="⏳" /> Needs update
                             </span>
                           ) : hasSavedAudio ? (
