@@ -44,9 +44,33 @@ function validClientId(value: string | undefined): string {
   return /^ca-pub-\d{10,}$/.test(trimmed) ? trimmed : "";
 }
 
-/** `ca-pub-123…` from the build env, or "" when advertising is not configured. */
+/**
+ * This site's AdSense publisher id — committed, not configured.
+ *
+ * The loader tag carrying it is pasted literally into index.html (53046ab) so
+ * that a plain build ships Google's verification snippet with no `.env` at
+ * all. The ad units need the same id for `data-ad-client`, and `AdSlot`
+ * renders nothing without one — so while the id lived only in the gitignored
+ * `.env`, emptying it (which `vite.config.ts` instructed, to avoid a second
+ * loader beside the pasted one) silently made every placement unrenderable,
+ * whichever slot ids were set. Both units — the public-page one and the studio
+ * rails — went dark with no error, no build failure and no edit to any ad code.
+ *
+ * Holding the id here makes advertising impossible to switch off by
+ * configuration: the slot ids alone decide whether a placement renders.
+ * `VITE_ADSENSE_CLIENT_ID` still overrides it for a build that must point at a
+ * different publisher, and setting it cannot duplicate the loader, because
+ * `ensureAdsenseScript` checks the document for an adsbygoogle.js first.
+ */
+export const ADSENSE_PUBLISHER_ID = "ca-pub-3303356901060479";
+
+/**
+ * The publisher id for this build: the `VITE_ADSENSE_CLIENT_ID` override when
+ * it is a well-formed `ca-pub-…`, otherwise the committed id above. Never "" —
+ * an empty answer here is what turned the ad units off.
+ */
 export function adsenseClientId(env: Record<string, string | undefined>): string {
-  return validClientId(env?.VITE_ADSENSE_CLIENT_ID);
+  return validClientId(env?.VITE_ADSENSE_CLIENT_ID) || ADSENSE_PUBLISHER_ID;
 }
 
 /**

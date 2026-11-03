@@ -82,8 +82,12 @@ export default defineConfig(({ mode }) => {
   // Google's AdSense verification snippet and ads.txt are committed to the
   // repo (index.html and public/ads.txt) — never injected from here, or a
   // plain build would ship no tag at all. This variable now only lets the
-  // adsTxtFile plugin refresh dist/ads.txt; leave it unset (""), because the
-  // committed snippet is the loader and setting it again risks a duplicate.
+  // adsTxtFile plugin refresh dist/ads.txt. Leave it unset (""): the ad units
+  // take their publisher id from ADSENSE_PUBLISHER_ID in src/shared/ads.ts, and
+  // AdSlot checks the document for an existing loader before adding one — so
+  // nothing set here can duplicate the pasted tag. Emptying it must never turn
+  // advertising off, which is exactly what it did while the units read the id
+  // from this variable.
   const adsenseClientId = env.VITE_ADSENSE_CLIENT_ID || "";
   return {
   plugins: [react(), seoPageShells(), adsTxtFile(adsenseClientId)],

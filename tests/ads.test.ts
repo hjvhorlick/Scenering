@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createHarness } from "./harness";
-import { adsTxtLine, adsenseClientId, adsensePlacementEnabled, adsenseSlotId, studioAdsEligible } from "../src/shared/ads";
+import { ADSENSE_PUBLISHER_ID, adsTxtLine, adsenseClientId, adsensePlacementEnabled, adsenseSlotId, studioAdsEligible } from "../src/shared/ads";
 import { applyPageShell, pageShellPaths } from "../src/marketing/seo-head";
 
 const h = createHarness();
@@ -10,7 +10,7 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
    malformed value must never half-enable a placement. */
 {
   const empty: Record<string, string | undefined> = {};
-  h.eq(adsenseClientId(empty), "", "no publisher id configured by default");
+  h.eq(adsenseClientId(empty), ADSENSE_PUBLISHER_ID, "the committed publisher id is the default, so no build can lack one");
   h.eq(adsensePlacementEnabled(empty, "web"), false, "web placement off by default");
   h.eq(adsensePlacementEnabled(empty, "studio"), false, "studio placement off by default");
 
@@ -25,10 +25,34 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
   h.ok(adsensePlacementEnabled(configured, "web"), "web placement on when fully configured");
   h.ok(adsensePlacementEnabled(configured, "studio"), "studio placement on when fully configured");
   h.eq(adsensePlacementEnabled({ VITE_ADSENSE_CLIENT_ID: "ca-pub-1234567890123456" }, "web"), false, "publisher without a slot stays off");
-  h.eq(adsenseClientId({ VITE_ADSENSE_CLIENT_ID: "pub-123" }), "", "malformed publisher id rejected");
+  h.eq(adsenseClientId({ VITE_ADSENSE_CLIENT_ID: "pub-123" }), ADSENSE_PUBLISHER_ID, "a malformed override is ignored rather than disabling advertising");
   h.eq(adsenseSlotId({ VITE_ADSENSE_SLOT_WEB: "abc" }, "web"), "", "malformed slot id rejected");
   h.eq(adsTxtLine("ca-pub-1234567890123456"), "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0", "ads.txt line names the publisher");
   h.eq(adsTxtLine(""), null, "no publisher, no ads.txt line");
+}
+
+/* Regression: advertising must never be switchable by configuration alone.
+
+   Emptying VITE_ADSENSE_CLIENT_ID — which vite.config.ts instructed, to avoid
+   a second loader beside the one pasted literally into index.html — used to
+   make adsenseClientId() answer "", and AdSlot renders nothing at all without
+   a publisher id. Both units, the public-page one and the studio rails, went
+   dark with no error, no failed build and no edit to any advertising code.
+   The slot ids are the only switch now. */
+{
+  const slotsOnly = { VITE_ADSENSE_SLOT_WEB: "1234567890", VITE_ADSENSE_SLOT_STUDIO: "9876543210" };
+  h.eq(adsenseClientId(slotsOnly), ADSENSE_PUBLISHER_ID, "the slot ids alone are enough, because the publisher id is committed");
+  h.ok(adsensePlacementEnabled(slotsOnly, "web"), "the public-page unit renders with no publisher id in the environment");
+  h.ok(adsensePlacementEnabled(slotsOnly, "studio"), "the studio rails render with no publisher id in the environment");
+  for (const env of [{}, { VITE_ADSENSE_CLIENT_ID: "" }, { VITE_ADSENSE_CLIENT_ID: "nonsense" }]) {
+    h.ok(adsenseClientId(env).startsWith("ca-pub-"), "no environment can leave the site without a publisher id");
+  }
+  /* What remains a real gate is the slot, and it must stay one: an unset or
+     malformed slot keeps that single placement off without touching the
+     other. */
+  h.eq(adsensePlacementEnabled({ VITE_ADSENSE_SLOT_WEB: "1234567890" }, "studio"), false, "a placement with no slot of its own stays off");
+  h.eq(adsensePlacementEnabled({ VITE_ADSENSE_SLOT_WEB: "abc", VITE_ADSENSE_SLOT_STUDIO: "9876543210" }, "web"), false, "a malformed slot keeps its own placement off");
+  h.ok(adsensePlacementEnabled({ VITE_ADSENSE_SLOT_WEB: "abc", VITE_ADSENSE_SLOT_STUDIO: "9876543210" }, "studio"), "and leaves the other placement running");
 }
 
 /* Audience: only signed-in free-plan members ever see studio ads. */
