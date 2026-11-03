@@ -425,8 +425,31 @@ export default function VoiceoverStudio({
    * Prepared files (the creator's own recordings) are never touched — they are
    * an explicit per-scene choice, not narration this step can re-make.
    */
+  /* The narrator this effect last retired against.
+   *
+   * Retirement has to be a reaction to a change, not a description of the
+   * current state. `selectedVoice` reaches this component from App, which holds
+   * DEFAULT_PROJECT_SETTINGS.selected_voice until the opened project's own
+   * settings are applied — so the first render of this step can carry a
+   * narrator these scenes were never generated with. Reading that as a change
+   * of narrator detached every scene's audio_url on arrival and sent the
+   * whole batch back through Piper: narration that had finished, and had been
+   * committed by Next, was gone before it was ever seen. The same false
+   * positive fired on any change to `scenes`, because a scene's expected
+   * narrator is derived from its position in the array rather than from its
+   * identity, so a reordered or shorter scene list looked like a new narrator
+   * for every scene after the gap.
+   *
+   * So only a transition between two observed narrators retires anything. The
+   * first observation is recorded and left alone: nothing has changed yet, and
+   * whatever audio is attached belongs to this project. */
+  const lastNarratorRef = useRef<string | null>(null);
   useEffect(() => {
     if (!voiceoverEnabled || isGeneratingAll) return;
+    const narrator = `${effectivePrimaryVoice}|${rotateVoices ? "rotate" : "single"}|${effectiveSecondVoice}`;
+    const previousNarrator = lastNarratorRef.current;
+    lastNarratorRef.current = narrator;
+    if (previousNarrator === null || previousNarrator === narrator) return;
     const retirements = planNarrationRetirement(scenes, {
       primaryVoice: effectivePrimaryVoice,
       rotateVoices,
@@ -440,7 +463,7 @@ export default function VoiceoverStudio({
         audio_duration: undefined,
       });
     }
-  }, [scenes, effectivePrimaryVoice, rotateVoices, effectiveSecondVoice, voiceoverEnabled, isGeneratingAll]);
+  }, [scenes, effectivePrimaryVoice, rotateVoices, effectiveSecondVoice, voiceoverEnabled, isGeneratingAll, onUpdateScene]);
 
   const generateVoiceoverForScene = async (scene: Scene, voiceToUse: string): Promise<string | null> => {
     const text = (scene.text || "").trim();
