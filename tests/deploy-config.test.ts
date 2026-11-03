@@ -68,6 +68,31 @@ check(
   "the app shell revalidates after deployment instead of pinning an obsolete hashed bundle",
 );
 
+/* Every document rule names the popup header, not only the catch-all.
+ *
+ * /pricing and its friends are served by the asset layer — `run_worker_first`
+ * in wrangler.jsonc covers only /api/*, /functions/v1/*, robots.txt and
+ * sitemap.xml — so the `Cross-Origin-Opener-Policy` that server.ts sets never
+ * runs for them and this file is their only source. Whether a specific rule
+ * merges with the `/*` catch-all or replaces it cannot be settled from here,
+ * and if it replaces, a page carrying its own Cache-Control rule was served
+ * with no COOP at all: the browser severs `window.opener` as PayPal's approval
+ * window opens, and a working checkout is indistinguishable from a dead
+ * button. Naming it per rule costs nothing where the rules do merge. */
+{
+  const headerLines = staticHeaders.split("\n");
+  const missing = headerLines.filter(
+    (line, index) =>
+      line.trim() === "Cache-Control: no-cache, must-revalidate" &&
+      headerLines[index + 1]?.trim() !== "Cross-Origin-Opener-Policy: same-origin-allow-popups",
+  );
+  check(missing.length === 0, `every document rule names the popup header (${missing.length} did not)`);
+  check(
+    headerLines.filter((line) => /^\s+Cross-Origin-Opener-Policy: same-origin-allow-popups$/.test(line)).length > 30,
+    "the popup header is named on each document rule rather than relying on the catch-all alone",
+  );
+}
+
 // The one-time setup has to fill the committed markers in place, point
 // migrations at the preview database only, and create the named resources.
 check(rawConfig.includes("// setup-preview-resources:bindings"), "wrangler.jsonc keeps the bindings start marker");

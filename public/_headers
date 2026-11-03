@@ -37,6 +37,18 @@
 /*
   Cross-Origin-Opener-Policy: same-origin-allow-popups
 
+# Repeated on every document rule below, deliberately.
+#
+# This catch-all already names every path, but each standalone page also has
+# its own rule for Cache-Control, and whether the asset layer merges a specific
+# rule with the catch-all or replaces it is not something this file can assert
+# from here. If it replaces, every page carrying its own rule — /pricing
+# included, which is where a checkout is started — was served with no
+# Cross-Origin-Opener-Policy at all, and the browser severed window.opener as
+# PayPal's approval window opened. That is indistinguishable from a dead
+# button. Naming the header on each document rule makes the intended value
+# present either way, and costs nothing where the rules do merge.
+
 /brand-check
   X-Robots-Tag: noindex, nofollow
 
@@ -71,15 +83,19 @@ https://:version.:subdomain.workers.dev/*
 # yesterday's bundle even though the new branch preview finished deploying.
 /
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /index.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /app
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /app/*
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 # Every standalone page is its own HTML document, written at build time, naming
 # the same hashed bundle (dist/features.html, dist/pricing.html …). Cloudflare's
@@ -94,93 +110,123 @@ https://:version.:subdomain.workers.dev/*
 
 /features
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /features.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /how-it-works
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /how-it-works.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /pricing
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /pricing.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /about
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /about.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /manual
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /manual.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /faq
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /faq.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /contact
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /contact.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /privacy
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /privacy.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /terms
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /terms.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /cookies
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /cookies.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /refunds
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /refunds.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /verify-email
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /verify-email.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /reset-password
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /reset-password.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /email-preferences
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /email-preferences.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /unsubscribe
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 /unsubscribe.html
   Cache-Control: no-cache, must-revalidate
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
 
 # Hashed JavaScript and CSS never change either: the filename contains the
 # build's hash, so a new build produces new names. Caching them for a year is
