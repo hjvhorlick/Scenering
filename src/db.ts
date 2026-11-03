@@ -898,6 +898,28 @@ export const db = {
     await env().DB.prepare("UPDATE paypal_checkout_intents SET status = 'expired', updated_at = ? WHERE status IN ('created', 'approved') AND expires_at <= ?")
       .bind(nowIso(), nowIso()).run();
   },
+  /**
+   * Retire PayPal subscriptions that were created but never approved.
+   *
+   * Starting a checkout writes a `pending` subscription row *before* the buyer
+   * has approved anything, and nothing ever cleared it: a closed popup or a
+   * hung Sandbox approval window left the account holding a non-expired
+   * subscription permanently, so every later attempt was refused with "An
+   * existing subscription is already active for this account". The checkout
+   * intent beside it already expires after its window; the subscription it
+   * created has to expire with it.
+   *
+   * A late approval is not lost by this. The confirm and webhook paths look the
+   * row up by its provider subscription id and update it in place, so a
+   * subscription that really was approved after the sweep simply becomes active
+   * again — which is also why only `pending` rows are touched, never one that
+   * reached a paid state.
+   */
+  async expireAbandonedPayPalSubscriptions(cutoffIso: string): Promise<void> {
+    const stamp = nowIso();
+    await env().DB.prepare("UPDATE subscriptions SET status = 'expired', expires_at = ?, updated_at = ? WHERE provider = 'paypal' AND status = 'pending' AND created_at <= ?")
+      .bind(stamp, stamp, cutoffIso).run();
+  },
   async findPayPalCheckoutIntentByHash(intentHash: string): Promise<PayPalCheckoutIntent | null> {
     const row = await env().DB.prepare("SELECT * FROM paypal_checkout_intents WHERE intent_hash = ? AND expires_at > ?")
       .bind(intentHash, nowIso()).first();

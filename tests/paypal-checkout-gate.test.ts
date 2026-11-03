@@ -57,9 +57,14 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.endsWith("/v1/oauth2/token")) return Response.json({ access_token: "test-access-token", expires_in: 300 });
   if (url.endsWith("/v1/billing/subscriptions")) {
     const id = `I-SANDBOX-SUB-GATE-${++created}`;
+    /* Deliberately no `custom_id`. This stub used to echo the request's
+       `custom_id` straight back, which is not what PayPal does: the real
+       Sandbox response is status, id, create_time and links (verified against
+       api-m.sandbox.paypal.com). Because the create path required the echoed
+       token, the generous stub was the only reason a checkout that could never
+       succeed looked tested. Keep this response as poor as the real one. */
     return Response.json({
       id,
-      custom_id: body.custom_id,
       plan_id: body.plan_id,
       status: "APPROVAL_PENDING",
       create_time: "2026-10-29T10:00:00Z",
@@ -307,14 +312,87 @@ try {
     h.ok(accountModal.includes("billingConfig?.configured"), "the account modal enables its buttons from the server's public billing configuration");
     h.ok(publicPage.includes("checkoutBlockedReason"), "a disabled subscribe button says why, instead of looking broken");
     h.ok(dialog.includes("createPortal("), "the checkout dialog renders into document.body, clear of the account modal's backdrop-filter containing block");
+    /* The Smart Buttons popup is an iframe the member cannot inspect: when it
+       hangs there is a blank box, no error and nothing to click, and a payment
+       that had already been started could not be finished at all. PayPal
+       returns an approval link with the create response, so the dialog keeps it
+       and offers the same approval in an ordinary tab. */
+    h.ok(dialog.includes("checkout.approveUrl"), "the dialog keeps the approval link PayPal returns, so a hung popup is not a dead end");
+    h.ok(dialog.includes("Open it in a new tab"), "a blank approval popup can be finished from an ordinary browser tab");
+    h.ok(dialog.includes("confirm-subscription"), "approving in a separate tab still asks the server to verify, rather than trusting the browser");
     h.ok(dialog.includes("Try again"), "a failed checkout can be retried without reloading the page");
     h.ok(dialog.includes("missing"), "the checkout dialog shows which variable is missing");
     h.ok(/account && !config/.test(publicPage) || publicPage.includes("!account || !config"), "the sign-in return waits for the server's answer before reopening a checkout");
     h.ok(publicPage.includes("paypalPlanReady("), "the pricing page offers each Sandbox plan on its own, not all four at once");
     h.ok(accountModal.includes("paypalPlanReady("), "the account modal offers each Sandbox plan on its own");
     h.ok(/sdkPromise = null/.test(sdk), "a failed PayPal SDK load is not cached, so a retry really reloads it");
+    /* `vault=true` offers the "Debit or Credit Card" button beside Subscribe.
+       Scenering is sold worldwide and PayPal supports card payment for a
+       subscription without an account in the regions it allows, so the button
+       has to stay: removing it would deny those customers a payment method they
+       are entitled to use. The regional limit is PayPal's, not ours — where it
+       is unsupported the buyer uses the PayPal-account button beside it. */
+    const sdkSrcLine = sdk.split("\n").find((line) => line.includes("script.src =")) || "";
+    h.ok(sdkSrcLine.length > 0, "the SDK loader builds its script URL on one identifiable line");
+    h.ok(sdkSrcLine.includes("vault=true"), "the card button stays available, because customers in the regions PayPal supports are entitled to pay for a subscription by card");
+    h.ok(sdkSrcLine.includes("intent=subscription"), "the SDK is loaded for subscriptions, not one-time payments");
     h.ok(serverSource.includes("same-origin-allow-popups"), "the approval popup keeps its opener relationship");
     h.eq(/req\.path === "\/pricing"/.test(serverSource), false, "the popup opener policy is not limited to two hard-coded paths");
+  }
+
+  /* ---- 9. An abandoned checkout must not lock the account --------------- */
+  {
+    /* The `pending` subscription row is written before the buyer approves
+       anything, so a closed popup or a hung Sandbox approval window used to
+       leave the account holding a non-expired subscription forever — every
+       later attempt was refused with "An existing subscription is already
+       active for this account", with nothing able to clear it. */
+    const user = await db.createUser({
+      id: "paypal-abandoned-user", email: "abandoned-member@example.test", passwordHash: "not-used-in-this-suite",
+      displayName: "Abandoned Checkout", role: "user", isVerified: true,
+    });
+    await db.createMembership(user.id, "free");
+    const raw = `abandoned-session-${randomUUID()}`;
+    const hash = createHmac("sha256", process.env.SESSION_SECRET!).update(raw).digest("hex");
+    testD1().sqlite
+      .prepare("INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("sess_abandoned_test", user.id, hash, new Date(Date.now() + 86_400_000).toISOString(), new Date().toISOString());
+    const cookie = `scenering_session=${encodeURIComponent(raw)}`;
+    process.env.NODE_ENV = "development";
+    process.env.PUBLIC_APP_URL = FULL.PUBLIC_APP_URL;
+    paypalApi.resetPayPalTokenCacheForTests();
+
+    const abandoned = {
+      id: "sub-abandoned-test", userId: user.id, provider: "paypal", providerCustomerId: null,
+      providerSubscriptionId: "I-ABANDONED-SUB", providerProductId: "P-SF-MONTHLY-TEST", providerPriceId: "P-SF-MONTHLY-TEST",
+      planId: "sceneflow" as const, billingInterval: "monthly" as const, status: "pending", currentPeriodStart: null,
+      currentPeriodEnd: null, cancelAtPeriodEnd: false, cancelledAt: null, expiresAt: null,
+      customerPortalUrl: null, updatePaymentUrl: null, cardBrand: null, cardLastFour: null,
+      renewalPrice: "19 USD", providerEventOccurredAt: null,
+    };
+    await db.createSubscription(abandoned);
+    // Backdate it past the checkout window: this is a session nobody finished.
+    testD1().sqlite
+      .prepare("UPDATE subscriptions SET created_at = ? WHERE id = ?")
+      .run(new Date(Date.now() - 3 * 60 * 60_000).toISOString(), abandoned.id);
+
+    const retried = await fetch(`${base}/api/billing/paypal/create-subscription`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ plan: "sceneflow", interval: "monthly" }),
+    });
+    h.eq(retried.status, 201, "an abandoned checkout no longer blocks the account that started it");
+    h.eq((await db.findSubscriptionByProviderId("I-ABANDONED-SUB"))?.status, "expired", "the abandoned subscription is retired rather than deleted, so a late approval can still find and revive it");
+
+    /* The successful retry above wrote its own `pending` row, seconds old — a
+       checkout that is genuinely still open must continue to block. */
+    const blocked = await fetch(`${base}/api/billing/paypal/create-subscription`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ plan: "sceneforge", interval: "monthly" }),
+    });
+    h.eq(blocked.status, 409, "a checkout still inside its window is not treated as abandoned");
+    h.eq((await blocked.json() as any).code, "SUBSCRIPTION_ALREADY_EXISTS", "the refusal still names the real reason");
   }
 
   h.done("PayPal Sandbox checkout gate");

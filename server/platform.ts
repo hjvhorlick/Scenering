@@ -1061,7 +1061,17 @@ function paypalDate(value: unknown): string | null {
 
 async function applyVerifiedPayPalSubscription(details: any, intent: Awaited<ReturnType<typeof db.findPayPalCheckoutIntentByHash>>, eventName = "", occurredAt: string | null = null) {
   if (!intent || details?.id !== intent.paypalSubscriptionId || details?.plan_id !== intent.paypalPlanId) return null;
-  if (paypalText(details?.custom_id) === null || hashToken(String(details.custom_id)) !== intent.intentHash) return null;
+  /* The checkout token, when PayPal returns one.
+   *
+   * A `custom_id` that is present must match — a subscription carrying somebody
+   * else's token is refused. An absent one is not a failure. The authoritative
+   * binding is the intent row checked on the line above: its subscription id,
+   * plan id and member all had to match, and the row itself was written
+   * server-side at create time, so the association never rested on this field.
+   * Requiring it unconditionally made every confirmation unverifiable whenever
+   * PayPal omitted it, which is the same mistake that broke the create path. */
+  const returnedCustomId = paypalText(details?.custom_id);
+  if (returnedCustomId !== null && hashToken(returnedCustomId) !== intent.intentHash) return null;
 
   const existing = await db.findSubscriptionByProviderId(String(details.id));
   if (existing && (existing.provider !== "paypal" || existing.userId !== intent.userId)) return null;
@@ -1121,6 +1131,14 @@ async function applyVerifiedPayPalSubscription(details: any, intent: Awaited<Ret
   return sub;
 }
 
+/**
+ * How long a checkout stays open, and therefore how long an unapproved
+ * subscription may block the account that started it. One value on purpose: the
+ * intent, the subscription it creates and the sweep that retires it all have to
+ * agree, or an abandoned attempt outlives its own session.
+ */
+const PAYPAL_CHECKOUT_WINDOW_MS = 45 * 60_000;
+
 async function createPayPalCheckout(req: Request, res: Response) {
   const { user } = (req as any).auth as Auth;
   const planValue = String(req.body?.plan || "");
@@ -1133,6 +1151,15 @@ async function createPayPalCheckout(req: Request, res: Response) {
   const configuration = paypalConfiguration(requestOrigin(req));
   if (!configuration.ready) return res.status(503).json({ error: "PayPal Sandbox subscriptions are not fully configured.", code: "PAYPAL_NOT_CONFIGURED", missing: configuration.missing });
 
+  /* An abandoned checkout must not lock the account.
+   *
+   * The `pending` row below is written before the buyer approves anything, so a
+   * closed popup or a hung Sandbox approval window left the account holding a
+   * non-expired subscription and every later attempt was refused as "an
+   * existing subscription is already active". Retire the ones older than the
+   * checkout window — the same window the intent beside them lives for — before
+   * deciding whether this account is genuinely busy. */
+  await db.expireAbandonedPayPalSubscriptions(new Date(Date.now() - PAYPAL_CHECKOUT_WINDOW_MS).toISOString());
   const current = await db.findActiveSubscriptionByUserId(user.id);
   if (current && current.status !== "expired") {
     const expires = Date.parse(String(current.expiresAt || current.currentPeriodEnd || ""));
@@ -1159,7 +1186,7 @@ async function createPayPalCheckout(req: Request, res: Response) {
     intent = await db.createPayPalCheckoutIntent({
       id: db.newId("ppi"), userId: user.id, intentHash: hashToken(intentToken), planId: plan, billingInterval: interval,
       paypalPlanId: paypalPlan, paypalSubscriptionId: null, status: "created",
-      expiresAt: new Date(Date.now() + 45 * 60_000).toISOString(),
+      expiresAt: new Date(Date.now() + PAYPAL_CHECKOUT_WINDOW_MS).toISOString(),
     });
   } catch (error) {
     if (/unique|constraint/i.test(String((error as Error)?.message || error))) {
@@ -1175,10 +1202,28 @@ async function createPayPalCheckout(req: Request, res: Response) {
       returnUrl: `${base}/welcome?payment=paypal`,
       cancelUrl: `${base}/pricing?checkout=cancelled`,
     });
+    /* Bind on the subscription id alone.
+     *
+     * This also required `created.custom_id` to equal the intent token, and
+     * PayPal's create response does not carry `custom_id` at all — it returns
+     * status, id, create_time and links. The condition could therefore never
+     * be satisfied: every checkout ended here with a 502, on every host, and
+     * both PayPal suites stayed green because their stub echoed the field back
+     * (see the note in tests/paypal-billing.test.ts). The token is still sent
+     * to PayPal and still stored on the subscription; it just cannot be read
+     * back out of this response.
+     *
+     * Nothing is lost by binding on the id. The intent row was written for
+     * this authenticated member *before* the PayPal call and is now bound to
+     * the id PayPal returned for that call, so the member ↔ subscription
+     * association is established server-side and never depends on a value
+     * PayPal echoes or on anything the browser supplies. The confirm step
+     * re-checks ownership of that row, and a returned custom_id is still
+     * required to match whenever PayPal does supply one. */
     const subscriptionId = paypalText(created?.id);
-    if (!subscriptionId || paypalText(created?.custom_id) !== intentToken) {
+    if (!subscriptionId) {
       await db.updatePayPalCheckoutIntent(intent.id, "expired");
-      return res.status(502).json({ error: "PayPal did not return a verifiable subscription." });
+      return res.status(502).json({ error: "PayPal accepted the subscription but returned no subscription id." });
     }
     await db.bindPayPalCheckoutIntent(intent.id, subscriptionId, "approved");
     const startedAt = paypalDate(created?.create_time);
@@ -1213,7 +1258,17 @@ async function confirmPayPalSubscription(req: Request, res: Response) {
     if (!sub) return res.status(403).json({ error: "PayPal subscription details do not match this account and plan." });
     return res.json({ verified: true, status: sub.status, active: subscriptionGrantsPaidAccess(sub.status), membership: await effectiveMembership(user, await getUserPlan(user)) });
   } catch (error) {
-    if (error instanceof PayPalApiError) return res.status(error.status).json({ error: error.message, code: error.code });
+    /* PayPal refuses to let this app read the subscription back, so this
+       approval cannot be verified from here. That is not a failure of the
+       member's payment and must not be presented as one: nothing is granted by
+       this response, and the signed activation event applies the subscription
+       when it arrives. The dialog already has a waiting state for exactly this
+       — but an error thrown here surfaces through the SDK's onError instead,
+       telling somebody who has just paid that their checkout failed, which is
+       what was happening. */
+    if (error instanceof PayPalApiError) {
+      return res.json({ verified: false, active: false, status: "pending", awaiting: "verification", reason: error.message, membership: await effectiveMembership(user, await getUserPlan(user)) });
+    }
     throw error;
   }
 }
@@ -1226,17 +1281,108 @@ async function cancelPayPalSubscriptionForUser(req: Request, res: Response) {
   const sub = requested || await db.findActiveSubscriptionByUserId(user.id);
   if (!sub || sub.provider !== "paypal" || !sub.providerSubscriptionId) return res.status(404).json({ error: "No active PayPal subscription was found." });
   try {
+    /* The accepted cancellation is the authority, not the read that follows.
+     *
+     * PayPal has already taken the POST, so this subscription will not bill
+     * again — but the confirmation read is refused for this Sandbox app, and
+     * letting that throw turned an accepted cancellation into a failure that
+     * changed nothing locally. The member was then told to "manage or cancel"
+     * the subscription by the very check that had just refused to cancel it,
+     * and no action available to them could clear it. When the read is refused,
+     * record the cancellation from what we already know instead. */
     await cancelPayPalSubscription(sub.providerSubscriptionId, "Cancelled by the Scenering account holder.");
-    const details = await getPayPalSubscription(sub.providerSubscriptionId);
     const intent = await db.findPayPalCheckoutIntentBySubscriptionId(sub.providerSubscriptionId);
-    if (!intent || !await applyVerifiedPayPalSubscription(details, intent, "BILLING.SUBSCRIPTION.CANCELLED")) {
-      return res.status(502).json({ error: "PayPal accepted the cancellation but the updated status could not yet be verified." });
+    let details: Awaited<ReturnType<typeof getPayPalSubscription>> | null = null;
+    try {
+      details = await getPayPalSubscription(sub.providerSubscriptionId);
+    } catch (error) {
+      if (!(error instanceof PayPalApiError)) throw error;
+    }
+    const applied = details && intent ? await applyVerifiedPayPalSubscription(details, intent, "BILLING.SUBSCRIPTION.CANCELLED") : null;
+    if (!applied) {
+      /* Same shape as the verified path: a cancellation keeps the member on the
+         plan until the period already paid for ends, and drops to free at once
+         when there was no period — which is the case for a subscription that
+         was never activated in the first place. */
+      const cancelledAt = new Date().toISOString();
+      const expiresAt = sub.currentPeriodEnd && Date.parse(sub.currentPeriodEnd) > Date.now() ? sub.currentPeriodEnd : cancelledAt;
+      await db.updateSubscription(sub.id, { status: "cancelled", cancelAtPeriodEnd: true, cancelledAt, expiresAt, providerEventOccurredAt: cancelledAt });
+      if (intent) await db.updatePayPalCheckoutIntent(intent.id, "cancelled");
+      await updatePaypalMembership(sub.userId, sub.planId, "cancelled", expiresAt);
+      await db.recordBillingEvent({
+        userId: sub.userId,
+        subscriptionId: sub.id,
+        eventName: "BILLING.SUBSCRIPTION.CANCELLED",
+        fromProvider: false,
+        extra: { provider: "paypal", plan_id: sub.planId, billing_interval: sub.billingInterval, status: "cancelled", recorded_from: "accepted cancellation, status not read back" },
+      });
     }
     return res.json({ cancelled: true, subscription: apiSubscription(await subscriptionForUser(user.id)) });
   } catch (error) {
     if (error instanceof PayPalApiError) return res.status(error.status).json({ error: error.message, code: error.code });
     throw error;
   }
+}
+
+/**
+ * Expire subscriptions whose paid period has ended, and drop the member back to
+ * free.
+ *
+ * Nothing did this. `db.listExpirableSubscriptions` — the query written for it —
+ * had no caller anywhere in the codebase, and the hourly cron only cleaned up
+ * voice-import audio and drained the email queue. So a subscription that was
+ * cancelled or suspended, or that simply ran out, kept its member on the paid
+ * plan indefinitely once the period they had paid for was over. Webhooks cover
+ * the events PayPal sends; this covers the clock, which PayPal does not send
+ * anything for.
+ *
+ * Only rows already out of a paying state are considered, and only ones past
+ * their own recorded end. `active` and `on_trial` are left to renewals and
+ * payment failures: PayPal reports both, and pre-empting them here would
+ * downgrade a member whose renewal is simply in flight.
+ */
+export async function expireLapsedSubscriptions(): Promise<number> {
+  const now = Date.now();
+  let expired = 0;
+  for (const sub of await db.listExpirableSubscriptions()) {
+    const ends = sub.expiresAt || sub.currentPeriodEnd;
+    if (!ends || Date.parse(ends) > now) continue;
+    await db.updateSubscription(sub.id, { status: "expired", expiresAt: ends });
+    await updatePaypalMembership(sub.userId, sub.planId, "expired", ends);
+    expired += 1;
+  }
+  return expired;
+}
+
+/**
+ * Release a checkout the buyer walked away from.
+ *
+ * An unapproved subscription has nothing on PayPal's side to cancel yet, so the
+ * dialog's cleanup called the cancel route, which could not succeed, and the
+ * `pending` row was left standing. The member was then refused by
+ * `createPayPalCheckout` for the whole checkout window on account of a
+ * subscription they had never approved — and no action available to them could
+ * clear it, because cancelling it fails for exactly the same reason.
+ *
+ * Expiring the row locally is safe. The intent stays findable by subscription
+ * id — that lookup filters on neither status nor expiry — so if the approval
+ * really did go through after all, the signed webhook still matches it and
+ * applies the subscription rather than losing it.
+ */
+async function abandonPayPalCheckout(req: Request, res: Response) {
+  const { user } = (req as any).auth as Auth;
+  const subscriptionId = String(req.body?.subscriptionId || "").trim();
+  if (!/^[A-Z0-9-]{8,80}$/i.test(subscriptionId)) return res.status(400).json({ error: "A valid PayPal subscription is required." });
+  const row = await db.findSubscriptionByProviderId(subscriptionId);
+  if (!row || row.provider !== "paypal" || row.userId !== user.id) return res.status(404).json({ error: "This subscription is not linked to your Scenering account." });
+  /* Anything that reached a paid state is left alone: this releases checkouts
+     that were never approved, not subscriptions that were. */
+  if (row.status !== "pending") return res.json({ released: false, reason: row.status });
+  const stamp = new Date().toISOString();
+  const intent = await db.findPayPalCheckoutIntentBySubscriptionId(subscriptionId);
+  if (intent) await db.updatePayPalCheckoutIntent(intent.id, "expired");
+  await db.updateSubscription(row.id, { status: "expired", expiresAt: stamp, providerEventOccurredAt: stamp });
+  return res.json({ released: true });
 }
 
 function paypalSubscriptionIdFromEvent(event: any): string | null {
@@ -1279,8 +1425,35 @@ async function handlePayPalWebhookEvent(event: any): Promise<string> {
   }
   if (!intent) return record("unmatched");
   try {
-    const details = await getPayPalSubscription(subscriptionId);
-    if (details?.id !== subscriptionId || details?.plan_id !== intent.paypalPlanId || hashToken(String(details?.custom_id || "")) !== intent.intentHash) {
+    /* Read the subscription back — unless PayPal refuses to let this app do so.
+     *
+     * This Sandbox app can create a subscription and is answered
+     * PERMISSION_DENIED when reading one, which left the handler recording
+     * `retryable_error` forever and meant a member who really had paid was
+     * never activated by anything. The event that just arrived is not a
+     * browser callback: registerPayPalWebhook refuses any delivery PayPal will
+     * not vouch for, and for a subscription lifecycle event the signed
+     * `resource` *is* the subscription object. That is verified server state,
+     * which is what PAYPAL_SANDBOX.md requires paid access to rest on, so it is
+     * accepted here. Anything that is not a subscription resource — a payment
+     * event carries a sale — stays retryable rather than being guessed at. */
+    let details: any = null;
+    try {
+      details = await getPayPalSubscription(subscriptionId);
+    } catch (error) {
+      if (!(error instanceof PayPalApiError)) throw error;
+      if (!eventName.startsWith("BILLING.SUBSCRIPTION.") || paypalText(event?.resource?.id) !== subscriptionId) {
+        return record("retryable_error", { code: error.code });
+      }
+      details = event.resource;
+    }
+    /* The same rule as applyVerifiedPayPalSubscription: a `custom_id` PayPal
+       returns must match, one it omits does not disqualify. The intent was
+       already matched by subscription id (or by the event's own custom_id),
+       and the plan is re-checked here, so a webhook cannot activate a
+       different plan than the one that was sold. */
+    const webhookCustomId = paypalText(details?.custom_id);
+    if (details?.id !== subscriptionId || details?.plan_id !== intent.paypalPlanId || (webhookCustomId !== null && hashToken(webhookCustomId) !== intent.intentHash)) {
       return record("rejected");
     }
     const sub = await applyVerifiedPayPalSubscription(details, intent, eventName, paypalText(event?.create_time));
@@ -1664,6 +1837,7 @@ export function registerPlatformRoutes(app: Express) {
   app.post("/api/billing/paypal/create-subscription", requireUser, rateLimit("paypal-checkout", 20, 3600000), asyncHandlerVoid(createPayPalCheckout));
   app.post("/api/billing/paypal/confirm-subscription", requireUser, rateLimit("paypal-confirm", 30, 3600000), asyncHandlerVoid(confirmPayPalSubscription));
   app.post("/api/billing/paypal/cancel-subscription", requireUser, rateLimit("paypal-cancel", 20, 3600000), asyncHandlerVoid(cancelPayPalSubscriptionForUser));
+  app.post("/api/billing/paypal/abandon-checkout", requireUser, rateLimit("paypal-abandon", 40, 3600000), asyncHandlerVoid(abandonPayPalCheckout));
 
   app.get("/api/admin/overview", requireAdmin, rateLimit("admin-overview", 120, 3600000), asyncHandlerVoid(async (req, res) => {
     /* Bulk reads, not per-user queries. The first version of this endpoint

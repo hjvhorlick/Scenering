@@ -1,34 +1,72 @@
 import { readFileSync } from "node:fs";
 import { createHarness } from "./harness";
-import { adsTxtLine, adsenseClientId, adsensePlacementEnabled, adsenseSlotId, studioAdsEligible } from "../src/shared/ads";
+import { ADSENSE_PUBLISHER_ID, ADSENSE_SLOT_STUDIO, ADSENSE_SLOT_WEB, adsTxtLine, adsenseClientId, adsensePlacementEnabled, adsenseSlotId, studioAdsEligible } from "../src/shared/ads";
 import { applyPageShell, pageShellPaths } from "../src/marketing/seo-head";
 
 const h = createHarness();
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-/* Configuration gates: ads are inert until publisher AND slot are set, and a
-   malformed value must never half-enable a placement. */
+/* Configuration gates: the publisher id and both ad units are committed, so a
+   plain build with no .env at all serves advertising. An env value overrides
+   the committed one, and a malformed override falls back rather than
+   disabling the placement. */
 {
   const empty: Record<string, string | undefined> = {};
-  h.eq(adsenseClientId(empty), "", "no publisher id configured by default");
-  h.eq(adsensePlacementEnabled(empty, "web"), false, "web placement off by default");
-  h.eq(adsensePlacementEnabled(empty, "studio"), false, "studio placement off by default");
+  h.eq(adsenseClientId(empty), ADSENSE_PUBLISHER_ID, "the committed publisher id is the default, so no build can lack one");
+  h.eq(adsenseSlotId(empty, "web"), ADSENSE_SLOT_WEB, "the public-page unit is committed, so no build can lack it");
+  h.eq(adsenseSlotId(empty, "studio"), ADSENSE_SLOT_STUDIO, "the studio unit is committed, so no build can lack it");
+  h.ok(adsensePlacementEnabled(empty, "web"), "the public-page unit is on with no .env at all");
+  h.ok(adsensePlacementEnabled(empty, "studio"), "the studio rails are on with no .env at all");
+
+  /* The real unit numbers, pinned so a stray edit cannot silently repoint
+     either placement at the wrong AdSense unit. */
+  h.eq(ADSENSE_SLOT_WEB, "6497478120", "the committed public-page unit is scenering-web");
+  h.eq(ADSENSE_SLOT_STUDIO, "2346692151", "the committed studio unit is scenering-studio");
 
   const configured = {
     VITE_ADSENSE_CLIENT_ID: "ca-pub-1234567890123456",
     VITE_ADSENSE_SLOT_WEB: "1234567890",
     VITE_ADSENSE_SLOT_STUDIO: "9876543210",
   };
-  h.eq(adsenseClientId(configured), "ca-pub-1234567890123456", "publisher id accepted");
-  h.eq(adsenseSlotId(configured, "web"), "1234567890", "web slot accepted");
-  h.eq(adsenseSlotId(configured, "studio"), "9876543210", "studio slot accepted");
+  h.eq(adsenseClientId(configured), "ca-pub-1234567890123456", "a publisher override is accepted");
+  h.eq(adsenseSlotId(configured, "web"), "1234567890", "a web slot override is accepted");
+  h.eq(adsenseSlotId(configured, "studio"), "9876543210", "a studio slot override is accepted");
   h.ok(adsensePlacementEnabled(configured, "web"), "web placement on when fully configured");
   h.ok(adsensePlacementEnabled(configured, "studio"), "studio placement on when fully configured");
-  h.eq(adsensePlacementEnabled({ VITE_ADSENSE_CLIENT_ID: "ca-pub-1234567890123456" }, "web"), false, "publisher without a slot stays off");
-  h.eq(adsenseClientId({ VITE_ADSENSE_CLIENT_ID: "pub-123" }), "", "malformed publisher id rejected");
-  h.eq(adsenseSlotId({ VITE_ADSENSE_SLOT_WEB: "abc" }, "web"), "", "malformed slot id rejected");
+  h.eq(adsenseClientId({ VITE_ADSENSE_CLIENT_ID: "pub-123" }), ADSENSE_PUBLISHER_ID, "a malformed publisher override is ignored rather than disabling advertising");
+  h.eq(adsenseSlotId({ VITE_ADSENSE_SLOT_WEB: "abc" }, "web"), ADSENSE_SLOT_WEB, "a malformed slot override falls back to the committed unit");
   h.eq(adsTxtLine("ca-pub-1234567890123456"), "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0", "ads.txt line names the publisher");
   h.eq(adsTxtLine(""), null, "no publisher, no ads.txt line");
+}
+
+/* Regression: advertising must never be switchable by losing configuration.
+
+   The publisher id and both slot ids lived only in the gitignored .env.
+   Emptying VITE_ADSENSE_CLIENT_ID — which vite.config.ts instructed, to avoid
+   a second loader beside the one pasted literally into index.html — made
+   adsenseClientId() answer "", and AdSlot renders nothing at all without a
+   publisher id. Both units, the public-page one and the studio rails, went
+   dark with no error, no failed build and no edit to any advertising code, and
+   stayed dark through several deploys. All three values are committed now, so
+   a missing, blank or malformed .env cannot switch advertising off. */
+{
+  const broken: Record<string, string | undefined>[] = [
+    {},
+    { VITE_ADSENSE_CLIENT_ID: "" },
+    { VITE_ADSENSE_SLOT_WEB: "" },
+    { VITE_ADSENSE_SLOT_STUDIO: "" },
+    { VITE_ADSENSE_SLOT_WEB: "abc", VITE_ADSENSE_SLOT_STUDIO: "nonsense" },
+    { VITE_ADSENSE_CLIENT_ID: "pub-123", VITE_ADSENSE_SLOT_WEB: "", VITE_ADSENSE_SLOT_STUDIO: "" },
+  ];
+  for (const env of broken) {
+    h.ok(adsenseClientId(env).startsWith("ca-pub-"), "no environment can leave the site without a publisher id");
+    h.ok(adsensePlacementEnabled(env, "web"), "no environment can switch the public-page unit off");
+    h.ok(adsensePlacementEnabled(env, "studio"), "no environment can switch the studio rails off");
+  }
+  /* Where an ad may appear is still decided, but by the placements rather than
+     by these values: PublicPage skips the legal and account-flow pages, and
+     App gates the studio rails on a signed-in Free member on Setup and Render.
+     Those rules are pinned in their own blocks below. */
 }
 
 /* Audience: only signed-in free-plan members ever see studio ads. */

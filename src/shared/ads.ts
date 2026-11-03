@@ -44,36 +44,73 @@ function validClientId(value: string | undefined): string {
   return /^ca-pub-\d{10,}$/.test(trimmed) ? trimmed : "";
 }
 
-/** `ca-pub-123…` from the build env, or "" when advertising is not configured. */
-export function adsenseClientId(env: Record<string, string | undefined>): string {
-  return validClientId(env?.VITE_ADSENSE_CLIENT_ID);
-}
+/**
+ * This site's AdSense publisher id — committed, not configured.
+ *
+ * The loader tag carrying it is pasted literally into index.html (53046ab) so
+ * that a plain build ships Google's verification snippet with no `.env` at
+ * all. The ad units need the same id for `data-ad-client`, and `AdSlot`
+ * renders nothing without one — so while the id lived only in the gitignored
+ * `.env`, emptying it (which `vite.config.ts` instructed, to avoid a second
+ * loader beside the pasted one) silently made every placement unrenderable,
+ * whichever slot ids were set. Both units — the public-page one and the studio
+ * rails — went dark with no error, no build failure and no edit to any ad code.
+ *
+ * Holding the id here makes advertising impossible to switch off by
+ * configuration: the slot ids alone decide whether a placement renders.
+ * `VITE_ADSENSE_CLIENT_ID` still overrides it for a build that must point at a
+ * different publisher, and setting it cannot duplicate the loader, because
+ * `ensureAdsenseScript` checks the document for an adsbygoogle.js first.
+ */
+export const ADSENSE_PUBLISHER_ID = "ca-pub-3303356901060479";
 
 /**
- * Google's site-verification snippet, for inside every page's <head>: the
- * loader tag AdSense asks the publisher to paste into each page. Returns ""
- * when no publisher id is configured, so an unconfigured build writes no tag
- * and loads nothing from Google.
- *
- * Written by the build rather than typed into index.html so all of the site's
- * pages get it — the front page, every standalone page, and the app shell —
- * and so the id still lives in one place (VITE_ADSENSE_CLIENT_ID).
+ * The publisher id for this build: the `VITE_ADSENSE_CLIENT_ID` override when
+ * it is a well-formed `ca-pub-…`, otherwise the committed id above. Never "" —
+ * an empty answer here is what turned the ad units off.
  */
-export function adsenseScriptTag(clientId: string): string {
-  const id = validClientId(clientId);
-  if (!id) return "";
-  return (
-    `<script async id="${ADSENSE_SCRIPT_ID}" ` +
-    `src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(id)}" ` +
-    `crossorigin="anonymous"></script>`
-  );
+export function adsenseClientId(env: Record<string, string | undefined>): string {
+  return validClientId(env?.VITE_ADSENSE_CLIENT_ID) || ADSENSE_PUBLISHER_ID;
 }
 
-/** The ad-unit slot id for a placement, or "" when that placement is off. */
+/* Google's site-verification loader is deliberately NOT generated here.
+ *
+ * It is pasted literally into index.html — the template for every page shell
+ * the build writes — and into public/render-probe.html, public/brand-check.html
+ * and public/icon-sheet.html, so a plain build with no `.env` at all still
+ * ships it and Google can verify the site. An env-driven generator
+ * (`adsenseScriptTag`) lived here until 53046ab removed it for exactly that
+ * reason. Do not reintroduce one: `adsenseClientId()` now always answers a
+ * publisher id, so a generated tag would sit beside the pasted one, and two
+ * adsbygoogle.js loaders on a page is a common reason AdSense refuses a site.
+ * `ADSENSE_SCRIPT_ID` stays — AdSlot stamps it on any script it injects itself,
+ * which is one of the two de-duplication paths. */
+
+/**
+ * The two ad units, committed for the same reason as the publisher id.
+ *
+ * A slot id is not a secret — Google renders it into the page as
+ * `data-ad-slot` for every visitor to read — and while these lived only in the
+ * gitignored `.env`, losing that file switched both placements off with nothing
+ * in the build, the tests or the deploy output to show for it. That is what
+ * happened: the units went dark and stayed dark through several deploys.
+ *
+ * `VITE_ADSENSE_SLOT_WEB` / `VITE_ADSENSE_SLOT_STUDIO` still override these for
+ * a build that must point at different units. A blank or malformed override
+ * falls back to the committed unit rather than disabling the placement — the
+ * rules that decide *where* an ad may appear live with the placements
+ * themselves (PublicPage excludes the legal and account-flow pages, App gates
+ * the studio rails on a signed-in Free member on Setup and Render), not here.
+ */
+export const ADSENSE_SLOT_WEB = "6497478120"; // AdSense unit "scenering-web"
+export const ADSENSE_SLOT_STUDIO = "2346692151"; // AdSense unit "scenering-studio"
+
+/** The ad-unit slot id for a placement: an env override, else the committed unit. */
 export function adsenseSlotId(env: Record<string, string | undefined>, kind: AdsenseSlotKind): string {
   const value = (kind === "web" ? env?.VITE_ADSENSE_SLOT_WEB : env?.VITE_ADSENSE_SLOT_STUDIO) || "";
   const trimmed = value.trim();
-  return /^\d{5,}$/.test(trimmed) ? trimmed : "";
+  if (/^\d{5,}$/.test(trimmed)) return trimmed;
+  return kind === "web" ? ADSENSE_SLOT_WEB : ADSENSE_SLOT_STUDIO;
 }
 
 /** True only when this placement may render: publisher + slot both configured. */

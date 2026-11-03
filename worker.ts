@@ -6,6 +6,7 @@ import { audioStore } from "./src/audio-store";
 import { processEmailCampaignQueue } from "./server/email-centre.ts";
 import { processEmailPrograms } from "./server/programs.ts";
 import { handleInboundEmail } from "./server/inbox-core.ts";
+import { expireLapsedSubscriptions } from "./server/platform.ts";
 
 // Express has no native `fetch(Request): Response` interface — it only
 // understands Node's `(req: IncomingMessage, res: ServerResponse)` pair.
@@ -57,7 +58,12 @@ export default {
   //                    retention window has passed — the R2 object and its
   //                    D1 bookkeeping row. The only expiry path for that
   //                    storage; there is no per-request sweep on Workers
-  //                    the way the old JSON-file server had one.
+  //                    the way the old JSON-file server had one. Then
+  //                    subscriptions whose paid period has ended are expired
+  //                    and their member returned to free. PayPal sends events
+  //                    for renewals, cancellations and failed payments; it
+  //                    sends nothing for a period quietly running out, so
+  //                    this is the only thing that ends one.
   //  - "15 * * * *"   drains the Email Centre's campaign queue (hourly): starts
   //                    scheduled campaigns whose time has arrived and sends
   //                    the next bounded batch of any campaign mid-send.
@@ -75,7 +81,7 @@ export default {
       ctx.waitUntil(processEmailCampaignQueue().then(() => processEmailPrograms()));
       return;
     }
-    ctx.waitUntil(audioStore.cleanupExpired());
+    ctx.waitUntil(audioStore.cleanupExpired().then(() => expireLapsedSubscriptions()));
   },
 
   // Email Routing: mail sent to the owner's Scenering address (for example

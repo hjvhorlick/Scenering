@@ -1,5 +1,261 @@
 # Changelog
 
+## Unreleased — a blank PayPal popup no longer ends the payment
+
+- **Reported:** the approval window opens, shows the PayPal mark, and stays
+  blank. Nothing to click, no error, and a payment that had already been started
+  could not be finished at all.
+- **The cause.** The only route offered was the Smart Buttons popup, which
+  renders inside an iframe the member cannot inspect or work around. When it
+  hangs there is nothing the member can do.
+- **The fix.** `createPayPalCheckout` already returned PayPal's own `approveUrl`
+  and the dialog threw it away. It now keeps the link and offers it: "PayPal
+  window blank? Open it in a new tab", then "I approved it — check my plan",
+  which asks the server to verify — the same question the popup would have
+  triggered, so approving in a separate tab is not a way to claim a plan without
+  PayPal confirming it. Both routes now go through one `confirmApproval`.
+- Validation: `paypal-checkout-gate` 68 → 71 checks, and the dialog styling suite
+  still passes at 42 — the fallback reuses existing classes rather than adding
+  unstyled ones. Removing the link fails the new check. Both TypeScript checks
+  and the production build pass; 86 of 87 suites pass, the one failure being the
+  pre-existing `tests/icons.test.ts` baseline of 59, unchanged.
+
+## Unreleased — the card button stays; the earlier removal was wrong
+
+- **What was wrong.** `87fd828` removed `vault=true` from the PayPal SDK URL,
+  on the reasoning that a subscription cannot be paid for by card without a
+  PayPal account. That reasoning was drawn from one failed attempt by one South
+  African sandbox buyer and then applied to everybody.
+- **Why it was wrong.** Scenering is sold worldwide, and PayPal supports paying
+  for a subscription by card without an account in the regions it allows — the
+  US and Canada are the documented ones. Removing the parameter took a payment
+  method away from customers who are entitled to it, which is a product decision
+  the SDK loader has no business making.
+- **The reasoning about vaulting was also overstated.** No vaulting code is
+  needed in this app for the card button to work: PayPal creates the vaulted
+  token as part of approving the subscription, and `onApprove` still returns the
+  subscription id, which is the only thing the server verifies.
+- **What is actually true, and unchanged.** Where PayPal does not support the
+  guest card flow, the button leads to a signup flow that never completes — the
+  window spins and blanks, as seen from a `buyerCountry=ZA` sandbox buyer with
+  `mode=guest` and `fromSignupLite=true`. That is PayPal's regional limit. The
+  PayPal-account button beside it works everywhere.
+- The `script.src` line is now byte-identical to what it was before `87fd828`;
+  only the comment differs, and it now records why the parameter stays so the
+  same mistake is not made twice.
+- Validation: the checkout-gate check is inverted and now *requires* the
+  parameter, so removing the card button fails the suite — the product
+  requirement is guarded rather than merely restored. `paypal-checkout-gate`
+  holds at 68 checks; both TypeScript checks and the production build pass; 86 of
+  87 suites pass, the one failure being the pre-existing `tests/icons.test.ts`
+  baseline of 59, unchanged.
+
+## Unreleased — the card button beside Subscribe could never work
+
+- **Reported:** the PayPal approval window spun and went blank after the buyer
+  entered their details.
+- **The cause, read out of the approval window's own state.** Its URL carried
+  `flow: "one-time-checkout"`, `task: "select_one_time_checkout"`,
+  `intent: "click_payment_card_button"`, `mode=guest` and `fundingSource=card`.
+  The buyer had pressed the **"Debit or Credit Card"** button, which starts
+  PayPal's *guest* one-time checkout. A guest cannot approve a subscription —
+  it needs a PayPal account — so the flow had no way to finish.
+- **That button was there because of the app.** The SDK was loaded with
+  `vault=true`, which is what puts the card button beside Subscribe, and a card
+  payment through the Smart Buttons has to be vaulted. Nothing in this codebase
+  vaults anything: every "vault" in `src/` and `server/` is Scenering's own
+  Render Vault for finished videos. So the app advertised a payment method it
+  could not complete, and the buyer had no way to know the button was a dead
+  end.
+- **The fix.** `vault=true` is gone from the SDK URL in `src/lib/paypal-sdk.ts`.
+  Subscribe is left with the PayPal-account flow, which is the only one that can
+  approve a subscription.
+- Validation: `paypal-checkout-gate` 65 → 68 checks, asserted against the line
+  that builds the URL rather than anywhere in the file, because the explanation
+  has to name the parameter it argues against. Putting `vault=true` back on that
+  line fails the check. Both TypeScript checks and the production build pass;
+  `paypal-billing` holds at 71; 86 of 87 suites pass, the one failure being the
+  pre-existing `tests/icons.test.ts` baseline of 59, unchanged.
+
+## Unreleased — a failed approval locked the account for the whole checkout window
+
+- **Seen in production data.** A member's `subscriptions` row sat at status
+  `pending` with `membership_plan = free`: the checkout had opened, PayPal had
+  returned a subscription id, the card was then declined, and every later
+  attempt was refused with "An existing subscription is already active for this
+  account." Nothing the member could do cleared it.
+- **The cause.** The dialog's cleanup called the *cancel* route when the buyer
+  walked away. An unapproved subscription has nothing on PayPal's side to
+  cancel, so that call could not succeed, and the `pending` row stayed. The
+  sweep added earlier only retires such a row once it is older than the checkout
+  window, so the account was locked out for 45 minutes by a subscription the
+  member had never approved.
+- **The fix.** `POST /api/billing/paypal/abandon-checkout` releases a checkout
+  the buyer did not approve: it expires the intent and the `pending` row, and
+  touches nothing that reached a paid state. The dialog calls it instead of
+  cancel. Expiring locally is safe because the intent stays findable by
+  subscription id — that lookup filters on neither status nor expiry — so an
+  approval that really did go through is still applied by the signed webhook.
+- **A test stub was also wrong.** It returned one fixed subscription id for
+  every create, so two creates in a run collided on
+  `paypal_checkout_intents.paypal_subscription_id`, which is unique. The schema
+  was right; the stub now returns a distinct id per create, as PayPal does.
+- Validation: `paypal-billing` 63 → 71 checks. Making the new route a no-op
+  fails 3 of them and reproduces the production state exactly — the row still
+  `pending`, the next checkout refused with 409. Both TypeScript checks and the
+  production build pass; `paypal-checkout-gate` holds at 65; 86 of 87 suites
+  pass, the one failure being the pre-existing `tests/icons.test.ts` baseline of
+  59, unchanged.
+
+## Unreleased — two more ways the billing flow was wrong, found by auditing it
+
+- **A member who paid was told their checkout failed.** `confirmPayPalSubscription`
+  read the subscription back from PayPal to verify the approval; this Sandbox
+  app is refused that read, so the request returned a 502 and the PayPal SDK
+  surfaced it through `onError`. The dialog already had a "waiting for verified
+  activation" state for exactly this situation and the server never let it be
+  reached. An unverifiable approval is now answered `200` with
+  `verified: false, active: false` — nothing granted, PayPal's reason included
+  — which is what that state was written for.
+- **Nothing ever ended a paid period.** `db.listExpirableSubscriptions` — the
+  query written for it — had no caller anywhere in the codebase, and the hourly
+  cron only swept voice-import audio and drained the email queue. A cancelled,
+  suspended or simply finished subscription kept its member on the paid plan
+  indefinitely once the period they had paid for was over. PayPal sends events
+  for renewals, cancellations and failed payments; it sends nothing for a period
+  quietly running out. `expireLapsedSubscriptions` now runs in the hourly tick
+  and expires only rows already out of a paying state and past their own
+  recorded end, so a renewal in flight is never pre-empted.
+- Validation: `paypal-billing` 53 → 63 checks. Reverting either fix fails its own
+  three checks and reproduces the reported behaviour — 502 shown to a member who
+  has just paid, and a member still on `sceneflow` an hour after their paid
+  period ended. Both TypeScript checks (including `worker:typecheck`, which
+  covers the cron change) and the production build pass;
+  `paypal-checkout-gate` holds at 65; 86 of 87 suites pass, the one failure
+  being the pre-existing `tests/icons.test.ts` baseline of 59, unchanged.
+
+## Unreleased — a paid member could never be activated while the read is refused
+
+- **The cause.** `handlePayPalWebhookEvent` read the subscription back from
+  PayPal before applying anything. This Sandbox app is answered
+  `PERMISSION_DENIED` on that read, so the handler recorded `retryable_error`
+  on every delivery and a member who had really paid was never activated by
+  anything. `PAYPAL_SANDBOX.md` says the webhook is what covers renewals,
+  cancellations and failed payments, so with both the read and the webhook
+  blocked there was no path to activation at all.
+- **The fix.** When the read is refused, a subscription lifecycle event is
+  applied from its own signed `resource`. That is not a browser callback:
+  `registerPayPalWebhook` refuses any delivery PayPal will not vouch for, and
+  for `BILLING.SUBSCRIPTION.*` the signed resource *is* the subscription
+  object — verified server state, which is what the policy requires paid access
+  to rest on. Every existing check still runs on it: the subscription id, the
+  plan sold, and a `custom_id` PayPal does return. A payment event, whose
+  resource is a sale and not a subscription, stays retryable rather than being
+  guessed at.
+- Validation: `paypal-billing` 47 → 53 checks, including a signed event for a
+  plan other than the one sold still being refused. Reverting the fallback
+  fails 6 of them and reproduces the failure exactly — 503, `retryable_error`,
+  no subscription row, membership still `free`. Both TypeScript checks and the
+  production build pass; `paypal-checkout-gate` holds at 65; 86 of 87 suites
+  pass, the one failure being the pre-existing `tests/icons.test.ts` baseline of
+  59, unchanged.
+
+## Unreleased — "Manage or cancel it" named the one action that could not work
+
+- **Reported:** a member whose Sandbox payment went through was still refused
+  with "An existing subscription is already active for this account. Manage or
+  cancel it before starting another." — and cancelling did not clear it.
+- **The cause.** `cancelPayPalSubscriptionForUser` sends the cancellation, then
+  reads the subscription back to confirm it. That read is refused for this
+  Sandbox app, the `PayPalApiError` propagated out of the handler, and the whole
+  request failed with a 502 *after* PayPal had already accepted the
+  cancellation. Nothing was recorded locally, so the row that triggered the
+  warning was still there, and the advice in the warning pointed at the single
+  action that was guaranteed to fail.
+- **The fix.** The accepted cancellation is the authority, not the read that
+  follows it. A refused read is caught; the subscription is then recorded as
+  cancelled from what is already known — the same shape as the verified path,
+  keeping the member on the plan until a period already paid for ends and
+  dropping to free at once when there was no period. The read still runs and is
+  still preferred whenever PayPal answers it.
+- **Correction to an earlier plan:** verifying activation from the signed
+  webhook event does *not* by itself avoid the read — `handlePayPalWebhookEvent`
+  calls `getPayPalSubscription` too (`server/platform.ts`), so registering
+  `PAYPAL_WEBHOOK_ID` alone would leave the handler recording
+  `retryable_error`. Trusting `event.resource` is a separate change.
+- Validation: `paypal-billing` 42 → 47 checks. Reverting to the old
+  abort-on-refused-read behaviour fails 4 of them and reproduces the reported
+  state exactly — 502 on cancel, the row still `active`, the membership still
+  `sceneflow`, and the next checkout refused with 409. Both TypeScript checks
+  and the production build pass; `paypal-checkout-gate` holds at 65; 86 of 87
+  suites pass, the one failure being the pre-existing `tests/icons.test.ts`
+  baseline of 59, unchanged.
+
+## Unreleased — an abandoned PayPal checkout locked the account
+
+- **Reported:** after one Sandbox approval window hung, every later attempt on
+  that account was refused with "An existing subscription is already active for
+  this account. Manage or cancel it before starting another."
+- **The cause.** `createPayPalCheckout` writes the subscription row with status
+  `pending` *before* the buyer approves anything, and the one-active-subscription
+  check treats any non-expired row as busy. Nothing ever cleared an unapproved
+  one: `db.listExpirableSubscriptions` — the only query that could — has no
+  caller anywhere in the codebase. A closed popup or a hung approval window
+  therefore blocked that account permanently.
+- **The fix.** `db.expireAbandonedPayPalSubscriptions(cutoff)` retires PayPal
+  subscriptions still `pending` past the checkout window, and
+  `createPayPalCheckout` runs it before deciding whether the account is busy —
+  the same way it already expired stale checkout intents. The window is now one
+  shared constant, `PAYPAL_CHECKOUT_WINDOW_MS`, used by the intent, the
+  subscription and the sweep, so an abandoned attempt cannot outlive its own
+  session.
+- **Rows are expired, never deleted**, and only `pending` ones are touched. A
+  subscription that really was approved after the sweep is found by its provider
+  subscription id and updated in place, so a late activation still lands.
+- Validation: `paypal-checkout-gate` 61 → 65 checks, both TypeScript checks and
+  the production build pass, and 86 of 87 suites pass. Commenting the sweep back
+  out reproduces the reported 409 exactly (`expected 201, got 409`) and leaves
+  the row `pending`. The one failing suite is `tests/icons.test.ts`, unchanged
+  from `main` at 59 failures, including an identical entry for `src/db.ts`.
+
+## Unreleased — the PayPal checkout could never complete
+
+- **Reported:** approving a Sandbox subscription on `scenering.com` ended with
+  "PayPal did not return a verifiable subscription." every time.
+- **The create response was checked for a field PayPal does not send.**
+  `createPayPalCheckout` required `created.custom_id` to equal the single-use
+  checkout token before binding the subscription. PayPal's
+  `POST /v1/billing/subscriptions` response is `status`, `id`, `create_time`
+  and `links` — there is no `custom_id` (verified directly against
+  `api-m.sandbox.paypal.com`). The condition was unsatisfiable, so every
+  checkout returned a 502 at that line.
+- **Why the suite was green.** Both PayPal stubs answered that call with
+  `custom_id: body.custom_id`, echoing back a field the real API omits. The
+  fake PayPal was more generous than the real one, so 99 checks passed against
+  a response shape that never occurs. Both stubs now return what PayPal
+  actually returns, and restoring the old condition against them fails 4
+  checks with the same 502 — the bug is now reproducible from the suite.
+- **The token is still sent and still checked where it can be.** Binding now
+  uses the `id` PayPal does return. That is not a weaker association: the
+  intent row is written for the authenticated member *before* the PayPal call
+  and bound to the id returned for that call, so the member ↔ subscription
+  link is established server-side and never depends on a value PayPal echoes
+  or on anything the browser supplies. Where PayPal does return a `custom_id`
+  — the subscription read, a webhook payload — a mismatch is still refused;
+  an omitted one no longer makes verification impossible. Three places shared
+  that mistake (create, `applyVerifiedPayPalSubscription`, the webhook
+  handler) and all three are fixed.
+- **Refusals now name PayPal's own reason.** "PayPal Sandbox authentication
+  failed." and "…could not complete the billing request." discarded the
+  `error_description` / `PERMISSION_DENIED` detail PayPal already sends, so a
+  secret that does not match the client id was indistinguishable from an app
+  that was never granted the scope. Both now append PayPal's text, capped and
+  credential-free.
+- Validation: both TypeScript checks, the production build, and 86 of 87
+  suites pass; `paypal-billing` grew 38 → 42 checks. The one failing suite is
+  `tests/icons.test.ts`, which fails identically on `main` (59 checks) — its
+  copy guard reads only `src/`, which this change does not touch.
+
 ## Unreleased — the PayPal checkout that opened invisibly
 
 - **Reported:** on `scenering.com/pricing`, clicking "Subscribe to SceneFlow ·

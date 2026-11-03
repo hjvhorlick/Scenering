@@ -88,6 +88,25 @@ export function loadPayPalSdk(clientId: string): Promise<void> {
     if (existing) existing.remove();
     const script = document.createElement("script");
     script.id = "scenering-paypal-sdk";
+    /* `vault=true` is what offers the "Debit or Credit Card" button beside
+     * Subscribe, and it stays.
+     *
+     * Scenering is sold worldwide, and PayPal supports paying for a subscription
+     * by card without a PayPal account in the regions it allows — the US and
+     * Canada are the documented ones. Taking the parameter out would remove a
+     * payment method those customers are entitled to use, which is a product
+     * decision this file has no business making on its own.
+     *
+     * No vaulting code is needed here for it to work: PayPal creates the vaulted
+     * token as part of approving the subscription, and `onApprove` still hands
+     * back the subscription id, which is the only thing the server verifies.
+     *
+     * What the app cannot fix is the region. Where PayPal does not support the
+     * guest card flow, clicking the button drops the buyer into a signup flow
+     * that never completes — the window spins and goes blank, which is what was
+     * seen from a South African sandbox buyer (`mode=guest`,
+     * `fromSignupLite=true`, `buyerCountry=ZA`). That is PayPal's limit, and the
+     * PayPal-account button beside it is the path that works everywhere. */
     script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&vault=true&intent=subscription&currency=USD`;
     script.async = true;
     script.onload = () => window.paypal?.Buttons
