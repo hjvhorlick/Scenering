@@ -1,21 +1,30 @@
-import { useState } from "react";
 import { Section, SectionHead } from "../components/primitives";
-import { PLAN_CONFIG, PLAN_ORDER, type BillingInterval } from "../../config/plans";
+import { PLAN_CONFIG, PLAN_ORDER } from "../../config/plans";
+import { TIER_FEATURES } from "../../config/pricing-tiers";
 import { useLocalizedPlanPrices } from "../../lib/use-localized-prices";
 
 /**
- * The plans, as three compact cards.
+ * What the plans give you — and one button to the page where you get them.
  *
- * Each card carries its name, its price, the one thing that plan is for
- * (capacity) and one button. The description, the saving line and the four
- * bullets that used to sit in every card are gone — they were most of the
- * section's height on a phone and said the same thing three times. The
- * detail lives on /pricing, linked directly below.
+ * This section used to be a smaller copy of /pricing: the same Monthly/Yearly
+ * toggle, the same three-card grid, the same oversized price block, the same
+ * featured-plan badge, and a button under each plan reading "Choose
+ * SceneForge". A visitor who reached the bottom of the front page had met the
+ * pricing page twice, and the second copy's button did not do what it looked
+ * like it did — it linked to /pricing, where the identical button had to be
+ * pressed again before anything happened at all.
+ *
+ * So the front page answers one question, "what do I get", and leaves the
+ * other to the page that can act on it. Prices, the choice of billing interval
+ * and the subscribe buttons all live on /pricing, which is also where sign-in
+ * happens, and each plan now has exactly one subscribe button, there. Nothing
+ * on this page opens a checkout.
  */
 export default function Pricing() {
-  const [interval, setInterval] = useState<BillingInterval>("monthly");
   /* Subscription prices are fixed in USD; the same display helper is shared
-     with /pricing and the in-app plan cards. */
+     with /pricing and the in-app plan cards. Monthly is what is quoted here,
+     because choosing yearly is part of choosing a plan and that decision
+     belongs to the pricing page. */
   const { displayPrice } = useLocalizedPlanPrices();
 
   const capacity: Record<string, string> = {
@@ -33,41 +42,39 @@ export default function Pricing() {
         lead="Previews are free. Your allowance is spent on final downloads."
       />
 
-      <div className="pub-toggle" role="group" aria-label="Billing interval">
-        <button className={interval === "monthly" ? "is-on" : ""} onClick={() => setInterval("monthly")}>
-          Monthly
-        </button>
-        <button className={interval === "yearly" ? "is-on" : ""} onClick={() => setInterval("yearly")}>
-          Yearly
-        </button>
-      </div>
-
-      <div className="pub-plans">
+      {/* Plain columns, not cards. Deliberately without the pricing page's
+          toggle, price block and featured badge, so this reads as an overview
+          rather than a second copy of the page the button below leads to. */}
+      <div className="pub-grid">
         {PLAN_ORDER.map((slug) => {
           const plan = PLAN_CONFIG[slug];
-          const price = plan.prices[interval];
           return (
-            <article className={`pub-plan mkt-plan-mini${slug === "sceneflow" ? " is-featured" : ""}`} key={slug}>
+            <div className="mkt-planrow" key={slug}>
               <h3>{plan.name}</h3>
-              <div className="pub-price">
-                <b>{price === 0 ? "$0" : displayPrice(slug, interval)}</b>
-                <span>{price === 0 ? "forever" : `/${interval === "monthly" ? "month" : "year"}`}</span>
-              </div>
+              <p className="mkt-planrow-price">
+                {plan.prices.monthly === 0 ? "Free forever" : `${displayPrice(slug, "monthly")} a month`}
+              </p>
               <p className="mkt-small">{capacity[slug]}</p>
-              <a
-                className="mkt-btn mkt-btn-primary"
-                href={slug === "free" ? "/register" : `/pricing?provider=paypal&plan=${slug}&interval=${interval}`}
-              >
-                {slug === "free" ? "Start Free" : `Choose ${plan.name}`}
-              </a>
-            </article>
+              <ul className="pub-checks">
+                {TIER_FEATURES[slug].map((feature) => (
+                  <li key={feature}>✓ {feature}</li>
+                ))}
+              </ul>
+            </div>
           );
         })}
       </div>
 
+      {/* One way forward. Free needs no subscription at all, so its entry
+          point is registration; both paid plans are reached by the same
+          button, and the pricing page is what asks which one. */}
+      <div className="mkt-planrow-cta">
+        <a className="mkt-btn mkt-btn-primary mkt-btn-lg" href="/pricing">See plans and subscribe</a>
+        <a className="mkt-btn mkt-btn-lg" href="/register">Start Free</a>
+      </div>
+
       <p className="mkt-small" style={{ textAlign: "center", marginTop: 14 }}>
-        Every plan renders 16:9 and 9:16, with browser-local narration.{" "}
-        <a href="/pricing">Compare every feature →</a>
+        Every plan renders 16:9 and 9:16, with browser-local narration.
       </p>
 
       <p className="pub-legal-note">

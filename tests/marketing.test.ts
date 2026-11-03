@@ -366,7 +366,15 @@ for (const section of TOUR_STORY) {
 // Pricing is part of the pitch: it sits in the page's top half, directly
 // after the cost answer, and the hero's second button goes straight to it.
 ok(site.indexOf("<Pricing />") < site.indexOf("<Examples />"), "the plans come before the closing proof, not at the bottom");
-ok(read("src/marketing/sections/Hero.tsx").includes('href="#pricing"'), "the hero offers the plans directly");
+/* The hero's second button used to scroll to the plans further down the front
+   page, which left the visitor one click short of the page where a
+   subscription can actually begin: scroll to the plans, press the button
+   there, press it again on /pricing. It goes to the pricing page instead, so
+   "See Plans & Pricing" reaches it in one move. */
+const hero = read("src/marketing/sections/Hero.tsx");
+ok(hero.includes('href="/pricing"'), "the hero sends the visitor straight to the pricing page");
+ok(!hero.includes('href="#pricing"'), "…rather than to a section of this one, which still needed a second click");
+ok(!hero.includes('scrollToSection("pricing")'), "and no scroll handler stands in for that link");
 /*
  * The workflow the page tells is the workflow the app has — one step per
  * phase, in the phase rail's own order. Finding the visuals lives inside
