@@ -32,7 +32,22 @@ export interface SetupInputs {
   oneScene: boolean;
 }
 
-const normalizeScript = (text: string) => text.replace(/\r\n?/g, "\n").trim();
+/* Whitespace is collapsed exactly as `splitScriptIntoScenes` collapses it
+   before splitting, because that flattened text is what the scenes are really
+   built from — two scripts differing only in whitespace produce identical
+   scenes, so neither can owe the other a rebuild.
+ *
+ * Comparing anything finer than that was a live fault. Setup rebuilds every
+ * scene when this says the script changed, and a rebuild re-times, re-searches
+ * and re-narrates all of them. The saved inputs are reconstructed, when Setup
+ * has nothing remembered for the project, by joining the scene texts with a
+ * blank line — which this used to read as a different script from the same
+ * words typed as one paragraph. So merely leaving Setup could rebuild the
+ * scene list, hand every scene a new position, and send finished narration
+ * back through Piper. A double space mid-sentence did the same, and because
+ * the scene count is derived from the word count of whichever text won the
+ * comparison, the rebuilt list could come back a different length. */
+const normalizeScript = (text: string) => text.replace(/\s+/g, " ").trim();
 
 /** True when Setup's inputs differ from the ones the scenes were last built from. */
 export function setupNeedsRebuild(submitted: SetupInputs, built: SetupInputs): boolean {

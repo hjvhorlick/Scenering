@@ -293,6 +293,32 @@ h.ok(
   studio.includes("planNarrationRetirement(scenes") && studio.includes("audio_url: null"),
   "choosing a narrator detaches the files made with the previous one"
 );
+
+/* The report behind these: narration finished, Next committed it, and opening
+   the step again started the whole batch over — twice — and once with a
+   different scene count. `selectedVoice` reaches this component from App
+   holding DEFAULT_PROJECT_SETTINGS.selected_voice until the opened project's
+   own settings are applied, so the retirement effect's first run saw a
+   narrator these scenes were never made with and detached every scene's
+   audio_url. Committed narration was destroyed on arrival, before it was ever
+   displayed. The same false positive fired on any change to `scenes`, since a
+   scene's expected narrator comes from its position in the array — a shorter
+   or reordered list reads as a new narrator for every scene after the gap.
+   Retirement is therefore gated on an observed transition between two
+   narrators, so arriving on the step cannot be mistaken for changing voice. */
+h.ok(
+  studio.includes("const lastNarratorRef = useRef<string | null>(null);"),
+  "the voiceover step remembers the narrator it last retired against"
+);
+h.ok(
+  /previousNarrator === null \|\| previousNarrator === narrator\) return;/.test(studio),
+  "retirement waits for a real change of narrator: the first reading is recorded rather than acted on"
+);
+h.ok(
+  studio.indexOf("lastNarratorRef.current = narrator") > -1 &&
+    studio.indexOf("lastNarratorRef.current = narrator") < studio.indexOf("planNarrationRetirement(scenes"),
+  "the narrator is recorded before any retirement is planned, so a later run can tell a change from a re-render"
+);
 h.ok(
   studio.includes("await replaceSceneNarration("),
   "generating a scene files the new narration as a replacement"

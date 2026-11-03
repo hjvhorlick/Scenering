@@ -44,6 +44,27 @@ const parts = (...texts: string[]): ScriptPart[] => texts.map((text) => ({ text,
 const built = { script: "One.\n\nTwo.", duration: 20, oneScene: false };
 h.ok(!setupNeedsRebuild({ ...built }, built), "the same script, length and one-scene choice need no rebuild");
 h.ok(!setupNeedsRebuild({ ...built, script: "  One.\r\n\r\nTwo.  \n" }, built), "line endings and surrounding space are not a change");
+/* The fault behind these: when Setup has nothing remembered for the project,
+   the inputs the scenes were built from are reconstructed by joining the scene
+   texts with a blank line. That is the very script the splitter flattened into
+   those scenes, so it cannot be a change — but reading line breaks as
+   significant said it was. Leaving Setup then rebuilt the whole list: every
+   scene re-timed, re-searched and re-narrated, and because the scene count is
+   derived from the word count of whichever text won the comparison, the
+   rebuilt list could come back a different length. Whitespace now collapses
+   the way splitScriptIntoScenes collapses it before splitting. */
+h.ok(
+  !setupNeedsRebuild({ ...built, script: "One. Two." }, built),
+  "the same words rejoined as one paragraph are the script the scenes were split from"
+);
+h.ok(
+  !setupNeedsRebuild({ ...built, script: "One.  Two." }, built),
+  "a double space inside a sentence is not a change either"
+);
+h.ok(
+  !setupNeedsRebuild({ ...built, script: "One.\nTwo." }, built),
+  "nor is a single line break where the paragraph had two"
+);
 h.ok(setupNeedsRebuild({ ...built, script: "One.\n\nTwo!" }, built), "an edited word is a change");
 h.ok(setupNeedsRebuild({ ...built, duration: 30 }, built), "a new scene length is a change");
 h.ok(setupNeedsRebuild({ ...built, oneScene: true }, built), "switching to one scene is a change");
