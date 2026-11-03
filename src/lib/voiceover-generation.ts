@@ -77,25 +77,52 @@ export function backgroundMusicFingerprint(inserts: readonly TimelineInsert[]): 
  * are stale. Old projects without a snapshot adopt matching attached audio as
  * their baseline instead of synthesizing it again on their first visit.
  */
+/**
+ * Why a scene is due for narration, or null when it is not.
+ *
+ * The boolean this replaces was enough to decide, and not enough to diagnose.
+ * A creator reported finished narration being synthesized again on pressing
+ * Next, and every branch below can cause that — an audio_url that never
+ * arrived, a narrator that does not match, a recorded fingerprint that does
+ * not. Which one it was could not be told from the outside, and guessing cost
+ * more than looking. So the reason is returned alongside the decision and
+ * reported when a batch starts.
+ *
+ * The strings are deliberately specific: a slow re-synthesis means the cache
+ * in tts-cache missed, and that cache is keyed on scene id, narrator and text,
+ * so the reason names whichever of the three this scene disagrees on.
+ */
+export function voiceoverGenerationReason(
+  scene: Scene,
+  expectedVoice: string,
+  musicFingerprint: string,
+  previous?: VoiceoverAudioSnapshotEntry
+): string | null {
+  if (!(scene.text || "").trim()) return null;
+  if (!scene.audio_url) return "no narration is attached to the scene";
+
+  // A user-provided prepared track stays attached as an explicit scene
+  // override. It cannot be re-synthesized by Piper when music changes.
+  if (isPreparedVoiceoverId(scene.voice_id)) return null;
+  if (scene.voice_id !== expectedVoice) {
+    return `the scene was narrated by ${scene.voice_id || "an unrecorded narrator"} and ${expectedVoice} is expected`;
+  }
+  if (!previous) return null;
+
+  if (previous.input !== voiceoverInputFingerprint(scene, expectedVoice)) {
+    return "the recorded words or narrator no longer match the scene";
+  }
+  if (previous.music !== musicFingerprint) return "the background music bed changed";
+  return null;
+}
+
 export function sceneNeedsVoiceoverGeneration(
   scene: Scene,
   expectedVoice: string,
   musicFingerprint: string,
   previous?: VoiceoverAudioSnapshotEntry
 ): boolean {
-  if (!(scene.text || "").trim()) return false;
-  if (!scene.audio_url) return true;
-
-  // A user-provided prepared track stays attached as an explicit scene
-  // override. It cannot be re-synthesized by Piper when music changes.
-  if (isPreparedVoiceoverId(scene.voice_id)) return false;
-  if (scene.voice_id !== expectedVoice) return true;
-  if (!previous) return false;
-
-  return (
-    previous.input !== voiceoverInputFingerprint(scene, expectedVoice) ||
-    previous.music !== musicFingerprint
-  );
+  return voiceoverGenerationReason(scene, expectedVoice, musicFingerprint, previous) !== null;
 }
 
 export function planVoiceoverGeneration(
