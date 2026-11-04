@@ -578,6 +578,41 @@ export function createApp(): express.Express {
         return res.status(400).json({ error: "Missing url parameter" });
       }
 
+      /* A validator derived from the URL, so Express never hashes the image.
+       *
+       * Express attaches a weak ETag to every res.send() unless the header is
+       * already set (express/lib/response.js — `generateETag = !this.get("ETag")
+       * && typeof etagFn === "function"`), and its generator hashes the entire
+       * entity. So every proxied photo was read end to end a second time purely
+       * to build a response header: measured at 0.25 ms for a 500 KB image and
+       * 0.82 ms for 1.5 MB, on a Worker whose wrangler.jsonc sets no `limits`
+       * block and so runs on the plan's default CPU budget.
+       *
+       * Hashing the URL instead is not measurable, and it is just as strong a
+       * validator: the URL fully determines the bytes, which is exactly the
+       * assumption the `immutable` Cache-Control below already relies on.
+       *
+       * Deliberately scoped to this handler instead of app.disable("etag").
+       * Nothing else in the app depends on an Express-generated validator — the
+       * custom audio route sets and compares its own, and no client sends
+       * If-None-Match at all — but a global switch is not needed to fix one
+       * route, and a global one would quietly change every future route too.
+       *
+       * The header is written only on the successful image responses below. A
+       * grey placeholder must never carry it: a browser that cached the
+       * placeholder under this validator would be answered 304 forever and
+       * would keep showing grey even after the photo became reachable.
+       */
+      const proxyEtag = `W/"${createHash("sha1").update(targetUrl).digest("base64")}"`;
+      // A browser already holding this exact photo is answered with a bodyless
+      // 304: no upstream fetch, no buffering, no hashing, no cache write.
+      if (req.headers["if-none-match"] === proxyEtag) {
+        // RFC 9110 requires a 304 to carry the validator a 200 would have, so
+        // the browser can keep using the copy it already holds.
+        res.setHeader("ETag", proxyEtag);
+        return res.status(304).end();
+      }
+
       // Same-origin paths (the bundled nature library under /public) are
       // served from Cloudflare's static assets layer via the ASSETS binding
       // rather than the local filesystem — Workers has no filesystem to
@@ -592,6 +627,7 @@ export function createApp(): express.Express {
           res.setHeader("Access-Control-Allow-Origin", "*");
           res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+          res.setHeader("ETag", proxyEtag);
           return res.send(Buffer.from(arrayBuf));
         }
       }
@@ -610,6 +646,7 @@ export function createApp(): express.Express {
           res.setHeader("Access-Control-Allow-Origin", "*");
           res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+          res.setHeader("ETag", proxyEtag);
           return res.send(Buffer.from(cachedBuf));
         }
       }
@@ -618,22 +655,47 @@ export function createApp(): express.Express {
 
       if (!response.ok) {
         res.setHeader("Content-Type", "image/svg+xml");
+        /* The grey placeholder is never cacheable.
+         *
+         * Express still gives it a weak ETag of its own (a hash of the 507-byte
+         * SVG — trivial, and not the URL validator above). Left alone, a browser
+         * could hold that placeholder and revalidate into a 304, so a scene that
+         * failed to load once would keep showing grey after the photo became
+         * reachable. no-store makes the failure retryable. */
+        res.setHeader("Cache-Control", "no-store");
         return res.send(generatePlaceholder());
       }
 
       const contentType = response.headers.get("content-type") || "image/jpeg";
       if (!contentType.startsWith("image/")) {
         res.setHeader("Content-Type", "image/svg+xml");
+        /* The grey placeholder is never cacheable.
+         *
+         * Express still gives it a weak ETag of its own (a hash of the 507-byte
+         * SVG — trivial, and not the URL validator above). Left alone, a browser
+         * could hold that placeholder and revalidate into a 304, so a scene that
+         * failed to load once would keep showing grey after the photo became
+         * reachable. no-store makes the failure retryable. */
+        res.setHeader("Cache-Control", "no-store");
         return res.send(generatePlaceholder());
       }
 
       const arrayBuf = await response.arrayBuffer();
       if (arrayBuf.byteLength > 20 * 1024 * 1024) return res.status(413).json({ error: "Image is too large" });
+      // `Buffer.from(arrayBuffer)` views the same memory rather than copying it
+      // (verified: the resulting buffer's `.buffer` is the original
+      // ArrayBuffer), so this is the one and only reference to the bytes.
+      const imageBuf = Buffer.from(arrayBuf);
       if (edgeCacheKey && typeof edgeCache.put === "function") {
         void edgeCache
           .put(
             edgeCacheKey,
-            new Response(arrayBuf.slice(0), {
+            // Constructing a Response from a BufferSource copies the bytes into
+            // the body synchronously and leaves the source untouched (verified:
+            // the buffer is still fully readable afterwards). The defensive
+            // `arrayBuf.slice(0)` that used to be here therefore duplicated a
+            // multi-megabyte image on every cache-missing request for nothing.
+            new Response(imageBuf, {
               headers: {
                 "Content-Type": contentType,
                 "Cache-Control": "public, max-age=86400, immutable",
@@ -646,11 +708,15 @@ export function createApp(): express.Express {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
       res.setHeader("Cache-Control", "public, max-age=86400, immutable");
-      return res.send(Buffer.from(arrayBuf));
+      res.setHeader("ETag", proxyEtag);
+      return res.send(imageBuf);
     } catch {
       res.setHeader("Content-Type", "image/svg+xml");
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      // See the note on the placeholder exits above: never cacheable, so a
+      // transient failure stays retryable instead of sticking.
+      res.setHeader("Cache-Control", "no-store");
       return res.send(generatePlaceholder());
     }
   };
