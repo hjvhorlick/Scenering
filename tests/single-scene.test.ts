@@ -274,7 +274,7 @@ const LONG_SCRIPT = Array.from(
     "with nothing spoken, the caption clock follows the scene rather than an imagined speech length"
   );
   ok(
-    /if \(voiceoverEnabled\) \{\s+const savedSnapshot = readAudioSnapshot\(\);\s+const targets = planVoiceoverGeneration/.test(studio),
+    /if \(voiceoverEnabled\) \{[\s\S]*?const targets = planVoiceoverGeneration/.test(studio),
     "leaving the Voiceover step only runs generation planning when narration is enabled"
   );
 

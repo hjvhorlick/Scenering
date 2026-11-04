@@ -253,7 +253,7 @@ h.ok(!studio.includes("Generate & Save Voiceover for All Scenes"), "the duplicat
 h.ok(studio.includes('onNext={() => handleProceedNext("captions")}'), "Next remains the whole-project generation action");
 h.ok(studio.includes("planVoiceoverGeneration(scenes"), "Next uses the input-aware generation plan");
 h.ok(studio.includes("if (!generationInFlightRef.current) void stopLocalPiperSynthesis()"), "navigating away does not kill an in-flight narration batch");
-h.ok(studio.includes("if (componentMountedRef.current && onNavigateToStep)"), "a finished background batch saves without pulling the user away from another step");
+h.ok(studio.includes("if (!componentMountedRef.current) return;"), "a finished background batch saves without pulling the user away from another step");
 h.ok(studio.includes("You can visit another step; this batch keeps running"), "the progress notice tells creators they can inspect another step while audio finishes");
 h.ok(
   studio.includes("await replaceSceneNarration("),
@@ -262,5 +262,93 @@ h.ok(
 h.ok(studio.includes("resolveSceneAudioBuffer(scene, getSharedAudioContext())"), "scene playback restores saved audio instead of synthesizing it again");
 h.ok(cache.includes("scene.audio_url?.startsWith(\"blob:\")"), "expired generated blob URLs fall back to the persistent voiceover cache");
 h.ok(downloads.includes("resolveSceneAudioBuffer(scene, getSharedAudioContext())"), "downloads can recover voiceover files after a page reload");
+
+/* ---- the button, the badges and the spoken report ------------------------ */
+
+/** A function body, sliced by brace depth rather than by an indent guess. */
+function bodyOf(source: string, signature: string): string {
+  const start = source.indexOf(signature);
+  if (start === -1) return "";
+  /* Start the brace count at the arrow, not at the first `{` after the
+     signature: a parameter type such as `options: { viaNext?: boolean } = {}`
+     has braces of its own, and counting from there returns the signature
+     instead of the body. */
+  const arrow = source.indexOf("=>", start);
+  const open = arrow === -1 ? source.indexOf("{", start) : source.indexOf("{", arrow);
+  if (open === -1) return "";
+  let depth = 0;
+  for (let i = open; i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    else if (source[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, i + 1);
+    }
+  }
+  return source.slice(start);
+}
+/** Code with the comments removed, so a check cannot be satisfied — or broken — by prose. */
+const codeOnly = (text: string) =>
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("\n");
+
+const proceed = bodyOf(studio, "const handleProceedNext = async (");
+h.ok(proceed.length > 0, "handleProceedNext was found in VoiceoverStudio");
+h.ok(
+  !codeOnly(proceed).includes("readAudioSnapshot("),
+  "Next decides from the same record the badges were drawn from, not a second read of the store"
+);
+h.ok(
+  proceed.includes("const savedSnapshot = voiceoverAudioSnapshot;"),
+  "Next uses the render-time snapshot the review list is showing"
+);
+
+/* The seeding effect drops every entry whose scene is not in the list it is
+   given. The list is transiently empty while a project loads, and running then
+   erased the whole record — so finished narration came back unknown. */
+const seeding = bodyOf(
+  studio.slice(studio.indexOf("// Older projects already have useful audio")),
+  "useEffect(() => {"
+);
+h.ok(seeding.length > 0, "the snapshot seeding effect was found");
+h.ok(
+  codeOnly(seeding).includes("if (scenes.length === 0) return;"),
+  "the seeding effect never adopts from an empty scene list"
+);
+
+/* ---- completion is spoken, not only written ------------------------------ */
+
+const spoken = bodyOf(studio, "const speakCompletion = (");
+h.ok(spoken.length > 0, "a spoken completion report exists");
+h.ok(spoken.includes("window.speechSynthesis"), "it uses the browser's own speech synthesis, so it needs no model download");
+h.ok(spoken.includes("} catch {"), "a browser that refuses speech cannot fail the work it reports on");
+h.ok(
+  codeOnly(proceed).includes("speakCompletion("),
+  "Next speaks the result before it moves on"
+);
+h.ok(
+  /if \(!saved\) return;/.test(codeOnly(proceed)),
+  "a failed batch is never announced as complete"
+);
+h.ok(
+  codeOnly(proceed).includes("if (!componentMountedRef.current) return;"),
+  "nothing is spoken to a creator who already left the section"
+);
+
+/* ---- a stuck commit flag used to freeze every Next button ---------------- */
+
+const appSource = read("src/App.tsx");
+const goToPhase = bodyOf(appSource, "const goToPhase = async (");
+h.ok(goToPhase.length > 0, "goToPhase was found in App");
+h.ok(
+  /finally\s*{[^}]*setCommittingPhase\(null\)/.test(codeOnly(goToPhase)),
+  "the committing flag clears whatever the commit does, so it can never stick"
+);
+h.ok(
+  /if \(committingPhase\) \{[^}]*setNavNotice\(/.test(codeOnly(goToPhase)),
+  "a Next press during a commit says so instead of doing nothing at all"
+);
 
 h.done("voiceover generation");
