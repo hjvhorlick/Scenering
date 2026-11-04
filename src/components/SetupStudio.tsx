@@ -373,10 +373,19 @@ export default function SetupStudio({
     const counts = parts.map((x) => countWords(x));
     const lo = Math.min(...counts);
     const hi = Math.max(...counts);
+    /* Say what this costs. It rebuilds the scene list from scratch, so any
+       narration already generated belongs to word boundaries that no longer
+       exist and will be made again — a creator who has waited through a full
+       voiceover deserves to be told before the next one starts, not after. */
+    const narrated = scenes.filter((s) => s.audio_url).length;
     showNotice(
       `Formatted into ${parts.length} even scene${parts.length === 1 ? "" : "s"} of ${
         lo === hi ? `${lo}` : `${lo}–${hi}`
-      } words (~${formatDuration(activeDuration)} each).`
+      } words (~${formatDuration(activeDuration)} each).${
+        narrated > 0
+          ? ` ${narrated} scene${narrated === 1 ? " has" : "s have"} finished narration that no longer matches the new wording — Voiceover will generate it again on Next.`
+          : ""
+      }`
     );
   };
 
@@ -399,12 +408,27 @@ export default function SetupStudio({
     onUpdateSceneDuration?.(seconds, false);
     if (!audioInputSelected) onCalibrateScenesWordCount?.(seconds, false);
 
-    const currentScriptText = script.trim();
-    if (isExistingProject && currentScriptText) {
-      // `false` is passed explicitly: the one-scene state above has not
-      // reached the parent yet, and the split must use the new choice.
-      onUpdateScript(currentScriptText, true, seconds, false);
-    }
+    /* Picking a scene length must NOT re-split the script.
+     *
+     * It used to, right here, by calling onUpdateScript with `true` — and that
+     * undid both of the calls above. `handleUpdateSceneDuration` and
+     * `handleCalibrateScenesWordCount` already re-time every scene, and the
+     * latter's whole contract is that it persists the new duration *without
+     * mutating text*. Following them with a rebuild threw that away.
+     *
+     * The damage was not cosmetic. `splitScriptIntoScenes` derives the scene
+     * count from nothing but the word count, so the same script at a different
+     * target length comes back as a different number of scenes — a creator who
+     * had four scenes and tapped "30 Seconds" got three, with the fourth
+     * deleted. Worse, every surviving scene is re-written from the fresh
+     * split, so its words no longer match the narration already generated for
+     * it, and the Voiceover step then re-narrates the whole project on the next
+     * Next. Choosing a length is not an edit to the script and must never be
+     * allowed to change the scene count or invalidate finished audio.
+     *
+     * Re-splitting stays available where it is asked for by name: the
+     * "Re-Generate All Scenes" button and the format-to-duration action below.
+     */
 
     const words = getTargetWordCount(seconds);
     showNotice(

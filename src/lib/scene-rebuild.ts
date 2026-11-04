@@ -51,9 +51,23 @@ const normalizeScript = (text: string) => text.replace(/\s+/g, " ").trim();
 
 /** True when Setup's inputs differ from the ones the scenes were last built from. */
 export function setupNeedsRebuild(submitted: SetupInputs, built: SetupInputs): boolean {
+  /* A new scene length is deliberately NOT a reason to rebuild.
+   *
+   * It used to be, and it was the second way into the same fault. Choosing a
+   * length re-times every scene through `handleUpdateSceneDuration` and
+   * `handleCalibrateScenesWordCount` — the latter persists the new duration
+   * without touching the words — so the scenes are already correct by the time
+   * Setup is saved. Treating the changed number as a changed input then rebuilt
+   * the list anyway, and a rebuild re-derives the scene count from the word
+   * count alone: four scenes at twenty seconds became three at thirty, with the
+   * fourth deleted, and every survivor re-written from the fresh split so its
+   * finished narration no longer matched its words.
+   *
+   * Only the words, and the one-scene switch that genuinely changes the shape
+   * of the project, may alter the scene count. When a rebuild does happen for
+   * one of those reasons, `retimeAll` still picks the length up. */
   return (
     normalizeScript(submitted.script) !== normalizeScript(built.script) ||
-    submitted.duration !== built.duration ||
     submitted.oneScene !== built.oneScene
   );
 }

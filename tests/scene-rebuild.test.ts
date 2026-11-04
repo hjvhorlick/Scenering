@@ -2,6 +2,13 @@ import { readFileSync } from "node:fs";
 import { createHarness } from "./harness";
 import { rebuildScenesFromScript, setupNeedsRebuild, type ScriptPart } from "../src/lib/scene-rebuild";
 import type { Scene } from "../src/types";
+import { splitScriptIntoScenes } from "../src/lib/duration-utils";
+import {
+  backgroundMusicFingerprint,
+  planVoiceoverGeneration,
+  recordGeneratedVoiceover,
+  type VoiceoverAudioSnapshot,
+} from "../src/lib/voiceover-generation";
 
 /**
  * Going back to Setup and on again must never lose what was set in the other
@@ -66,7 +73,14 @@ h.ok(
   "nor is a single line break where the paragraph had two"
 );
 h.ok(setupNeedsRebuild({ ...built, script: "One.\n\nTwo!" }, built), "an edited word is a change");
-h.ok(setupNeedsRebuild({ ...built, duration: 30 }, built), "a new scene length is a change");
+/* A new scene length must NOT rebuild. Re-timing is applied on its own by
+   handleUpdateSceneDuration and handleCalibrateScenesWordCount, and the
+   latter's contract is that it persists the new duration without mutating
+   text. A rebuild, by contrast, re-derives the scene count from the word
+   count alone — so treating the length as a changed input used to delete a
+   scene and invalidate every finished narration on the project. */
+h.ok(!setupNeedsRebuild({ ...built, duration: 30 }, built), "a new scene length re-times the scenes but is not a rebuild");
+h.ok(!setupNeedsRebuild({ ...built, duration: 10 }, built), "nor is a shorter one");
 h.ok(setupNeedsRebuild({ ...built, oneScene: true }, built), "switching to one scene is a change");
 
 /* ---- 2. a rebuild keeps every setting ---------------------------------- */
@@ -141,5 +155,103 @@ h.ok(app.includes("burn_caption: updates.burn_caption !== undefined ? updates.bu
 const setup = read("src/components/SetupStudio.tsx");
 h.ok(setup.includes('onUpdateScript(scriptText, "if-changed", durToApply, oneScene)'), "Setup's Next rebuilds only when something changed");
 h.ok(setup.includes('onClick={() => handleApplyScript(true)}'), "the explicit Re-Generate button still rebuilds on request");
+
+/* ---- 6. choosing a scene length must not re-narrate the project --------- */
+
+/* THE FAULT THIS PINS.
+ *
+ * A creator with four narrated scenes who tapped "30 Seconds" in Setup lost
+ * them. Two separate paths both treated the new length as a changed input and
+ * rebuilt the scene list, and a rebuild re-derives the scene count from the
+ * word count alone: this 180-word script is four scenes at twenty seconds and
+ * TWO at thirty. The survivors were then re-written from the fresh split, so
+ * their words no longer matched the narration already generated for them and
+ * Voiceover re-narrated everything on the next Next. */
+const line = "The camera moves slowly across the harbour at dawn today.";
+const lengthScript = Array.from({ length: 18 }, () => line).join(" ");
+const atTwenty = splitScriptIntoScenes(lengthScript, 20, false);
+const atThirty = splitScriptIntoScenes(lengthScript, 30, false);
+h.eq(atTwenty.length, 4, "the fixture script is four scenes at a twenty-second target");
+h.eq(atThirty.length, 2, "and two at thirty — a rebuild on a length change would delete half the project");
+
+const VOICE = "piper:scenering_male_01";
+const music = backgroundMusicFingerprint([]);
+const narratedScenes: Scene[] = atTwenty.map((text, i) => ({
+  ...scene(500 + i, text),
+  voice_id: VOICE,
+  audio_url: `blob:https://scenering.app/narration-${500 + i}`,
+}));
+let snapshot: VoiceoverAudioSnapshot = {};
+for (const sc of narratedScenes) snapshot = recordGeneratedVoiceover(snapshot, sc, VOICE, music);
+
+const planTargets = (list: Scene[], snap: VoiceoverAudioSnapshot) =>
+  planVoiceoverGeneration(list, {
+    primaryVoice: VOICE,
+    rotateVoices: false,
+    secondVoice: VOICE,
+    musicFingerprint: music,
+    snapshot: snap,
+  });
+
+h.eq(planTargets(narratedScenes, snapshot).length, 0, "four fully narrated scenes need no further voiceover");
+
+// The creator now picks "30 Seconds". Setup re-times the scenes and saves.
+const lengthBuilt = { script: lengthScript, duration: 20, oneScene: false };
+const lengthSubmitted = { script: lengthScript, duration: 30, oneScene: false };
+h.ok(!setupNeedsRebuild(lengthSubmitted, lengthBuilt), "picking a new scene length does not rebuild the scene list");
+h.eq(narratedScenes.length, 4, "so all four scenes are still there");
+h.eq(narratedScenes.filter((sc) => sc.audio_url).length, 4, "and all four keep their finished narration");
+h.eq(planTargets(narratedScenes, snapshot).length, 0, "and Voiceover still has nothing to regenerate");
+
+// What the old behaviour did, kept visible so the guard cannot be reverted
+// without the consequence being plain: rebuilding at thirty seconds.
+const collapsed = rebuildScenesFromScript(
+  narratedScenes,
+  atThirty.map((text) => ({ text })),
+  options
+);
+h.eq(collapsed.scenes.length, 2, "the rebuild the length change used to trigger leaves two scenes");
+h.eq(collapsed.removed.length, 2, "and deletes the other two outright");
+
+// The one-scene switch really does change the shape of the project.
+h.ok(
+  setupNeedsRebuild({ ...lengthBuilt, oneScene: true }, lengthBuilt),
+  "switching to one scene still rebuilds, because that genuinely reshapes the project"
+);
+
+/* ---- 7. Setup re-times without re-splitting ------------------------------ */
+
+const setupSource = read("src/components/SetupStudio.tsx");
+const selectDuration = (() => {
+  const start = setupSource.indexOf("const handleSelectDuration = (");
+  const end = setupSource.indexOf("\n  };", start);
+  return start === -1 ? "" : setupSource.slice(start, end === -1 ? setupSource.length : end);
+})();
+h.ok(selectDuration.includes("setSelectedDuration(seconds)"), "the slice really is handleSelectDuration's body");
+/* Checked against the code with the comments removed. The explanation above
+   the removed call names `onUpdateScript` on purpose, and a plain absence
+   check would fail against the comment that documents the fix rather than
+   against any code that regressed. */
+const selectDurationCode = selectDuration
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .split("\n")
+  .map((line) => line.replace(/\/\/.*$/, ""))
+  .join("\n");
+h.ok(
+  !selectDurationCode.includes("onUpdateScript"),
+  "choosing a scene length never rebuilds the script — re-timing is not re-splitting"
+);
+h.ok(
+  selectDuration.includes("onUpdateSceneDuration?.(seconds, false)"),
+  "it still re-times the scenes"
+);
+h.ok(
+  selectDuration.includes("onCalibrateScenesWordCount?.(seconds, false)"),
+  "and still calibrates them without mutating their text"
+);
+h.ok(
+  setupSource.includes("will generate it again on Next"),
+  "the format-to-duration action warns that finished narration will be remade"
+);
 
 h.done("scene rebuild");
