@@ -296,6 +296,35 @@ export default function VoiceoverStudio({
     setTimeout(() => setDownloadNotice((curr) => (curr === msg ? null : curr)), 6000);
   };
 
+  /**
+   * Say the result out loud, not only in writing.
+   *
+   * A finished batch used to report itself with a badge and a line of text on a
+   * screen the creator may not be looking at. Synthesis takes minutes, so people
+   * walk away, come back, and cannot tell whether it completed or quietly
+   * stalled — which is how a finished voiceover ends up being generated a second
+   * time. So completion is spoken as well as shown.
+   *
+   * This uses the browser's own speech synthesis rather than Piper on purpose:
+   * it needs no model download and is ready the instant it is called, which a
+   * confirmation has to be. Best effort throughout — a browser with no voices
+   * installed, or one that refuses speech outside a gesture, must never block or
+   * fail the work it is reporting on.
+   */
+  const speakCompletion = (message: string) => {
+    try {
+      const synth = typeof window === "undefined" ? undefined : window.speechSynthesis;
+      if (!synth || typeof SpeechSynthesisUtterance === "undefined") return;
+      synth.cancel();
+      const utterance = new SpeechSynthesisUtterance(message);
+      utterance.lang = "en-US";
+      utterance.rate = 1;
+      synth.speak(utterance);
+    } catch {
+      /* Speech is a courtesy; the work it announces is already saved. */
+    }
+  };
+
   const handlePlayScene = async (scene: Scene, index: number) => {
     if (!scene.audio_url) {
       await handlePlayVoicePreview(scene.text, scene.id, voiceForSceneIndex(index), globalSpeed);
@@ -414,6 +443,15 @@ export default function VoiceoverStudio({
   // Adopt only those matching files once; never overwrite a known-stale entry.
   useEffect(() => {
     if (!projectId || isGeneratingAll) return;
+    /* Never adopt from an empty scene list.
+     *
+     * `recordCurrentVoiceoverAudio` drops every snapshot entry whose scene is
+     * not in the list it is given, which is right for a scene the script no
+     * longer has. But the list is transiently empty — a project still loading,
+     * a rebuild mid-flight — and running then erased the whole record: every
+     * scene's saved inputs gone, so the next visit had nothing to compare
+     * against and treated finished narration as unknown. */
+    if (scenes.length === 0) return;
     const saved = readAudioSnapshot();
     const seeded = recordCurrentVoiceoverAudio(saved, scenes, snapshotOptions);
     if (JSON.stringify(saved) !== JSON.stringify(seeded)) saveAudioSnapshot(seeded);
@@ -593,8 +631,23 @@ export default function VoiceoverStudio({
 
   const handleProceedNext = async (targetStep: string = "captions") => {
     void requestPiperStoragePersistence(true);
+    /** How many scenes this press actually narrated, for the spoken report. */
+    let narrated = 0;
     if (voiceoverEnabled) {
-      const savedSnapshot = readAudioSnapshot();
+      /* The same record the badges on screen were drawn from.
+       *
+       * This used to call readAudioSnapshot() again here, at click time, while
+       * the review list below was built from the copy read during the last
+       * render. Two reads of one store, with an effect in between that rewrites
+       * it whenever `scenes` changes — so the screen could show "Voiceover
+       * Saved" on every scene while the button, reading a moment later, decided
+       * the whole project needed narrating again. That is exactly the report:
+       * it looks done, and pressing Next generates it all over.
+       *
+       * One value, read once per render, decides both. If the record has moved
+       * on since, the next render shows that too — the button can no longer
+       * contradict what the creator is looking at. */
+      const savedSnapshot = voiceoverAudioSnapshot;
       const targets = planVoiceoverGeneration(scenes, {
         primaryVoice: effectivePrimaryVoice,
         rotateVoices,
@@ -619,14 +672,25 @@ export default function VoiceoverStudio({
           }))
         );
         const saved = await generateRequiredVoiceovers(targets, savedSnapshot, musicFingerprint);
+        // A failure has already been announced scene by scene; saying
+        // "complete" over the top of it would be the worse mistake.
         if (!saved) return;
+        narrated = targets.length;
       } else {
         saveAudioSnapshot(recordCurrentVoiceoverAudio(savedSnapshot, scenes, snapshotOptions));
       }
     }
     // If the creator left this step during a still-running batch, leave them
     // where they went after the background synthesis has saved its results.
-    if (componentMountedRef.current && onNavigateToStep) onNavigateToStep(targetStep);
+    if (!componentMountedRef.current) return;
+    if (voiceoverEnabled) {
+      speakCompletion(
+        narrated > 0
+          ? `Voiceover complete. ${narrated} scene${narrated === 1 ? "" : "s"} narrated and saved.`
+          : "Voiceover is already complete. Nothing needed generating."
+      );
+    }
+    if (onNavigateToStep) onNavigateToStep(targetStep);
   };
 
   const handleGenerateSingleScene = async (scene: Scene) => {

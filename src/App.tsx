@@ -1450,7 +1450,18 @@ export default function App() {
 
   /** The one navigation entry point for phase changes. */
   const goToPhase = async (target: ProjectPhase, options: { viaNext?: boolean } = {}) => {
-    if (committingPhase) return;
+    if (committingPhase) {
+      /* Never bail out in silence.
+       *
+       * This used to `return` with nothing said, so a Next press that arrived
+       * while a commit was still running looked exactly like a dead button: the
+       * section stayed on screen, the work looked finished, and pressing Next
+       * again simply repeated it. The guard against two commits at once stays —
+       * it is the reason the line exists — but the creator is told what is
+       * happening instead of being left to guess. */
+      setNavNotice(`Still saving ${getPhase(committingPhase).phase}. Press Next again in a moment.`);
+      return;
+    }
     /* Every phase after Setup needs a project to work on. Without this guard
        the tabs and Next buttons would switch to an empty editor, which looked
        like the button "did nothing". */
@@ -1468,8 +1479,23 @@ export default function App() {
         if (pendingScript) handleUpdateScript(pendingScript, "if-changed", sceneDuration, singleScene);
       }
       setCommittingPhase(from);
-      const saved = await commitPhaseEffects(from);
-      setCommittingPhase(null);
+      /* The flag must clear whatever happens.
+       *
+       * `commitPhaseEffects` catches its own database error, but the settings
+       * snapshot it writes first is not guarded, and neither is the row
+       * building. If either threw, `setCommittingPhase(null)` was skipped and
+       * the flag stayed set for the rest of the session — after which the guard
+       * above turned every Next press into nothing at all, on every section.
+       * A stuck flag is why a finished voiceover could refuse to move on. */
+      let saved = true;
+      try {
+        saved = await commitPhaseEffects(from);
+      } catch (err) {
+        saved = false;
+        console.error(`Committing ${from} failed:`, err);
+      } finally {
+        setCommittingPhase(null);
+      }
       if (!saved) {
         setNavNotice(`${getPhase(from).phase} could not be saved. Check your connection, then press Next again.`);
       } else if (options.viaNext) {

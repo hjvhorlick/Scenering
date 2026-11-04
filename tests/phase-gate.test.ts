@@ -122,7 +122,7 @@ h.ok(app.includes("const goToPhase = async"), "one navigation entry point");
 h.ok(/const navigateToPhase = \(phase: ProjectPhase\) => \{\s+void goToPhaseRef\.current\(phase\);/.test(app), "tabs and Previous go through it");
 h.ok(/const commitAndAdvance = useCallback\(async \(target: ProjectPhase\) => \{\s+await goToPhaseRef\.current\(target, \{ viaNext: true \}\);/.test(app), "Next goes through it");
 h.ok(app.includes("void goToPhaseRef.current(target, { viaNext: phaseIndex(target) > phaseIndex(currentPhase) })"), "sections' own steps go through it");
-h.ok(/if \(currentProject && from !== target\) \{[\s\S]*?const saved = await commitPhaseEffects\(from\);/.test(app), "leaving a section by any route commits it");
+h.ok(/if \(currentProject && from !== target\) \{[\s\S]*?saved = await commitPhaseEffects\(from\);/.test(app), "leaving a section by any route commits it");
 h.ok(app.includes('handleUpdateScript(pendingScript, "if-changed", sceneDuration, singleScene)'), "leaving Setup applies a script edited there, only if it changed");
 h.ok(app.includes('const rows = phase === "setup" ? [] : sceneRowsForCommit(scenes);'), "leaving Setup never writes back the scene list from before a rebuild");
 h.ok(/commitPhaseEffects/.test(app) && /scenes"\)\.upsert/.test(app), "committing writes the scene rows in one batch");
