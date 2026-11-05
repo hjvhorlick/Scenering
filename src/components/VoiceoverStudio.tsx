@@ -619,6 +619,7 @@ export default function VoiceoverStudio({
     // scene's synthesis while every other scene in the batch is fine. Without
     // the retry, one failing scene used to leave the whole batch incomplete.
     const MAX_ATTEMPTS = 2;
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
     try {
       for (let i = 0; i < targets.length; i += 1) {
         const target = targets[i];
@@ -628,6 +629,11 @@ export default function VoiceoverStudio({
         while (!audioUrl && attempts < MAX_ATTEMPTS) {
           attempts += 1;
           audioUrl = await generateVoiceoverForScene(target.scene, target.voiceId);
+          // Brief pause between retries lets a stalled model download settle
+          // before the next attempt instead of hammering the worker again.
+          if (!audioUrl && attempts < MAX_ATTEMPTS) {
+            await sleep(2000);
+          }
         }
         if (audioUrl) {
           narrated += 1;
