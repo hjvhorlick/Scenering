@@ -390,11 +390,11 @@ export async function resolveSceneAudioBuffer(
   // user regenerated or imported a replacement.
   const currentUrlCached = scene.audio_url ? urlAudioCache.get(scene.audio_url) : undefined;
   const exactCached = memoryAudioCache.get(key);
-  const candidate = currentUrlCached || (
-    exactCached && (!scene.audio_url || exactCached.blobUrl === scene.audio_url)
-      ? exactCached
-      : undefined
-  );
+  // Fall back to the scene-id index: if the voice_id on the scene hasn't been
+  // committed yet (onUpdateScene is fire-and-forget from the caller) the exact
+  // key lookup can miss even though the audio is cached under this scene's id.
+  const sceneIdCached = sceneIdAudioCache.get(scene.id);
+  const candidate = currentUrlCached || exactCached || sceneIdCached;
   // A file made for a narrator or a script this scene no longer has is not
   // this scene's narration, whatever pointer led here. Drop it from the
   // in-memory indexes so it cannot be found again, and resolve nothing —

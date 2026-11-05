@@ -569,7 +569,12 @@ export default function VoiceoverStudio({
       const BREATH = 0.35;
       const fitted = Math.max(1, Math.round((spokenDuration + BREATH) * 10) / 10);
 
-      onUpdateScene(scene.id, {
+      // Await the scene update so audio_url and voice_id are committed to
+      // local state before this function returns. Without this, the next scene
+      // in the batch — or navigation away from Voiceover — can read a scene
+      // that still looks like it has no narration, causing the saved audio to
+      // be regenerated instead of replayed.
+      await onUpdateScene(scene.id, {
         audio_url: item.blobUrl,
         audio_name: `${voiceName} Narration`,
         voice_id: voiceToUse,
