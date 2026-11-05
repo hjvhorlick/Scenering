@@ -59,7 +59,7 @@ function getWorker(): Worker {
   return worker;
 }
 
-const PIPER_REQUEST_TIMEOUT_MS = 90_000;
+const PIPER_REQUEST_TIMEOUT_MS = 300_000;
 
 function failAllPending(error: Error, terminateWorker: boolean) {
   if (terminateWorker) {
@@ -86,7 +86,7 @@ async function requestWorker(
     const timeout = setTimeout(() => {
       if (!pending.has(id)) return;
       failAllPending(new Error(
-        "Piper did not finish within 90 seconds. The voice download or browser runtime may be stalled; cancel and retry on a stable connection."
+        "Piper did not finish within 5 minutes. The voice model download or browser runtime may be stalled; cancel and retry on a stable connection."
       ), true);
     }, PIPER_REQUEST_TIMEOUT_MS);
     pending.set(id, { resolve, reject, onProgress, timeout });
