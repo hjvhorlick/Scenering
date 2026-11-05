@@ -329,8 +329,16 @@ h.ok(
   "Next speaks the result before it moves on"
 );
 h.ok(
-  /if \(!saved\) return;/.test(codeOnly(proceed)),
-  "a failed batch is never announced as complete"
+  !/if \(!saved\) return;/.test(codeOnly(proceed)),
+  "a single failing scene no longer blocks moving to the next section"
+);
+h.ok(
+  proceed.includes("onNavigateToStep(targetStep)"),
+  "Next still advances to the next section after the batch, even when some scenes fail"
+);
+h.ok(
+  proceed.includes("Voiceover partly complete") && proceed.includes("Voiceover generation failed"),
+  "the spoken report names scenes that could not be narrated instead of claiming completion"
 );
 h.ok(
   codeOnly(proceed).includes("if (!componentMountedRef.current) return;"),

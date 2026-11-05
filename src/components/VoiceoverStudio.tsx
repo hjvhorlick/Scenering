@@ -584,13 +584,20 @@ export default function VoiceoverStudio({
     }
   };
 
+  interface GenerationBatchResult {
+    ok: boolean;
+    /** Narration scenes (1-based, in project order) that could not be synthesized. */
+    failed: number[];
+    narrated: number;
+  }
+
   const generateRequiredVoiceovers = async (
     targets: VoiceoverGenerationTarget[],
     savedSnapshot: VoiceoverAudioSnapshot,
     batchMusicFingerprint: string
-  ): Promise<boolean> => {
-    if (isGeneratingAll) return false;
-    if (targets.length === 0) return true;
+  ): Promise<GenerationBatchResult> => {
+    if (isGeneratingAll) return { ok: false, failed: [], narrated: 0 };
+    if (targets.length === 0) return { ok: true, failed: [], narrated: 0 };
 
     generationInFlightRef.current = true;
     setIsGeneratingAll(true);
@@ -601,13 +608,24 @@ export default function VoiceoverStudio({
       excludeSceneIds: targetIds,
     });
     const failedScenes: number[] = [];
+    let narrated = 0;
 
+    // One retry per scene: a model download or worker hiccup can fail a single
+    // scene's synthesis while every other scene in the batch is fine. Without
+    // the retry, one failing scene used to leave the whole batch incomplete.
+    const MAX_ATTEMPTS = 2;
     try {
       for (let i = 0; i < targets.length; i += 1) {
         const target = targets[i];
         setGenerationProgress({ current: i + 1, total: targets.length });
-        const audioUrl = await generateVoiceoverForScene(target.scene, target.voiceId);
+        let audioUrl: string | null = null;
+        let attempts = 0;
+        while (!audioUrl && attempts < MAX_ATTEMPTS) {
+          attempts += 1;
+          audioUrl = await generateVoiceoverForScene(target.scene, target.voiceId);
+        }
         if (audioUrl) {
+          narrated += 1;
           nextSnapshot = recordGeneratedVoiceover(nextSnapshot, target.scene, target.voiceId, batchMusicFingerprint);
         } else {
           failedScenes.push((target.scene.order_index ?? i) + 1);
@@ -624,16 +642,18 @@ export default function VoiceoverStudio({
       const shown = failedScenes.slice(0, 5).join(", ");
       const more = failedScenes.length > 5 ? ` and ${failedScenes.length - 5} more` : "";
       announce(`Piper could not generate scene${failedScenes.length === 1 ? "" : "s"} ${shown}${more}. Check the model download message and retry.`);
-      return false;
+      return { ok: false, failed: failedScenes, narrated };
     }
-    return true;
+    return { ok: true, failed: [], narrated };
   };
 
   const handleProceedNext = async (targetStep: string = "captions") => {
     void requestPiperStoragePersistence(true);
-    /** How many scenes this press actually narrated, for the spoken report. */
-    let narrated = 0;
     if (voiceoverEnabled) {
+      /** How many scenes this press actually narrated, for the spoken report. */
+      let narrated = 0;
+      /** The outcome of the batch, when one was run. */
+      let result: GenerationBatchResult | null = null;
       /* The same record the badges on screen were drawn from.
        *
        * This used to call readAudioSnapshot() again here, at click time, while
@@ -671,24 +691,35 @@ export default function VoiceoverStudio({
             hasAudioUrl: Boolean(scene.audio_url),
           }))
         );
-        const saved = await generateRequiredVoiceovers(targets, savedSnapshot, musicFingerprint);
-        // A failure has already been announced scene by scene; saying
-        // "complete" over the top of it would be the worse mistake.
-        if (!saved) return;
-        narrated = targets.length;
+        result = await generateRequiredVoiceovers(targets, savedSnapshot, musicFingerprint);
+        narrated = result.narrated;
+        // A failed scene is announced scene by scene above, but it must not
+        // trap the project on this step: the scenes that synthesized are saved,
+        // and the scenes that failed stay retryable one at a time from the
+        // review list or from the next press of Next. Move on either way.
       } else {
         saveAudioSnapshot(recordCurrentVoiceoverAudio(savedSnapshot, scenes, snapshotOptions));
       }
-    }
-    // If the creator left this step during a still-running batch, leave them
-    // where they went after the background synthesis has saved its results.
-    if (!componentMountedRef.current) return;
-    if (voiceoverEnabled) {
-      speakCompletion(
-        narrated > 0
-          ? `Voiceover complete. ${narrated} scene${narrated === 1 ? "" : "s"} narrated and saved.`
-          : "Voiceover is already complete. Nothing needed generating."
-      );
+
+      // If the creator left this step during a still-running batch, leave them
+      // where they went after the background synthesis has saved its results.
+      if (!componentMountedRef.current) return;
+
+      if (result === null) {
+        speakCompletion("Voiceover is already complete. Nothing needed generating.");
+      } else if (result.failed.length === 0) {
+        speakCompletion(
+          `Voiceover complete. ${narrated} scene${narrated === 1 ? "" : "s"} narrated and saved.`
+        );
+      } else if (narrated > 0) {
+        speakCompletion(
+          `Voiceover partly complete. ${narrated} scene${narrated === 1 ? "" : "s"} narrated. ${result.failed.length} scene${result.failed.length === 1 ? "" : "s"} could not be narrated. Retry them from the scene list.`
+        );
+      } else {
+        speakCompletion(
+          `Voiceover generation failed. None of the ${targets.length} scene(s) could be narrated.`
+        );
+      }
     }
     if (onNavigateToStep) onNavigateToStep(targetStep);
   };
